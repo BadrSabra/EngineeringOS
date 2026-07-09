@@ -230,6 +230,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
   const [report, setReport] = useState<DiscoveryReport | null>(null);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [importError, setImportError] = useState<string | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const startDiscovery = useStartDiscovery();
@@ -273,6 +274,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
   const handleStart = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!rootPath.trim()) return;
+    setStartError(null);
     try {
       const result = await startDiscovery.mutateAsync({
         data: { rootPath: rootPath.trim(), source },
@@ -281,8 +283,18 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       setDiscoveryId(s.id);
       setSession(s);
       setStep(2);
-    } catch (err) {
-      // error shown by startDiscovery.isError
+    } catch (err: unknown) {
+      // Extract a meaningful message from the API error response
+      let msg = 'Failed to start discovery. Check the path and try again.';
+      if (err && typeof err === 'object') {
+        const e = err as Record<string, unknown>;
+        // Axios-style response body
+        const resp = e['response'] as Record<string, unknown> | undefined;
+        const data = resp?.['data'] as Record<string, unknown> | undefined;
+        if (typeof data?.['error'] === 'string') msg = data['error'] as string;
+        else if (typeof e['message'] === 'string' && e['message']) msg = e['message'] as string;
+      }
+      setStartError(msg);
     }
   };
 
@@ -353,10 +365,10 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         </p>
       </div>
 
-      {startDiscovery.isError && (
-        <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          Failed to start discovery. Check the path and try again.
+      {startError && (
+        <div className="flex items-start gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{startError}</span>
         </div>
       )}
 
