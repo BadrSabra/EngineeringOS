@@ -412,6 +412,123 @@ export interface Plugin {
   supportedLanguages?: string[];
 }
 
+export type StartDiscoveryInputSource = typeof StartDiscoveryInputSource[keyof typeof StartDiscoveryInputSource];
+
+
+export const StartDiscoveryInputSource = {
+  local: 'local',
+  workspace: 'workspace',
+} as const;
+
+export interface StartDiscoveryInput {
+  rootPath: string;
+  source: StartDiscoveryInputSource;
+}
+
+export type ImportProjectInputOverrides = {
+  name?: string;
+  language?: string;
+  framework?: string;
+  description?: string;
+};
+
+export interface ImportProjectInput {
+  discoveryId: string;
+  overrides?: ImportProjectInputOverrides;
+}
+
+export type DiscoveryStepItemStatus = typeof DiscoveryStepItemStatus[keyof typeof DiscoveryStepItemStatus];
+
+
+export const DiscoveryStepItemStatus = {
+  pending: 'pending',
+  running: 'running',
+  done: 'done',
+  error: 'error',
+} as const;
+
+export interface DiscoveryStepItem {
+  name: string;
+  status: DiscoveryStepItemStatus;
+  /** @nullable */
+  durationMs?: number | null;
+}
+
+export type DiscoverySessionStatusStatus = typeof DiscoverySessionStatusStatus[keyof typeof DiscoverySessionStatusStatus];
+
+
+export const DiscoverySessionStatusStatus = {
+  discovering: 'discovering',
+  ready: 'ready',
+  imported: 'imported',
+  error: 'error',
+} as const;
+
+export interface DiscoverySessionStatus {
+  id: string;
+  status: DiscoverySessionStatusStatus;
+  progress: number;
+  /** @nullable */
+  currentStep?: string | null;
+  steps: DiscoveryStepItem[];
+  startedAt: string;
+  /** @nullable */
+  completedAt?: string | null;
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  importedProjectId?: string | null;
+}
+
+export interface DiscoveryRuleViolationItem {
+  code: string;
+  title: string;
+  severity: string;
+  count: number;
+}
+
+export interface DiscoveryGraphSummaryData {
+  entityCount: number;
+  relationshipCount: number;
+}
+
+export interface DiscoveryReport {
+  id: string;
+  detectedName: string;
+  detectedLanguage: string;
+  detectedLanguages: string[];
+  /** @nullable */
+  detectedFramework?: string | null;
+  /** @nullable */
+  detectedRuntime?: string | null;
+  /** @nullable */
+  detectedPackageManager?: string | null;
+  /** @nullable */
+  detectedArchitecture?: string | null;
+  /** @nullable */
+  detectedDb?: string | null;
+  /** @nullable */
+  detectedOrm?: string | null;
+  /** @nullable */
+  detectedTestFramework?: string | null;
+  /** @nullable */
+  detectedBuildTool?: string | null;
+  /** @nullable */
+  detectedCi?: string | null;
+  isMonorepo: boolean;
+  hasDocker: boolean;
+  hasOpenApi: boolean;
+  packageCount: number;
+  moduleCount: number;
+  repoSizeBytes: number;
+  detectedApis: string[];
+  detectedRisks: string[];
+  qualityScore: number;
+  confidenceScore: number;
+  graphSummary: DiscoveryGraphSummaryData;
+  ruleViolations: DiscoveryRuleViolationItem[];
+}
+
 export type DashboardOverviewProjectScoresItemTrend = typeof DashboardOverviewProjectScoresItemTrend[keyof typeof DashboardOverviewProjectScoresItemTrend];
 
 

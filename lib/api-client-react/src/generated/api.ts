@@ -25,12 +25,15 @@ import type {
   CreateTaskInput,
   CreateWorkflowInput,
   DashboardOverview,
+  DiscoveryReport,
+  DiscoverySessionStatus,
   EvaluateRuleRequest,
   Event,
   GetLatestMetricsParams,
   GraphEntity,
   GraphRelationship,
   HealthStatus,
+  ImportProjectInput,
   ListEventsParams,
   ListGraphEntitiesParams,
   ListGraphRelationshipsParams,
@@ -46,6 +49,7 @@ import type {
   Rule,
   RuleEvaluationResult,
   ScanResult,
+  StartDiscoveryInput,
   Task,
   TaskLog,
   UpdateProjectInput,
@@ -2948,6 +2952,302 @@ export const useDisablePlugin = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDisablePluginMutationOptions(options));
+    }
+
+export const getStartDiscoveryUrl = () => {
+
+
+
+
+  return `/api/api/projects/discover`
+}
+
+/**
+ * @summary Start autonomous project discovery
+ */
+export const startDiscovery = async (startDiscoveryInput: StartDiscoveryInput, options?: RequestInit): Promise<DiscoverySessionStatus> => {
+
+  return customFetch<DiscoverySessionStatus>(getStartDiscoveryUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(startDiscoveryInput)
+  }
+);}
+
+
+
+
+
+export const getStartDiscoveryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startDiscovery>>, TError,{data: BodyType<StartDiscoveryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startDiscovery>>, TError,{data: BodyType<StartDiscoveryInput>}, TContext> => {
+
+const mutationKey = ['startDiscovery'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startDiscovery>>, {data: BodyType<StartDiscoveryInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  startDiscovery(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartDiscoveryMutationResult = NonNullable<Awaited<ReturnType<typeof startDiscovery>>>
+    export type StartDiscoveryMutationBody = BodyType<StartDiscoveryInput>
+    export type StartDiscoveryMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Start autonomous project discovery
+ */
+export const useStartDiscovery = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startDiscovery>>, TError,{data: BodyType<StartDiscoveryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startDiscovery>>,
+        TError,
+        {data: BodyType<StartDiscoveryInput>},
+        TContext
+      > => {
+      return useMutation(getStartDiscoveryMutationOptions(options));
+    }
+
+export const getGetDiscoverySessionUrl = (discoveryId: string,) => {
+
+
+
+
+  return `/api/api/projects/discover/${discoveryId}`
+}
+
+/**
+ * @summary Get discovery session status and progress
+ */
+export const getDiscoverySession = async (discoveryId: string, options?: RequestInit): Promise<DiscoverySessionStatus> => {
+
+  return customFetch<DiscoverySessionStatus>(getGetDiscoverySessionUrl(discoveryId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetDiscoverySessionQueryKey = (discoveryId: string,) => {
+    return [
+    `/api/api/projects/discover/${discoveryId}`
+    ] as const;
+    }
+
+
+export const getGetDiscoverySessionQueryOptions = <TData = Awaited<ReturnType<typeof getDiscoverySession>>, TError = ErrorType<void>>(discoveryId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDiscoverySession>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDiscoverySessionQueryKey(discoveryId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDiscoverySession>>> = ({ signal }) => getDiscoverySession(discoveryId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: discoveryId !== null && discoveryId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDiscoverySession>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetDiscoverySessionQueryResult = NonNullable<Awaited<ReturnType<typeof getDiscoverySession>>>
+export type GetDiscoverySessionQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get discovery session status and progress
+ */
+
+export function useGetDiscoverySession<TData = Awaited<ReturnType<typeof getDiscoverySession>>, TError = ErrorType<void>>(
+ discoveryId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDiscoverySession>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetDiscoverySessionQueryOptions(discoveryId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetDiscoverySummaryUrl = (discoveryId: string,) => {
+
+
+
+
+  return `/api/api/projects/discover/${discoveryId}/summary`
+}
+
+/**
+ * @summary Get full discovery report (only when status=ready)
+ */
+export const getDiscoverySummary = async (discoveryId: string, options?: RequestInit): Promise<DiscoveryReport> => {
+
+  return customFetch<DiscoveryReport>(getGetDiscoverySummaryUrl(discoveryId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetDiscoverySummaryQueryKey = (discoveryId: string,) => {
+    return [
+    `/api/api/projects/discover/${discoveryId}/summary`
+    ] as const;
+    }
+
+
+export const getGetDiscoverySummaryQueryOptions = <TData = Awaited<ReturnType<typeof getDiscoverySummary>>, TError = ErrorType<void>>(discoveryId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDiscoverySummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDiscoverySummaryQueryKey(discoveryId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDiscoverySummary>>> = ({ signal }) => getDiscoverySummary(discoveryId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: discoveryId !== null && discoveryId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDiscoverySummary>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetDiscoverySummaryQueryResult = NonNullable<Awaited<ReturnType<typeof getDiscoverySummary>>>
+export type GetDiscoverySummaryQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get full discovery report (only when status=ready)
+ */
+
+export function useGetDiscoverySummary<TData = Awaited<ReturnType<typeof getDiscoverySummary>>, TError = ErrorType<void>>(
+ discoveryId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDiscoverySummary>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetDiscoverySummaryQueryOptions(discoveryId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getImportProjectUrl = () => {
+
+
+
+
+  return `/api/api/projects/import`
+}
+
+/**
+ * @summary Import a project from a completed discovery session
+ */
+export const importProject = async (importProjectInput: ImportProjectInput, options?: RequestInit): Promise<Project> => {
+
+  return customFetch<Project>(getImportProjectUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(importProjectInput)
+  }
+);}
+
+
+
+
+
+export const getImportProjectMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importProject>>, TError,{data: BodyType<ImportProjectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof importProject>>, TError,{data: BodyType<ImportProjectInput>}, TContext> => {
+
+const mutationKey = ['importProject'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof importProject>>, {data: BodyType<ImportProjectInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  importProject(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ImportProjectMutationResult = NonNullable<Awaited<ReturnType<typeof importProject>>>
+    export type ImportProjectMutationBody = BodyType<ImportProjectInput>
+    export type ImportProjectMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Import a project from a completed discovery session
+ */
+export const useImportProject = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof importProject>>, TError,{data: BodyType<ImportProjectInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof importProject>>,
+        TError,
+        {data: BodyType<ImportProjectInput>},
+        TContext
+      > => {
+      return useMutation(getImportProjectMutationOptions(options));
     }
 
 export const getGetDashboardUrl = () => {

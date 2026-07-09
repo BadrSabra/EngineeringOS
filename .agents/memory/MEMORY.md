@@ -1,0 +1,1 @@
+- [Autonomous Project Discovery](discovery-feature.md) — correctness rules for discovery/import: rootPath hard-fail, atomic claim, transactional import.

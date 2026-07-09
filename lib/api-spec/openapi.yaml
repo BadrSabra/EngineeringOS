@@ -771,6 +771,89 @@ paths:
               schema:
                 $ref: "#/components/schemas/Plugin"
 
+  # ─── Discovery ───────────────────────────────────────────────────────────────
+  /api/projects/discover:
+    post:
+      operationId: startDiscovery
+      summary: Start autonomous project discovery
+      tags: [Discovery]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartDiscoveryInput"
+      responses:
+        "202":
+          description: Discovery session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoverySessionStatus"
+
+  /api/projects/discover/{discoveryId}:
+    get:
+      operationId: getDiscoverySession
+      summary: Get discovery session status and progress
+      tags: [Discovery]
+      parameters:
+        - name: discoveryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Discovery session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoverySessionStatus"
+        "404":
+          description: Session not found
+
+  /api/projects/discover/{discoveryId}/summary:
+    get:
+      operationId: getDiscoverySummary
+      summary: Get full discovery report (only when status=ready)
+      tags: [Discovery]
+      parameters:
+        - name: discoveryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full discovery report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryReport"
+        "404":
+          description: Session not found
+        "409":
+          description: Discovery not yet complete
+
+  /api/projects/import:
+    post:
+      operationId: importProject
+      summary: Import a project from a completed discovery session
+      tags: [Discovery]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportProjectInput"
+      responses:
+        "201":
+          description: Imported project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
   # ─── Dashboard aggregate ─────────────────────────────────────────────────────
   /api/dashboard:
     get:
@@ -1377,6 +1460,176 @@ components:
           type: array
           items:
             type: string
+
+    # ─── Discovery ─────────────────────────────────────────────────────────────
+    StartDiscoveryInput:
+      type: object
+      required: [rootPath, source]
+      properties:
+        rootPath:
+          type: string
+        source:
+          type: string
+          enum: [local, workspace]
+
+    ImportProjectInput:
+      type: object
+      required: [discoveryId]
+      properties:
+        discoveryId:
+          type: string
+        overrides:
+          type: object
+          properties:
+            name:
+              type: string
+            language:
+              type: string
+            framework:
+              type: string
+            description:
+              type: string
+
+    DiscoveryStepItem:
+      type: object
+      required: [name, status]
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, done, error]
+        durationMs:
+          type: ["integer", "null"]
+
+    DiscoverySessionStatus:
+      type: object
+      required: [id, status, progress, steps, startedAt]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [discovering, ready, imported, error]
+        progress:
+          type: integer
+        currentStep:
+          type: ["string", "null"]
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoveryStepItem"
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: ["string", "null"]
+          format: date-time
+        error:
+          type: ["string", "null"]
+        importedProjectId:
+          type: ["string", "null"]
+
+    DiscoveryRuleViolationItem:
+      type: object
+      required: [code, title, severity, count]
+      properties:
+        code:
+          type: string
+        title:
+          type: string
+        severity:
+          type: string
+        count:
+          type: integer
+
+    DiscoveryGraphSummaryData:
+      type: object
+      required: [entityCount, relationshipCount]
+      properties:
+        entityCount:
+          type: integer
+        relationshipCount:
+          type: integer
+
+    DiscoveryReport:
+      type: object
+      required:
+        - id
+        - detectedName
+        - detectedLanguage
+        - detectedLanguages
+        - isMonorepo
+        - hasDocker
+        - hasOpenApi
+        - packageCount
+        - moduleCount
+        - repoSizeBytes
+        - detectedApis
+        - detectedRisks
+        - qualityScore
+        - confidenceScore
+        - graphSummary
+        - ruleViolations
+      properties:
+        id:
+          type: string
+        detectedName:
+          type: string
+        detectedLanguage:
+          type: string
+        detectedLanguages:
+          type: array
+          items:
+            type: string
+        detectedFramework:
+          type: ["string", "null"]
+        detectedRuntime:
+          type: ["string", "null"]
+        detectedPackageManager:
+          type: ["string", "null"]
+        detectedArchitecture:
+          type: ["string", "null"]
+        detectedDb:
+          type: ["string", "null"]
+        detectedOrm:
+          type: ["string", "null"]
+        detectedTestFramework:
+          type: ["string", "null"]
+        detectedBuildTool:
+          type: ["string", "null"]
+        detectedCi:
+          type: ["string", "null"]
+        isMonorepo:
+          type: boolean
+        hasDocker:
+          type: boolean
+        hasOpenApi:
+          type: boolean
+        packageCount:
+          type: integer
+        moduleCount:
+          type: integer
+        repoSizeBytes:
+          type: integer
+        detectedApis:
+          type: array
+          items:
+            type: string
+        detectedRisks:
+          type: array
+          items:
+            type: string
+        qualityScore:
+          type: number
+        confidenceScore:
+          type: number
+        graphSummary:
+          $ref: "#/components/schemas/DiscoveryGraphSummaryData"
+        ruleViolations:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoveryRuleViolationItem"
 
     # ─── Dashboard ─────────────────────────────────────────────────────────────
     DashboardOverview:

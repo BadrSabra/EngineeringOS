@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useListMetrics, useListProjects } from '@workspace/api-client-react';
+import { useListMetrics, useListProjects, getListMetricsQueryKey } from '@workspace/api-client-react';
 import {
   LineChart,
   Line,
@@ -22,7 +22,7 @@ export default function Metrics() {
 
   const { data: metrics, isLoading } = useListMetrics(
     { projectId: effectiveProjectId },
-    { query: { enabled: !!effectiveProjectId, staleTime: 30_000 } },
+    { query: { queryKey: getListMetricsQueryKey({ projectId: effectiveProjectId }), enabled: !!effectiveProjectId, staleTime: 30_000 } },
   );
 
   const formatData =

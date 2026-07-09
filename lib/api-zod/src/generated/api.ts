@@ -983,6 +983,127 @@ export const DisablePluginResponse = zod.object({
 
 
 /**
+ * @summary Start autonomous project discovery
+ */
+export const StartDiscoveryBody = zod.object({
+  "rootPath": zod.string(),
+  "source": zod.enum(['local', 'workspace'])
+})
+
+export const StartDiscoveryResponse = zod.object({
+  "id": zod.string(),
+  "status": zod.enum(['discovering', 'ready', 'imported', 'error']),
+  "progress": zod.number(),
+  "currentStep": zod.string().nullish(),
+  "steps": zod.array(zod.object({
+  "name": zod.string(),
+  "status": zod.enum(['pending', 'running', 'done', 'error']),
+  "durationMs": zod.number().nullish()
+})),
+  "startedAt": zod.coerce.date(),
+  "completedAt": zod.coerce.date().nullish(),
+  "error": zod.string().nullish(),
+  "importedProjectId": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get discovery session status and progress
+ */
+export const GetDiscoverySessionParams = zod.object({
+  "discoveryId": zod.coerce.string()
+})
+
+export const GetDiscoverySessionResponse = zod.object({
+  "id": zod.string(),
+  "status": zod.enum(['discovering', 'ready', 'imported', 'error']),
+  "progress": zod.number(),
+  "currentStep": zod.string().nullish(),
+  "steps": zod.array(zod.object({
+  "name": zod.string(),
+  "status": zod.enum(['pending', 'running', 'done', 'error']),
+  "durationMs": zod.number().nullish()
+})),
+  "startedAt": zod.coerce.date(),
+  "completedAt": zod.coerce.date().nullish(),
+  "error": zod.string().nullish(),
+  "importedProjectId": zod.string().nullish()
+})
+
+
+/**
+ * @summary Get full discovery report (only when status=ready)
+ */
+export const GetDiscoverySummaryParams = zod.object({
+  "discoveryId": zod.coerce.string()
+})
+
+export const GetDiscoverySummaryResponse = zod.object({
+  "id": zod.string(),
+  "detectedName": zod.string(),
+  "detectedLanguage": zod.string(),
+  "detectedLanguages": zod.array(zod.string()),
+  "detectedFramework": zod.string().nullish(),
+  "detectedRuntime": zod.string().nullish(),
+  "detectedPackageManager": zod.string().nullish(),
+  "detectedArchitecture": zod.string().nullish(),
+  "detectedDb": zod.string().nullish(),
+  "detectedOrm": zod.string().nullish(),
+  "detectedTestFramework": zod.string().nullish(),
+  "detectedBuildTool": zod.string().nullish(),
+  "detectedCi": zod.string().nullish(),
+  "isMonorepo": zod.boolean(),
+  "hasDocker": zod.boolean(),
+  "hasOpenApi": zod.boolean(),
+  "packageCount": zod.number(),
+  "moduleCount": zod.number(),
+  "repoSizeBytes": zod.number(),
+  "detectedApis": zod.array(zod.string()),
+  "detectedRisks": zod.array(zod.string()),
+  "qualityScore": zod.number(),
+  "confidenceScore": zod.number(),
+  "graphSummary": zod.object({
+  "entityCount": zod.number(),
+  "relationshipCount": zod.number()
+}),
+  "ruleViolations": zod.array(zod.object({
+  "code": zod.string(),
+  "title": zod.string(),
+  "severity": zod.string(),
+  "count": zod.number()
+}))
+})
+
+
+/**
+ * @summary Import a project from a completed discovery session
+ */
+export const ImportProjectBody = zod.object({
+  "discoveryId": zod.string(),
+  "overrides": zod.object({
+  "name": zod.string().optional(),
+  "language": zod.string().optional(),
+  "framework": zod.string().optional(),
+  "description": zod.string().optional()
+}).optional()
+})
+
+export const ImportProjectResponse = zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "description": zod.string().optional(),
+  "rootPath": zod.string(),
+  "language": zod.string(),
+  "framework": zod.string().optional(),
+  "status": zod.enum(['active', 'scanning', 'paused', 'archived']),
+  "qualityScore": zod.number().optional(),
+  "lastScanAt": zod.coerce.date().optional(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Aggregated dashboard data (projects, active tasks, recent events, scores)
  */
 export const GetDashboardResponse = zod.object({

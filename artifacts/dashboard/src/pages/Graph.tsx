@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   useListGraphEntities,
   useListProjects,
+  getListGraphEntitiesQueryKey,
 } from '@workspace/api-client-react';
 import { Network, Search, Layers, Database } from 'lucide-react';
 import {
@@ -23,7 +24,7 @@ export default function Graph() {
 
   const { data: entities, isLoading: entitiesLoading } = useListGraphEntities(
     { projectId: effectiveProjectId },
-    { query: { enabled: !!effectiveProjectId, staleTime: 30_000 } },
+    { query: { queryKey: getListGraphEntitiesQueryKey({ projectId: effectiveProjectId }), enabled: !!effectiveProjectId, staleTime: 30_000 } },
   );
 
   const scatterData =

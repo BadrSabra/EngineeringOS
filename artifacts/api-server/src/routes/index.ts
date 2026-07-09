@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health.js";
+import discoveryRouter from "./discovery.js";
 import projectsRouter from "./projects.js";
 import tasksRouter from "./tasks.js";
 import rulesRouter from "./rules.js";
@@ -13,6 +14,9 @@ import dashboardRouter from "./dashboard.js";
 const router: IRouter = Router();
 
 router.use(healthRouter);
+// Discovery must come before projectsRouter so /projects/discover/:id
+// is matched before /projects/:projectId
+router.use(discoveryRouter);
 router.use(projectsRouter);
 router.use(tasksRouter);
 router.use(rulesRouter);
