@@ -1,36 +1,1430 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
-  title: Api
-  version: 0.1.0
-  description: API specification
-servers:
-  - url: /api
-    description: Base API path
-tags:
-  - name: health
-    description: Health operations
+  title: api
+  version: 1.0.0
+  description: EngineeringOS - Autonomous AI Engineering Platform API
+
 paths:
-  /healthz:
+  /api/healthz:
     get:
-      operationId: healthCheck
-      tags: [health]
+      operationId: getHealth
       summary: Health check
-      description: Returns server health status
+      tags: [Health]
       responses:
         "200":
-          description: Healthy
+          description: OK
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ─── Projects ────────────────────────────────────────────────────────────────
+  /api/projects:
+    get:
+      operationId: listProjects
+      summary: List all projects
+      tags: [Projects]
+      responses:
+        "200":
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      operationId: createProject
+      summary: Register a new project
+      tags: [Projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectInput"
+      responses:
+        "201":
+          description: Created project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  /api/projects/{projectId}:
+    get:
+      operationId: getProject
+      summary: Get a project by ID
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+    patch:
+      operationId: updateProject
+      summary: Update project config
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProjectInput"
+      responses:
+        "200":
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+    delete:
+      operationId: deleteProject
+      summary: Delete a project
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /api/projects/{projectId}/scan:
+    post:
+      operationId: scanProject
+      summary: Trigger a project scan
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Scan initiated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanResult"
+
+  /api/projects/{projectId}/summary:
+    get:
+      operationId: getProjectSummary
+      summary: Get project quality summary (scores, task counts, recent events)
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectSummary"
+
+  # ─── Tasks ───────────────────────────────────────────────────────────────────
+  /api/tasks:
+    get:
+      operationId: listTasks
+      summary: List tasks with optional filters
+      tags: [Tasks]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/TaskStatus"
+        - name: priority
+          in: query
+          schema:
+            $ref: "#/components/schemas/TaskPriority"
+      responses:
+        "200":
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+    post:
+      operationId: createTask
+      summary: Create a new task
+      tags: [Tasks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskInput"
+      responses:
+        "201":
+          description: Created task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /api/tasks/{taskId}:
+    get:
+      operationId: getTask
+      summary: Get task by ID
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+    patch:
+      operationId: updateTask
+      summary: Update task status or fields
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskInput"
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+    delete:
+      operationId: deleteTask
+      summary: Delete a task
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /api/tasks/{taskId}/execute:
+    post:
+      operationId: executeTask
+      summary: Execute a task through the AI pipeline
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Task execution started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /api/tasks/{taskId}/retry:
+    post:
+      operationId: retryTask
+      summary: Retry a failed task
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Task queued for retry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /api/tasks/{taskId}/rollback:
+    post:
+      operationId: rollbackTask
+      summary: Roll back a task's changes
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task rolled back
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /api/tasks/{taskId}/logs:
+    get:
+      operationId: getTaskLogs
+      summary: Get execution logs for a task
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskLog"
+
+  # ─── Rules ───────────────────────────────────────────────────────────────────
+  /api/rules:
+    get:
+      operationId: listRules
+      summary: List all rules
+      tags: [Rules]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: severity
+          in: query
+          schema:
+            $ref: "#/components/schemas/RuleSeverity"
+      responses:
+        "200":
+          description: List of rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Rule"
+    post:
+      operationId: createRule
+      summary: Create a new rule
+      tags: [Rules]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRuleInput"
+      responses:
+        "201":
+          description: Created rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rule"
+
+  /api/rules/{ruleId}:
+    get:
+      operationId: getRule
+      summary: Get rule by ID
+      tags: [Rules]
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rule"
+    patch:
+      operationId: updateRule
+      summary: Update a rule
+      tags: [Rules]
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRuleInput"
+      responses:
+        "200":
+          description: Updated rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rule"
+    delete:
+      operationId: deleteRule
+      summary: Delete a rule
+      tags: [Rules]
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /api/rules/{ruleId}/evaluate:
+    post:
+      operationId: evaluateRule
+      summary: Run rule evaluation against a project
+      tags: [Rules]
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvaluateRuleRequest"
+      responses:
+        "200":
+          description: Rule evaluation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuleEvaluationResult"
+
+  # ─── Workflows ────────────────────────────────────────────────────────────────
+  /api/workflows:
+    get:
+      operationId: listWorkflows
+      summary: List workflow definitions
+      tags: [Workflows]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of workflows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Workflow"
+    post:
+      operationId: createWorkflow
+      summary: Create a workflow definition
+      tags: [Workflows]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkflowInput"
+      responses:
+        "201":
+          description: Created workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+
+  /api/workflows/{workflowId}:
+    get:
+      operationId: getWorkflow
+      summary: Get workflow by ID
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+    delete:
+      operationId: deleteWorkflow
+      summary: Delete a workflow
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /api/workflows/{workflowId}/start:
+    post:
+      operationId: startWorkflow
+      summary: Start a workflow execution
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Workflow started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecution"
+
+  /api/workflows/{workflowId}/stop:
+    post:
+      operationId: stopWorkflow
+      summary: Stop an active workflow execution
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecution"
+
+  /api/workflows/{workflowId}/executions:
+    get:
+      operationId: listWorkflowExecutions
+      summary: List past executions of a workflow
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow executions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkflowExecution"
+
+  # ─── Events ──────────────────────────────────────────────────────────────────
+  /api/events:
+    get:
+      operationId: listEvents
+      summary: List system events
+      tags: [Events]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Event"
+
+  # ─── Metrics ─────────────────────────────────────────────────────────────────
+  /api/metrics:
+    get:
+      operationId: listMetrics
+      summary: Get time-series quality metrics
+      tags: [Metrics]
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Metrics time series
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MetricRecord"
+
+  /api/metrics/latest:
+    get:
+      operationId: getLatestMetrics
+      summary: Get the latest metric record per project
+      tags: [Metrics]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Latest metrics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MetricRecord"
+
+  # ─── Knowledge Graph ─────────────────────────────────────────────────────────
+  /api/graph/entities:
+    get:
+      operationId: listGraphEntities
+      summary: List knowledge graph entities
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            $ref: "#/components/schemas/EntityType"
+      responses:
+        "200":
+          description: List of entities
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GraphEntity"
+
+  /api/graph/relationships:
+    get:
+      operationId: listGraphRelationships
+      summary: List knowledge graph relationships
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: sourceId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of relationships
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GraphRelationship"
+
+  # ─── Plugins ─────────────────────────────────────────────────────────────────
+  /api/plugins:
+    get:
+      operationId: listPlugins
+      summary: List all registered plugins
+      tags: [Plugins]
+      responses:
+        "200":
+          description: List of plugins
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plugin"
+
+  /api/plugins/{pluginId}/enable:
+    post:
+      operationId: enablePlugin
+      summary: Enable a plugin for a project
+      tags: [Plugins]
+      parameters:
+        - name: pluginId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PluginProjectRequest"
+      responses:
+        "200":
+          description: Plugin enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plugin"
+
+  /api/plugins/{pluginId}/disable:
+    post:
+      operationId: disablePlugin
+      summary: Disable a plugin for a project
+      tags: [Plugins]
+      parameters:
+        - name: pluginId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PluginProjectRequest"
+      responses:
+        "200":
+          description: Plugin disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plugin"
+
+  # ─── Dashboard aggregate ─────────────────────────────────────────────────────
+  /api/dashboard:
+    get:
+      operationId: getDashboard
+      summary: Aggregated dashboard data (projects, active tasks, recent events, scores)
+      tags: [Dashboard]
+      responses:
+        "200":
+          description: Dashboard overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardOverview"
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
+          enum: [ok]
 
+    # ─── Enums ─────────────────────────────────────────────────────────────────
+    TaskStatus:
+      type: string
+      enum: [pending, queued, running, verifying, completed, failed, cancelled]
+
+    TaskPriority:
+      type: string
+      enum: [p0, p1, p2, p3]
+
+    RuleSeverity:
+      type: string
+      enum: [critical, high, medium, low, info]
+
+    WorkflowStatus:
+      type: string
+      enum: [idle, running, completed, failed, stopped]
+
+    EntityType:
+      type: string
+      enum: [file, function, class, api, task, rule, phase, module]
+
+    # ─── Project ───────────────────────────────────────────────────────────────
+    Project:
+      type: object
+      required: [id, name, rootPath, language, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        rootPath:
+          type: string
+        language:
+          type: string
+        framework:
+          type: string
+        status:
+          type: string
+          enum: [active, scanning, paused, archived]
+        qualityScore:
+          type: number
+        lastScanAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateProjectInput:
+      type: object
+      required: [name, rootPath, language]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        rootPath:
+          type: string
+        language:
+          type: string
+        framework:
+          type: string
+
+    UpdateProjectInput:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [active, scanning, paused, archived]
+
+    ScanResult:
+      type: object
+      required: [projectId, scannedAt, filesFound, issuesDetected, tasksCreated]
+      properties:
+        projectId:
+          type: string
+        scannedAt:
+          type: string
+          format: date-time
+        filesFound:
+          type: integer
+        issuesDetected:
+          type: integer
+        tasksCreated:
+          type: integer
+        summary:
+          type: string
+
+    ProjectSummary:
+      type: object
+      required: [projectId, qualityScore, taskCounts, recentEvents, latestMetrics]
+      properties:
+        projectId:
+          type: string
+        qualityScore:
+          type: number
+        taskCounts:
+          type: object
+          required: [total, pending, running, completed, failed]
+          properties:
+            total:
+              type: integer
+            pending:
+              type: integer
+            running:
+              type: integer
+            completed:
+              type: integer
+            failed:
+              type: integer
+        recentEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+        latestMetrics:
+          $ref: "#/components/schemas/MetricRecord"
+
+    # ─── Task ──────────────────────────────────────────────────────────────────
+    Task:
+      type: object
+      required: [id, projectId, title, status, priority, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        ruleId:
+          type: string
+        workflowId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        relatedFiles:
+          type: array
+          items:
+            type: string
+        dependsOn:
+          type: array
+          items:
+            type: string
+        retryCount:
+          type: integer
+        maxRetries:
+          type: integer
+        phase:
+          type: string
+        prompt:
+          type: string
+        agentResponse:
+          type: string
+        verificationResult:
+          $ref: "#/components/schemas/VerificationResult"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+
+    CreateTaskInput:
+      type: object
+      required: [projectId, title, priority]
+      properties:
+        projectId:
+          type: string
+        ruleId:
+          type: string
+        workflowId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        relatedFiles:
+          type: array
+          items:
+            type: string
+        dependsOn:
+          type: array
+          items:
+            type: string
+        phase:
+          type: string
+
+    UpdateTaskInput:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+
+    TaskLog:
+      type: object
+      required: [id, taskId, level, message, timestamp]
+      properties:
+        id:
+          type: string
+        taskId:
+          type: string
+        level:
+          type: string
+          enum: [debug, info, warn, error]
+        message:
+          type: string
+        metadata:
+          type: object
+        timestamp:
+          type: string
+          format: date-time
+
+    VerificationResult:
+      type: object
+      required: [passed, steps]
+      properties:
+        passed:
+          type: boolean
+        steps:
+          type: array
+          items:
+            type: object
+            required: [name, passed]
+            properties:
+              name:
+                type: string
+              passed:
+                type: boolean
+              output:
+                type: string
+
+    # ─── Rule ──────────────────────────────────────────────────────────────────
+    Rule:
+      type: object
+      required: [id, code, title, severity, enabled, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        code:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          $ref: "#/components/schemas/RuleSeverity"
+        pattern:
+          type: string
+        fixDescription:
+          type: string
+        verifySteps:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        hitCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateRuleInput:
+      type: object
+      required: [code, title, severity]
+      properties:
+        projectId:
+          type: string
+        code:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          $ref: "#/components/schemas/RuleSeverity"
+        pattern:
+          type: string
+        fixDescription:
+          type: string
+        verifySteps:
+          type: array
+          items:
+            type: string
+
+    UpdateRuleInput:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          $ref: "#/components/schemas/RuleSeverity"
+        pattern:
+          type: string
+        fixDescription:
+          type: string
+        enabled:
+          type: boolean
+
+    RuleEvaluationResult:
+      type: object
+      required: [ruleId, projectId, matched, matchCount, matches]
+      properties:
+        ruleId:
+          type: string
+        projectId:
+          type: string
+        matched:
+          type: boolean
+        matchCount:
+          type: integer
+        matches:
+          type: array
+          items:
+            type: object
+            required: [file, line, snippet]
+            properties:
+              file:
+                type: string
+              line:
+                type: integer
+              snippet:
+                type: string
+
+    # ─── Workflow ──────────────────────────────────────────────────────────────
+    Workflow:
+      type: object
+      required: [id, projectId, name, status, phases, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/WorkflowStatus"
+        phases:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowPhase"
+        currentPhase:
+          type: string
+        executionCount:
+          type: integer
+        lastExecutedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    WorkflowPhase:
+      type: object
+      required: [name, steps]
+      properties:
+        name:
+          type: string
+        steps:
+          type: array
+          items:
+            type: string
+        condition:
+          type: string
+
+    CreateWorkflowInput:
+      type: object
+      required: [projectId, name, phases]
+      properties:
+        projectId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        phases:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowPhase"
+
+    WorkflowExecution:
+      type: object
+      required: [id, workflowId, status, startedAt]
+      properties:
+        id:
+          type: string
+        workflowId:
+          type: string
+        status:
+          $ref: "#/components/schemas/WorkflowStatus"
+        currentPhase:
+          type: string
+        completedPhases:
+          type: array
+          items:
+            type: string
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        errorMessage:
+          type: string
+
+    # ─── Event ─────────────────────────────────────────────────────────────────
+    Event:
+      type: object
+      required: [id, type, projectId, timestamp]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        projectId:
+          type: string
+        taskId:
+          type: string
+        workflowId:
+          type: string
+        payload:
+          type: object
+        severity:
+          type: string
+          enum: [info, warning, error, success]
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    # ─── Metrics ───────────────────────────────────────────────────────────────
+    MetricRecord:
+      type: object
+      required: [id, projectId, timestamp, overallScore]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        overallScore:
+          type: number
+        architectureScore:
+          type: number
+        securityScore:
+          type: number
+        performanceScore:
+          type: number
+        reliabilityScore:
+          type: number
+        maintainabilityScore:
+          type: number
+        testCoverage:
+          type: number
+        lintIssues:
+          type: integer
+        testsPassed:
+          type: integer
+        testsTotal:
+          type: integer
+        technicalDebt:
+          type: number
+        buildStatus:
+          type: string
+          enum: [passing, failing, unknown]
+
+    # ─── Knowledge Graph ───────────────────────────────────────────────────────
+    GraphEntity:
+      type: object
+      required: [id, projectId, type, name, createdAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        type:
+          $ref: "#/components/schemas/EntityType"
+        name:
+          type: string
+        path:
+          type: string
+        metadata:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+
+    GraphRelationship:
+      type: object
+      required: [id, sourceId, targetId, relation, createdAt]
+      properties:
+        id:
+          type: string
+        sourceId:
+          type: string
+        targetId:
+          type: string
+        relation:
+          type: string
+        metadata:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+
+    # ─── Plugin request bodies ─────────────────────────────────────────────────
+    PluginProjectRequest:
+      type: object
+      required: [projectId]
+      properties:
+        projectId:
+          type: string
+
+    EvaluateRuleRequest:
+      type: object
+      required: [projectId]
+      properties:
+        projectId:
+          type: string
+
+    # ─── Plugin ────────────────────────────────────────────────────────────────
+    Plugin:
+      type: object
+      required: [id, name, version, enabled, capabilities]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        version:
+          type: string
+        enabled:
+          type: boolean
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum: [analyzer, rules, prompts, verifier, reporter]
+        supportedLanguages:
+          type: array
+          items:
+            type: string
+
+    # ─── Dashboard ─────────────────────────────────────────────────────────────
+    DashboardOverview:
+      type: object
+      required: [projectCount, activeTaskCount, completedTaskCount, failedTaskCount, recentEvents, projectScores]
+      properties:
+        projectCount:
+          type: integer
+        activeTaskCount:
+          type: integer
+        completedTaskCount:
+          type: integer
+        failedTaskCount:
+          type: integer
+        recentEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+        projectScores:
+          type: array
+          items:
+            type: object
+            required: [projectId, projectName, score, trend]
+            properties:
+              projectId:
+                type: string
+              projectName:
+                type: string
+              score:
+                type: number
+              trend:
+                type: string
+                enum: [improving, stable, declining]
+        taskStatusBreakdown:
+          type: object
+          additionalProperties:
+            type: integer
+        topRules:
+          type: array
+          items:
+            type: object
+            required: [ruleId, code, title, hitCount]
+            properties:
+              ruleId:
+                type: string
+              code:
+                type: string
+              title:
+                type: string
+              hitCount:
+                type: integer
