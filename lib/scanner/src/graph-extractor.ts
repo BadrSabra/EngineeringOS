@@ -1,3 +1,4 @@
+import ts from "typescript";
 import type { ScannedFile } from "./file-walker.js";
 
 export type EntityType =
@@ -30,13 +31,7 @@ export interface GraphExtractionResult {
   relationships: ExtractedRelationship[];
 }
 
-// ─── Regex patterns ───────────────────────────────────────────────────────────
-
-const EXPORT_FUNCTION_RE = /^export\s+(?:async\s+)?function\s+(\w+)/;
-const EXPORT_ARROW_RE = /^export\s+const\s+(\w+)\s*=\s*(?:async\s+)?\(/;
-const EXPORT_CLASS_RE = /^export\s+(?:default\s+)?class\s+(\w+)/;
-const EXPRESS_ROUTE_RE = /(?:router|app)\.(get|post|put|patch|delete)\s*\(\s*['"`]([^'"`]+)['"`]/g;
-const IMPORT_FROM_RE = /^import\s+(?:.*?\s+from\s+)?['"`]([^'"`]+)['"`]/gm;
+type PartialResult = { entities: ExtractedEntity[]; relationships: ExtractedRelationship[] };
 
 // ─── Path utilities ───────────────────────────────────────────────────────────
 
@@ -59,10 +54,7 @@ function resolveRelativeImport(importSpecifier: string, fromFilePath: string): s
   return resolved.join("/");
 }
 
-function matchImportToEntity(
-  resolvedBase: string,
-  knownPaths: Set<string>,
-): string | null {
+function matchImportToEntity(resolvedBase: string, knownPaths: Set<string>): string | null {
   const extensions = [".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs"];
   for (const ext of extensions) {
     const candidate = resolvedBase + ext;
@@ -76,12 +68,32 @@ function matchImportToEntity(
   return null;
 }
 
-// ─── Per-language extractors ─────────────────────────────────────────────────
+// ─── AST-based TS/JS extractor ────────────────────────────────────────────────
 
-function extractFromTsJs(
-  file: ScannedFile,
-  knownPaths: Set<string>,
-): { entities: ExtractedEntity[]; relationships: ExtractedRelationship[] } {
+const EXPRESS_METHODS = new Set(["get", "post", "put", "patch", "delete", "all"]);
+
+function scriptKindFor(path: string): ts.ScriptKind {
+  if (path.endsWith(".tsx")) return ts.ScriptKind.TSX;
+  if (path.endsWith(".jsx")) return ts.ScriptKind.JSX;
+  if (path.endsWith(".ts") || path.endsWith(".mts") || path.endsWith(".cts")) return ts.ScriptKind.TS;
+  return ts.ScriptKind.JS;
+}
+
+function isExported(node: ts.Node): boolean {
+  const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
+  return !!modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+}
+
+/**
+ * Parse a TS/JS file into a real AST via the TypeScript compiler API and walk
+ * it to find exported functions/classes, Express-style route registrations,
+ * and import specifiers. This replaces the previous line-by-line regex
+ * approach, so it correctly handles multi-line declarations, default exports,
+ * `export default class Foo`, and arrow functions assigned via destructuring
+ * or multi-declarator `const` statements — none of which the regex version
+ * could see.
+ */
+function extractFromTsJs(file: ScannedFile, knownPaths: Set<string>): PartialResult {
   const entities: ExtractedEntity[] = [];
   const relationships: ExtractedRelationship[] = [];
   const { content, path } = file;
@@ -90,52 +102,93 @@ function extractFromTsJs(
 
   entities.push({ type: "file", name: path, path, metadata: { language: file.language } });
 
-  for (const line of content.split("\n")) {
-    const fnMatch = line.match(EXPORT_FUNCTION_RE);
-    if (fnMatch) entities.push({ type: "function", name: fnMatch[1], path });
-
-    const arrowMatch = line.match(EXPORT_ARROW_RE);
-    if (arrowMatch) entities.push({ type: "function", name: arrowMatch[1], path });
-
-    const classMatch = line.match(EXPORT_CLASS_RE);
-    if (classMatch) entities.push({ type: "class", name: classMatch[1], path });
+  let sourceFile: ts.SourceFile;
+  try {
+    // setParentNodes=false: the walk below never calls node.parent, so we
+    // skip the extra bookkeeping the parser would otherwise do per node.
+    sourceFile = ts.createSourceFile(path, content, ts.ScriptTarget.Latest, false, scriptKindFor(path));
+  } catch {
+    // Unparseable content (e.g. binary mistakenly tagged as source) — fall
+    // back to just the file entity rather than throwing.
+    return { entities, relationships };
   }
 
-  const routeRe = new RegExp(EXPRESS_ROUTE_RE.source, EXPRESS_ROUTE_RE.flags);
-  let routeMatch: RegExpExecArray | null;
-  while ((routeMatch = routeRe.exec(content)) !== null) {
-    const method = routeMatch[1].toUpperCase();
-    const routePath = routeMatch[2];
-    entities.push({
-      type: "api",
-      name: `${method} ${routePath}`,
-      path,
-      metadata: { method, route: routePath, definedIn: path },
-    });
-  }
-
-  const importRe = new RegExp(IMPORT_FROM_RE.source, IMPORT_FROM_RE.flags);
-  let importMatch: RegExpExecArray | null;
-  while ((importMatch = importRe.exec(content)) !== null) {
-    const specifier = importMatch[1];
-    if (!specifier.startsWith(".")) continue;
-
-    const resolved = resolveRelativeImport(specifier, path);
-    if (!resolved) continue;
-
-    const targetName = matchImportToEntity(resolved, knownPaths);
-    if (targetName) {
-      relationships.push({ sourceName: path, targetName, relation: "imports" });
+  const visit = (node: ts.Node): void => {
+    // export function foo() {}  /  export default function foo() {}
+    if (ts.isFunctionDeclaration(node) && node.name && isExported(node)) {
+      entities.push({ type: "function", name: node.name.text, path });
     }
-  }
+
+    // export class Foo {}  /  export default class Foo {}
+    if (ts.isClassDeclaration(node) && node.name && isExported(node)) {
+      entities.push({ type: "class", name: node.name.text, path });
+    }
+
+    // export const foo = (...) => {} / export const foo = function () {}
+    // Handles multiple declarators in one statement and any initializer kind
+    // that is callable, unlike the old regex which required `= (` on the
+    // same line as `export const`.
+    if (ts.isVariableStatement(node) && isExported(node)) {
+      for (const decl of node.declarationList.declarations) {
+        if (!ts.isIdentifier(decl.name) || !decl.initializer) continue;
+        if (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer)) {
+          entities.push({ type: "function", name: decl.name.text, path });
+        }
+      }
+    }
+
+    // Express-style route registration: router.get("/path", ...) / app.post(...)
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      EXPRESS_METHODS.has(node.expression.name.text) &&
+      node.arguments.length > 0 &&
+      ts.isStringLiteralLike(node.arguments[0])
+    ) {
+      const receiver = node.expression.expression;
+      const receiverName = ts.isIdentifier(receiver) ? receiver.text : undefined;
+      if (receiverName === "router" || receiverName === "app") {
+        const method = node.expression.name.text.toUpperCase();
+        const routePath = node.arguments[0].text;
+        entities.push({
+          type: "api",
+          name: `${method} ${routePath}`,
+          path,
+          metadata: { method, route: routePath, definedIn: path },
+        });
+      }
+    }
+
+    // import ... from "specifier"; and export ... from "specifier";
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteralLike(node.moduleSpecifier)
+    ) {
+      const specifier = node.moduleSpecifier.text;
+      if (specifier.startsWith(".")) {
+        const resolved = resolveRelativeImport(specifier, path);
+        if (resolved) {
+          const targetName = matchImportToEntity(resolved, knownPaths);
+          if (targetName) {
+            relationships.push({ sourceName: path, targetName, relation: "imports" });
+          }
+        }
+      }
+    }
+
+    ts.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
 
   return { entities, relationships };
 }
 
-function extractFromPython(
-  file: ScannedFile,
-  _knownPaths: Set<string>,
-): { entities: ExtractedEntity[]; relationships: ExtractedRelationship[] } {
+// ─── Python extractor (regex-based; no AST parser available without a new
+// heavy dependency, so this heuristic path is intentionally kept) ───────────
+
+function extractFromPython(file: ScannedFile): PartialResult {
   const entities: ExtractedEntity[] = [];
   const relationships: ExtractedRelationship[] = [];
   const { content, path } = file;
@@ -197,12 +250,12 @@ export function extractGraph(files: ScannedFile[]): GraphExtractionResult {
       continue;
     }
 
-    let result: { entities: ExtractedEntity[]; relationships: ExtractedRelationship[] };
+    let result: PartialResult;
 
     if (file.language === "typescript" || file.language === "javascript") {
       result = extractFromTsJs(file, knownPaths);
     } else if (file.language === "python") {
-      result = extractFromPython(file, knownPaths);
+      result = extractFromPython(file);
     } else {
       result = {
         entities: [{ type: "file", name: file.path, path: file.path, metadata: { language: file.language } }],

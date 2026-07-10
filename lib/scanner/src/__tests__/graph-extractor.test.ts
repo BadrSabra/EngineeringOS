@@ -103,6 +103,58 @@ describe("extractGraph", () => {
     expect(() => extractGraph(files)).not.toThrow();
   });
 
+  it("extracts a default-exported class (regex-based extractor could not see this)", () => {
+    const files = [makeFile("src/service.ts", "export default class UserService { }")];
+
+    const result = extractGraph(files);
+
+    const classEntities = result.entities.filter((e) => e.type === "class");
+    expect(classEntities.some((e) => e.name === "UserService")).toBe(true);
+  });
+
+  it("extracts a multi-line exported arrow function", () => {
+    const files = [
+      makeFile(
+        "src/utils.ts",
+        "export const parseUser = (\n  data: unknown\n) => {\n  return data;\n};",
+      ),
+    ];
+
+    const result = extractGraph(files);
+
+    const fnEntities = result.entities.filter((e) => e.type === "function");
+    expect(fnEntities.some((e) => e.name === "parseUser")).toBe(true);
+  });
+
+  it("extracts every declarator from a multi-declarator exported const statement", () => {
+    const files = [
+      makeFile("src/handlers.ts", "export const foo = () => {}, bar = () => {};"),
+    ];
+
+    const result = extractGraph(files);
+
+    const fnEntities = result.entities.filter((e) => e.type === "function");
+    expect(fnEntities.some((e) => e.name === "foo")).toBe(true);
+    expect(fnEntities.some((e) => e.name === "bar")).toBe(true);
+  });
+
+  it("extracts an Express route registered via router.get", () => {
+    const files = [
+      makeFile("src/routes/users.ts", 'router.get("/users/:id", async (req, res) => {});'),
+    ];
+
+    const result = extractGraph(files);
+
+    const apiEntities = result.entities.filter((e) => e.type === "api");
+    expect(apiEntities.some((e) => e.name === "GET /users/:id")).toBe(true);
+  });
+
+  it("does not throw on syntactically invalid TypeScript content", () => {
+    const files = [makeFile("src/broken.ts", "export const x = {{{ this is not valid ts !!")];
+
+    expect(() => extractGraph(files)).not.toThrow();
+  });
+
   it("does not generate function/class entities from markdown or JSON files", () => {
     const files = [
       makeFile("README.md", "# Hello", "markdown"),
