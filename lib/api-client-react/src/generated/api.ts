@@ -91,7 +91,7 @@ export const getGetHealthUrl = () => {
 
 
 
-  return `/api/api/healthz`
+  return `/api/healthz`
 }
 
 /**
@@ -114,7 +114,7 @@ export const getHealth = async ( options?: RequestInit): Promise<HealthStatus> =
 
 export const getGetHealthQueryKey = () => {
     return [
-    `/api/api/healthz`
+    `/api/healthz`
     ] as const;
     }
 
@@ -168,7 +168,7 @@ export const getListProjectsUrl = () => {
 
 
 
-  return `/api/api/projects`
+  return `/api/projects`
 }
 
 /**
@@ -191,7 +191,7 @@ export const listProjects = async ( options?: RequestInit): Promise<Project[]> =
 
 export const getListProjectsQueryKey = () => {
     return [
-    `/api/api/projects`
+    `/api/projects`
     ] as const;
     }
 
@@ -245,7 +245,7 @@ export const getCreateProjectUrl = () => {
 
 
 
-  return `/api/api/projects`
+  return `/api/projects`
 }
 
 /**
@@ -316,7 +316,7 @@ export const getGetProjectUrl = (projectId: string,) => {
 
 
 
-  return `/api/api/projects/${projectId}`
+  return `/api/projects/${projectId}`
 }
 
 /**
@@ -339,7 +339,7 @@ export const getProject = async (projectId: string, options?: RequestInit): Prom
 
 export const getGetProjectQueryKey = (projectId: string,) => {
     return [
-    `/api/api/projects/${projectId}`
+    `/api/projects/${projectId}`
     ] as const;
     }
 
@@ -393,7 +393,7 @@ export const getUpdateProjectUrl = (projectId: string,) => {
 
 
 
-  return `/api/api/projects/${projectId}`
+  return `/api/projects/${projectId}`
 }
 
 /**
@@ -465,7 +465,7 @@ export const getDeleteProjectUrl = (projectId: string,) => {
 
 
 
-  return `/api/api/projects/${projectId}`
+  return `/api/projects/${projectId}`
 }
 
 /**
@@ -536,7 +536,7 @@ export const getScanProjectUrl = (projectId: string,) => {
 
 
 
-  return `/api/api/projects/${projectId}/scan`
+  return `/api/projects/${projectId}/scan`
 }
 
 /**
@@ -607,7 +607,7 @@ export const getGetProjectSummaryUrl = (projectId: string,) => {
 
 
 
-  return `/api/api/projects/${projectId}/summary`
+  return `/api/projects/${projectId}/summary`
 }
 
 /**
@@ -630,7 +630,7 @@ export const getProjectSummary = async (projectId: string, options?: RequestInit
 
 export const getGetProjectSummaryQueryKey = (projectId: string,) => {
     return [
-    `/api/api/projects/${projectId}/summary`
+    `/api/projects/${projectId}/summary`
     ] as const;
     }
 
@@ -691,7 +691,7 @@ export const getListTasksUrl = (params?: ListTasksParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/api/tasks?${stringifiedParams}` : `/api/api/tasks`
+  return stringifiedParams.length > 0 ? `/api/tasks?${stringifiedParams}` : `/api/tasks`
 }
 
 /**
@@ -714,7 +714,7 @@ export const listTasks = async (params?: ListTasksParams, options?: RequestInit)
 
 export const getListTasksQueryKey = (params?: ListTasksParams,) => {
     return [
-    `/api/api/tasks`, ...(params ? [params] : [])
+    `/api/tasks`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -768,7 +768,7 @@ export const getCreateTaskUrl = () => {
 
 
 
-  return `/api/api/tasks`
+  return `/api/tasks`
 }
 
 /**
@@ -839,7 +839,7 @@ export const getGetTaskUrl = (taskId: string,) => {
 
 
 
-  return `/api/api/tasks/${taskId}`
+  return `/api/tasks/${taskId}`
 }
 
 /**
@@ -862,7 +862,7 @@ export const getTask = async (taskId: string, options?: RequestInit): Promise<Ta
 
 export const getGetTaskQueryKey = (taskId: string,) => {
     return [
-    `/api/api/tasks/${taskId}`
+    `/api/tasks/${taskId}`
     ] as const;
     }
 
@@ -916,7 +916,7 @@ export const getUpdateTaskUrl = (taskId: string,) => {
 
 
 
-  return `/api/api/tasks/${taskId}`
+  return `/api/tasks/${taskId}`
 }
 
 /**
@@ -988,7 +988,7 @@ export const getDeleteTaskUrl = (taskId: string,) => {
 
 
 
-  return `/api/api/tasks/${taskId}`
+  return `/api/tasks/${taskId}`
 }
 
 /**
@@ -1059,7 +1059,7 @@ export const getExecuteTaskUrl = (taskId: string,) => {
 
 
 
-  return `/api/api/tasks/${taskId}/execute`
+  return `/api/tasks/${taskId}/execute`
 }
 
 /**
@@ -1130,7 +1130,7 @@ export const getRetryTaskUrl = (taskId: string,) => {
 
 
 
-  return `/api/api/tasks/${taskId}/retry`
+  return `/api/tasks/${taskId}/retry`
 }
 
 /**
@@ -1201,7 +1201,7 @@ export const getRollbackTaskUrl = (taskId: string,) => {
 
 
 
-  return `/api/api/tasks/${taskId}/rollback`
+  return `/api/tasks/${taskId}/rollback`
 }
 
 /**
@@ -1272,7 +1272,7 @@ export const getGetTaskLogsUrl = (taskId: string,) => {
 
 
 
-  return `/api/api/tasks/${taskId}/logs`
+  return `/api/tasks/${taskId}/logs`
 }
 
 /**
@@ -1295,7 +1295,7 @@ export const getTaskLogs = async (taskId: string, options?: RequestInit): Promis
 
 export const getGetTaskLogsQueryKey = (taskId: string,) => {
     return [
-    `/api/api/tasks/${taskId}/logs`
+    `/api/tasks/${taskId}/logs`
     ] as const;
     }
 
@@ -1356,7 +1356,7 @@ export const getListRulesUrl = (params?: ListRulesParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/api/rules?${stringifiedParams}` : `/api/api/rules`
+  return stringifiedParams.length > 0 ? `/api/rules?${stringifiedParams}` : `/api/rules`
 }
 
 /**
@@ -1379,7 +1379,7 @@ export const listRules = async (params?: ListRulesParams, options?: RequestInit)
 
 export const getListRulesQueryKey = (params?: ListRulesParams,) => {
     return [
-    `/api/api/rules`, ...(params ? [params] : [])
+    `/api/rules`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -1433,7 +1433,7 @@ export const getCreateRuleUrl = () => {
 
 
 
-  return `/api/api/rules`
+  return `/api/rules`
 }
 
 /**
@@ -1504,7 +1504,7 @@ export const getGetRuleUrl = (ruleId: string,) => {
 
 
 
-  return `/api/api/rules/${ruleId}`
+  return `/api/rules/${ruleId}`
 }
 
 /**
@@ -1527,7 +1527,7 @@ export const getRule = async (ruleId: string, options?: RequestInit): Promise<Ru
 
 export const getGetRuleQueryKey = (ruleId: string,) => {
     return [
-    `/api/api/rules/${ruleId}`
+    `/api/rules/${ruleId}`
     ] as const;
     }
 
@@ -1581,7 +1581,7 @@ export const getUpdateRuleUrl = (ruleId: string,) => {
 
 
 
-  return `/api/api/rules/${ruleId}`
+  return `/api/rules/${ruleId}`
 }
 
 /**
@@ -1653,7 +1653,7 @@ export const getDeleteRuleUrl = (ruleId: string,) => {
 
 
 
-  return `/api/api/rules/${ruleId}`
+  return `/api/rules/${ruleId}`
 }
 
 /**
@@ -1724,7 +1724,7 @@ export const getEvaluateRuleUrl = (ruleId: string,) => {
 
 
 
-  return `/api/api/rules/${ruleId}/evaluate`
+  return `/api/rules/${ruleId}/evaluate`
 }
 
 /**
@@ -1803,7 +1803,7 @@ export const getListWorkflowsUrl = (params?: ListWorkflowsParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/api/workflows?${stringifiedParams}` : `/api/api/workflows`
+  return stringifiedParams.length > 0 ? `/api/workflows?${stringifiedParams}` : `/api/workflows`
 }
 
 /**
@@ -1826,7 +1826,7 @@ export const listWorkflows = async (params?: ListWorkflowsParams, options?: Requ
 
 export const getListWorkflowsQueryKey = (params?: ListWorkflowsParams,) => {
     return [
-    `/api/api/workflows`, ...(params ? [params] : [])
+    `/api/workflows`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -1880,7 +1880,7 @@ export const getCreateWorkflowUrl = () => {
 
 
 
-  return `/api/api/workflows`
+  return `/api/workflows`
 }
 
 /**
@@ -1951,7 +1951,7 @@ export const getGetWorkflowUrl = (workflowId: string,) => {
 
 
 
-  return `/api/api/workflows/${workflowId}`
+  return `/api/workflows/${workflowId}`
 }
 
 /**
@@ -1974,7 +1974,7 @@ export const getWorkflow = async (workflowId: string, options?: RequestInit): Pr
 
 export const getGetWorkflowQueryKey = (workflowId: string,) => {
     return [
-    `/api/api/workflows/${workflowId}`
+    `/api/workflows/${workflowId}`
     ] as const;
     }
 
@@ -2028,7 +2028,7 @@ export const getDeleteWorkflowUrl = (workflowId: string,) => {
 
 
 
-  return `/api/api/workflows/${workflowId}`
+  return `/api/workflows/${workflowId}`
 }
 
 /**
@@ -2099,7 +2099,7 @@ export const getStartWorkflowUrl = (workflowId: string,) => {
 
 
 
-  return `/api/api/workflows/${workflowId}/start`
+  return `/api/workflows/${workflowId}/start`
 }
 
 /**
@@ -2170,7 +2170,7 @@ export const getStopWorkflowUrl = (workflowId: string,) => {
 
 
 
-  return `/api/api/workflows/${workflowId}/stop`
+  return `/api/workflows/${workflowId}/stop`
 }
 
 /**
@@ -2241,7 +2241,7 @@ export const getListWorkflowExecutionsUrl = (workflowId: string,) => {
 
 
 
-  return `/api/api/workflows/${workflowId}/executions`
+  return `/api/workflows/${workflowId}/executions`
 }
 
 /**
@@ -2264,7 +2264,7 @@ export const listWorkflowExecutions = async (workflowId: string, options?: Reque
 
 export const getListWorkflowExecutionsQueryKey = (workflowId: string,) => {
     return [
-    `/api/api/workflows/${workflowId}/executions`
+    `/api/workflows/${workflowId}/executions`
     ] as const;
     }
 
@@ -2325,7 +2325,7 @@ export const getListEventsUrl = (params?: ListEventsParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/api/events?${stringifiedParams}` : `/api/api/events`
+  return stringifiedParams.length > 0 ? `/api/events?${stringifiedParams}` : `/api/events`
 }
 
 /**
@@ -2348,7 +2348,7 @@ export const listEvents = async (params?: ListEventsParams, options?: RequestIni
 
 export const getListEventsQueryKey = (params?: ListEventsParams,) => {
     return [
-    `/api/api/events`, ...(params ? [params] : [])
+    `/api/events`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -2409,7 +2409,7 @@ export const getListMetricsUrl = (params: ListMetricsParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/api/metrics?${stringifiedParams}` : `/api/api/metrics`
+  return stringifiedParams.length > 0 ? `/api/metrics?${stringifiedParams}` : `/api/metrics`
 }
 
 /**
@@ -2432,7 +2432,7 @@ export const listMetrics = async (params: ListMetricsParams, options?: RequestIn
 
 export const getListMetricsQueryKey = (params?: ListMetricsParams,) => {
     return [
-    `/api/api/metrics`, ...(params ? [params] : [])
+    `/api/metrics`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -2493,7 +2493,7 @@ export const getGetLatestMetricsUrl = (params?: GetLatestMetricsParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/api/metrics/latest?${stringifiedParams}` : `/api/api/metrics/latest`
+  return stringifiedParams.length > 0 ? `/api/metrics/latest?${stringifiedParams}` : `/api/metrics/latest`
 }
 
 /**
@@ -2516,7 +2516,7 @@ export const getLatestMetrics = async (params?: GetLatestMetricsParams, options?
 
 export const getGetLatestMetricsQueryKey = (params?: GetLatestMetricsParams,) => {
     return [
-    `/api/api/metrics/latest`, ...(params ? [params] : [])
+    `/api/metrics/latest`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -2577,7 +2577,7 @@ export const getListGraphEntitiesUrl = (params?: ListGraphEntitiesParams,) => {
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/api/graph/entities?${stringifiedParams}` : `/api/api/graph/entities`
+  return stringifiedParams.length > 0 ? `/api/graph/entities?${stringifiedParams}` : `/api/graph/entities`
 }
 
 /**
@@ -2600,7 +2600,7 @@ export const listGraphEntities = async (params?: ListGraphEntitiesParams, option
 
 export const getListGraphEntitiesQueryKey = (params?: ListGraphEntitiesParams,) => {
     return [
-    `/api/api/graph/entities`, ...(params ? [params] : [])
+    `/api/graph/entities`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -2661,7 +2661,7 @@ export const getListGraphRelationshipsUrl = (params?: ListGraphRelationshipsPara
 
   const stringifiedParams = normalizedParams.toString();
 
-  return stringifiedParams.length > 0 ? `/api/api/graph/relationships?${stringifiedParams}` : `/api/api/graph/relationships`
+  return stringifiedParams.length > 0 ? `/api/graph/relationships?${stringifiedParams}` : `/api/graph/relationships`
 }
 
 /**
@@ -2684,7 +2684,7 @@ export const listGraphRelationships = async (params?: ListGraphRelationshipsPara
 
 export const getListGraphRelationshipsQueryKey = (params?: ListGraphRelationshipsParams,) => {
     return [
-    `/api/api/graph/relationships`, ...(params ? [params] : [])
+    `/api/graph/relationships`, ...(params ? [params] : [])
     ] as const;
     }
 
@@ -2738,7 +2738,7 @@ export const getListPluginsUrl = () => {
 
 
 
-  return `/api/api/plugins`
+  return `/api/plugins`
 }
 
 /**
@@ -2761,7 +2761,7 @@ export const listPlugins = async ( options?: RequestInit): Promise<Plugin[]> => 
 
 export const getListPluginsQueryKey = () => {
     return [
-    `/api/api/plugins`
+    `/api/plugins`
     ] as const;
     }
 
@@ -2815,7 +2815,7 @@ export const getEnablePluginUrl = (pluginId: string,) => {
 
 
 
-  return `/api/api/plugins/${pluginId}/enable`
+  return `/api/plugins/${pluginId}/enable`
 }
 
 /**
@@ -2887,7 +2887,7 @@ export const getDisablePluginUrl = (pluginId: string,) => {
 
 
 
-  return `/api/api/plugins/${pluginId}/disable`
+  return `/api/plugins/${pluginId}/disable`
 }
 
 /**
@@ -2959,7 +2959,7 @@ export const getStartDiscoveryUrl = () => {
 
 
 
-  return `/api/api/projects/discover`
+  return `/api/projects/discover`
 }
 
 /**
@@ -3030,7 +3030,7 @@ export const getGetDiscoverySessionUrl = (discoveryId: string,) => {
 
 
 
-  return `/api/api/projects/discover/${discoveryId}`
+  return `/api/projects/discover/${discoveryId}`
 }
 
 /**
@@ -3053,7 +3053,7 @@ export const getDiscoverySession = async (discoveryId: string, options?: Request
 
 export const getGetDiscoverySessionQueryKey = (discoveryId: string,) => {
     return [
-    `/api/api/projects/discover/${discoveryId}`
+    `/api/projects/discover/${discoveryId}`
     ] as const;
     }
 
@@ -3107,7 +3107,7 @@ export const getGetDiscoverySummaryUrl = (discoveryId: string,) => {
 
 
 
-  return `/api/api/projects/discover/${discoveryId}/summary`
+  return `/api/projects/discover/${discoveryId}/summary`
 }
 
 /**
@@ -3130,7 +3130,7 @@ export const getDiscoverySummary = async (discoveryId: string, options?: Request
 
 export const getGetDiscoverySummaryQueryKey = (discoveryId: string,) => {
     return [
-    `/api/api/projects/discover/${discoveryId}/summary`
+    `/api/projects/discover/${discoveryId}/summary`
     ] as const;
     }
 
@@ -3184,7 +3184,7 @@ export const getImportProjectUrl = () => {
 
 
 
-  return `/api/api/projects/import`
+  return `/api/projects/import`
 }
 
 /**
@@ -3255,7 +3255,7 @@ export const getGetDashboardUrl = () => {
 
 
 
-  return `/api/api/dashboard`
+  return `/api/dashboard`
 }
 
 /**
@@ -3278,7 +3278,7 @@ export const getDashboard = async ( options?: RequestInit): Promise<DashboardOve
 
 export const getGetDashboardQueryKey = () => {
     return [
-    `/api/api/dashboard`
+    `/api/dashboard`
     ] as const;
     }
 
