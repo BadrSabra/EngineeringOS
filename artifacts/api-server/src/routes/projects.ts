@@ -27,6 +27,7 @@ import {
   computeMetrics,
   type RuleInput,
 } from "@workspace/scanner";
+import { recordAudit } from "../lib/audit.js";
 
 const router = Router();
 
@@ -62,6 +63,14 @@ router.post("/projects", async (req, res) => {
     message: `Project "${body.name}" registered`,
   });
 
+  await recordAudit({
+    entityType: "project",
+    entityId: project[0].id,
+    action: "created",
+    projectId: project[0].id,
+    stateAfter: project[0],
+  });
+
   return res.status(201).json(project[0]);
 });
 
@@ -81,19 +90,59 @@ router.get("/projects/:projectId", async (req, res) => {
 router.patch("/projects/:projectId", async (req, res) => {
   const { projectId } = UpdateProjectParams.parse(req.params);
   const body = UpdateProjectBody.parse(req.body);
+
+  const before = await db
+    .select()
+    .from(projectsTable)
+    .where(eq(projectsTable.id, projectId))
+    .limit(1);
+  if (!before[0]) return res.status(404).json({ error: "Project not found" });
+
   const updated = await db
     .update(projectsTable)
     .set({ ...body, updatedAt: new Date() })
     .where(eq(projectsTable.id, projectId))
     .returning();
   if (!updated[0]) return res.status(404).json({ error: "Project not found" });
+
+  await recordAudit({
+    entityType: "project",
+    entityId: projectId,
+    action: "updated",
+    projectId,
+    changedFields: body,
+    stateBefore: before[0],
+    stateAfter: updated[0],
+  });
+
   return res.json(updated[0]);
 });
 
 // Delete project
 router.delete("/projects/:projectId", async (req, res) => {
   const { projectId } = DeleteProjectParams.parse(req.params);
+
+  const before = await db
+    .select()
+    .from(projectsTable)
+    .where(eq(projectsTable.id, projectId))
+    .limit(1);
+
   await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+
+  // Fire-and-forget-but-logged: recordAudit is intentionally best-effort (see
+  // lib/audit.ts) so an audit-write hiccup here never turns an already-
+  // committed delete into a request failure.
+  if (before[0]) {
+    await recordAudit({
+      entityType: "project",
+      entityId: projectId,
+      action: "deleted",
+      projectId,
+      stateBefore: before[0],
+    });
+  }
+
   return res.status(204).send();
 });
 
@@ -309,6 +358,21 @@ router.post("/projects/:projectId/scan", async (req, res) => {
         updatedAt: now,
       })
       .where(eq(projectsTable.id, projectId));
+
+    await recordAudit({
+      entityType: "project",
+      entityId: projectId,
+      action: "scanned",
+      projectId,
+      stateBefore: { qualityScore: project[0].qualityScore ?? null },
+      stateAfter: { qualityScore: metrics.overallScore },
+      changedFields: {
+        filesFound: walkResult.totalFiles,
+        tasksCreated: newTaskIds.length,
+        entitiesExtracted: entitiesToInsert.length,
+        relationshipsExtracted: relRows.length,
+      },
+    });
 
     // ── 8. Emit scan event ──────────────────────────────────────────────────
     const issuesDetected = ruleResults.reduce((s, r) => s + r.matchCount, 0);

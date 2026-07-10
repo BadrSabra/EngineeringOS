@@ -22,6 +22,7 @@ import {
 import { eq, and, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { walkProject, checkPatternInFiles } from "@workspace/scanner";
+import { recordAudit } from "../lib/audit.js";
 
 const router = Router();
 
@@ -64,6 +65,14 @@ router.post("/tasks", async (req, res) => {
     message: `Task "${body.title}" created (${body.priority})`,
   });
 
+  await recordAudit({
+    entityType: "task",
+    entityId: task[0].id,
+    action: "created",
+    projectId: body.projectId,
+    stateAfter: task[0],
+  });
+
   return res.status(201).json(task[0]);
 });
 
@@ -83,19 +92,47 @@ router.get("/tasks/:taskId", async (req, res) => {
 router.patch("/tasks/:taskId", async (req, res) => {
   const { taskId } = UpdateTaskParams.parse(req.params);
   const body = UpdateTaskBody.parse(req.body);
+
+  const before = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+  if (!before[0]) return res.status(404).json({ error: "Task not found" });
+
   const updated = await db
     .update(tasksTable)
     .set({ ...body, updatedAt: new Date() })
     .where(eq(tasksTable.id, taskId))
     .returning();
   if (!updated[0]) return res.status(404).json({ error: "Task not found" });
+
+  await recordAudit({
+    entityType: "task",
+    entityId: taskId,
+    action: "updated",
+    projectId: before[0].projectId,
+    changedFields: body,
+    stateBefore: before[0],
+    stateAfter: updated[0],
+  });
+
   return res.json(updated[0]);
 });
 
 // Delete task
 router.delete("/tasks/:taskId", async (req, res) => {
   const { taskId } = DeleteTaskParams.parse(req.params);
+
+  const before = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
   await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+
+  if (before[0]) {
+    await recordAudit({
+      entityType: "task",
+      entityId: taskId,
+      action: "deleted",
+      projectId: before[0].projectId,
+      stateBefore: before[0],
+    });
+  }
+
   return res.status(204).send();
 });
 
@@ -247,6 +284,16 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
     metadata: { verificationResult },
   });
 
+  await recordAudit({
+    entityType: "task",
+    entityId: taskId,
+    action: "executed",
+    projectId: task[0].projectId,
+    stateBefore: { status: task[0].status },
+    stateAfter: { status: finalStatus },
+    changedFields: { verificationResult },
+  });
+
   await db.insert(eventsTable).values({
     id: randomUUID(),
     type:
@@ -314,6 +361,15 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
     message: `Task "${task[0].title}" queued for retry (#${retryCount + 1})`,
   });
 
+  await recordAudit({
+    entityType: "task",
+    entityId: taskId,
+    action: "retried",
+    projectId: task[0].projectId,
+    stateBefore: { status: task[0].status, retryCount },
+    stateAfter: { status: "queued", retryCount: retryCount + 1 },
+  });
+
   return res.status(202).json(updated[0]);
 });
 
@@ -347,6 +403,15 @@ router.post("/tasks/:taskId/rollback", async (req, res) => {
     taskId,
     severity: "warning",
     message: `Task "${task[0].title}" rolled back`,
+  });
+
+  await recordAudit({
+    entityType: "task",
+    entityId: taskId,
+    action: "rolled_back",
+    projectId: task[0].projectId,
+    stateBefore: { status: task[0].status },
+    stateAfter: { status: "cancelled" },
   });
 
   return res.json(updated[0]);

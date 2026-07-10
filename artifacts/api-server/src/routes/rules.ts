@@ -14,6 +14,7 @@ import {
 import { eq, and, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { walkProject, matchRule, type RuleInput } from "@workspace/scanner";
+import { recordAudit } from "../lib/audit.js";
 
 const router = Router();
 
@@ -44,6 +45,15 @@ router.post("/rules", async (req, res) => {
     .insert(rulesTable)
     .values({ id: randomUUID(), ...body, createdAt: now, updatedAt: now })
     .returning();
+
+  await recordAudit({
+    entityType: "rule",
+    entityId: rule[0].id,
+    action: "created",
+    projectId: body.projectId ?? null,
+    stateAfter: rule[0],
+  });
+
   return res.status(201).json(rule[0]);
 });
 
@@ -63,19 +73,47 @@ router.get("/rules/:ruleId", async (req, res) => {
 router.patch("/rules/:ruleId", async (req, res) => {
   const { ruleId } = UpdateRuleParams.parse(req.params);
   const body = UpdateRuleBody.parse(req.body);
+
+  const before = await db.select().from(rulesTable).where(eq(rulesTable.id, ruleId)).limit(1);
+  if (!before[0]) return res.status(404).json({ error: "Rule not found" });
+
   const updated = await db
     .update(rulesTable)
     .set({ ...body, updatedAt: new Date() })
     .where(eq(rulesTable.id, ruleId))
     .returning();
   if (!updated[0]) return res.status(404).json({ error: "Rule not found" });
+
+  await recordAudit({
+    entityType: "rule",
+    entityId: ruleId,
+    action: "updated",
+    projectId: before[0].projectId ?? null,
+    changedFields: body,
+    stateBefore: before[0],
+    stateAfter: updated[0],
+  });
+
   return res.json(updated[0]);
 });
 
 // Delete rule
 router.delete("/rules/:ruleId", async (req, res) => {
   const { ruleId } = DeleteRuleParams.parse(req.params);
+
+  const before = await db.select().from(rulesTable).where(eq(rulesTable.id, ruleId)).limit(1);
   await db.delete(rulesTable).where(eq(rulesTable.id, ruleId));
+
+  if (before[0]) {
+    await recordAudit({
+      entityType: "rule",
+      entityId: ruleId,
+      action: "deleted",
+      projectId: before[0].projectId ?? null,
+      stateBefore: before[0],
+    });
+  }
+
   return res.status(204).send();
 });
 
@@ -133,6 +171,16 @@ router.post("/rules/:ruleId/evaluate", async (req, res) => {
     projectId: body.projectId,
     severity: result.matched ? "warning" : "info",
     message: `Rule "${rule[0].code}" evaluated: ${result.matchCount} matches`,
+  });
+
+  await recordAudit({
+    entityType: "rule",
+    entityId: ruleId,
+    action: "evaluated",
+    projectId: body.projectId,
+    stateBefore: { hitCount: rule[0].hitCount ?? 0 },
+    stateAfter: { hitCount: (rule[0].hitCount ?? 0) + result.matchCount },
+    changedFields: { matchCount: result.matchCount, matched: result.matched },
   });
 
   return res.json({

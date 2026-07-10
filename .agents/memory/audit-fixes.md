@@ -1,36 +1,10 @@
 ---
 name: Audit Fixes
-description: Decisions made when applying the EngineeringOS technical audit findings
+description: Graph dual-map identity, rate-limit proxy trust, metrics alignment, codegen gate, scanner test suite behavioral facts, audit_logs wiring decisions.
 ---
 
-## Graph entity identity — dual-map approach
-Entity persistence in `POST /projects/:id/scan` uses two maps:
-- **Primary** `type::path::name → id` — dedup across files (no cross-file collision)
-- **Secondary** `type::name → [ids]` (multi-value, first-in wins) — stable relationship resolution
-
-**Why:** Storing the last ID for a given type::name caused relationships to bind to wrong nodes after re-scans that encounter same-named entities in different files. Using an array and always resolving to `ids[0]` keeps binding stable.
-
-**How to apply:** Any future graph persistence code must use the same dual-map pattern. Never use a plain Map with type::name key for dedup.
-
-## Rate limiting behind Replit proxy
-`app.set("trust proxy", 1)` is set before rate-limit middleware in `app.ts`.
-
-**Why:** Without this, all requests appear to come from the proxy IP, collapsing the entire user base into one rate-limit bucket.
-
-## Metrics schema alignment
-`computeMetrics` now returns `architectureScore` (file-structure heuristic) and `testCoverage` (test-file ratio proxy). Both are stored in `metrics` table. `testsPassed`/`testsTotal` are intentionally left null — require a test runner.
-
-**Why:** DB schema fields were unpopulated; leaving them null made dashboards show misleading zero or missing values.
-
-## Codegen gate
-Root `build` script now runs `pnpm run codegen` first. `pnpm run test` delegates to all packages with a `test` script.
-
-**Why:** OpenAPI → generated client drift was the #1 critical risk in the audit. Gating build on codegen ensures the client stays in sync.
-
-## Test suite location
-Scanner unit tests live in `lib/scanner/src/__tests__/`. Vitest v4 configured via `lib/scanner/vitest.config.ts`. Run with `pnpm --filter @workspace/scanner run test`.
-
-Key behavioral facts the tests encode:
-- `matchRules` omits disabled/null-pattern rules from results (no entry, not matched=false)
-- Import relationship resolution requires bare specifiers (`./utils` not `./utils.js`) or the resolver adds the wrong double-extension
-- `walkProject` does not throw on non-existent paths — it falls back to cwd with `rootExists=false`
+- Graph entity identity uses a dual key: `type::path::name` for the primary insert-dedup key, and `type::name` → [ids] as a secondary index for relationship resolution, because multiple entities can share a name across files.
+- Rate limiting trusts `X-Forwarded-For` (`trust proxy = 1`) — correct for the Replit proxy setup, but would need reconsideration behind a different reverse-proxy topology.
+- `pnpm run codegen:check` (root) is the CI gate for OpenAPI/orval drift — must use `git status --porcelain`, not `git diff --exit-code`, since untracked new generated files don't show in `git diff`.
+- `audit_logs` table existed in schema but was completely unwired (zero inserts) until wired into all sensitive routes (project/task/rule/workflow/plugin/discovery CRUD + state-transition actions) via a shared `recordAudit` helper in `artifacts/api-server/src/lib/audit.ts`.
+- Decision: `recordAudit` is intentionally best-effort — it catches and logs its own errors rather than propagating, because the primary mutation has already committed by the time it's called and an audit-write hiccup should not turn a successful user action into a 500. Revisit this if audit_logs ever becomes compliance-critical (would need same-transaction write or an outbox pattern).

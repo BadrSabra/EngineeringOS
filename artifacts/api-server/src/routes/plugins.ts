@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { pluginsTable } from "@workspace/db";
 import { EnablePluginBody, DisablePluginBody } from "@workspace/api-zod";
 import { eq } from "drizzle-orm";
+import { recordAudit } from "../lib/audit.js";
 
 const router = Router();
 
@@ -106,6 +107,14 @@ router.post("/plugins/:pluginId/enable", async (req, res) => {
     .where(eq(pluginsTable.id, pluginId))
     .returning();
 
+  await recordAudit({
+    entityType: "plugin",
+    entityId: pluginId,
+    action: "enabled",
+    stateBefore: { enabled: plugin[0].enabled },
+    stateAfter: { enabled: true },
+  });
+
   return res.json(updated);
 });
 
@@ -126,6 +135,14 @@ router.post("/plugins/:pluginId/disable", async (req, res) => {
     .set({ enabled: false, updatedAt: new Date() })
     .where(eq(pluginsTable.id, pluginId))
     .returning();
+
+  await recordAudit({
+    entityType: "plugin",
+    entityId: pluginId,
+    action: "disabled",
+    stateBefore: { enabled: plugin[0].enabled },
+    stateAfter: { enabled: false },
+  });
 
   return res.json(updated);
 });

@@ -12,6 +12,7 @@ import {
 } from "@workspace/api-zod";
 import { eq, desc, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { recordAudit } from "../lib/audit.js";
 
 const router = Router();
 
@@ -49,6 +50,14 @@ router.post("/workflows", async (req, res) => {
     message: `Workflow "${body.name}" created with ${body.phases.length} phase(s)`,
   });
 
+  await recordAudit({
+    entityType: "workflow",
+    entityId: workflow[0].id,
+    action: "created",
+    projectId: body.projectId,
+    stateAfter: workflow[0],
+  });
+
   return res.status(201).json(workflow[0]);
 });
 
@@ -67,7 +76,24 @@ router.get("/workflows/:workflowId", async (req, res) => {
 // Delete workflow
 router.delete("/workflows/:workflowId", async (req, res) => {
   const { workflowId } = DeleteWorkflowParams.parse(req.params);
+
+  const before = await db
+    .select()
+    .from(workflowsTable)
+    .where(eq(workflowsTable.id, workflowId))
+    .limit(1);
   await db.delete(workflowsTable).where(eq(workflowsTable.id, workflowId));
+
+  if (before[0]) {
+    await recordAudit({
+      entityType: "workflow",
+      entityId: workflowId,
+      action: "deleted",
+      projectId: before[0].projectId,
+      stateBefore: before[0],
+    });
+  }
+
   return res.status(204).send();
 });
 
@@ -118,6 +144,15 @@ router.post("/workflows/:workflowId/start", async (req, res) => {
     message: `Workflow "${workflow[0].name}" started — phase: ${firstPhase ?? "unknown"}`,
   });
 
+  await recordAudit({
+    entityType: "workflow",
+    entityId: workflowId,
+    action: "started",
+    projectId: workflow[0].projectId,
+    stateBefore: { status: workflow[0].status },
+    stateAfter: { status: "running", currentPhase: firstPhase },
+  });
+
   return res.status(202).json(execution);
 });
 
@@ -164,6 +199,15 @@ router.post("/workflows/:workflowId/stop", async (req, res) => {
     workflowId,
     severity: "warning",
     message: `Workflow "${workflow[0].name}" stopped`,
+  });
+
+  await recordAudit({
+    entityType: "workflow",
+    entityId: workflowId,
+    action: "stopped",
+    projectId: workflow[0].projectId,
+    stateBefore: { status: workflow[0].status },
+    stateAfter: { status: "stopped" },
   });
 
   const updatedExecution = executions[0]

@@ -30,6 +30,7 @@ import {
 } from "@workspace/scanner";
 import type { ScannedFile } from "@workspace/scanner";
 import { logger } from "../lib/logger.js";
+import { recordAudit } from "../lib/audit.js";
 
 const router = Router();
 
@@ -657,6 +658,16 @@ router.post("/projects/import", async (req, res) => {
     logger.error({ txErr, discoveryId: body.discoveryId }, message);
     return res.status(500).json({ error: message });
   }
+
+  await recordAudit({
+    entityType: "discovery_session",
+    entityId: body.discoveryId,
+    action: "imported",
+    projectId,
+    stateBefore: { status: "ready" },
+    stateAfter: { status: "imported", importedProjectId: projectId },
+    changedFields: { projectId, confidenceScore: result.confidenceScore },
+  });
 
   return res.status(201).json(project);
 });

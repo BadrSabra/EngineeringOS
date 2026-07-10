@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { eq } from "drizzle-orm";
 import app from "../app.js";
-import { db, projectsTable, eventsTable, metricsTable, tasksTable } from "@workspace/db";
+import { db, projectsTable, eventsTable, metricsTable, tasksTable, auditLogsTable } from "@workspace/db";
 import { randomUUID } from "crypto";
 import * as scanner from "@workspace/scanner";
 
@@ -25,6 +25,7 @@ async function cleanupProject(id: string): Promise<void> {
   await db.delete(tasksTable).where(eq(tasksTable.projectId, id));
   await db.delete(metricsTable).where(eq(metricsTable.projectId, id));
   await db.delete(eventsTable).where(eq(eventsTable.projectId, id));
+  await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, id));
   await db.delete(projectsTable).where(eq(projectsTable.id, id));
 }
 
@@ -54,6 +55,15 @@ describe("POST /api/projects/:projectId/scan — error safety", () => {
       .where(eq(projectsTable.id, projectId))
       .limit(1);
     expect(project[0]?.status).toBe("active");
+
+    const audits = await db
+      .select()
+      .from(auditLogsTable)
+      .where(eq(auditLogsTable.entityId, projectId));
+    const scanAudit = audits.find((a) => a.action === "scanned");
+    expect(scanAudit).toBeDefined();
+    expect(scanAudit?.entityType).toBe("project");
+    expect(scanAudit?.projectId).toBe(projectId);
   });
 
   it("resets project status to active when the scan pipeline throws mid-scan", async () => {
@@ -80,6 +90,34 @@ describe("POST /api/projects/:projectId/scan — error safety", () => {
   it("returns 404 when scanning a project that does not exist", async () => {
     const res = await request(app).post(`/api/projects/${randomUUID()}/scan`);
     expect(res.status).toBe(404);
+  });
+});
+
+describe("POST /api/projects — audit trail", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("records a project_created audit entry with stateAfter", async () => {
+    const res = await request(app)
+      .post("/api/projects")
+      .send({ name: `audit-test-${randomUUID()}`, rootPath: "/tmp/audit-test", language: "typescript" });
+    expect(res.status).toBe(201);
+    cleanupQueue.push(res.body.id);
+
+    const audits = await db
+      .select()
+      .from(auditLogsTable)
+      .where(eq(auditLogsTable.entityId, res.body.id));
+    expect(audits).toHaveLength(1);
+    expect(audits[0].entityType).toBe("project");
+    expect(audits[0].action).toBe("created");
+    expect((audits[0].stateAfter as { name?: string } | null)?.name).toBe(res.body.name);
   });
 });
 
