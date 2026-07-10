@@ -2,7 +2,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { eq } from "drizzle-orm";
 import app from "../app.js";
-import { db, projectsTable, eventsTable, metricsTable, tasksTable, auditLogsTable } from "@workspace/db";
+import {
+  db,
+  projectsTable,
+  eventsTable,
+  metricsTable,
+  tasksTable,
+  auditLogsTable,
+  scanJobsTable,
+} from "@workspace/db";
 import { randomUUID } from "crypto";
 import * as scanner from "@workspace/scanner";
 
@@ -26,7 +34,24 @@ async function cleanupProject(id: string): Promise<void> {
   await db.delete(metricsTable).where(eq(metricsTable.projectId, id));
   await db.delete(eventsTable).where(eq(eventsTable.projectId, id));
   await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, id));
+  await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, id));
   await db.delete(projectsTable).where(eq(projectsTable.id, id));
+}
+
+/** Scans now run out-of-band; poll the job row until it leaves queued/running. */
+async function waitForScanJob(
+  jobId: string,
+  timeoutMs = 5000,
+): Promise<typeof scanJobsTable.$inferSelect> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const rows = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId)).limit(1);
+    if (rows[0] && (rows[0].status === "completed" || rows[0].status === "failed")) {
+      return rows[0];
+    }
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error(`scan job ${jobId} did not finish within ${timeoutMs}ms`);
 }
 
 describe("POST /api/projects/:projectId/scan — error safety", () => {
@@ -40,14 +65,30 @@ describe("POST /api/projects/:projectId/scan — error safety", () => {
     }
   });
 
-  it("resets project status to active even when the root path does not exist", async () => {
+  it("queues a scan job immediately, then resolves to active with an audit entry", async () => {
     const projectId = await insertProject("/tmp/definitely-does-not-exist-" + randomUUID());
     cleanupQueue.push(projectId);
 
-    // walkProject on a missing path does not throw (rootExists: false), so the
-    // scan should still complete successfully rather than getting stuck in "scanning".
+    // The route must respond immediately with a queued job rather than
+    // blocking on the scan itself.
     const res = await request(app).post(`/api/projects/${projectId}/scan`);
     expect(res.status).toBe(202);
+    expect(res.body.status).toBe("queued");
+    expect(res.body.projectId).toBe(projectId);
+
+    const scanningProject = await db
+      .select()
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    expect(scanningProject[0]?.status).toBe("scanning");
+
+    // walkProject on a missing path does not throw (rootExists: false), so the
+    // background job should still complete successfully rather than getting
+    // stuck in "scanning".
+    const job = await waitForScanJob(res.body.id);
+    expect(job.status).toBe("completed");
+    expect((job.result as { rootExists?: boolean } | null)?.rootExists).toBe(false);
 
     const project = await db
       .select()
@@ -66,7 +107,7 @@ describe("POST /api/projects/:projectId/scan — error safety", () => {
     expect(scanAudit?.projectId).toBe(projectId);
   });
 
-  it("resets project status to active when the scan pipeline throws mid-scan", async () => {
+  it("marks the job failed and resets project status to active when the scan pipeline throws mid-scan", async () => {
     const projectId = await insertProject("/tmp/scan-throw-test-" + randomUUID());
     cleanupQueue.push(projectId);
 
@@ -75,20 +116,34 @@ describe("POST /api/projects/:projectId/scan — error safety", () => {
     });
 
     const res = await request(app).post(`/api/projects/${projectId}/scan`);
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(202);
+
+    const job = await waitForScanJob(res.body.id);
+    expect(job.status).toBe("failed");
+    expect(job.error).toContain("simulated scanner failure");
 
     const project = await db
       .select()
       .from(projectsTable)
       .where(eq(projectsTable.id, projectId))
       .limit(1);
-    // The route's try/finally-style catch must restore "active" even though
-    // the pipeline threw partway through — it must never get stuck in "scanning".
+    // The job's own catch must restore "active" even though the pipeline
+    // threw partway through — it must never get stuck in "scanning".
     expect(project[0]?.status).toBe("active");
   });
 
   it("returns 404 when scanning a project that does not exist", async () => {
     const res = await request(app).post(`/api/projects/${randomUUID()}/scan`);
+    expect(res.status).toBe(404);
+  });
+
+  it("GET scan-jobs/:jobId 404s for an unknown job", async () => {
+    const projectId = await insertProject("/tmp/job-404-test-" + randomUUID());
+    cleanupQueue.push(projectId);
+
+    const res = await request(app).get(
+      `/api/projects/${projectId}/scan-jobs/${randomUUID()}`,
+    );
     expect(res.status).toBe(404);
   });
 });

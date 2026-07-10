@@ -109,7 +109,7 @@ paths:
   /api/projects/{projectId}/scan:
     post:
       operationId: scanProject
-      summary: Trigger a project scan
+      summary: Enqueue a project scan (runs in the background; poll the returned job)
       tags: [Projects]
       parameters:
         - name: projectId
@@ -119,11 +119,35 @@ paths:
             type: string
       responses:
         "202":
-          description: Scan initiated
+          description: Scan job queued
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ScanResult"
+                $ref: "#/components/schemas/ScanJob"
+
+  /api/projects/{projectId}/scan-jobs/{jobId}:
+    get:
+      operationId: getScanJob
+      summary: Get the status/result of a background scan job
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Scan job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanJob"
 
   /api/projects/{projectId}/summary:
     get:
@@ -974,6 +998,36 @@ components:
           type: integer
         summary:
           type: string
+
+    ScanJob:
+      type: object
+      description: >
+        Background scan job. Scanning a project (file walk + rule matching +
+        graph extraction + metrics) is heavy, so POST .../scan only enqueues
+        it and returns this record immediately with status "queued"; poll
+        GET .../scan-jobs/{jobId} until status is "completed" or "failed".
+      required: [id, projectId, status, createdAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, completed, failed]
+        result:
+          $ref: "#/components/schemas/ScanResult"
+        error:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
 
     ProjectSummary:
       type: object

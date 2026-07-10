@@ -132,6 +132,30 @@ export interface ScanResult {
   summary?: string;
 }
 
+export type ScanJobStatus = typeof ScanJobStatus[keyof typeof ScanJobStatus];
+
+
+export const ScanJobStatus = {
+  queued: 'queued',
+  running: 'running',
+  completed: 'completed',
+  failed: 'failed',
+} as const;
+
+/**
+ * Background scan job. Scanning a project (file walk + rule matching + graph extraction + metrics) is heavy, so POST .../scan only enqueues it and returns this record immediately with status "queued"; poll GET .../scan-jobs/{jobId} until status is "completed" or "failed".
+ */
+export interface ScanJob {
+  id: string;
+  projectId: string;
+  status: ScanJobStatus;
+  result?: ScanResult;
+  error?: string;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
 export type ProjectSummaryTaskCounts = {
   total: number;
   pending: number;

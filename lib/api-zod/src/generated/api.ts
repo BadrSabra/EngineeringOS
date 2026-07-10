@@ -122,20 +122,56 @@ export const DeleteProjectResponse = zod.void()
 
 
 /**
- * @summary Trigger a project scan
+ * @summary Enqueue a project scan (runs in the background; poll the returned job)
  */
 export const ScanProjectParams = zod.object({
   "projectId": zod.coerce.string()
 })
 
 export const ScanProjectResponse = zod.object({
+  "id": zod.string(),
+  "projectId": zod.string(),
+  "status": zod.enum(['queued', 'running', 'completed', 'failed']),
+  "result": zod.object({
   "projectId": zod.string(),
   "scannedAt": zod.coerce.date(),
   "filesFound": zod.number(),
   "issuesDetected": zod.number(),
   "tasksCreated": zod.number(),
   "summary": zod.string().optional()
+}).optional(),
+  "error": zod.string().optional(),
+  "createdAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().optional(),
+  "finishedAt": zod.coerce.date().optional()
+}).describe('Background scan job. Scanning a project (file walk + rule matching + graph extraction + metrics) is heavy, so POST ...\/scan only enqueues it and returns this record immediately with status \"queued\"; poll GET ...\/scan-jobs\/{jobId} until status is \"completed\" or \"failed\".\n')
+
+
+/**
+ * @summary Get the status/result of a background scan job
+ */
+export const GetScanJobParams = zod.object({
+  "projectId": zod.coerce.string(),
+  "jobId": zod.coerce.string()
 })
+
+export const GetScanJobResponse = zod.object({
+  "id": zod.string(),
+  "projectId": zod.string(),
+  "status": zod.enum(['queued', 'running', 'completed', 'failed']),
+  "result": zod.object({
+  "projectId": zod.string(),
+  "scannedAt": zod.coerce.date(),
+  "filesFound": zod.number(),
+  "issuesDetected": zod.number(),
+  "tasksCreated": zod.number(),
+  "summary": zod.string().optional()
+}).optional(),
+  "error": zod.string().optional(),
+  "createdAt": zod.coerce.date(),
+  "startedAt": zod.coerce.date().optional(),
+  "finishedAt": zod.coerce.date().optional()
+}).describe('Background scan job. Scanning a project (file walk + rule matching + graph extraction + metrics) is heavy, so POST ...\/scan only enqueues it and returns this record immediately with status \"queued\"; poll GET ...\/scan-jobs\/{jobId} until status is \"completed\" or \"failed\".\n')
 
 
 /**

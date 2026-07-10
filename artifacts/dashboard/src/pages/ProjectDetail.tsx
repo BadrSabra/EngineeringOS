@@ -32,7 +32,14 @@ export default function ProjectDetail() {
   const queryClient = useQueryClient();
 
   const { data: project, isLoading: loadingProject } = useGetProject(projectId, {
-    query: { enabled: !!projectId, queryKey: getGetProjectQueryKey(projectId) },
+    query: {
+      enabled: !!projectId,
+      queryKey: getGetProjectQueryKey(projectId),
+      // Scans now run as background jobs (see scan-runner.ts): the project
+      // stays "scanning" until the job finishes, so poll while it's active
+      // rather than relying on a fixed delay before invalidating once.
+      refetchInterval: (query) => (query.state.data?.status === 'scanning' ? 1500 : false),
+    },
   });
 
   const { data: summary, isLoading: loadingSummary } = useGetProjectSummary(projectId, {
@@ -52,13 +59,11 @@ export default function ProjectDetail() {
       { projectId },
       {
         onSuccess: () => {
+          // The scan runs as a background job; optimistically flip to
+          // "scanning" so the poll (refetchInterval above) kicks in right
+          // away instead of waiting for the next natural refetch.
           queryClient.setQueryData(getGetProjectQueryKey(projectId), (old: any) =>
             old ? { ...old, status: 'scanning' } : old,
-          );
-          setTimeout(
-            () =>
-              queryClient.invalidateQueries({ queryKey: getGetProjectQueryKey(projectId) }),
-            3000,
           );
         },
       },

@@ -56,6 +56,8 @@ export * from './rule';
 export * from './ruleEvaluationResult';
 export * from './ruleEvaluationResultMatchesItem';
 export * from './ruleSeverity';
+export * from './scanJob';
+export * from './scanJobStatus';
 export * from './scanResult';
 export * from './startDiscoveryInput';
 export * from './startDiscoveryInputSource';

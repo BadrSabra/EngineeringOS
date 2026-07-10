@@ -48,7 +48,7 @@ import type {
   ProjectSummary,
   Rule,
   RuleEvaluationResult,
-  ScanResult,
+  ScanJob,
   StartDiscoveryInput,
   Task,
   TaskLog,
@@ -540,11 +540,11 @@ export const getScanProjectUrl = (projectId: string,) => {
 }
 
 /**
- * @summary Trigger a project scan
+ * @summary Enqueue a project scan (runs in the background; poll the returned job)
  */
-export const scanProject = async (projectId: string, options?: RequestInit): Promise<ScanResult> => {
+export const scanProject = async (projectId: string, options?: RequestInit): Promise<ScanJob> => {
 
-  return customFetch<ScanResult>(getScanProjectUrl(projectId),
+  return customFetch<ScanJob>(getScanProjectUrl(projectId),
   {
     ...options,
     method: 'POST'
@@ -589,7 +589,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ScanProjectMutationError = ErrorType<unknown>
 
     /**
- * @summary Trigger a project scan
+ * @summary Enqueue a project scan (runs in the background; poll the returned job)
  */
 export const useScanProject = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof scanProject>>, TError,{projectId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -601,6 +601,88 @@ export const useScanProject = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getScanProjectMutationOptions(options));
     }
+
+export const getGetScanJobUrl = (projectId: string,
+    jobId: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/scan-jobs/${jobId}`
+}
+
+/**
+ * @summary Get the status/result of a background scan job
+ */
+export const getScanJob = async (projectId: string,
+    jobId: string, options?: RequestInit): Promise<ScanJob> => {
+
+  return customFetch<ScanJob>(getGetScanJobUrl(projectId,jobId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetScanJobQueryKey = (projectId: string,
+    jobId: string,) => {
+    return [
+    `/api/projects/${projectId}/scan-jobs/${jobId}`
+    ] as const;
+    }
+
+
+export const getGetScanJobQueryOptions = <TData = Awaited<ReturnType<typeof getScanJob>>, TError = ErrorType<unknown>>(projectId: string,
+    jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getScanJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetScanJobQueryKey(projectId,jobId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getScanJob>>> = ({ signal }) => getScanJob(projectId,jobId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined && jobId !== null && jobId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getScanJob>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetScanJobQueryResult = NonNullable<Awaited<ReturnType<typeof getScanJob>>>
+export type GetScanJobQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the status/result of a background scan job
+ */
+
+export function useGetScanJob<TData = Awaited<ReturnType<typeof getScanJob>>, TError = ErrorType<unknown>>(
+ projectId: string,
+    jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getScanJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetScanJobQueryOptions(projectId,jobId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetProjectSummaryUrl = (projectId: string,) => {
 
