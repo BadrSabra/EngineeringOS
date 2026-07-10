@@ -204,17 +204,35 @@ router.post("/projects/:projectId/scan", async (req, res) => {
     const graph = extractGraph(files);
 
     const existingEntities = await db
-      .select({ name: graphEntitiesTable.name, type: graphEntitiesTable.type, id: graphEntitiesTable.id })
+      .select({ name: graphEntitiesTable.name, type: graphEntitiesTable.type, id: graphEntitiesTable.id, path: graphEntitiesTable.path })
       .from(graphEntitiesTable)
       .where(eq(graphEntitiesTable.projectId, projectId));
 
-    const entityKeyToId = new Map<string, string>();
+    // Primary key: type::path::name — prevents cross-file name collisions.
+    // Secondary key: type::name → [ids] — for relationship resolution.
+    // Multiple entities can share a name across files; we record all IDs and
+    // pick the first stable entry so relationships don't shift on re-scan.
+    const entityKeyToId = new Map<string, string>(); // type::path::name → id
+    const entityNameToIds = new Map<string, string[]>(); // type::name → [id, …]
+
+    function addToNameIndex(type: string, name: string, id: string): void {
+      const key = `${type}::${name}`;
+      const existing = entityNameToIds.get(key);
+      if (existing) {
+        existing.push(id);
+      } else {
+        entityNameToIds.set(key, [id]);
+      }
+    }
+
     for (const e of existingEntities) {
-      entityKeyToId.set(`${e.type}::${e.name}`, e.id);
+      const pk = `${e.type}::${e.path ?? e.name}::${e.name}`;
+      entityKeyToId.set(pk, e.id);
+      addToNameIndex(e.type, e.name, e.id);
     }
 
     const entitiesToInsert = graph.entities.filter(
-      (e) => !entityKeyToId.has(`${e.type}::${e.name}`),
+      (e) => !entityKeyToId.has(`${e.type}::${e.path ?? e.name}::${e.name}`),
     );
 
     if (entitiesToInsert.length > 0) {
@@ -229,18 +247,20 @@ router.post("/projects/:projectId/scan", async (req, res) => {
       }));
       await db.insert(graphEntitiesTable).values(entityRows);
       for (const row of entityRows) {
-        entityKeyToId.set(`${row.type}::${row.name}`, row.id);
+        entityKeyToId.set(`${row.type}::${row.path ?? row.name}::${row.name}`, row.id);
+        addToNameIndex(row.type, row.name, row.id);
       }
     }
 
+    // Resolve a relationship endpoint to a DB entity ID.
+    // If multiple entities share the same name (cross-file collision),
+    // return the first stable entry rather than an arbitrary one.
     const findEntityId = (name: string): string | undefined => {
-      const fileId = entityKeyToId.get(`file::${name}`);
-      if (fileId) return fileId;
-      return (
-        entityKeyToId.get(`function::${name}`) ??
-        entityKeyToId.get(`class::${name}`) ??
-        entityKeyToId.get(`module::${name}`)
-      );
+      for (const type of ["file", "function", "class", "module"] as const) {
+        const ids = entityNameToIds.get(`${type}::${name}`);
+        if (ids && ids.length > 0) return ids[0];
+      }
+      return undefined;
     };
 
     const relRows = graph.relationships
@@ -269,10 +289,12 @@ router.post("/projects/:projectId/scan", async (req, res) => {
       projectId,
       timestamp: now,
       overallScore: metrics.overallScore,
+      architectureScore: metrics.architectureScore,
       securityScore: metrics.securityScore,
       maintainabilityScore: metrics.maintainabilityScore,
       reliabilityScore: metrics.reliabilityScore,
       performanceScore: metrics.performanceScore,
+      testCoverage: metrics.testCoverage,
       technicalDebt: metrics.technicalDebt,
       lintIssues: metrics.lintIssues,
     });

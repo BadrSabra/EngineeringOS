@@ -1,1 +1,2 @@
 - [Autonomous Project Discovery](discovery-feature.md) — correctness rules for discovery/import: rootPath hard-fail, atomic claim, transactional import.
+- [Audit Fixes](audit-fixes.md) — graph dual-map identity, rate-limit proxy trust, metrics alignment, codegen gate, scanner test suite behavioral facts.

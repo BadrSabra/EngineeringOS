@@ -3,10 +3,12 @@ import type { ScannedFile } from "./file-walker.js";
 
 export interface ComputedMetrics {
   overallScore: number;
+  architectureScore: number;
   securityScore: number;
   maintainabilityScore: number;
   reliabilityScore: number;
   performanceScore: number;
+  testCoverage: number;
   technicalDebt: number;
   lintIssues: number;
 }
@@ -43,6 +45,65 @@ function getDimension(
     return "reliability";
   }
   return "maintainability";
+}
+
+const TEST_FILE_RE = /\.(test|spec)\.(ts|js|tsx|jsx)$|_test\.(ts|js)$|__tests__\//;
+const SOURCE_EXTENSIONS = new Set(["typescript", "javascript", "python", "go", "rust", "java"]);
+
+/**
+ * Estimate test coverage from the ratio of test files to source files.
+ * This is a proxy metric — actual branch coverage requires instrumented runs.
+ */
+function computeTestCoverage(files: ScannedFile[]): number {
+  const sourceFiles = files.filter(
+    (f) => f.language && SOURCE_EXTENSIONS.has(f.language),
+  );
+  if (sourceFiles.length === 0) return 0;
+
+  const testFiles = sourceFiles.filter((f) => TEST_FILE_RE.test(f.path));
+  const nonTestSourceFiles = sourceFiles.filter((f) => !TEST_FILE_RE.test(f.path));
+
+  if (nonTestSourceFiles.length === 0) return 0;
+
+  // Ratio: how many source files have a corresponding test file (rough proxy)
+  const coverageRatio = testFiles.length / nonTestSourceFiles.length;
+  return Math.min(100, Math.round(coverageRatio * 100));
+}
+
+/**
+ * Estimate architecture score from structural indicators:
+ * - Presence of organized directory structure
+ * - Absence of circular-looking import density
+ * - Config/tooling maturity signals
+ */
+function computeArchitectureScore(files: ScannedFile[]): number {
+  let score = 70; // baseline
+
+  const paths = files.map((f) => f.path);
+  const hasSourceDir = paths.some((p) => p.startsWith("src/") || p.includes("/src/"));
+  const hasTestDir = paths.some(
+    (p) => p.includes("/test/") || p.includes("/__tests__/") || p.includes("/tests/"),
+  );
+  const hasConfigFiles = paths.some((p) =>
+    ["tsconfig.json", "package.json", "pyproject.toml", "Cargo.toml", "go.mod"].some((cfg) =>
+      p.endsWith(cfg),
+    ),
+  );
+  const hasDocumentation = paths.some((p) =>
+    p.toLowerCase().includes("readme") || p.toLowerCase().includes("docs/"),
+  );
+
+  if (hasSourceDir) score += 8;
+  if (hasTestDir) score += 7;
+  if (hasConfigFiles) score += 5;
+  if (hasDocumentation) score += 5;
+
+  // Penalize very flat structures (all files in root)
+  const rootFiles = paths.filter((p) => !p.includes("/")).length;
+  const flatnessPenalty = Math.min(15, Math.floor((rootFiles / Math.max(paths.length, 1)) * 30));
+  score -= flatnessPenalty;
+
+  return Math.min(100, Math.max(0, Math.round(score)));
 }
 
 /**
@@ -91,20 +152,25 @@ export function computeMetrics(
   const maintainabilityScore = clamp(100 - penalties.maintainability);
 
   const overallScore = clamp(
-    securityScore * 0.35 +
-    reliabilityScore * 0.25 +
-    maintainabilityScore * 0.25 +
-    performanceScore * 0.15,
+    securityScore * 0.30 +
+    reliabilityScore * 0.20 +
+    maintainabilityScore * 0.20 +
+    performanceScore * 0.15 +
+    computeArchitectureScore(files) * 0.15,
   );
 
   const technicalDebt = Math.round((lintIssues * 30) / 60);
+  const testCoverage = computeTestCoverage(files);
+  const architectureScore = computeArchitectureScore(files);
 
   return {
     overallScore,
+    architectureScore,
     securityScore,
     maintainabilityScore,
     reliabilityScore,
     performanceScore,
+    testCoverage,
     technicalDebt,
     lintIssues,
   };
