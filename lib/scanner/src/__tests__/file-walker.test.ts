@@ -85,4 +85,39 @@ describe("walkProject", () => {
     const result = await walkProject("/this/path/does/not/exist/at/all");
     expect(result.rootExists).toBe(false);
   });
+
+  it("marks files over 512KB as oversized and skips their content", async () => {
+    const bigContent = "x".repeat(512 * 1024 + 10);
+    await writeFile(join(TEST_DIR, "src", "huge.ts"), bigContent);
+    try {
+      const result = await walkProject(TEST_DIR);
+      const huge = result.files.find((f) => f.path === "src/huge.ts");
+      expect(huge).toBeDefined();
+      expect(huge?.oversized).toBe(true);
+      expect(huge?.content).toBe("");
+    } finally {
+      await rm(join(TEST_DIR, "src", "huge.ts"), { force: true });
+    }
+  });
+
+  it("ignores unsupported extensions", async () => {
+    await writeFile(join(TEST_DIR, "image.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    try {
+      const result = await walkProject(TEST_DIR);
+      expect(result.files.some((f) => f.path === "image.png")).toBe(false);
+    } finally {
+      await rm(join(TEST_DIR, "image.png"), { force: true });
+    }
+  });
+
+  it("does not recurse into dot-directories", async () => {
+    await mkdir(join(TEST_DIR, ".hidden"), { recursive: true });
+    await writeFile(join(TEST_DIR, ".hidden", "secret.ts"), "export const x = 1;");
+    try {
+      const result = await walkProject(TEST_DIR);
+      expect(result.files.some((f) => f.path.includes(".hidden"))).toBe(false);
+    } finally {
+      await rm(join(TEST_DIR, ".hidden"), { recursive: true, force: true });
+    }
+  });
 });

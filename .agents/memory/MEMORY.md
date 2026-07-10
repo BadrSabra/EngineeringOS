@@ -1,2 +1,3 @@
 - [Autonomous Project Discovery](discovery-feature.md) — correctness rules for discovery/import: rootPath hard-fail, atomic claim, transactional import.
 - [Audit Fixes](audit-fixes.md) — graph dual-map identity, rate-limit proxy trust, metrics alignment, codegen gate, scanner test suite behavioral facts.
+- [Testing & drift-check gotchas](testing-drift-checks.md) — git-diff vs git-status for codegen drift, DB test isolation, proving atomic claims and real error paths.

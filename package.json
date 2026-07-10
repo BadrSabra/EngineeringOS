@@ -5,6 +5,7 @@
   "scripts": {
     "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
     "codegen": "pnpm --filter @workspace/api-spec run codegen",
+    "codegen:check": "pnpm run codegen && test -z \"$(git status --porcelain -- lib/api-zod/src/generated lib/api-client-react/src/generated)\" || (echo '\\nOpenAPI contract drift detected: generated code is out of date with openapi.yaml (includes new/untracked files). Run `pnpm run codegen` and commit the result.' && git status --porcelain -- lib/api-zod/src/generated lib/api-client-react/src/generated && exit 1)",
     "build": "pnpm run codegen && pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",

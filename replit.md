@@ -61,6 +61,8 @@ _Populate as you build — explicit user instructions worth remembering across s
 - بعد أي تغيير في `openapi.yaml` يجب تشغيل codegen قبل أي شيء آخر
 - `pnpm run typecheck:libs` يجب أن يُشغّل بعد تغيير أي حزمة في `lib/*`
 - لا تُشغّل `pnpm run dev` من جذر المستودع — استخدم workflows
+- `pnpm run codegen:check` — يتحقق من عدم وجود drift بين `openapi.yaml` والكود المولّد (يفشل CI عند الاختلاف)
+- `pnpm run test` — يشغّل اختبارات كل الحزم (scanner: 40 اختبار، api-server: 8 اختبارات تكامل مع DB حقيقية)
 
 ## Pointers
 
