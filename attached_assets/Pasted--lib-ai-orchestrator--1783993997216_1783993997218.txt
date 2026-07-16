@@ -1,0 +1,266 @@
+# خطة تعديل كود مباشرة لـ `lib/ai-orchestrator`
+
+## الهدف
+
+رفع موثوقية طبقة الذكاء الاصطناعي من طبقة تعتمد على نصوص Prompt و`JSON.parse` إلى طبقة ذات:
+
+* Prompt templates منفصلة وقابلة للإدارة.
+* تحقق runtime صارم للمدخلات والمخرجات.
+* اختبارات parsing/fallback تغطي حالات الانحراف.
+* حدود تشغيلية أوضح داخل `workflow-orchestrator` و`groq-client`.
+
+---
+
+## المرحلة 1: استخراج Prompt Templates خارج الملفات
+
+### المطلوب
+
+نقل جميع الـ prompts من داخل ملفات المنطق إلى ملفات مستقلة قابلة للمراجعة والتعديل.
+
+### التنفيذ
+
+1. إنشاء مجلد جديد مثل:
+
+   * `lib/ai-orchestrator/prompts/`
+2. تقسيم الـ prompts حسب الوظيفة، مثل:
+
+   * `review.prompt.ts`
+   * `scan.prompt.ts`
+   * `workflow.prompt.ts`
+   * `task.prompt.ts`
+   * `chat.prompt.ts`
+3. كل ملف prompt يجب أن يصدّر:
+
+   * النص الأساسي
+   * تعليمات الإخراج
+   * صيغة JSON المتوقعة
+   * أي قيود خاصة بالنموذج
+4. داخل ملفات الوكلاء:
+
+   * استبدال النصوص المضمّنة باستيراد prompt template
+   * منع وجود prompt طويل داخل دالة التنفيذ نفسها
+5. إضافة طبقة `prompt-builder` عند الحاجة لدمج context الديناميكي فقط، وليس النص الثابت.
+
+### معيار النجاح
+
+* لا يوجد prompt كبير inline داخل الملفات التنفيذية.
+* كل مخرج LLM له template واضح ويمكن تتبعه.
+* أي تعديل على prompt لا يتطلب لمس منطق التنفيذ.
+
+---
+
+## المرحلة 2: إضافة Schema Validation Runtime
+
+### المطلوب
+
+إيقاف الاعتماد على TypeScript فقط، وإضافة تحقق فعلي وقت التشغيل لكل مدخل ومخرج.
+
+### التنفيذ
+
+1. إنشاء schemas مشتركة باستخدام `zod` أو الأداة المستخدمة في المشروع:
+
+   * `lib/ai-orchestrator/schemas/`
+2. تعريف schemas لكل نوع response:
+
+   * `AgentReviewResultSchema`
+   * `WorkflowDecisionSchema`
+   * `TaskRecommendationSchema`
+   * `ScanSummarySchema`
+   * `ChatResponseSchema`
+3. تعريف schemas لمدخلات الوكلاء أيضًا:
+
+   * `AgentContextSchema`
+   * `WorkflowInputSchema`
+   * `TaskInputSchema`
+4. بعد استدعاء النموذج:
+
+   * لا يتم استخدام الناتج مباشرة
+   * يتم `safeParse`
+   * عند الفشل، يتم تشغيل fallback واضح
+5. توحيد شكل الأخطاء:
+
+   * `PARSE_FAILED`
+   * `SCHEMA_VALIDATION_FAILED`
+   * `EMPTY_MODEL_RESPONSE`
+   * `MALFORMED_JSON`
+
+### معيار النجاح
+
+* أي response من النموذج يمر عبر schema قبل الاستخدام.
+* الفشل لا يكسر النظام، بل يذهب إلى fallback محسوب.
+* لا توجد `any` أو casting مباشر عند الاستهلاك النهائي للناتج إلا بحدود ضيقة ومعلنة.
+
+---
+
+## المرحلة 3: كتابة اختبارات Parsing/Fallback
+
+### المطلوب
+
+تغطية السلوك الفعلي عند فشل النموذج أو خروج النص عن الصيغة المتوقعة.
+
+### التنفيذ
+
+1. إنشاء مجموعة اختبارات تحت:
+
+   * `lib/ai-orchestrator/__tests__/`
+2. اختبارات parsing:
+
+   * response JSON صحيح
+   * response داخل code fences
+   * response يحتوي نصًا إضافيًا قبل/بعد JSON
+   * response فارغ
+   * response JSON غير مكتمل
+   * response بصيغة غير متوقعة
+3. اختبارات schema validation:
+
+   * payload صالح
+   * payload ناقص حقولًا إلزامية
+   * payload بأنواع خاطئة
+4. اختبارات fallback:
+
+   * التأكد أن fallback يُستدعى عند parse failure
+   * التأكد أن fallback يُستدعى عند schema failure
+   * التأكد أن النظام لا يرمي crash
+5. اختبارات خاصة بكل agent:
+
+   * `workflow-orchestrator`
+   * `groq-client`
+   * أي wrapper يتعامل مع LLM response
+
+### معيار النجاح
+
+* كل حالة فشل parsing لها اختبار.
+* كل fallback critical path له اختبار.
+* التغطية تشمل الردود الطبيعية وغير الطبيعية، وليس الرد المثالي فقط.
+
+---
+
+## المرحلة 4: تقوية `workflow-orchestrator`
+
+### المطلوب
+
+تحويل orchestration من “موجه prompt” إلى “متحكم قرار مضبوط” بحدود واضحة.
+
+### التنفيذ
+
+1. فصل القرار عن التنفيذ:
+
+   * `decide()`
+   * `validateDecision()`
+   * `executeDecision()`
+2. تقليل الاعتماد على output حر من النموذج:
+
+   * النموذج يقترح
+   * المنظومة تتحقق
+   * التنفيذ يتم فقط بعد التحقق
+3. إضافة guardrails:
+
+   * منع transitions غير المسموحة
+   * منع القفز بين مراحل workflow دون شرط
+   * رفض القرارات غير المتسقة مع state الحالي
+4. إضافة fallback behavior واضح:
+
+   * لو القرار غير صالح، العودة إلى state آمن
+   * تسجيل سبب الرفض
+5. إضافة correlation logging:
+
+   * ربط القرار بالـ workflow id
+   * ربط القرار بالـ trace أو request id
+   * ربط النتيجة بالـ audit/event logs
+
+### معيار النجاح
+
+* لا يستطيع النموذج وحده تمرير transition غير صالح.
+* كل transition يمر عبر validation صريح.
+* orchestration يصبح deterministic قدر الإمكان.
+
+---
+
+## المرحلة 5: تقوية `groq-client`
+
+### المطلوب
+
+رفع صلابة طبقة الاتصال بالنموذج لأنها بوابة الفشل الأولى.
+
+### التنفيذ
+
+1. فصل:
+
+   * بناء الطلب
+   * إرسال الطلب
+   * قراءة الرد
+   * التحقق من الرد
+   * التعامل مع الأخطاء
+2. إضافة handling واضح لـ:
+
+   * timeout
+   * empty response
+   * invalid schema
+   * non-200 response
+   * network failure
+3. إضافة retry محدود ومدروس فقط للحالات المناسبة.
+4. إضافة backoff أو delay إن كان مناسبًا داخل حدود النظام.
+5. منع تسريب raw response إلى الطبقات العليا دون تحقق.
+6. تسجيل metadata مفيدة:
+
+   * model
+   * duration
+   * token-related metadata إن وجدت
+   * success/failure reason
+
+### معيار النجاح
+
+* `groq-client` لا يُرجع نصًا خامًا غير مفهوم للطبقات العليا.
+* كل failure له مسار محدد.
+* الأخطاء قابلة للتتبع وليست صامتة.
+
+---
+
+## الترتيب المقترح للتنفيذ
+
+### PR 1
+
+استخراج كل prompt templates إلى ملفات مستقلة.
+
+### PR 2
+
+إضافة schemas runtime وربطها بعدد محدود من الوكلاء أولًا.
+
+### PR 3
+
+كتابة اختبارات parsing/fallback وتثبيت behavior الحالي.
+
+### PR 4
+
+إعادة تنظيم `workflow-orchestrator` حول decision/validation/execution.
+
+### PR 5
+
+تقوية `groq-client` وإحكام contract الإرسال والاستقبال.
+
+### PR 6
+
+تنظيف نهائي:
+
+* إزالة أي parsing مكرر
+* إزالة أي `JSON.parse` مباشر غير محمي
+* توحيد error model
+* تحديث التوثيق الداخلي
+
+---
+
+## تعريف الإغلاق الناجح
+
+تُعتبر هذه الطبقة محسّنة فعليًا عندما:
+
+* تصبح الـ prompts منفصلة.
+* تصبح المخرجات محكومة بـ schemas.
+* تصبح حالات الفشل مغطاة باختبارات.
+* يصبح `workflow-orchestrator` حارس قرار لا مجرد wrapper.
+* يصبح `groq-client` بوابة قوية بدل أن يكون نقطة هشاشة.
+
+---
+
+## النتيجة المتوقعة
+
+بعد هذه التعديلات، تتحول `lib/ai-orchestrator` من طبقة “تعتمد على حسن نية النموذج” إلى طبقة “تتوقع الخطأ وتمنع انتشاره”، وهذا ينعكس مباشرة على ثبات `scan/discovery/graph/AI` في `api-server`.

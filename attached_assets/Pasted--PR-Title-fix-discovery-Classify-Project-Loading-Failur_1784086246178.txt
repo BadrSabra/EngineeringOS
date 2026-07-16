@@ -1,0 +1,475 @@
+# PR Title
+
+**fix(discovery): Classify Project Loading Failures by Root Cause Instead of Reporting Generic Session Expiration**
+
+---
+
+# Problem Statement
+
+الواجهة تعرض دائمًا:
+
+> `Could not load your projects — your session may have expired.`
+
+بينما الكود الحالي يعامل جميع حالات فشل `GET /api/projects` بنفس الطريقة.
+
+هذا يجعل:
+
+* Unauthorized
+* Forbidden
+* Internal Server Error
+* Network Failure
+* API Unavailable
+
+تظهر جميعها كأنها Session Expired، وهو تشخيص غير صحيح ويصعب عملية التحقيق.
+
+---
+
+# Scope
+
+يشمل هذا الـ PR فقط طبقة تحميل المشاريع.
+
+لا يغير:
+
+* Discovery Engine
+* Scanner
+* Project Registration
+* AI Orchestration
+
+---
+
+# Files
+
+## Frontend
+
+```
+artifacts/dashboard/src/pages/AiChat.tsx
+```
+
+```
+lib/api-client-react/src/custom-fetch.ts
+```
+
+إذا وجد:
+
+```
+hooks/useProjects.ts
+```
+
+أو
+
+```
+projects-api.ts
+```
+
+فيتم نقل المنطق إليها.
+
+---
+
+## Backend
+
+```
+artifacts/api-server/src/routes/projects.ts
+```
+
+```
+artifacts/api-server/src/middlewares/requireAuth.ts
+```
+
+---
+
+# Exact Implementation Checklist
+
+---
+
+## Phase 1
+
+### Instrument Request
+
+قبل أي تعديل.
+
+أضف Logging كامل.
+
+يسجل:
+
+```
+GET /api/projects
+
+status
+
+response body
+
+headers
+
+elapsed time
+
+userId
+
+requestId
+```
+
+---
+
+## Phase 2
+
+### Verify Authentication
+
+راجع
+
+```
+requireAuth.ts
+```
+
+وتحقق من:
+
+```
+401
+
+403
+
+missing Clerk session
+
+expired session
+
+invalid JWT
+```
+
+كل حالة يجب أن تكون منفصلة.
+
+---
+
+## Phase 3
+
+### Verify API Route
+
+راجع
+
+```
+routes/projects.ts
+```
+
+وتحقق:
+
+```
+هل يتم الوصول فعلاً للـ route؟
+
+هل يتم تنفيذ query؟
+
+هل ownerId موجود؟
+
+هل الاستثناء يتحول إلى 500؟
+```
+
+---
+
+## Phase 4
+
+### Verify Client
+
+راجع
+
+```
+custom-fetch.ts
+```
+
+وتحقق:
+
+هل يحتفظ بـ
+
+```
+status
+
+body
+
+headers
+```
+
+داخل
+
+```
+ApiError
+```
+
+ولا يقوم بإخفائها.
+
+---
+
+## Phase 5
+
+### Improve Error Mapping
+
+بدلاً من
+
+```
+Could not load your projects.
+```
+
+استخدم:
+
+| HTTP    | UI                                                  |
+| ------- | --------------------------------------------------- |
+| 401     | Session expired. Please sign in again.              |
+| 403     | You don't have permission to access these projects. |
+| 404     | Projects endpoint unavailable.                      |
+| 500     | Internal server error.                              |
+| Network | Cannot reach server.                                |
+
+---
+
+## Phase 6
+
+### Prevent False Session Errors
+
+لا تستخدم
+
+```
+projectsErrored
+```
+
+وحدها.
+
+بل:
+
+```
+if (error.status===401)
+
+...
+
+else if(error.status===403)
+
+...
+
+else if(network)
+
+...
+
+else
+```
+
+---
+
+## Phase 7
+
+### Retry Strategy
+
+لا تعيد المحاولة إذا
+
+```
+401
+```
+
+أعد المحاولة فقط إذا
+
+```
+500
+
+502
+
+503
+
+504
+
+network
+```
+
+---
+
+## Phase 8
+
+### Telemetry
+
+أضف
+
+```
+ProjectLoadFailed
+```
+
+ويحتوي:
+
+```
+reason
+
+status
+
+requestId
+
+userId
+
+duration
+```
+
+---
+
+# Test Plan
+
+## Test 1
+
+Valid Session
+
+Expected
+
+```
+Projects Loaded
+```
+
+---
+
+## Test 2
+
+Expired Session
+
+Backend
+
+```
+401
+```
+
+Expected
+
+```
+Session expired.
+
+Sign in again.
+```
+
+---
+
+## Test 3
+
+Forbidden
+
+Backend
+
+```
+403
+```
+
+Expected
+
+```
+Access denied.
+```
+
+---
+
+## Test 4
+
+Server Error
+
+```
+500
+```
+
+Expected
+
+```
+Server unavailable.
+```
+
+---
+
+## Test 5
+
+Network Failure
+
+قطع الاتصال.
+
+Expected
+
+```
+Cannot connect.
+```
+
+---
+
+## Test 6
+
+Empty Projects
+
+Backend
+
+```
+[]
+```
+
+Expected
+
+```
+No projects yet.
+```
+
+وليس
+
+```
+Could not load.
+```
+
+---
+
+## Test 7
+
+Delayed Clerk Bootstrap
+
+اجعل
+
+```
+isLoaded=false
+```
+
+لمدة ثانيتين.
+
+Expected
+
+```
+Loading...
+
+↓
+
+Fetch
+
+↓
+
+Projects
+```
+
+بدون أخطاء.
+
+---
+
+## Test 8
+
+Refresh Token
+
+انتهاء التوكن أثناء الاستخدام.
+
+Expected
+
+```
+Refresh
+
+↓
+
+Projects reload
+
+↓
+
+No Error
+```
+
+إذا كان النظام يدعم تجديد الجلسة تلقائيًا.
+
+---
+
+# Acceptance Criteria
+
+* تصنيف جميع أخطاء تحميل المشاريع حسب السبب الحقيقي.
+* عدم عرض رسالة "session expired" إلا عند رد `401` المؤكد.
+* الاحتفاظ بمعلومات الخطأ (`status`، و`requestId` إن وجد، ونوع الفشل) حتى تصل إلى طبقة العرض.
+* عدم كسر تدفق تحميل المشاريع عندما تكون الجلسة صالحة.
+* تغطية اختبارات للحالات الأساسية: `200`، `401`، `403`، `500`، فشل الشبكة، والقائمة الفارغة.
+
+# Rollback Plan
+
+1. إعادة منطق عرض الرسالة القديم في `AiChat.tsx` إذا ظهرت مشكلات في واجهة المستخدم.
+2. الإبقاء على تحسينات الـ logging والـ telemetry حتى عند التراجع.
+3. التراجع عن تصنيف الأخطاء فقط دون تعديل `custom-fetch.ts` أو `requireAuth.ts` إذا ثبت أن السبب في طبقة العرض وحدها.
+4. تنفيذ التراجع في Commit مستقل بحيث يمكن مقارنة السلوك قبل وبعد الإصلاح بسهولة.

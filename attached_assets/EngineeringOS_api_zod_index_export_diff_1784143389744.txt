@@ -1,0 +1,7 @@
+# Add to lib/api-zod/src/index.ts
+
+```diff
+ export * from "./generated/api";
+ export * from "./generated/types";
++export * from "./truth-flow-matrix.schema";
+```

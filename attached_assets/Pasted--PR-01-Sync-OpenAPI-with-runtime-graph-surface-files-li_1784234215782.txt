@@ -1,0 +1,56 @@
+
+
+**PR-01 — Sync OpenAPI with runtime graph surface**
+**files:** `lib/api-spec/openapi.yaml`, `artifacts/api-server/src/routes/graph.ts`, `lib/api-zod/src/generated/*`, `lib/api-client-react/src/generated/*`
+**exact change:** إضافة المسارات الناقصة إلى OpenAPI، خصوصًا: `/api/graph/evidence/{entityId}`, `/api/graph/runtime-subgraph/{projectId}`, `/api/graph/semantic-neighborhood`, `/api/graph/subgraph`, ثم إعادة توليد `api-zod` و`api-client-react`
+**tests:** تحديث `artifacts/api-server/src/routes/graph.test.ts` لتغطية المسارات الجديدة، ثم تشغيل فحص drift
+**risk:** متوسط؛ أي خطأ في التوقيع سيكسر التوليد ويؤثر على الواجهة
+
+**PR-02 — Add contract coverage for AI apply-changes**
+**files:** `artifacts/api-server/src/routes/ai.ts`, `lib/api-spec/openapi.yaml`, `artifacts/api-server/src/routes/ai.test.ts`
+**exact change:** توثيق `POST /api/ai/chat/apply-changes` في OpenAPI، ثم تثبيت سلوكه كمسار رسمي بدل أن يبقى runtime-only
+**tests:** اختبار نجاح كتابة ملف واحد، اختبار path tampering خارج `rootPath`, اختبار partial success وإرجاع `207`
+**risk:** متوسط؛ هذا المسار حساس لأنه يكتب فعليًا على القرص
+
+**PR-03 — Normalize AI provider gating across all AI endpoints**
+**files:** `artifacts/api-server/src/routes/ai.ts`, `artifacts/api-server/src/lib/credentials-crypto.ts`, `lib/db/src/schema/ai_provider_credentials.ts`, `artifacts/api-server/src/routes/ai.test.ts`
+**exact change:** توحيد سلوك `requireGroqApiKey()` بحيث تكون كل مسارات AI واضحة في حالة غياب المفتاح، مع رد متوقع وثابت `428` أو ما يعادله حسب العقد المعتمد
+**tests:** تغطية `chat`, `review`, `analyze`, `orchestrate`, `execute` عند غياب المفتاح
+**risk:** منخفض إلى متوسط؛ التغيير تنظيمي لكنه يمس سلوكًا مشتركًا
+
+**PR-04 — Harden discovery session lifecycle and import claim**
+**files:** `artifacts/api-server/src/routes/discovery.ts`, `lib/db/src/schema/discovery.ts`, `artifacts/api-server/src/routes/discovery.test.ts`
+**exact change:** تثبيت حالة الجلسة كـ state machine أوضح: `discovering → ready → imported/failed`, مع claim ذري يمنع import مزدوج
+**tests:** جلسة ناجحة، session غير مملوكة، import مكرر، rootPath غير صالح، cleanup بعد الفشل
+**risk:** متوسط؛ discovery هو بوابة دخول المنصة
+
+**PR-05 — Strengthen scan job lifecycle and failure recovery**
+**files:** `artifacts/api-server/src/lib/scan-runner.ts`, `artifacts/api-server/src/routes/projects.ts`, `lib/db/src/schema/scan_jobs.ts`, `artifacts/api-server/src/lib/job-queue.ts`, `artifacts/api-server/src/lib/job-reconciliation.ts`
+**exact change:** توحيد حالات job بشكل أوضح، وتأكيد إعادة `projects.status` إلى `active` بعد الفشل، وإبقاء reconciliation متسقة مع status transitions
+**tests:** queued → running → completed، queued → running → failed، restart reconciliation، backlog handling
+**risk:** متوسط إلى مرتفع؛ يؤثر على التشغيل الخلفي كله
+
+**PR-06 — Add direct tests for AI chat file tool boundary**
+**files:** `lib/ai-orchestrator/src/tools/file-tools.ts`, `lib/ai-orchestrator/src/agents/chat-agent.ts`, `artifacts/api-server/src/routes/ai.test.ts`
+**exact change:** تثبيت أن `write_file` ينشئ `PendingChange` فقط، وأن الكتابة الحقيقية لا تتم إلا عبر `apply-changes`
+**tests:** read/list/search works, write becomes pending only, no write outside rootPath, apply-changes writes only after approval
+**risk:** منخفض؛ هذا PR يرفع الثقة ولا يغيّر السلوك الأساسي
+
+**PR-07 — Expand workflow transition assertions**
+**files:** `artifacts/api-server/src/routes/workflows.ts`, `lib/db/src/schema/workflows.ts`, `artifacts/api-server/src/routes/workflows.test.ts`
+**exact change:** تشديد transition guards في start/advance/fail/retry/stop، والتأكد أن كل transition ينتج event/audit متسق
+**tests:** start → advance → complete، fail-phase → retry-phase، stop أثناء running، 409 على transition غير صالح
+**risk:** متوسط؛ يخص state machine مركزية
+
+**PR-08 — Increase task execution verification clarity**
+**files:** `artifacts/api-server/src/routes/tasks.ts`, `lib/db/src/schema/tasks.ts`, `artifacts/api-server/src/routes/tasks.test.ts`
+**exact change:** توحيد semantics بين `completed`, `verifying`, `failed`, و`rollback/cancelled`، مع إظهار `verificationResult` بشكل أدق
+**tests:** claim atomic، retry count، rollback، verification outcome, audit/event emission
+**risk:** متوسط؛ لأن task lifecycle يرتبط بعدة سطوح
+
+**PR-09 — Clarify AI read-only analysis flows**
+**files:** `artifacts/api-server/src/routes/ai.ts`, `lib/ai-orchestrator/src/context-builder.ts`, `lib/ai-orchestrator/src/agents/{scan-analyst,code-reviewer,workflow-orchestrator}.ts`
+**exact change:** توثيق وتثبيت أن `review/analyze/orchestrate` قراءة/قرار فقط، مع تحديد حدود الـ context window بوضوح
+**tests:** context window limits, no filesystem tools in these modes, proper event emission
+**risk:** منخفض؛ لكنه مهم لتقليل الالتباس بين المسارات
+

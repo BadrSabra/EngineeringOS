@@ -1,0 +1,307 @@
+بعد فحص الحزمة كاملةً، الصورة الحقيقية واضحة: **EngineeringOS ليس تطبيقًا واحدًا، بل منصة متعددة الطبقات** فيها نواة تنفيذية ناضجة، وطبقة عقود/توليد متماسكة، وطبقة معرفة/ذكاء، وطبقة حوكمة/أدلة.
+والأهم أن المشروع **أبعد بكثير من كونه سطح UI**؛ هو أقرب إلى “control plane” هندسي يراقب ويحلل ويؤرشف ويستنتج ويُحكِم التتبع.
+
+## الخلاصة التنفيذية
+
+* الأرشيف يحتوي **593 ملفًا فعليًا**.
+* سجل الحقيقة الموجود في `docs/fact-record.md` يوثّق **562 ملفًا**.
+* إذن هناك **31 ملفًا جديدًا أو غير مُسجّل** في السجل الحالي، أي نحو **5.2% drift** بين الحقيقة الموثقة والحقيقة الفعلية.
+* `openapi.yaml` الحالي يحتوي **49 path** و**62 operation**، بينما `docs/completion-plan.md` ما زال يعرض أرقامًا أقدم؛ هذا وحده يثبت أن **الخطة الوثائقية متأخرة عن الكود**.
+* قاعدة البيانات فيها **17 جدولًا** رئيسيًا، وليس مجرد مخطط بسيط.
+* أحدث `fact-record` يذكر أن الاختبارات وصلت إلى **219/219** وأنه لا توجد أخطاء TypeScript جديدة، لكن هذا يبقى **تقرير تحقق داخلي** من المستودع نفسه، وليس إعادة تشغيل مني هنا.
+
+## ما هو المشروع فعلاً
+
+### 1) طبقة المصدر المرجعي
+
+هذه الطبقة هي قلب النظام، وفيها:
+
+* `lib/api-spec/openapi.yaml`
+* `lib/api-spec/orval.config.ts`
+* `lib/api-zod/src/generated/*`
+* `lib/api-client-react/src/generated/*`
+* `lib/db/src/schema/*`
+
+هذه الطبقة تقول إن المشروع **contract-first** فعلاً، وليست مجرد نية.
+
+### 2) طبقة التنفيذ
+
+وفيها:
+
+* `artifacts/api-server/src/*`
+* `lib/scanner/src/*`
+* `lib/knowledge-engine/src/*`
+* `lib/ai-orchestrator/src/*`
+
+هذه ليست ملفات هيكلية فقط؛ فيها:
+
+* فحص مشاريع حقيقي
+* استخراج graph
+* محرك معرفة BFS/shortest path/centrality/clustering
+* orchestration لعدد من وكلاء AI
+* API server محمي ومراقَب
+
+### 3) طبقة واجهة التشغيل
+
+وفيها:
+
+* `artifacts/dashboard/src/pages/*`
+* `artifacts/dashboard/src/components/*`
+
+الواجهة ليست “لوحة شكلية”، بل تعكس:
+
+* Projects
+* Tasks
+* Rules
+* Workflows
+* Events
+* Metrics
+* Graph
+* AI Chat
+* Discover Project Wizard
+* Sign in / Sign up
+
+### 4) طبقة الحوكمة والذاكرة
+
+وفيها:
+
+* `docs/fact-record.md`
+* `docs/completion-plan.md`
+* `.agents/memory/*`
+* `attached_assets/*`
+
+وهذه طبقة مهمّة جدًا لأن المشروع يحاول أن يجعل **الحقيقة قابلة للتدقيق**، لا مجرد وصف جميل.
+
+## ما الذي أثبته الكود الآن
+
+### أ. الأمن والتشغيل
+
+في `artifacts/api-server/src/app.ts` توجد إجراءات واضحة:
+
+* تعطيل `etag`
+* `helmet`
+* `rate limiting`
+* `no-store` على `/api`
+* `requireAuth` على كل شيء عدا health
+* `cors` مضبوط
+* body size محدود
+
+هذا يعني أن المشروع أخذ **hardened platform posture** بجدية.
+
+### ب. الملكية والعزل بين المشاريع
+
+لم يعد الوصول عامًا:
+
+* `projects`
+* `tasks`
+* `rules`
+* `workflows`
+* `events`
+* `metrics`
+* `graph`
+* `ai`
+
+كلها تمر عبر ownership checks مثل `requireProjectAccess` و`loadProjectByIdForUser`.
+وهذا مهم جدًا لأن `docs/completion-plan.md` ما زال يذكر فجوة قديمة عن غياب `ownerId`، بينما الكود الحالي **أغلق هذه الفجوة فعليًا**. إذن الخطة هنا **مُتأخرة عن الواقع**.
+
+### ج. السجل والتتبع
+
+هناك:
+
+* `audit_logs`
+* `events`
+* `metrics`
+* `task_logs`
+* correlation IDs
+* `recordAudit(...)`
+
+أي أن المنصة لا تنفذ فقط، بل **تُثبت ما نفذته**.
+
+### د. discovery وscan
+
+الموجود حاليًا ليس “placeholder”:
+
+* اكتشاف مصادر متعددة
+* `validateRootPath`
+* `verifyProjectRoot`
+* clonable temp dirs
+* atomic / bounded queue
+* scanner يقرأ TS/JS/Python
+* rule matching
+* graph extraction
+* metrics calculation
+
+### هـ. المعرفة والذكاء
+
+هناك طبقتان واضحتان:
+
+* `lib/knowledge-engine`: استعلامات graph وتحليل بنيوي
+* `lib/ai-orchestrator`: chat, code review, scan analysis, task agent, workflow orchestrator
+
+وهذا يجعل EngineeringOS أقرب إلى **نظام استدلال وتشغيل هندسي** وليس مجرد CRUD.
+
+### و. Groq credential management
+
+هذا الجزء موجود الآن في الكود:
+
+* `lib/db/src/schema/ai_provider_credentials.ts`
+* `artifacts/api-server/src/lib/credentials-crypto.ts`
+* `artifacts/api-server/src/routes/ai.ts`
+* `artifacts/dashboard/src/pages/AiChat.tsx`
+
+وهو يعني:
+
+* مفتاح Groq يُحفظ لكل مستخدم
+* يُشفّر AES-256-GCM
+* لا يُرجع المفتاح خامًا
+* الواجهة تعرض `configured / last4 / updatedAt`
+* يوجد fallback إلى `GROQ_API_KEY` على الخادم
+
+هذه إضافة مهمة جدًا، لكنها **غير منعكسة بعد في truth register** الحالي.
+
+## الفجوات الحقيقية الآن
+
+### 1) سجل الحقيقة متأخر عن الكود
+
+هناك **31 ملفًا غير مسجّل** في `docs/fact-record.md`.
+ومنها ملفات مهمة جدًا:
+
+* `lib/api-client-react/src/custom-fetch.ts`
+* `lib/api-client-react/src/project-error.ts`
+* `lib/api-zod/src/truth-flow-matrix.schema.ts`
+* `lib/db/src/schema/ai_provider_credentials.ts`
+* `artifacts/api-server/src/lib/credentials-crypto.ts`
+* ملفات Groq key generated types
+* `docs/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md`
+* `docs/truth-flow-pr-checklist.md`
+
+هذا يعني أن **وثيقة الحقيقة نفسها أصبحت قديمة جزئيًا**.
+
+### 2) `docs/completion-plan.md` فيه backlog متجاوز
+
+الوثيقة ما زالت تعرض محاور لم تعد دقيقة بالكامل مع الكود الحالي.
+أبرز مثال: محور authorization model القديم لم يعد يعكس الحالة الفعلية، لأن الكود الآن يطبق ownership scoping بالفعل.
+
+### 3) مسار الإرسال في AI Chat ما زال فيه صمت UX
+
+في `artifacts/dashboard/src/pages/AiChat.tsx`:
+
+* هناك classification جيد لأخطاء تحميل المشاريع
+* وهناك Groq key card
+* لكن `handleSend()` ما زال يرجع بصمت إذا لم يوجد project أو كانت mutation جارية
+* وأخطاء `/api/ai/chat` ما زالت تُعرض غالبًا كنص خام بدل تصنيف غني
+
+هذه فجوة UX حقيقية، وليست مجرد تحسين تجميلي.
+
+### 4) job queue ما زال in-process
+
+`artifacts/api-server/src/lib/job-queue.ts` ما زال bounded in-memory queue.
+هذا جيد للحد من الضغط، لكنه **ليس durable**.
+إذن محور “durable queue” ما زال gap حقيقيًا.
+
+### 5) onboarding موجود لكنه ليس بعد “autonomous first-run” كامل
+
+`DiscoverProjectWizard` موجود ومربوط داخل `Projects.tsx`، لكن المسار ما زال أقرب إلى **wizard داخل صفحة** وليس pipeline onboarding مستقلًا بالكامل من المصدر إلى import إلى summary إلى approval.
+
+## الطريقة العملية الصحيحة لتلخيص الوضع الحالي
+
+أفضل طريقة هنا ليست كتابة تقرير وصفي فقط، بل **تحويل المشروع إلى طبقات تحقق قابلة للحساب**:
+
+### الطبقة الأولى: الحقيقة المرجعية
+
+أولًا تُستخرج قائمة ملفات فعلية من الأرشيف، ثم تُقارن بـ:
+
+* `docs/fact-record.md`
+* `docs/completion-plan.md`
+* `openapi.yaml`
+* `schema/index.ts`
+* routes
+* generated outputs
+
+النتيجة تكون:
+
+* what exists
+* what is missing
+* what is stale
+* what is newly added and unregistered
+
+### الطبقة الثانية: تصنيف الملفات
+
+كل ملف يُوضع في واحدة من هذه الفئات:
+
+* source-of-truth
+* generated
+* runtime
+* prototype
+* decision-log
+* archived evidence
+* control-doc
+* workspace-config
+
+وهذا موجود فعلًا في truth register، لكنه يحتاج تحديثًا ليغطي الملفات الجديدة.
+
+### الطبقة الثالثة: ربط كل ملف بأثره
+
+لكل ملف:
+
+* role
+* status
+* evidence
+* gap
+* priority
+* next action
+
+هذا هو الشكل العملي الوحيد الذي يمنع السطحية.
+
+## خطة الاستكمال المنطقية
+
+### المسار 1 — تثبيت الحقيقة
+
+* تحديث `docs/fact-record.md` ليتضمن الملفات الـ31 غير المسجّلة.
+* تحديث `docs/completion-plan.md` ليطابق الواقع الحالي.
+* توحيد `ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md` مع الحقيقة الفعلية.
+
+### المسار 2 — إغلاق الفجوات التشغيلية
+
+* إنهاء تصنيف أخطاء AI Chat بالكامل بدل النص الخام.
+* إزالة الصمت في send path.
+* جعل onboarding أقرب إلى تدفق discovery حقيقي.
+* ترقية queue من in-process إلى durable إذا كان التشغيل خارج جلسة واحدة مهمًا.
+
+### المسار 3 — قفل العقد والـ drift
+
+* جعل `openapi → zod → client → route → tests` مسارًا محكومًا.
+* تشغيل drift checks كشرط merge.
+* ربط أي تعديل schema/route بتجديد generated artifacts تلقائيًا.
+
+### المسار 4 — تثبيت الحوكمة
+
+* تحويل truth-flow schema/checklist إلى gate فعلي.
+* ربط كل claim بعنصر evidence/provenance.
+* منع الوثائق القديمة من أن تحكم قرارات جديدة.
+
+### المسار 5 — توسيع الاعتماد على الحقيقة التشغيلية
+
+* جعل dashboard يعكس state الحقيقي بدل approximation.
+* ربط AI/graph/workflow/discovery في story واحد coherent.
+* إبقاء UI تابعًا للبيانات، لا العكس.
+
+## التقييم النهائي
+
+المشروع **ليس في بدايته**؛ هو في مرحلة متقدمة نسبيًا من حيث:
+
+* architecture
+* contract discipline
+* execution surfaces
+* governance scaffolding
+
+لكنّه ما زال يحتاج:
+
+* **مزامنة حقيقة**
+* **إغلاق UX gaps**
+* **durability**
+* **تحديث الوثائق التشغيلية**
+* **تحويل الخطة إلى backlog PR متسلسل**
+
+الخطوة الأهم الآن هي جعل **truth register هو الحاكم الوحيد للحالة الحالية**، ثم تحويل الفجوات المتبقية إلى PR backlog صغير ومنضبط يبدأ من الأعلى مخاطرة:
+**مزامنة الحقيقة، ثم إغلاق UX failures، ثم durability، ثم drift automation**.

@@ -1,0 +1,194 @@
+النهج المناسب في هذا الكود ليس وضع `GROQ_API_KEY` داخل JavaScript العميل نفسه، لأن تنفيذ Groq يتم حاليًا من الخادم داخل `lib/ai-orchestrator/src/groq-client.ts`. التنفيذ الصحيح هو: **واجهة داخل الداشبورد لإدخال المفتاح، ثم تخزينه مشفّرًا على الخادم ومربوطًا بـ `ownerId` لكل مستخدم، ثم تمريره إلى Groq عند كل طلب**.
+
+## PR Title
+
+**feat(ai): add user-scoped Groq API key setup from the dashboard and inject it into server-side AI requests**
+
+## Test Plan
+
+1. **Default fallback**
+
+   * بدون مفتاح محفوظ للمستخدم، يبقى السلوك الحالي يعمل عبر `process.env.GROQ_API_KEY`.
+   * تأكد أن `complete()` ما زالت تنجح في الوضع الافتراضي.
+
+2. **Save key from dashboard**
+
+   * من صفحة `artifacts/dashboard/src/pages/AiChat.tsx` أضف المفتاح واحفظه.
+   * بعد إعادة التحميل، يظهر أنه محفوظ، لكن بشكل masked وليس نصًا صريحًا.
+
+3. **Per-user isolation**
+
+   * مستخدم A يحفظ مفتاحه.
+   * مستخدم B لا يستطيع قراءته أو تعديله أو استخدامه.
+
+4. **AI requests use the saved key**
+
+   * `POST /api/ai/chat` وما يتبعه من `analyze/review/task/workflow` يستخدم المفتاح المحفوظ للمستخدم الحالي بدل متغير Replit.
+
+5. **Delete / disable key**
+
+   * عند حذف المفتاح من الداشبورد، يرجع النظام إلى fallback أو يطلب إعادة الإدخال حسب السياسة التي تعتمدها.
+
+6. **Invalid input handling**
+
+   * المفتاح الفارغ أو القصير جدًا يرفض قبل الحفظ.
+   * لا يظهر المفتاح في logs أو toast أو response body.
+
+7. **Regression coverage**
+
+   * `groq-client.test.ts` يغطي: fallback env، مفتاح مستخدم ممرر صراحة، وفشل بدون أي مفتاح صالح.
+   * `routes/ai.test.ts` أو test جديد يغطي CRUD للمفتاح وصلاحيات الملكية.
+
+## Exact Implementation Checklist
+
+1. **إضافة تخزين مؤقت/دائم للمفتاح على مستوى المستخدم**
+
+   * أنشئ schema جديدًا في `lib/db/src/schema/` مثل:
+
+     * `ai_provider_credentials.ts`
+   * الحقول المقترحة:
+
+     * `id`
+     * `ownerId`
+     * `provider` = `"groq"`
+     * `encryptedApiKey`
+     * `last4`
+     * `createdAt`
+     * `updatedAt`
+   * اجعل `unique(ownerId, provider)` أو equivalent.
+
+2. **تحديث تصدير الـ schema**
+
+   * أضف الجدول الجديد إلى `lib/db/src/schema/index.ts`.
+   * إذا كان هناك generated types أو zod schemas مرتبطة، حدّثها أيضًا.
+
+3. **إضافة طبقة تشفير على الخادم**
+
+   * أنشئ helper في `artifacts/api-server/src/lib/` لتشفير/فك تشفير المفتاح.
+   * أضف env جديدًا للخادم مثل `AI_CREDENTIALS_ENCRYPTION_KEY`.
+   * لا تخزن المفتاح plaintext في قاعدة البيانات.
+
+4. **إضافة endpoints لإدارة المفتاح**
+
+   * في `artifacts/api-server/src/routes/ai.ts` أو router جديد مخصص:
+
+     * `GET /api/ai/groq-key` لإرجاع حالة المفتاح فقط
+     * `PUT /api/ai/groq-key` لحفظ/تحديث المفتاح
+     * `DELETE /api/ai/groq-key` لحذفه
+   * اربط كل العمليات بـ `req.userId` من Clerk.
+
+5. **إرجاع metadata فقط للواجهة**
+
+   * عند `GET` أرجع:
+
+     * `configured: boolean`
+     * `last4: string | null`
+     * `updatedAt`
+   * لا ترجع المفتاح نفسه أبدًا.
+
+6. **تحديث واجهة AiChat**
+
+   * داخل `artifacts/dashboard/src/pages/AiChat.tsx` أضف بطاقة/قسم بعنوان مثل:
+
+     * **Groq API Key**
+   * الحقول:
+
+     * input type password
+     * زر Save
+     * زر Remove
+     * حالة “configured”
+     * عرض `last4` فقط
+   * لا تضع المفتاح في localStorage.
+
+7. **تمرير المفتاح إلى AI runtime**
+
+   * عدّل `lib/ai-orchestrator/src/groq-client.ts` بحيث لا يعتمد فقط على `_client` singleton المرتبط بـ `process.env.GROQ_API_KEY`.
+   * الأفضل:
+
+     * `complete(messages, { apiKey, ... })`
+     * أو `getClient(apiKey)`
+   * اجعل client cache keyed by apiKey أو client-per-call.
+   * هذا مهم لأن singleton واحد لن يصلح لمستخدمين بعدة مفاتيح.
+
+8. **تمرير المفتاح من route إلى orchestrator**
+
+   * عدّل `artifacts/api-server/src/routes/ai.ts` ليجلب مفتاح Groq الخاص بالمستخدم الحالي قبل استدعاء:
+
+     * `chat`
+     * `analyzeScan`
+     * `reviewCode`
+     * `executeTask`
+     * `orchestrateWorkflow`
+   * مرر المفتاح كـ option إلى الطبقة العليا ثم إلى `complete()`.
+
+9. **تحديث signatures في ai-orchestrator**
+
+   * عدّل:
+
+     * `chat-agent.ts`
+     * `scan-analyst.ts`
+     * `code-reviewer.ts`
+     * `task-agent.ts`
+     * `workflow-orchestrator.ts`
+   * بحيث تقبل `apiKey?: string` أو `providerConfig`.
+   * لا تغيّر منطق parsing/validation إلا بقدر تمرير المفتاح.
+
+10. **تحديث API contracts / generated client**
+
+    * إذا أضفت endpoints جديدة، حدّث:
+
+      * `lib/api-spec/openapi.yaml`
+      * ثم أعد توليد:
+
+        * `lib/api-client-react/src/generated/*`
+    * إذا أبقيت endpoints داخل `routes/ai.ts` لكن بدون تغيير contract public، قد لا تحتاج regeneration، لكن يظل توثيق الـ spec مهمًا.
+
+11. **اختبارات الخادم**
+
+    * أضف/حدّث tests في:
+
+      * `lib/ai-orchestrator/src/__tests__/groq-client.test.ts`
+      * `artifacts/api-server/src/routes/ai.test.ts`
+    * غطِّ:
+
+      * env fallback
+      * user key injection
+      * missing key
+      * wrong user cannot access key
+      * delete behavior
+
+12. **اختبار واجهة الداشبورد**
+
+    * إن لم يوجد harness UI كامل، على الأقل:
+
+      * `pnpm --filter @workspace/dashboard run typecheck`
+      * smoke manual على `/ai`
+    * إذا كان لديك testing stack للواجهة، أضف component test لبطاقة Groq key.
+
+13. **تنظيف السجلات**
+
+    * راجع أي logging في:
+
+      * `artifacts/api-server/src/routes/ai.ts`
+      * `lib/ai-orchestrator/src/groq-client.ts`
+    * تأكد أن:
+
+      * المفتاح لا يُطبع
+      * body لا يحتوي secret
+      * error messages لا تكشفه
+
+14. **Fallback policy**
+
+    * إذا لم يوجد مفتاح محفوظ للمستخدم:
+
+      * استخدم `process.env.GROQ_API_KEY` كخيار احتياطي فقط
+      * أو أوقف AI features برسالة واضحة
+    * ثبّت السياسة في الكود بدل تركها ضمنيًا.
+
+## Rollback
+
+* أعد `groq-client.ts` إلى الاعتماد على `process.env.GROQ_API_KEY` فقط إذا كسر التمرير الجديد تشغيل AI.
+* عطّل endpoints الجديدة فقط مع إبقاء باقي المنصة كما هي.
+* أزل UI card من `AiChat.tsx` إذا سبّب تعارضًا مع التحميل أو الصلاحيات.
+* إذا ظهرت مشكلة في التشفير، ارجع إلى persistence المعطّل مؤقتًا مع fallback env، بدل كسر كامل مسار AI.
+

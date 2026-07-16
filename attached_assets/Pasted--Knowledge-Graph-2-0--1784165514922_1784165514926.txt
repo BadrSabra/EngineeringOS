@@ -1,0 +1,333 @@
+# قائمة تنفيذ تقنية مختصرة لـ Knowledge Graph 2.0 داخل المشروع
+
+## الهدف
+
+تحويل الجراف من روابط بنيوية فقط إلى **Graph معرفي** يحمل:
+
+* نوع العلاقة
+* مستوى الثقة
+* الأدلة
+* المصدر/provenance
+* البيانات الدلالية
+* التمييز بين البنيوي / السلوكي / runtime / heuristic
+
+---
+
+## 1) `lib/scanner/src/graph-extractor.ts` — **الأولوية: P0**
+
+### ماذا نعدّل
+
+الملف الحالي يخرج:
+
+* `ExtractedEntity`
+* `ExtractedRelationship`
+
+لكن بشكل محدود جدًا.
+نحوّل الإخراج إلى كائنات غنية دلاليًا.
+
+### دوال جديدة مقترحة
+
+* `buildGraphProvenance()`
+* `extractJsDocMetadata()`
+* `collectSemanticTags()`
+* `classifyRelationType()`
+* `scoreExtractionConfidence()`
+* `collectEvidence()`
+* `emitGraphEntity()`
+* `emitGraphRelationship()`
+
+### الحقول الجديدة في `ExtractedEntity`
+
+* `kind`
+* `sourceType`
+* `isDocumented`
+* `semanticTags`
+* `description`
+* `confidence`
+* `owner`
+* `domain`
+* `lifecycle`
+
+### الحقول الجديدة في `ExtractedRelationship`
+
+* `relationType`
+* `relationSubtype`
+* `confidence`
+* `evidence`
+* `sourceType`
+* `isHeuristic`
+* `isRuntimeObserved`
+* `semanticTags`
+* `observedAt`
+
+### النتيجة
+
+كل عقدة/علاقة تصبح قابلة للتتبع والثقة، لا مجرد نص مربوط بنص.
+
+---
+
+## 2) `lib/knowledge-engine/src/queries.ts` + `inference.ts` + `types.ts` — **الأولوية: P0/P1**
+
+### ماذا نعدّل
+
+الـ engine الحالي يتعامل مع graph موحد.
+في 2.0 يجب أن يقرأ:
+
+* نوع العلاقة
+* مصدرها
+* الثقة
+* الأدلة
+* الدلالة
+
+### دوال جديدة مقترحة
+
+في `queries.ts`:
+
+* `getEdgesByType()`
+* `getEvidenceForNode()`
+* `getSemanticNeighborhood()`
+* `getHighConfidencePath()`
+* `getObservedRuntimeSubgraph()`
+* `getLayeredGraphView()`
+
+في `inference.ts`:
+
+* `rankEdgesByConfidence()`
+* `computeWeightedCentrality()`
+* `detectSemanticClusters()`
+* `computeLayeredGraphSummary()`
+
+في `types.ts`:
+
+* `GraphEdgeType`
+* `GraphProvenance`
+* `GraphEvidence`
+* `SemanticTag`
+* `GraphEdgeWeight`
+
+### ما الذي يجب أن يدعمه الاستعلام
+
+* `edgeTypes[]`
+* `minConfidence`
+* `sourceTypes[]`
+* `semanticTags[]`
+* `observedOnly`
+* `heuristicOnly`
+
+### النتيجة
+
+الـ knowledge-engine يصبح قادرًا على الإجابة:
+
+* ما نوع العلاقة؟
+* هل هي موثقة أم مستنتجة؟
+* ما أدلتها؟
+* ما وزنها؟
+* هل هي بنيوية أم runtime أم semantic؟
+
+---
+
+## 3) `lib/db/src/schema/graph.ts` — **الأولوية: P0**
+
+### ماذا نعدّل
+
+الملف الحالي يحتوي على:
+
+* `graphEntitiesTable`
+* `graphRelationshipsTable`
+* `provenance`
+* `confidence` جزئيًا
+
+لكن يحتاج حقولًا صريحة أكثر للتخزين والاستعلام.
+
+### الحقول المقترحة في `graphEntitiesTable`
+
+* `kind`
+* `sourceType`
+* `isDocumented`
+* `semanticTags` (`jsonb`)
+* `description`
+* `confidence`
+* `domain`
+* `lifecycle`
+
+### الحقول المقترحة في `graphRelationshipsTable`
+
+* `relationType`
+* `relationSubtype`
+* `weight`
+* `isHeuristic`
+* `isRuntimeObserved`
+* `evidenceJson` (`jsonb`)
+* `evidenceCount`
+* `evidenceSummary`
+* `semanticTags` (`jsonb`)
+* `sourceType`
+
+### ما الذي يبقى
+
+* `provenance` يبقى موجودًا
+* `confidence` يبقى موجودًا
+* لكن يُدعَّم بحقول قابلة للفلترة والفرز
+
+### فهارس مقترحة
+
+* `projectId`
+* `sourceId`
+* `targetId`
+* `relationType`
+* `confidence`
+* `createdAt`
+
+### النتيجة
+
+قاعدة البيانات تصبح قادرة على تمثيل الحقيقة المصدرية والمستنتجة والدلالية بدل خلطها في طبقة واحدة.
+
+---
+
+## 4) `artifacts/api-server/src/routes/graph.ts` — **الأولوية: P1**
+
+### ماذا نعدّل
+
+الراوت الحالي يعرض entities/relationships/summary/path/impact.
+نضيف إليه فلاتر وتمرير الحقول الجديدة.
+
+### فلاتر جديدة في Query Params
+
+* `relationType`
+* `minConfidence`
+* `sourceType`
+* `semanticTag`
+* `observedOnly`
+* `heuristicOnly`
+
+### ما الذي نمرره في responses
+
+* `provenance`
+* `confidence`
+* `relationType`
+* `relationSubtype`
+* `evidence`
+* `semanticTags`
+* `isHeuristic`
+* `isRuntimeObserved`
+
+### راوتات إضافية مفيدة
+
+* `GET /graph/evidence`
+* `GET /graph/subgraph`
+* `GET /graph/semantic-neighborhood`
+
+### النتيجة
+
+الـ API لا يعرض graph فقط، بل يعرض graph قابل للتفسير والتدقيق.
+
+---
+
+## 5) `artifacts/dashboard/src/pages/Graph.tsx` — **الأولوية: P1/P2**
+
+### ماذا نعدّل
+
+الصفحة الحالية تعرض الجراف بصريًا.
+في 2.0 يجب أن تعرض الطبقة المعرفية أيضًا.
+
+### ما الذي يظهر في الـ UI
+
+#### على العقدة Node
+
+* `kind`
+* `sourceType`
+* `confidence`
+* `semanticTags`
+* `description`
+* `isDocumented`
+* `domain`
+* `lifecycle`
+
+#### على العلاقة Edge
+
+* `relationType`
+* `relationSubtype`
+* `confidence`
+* `evidenceCount`
+* `provenance`
+* `isHeuristic`
+* `isRuntimeObserved`
+
+### مكونات UI جديدة مقترحة
+
+* `GraphFilters`
+* `NodeInspector`
+* `EdgeInspector`
+* `ConfidenceBadge`
+* `EvidenceList`
+* `SemanticTagPills`
+
+### فلاتر عرض جديدة
+
+* نوع العلاقة
+* الثقة الدنيا
+* documented / undocumented
+* observed / heuristic
+* semantic tag
+* source type
+
+### النتيجة
+
+الـ dashboard يصبح أداة فهم وتدقيق، لا مجرد رسم للعلاقات.
+
+---
+
+## 6) الملفات المولدة من OpenAPI / Orval — **الأولوية: P0 بعد تحديث schema**
+
+### الملفات المتأثرة
+
+* `lib/api-zod/src/generated/types/graphEntity.ts`
+* `lib/api-zod/src/generated/types/graphRelationship.ts`
+* `lib/api-zod/src/generated/types/graphProvenance.ts`
+* `lib/api-zod/src/generated/types/graphEntityMetadata.ts`
+* `lib/api-zod/src/generated/types/graphRelationshipMetadata.ts`
+* وما يقابلها في `lib/api-client-react/src/generated/*`
+
+### ماذا يحدث
+
+بعد تعديل الـ schema وOpenAPI:
+
+* تُعاد توليد types
+* تُحدَّث الواجهات
+* تُثبت الحقول الجديدة في العميل والـ dashboard
+
+### النتيجة
+
+لا يحدث drift بين DB / API / client / UI.
+
+---
+
+## ترتيب التنفيذ المختصر
+
+### P0
+
+1. `lib/scanner/src/graph-extractor.ts`
+2. `lib/db/src/schema/graph.ts`
+3. إعادة توليد `api-zod` و`api-client-react`
+
+### P1
+
+4. `lib/knowledge-engine/src/queries.ts`
+5. `lib/knowledge-engine/src/inference.ts`
+6. `artifacts/api-server/src/routes/graph.ts`
+
+### P2
+
+7. `artifacts/dashboard/src/pages/Graph.tsx`
+
+---
+
+## تعريف الاكتمال
+
+يكون Knowledge Graph 2.0 جاهزًا عندما:
+
+* لا توجد علاقة بلا نوع
+* لا توجد عقدة بلا provenance
+* لا يوجد edge بلا confidence
+* لا يوجد استعلام يخلط heuristic مع observed دون توضيح
+* الـ dashboard يعرض الأدلة والثقة والدلالة، لا الروابط فقط

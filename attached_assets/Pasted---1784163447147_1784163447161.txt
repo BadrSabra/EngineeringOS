@@ -1,0 +1,161 @@
+  التعديل يجب أن يبدأ من ملفات دورة الحياة، ثم ينتقل إلى تنظيف الموارد المؤقتة، ثم إلى تقليل القياس الوهمي، ثم إلى تقوية الواجهة ضد الأخطاء الصامتة.
+
+## 1) الملف الأهم: `artifacts/api-server/src/lib/job-reconciliation.ts`
+
+**الجزء المطلوب تعديله:** داخل `reconcileScanJobs()`، تحديدًا السطران اللذان يعيدان حالة المشروع إلى `active`.
+
+**المطلوب أن يصبح:**
+إعادة الضبط لا تكون “افتراضية” لكل job قديم، بل **مشروطة بحالة المشروع الحالية وملكية الجوب الفعلية**.
+النسخة الحالية تنفّذ:
+
+```ts
+.update(projectsTable)
+.set({ status: "active", updatedAt: now })
+.where(eq(projectsTable.id, job.projectId));
+```
+
+وهذا هو موضع الخطر.
+
+**التعديل المقترح:**
+
+* إضافة شرط حالة واضحة، على الأقل `status = "scanning"`.
+* والأفضل معماريًا: إضافة **معرّف للجوب الجاري** داخل `projectsTable` مثل `activeScanJobId` أو `currentScanJobId`، ثم:
+
+  * عند بدء الفحص: يُخزَّن `jobId` في المشروع.
+  * عند الإنهاء الناجح أو الفاشل: لا تُستعاد `active` إلا إذا كان `currentScanJobId` ما زال يطابق الجوب نفسه.
+  * عند الـ reconciliation: يُصفَّر فقط إذا كانت الجوب المتجمدة هي نفسها الجوب المسجَّل حاليًا.
+
+**لماذا هذا هو الأول؟**
+لأن هذا هو موضع **stale-state clobbering** الحقيقي: مشروع قديم يمكن أن يطيح بحالة أحدث إذا لم توجد ملكية صريحة للجوب.
+
+---
+
+## 2) الملف المكمّل لنفس المشكلة: `artifacts/api-server/src/lib/scan-runner.ts`
+
+**الجزء المطلوب تعديله:**
+
+* في `runScanJob()` عند النجاح: سطر استعادة المشروع إلى `active`.
+* وفي `catch` أيضًا سطر استعادة المشروع إلى `active`.
+
+**المطلوب أن يصبح:**
+استعادة الحالة لا تكون مطلقة، بل مرتبطة بكون هذا الجوب هو الجوب الذي يملك حالة الفحص الحالية.
+
+النسخة الحالية تفعل هذا مباشرة:
+
+```ts
+.update(projectsTable)
+.set({ status: "active", updatedAt: new Date() })
+.where(eq(projectsTable.id, projectId));
+```
+
+**التعديل المقترح:**
+
+* نفس منطق `currentScanJobId` المذكور أعلاه.
+* أو على الأقل شرط `status = "scanning"` إذا أردت إصلاحًا أقل عمقًا.
+* وإذا أُضيفت ملكية الجوب للمشروع، فيجب أن:
+
+  * يكتب `runScanJob()` حالة `completed/failed`.
+  * ثم يفرّغ `currentScanJobId` فقط عند التطابق.
+  * ولا يلمس مشروعًا لم يعد تابعًا له.
+
+**لماذا هذا مهم؟**
+لأن عندك الآن “نهاية نجاح” و“نهاية فشل” كليهما يعيدان المشروع لنفس الحالة بشكل غير مميّز، وهذا يفتح باب drift في الحالة التشغيلية.
+
+---
+
+## 3) ملف التنظيف المؤجل: `artifacts/api-server/src/routes/discovery.ts`
+
+**الجزء المطلوب تعديله:**
+البلوك الخاص بـ:
+
+```ts
+heavyJobQueue.enqueue(() =>
+  runDiscovery(id, normalizedPath).catch((err) =>
+    logger.error({ err, sessionId: id }, "Unhandled discovery error"),
+  ),
+);
+```
+
+**المطلوب أن يصبح:**
+أي clone مؤقت ناتج من `GIT_REPOSITORY` يجب أن يُنظَّف **بعد انتهاء job**، وليس فقط عند فشل التحقق المبكر.
+
+**التعديل المقترح:**
+
+* اجعل الـ enqueue يلتف في `try/finally`.
+* مرّر `resolved` أو `tempDir` داخل closure.
+* ثم نفّذ:
+
+```ts
+heavyJobQueue.enqueue(async () => {
+  try {
+    await runDiscovery(id, normalizedPath);
+  } finally {
+    await cleanupResolveResult(resolved);
+  }
+});
+```
+
+**لماذا هذا مهم؟**
+لأن `cleanupResolveResult()` موجودة أصلًا، لكن استخدامها الحالي يغطي فقط الفشل المبكر.
+أما النجاح، فهو ما زال يترك احتمال تراكم `/tmp/eos-git-*` إذا كان المصدر Git clone.
+
+---
+
+## 4) ملف الثقة القياسية المضلِّلة: `artifacts/api-server/src/lib/plugin-runtime.ts`
+
+**الجزء المطلوب تعديله:**
+المنطقة الخاصة بـ `plugin-docs` حول الأسطر التي تحسب:
+
+```ts
+documentable.length / ctx.sourceFiles
+```
+
+**المطلوب أن يصبح:**
+إما:
+
+* استبدال هذا بمؤشر حقيقي مبني على doc metadata extracted من scanner،
+* أو على الأقل إعادة تسميته وتقديمه صراحة كـ **heuristic advisory** لا coverage حقيقي.
+
+**التعديل المقترح:**
+
+* لا تُظهره كأنه “document coverage” فعلي.
+* اجعله “documentation heuristic score” أو “docs advisory”.
+* والأهم: خطط لربطه لاحقًا باستخراج JSDoc/docstrings من scanner بدل الاعتماد على كثافة الكيانات مقابل عدد الملفات.
+
+**لماذا هذا مهم؟**
+لأن المشروع يبني طبقة معرفة، وهذه الطبقة لا يجوز أن تقيس نفسها بقياس proxy يوحي بدقة أعلى من الحقيقة.
+
+---
+
+## 5) ملف الواجهة الهشّة: `artifacts/dashboard/src/pages/AiChat.tsx`
+
+**الجزء المطلوب تعديله:**
+السطر الذي يفك `msg.sources` عبر:
+
+```ts
+JSON.parse(msg.sources)
+```
+
+**المطلوب أن يصبح:**
+Parsing آمن مع fallback واضح.
+
+**التعديل المقترح:**
+
+* لفّ التحليل في helper آمن.
+* أعد `[]` عند الفشل بدل كسر العرض.
+* الأفضل أيضًا أن يكون `sources` من البداية structured payload بدل stringified JSON.
+
+**لماذا هذا مهم؟**
+لأن هذا موضع brittle صغير لكنه visible جدًا للمستخدم، ويكسر تجربة AI chat إذا وصل payload غير صالح.
+
+---
+
+## النتيجة النهائية العملية
+
+إذا كان مطلوبًا **أول تعديل فعلي واحد**، فالترتيب الصحيح هو:
+
+1. `artifacts/api-server/src/lib/job-reconciliation.ts`
+2. `artifacts/api-server/src/lib/scan-runner.ts`
+3. `artifacts/api-server/src/routes/discovery.ts`
+
+

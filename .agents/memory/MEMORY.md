@@ -1,0 +1,22 @@
+- [Autonomous Project Discovery](discovery-feature.md) — correctness rules for discovery/import: rootPath hard-fail, atomic claim, transactional import.
+- [Audit Fixes](audit-fixes.md) — graph dual-map identity, rate-limit proxy trust, metrics alignment, codegen gate, scanner test suite behavioral facts.
+- [Testing & drift-check gotchas](testing-drift-checks.md) — git-diff vs git-status for codegen drift, DB test isolation, proving atomic claims and real error paths.
+- [Scanner AST rewrite](scanner-ast-extraction.md) — graph-extractor uses TS compiler API for TS/JS and a batched `python3 ast` subprocess for Python; regex only as fallback now.
+- [EngineeringOS completion plan](engineeringos-completion-plan.md) — phased plan lives in docs/; work inside-out (data→execution→analysis→orchestration→governance→tests→UI→docs), never UI-first.
+- [Deferred FK vs atomic-claim ordering](fk-atomic-claim-ordering.md) — adding a real FK on a "claim" column breaks pre-transaction optimistic-claim patterns; move the claim inside the same tx, after the referenced row is inserted.
+- [Orval/OpenAPI codegen gotchas](orval-openapi-codegen.md) — inline (non-$ref) request-body schemas can collide with generated zod-type exports; always $ref a named schema for non-empty bodies.
+- [Drizzle error wrapping](drizzle-error-wrapping.md) — raw pg error (`.code`/`.constraint`) is on `err.cause`, not `err`, when using drizzle-orm's node-postgres driver.
+- [Imported project workflow/DB failures](imported-project-workflow-failures.md) — missing `node_modules` vs. never-pushed drizzle schema are separate root causes for post-import workflow failures.
+- [Clerk auth + vitest supertest bypass](clerk-auth-testing.md) — vitest defaults NODE_ENV=test; gate requireAuth bypass on that instead of mocking Clerk tokens for supertest.
+- [Knowledge engine package](knowledge-engine.md) — lib/knowledge-engine: BFS impact/path/neighbourhood queries + centrality/cluster inference; drizzle-orm must be a direct dep (not just transitive via @workspace/db).
+- [AI Orchestration Layer](ai-orchestrator-layer.md) — lib/ai-orchestrator with Groq; 5 agents; /api/ai/* routes; ai_chat_sessions/messages tables; AiChat dashboard page at /ai.
+- [Silent API failure: ETag/304, not auth](clerk-401-race-cookie-vs-bearer.md) — signed-in-looking "failure" was Express ETag causing bodyless 304 (fetch treats as error); disable etag + no-store, check status codes before blaming auth.
+- [Knowledge-engine BFS off-by-one](knowledge-engine-bfs-depth.md) — a test-less package aborting `pnpm -r test` early masked a real bug in a sibling package's already-passing-looking tests.
+- [Discovery multi-source architecture](discovery-multi-source.md) — SourceAdapter pattern, 6 SourceType values, DB schema columns, generated file locations, build commands.
+- [AI orchestrator hardening](ai-orchestrator-hardening.md) — prompts/schemas/parsing separation, zod generic-inference gotcha with `.default()`, decide/validate/execute split, groq-client error codes.
+- [Discovery adapter registry](discovery-adapter-registry.md) — adding a source type needs only ADAPTERS entry; route never changes. isResolveError narrows the union.
+- [Project ownership/access-scope model](project-ownership-scoping.md) — single-owner ownerId, requireProjectAccess middleware, 404-vs-403 convention; only projects.ts enforces it so far.
+- [Imported project missing Clerk secrets](imported-project-clerk-secrets.md) — clerkMiddleware crashes on every request (incl. tests) with "Missing Clerk Secret Key" pre-auth-bypass; fix is setupClerkWhitelabelAuth(), not code changes.
+- [completion-plan.md backlog is stale](completion-plan-stale-backlog.md) — its trailing "Remaining open items" list lags behind the phase log above it; verify against code, not the backlog text.
+- [Dashboard scoping PR-01](dashboard-scoping-pr01.md) — dashboard route scoped to ownerId; inArray needs non-empty guard; 7 isolation tests added.
+- [AI Tool Calling Architecture](ai-tool-calling.md) — file-system tools (read/list/search/write) with deferred write approval; completeRaw in groq-client; agentic loop in chat-agent.

@@ -1,0 +1,299 @@
+{
+  "project": "EngineeringOS",
+  "mission": "Turn the project into a contract-driven, verifiable, production-ready multi-layer platform.",
+  "execution_order": [
+    "T1",
+    "T2",
+    "T3",
+    "T4",
+    "T7",
+    "T6",
+    "T5",
+    "T8"
+  ],
+  "global_rules": [
+    "Do not mark a task done until all acceptance criteria pass.",
+    "Do not proceed past a failing validation gate.",
+    "Keep changes minimal and within the task scope unless required by dependency.",
+    "Treat OpenAPI drift as a blocking defect.",
+    "Prefer explicit state, explicit failure modes, and explicit auditability."
+  ],
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "ثبت سجل الحقيقة مع شجرة الملفات الحالية",
+      "priority": "high",
+      "blocked_by": [],
+      "targets": [
+        "docs/fact-record.md",
+        "docs/completion-plan.md",
+        ".agents/memory/*",
+        "attached_assets/*"
+      ],
+      "objective": "مزامنة سجل الحقيقة مع الشجرة الفعلية وإخراج تصنيف نهائي لكل ملف: عقد/بيانات/تحليل/تنفيذ/عرض/مختبر/وثائق/أصول.",
+      "commands": [
+        "git status --short",
+        "find . -type f | sort > /tmp/engineeringos-tree.txt",
+        "pnpm run typecheck"
+      ],
+      "steps": [
+        "قارن سجل الحقيقة والشجرة الفعلية واكشف أي ملفات مفقودة أو مكررة أو غير مصنفة.",
+        "حدّث التصنيف لكل ملف وفق دوره الفعلي لا اسمه فقط.",
+        "أغلق أي تعارض عددي أو وصفي بين الوثائق وبين الأصول الحقيقية."
+      ],
+      "acceptance": [
+        "لا يوجد ملف tracked خارج سجل الحقيقة.",
+        "كل ملف في السجل له تصنيف واحد واضح.",
+        "لا توجد تعارضات بين عدّ الملفات والعناوين والأقسام."
+      ],
+      "validation": [
+        "git status --short",
+        "pnpm run typecheck"
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "تقوية الحدود غير الوظيفية في طبقة التنفيذ",
+      "priority": "high",
+      "blocked_by": [
+        "T1"
+      ],
+      "targets": [
+        "artifacts/api-server/src/app.ts",
+        "artifacts/api-server/src/routes/*",
+        "lib/db/src/schema/*"
+      ],
+      "objective": "إغلاق الفجوات الأمنية/التشغيلية عبر سياسات مفروضة ومختبرة بدل الاعتماد على اتفاق ضمني.",
+      "commands": [
+        "pnpm --filter @workspace/api-server typecheck",
+        "pnpm --filter @workspace/api-server test",
+        "pnpm run typecheck"
+      ],
+      "steps": [
+        "ثبت إعدادات Helmet وCORS وRate Limit في نقطة دخول واحدة واضحة.",
+        "حدد قرار auth/RBAC صراحة: تطبيقه الآن أو توثيق عدم تفعيله كقرار منتج داخلي.",
+        "عرّف الحدود الخاصة بالبيانات الحساسة ومسار التدقيق audit log."
+      ],
+      "acceptance": [
+        "إعدادات CORS/Helmet/Rate limit موجودة ومبررة ومختبرة.",
+        "موقف auth/RBAC موثق بوضوح أو مطبق فعلاً.",
+        "لا توجد مسارات حساسة بلا أثر تدقيقي."
+      ],
+      "validation": [
+        "pnpm --filter @workspace/api-server test",
+        "pnpm --filter @workspace/api-server typecheck"
+      ]
+    },
+    {
+      "id": "T3",
+      "title": "افصل مسار المسح الثقيل عن دورة HTTP",
+      "priority": "high",
+      "blocked_by": [
+        "T1",
+        "T2"
+      ],
+      "targets": [
+        "artifacts/api-server/src/lib/scan-runner.ts",
+        "lib/db/src/schema/scan_jobs.ts",
+        "artifacts/api-server/src/routes/projects.ts"
+      ],
+      "objective": "تحويل المسح من fire-and-forget داخل العملية إلى مسار خلفي واضح أو queue داخلي موثق.",
+      "commands": [
+        "pnpm --filter @workspace/api-server test",
+        "pnpm --filter @workspace/api-server typecheck",
+        "pnpm run test"
+      ],
+      "steps": [
+        "افصل تشغيل المسح الطويل عن نفس event loop كلما أمكن.",
+        "اجعل الحالات queued/running/completed/failed قابلة للتتبع بدقة.",
+        "تأكد أن الفشل لا يترك المشروع في حالة معلقة أو نصف مكتملة."
+      ],
+      "acceptance": [
+        "المسح الطويل لا يعتمد على HTTP request lifecycle وحده.",
+        "حالات scan job كاملة ومتعقبة.",
+        "فشل المسح ينتج حالة نهائية واضحة."
+      ],
+      "validation": [
+        "pnpm --filter @workspace/api-server test",
+        "pnpm --filter @workspace/api-server typecheck"
+      ]
+    },
+    {
+      "id": "T4",
+      "title": "عمّق قدرات المستخرج البنيوي والربط البياني",
+      "priority": "medium",
+      "blocked_by": [
+        "T1"
+      ],
+      "targets": [
+        "lib/scanner/src/graph-extractor.ts",
+        "lib/scanner/src/__tests__/graph-extractor.test.ts"
+      ],
+      "objective": "رفع ثراء graph-extractor وتقليل الاعتماد على regex قدر الإمكان عبر AST حيث يلزم.",
+      "commands": [
+        "pnpm --filter @workspace/scanner test",
+        "pnpm --filter @workspace/scanner test:coverage",
+        "pnpm run typecheck"
+      ],
+      "steps": [
+        "وسّع الأنماط الحرجة في TS/JS التي يدعمها المستخرج.",
+        "افصل صراحة ما يأتي من AST وما يزال regex.",
+        "أضف اختبارات تمنع كسر الأنماط الحالية."
+      ],
+      "acceptance": [
+        "التغطية أعمق للأنماط الحرجة.",
+        "مصدر كل نوع استخراج واضح: AST أو regex.",
+        "الاختبارات الحالية لا تنكسر."
+      ],
+      "validation": [
+        "pnpm --filter @workspace/scanner test",
+        "pnpm --filter @workspace/scanner test:coverage"
+      ]
+    },
+    {
+      "id": "T5",
+      "title": "حوّل لوحة التحكم إلى مركز تشغيلي كامل",
+      "priority": "medium",
+      "blocked_by": [
+        "T1",
+        "T2",
+        "T3",
+        "T4",
+        "T7"
+      ],
+      "targets": [
+        "artifacts/dashboard/src/pages/*",
+        "lib/api-client-react/src/generated/*"
+      ],
+      "objective": "إكمال واجهات العلاقات والتاريخ والـ logs والـ trend charts وحالات loading/error/empty.",
+      "commands": [
+        "pnpm --filter @workspace/dashboard typecheck",
+        "pnpm --filter @workspace/dashboard build",
+        "pnpm run codegen"
+      ],
+      "steps": [
+        "اجعل صفحات Graph وWorkflow وTasks قابلة للتنفيذ من الواجهة.",
+        "أضف سلاسل زمنية وتاريخًا تشغيليًا بدل اللقطات السطحية فقط.",
+        "غطِّ كل صفحة بحالات loading/error/empty منضبطة."
+      ],
+      "acceptance": [
+        "Graph وWorkflow وTasks قابلة للتشغيل من الواجهة.",
+        "الصفحات تعرض بيانات زمنية وتاريخًا تشغيليًا.",
+        "لا توجد صفحة بدون loading/error/empty states."
+      ],
+      "validation": [
+        "pnpm --filter @workspace/dashboard typecheck",
+        "pnpm --filter @workspace/dashboard build"
+      ]
+    },
+    {
+      "id": "T6",
+      "title": "ارفع الاختبارات إلى مستوى تثبيت السلوك",
+      "priority": "high",
+      "blocked_by": [
+        "T2",
+        "T3",
+        "T4",
+        "T7"
+      ],
+      "targets": [
+        "artifacts/api-server/src/routes/*.test.ts",
+        "lib/scanner/src/__tests__/*"
+      ],
+      "objective": "إضافة اختبارات للمسارات الحرجة والفشل والتزامن والعلاقات المتقاطعة وليس فقط النجاح.",
+      "commands": [
+        "pnpm --filter @workspace/api-server test",
+        "pnpm --filter @workspace/scanner test",
+        "pnpm run codegen:check"
+      ],
+      "steps": [
+        "أضف اختبارات race/atomic-claim/failure-path.",
+        "غطِّ discovery/import/task/workflow للمسارات الحساسة.",
+        "فعّل drift check للعقد المولدة ضمن سير التطوير."
+      ],
+      "acceptance": [
+        "اختبارات التزامن والفشل موجودة.",
+        "المسارات الحساسة مغطاة.",
+        "codegen drift check يعمل دون فرق غير مقصود."
+      ],
+      "validation": [
+        "pnpm --filter @workspace/api-server test",
+        "pnpm --filter @workspace/scanner test",
+        "pnpm run codegen:check"
+      ]
+    },
+    {
+      "id": "T7",
+      "title": "ثبّت حوكمة الإضافات",
+      "priority": "medium",
+      "blocked_by": [
+        "T1",
+        "T2"
+      ],
+      "targets": [
+        "lib/db/src/schema/plugins.ts",
+        "artifacts/api-server/src/routes/plugins.ts"
+      ],
+      "objective": "تعريف contract واضح للـ plugins وربطها بنقاط تمديد حقيقية داخل النظام.",
+      "commands": [
+        "pnpm --filter @workspace/api-server test",
+        "pnpm --filter @workspace/api-server typecheck",
+        "pnpm run typecheck"
+      ],
+      "steps": [
+        "حوّل capabilities من سجل وصفي إلى سلوك فعلي مؤثر في النظام.",
+        "اكتب طريقة إضافة/تعطيل plugin وتأثير ذلك تشغيليًا.",
+        "اختبر تفعيل/تعطيل plugin وحالات الفشل."
+      ],
+      "acceptance": [
+        "capabilities تؤثر فعلًا في السلوك.",
+        "تأثير plugin موثق رسميًا.",
+        "حالات التفعيل/التعطيل والفشل مغطاة باختبارات."
+      ],
+      "validation": [
+        "pnpm --filter @workspace/api-server test",
+        "pnpm --filter @workspace/api-server typecheck"
+      ]
+    },
+    {
+      "id": "T8",
+      "title": "مراجعة نهائية للعقد المولّد والدقة بين الطبقات",
+      "priority": "high",
+      "blocked_by": [
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7"
+      ],
+      "targets": [
+        "lib/api-spec/openapi.yaml",
+        "lib/api-zod/src/generated/*",
+        "lib/api-client-react/src/generated/*",
+        "artifacts/api-server/src/routes/*"
+      ],
+      "objective": "التأكد أن العقد والـ schemas والـ client والـ routes متطابقة بلا drift.",
+      "commands": [
+        "pnpm run codegen:check",
+        "pnpm run typecheck",
+        "pnpm run test",
+        "pnpm run build"
+      ],
+      "steps": [
+        "تأكد أن أي endpoint جديد يولّد schemas/hooks تلقائيًا.",
+        "تحقق أنه لا توجد routes على الخادم غير ممثلة في العقد.",
+        "أصلح أي تعارض أسماء أو فروق بين الطبقات."
+      ],
+      "acceptance": [
+        "codegen:check نظيف.",
+        "لا توجد مسارات خادم غير ممثلة في openapi.yaml.",
+        "لا توجد فروق drift بين العقد والكود المولّد."
+      ],
+      "validation": [
+        "pnpm run codegen:check",
+        "pnpm run build"
+      ]
+    }
+  ]
+}

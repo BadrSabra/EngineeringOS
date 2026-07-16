@@ -1,0 +1,137 @@
+### PR Title
+
+**fix(ai-chat): surface AI request failures and remove silent send no-ops**
+
+### Goal
+
+حل المشكلتين الظاهرتين من الكود نفسه:
+
+1. تحميل المشاريع يجب أن يظل مشخّصًا بشكل صحيح عبر `ApiError` و`project-error.ts`.
+2. زر الإرسال في `AiChat.tsx` لا يجب أن يفشل بصمت عندما لا يوجد مشروع محدد أو عندما يرجع `/api/ai/chat` خطأ مثل `428 / 401 / 500`.
+
+---
+
+### Suspect files
+
+* `artifacts/dashboard/src/pages/AiChat.tsx`
+* `lib/api-client-react/src/custom-fetch.ts`
+* `lib/api-client-react/src/project-error.ts`
+* `lib/api-client-react/src/index.ts`
+* `artifacts/api-server/src/routes/ai.ts`
+* `artifacts/api-server/src/routes/ai.test.ts`
+
+---
+
+### Exact implementation checklist
+
+1. **استبدال fetch المحلي الصامت في `AiChat.tsx`**
+
+   * `apiPost / apiGet / apiPut / apiDelete` الحالية ترمي `Error(await res.text())` وتفقد `status` و`headers`.
+   * غيّرها لاستخدام `customFetch` أو wrapper يعتمد على `ApiError` من `@workspace/api-client-react`.
+   * الهدف: أي فشل في `/api/ai/chat` أو `/api/ai/groq-key` يبقى قابلًا للتصنيف حسب `status`.
+
+2. **تصنيف أخطاء إرسال الرسالة**
+
+   * أضف classifier خاصًا بـ AI request failures أو أعد استخدام `ApiError` مباشرة داخل `AiChat.tsx`.
+   * غطِّ الحالات:
+
+     * `428` → Groq key غير مهيأ
+     * `401` → session منتهية
+     * `403` → عدم صلاحية
+     * `404` → endpoint/project غير موجود
+     * `409` → تعارض حالة
+     * `500/502/503/504` → server error
+     * `TypeError` → network error
+
+3. **منع الـ silent no-op في `handleSend()`**
+
+   * حاليًا:
+
+     * `if (!msg || !selectedProjectId || sendMutation.isPending) return;`
+   * غيّرها إلى:
+
+     * Toast واضح عند عدم وجود `selectedProjectId`
+     * Toast واضح عند وجود `projectLoadFailure`
+   * لا تجعل الزر يبدو “يعمل” بينما الدالة ترجع بصمت.
+
+4. **تأكيد صلاحية المشروع المحدد**
+
+   * أضف effect يعيد اختيار أول مشروع صالح إذا كان `selectedProjectId` الحالي غير موجود ضمن `projects`.
+   * هذا يمنع حالات إرسال على `projectId` stale أو فارغ.
+
+5. **إظهار سبب الفشل داخل الواجهة**
+
+   * عند وجود `projectLoadFailure`:
+
+     * اعرض banner/inline message واضح فوق composer.
+   * عند فشل `/api/ai/chat`:
+
+     * اعرض رسالة مفهومة بدل `String(err)` الخام.
+
+6. **الحفاظ على منطق تحميل المشاريع الموجود**
+
+   * `useListProjects` + `classifyProjectError` + `isRetryableProjectError` موجودة بالفعل.
+   * لا تضعف هذا المسار؛ فقط اجعل مسار الإرسال بنفس مستوى الدقة.
+
+7. **توسيع اختبارات API**
+
+   * أضف حالات في `artifacts/api-server/src/routes/ai.test.ts` لـ:
+
+     * `POST /api/ai/chat` عند غياب Groq key → `428`
+     * نجاح إرسال chat مع key صالح/موك
+     * الأخطاء التعاقدية الأساسية: `400`, `404`, `409`
+   * أضف/حدّث اختبارات classification إذا كان هناك classifier جديد لأخطاء AI.
+
+8. **تصدير أي helper جديد**
+
+   * إذا أضفت classifier أو helper مشترك في `lib/api-client-react/src/`, حدّث `index.ts` لتصديره.
+
+---
+
+### Test plan
+
+1. **Projects load — success**
+
+   * session صالح + `GET /api/projects` يرجع `200`.
+   * تظهر القائمة بشكل طبيعي.
+
+2. **Projects load — 401 / 403 / 500 / network**
+
+   * تظهر الرسالة المصنفة بدقة.
+   * لا تظهر رسالة عامة مضللة.
+
+3. **Send with valid project**
+
+   * اختيار مشروع صالح + كتابة رسالة + إرسال.
+   * يجب أن يصل `POST /api/ai/chat`.
+   * تظهر رسالة assistant أو error واضحة حسب الرد.
+
+4. **Send with no selected project**
+
+   * اضغط Send.
+   * يجب أن يظهر toast/inline reason.
+   * لا يحدث return صامت.
+
+5. **Send with missing Groq config**
+
+   * اجعل `/api/ai/chat` يرجع `428`.
+   * الواجهة تعرض أن Groq غير مهيأ بدل “لا يوجد استجابة”.
+
+6. **Send with server/network failure**
+
+   * `500` أو network failure.
+   * الواجهة تعرض السبب الحقيقي.
+
+7. **Regression**
+
+   * `AiChat.tsx` لا يكسر حفظ/حذف `groq-key`.
+   * classification الحالية للمشاريع تبقى تعمل كما هي.
+
+---
+
+### Rollback
+
+* التراجع أولًا عن تغييرات `AiChat.tsx` فقط إذا ظهر كسر في الواجهة.
+* إبقاء `project-error.ts` كما هو إذا كان يعمل؛ لا تغيّره إلا إذا أضفت classifier مشتركًا.
+* التراجع عن أي helper جديد في `api-client-react` فقط، مع ترك `customFetch` نفسه كما هو.
+* لا تلمس `routes/ai.ts` إلا إذا أضفت اختبارًا أو عدلت contract فعليًا.

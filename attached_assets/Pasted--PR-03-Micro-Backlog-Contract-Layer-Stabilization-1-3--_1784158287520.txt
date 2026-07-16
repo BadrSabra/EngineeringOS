@@ -1,0 +1,215 @@
+# PR-03 Micro Backlog — Contract Layer Stabilization
+
+> القاعدة هنا: لا نلمس أكثر من 1–3 مجموعات ملفات في كل PR صغير، ونربط كل دفعة بأمر توليد/تحقق واضح.
+
+---
+
+## PR-03.1 — Canonical OpenAPI Entry Point
+
+**scope:** تثبيت المصدر المرجعي للعقد وتوحيد مدخل codegen.
+**files:**
+
+* `lib/api-spec/openapi.yaml`
+* `lib/api-spec/orval.config.ts`
+* `lib/api-spec/package.json`
+* `package.json`
+
+**risk:** منخفض إلى متوسط — أي تغيير في OpenAPI سيعيد تشكيل المخرجات المولدة كلها.
+**acceptance:**
+
+* `openapi.yaml` يحتوي على الاسم/النسخة/الوصف المتوافقين مع المخرجات المولدة.
+* `orval.config.ts` يظل المصدر الوحيد لتعريف مخرجات Zod وReact Query.
+* أي تعديل في spec يمر عبر codegen وليس عبر تحرير يدوي للـ generated artifacts.
+
+**dependency:** لا يوجد.
+
+**commands:**
+
+```bash
+pnpm --filter @workspace/api-spec run codegen
+pnpm run codegen:check
+pnpm run typecheck:libs
+```
+
+**test path:**
+
+1. عدّل `openapi.yaml` فقط.
+2. شغّل `pnpm --filter @workspace/api-spec run codegen`.
+3. تأكد أن `lib/api-zod/src/generated/**` و`lib/api-client-react/src/generated/**` يتحدثان تلقائيًا.
+4. شغّل `pnpm run codegen:check` للتأكد أن لا drift.
+
+---
+
+## PR-03.2 — Zod Generated Surface Sync
+
+**scope:** تثبيت طبقة Zod المولدة ومزامنة exports الخاصة بها مع OpenAPI.
+**files:**
+
+* `lib/api-zod/src/generated/api.ts`
+* `lib/api-zod/src/generated/types/**`
+* `lib/api-zod/src/index.ts`
+* `lib/api-zod/package.json`
+
+**risk:** منخفض — الملفات مولدة، لكن أي drift هنا يكسر contract validation على مستوى runtime.
+**acceptance:**
+
+* كل schema/type في `api-zod` يطابق ما في OpenAPI.
+* `src/index.ts` يعيد تصدير المسارات الصحيحة فقط.
+* لا توجد أنواع قديمة أو أسماء غير مستخدمة.
+
+**dependency:** PR-03.1.
+
+**commands:**
+
+```bash
+pnpm --filter @workspace/api-spec run codegen
+pnpm run typecheck:libs
+pnpm run codegen:check
+```
+
+**test path:**
+
+1. نفّذ codegen.
+2. افتح `lib/api-zod/src/generated/api.ts` وتأكد أن تعريفات response/body/params محدثة.
+3. شغّل typecheck على مستوى الـ workspace.
+4. راقب أن `lib/api-zod/src/index.ts` لا يصدّر شيئًا خارج الناتج المولّد و`truth-flow-matrix.schema`.
+
+---
+
+## PR-03.3 — React Client Generated Surface Sync + Export Cleanup
+
+**scope:** تثبيت طبقة React Query client المولدة وتنظيف سطح التصدير اليدوي.
+**files:**
+
+* `lib/api-client-react/src/generated/api.ts`
+* `lib/api-client-react/src/generated/api.schemas.ts`
+* `lib/api-client-react/src/index.ts`
+* `lib/api-client-react/src/custom-fetch.ts`
+* `lib/api-client-react/package.json`
+
+**risk:** متوسط — هذا السطح يستهلكه dashboard وأي mismatch فيه يظهر كأخطاء runtime أو typings.
+**acceptance:**
+
+* client المولّد يطابق OpenAPI.
+* `src/index.ts` لا يحتوي على تكرار exports.
+* `custom-fetch.ts` يظل متوافقًا مع المتطلبات الفعلية للـ generated client.
+* لا توجد import/export cycles أو تصدير مزدوج لنفس الرموز.
+
+**ملاحظة تنفيذية مهمة:**
+في `lib/api-client-react/src/index.ts` يوجد بالفعل **تكرار واضح** في أسطر التصدير الخاصة بـ `./generated/api` و`./generated/api.schemas`، وهذه نقطة تنظيف مباشرة داخل هذا الـ micro-PR.
+
+**dependency:** PR-03.1.
+
+**commands:**
+
+```bash
+pnpm --filter @workspace/api-spec run codegen
+pnpm run typecheck:libs
+pnpm run codegen:check
+```
+
+**test path:**
+
+1. شغّل codegen.
+2. افتح `lib/api-client-react/src/index.ts` وتأكد أن التصديرات مكررة/مزدوجة قد أزيلت.
+3. تأكد أن ملفات `generated/**` تبني client صالحًا للاستهلاك من dashboard.
+4. شغّل typecheck للتأكد أن سطح التصدير النهائي نظيف.
+
+---
+
+## PR-03.4 — Drift Guard Hardening
+
+**scope:** تثبيت الحواجز التي تمنع رجوع drift بين spec والمخرجات المولدة.
+**files:**
+
+* `scripts/check-codegen-drift.ts`
+* `scripts/package.json`
+* `package.json`
+* `docs/truth-flow-pr-checklist.md`
+
+**risk:** منخفض — لا يغير المنطق الوظيفي، لكنه يرفع صرامة المنظومة.
+**acceptance:**
+
+* `codegen:check` يفشل إذا تغيّرت المخرجات بعد إعادة التوليد.
+* `check-codegen-drift.ts` يظل يختبر `lib/api-zod/src/generated` و`lib/api-client-react/src/generated`.
+* وثيقة الـ checklist توضّح مسار التحقق قبل الدمج.
+
+**dependency:** PR-03.2 وPR-03.3.
+
+**commands:**
+
+```bash
+pnpm run codegen:check
+pnpm --filter @workspace/scripts run typecheck
+pnpm run typecheck:libs
+```
+
+**test path:**
+
+1. غيّر `openapi.yaml` عمدًا.
+2. شغّل `pnpm run codegen:check`.
+3. تأكد أن الفشل يذكر الملفات المتأثرة صراحة.
+4. أصلح التغيير ثم أعد التشغيل وتأكد من نجاح البوابة.
+
+---
+
+## PR-03.5 — Truth-Flow Validation Alignment
+
+**scope:** ربط PR-03 بطبقة truth validation حتى لا تكون العقدة المولدة صحيحة شكليًا فقط بل متسقة مع truth matrix الحالية.
+**files:**
+
+* `scripts/validate-truth-flow.ts`
+* `lib/api-zod/src/truth-flow-matrix.schema.ts`
+* `attached_assets/EngineeringOS_Truth_Flow_Matrix_1784143389833.json`
+* `docs/fact-record.md`
+* `docs/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md`
+
+**risk:** متوسط — لأن هذا يلامس المرجع الحاكم للحقيقة المرجعية للمشروع.
+**acceptance:**
+
+* `truth:validate` يمر فقط عندما تكون JSON baseline وschema الحالية متطابقتين.
+* أي drift في truth matrix يظهر برسائل واضحة.
+* التوثيق يوضح أن هذه البوابة منفصلة عن codegen لكنها مكملة لها.
+
+**dependency:** PR-03.4.
+
+**commands:**
+
+```bash
+pnpm run truth:validate
+pnpm --filter @workspace/scripts run typecheck
+pnpm run typecheck:libs
+```
+
+**test path:**
+
+1. عدّل truth matrix JSON أو schema عمدًا.
+2. شغّل `pnpm run truth:validate`.
+3. تأكد أن الرسائل تشير بوضوح إلى موضع الاختلاف.
+4. أعد التطابق ثم تأكد من نجاح الفحص.
+
+---
+
+## ترتيب التنفيذ داخل PR-03
+
+1. **PR-03.1** — تثبيت OpenAPI ومدخل codegen.
+2. **PR-03.2** — مزامنة Zod generated surface.
+3. **PR-03.3** — مزامنة React client generated surface وتنظيف exports.
+4. **PR-03.4** — تقوية drift guard.
+5. **PR-03.5** — ربط truth validation بالطبقة المرجعية.
+
+## مسار اختبار موحد بعد كل دفعة
+
+```bash
+pnpm --filter @workspace/api-spec run codegen
+pnpm run codegen:check
+pnpm run truth:validate
+pnpm run typecheck:libs
+```
+
+## ما يجب ألا يُلمس يدويًا
+
+* أي ملف داخل `lib/api-zod/src/generated/**`
+* أي ملف داخل `lib/api-client-react/src/generated/**`
+
+هذه الملفات تُحدَّث عبر codegen فقط، وأي تغيير فيها يجب أن يكون ناتجًا عن تعديل spec أو config أو أمر توليد واضح.

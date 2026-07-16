@@ -1,0 +1,28 @@
+export { complete, completeRaw, MODEL_POWERFUL, MODEL_FAST } from "./groq-client.js";
+export type { Message, GroqResponse, CompleteOptions, RawMessage, ToolCall, ToolDefinition, RawGroqResponse } from "./groq-client.js";
+
+export type { PendingChange } from "./tools/file-tools.js";
+
+export { GroqClientError } from "./errors.js";
+export type { AgentErrorCode, GroqErrorCode } from "./errors.js";
+
+export { extractJson, parseAgentResponse } from "./parsing.js";
+export type { AgentParseResult } from "./parsing.js";
+
+export { buildProjectContext } from "./context-builder.js";
+export type { ProjectContext } from "./context-builder.js";
+
+export * from "./schemas/index.js";
+
+export { chat } from "./agents/chat-agent.js";
+export type { ChatMessage } from "./agents/chat-agent.js";
+
+export { executeTask } from "./agents/task-agent.js";
+export type { TaskAgentInput } from "./agents/task-agent.js";
+
+export { analyzeScan } from "./agents/scan-analyst.js";
+
+export { reviewCode } from "./agents/code-reviewer.js";
+
+export { decide, validateDecision, executeDecision, orchestrateWorkflow } from "./agents/workflow-orchestrator.js";
+export type { WorkflowState, OrchestrationDecision } from "./agents/workflow-orchestrator.js";

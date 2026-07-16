@@ -1,0 +1,201 @@
+
+ملاحظة تشغيلية واحدة قبل البدء: طبقة `lib/db` لا تحتوي على `test` script مستقل، لذلك مسار التحقق العملي هنا يكون دائمًا عبر **`pnpm run typecheck:libs`** + **`pnpm --filter @workspace/db run push`** على قاعدة PostgreSQL مؤقتة + **اختبارات api-server ذات الصلة** التي تلامس الجداول نفسها.
+
+## الترتيب المقترح
+
+### PR-04.01 — `lib/db/drizzle.config.ts`
+
+**scope:** تثبيت نقطة تهيئة Drizzle والتأكد أن مسار `schema/index.ts` هو المرجع الوحيد.
+**files:** `lib/db/drizzle.config.ts`
+**execution:** راجع `schema` path، وتأكد أن `DATABASE_URL` مطلوب بشكل صريح، ولا توجد إعدادات قديمة أو بديلة.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+**dependency:** بداية السلسلة.
+
+### PR-04.02 — `lib/db/src/index.ts`
+
+**scope:** تثبيت bootstrap طبقة البيانات وتأكيد أن التصدير `db/pool/schema` نظيف وغير متكرر.
+**files:** `lib/db/src/index.ts`
+**execution:** راجع إنشاء الـ Pool، وتأكد أن `db` يُبنى من schema موحد وأن export surface لا يسرّب أي شيء غير مقصود.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+`pnpm --filter @workspace/api-server exec vitest run src/routes/projects.test.ts src/routes/discovery.test.ts`
+**dependency:** PR-04.01.
+
+---
+
+### PR-04.03 — `lib/db/src/schema/projects.ts`
+
+**scope:** تثبيت نموذج المشروع باعتباره الجذر المرجعي لباقي الطبقات.
+**files:** `lib/db/src/schema/projects.ts`
+**execution:** راجع `ownerId`, `rootPath`, `status`, وقيود uniqueness/relations التي يعتمد عليها discovery, tasks, workflows, metrics, ai.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+`pnpm --filter @workspace/api-server exec vitest run src/routes/projects.test.ts src/routes/dashboard.test.ts src/routes/discovery.test.ts src/routes/ai.test.ts`
+**dependency:** PR-04.02.
+
+### PR-04.04 — `lib/db/src/schema/rules.ts`
+
+**scope:** تثبيت نموذج القواعد وضمان اتساقه مع tasks/discovery/dashboard.
+**files:** `lib/db/src/schema/rules.ts`
+**execution:** راجع `code`, `severity`, `enabled`, `hitCount`, ومرجع `projectId`، وتأكد أن شكل rule مناسب لقراءة/توليد المهام.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+`pnpm --filter @workspace/api-server exec vitest run src/routes/rules.test.ts src/routes/discovery.test.ts src/routes/dashboard.test.ts`
+**dependency:** PR-04.03.
+
+### PR-04.05 — `lib/db/src/schema/workflows.ts`
+
+**scope:** إغلاق نموذج workflows وworkflow executions.
+**files:** `lib/db/src/schema/workflows.ts`
+**execution:** راجع `phases`, `currentPhase`, `status`, `executionCount`, وبنية `workflow_executions` بحيث تتطابق مع مسار التنفيذ الحقيقي.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+`pnpm --filter @workspace/api-server exec vitest run src/routes/workflows.test.ts src/routes/ai.test.ts src/routes/dashboard.test.ts`
+**dependency:** PR-04.03.
+
+### PR-04.06 — `lib/db/src/schema/tasks.ts`
+
+**scope:** تثبيت نموذج المهام باعتباره محور التنفيذ الفعلي للمنصة.
+**files:** `lib/db/src/schema/tasks.ts`
+**execution:** راجع `status`, `priority`, `retryCount`, `maxRetries`, `relatedFiles`, `dependsOn`, `verificationResult`, وارتباطه بـ rules/workflows/projects.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+`pnpm --filter @workspace/api-server exec vitest run src/routes/tasks.test.ts src/routes/discovery.test.ts src/routes/dashboard.test.ts src/routes/ai.test.ts`
+**dependency:** PR-04.04 وPR-04.05.
+
+### PR-04.07 — `lib/db/src/schema/events.ts`
+
+**scope:** توحيد event model وربطه بـ project/task/workflow tracing.
+**files:** `lib/db/src/schema/events.ts`
+**execution:** راجع `type`, `severity`, `payload`, `message`, `timestamp`, و`correlationId`، وتأكّد من الاتساق مع audit/task logs/metrics.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+`pnpm --filter @workspace/api-server exec vitest run src/routes/events.test.ts src/routes/dashboard.test.ts src/routes/ai.test.ts`
+**dependency:** PR-04.06.
+
+### PR-04.08 — `lib/db/src/schema/metrics.ts`
+
+**scope:** تثبيت metrics snapshot model الخاص بجودة المشروع.
+**files:** `lib/db/src/schema/metrics.ts`
+**execution:** راجع `overallScore`, sub-scores، `testsPassed/testsTotal`, `technicalDebt`, `buildStatus`, و`correlationId`.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+`pnpm --filter @workspace/api-server exec vitest run src/routes/metrics.test.ts src/routes/projects.test.ts src/routes/discovery.test.ts`
+**dependency:** PR-04.03.
+
+### PR-04.09 — `lib/db/src/schema/scan_jobs.ts`
+
+**scope:** تحويل scan إلى job-backed durable record بدل الاعتماد على inline-only semantics.
+**files:** `lib/db/src/schema/scan_jobs.ts`
+**execution:** راجع `status`, `result`, `error`, `startedAt`, `completedAt` وتأكد أن دورة الحياة مناسبة لـ job reconciliation.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+`pnpm --filter @workspace/api-server exec vitest run src/lib/job-reconciliation.test.ts src/routes/discovery.test.ts src/routes/projects.test.ts`
+**dependency:** PR-04.03.
+
+### PR-04.10 — `lib/db/src/schema/discovery.ts`
+
+**scope:** تثبيت discovery session model + source typing + result payload.
+**files:** `lib/db/src/schema/discovery.ts`
+**execution:** راجع `discoverySessionStatusEnum`, `sourceTypeEnum`, `sourceConfig`, `steps`, `result`, `importedProjectId`, وownership scoping.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+`pnpm --filter @workspace/api-server exec vitest run src/routes/discovery.test.ts src/lib/discovery-adapters.test.ts src/lib/job-reconciliation.test.ts`
+**dependency:** PR-04.03 وPR-04.09.
+
+### PR-04.11 — `lib/db/src/schema/graph.ts`
+
+**scope:** إغلاق graph entities/relationships باعتبارها نواة knowledge graph.
+**files:** `lib/db/src/schema/graph.ts`
+**execution:** راجع `entityTypeEnum`, `provenance`, `confidence`, `scanJobId`, وconsistency بين entities/relationships.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+`pnpm --filter @workspace/api-server exec vitest run src/routes/graph.test.ts src/routes/discovery.test.ts src/lib/scan-runner.test.ts`
+**dependency:** PR-04.09 وPR-04.10.
+
+### PR-04.12 — `lib/db/src/schema/task_logs.ts`
+
+**scope:** تثبيت سجل logs الخاص بالمهام وربطه بالتدقيق والتتبع.
+**files:** `lib/db/src/schema/task_logs.ts`
+**execution:** راجع `level`, `message`, `metadata`, `timestamp`, و`correlationId`، وتأكد أن كل log line يمكن تتبعه لعملية execution محددة.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+`pnpm --filter @workspace/api-server exec vitest run src/routes/tasks.test.ts src/routes/ai.test.ts src/lib/audit.test.ts`
+**dependency:** PR-04.06.
+
+### PR-04.13 — `lib/db/src/schema/ai_chats.ts`
+
+**scope:** تثبيت chat session/message model الخاص بـ AI surface.
+**files:** `lib/db/src/schema/ai_chats.ts`
+**execution:** راجع `aiMessageRoleEnum`, ربط `sessionId`, `projectId`, `sources`, وتأكد من cascade behavior في sessions/messages.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+`pnpm --filter @workspace/api-server exec vitest run src/routes/ai.test.ts`
+**dependency:** PR-04.03.
+
+### PR-04.14 — `lib/db/src/schema/ai_provider_credentials.ts`
+
+**scope:** تثبيت مخزن credentials مع حدود owner/provider والتشفير.
+**files:** `lib/db/src/schema/ai_provider_credentials.ts`
+**execution:** راجع `ownerId`, `provider`, `encryptedApiKey`, `last4`, والـ unique constraint على `(ownerId, provider)`.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+`pnpm --filter @workspace/api-server exec vitest run src/routes/ai.test.ts`
+**dependency:** PR-04.13.
+
+### PR-04.15 — `lib/db/src/schema/plugins.ts`
+
+**scope:** تثبيت نموذج plugins وإعدادات التفعيل/القدرات.
+**files:** `lib/db/src/schema/plugins.ts`
+**execution:** راجع `name`, `version`, `enabled`, `capabilities`, `supportedLanguages`, `config`.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+`pnpm --filter @workspace/api-server exec vitest run src/routes/plugins.test.ts`
+**dependency:** PR-04.02.
+
+### PR-04.16 — `lib/db/src/schema/audit_logs.ts`
+
+**scope:** تثبيت provenance/audit ledger لجميع عمليات التغيير.
+**files:** `lib/db/src/schema/audit_logs.ts`
+**execution:** راجع `entityType`, `action`, `actor`, `changedFields`, `stateBefore`, `stateAfter`, `reason`, و`correlationId` بحيث يغطي كل mutation مهم.
+**test path:**
+`pnpm run typecheck:libs`
+`DATABASE_URL=<ephemeral-postgres-url> pnpm --filter @workspace/db run push`
+`pnpm --filter @workspace/api-server exec vitest run src/routes/projects.test.ts src/routes/rules.test.ts src/routes/tasks.test.ts src/routes/workflows.test.ts src/routes/ai.test.ts`
+**dependency:** PR-04.03 إلى PR-04.15.
+
+### PR-04.17 — `lib/db/src/schema/index.ts`
+
+**scope:** final export gate لطبقة البيانات كلها.
+**files:** `lib/db/src/schema/index.ts`
+**execution:** تأكد أن جميع schemas تُصدّر من نقطة واحدة فقط، بدون missing exports أو duplicates أو ترتيب مربك.
+**test path:**
+`pnpm run typecheck:libs`
+`pnpm run build`
+`pnpm --filter @workspace/api-server test`
+**dependency:** بعد إغلاق كل ملفات schema السابقة.
+
+---
+
+## ترتيب الدمج العملي
+
+ابدأ بهذا التسلسل:
+
+`drizzle.config.ts` → `src/index.ts` → `projects.ts` → `rules.ts` → `workflows.ts` → `tasks.ts` → `events.ts` → `metrics.ts` → `scan_jobs.ts` → `discovery.ts` → `graph.ts` → `task_logs.ts` → `ai_chats.ts` → `ai_provider_credentials.ts` → `plugins.ts` → `audit_logs.ts` → `schema/index.ts`
+

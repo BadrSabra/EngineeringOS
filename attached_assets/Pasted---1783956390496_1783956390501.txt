@@ -1,0 +1,408 @@
+هذه هي الخطة التنفيذية الفعلية، مرتّبة على نفس السلسلة التي ذكرتها، ومبنية على الكود الحالي كما هو.
+
+## 1) `lib/ai-orchestrator/src/context-builder.ts`
+
+**الهدف:** إلغاء “تفلطح” المعرفة إلى نصوص، واستبداله بحزمة سياقية هيكلية أعمق.
+
+### ما الذي يتغير
+
+* استبدل:
+
+  ```ts
+  export type ProjectContext = {
+    project: string;
+    recentTasks: string;
+    latestMetrics: string;
+    graphSummary: string;
+    recentEvents: string;
+  };
+  ```
+
+  بـ `ProjectContextPack` يحتوي على حقول منظمة، مثل:
+
+  * `project`
+  * `tasks`
+  * `metrics`
+  * `graph`
+  * `events`
+  * `riskHotspots`
+  * `confidenceSummary`
+  * `provenanceSummary`
+
+* أضف دالة جديدة مثل:
+
+  ```ts
+  buildProjectContextPack(projectId)
+  ```
+
+  وتُرجع كائنًا هيكليًا، لا نصًا فقط.
+
+* اترك `buildProjectContext()` كغلاف legacy مؤقت، يحوّل الحزمة إلى نص prompt فقط عند الحاجة، حتى لا تكسر باقي الوكلاء دفعة واحدة.
+
+### التغيير العملي داخل الملف
+
+* بدلاً من:
+
+  * `graphEntitiesTable` فقط
+  * و`eventsTable` كآخر 10 سجلات
+* اجلب أيضًا:
+
+  * `graphRelationshipsTable`
+  * أحدث `scan_jobs`
+  * أي ملخص ناتج من `knowledge-engine`
+
+### النتيجة
+
+الوكلاء لن يقرأوا “ملخصًا عامًا”، بل **بنية حقيقة**:
+
+* ما هو المشروع
+* ما هي العقد الأكثر حساسية
+* ما هي المؤشرات الأضعف
+* ما الذي تم تغييره مؤخرًا
+* ما الذي يفتقر إلى الثقة
+
+### معيار القبول
+
+* أي agent prompt يجب أن يحتوي على sections منظمة، لا فقرة واحدة طويلة.
+* لا يعود `graphSummary` وحده كافيًا؛ يجب أن يظهر معه `hotspots` و`confidence`.
+
+---
+
+## 2) `lib/knowledge-engine/src/types.ts` + `inference.ts` + `queries.ts`
+
+**الهدف:** ترقية المحرك من “إحصاء العلاقات” إلى “استدلال سببي/دلالي”.
+
+### ما الذي يتغير في `types.ts`
+
+أضف أنواعًا مثل:
+
+* `GraphInsight`
+* `RiskHotspot`
+* `ConfidenceBand`
+* `TemporalDelta`
+* `ProvenanceSummary`
+* `StabilityScore`
+
+### ما الذي يتغير في `inference.ts`
+
+الحالي فيه:
+
+* centrality
+* clusters
+* summary
+
+وهذا ممتاز كبداية، لكنه سطحي إذا بقي وحده.
+
+أضف/عدّل ما يلي:
+
+* `computeCentrality()` يدعم أوزانًا:
+
+  * confidence
+  * relation type
+  * provenance quality
+* `detectClusters()` لا يرجع فقط الحجم، بل أيضًا:
+
+  * density
+  * boundary nodes
+  * riskiness
+* `computeGraphSummary()` يضيف:
+
+  * `hotspots`
+  * `stabilityIndex`
+  * `confidenceDistribution`
+  * `mostFragilePaths`
+
+### ما الذي يتغير في `queries.ts`
+
+أضف استعلامًا أعلى مستوى مثل:
+
+```ts
+getProjectGraphInsights(db, projectId)
+```
+
+يرجع:
+
+* entities
+* relationships
+* neighborhood snapshots
+* impacted sets
+* shortest paths
+* summary + risk hotspots
+
+### النتيجة
+
+المحرك سيصبح قادرًا على الإجابة عن:
+
+* ما الأكثر ارتباطًا؟
+* ما الأكثر هشاشة؟
+* ما الذي يعتمد على شيء منخفض الثقة؟
+* أين تتجمع المخاطر؟
+* ما الذي لو تغيّر سيؤثر أكثر؟
+
+### معيار القبول
+
+* لم تعد `computeGraphSummary()` مجرد أرقام عامة.
+* يجب أن تُنتج خريطة تفسيرية فعلية، لا Stats فقط.
+
+---
+
+## 3) `artifacts/api-server/src/lib/scan-runner.ts`
+
+**الهدف:** تحويل scan من “عملية كتابة متسلسلة” إلى **وحدة سببية كاملة**.
+
+### ما الذي يتغير
+
+أنت بالفعل تملك `correlationId` هنا، وهذا ممتاز.
+الخطوة التالية هي جعل `scanEnvelope` كيانًا أساسيًا داخل الوظيفة:
+
+```ts
+const scanEnvelope = {
+  correlationId,
+  jobId,
+  projectId,
+  startedAt,
+  rootPath,
+  rootExists,
+  filesFound,
+  sourceFiles,
+  issuesDetected,
+  tasksCreated,
+  entitiesExtracted,
+  relationshipsExtracted,
+  qualityScore,
+  graphSummary,
+  riskHotspots,
+};
+```
+
+### التغييرات العملية داخل `performScan()`
+
+1. بعد `extractGraph(files)` وinsert الجراف، استدعِ `knowledge-engine` على البيانات الناتجة.
+2. خذ ناتج الاستدلال وأضفه إلى:
+
+   * `eventsTable.payload`
+   * `recordAudit.changedFields`
+   * `scanJobsTable.result`
+3. أرسل إلى plugin runtime سياقًا أعمق، لا أرقامًا فقط:
+
+   * `graphSummary`
+   * `hotspots`
+   * `confidenceSummary`
+   * `correlationId`
+   * `scanEnvelope`
+
+### تحسين مهم جدًا
+
+الآن `scan-runner.ts` يكتب:
+
+* tasks
+* graph
+* metrics
+* event
+* audit
+
+لكن لا يجمعها في “قصة واحدة”.
+الخطوة الجديدة هي أن **كل هذه المخرجات يجب أن تحمل نفس البصمة السببية** وأن تُخزَّن معها المخرجات الدلالية.
+
+### النتيجة
+
+بعد أي scan ستعرف:
+
+* ماذا حدث
+* لماذا حدث
+* ما الذي تأثر
+* ما الذي خرج منخفض الثقة
+* ما الذي يحتاج تحققًا إضافيًا
+
+### معيار القبول
+
+* أي scan ينتهي بـ `scanEnvelope` مكتمل.
+* أي event/Audit/metric مرتبط بالـ scan يحمل نفس `correlationId`.
+* لا تبقى المخرجات متفرقة بلا خيط واحد.
+
+---
+
+## 4) `artifacts/api-server/src/lib/plugin-runtime.ts`
+
+**الهدف:** جعل plugins تستهلك الحقيقة الهيكلية، لا أرقامًا مجردة.
+
+### ما الذي يتغير في `ScanCompleteContext`
+
+أضف حقولًا مثل:
+
+* `correlationId`
+* `scanEnvelope`
+* `graphSummary`
+* `riskHotspots`
+* `confidenceSummary`
+* `provenanceSummary`
+
+### ما الذي يتغير في hook interface
+
+بدّل:
+
+```ts
+onScanComplete(ctx: ScanCompleteContext): Promise<ScanCompleteResult>;
+```
+
+إلى سياق أغنى، مع إبقاء التوافق قدر الإمكان.
+
+### ما الذي يتغير في `ScanCompleteResult`
+
+بدل:
+
+```ts
+events?: PluginEvent[];
+```
+
+أضف هيكلًا أدق مثل:
+
+* `events`
+* `insights`
+* `verifications`
+* `recommendedActions`
+
+### ما الذي يتغير في plugins نفسها
+
+* `plugin-react`:
+
+  * لا يكتفي بعدّ components/hooks
+  * يربطها بالتواصل الداخلي / coupling / hotspots
+* `plugin-node`:
+
+  * لا يكتفي باسم route
+  * يربط ذلك بسياق المخاطر والثقة
+* `plugin-security`:
+
+  * يربط violations بالـ hotspots وبالـ confidence
+* `plugin-performance`:
+
+  * يحول avg degree إلى قراءة أعمق عن fragility وblast radius
+* `plugin-python` و`plugin-docs`:
+
+  * يخرجان events ذات معنى تشخيصي، لا مجرد وصف عددي
+
+### النتيجة
+
+الـ plugin لم يعد “معلّقًا بعد scan”، بل صار طبقة تفسير فوق البنية.
+
+### معيار القبول
+
+* كل event صادر من plugin يجب أن يذكر “لماذا” لا “ماذا فقط”.
+* لا يعود `payload` مجرد counts، بل evidence مختصر.
+
+---
+
+## 5) `artifacts/api-server/src/lib/audit.ts` + `artifacts/api-server/src/routes/events.ts` + `artifacts/api-server/src/routes/metrics.ts`
+
+**الهدف:** جعل audit/events/metrics ثلاثية يمكن تتبعها عبر نفس العملية.
+
+---
+
+### A) `audit.ts`
+
+الملف الحالي فيه `correlationId` أصلًا، وهذا جيد جدًا.
+التعديل هنا ليس schema-heavy، بل enrichment:
+
+#### ما الذي تضيفه
+
+* `changedFields` يجب أن يحمل:
+
+  * `graphSummary`
+  * `riskHotspots`
+  * `confidenceSummary`
+  * `scanEnvelopeHash` إن رغبت
+* `stateBefore/stateAfter` يجب أن يعكسا:
+
+  * جودة المشروع
+  * المخاطر
+  * الثقة
+
+#### النتيجة
+
+Audit يصبح سجل تفسير، لا سجل state-change فقط.
+
+---
+
+### B) `routes/events.ts`
+
+الملف يدعم `correlationId` بشكل مباشر بالفعل، لكن بشكل غير منظم تمامًا.
+الخطوة التالية:
+
+#### ما الذي تضيفه
+
+* اجعل `correlationId` جزءًا رسميًا من query schema إن أمكن.
+* أظهر في payload أحداثًا مثل:
+
+  * `ProjectScanned`
+  * `GraphSummaryComputed`
+  * `PluginInsightGenerated`
+  * `VerificationRecommended`
+
+#### النتيجة
+
+يمكنك استدعاء:
+
+* “كل شيء حدث في scan واحد”
+* بدل البحث المتشتت بين project/time/type.
+
+---
+
+### C) `routes/metrics.ts`
+
+`metricsTable` يحمل `correlationId` بالفعل، وهذا ممتاز.
+
+#### ما الذي تضيفه
+
+* دعم تصفية اختيارية بـ `correlationId` إن أردت drill-down أدق.
+* عند إنشاء metric snapshot، اربطه بنفس envelope الذي استخدمته في event/audit.
+
+#### النتيجة
+
+الـ metrics لا تبقى فقط time-series، بل تصبح snapshot مرتبطًا بعملية محددة.
+
+---
+
+## الترتيب الذي أنصح به للتنفيذ
+
+لا تعكس هذا الترتيب:
+
+1. **`context-builder.ts`**
+
+   * لأن هذا هو مدخل الذكاء كله.
+
+2. **`knowledge-engine`**
+
+   * حتى يصبح هناك ناتج عميق يُغذي السياق.
+
+3. **`scan-runner.ts`**
+
+   * حتى يبدأ توليد evidence bundle حقيقي.
+
+4. **`plugin-runtime.ts`**
+
+   * حتى يستهلك الـ scan envelope وgraph insights.
+
+5. **`audit/events/metrics`**
+
+   * حتى يصبح التتبع الكامل ممكنًا من أول العملية إلى آخر أثر.
+
+---
+
+## أقل تعديل يحقق أكبر قفزة
+
+إذا أردت أقل عدد من التغييرات مع أكبر أثر، فهذه هي الثلاثية الذهبية:
+
+* **context-builder.ts**: من نص إلى بنية
+* **knowledge-engine**: من centrality إلى risk semantics
+* **scan-runner.ts**: من scan عادي إلى causal envelope
+
+---
+
+## معيار النجاح النهائي
+
+بعد هذه التعديلات، يجب أن تستطيع الإجابة على هذا السؤال من الكود مباشرة:
+
+> ما الذي تغيّر، لماذا تغيّر، ما الذي تأثر، ما درجة الثقة، وما الدليل؟
+
+إذا وصلنا لهذه النقطة، فالمشروع لم يعد يعرض البيانات فقط، بل **يفهم نفسه**.

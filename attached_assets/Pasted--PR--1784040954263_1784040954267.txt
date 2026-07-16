@@ -1,0 +1,321 @@
+
+
+# خطة PR متسلسلة لتحويل التحليل إلى تنفيذ فعلي
+
+## مبدأ الترتيب
+
+الترتيب الصحيح هنا ليس حسب “الأهمية فقط”، بل حسب **الاعتماد المعماري**:
+
+1. نثبّت هوية المستخدم داخل الطلب `requireAuth.ts`.
+2. نربط الهوية بنطاق البيانات داخل `projects.ts` ومخطط المشروع.
+3. نُحصّن التنفيذ الثقيل داخل `scan-runner.ts`.
+4. ثم نُكمل الاستمرارية التشغيلية والاختبارات والاتساق بين الطبقات.
+
+هذا يمنع بناء طبقة تنفيذ فوق طبقة وصول غير مضبوطة.
+
+---
+
+## PR-01 — تثبيت طبقة الهوية في `requireAuth.ts`
+
+**الهدف:** تحويل المصادقة من “تمرير userId فقط” إلى أساس صلب يُبنى عليه التحكم لاحقًا، مع الحفاظ على السلوك الحالي.
+
+**الملفات:**
+
+* `artifacts/api-server/src/middlewares/requireAuth.ts`
+* `artifacts/api-server/src/app.ts` أو ملف تركيب الـ middleware إذا كانت هناك نقطة حقن مركزية
+* اختبارات مبدئية للمصادقة إن لم تكن موجودة
+
+**ما الذي يتغير:**
+
+* إبقاء سلوك `NODE_ENV=test` كما هو، لأن الاختبارات الحالية تعتمد عليه.
+* تثبيت نوع واضح لامتداد الطلب مثل `req.userId`.
+* تجهيز نقطة توسعة لاحقة لـ:
+
+  * `projectId` scope
+  * `role` أو `permissions`
+  * `organization/team` claims
+* توثيق أن هذا الملف **ليس authorization** بل **authentication context primitive** فقط.
+
+**النتيجة المتوقعة:**
+
+* كل route لاحق يستطيع الاعتماد على `req.userId` بشكل صريح.
+* لا يحدث كسر في السلوك الحالي.
+* تصبح طبقة الوصول قابلة للتوسيع بدل أن تكون “مقفولة على userId فقط”.
+
+**معيار القبول:**
+
+* 401 عند غياب الهوية في الوضع غير الاختباري.
+* مرور `userId` في بيئة الاختبار كما هو الآن.
+* عدم كسر أي route قائم.
+
+---
+
+## PR-02 — إدخال نطاق الملكية/الوصول في `projects.ts` مع تعديل المخطط
+
+**الهدف:** تحويل مشروع `projects` من سجل عام إلى سجل **مملوك ومقيّد بالنطاق**.
+
+**الملفات:**
+
+* `lib/db/src/schema/projects.ts`
+* migration جديدة في طبقة الـ DB
+* `artifacts/api-server/src/routes/projects.ts`
+* أي helper policy جديد إن احتجناه مثل `requireProjectAccess.ts`
+
+**ما الذي يتغير في المخطط:**
+
+* إضافة حقل ملكية واضح للمشروع مثل:
+
+  * `ownerId`
+  * أو `createdBy`
+  * أو `orgId/teamId` إذا كان الاتجاه متعدد الفرق من البداية
+* تحديد ما إذا كان المشروع:
+
+  * فرديًا
+  * تابعًا لفريق
+  * أو يمكن أن يشترك فيه أكثر من مستخدم
+
+**ما الذي يتغير في `projects.ts`:**
+
+* `GET /projects` لم يعد يعيد كل المشاريع بدون قيد.
+* `POST /projects` يربط المشروع بالمالك/النطاق من `req.userId`.
+* `GET /projects/:projectId` يتحقق من الوصول قبل إرجاع السجل.
+* `PATCH /projects/:projectId` و`DELETE /projects/:projectId` يمران عبر policy check.
+* `GET /projects/:projectId/summary` لا يعتمد فقط على وجود السجل، بل على حق الوصول إليه.
+* `POST /projects/:projectId/scan` لا يبدأ scan إلا بعد اجتياز الوصول.
+
+**النتيجة المتوقعة:**
+
+* ينتقل المشروع من “authenticated only” إلى “scoped access”.
+* لا يعود أي مستخدم موثّق قادرًا على الوصول إلى كل المشاريع.
+
+**معيار القبول:**
+
+* المستخدم لا يرى إلا ما يملكه أو ما يحق له الوصول إليه.
+* إنشاء المشروع يربطه بمالك واضح.
+* كل route على `projectId` يفشل مبكرًا إذا لم يكن هناك access.
+
+---
+
+## PR-03 — تقوية `projects.ts` اختباريًا وربطه بالسياسات الجديدة
+
+**الهدف:** تحويل التغيير السابق من مجرد تعديل مخطط إلى سلوك مضمون بالاختبارات.
+
+**الملفات:**
+
+* `artifacts/api-server/src/routes/projects.test.ts`
+* أي test helpers للمصادقة أو factory للمشاريع
+* إن لزم: mock بسيط لسياسات الوصول
+
+**ما الذي يتغير:**
+
+* إضافة اختبارات تمنع:
+
+  * قراءة مشروع لا يملكه المستخدم
+  * تحديث مشروع لا يملكه المستخدم
+  * حذف مشروع لا يملكه المستخدم
+  * بدء scan على مشروع خارج النطاق
+* تثبيت behavior الخاص بـ summary وscan jobs بعد تقييد الوصول.
+* الإبقاء على اختبارات error-safety الحالية التي تتأكد من أن الـ scan لا يعلق المشروع في `scanning`.
+
+**النتيجة المتوقعة:**
+
+* أي انحراف في authorization يظهر فورًا في الاختبارات.
+* تصبح `projects.ts` طبقة محكومة وليست مجرد CRUD عامًا.
+
+**معيار القبول:**
+
+* اختبارات نجاح وفشل واضحة لكل route رئيسي.
+* عدم كسر سلوك scan الحالي.
+* تغطية واضحة لحالات 404/401/403 حسب سياسة المشروع.
+
+---
+
+## PR-04 — تحصين `scan-runner.ts` كخط تنفيذ ذكي وآمن
+
+**الهدف:** جعل مسار الفحص الثقيل متماسكًا من حيث atomicity، الاستعادة، والتتبّع.
+
+**الملفات:**
+
+* `artifacts/api-server/src/lib/scan-runner.ts`
+* `artifacts/api-server/src/lib/audit.ts`
+* `artifacts/api-server/src/lib/plugin-runtime.ts`
+* أي helper استخراج/تخزين مرتبط بالفحص
+
+**ما الذي يتغير:**
+
+* إبقاء منطق:
+
+  * walk
+  * rule matching
+  * graph extraction
+  * metrics
+  * persistence
+    لكن مع فصل أوضح بين:
+
+  1. القراءة والتحليل
+  2. التحويل
+  3. الحفظ
+* التأكد من أن أي فشل في منتصف السلسلة لا يترك:
+
+  * مشروعًا عالقًا في `scanning`
+  * job مكتملًا جزئيًا
+  * audit موجودًا بلا نتيجة
+  * metrics/graph غير متسقين
+* توسيع الاتساق بين:
+
+  * `scanJobsTable`
+  * `eventsTable`
+  * `auditLogsTable`
+  * `metricsTable`
+  * `tasksTable`
+  * `graphEntitiesTable`
+  * `graphRelationshipsTable`
+
+**النتيجة المتوقعة:**
+
+* scan يصبح transactional قدر الإمكان.
+* الفشل لا يسبب حالة ميتة.
+* التتبع يصبح “traceable by correlation” وليس مجرد أثر متفرق.
+
+**معيار القبول:**
+
+* كل scan إما ينجح بالكامل أو يفشل مع استرداد واضح.
+* المشروع يعود إلى `active` عند الفشل.
+* لا تبقى job entries عالقة بلا نتيجة.
+
+---
+
+## PR-05 — تقوية الاختبارات حول `scan-runner.ts` ومسار `/scan`
+
+**الهدف:** تحويل منطق الفحص من سلوك صحيح “على الورق” إلى سلوك مضمون بالاختبارات.
+
+**الملفات:**
+
+* `artifacts/api-server/src/routes/projects.test.ts`
+* أي test خاص بـ `scan-runner.ts` إذا أضفناه
+* mocks لـ scanner/plugin runtime عند الحاجة
+
+**ما الذي يتغير:**
+
+* اختبار بدء scan وإرجاع 202 فورًا.
+* اختبار انتقال المشروع إلى `scanning` ثم عودته إلى `active`.
+* اختبار حالة الفشل الجزئي:
+
+  * failure في graph extraction
+  * failure في audit write
+  * failure في persist step
+* اختبار أن `scanJobsTable` يسجل:
+
+  * queued
+  * running
+  * completed
+  * failed
+
+**النتيجة المتوقعة:**
+
+* أي تعديل لاحق على pipeline يمر عبر شبكة أمان اختبارية حقيقية.
+* تتقلص احتمالات regression في مسار الفحص.
+
+**معيار القبول:**
+
+* تغطية واضحة لحالات النجاح والفشل.
+* عدم وجود scan يعلق المشروع أو job بلا نهاية.
+
+---
+
+## PR-06 — ربط `scan-runner.ts` بآلية تشغيل أكثر ديمومة
+
+**الهدف:** إخراج منطق التنفيذ من كونه “داخل process واحد” إلى بنية تشغيل أكثر استقرارًا.
+
+**الملفات:**
+
+* `artifacts/api-server/src/lib/job-queue.ts`
+* `artifacts/api-server/src/lib/job-reconciliation.ts`
+* `artifacts/api-server/src/lib/scan-runner.ts`
+* routes الاستدعاء في `projects.ts`
+
+**ما الذي يتغير:**
+
+* تثبيت bounded concurrency بشكل أوضح.
+* التأكد من أن jobs المعلقة يمكن استعادتها بعد restart.
+* منع تكرار التنفيذ أو تضارب الحالة بين queued/running/failed.
+* تحسين reconciliation عند الإقلاع.
+
+**النتيجة المتوقعة:**
+
+* scan workflow يصبح أكثر قربًا من worker model الحقيقية.
+* أقل اعتمادًا على دورة حياة Express process.
+
+**معيار القبول:**
+
+* إعادة التشغيل لا تضيّع jobs.
+* الحالات المعلقة تُعاد موازنتها بشكل آمن.
+* لا يحدث double-run لنفس job بسهولة.
+
+---
+
+## PR-07 — توحيد الأثر التشغيلي: audit + events + metrics
+
+**الهدف:** جعل كل عملية في المنصة قابلة للتدقيق والتحليل تاريخيًا.
+
+**الملفات:**
+
+* `artifacts/api-server/src/lib/audit.ts`
+* `artifacts/api-server/src/lib/logger.ts`
+* `artifacts/api-server/src/lib/scan-runner.ts`
+* `lib/db/src/schema/audit-logs.ts`
+* `lib/db/src/schema/events.ts`
+* `lib/db/src/schema/metrics.ts`
+
+**ما الذي يتغير:**
+
+* توحيد `correlationId` أو `traceId` عبر:
+
+  * scan
+  * project mutations
+  * audit records
+  * emitted events
+  * metrics snapshots
+* تقليل الحالات التي يُسجَّل فيها أثر في طبقة دون الأخرى.
+* جعل السجل التشغيلي صالحًا للتشخيص وليس مجرد logging.
+
+**النتيجة المتوقعة:**
+
+* يمكن تتبع أي scan أو mutation من البداية للنهاية.
+* تصبح المنصة أقرب إلى system of proof فعلًا.
+
+**معيار القبول:**
+
+* أي عملية رئيسية لها trace واحد واضح.
+* audit/event/metric لا تتعارض مع بعضها.
+
+---
+
+## الترتيب التنفيذي المقترح
+
+ابدأ بهذا التسلسل حرفيًا:
+
+1. `requireAuth.ts`
+2. `projects.ts` + `lib/db/src/schema/projects.ts`
+3. `projects.test.ts`
+4. `scan-runner.ts`
+5. `projects.test.ts` لتغطية scan
+6. `job-queue.ts` و`job-reconciliation.ts`
+7. `audit.ts` و`events.ts` و`metrics.ts`
+
+---
+
+## المخرج النهائي المتوقع بعد هذه السلسلة
+
+بعد إتمام هذه PRs، ستكون المنصة قد انتقلت من:
+
+* **Authenticated CRUD + scan engine**
+  إلى
+* **Scoped, auditable, resilient platform execution layer**
+
+أي أن الكود يصبح:
+
+* مقيّدًا بالنطاق
+* قابلًا للتدقيق
+* مقاومًا للأخطاء الجزئية
+* ومهيأً لتوسعة متعددة الطبقات بدون كسر البنية الحالية

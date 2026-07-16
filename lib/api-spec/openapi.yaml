@@ -1,36 +1,3058 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
-  title: Api
-  version: 0.1.0
-  description: API specification
-servers:
-  - url: /api
-    description: Base API path
-tags:
-  - name: health
-    description: Health operations
+  title: api
+  version: 1.0.0
+  description: EngineeringOS - Autonomous AI Engineering Platform API
+
 paths:
-  /healthz:
+  /api/healthz:
     get:
-      operationId: healthCheck
-      tags: [health]
+      operationId: getHealth
       summary: Health check
-      description: Returns server health status
+      tags: [Health]
       responses:
         "200":
-          description: Healthy
+          description: OK
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ─── Projects ────────────────────────────────────────────────────────────────
+  /api/projects:
+    get:
+      operationId: listProjects
+      summary: List all projects
+      tags: [Projects]
+      responses:
+        "200":
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      operationId: createProject
+      summary: Register a new project
+      tags: [Projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectInput"
+      responses:
+        "201":
+          description: Created project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  /api/projects/{projectId}:
+    get:
+      operationId: getProject
+      summary: Get a project by ID
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+    patch:
+      operationId: updateProject
+      summary: Update project config
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProjectInput"
+      responses:
+        "200":
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+    delete:
+      operationId: deleteProject
+      summary: Delete a project
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /api/projects/{projectId}/scan:
+    post:
+      operationId: scanProject
+      summary: Enqueue a project scan (runs in the background; poll the returned job)
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Scan job queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanJob"
+
+  /api/projects/{projectId}/scan-jobs/{jobId}:
+    get:
+      operationId: getScanJob
+      summary: Get the status/result of a background scan job
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Scan job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanJob"
+
+  /api/projects/{projectId}/summary:
+    get:
+      operationId: getProjectSummary
+      summary: Get project quality summary (scores, task counts, recent events)
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectSummary"
+
+  # ─── Tasks ───────────────────────────────────────────────────────────────────
+  /api/tasks:
+    get:
+      operationId: listTasks
+      summary: List tasks with optional filters
+      tags: [Tasks]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/TaskStatus"
+        - name: priority
+          in: query
+          schema:
+            $ref: "#/components/schemas/TaskPriority"
+      responses:
+        "200":
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+    post:
+      operationId: createTask
+      summary: Create a new task
+      tags: [Tasks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskInput"
+      responses:
+        "201":
+          description: Created task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /api/tasks/{taskId}:
+    get:
+      operationId: getTask
+      summary: Get task by ID
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+    patch:
+      operationId: updateTask
+      summary: Update task status or fields
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskInput"
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+    delete:
+      operationId: deleteTask
+      summary: Delete a task
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /api/tasks/{taskId}/execute:
+    post:
+      operationId: executeTask
+      summary: Execute a task through the AI pipeline
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Task execution started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /api/tasks/{taskId}/retry:
+    post:
+      operationId: retryTask
+      summary: Retry a failed task
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Task queued for retry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /api/tasks/{taskId}/rollback:
+    post:
+      operationId: rollbackTask
+      summary: Roll back a task's changes
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task rolled back
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /api/tasks/{taskId}/logs:
+    get:
+      operationId: getTaskLogs
+      summary: Get execution logs for a task
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskLog"
+
+  # ─── Rules ───────────────────────────────────────────────────────────────────
+  /api/rules:
+    get:
+      operationId: listRules
+      summary: List all rules
+      tags: [Rules]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: severity
+          in: query
+          schema:
+            $ref: "#/components/schemas/RuleSeverity"
+      responses:
+        "200":
+          description: List of rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Rule"
+    post:
+      operationId: createRule
+      summary: Create a new rule
+      tags: [Rules]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRuleInput"
+      responses:
+        "201":
+          description: Created rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rule"
+
+  /api/rules/{ruleId}:
+    get:
+      operationId: getRule
+      summary: Get rule by ID
+      tags: [Rules]
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rule"
+    patch:
+      operationId: updateRule
+      summary: Update a rule
+      tags: [Rules]
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRuleInput"
+      responses:
+        "200":
+          description: Updated rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rule"
+    delete:
+      operationId: deleteRule
+      summary: Delete a rule
+      tags: [Rules]
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /api/rules/{ruleId}/evaluate:
+    post:
+      operationId: evaluateRule
+      summary: Run rule evaluation against a project
+      tags: [Rules]
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvaluateRuleRequest"
+      responses:
+        "200":
+          description: Rule evaluation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuleEvaluationResult"
+
+  # ─── Workflows ────────────────────────────────────────────────────────────────
+  /api/workflows:
+    get:
+      operationId: listWorkflows
+      summary: List workflow definitions
+      tags: [Workflows]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of workflows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Workflow"
+    post:
+      operationId: createWorkflow
+      summary: Create a workflow definition
+      tags: [Workflows]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkflowInput"
+      responses:
+        "201":
+          description: Created workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+
+  /api/workflows/{workflowId}:
+    get:
+      operationId: getWorkflow
+      summary: Get workflow by ID
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+    delete:
+      operationId: deleteWorkflow
+      summary: Delete a workflow
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /api/workflows/{workflowId}/start:
+    post:
+      operationId: startWorkflow
+      summary: Start a workflow execution
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Workflow started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecution"
+
+  /api/workflows/{workflowId}/stop:
+    post:
+      operationId: stopWorkflow
+      summary: Stop an active workflow execution
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecution"
+
+  /api/workflows/{workflowId}/executions:
+    get:
+      operationId: listWorkflowExecutions
+      summary: List past executions of a workflow
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow executions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkflowExecution"
+
+  /api/workflows/{workflowId}/advance:
+    post:
+      operationId: advanceWorkflow
+      summary: Advance the running execution to its next phase (or complete it if on the last phase)
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Execution advanced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecution"
+        "404":
+          description: Workflow not found
+        "409":
+          description: No running execution to advance, or a concurrent state change
+
+  /api/workflows/{workflowId}/fail-phase:
+    post:
+      operationId: failWorkflowPhase
+      summary: Mark the running execution's current phase as failed
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FailWorkflowPhaseInput"
+      responses:
+        "200":
+          description: Execution marked failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecution"
+        "404":
+          description: Workflow not found
+        "409":
+          description: No running execution to fail, or a concurrent state change
+
+  /api/workflows/{workflowId}/executions/{executionId}/retry-phase:
+    post:
+      operationId: retryWorkflowPhase
+      summary: Retry a failed execution's current phase in place
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Execution retrying
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecution"
+        "404":
+          description: Workflow or execution not found
+        "409":
+          description: Execution is not in a failed state
+
+  # ─── Events ──────────────────────────────────────────────────────────────────
+  /api/events:
+    get:
+      operationId: listEvents
+      summary: List system events
+      tags: [Events]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: correlationId
+          in: query
+          schema:
+            type: string
+          description: Return only events belonging to one logical operation.
+      responses:
+        "200":
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Event"
+
+  # ─── Metrics ─────────────────────────────────────────────────────────────────
+  /api/metrics:
+    get:
+      operationId: listMetrics
+      summary: Get time-series quality metrics
+      tags: [Metrics]
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Metrics time series
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MetricRecord"
+
+  /api/metrics/latest:
+    get:
+      operationId: getLatestMetrics
+      summary: Get the latest metric record per project
+      tags: [Metrics]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Latest metrics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MetricRecord"
+
+  # ─── Knowledge Graph ─────────────────────────────────────────────────────────
+  /api/graph/entities:
+    get:
+      operationId: listGraphEntities
+      summary: List knowledge graph entities
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            $ref: "#/components/schemas/EntityType"
+      responses:
+        "200":
+          description: List of entities
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GraphEntity"
+
+  /api/graph/relationships:
+    get:
+      operationId: listGraphRelationships
+      summary: List knowledge graph relationships
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: sourceId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of relationships
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GraphRelationship"
+
+  /api/graph/impact:
+    get:
+      operationId: getGraphEntityImpact
+      summary: Compute the transitive downstream impact of an entity
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: entityId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: maxDepth
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 6
+            default: 4
+      responses:
+        "200":
+          description: Impact analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphImpactResult"
+        "404":
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+
+  /api/graph/path:
+    get:
+      operationId: getGraphPath
+      summary: Find the shortest directed path between two graph entities
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: fromId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: toId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: maxDepth
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 8
+            default: 5
+      responses:
+        "200":
+          description: Path result (found or not found)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphPathResult"
+
+  /api/graph/summary/{projectId}:
+    get:
+      operationId: getGraphSummary
+      summary: Get aggregated knowledge graph statistics for a project
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Graph summary statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphSummary"
+
+  /api/graph/entities/{entityId}/neighbors:
+    get:
+      operationId: getGraphEntityNeighbors
+      summary: Get a graph entity's direct incoming and outgoing relationships plus neighboring entities
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: entityId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The entity, its direct relationships, and neighboring entities
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entity, outgoing, incoming, neighbors]
+                properties:
+                  entity:
+                    $ref: "#/components/schemas/GraphEntity"
+                  outgoing:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/GraphRelationship"
+                  incoming:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/GraphRelationship"
+                  neighbors:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/GraphEntity"
+        "404":
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+
+  /api/graph/subgraph:
+    get:
+      operationId: getGraphSubgraph
+      summary: Get a filtered, layered view of the knowledge graph for a project
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: relationType
+          in: query
+          schema:
+            type: string
+        - name: minConfidence
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: sourceType
+          in: query
+          schema:
+            type: string
+        - name: semanticTag
+          in: query
+          schema:
+            type: string
+        - name: observedOnly
+          in: query
+          schema:
+            type: boolean
+        - name: heuristicOnly
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Combined filtered graph with per-layer counts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphSubgraph"
+        "400":
+          description: Missing or invalid projectId
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+        "403":
+          description: Project belongs to another user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+        "404":
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+
+  /api/graph/semantic-neighborhood:
+    get:
+      operationId: getGraphSemanticNeighborhood
+      summary: Return entities within N hops from a given entity, with optional KG 2.0 filters
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: entityId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: depth
+          in: query
+          schema:
+            type: integer
+            default: 2
+            maximum: 4
+        - name: relationType
+          in: query
+          schema:
+            type: string
+        - name: minConfidence
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: sourceType
+          in: query
+          schema:
+            type: string
+        - name: semanticTag
+          in: query
+          schema:
+            type: string
+        - name: observedOnly
+          in: query
+          schema:
+            type: boolean
+        - name: heuristicOnly
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Root entity plus neighborhood closure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphSemanticNeighborhood"
+        "400":
+          description: entityId is required
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+        "403":
+          description: Entity belongs to another user's project
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+        "404":
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+
+  /api/graph/evidence/{entityId}:
+    get:
+      operationId: getGraphEvidence
+      summary: Return all evidence records attached to outgoing relationships from an entity
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: entityId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Entity with its evidence bundles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphEvidenceResponse"
+        "403":
+          description: Entity belongs to another user's project
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+        "404":
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+
+  /api/graph/runtime-subgraph/{projectId}:
+    get:
+      operationId: getGraphRuntimeSubgraph
+      summary: Return only the runtime-observed subgraph for a project
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Runtime-observed entities and relationships
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphRuntimeSubgraph"
+        "403":
+          description: Project belongs to another user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+        "404":
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+
+  # ─── Plugins ─────────────────────────────────────────────────────────────────
+  /api/plugins:
+    get:
+      operationId: listPlugins
+      summary: List all registered plugins
+      tags: [Plugins]
+      responses:
+        "200":
+          description: List of plugins
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plugin"
+
+  /api/plugins/{pluginId}/enable:
+    post:
+      operationId: enablePlugin
+      summary: Enable a plugin for a project
+      tags: [Plugins]
+      parameters:
+        - name: pluginId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PluginProjectRequest"
+      responses:
+        "200":
+          description: Plugin enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plugin"
+
+  /api/plugins/{pluginId}/disable:
+    post:
+      operationId: disablePlugin
+      summary: Disable a plugin for a project
+      tags: [Plugins]
+      parameters:
+        - name: pluginId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PluginProjectRequest"
+      responses:
+        "200":
+          description: Plugin disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plugin"
+
+  # ─── Discovery ───────────────────────────────────────────────────────────────
+  /api/discovery/sources:
+    get:
+      operationId: listDiscoverySources
+      summary: List supported discovery source types and their capabilities
+      tags: [Discovery]
+      responses:
+        "200":
+          description: List of source capabilities
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DiscoverySourceCapability"
+
+  /api/projects/discover:
+    post:
+      operationId: startDiscovery
+      summary: Start autonomous project discovery
+      tags: [Discovery]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartDiscoveryInput"
+      responses:
+        "202":
+          description: Discovery session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoverySessionStatus"
+
+  /api/projects/discover/{discoveryId}:
+    get:
+      operationId: getDiscoverySession
+      summary: Get discovery session status and progress
+      tags: [Discovery]
+      parameters:
+        - name: discoveryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Discovery session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoverySessionStatus"
+        "404":
+          description: Session not found
+
+  /api/projects/discover/{discoveryId}/summary:
+    get:
+      operationId: getDiscoverySummary
+      summary: Get full discovery report (only when status=ready)
+      tags: [Discovery]
+      parameters:
+        - name: discoveryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full discovery report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryReport"
+        "404":
+          description: Session not found
+        "409":
+          description: Discovery not yet complete
+
+  /api/projects/import:
+    post:
+      operationId: importProject
+      summary: Import a project from a completed discovery session
+      tags: [Discovery]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportProjectInput"
+      responses:
+        "201":
+          description: Imported project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  # ─── Dashboard aggregate ─────────────────────────────────────────────────────
+  /api/dashboard:
+    get:
+      operationId: getDashboard
+      summary: Aggregated dashboard data (projects, active tasks, recent events, scores)
+      tags: [Dashboard]
+      responses:
+        "200":
+          description: Dashboard overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardOverview"
+
+  /api/ai/chat:
+    post:
+      operationId: aiChat
+      summary: Send a message to the AI assistant
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiChatRequest"
+      responses:
+        "200":
+          description: AI response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiChatOutput"
+
+  /api/ai/chat/sessions:
+    get:
+      operationId: listAiChatSessions
+      summary: List chat sessions for a project
+      tags: [AI]
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AiChatSession"
+
+  /api/ai/chat/{sessionId}/messages:
+    get:
+      operationId: listAiChatMessages
+      summary: Get messages in a chat session
+      tags: [AI]
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AiChatMessage"
+
+  /api/ai/projects/{projectId}/analyze:
+    post:
+      operationId: aiAnalyzeProject
+      summary: Run AI scan analysis on a project
+      tags: [AI]
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Scan analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiScanAnalysis"
+
+  /api/ai/projects/{projectId}/review:
+    post:
+      operationId: aiReviewCode
+      summary: Run AI code review on a project
+      tags: [AI]
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiReviewRequest"
+      responses:
+        "200":
+          description: Code review result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCodeReview"
+
+  /api/ai/workflows/{workflowId}/orchestrate:
+    post:
+      operationId: aiOrchestrateWorkflow
+      summary: Get AI orchestration decision for a workflow
+      tags: [AI]
+      parameters:
+        - in: path
+          name: workflowId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiOrchestrateRequest"
+      responses:
+        "200":
+          description: Orchestration decision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiOrchestrationDecision"
+
+  /api/ai/tasks/{taskId}/execute:
+    post:
+      operationId: aiExecuteTask
+      summary: Execute a task via AI agent
+      tags: [AI]
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Task executed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /api/ai/groq-key:
+    get:
+      operationId: getGroqKeyStatus
+      summary: Get Groq API key configuration status (never returns the key itself)
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      responses:
+        "200":
+          description: Key status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroqKeyStatus"
+        "401":
+          description: Not authenticated
+    put:
+      operationId: saveGroqKey
+      summary: Save or update the authenticated user's Groq API key
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveGroqKeyInput"
+      responses:
+        "200":
+          description: Key saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroqKeyStatus"
+        "400":
+          description: Invalid key (too short or missing)
+        "401":
+          description: Not authenticated
+        "500":
+          description: Encryption not configured — AI_CREDENTIALS_ENCRYPTION_KEY missing
+    delete:
+      operationId: deleteGroqKey
+      summary: Remove the authenticated user's saved Groq API key
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      responses:
+        "200":
+          description: Key removed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [configured]
+                properties:
+                  configured:
+                    type: boolean
+        "401":
+          description: Not authenticated
+
 components:
+  securitySchemes:
+    ClerkSession:
+      type: apiKey
+      in: cookie
+      name: __session
+      description: >
+        Clerk session cookie. All /api/* routes (except /api/healthz) require a
+        valid Clerk session. The cookie is set automatically by the Clerk frontend
+        SDK after sign-in — no manual header injection is needed.
+
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
+          enum: [ok]
 
+    # ─── AI ────────────────────────────────────────────────────────────────────
+    GroqKeyStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured:
+          type: boolean
+        last4:
+          type: ["string", "null"]
+          description: Last 4 characters of the saved key — shown in UI for confirmation
+        updatedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    SaveGroqKeyInput:
+      type: object
+      required: [apiKey]
+      properties:
+        apiKey:
+          type: string
+          minLength: 10
+          description: The Groq API key to save. Must not be logged or returned.
+
+    AiChatRequest:
+      type: object
+      required: [projectId, message]
+      properties:
+        projectId:
+          type: string
+        message:
+          type: string
+        sessionId:
+          type: string
+
+    AiChatSession:
+      type: object
+      required: [id, projectId, title, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AiChatMessage:
+      type: object
+      required: [id, sessionId, role, content, createdAt]
+      properties:
+        id:
+          type: string
+        sessionId:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant, system]
+        content:
+          type: string
+        sources:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    AiReviewRequest:
+      type: object
+      properties:
+        fileContents:
+          type: object
+          additionalProperties:
+            type: string
+
+    AiOrchestrateRequest:
+      type: object
+      properties:
+        additionalContext:
+          type: string
+
+    AiChatOutput:
+      type: object
+      required: [sessionId, message, sources]
+      properties:
+        sessionId:
+          type: string
+        message:
+          $ref: "#/components/schemas/AiChatMessage"
+        sources:
+          type: array
+          items:
+            type: string
+
+    AiScanInsight:
+      type: object
+      required: [category, severity, title, description, recommendation]
+      properties:
+        category:
+          type: string
+          enum: [architecture, security, performance, reliability, maintainability]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        title:
+          type: string
+        description:
+          type: string
+        recommendation:
+          type: string
+
+    AiScanAnalysis:
+      type: object
+      required: [summary, overallAssessment, insights, topPriority, estimatedImpact]
+      properties:
+        summary:
+          type: string
+        overallAssessment:
+          type: string
+        insights:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiScanInsight"
+        topPriority:
+          type: string
+        estimatedImpact:
+          type: string
+
+    AiCodeIssue:
+      type: object
+      required: [type, severity, title, description, suggestion]
+      properties:
+        type:
+          type: string
+          enum: [bug, security, performance, style, architecture]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        file:
+          type: string
+          nullable: true
+        title:
+          type: string
+        description:
+          type: string
+        suggestion:
+          type: string
+
+    AiCodeReview:
+      type: object
+      required: [summary, overallScore, strengths, issues, refactoringOpportunities, securityConcerns, verdict]
+      properties:
+        summary:
+          type: string
+        overallScore:
+          type: number
+        strengths:
+          type: array
+          items:
+            type: string
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiCodeIssue"
+        refactoringOpportunities:
+          type: array
+          items:
+            type: string
+        securityConcerns:
+          type: array
+          items:
+            type: string
+        verdict:
+          type: string
+          enum: [approved, needs_changes, major_rework]
+
+    AiOrchestrationDecision:
+      type: object
+      required: [action, reasoning]
+      properties:
+        action:
+          type: string
+          enum: [advance, wait, fail, complete]
+        reasoning:
+          type: string
+        nextPhase:
+          type: string
+          nullable: true
+        blockers:
+          type: array
+          items:
+            type: string
+        suggestions:
+          type: array
+          items:
+            type: string
+
+    # ─── Enums ─────────────────────────────────────────────────────────────────
+    TaskStatus:
+      type: string
+      enum: [pending, queued, running, verifying, completed, failed, cancelled]
+
+    TaskPriority:
+      type: string
+      enum: [p0, p1, p2, p3]
+
+    RuleSeverity:
+      type: string
+      enum: [critical, high, medium, low, info]
+
+    WorkflowStatus:
+      type: string
+      enum: [idle, running, completed, failed, stopped]
+
+    EntityType:
+      type: string
+      enum: [file, function, class, api, task, rule, phase, module]
+
+    # ─── Project ───────────────────────────────────────────────────────────────
+    Project:
+      type: object
+      required: [id, ownerId, name, rootPath, language, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        ownerId:
+          type: string
+          description: Clerk user id of the project owner. Access to this project is scoped to this user.
+        name:
+          type: string
+        description:
+          type: string
+        rootPath:
+          type: string
+        language:
+          type: string
+        framework:
+          type: string
+        status:
+          type: string
+          enum: [active, scanning, paused, archived]
+        qualityScore:
+          type: number
+        lastScanAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateProjectInput:
+      type: object
+      required: [name, rootPath, language]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        rootPath:
+          type: string
+        language:
+          type: string
+        framework:
+          type: string
+
+    UpdateProjectInput:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [active, scanning, paused, archived]
+
+    ScanResult:
+      type: object
+      required: [projectId, scannedAt, filesFound, issuesDetected, tasksCreated]
+      properties:
+        projectId:
+          type: string
+        scannedAt:
+          type: string
+          format: date-time
+        filesFound:
+          type: integer
+        issuesDetected:
+          type: integer
+        tasksCreated:
+          type: integer
+        summary:
+          type: string
+
+    ScanJob:
+      type: object
+      description: >
+        Background scan job. Scanning a project (file walk + rule matching +
+        graph extraction + metrics) is heavy, so POST .../scan only enqueues
+        it and returns this record immediately with status "queued"; poll
+        GET .../scan-jobs/{jobId} until status is "completed" or "failed".
+      required: [id, projectId, status, createdAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, completed, failed]
+        result:
+          $ref: "#/components/schemas/ScanResult"
+        error:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+
+    ProjectSummary:
+      type: object
+      required: [projectId, qualityScore, taskCounts, recentEvents, latestMetrics]
+      properties:
+        projectId:
+          type: string
+        qualityScore:
+          type: number
+        taskCounts:
+          type: object
+          required: [total, pending, running, completed, failed]
+          properties:
+            total:
+              type: integer
+            pending:
+              type: integer
+            running:
+              type: integer
+            completed:
+              type: integer
+            failed:
+              type: integer
+        recentEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+        latestMetrics:
+          $ref: "#/components/schemas/MetricRecord"
+
+    # ─── Task ──────────────────────────────────────────────────────────────────
+    Task:
+      type: object
+      required: [id, projectId, title, status, priority, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        ruleId:
+          type: string
+        workflowId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        relatedFiles:
+          type: array
+          items:
+            type: string
+        dependsOn:
+          type: array
+          items:
+            type: string
+        retryCount:
+          type: integer
+        maxRetries:
+          type: integer
+        phase:
+          type: string
+        prompt:
+          type: string
+        agentResponse:
+          type: string
+        verificationResult:
+          $ref: "#/components/schemas/VerificationResult"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+
+    CreateTaskInput:
+      type: object
+      required: [projectId, title, priority]
+      properties:
+        projectId:
+          type: string
+        ruleId:
+          type: string
+        workflowId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        relatedFiles:
+          type: array
+          items:
+            type: string
+        dependsOn:
+          type: array
+          items:
+            type: string
+        phase:
+          type: string
+
+    UpdateTaskInput:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+
+    TaskLog:
+      type: object
+      required: [id, taskId, level, message, timestamp]
+      properties:
+        id:
+          type: string
+        taskId:
+          type: string
+        level:
+          type: string
+          enum: [debug, info, warn, error]
+        message:
+          type: string
+        metadata:
+          type: object
+        timestamp:
+          type: string
+          format: date-time
+
+    VerificationResult:
+      type: object
+      required: [passed, steps]
+      properties:
+        passed:
+          type: boolean
+        steps:
+          type: array
+          items:
+            type: object
+            required: [name, passed]
+            properties:
+              name:
+                type: string
+              passed:
+                type: boolean
+              output:
+                type: string
+
+    # ─── Rule ──────────────────────────────────────────────────────────────────
+    Rule:
+      type: object
+      required: [id, code, title, severity, enabled, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        code:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          $ref: "#/components/schemas/RuleSeverity"
+        pattern:
+          type: string
+        fixDescription:
+          type: string
+        verifySteps:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        hitCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateRuleInput:
+      type: object
+      required: [code, title, severity]
+      properties:
+        projectId:
+          type: string
+        code:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          $ref: "#/components/schemas/RuleSeverity"
+        pattern:
+          type: string
+        fixDescription:
+          type: string
+        verifySteps:
+          type: array
+          items:
+            type: string
+
+    UpdateRuleInput:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          $ref: "#/components/schemas/RuleSeverity"
+        pattern:
+          type: string
+        fixDescription:
+          type: string
+        enabled:
+          type: boolean
+
+    RuleEvaluationResult:
+      type: object
+      required: [ruleId, projectId, matched, matchCount, matches]
+      properties:
+        ruleId:
+          type: string
+        projectId:
+          type: string
+        matched:
+          type: boolean
+        matchCount:
+          type: integer
+        matches:
+          type: array
+          items:
+            type: object
+            required: [file, line, snippet]
+            properties:
+              file:
+                type: string
+              line:
+                type: integer
+              snippet:
+                type: string
+
+    # ─── Workflow ──────────────────────────────────────────────────────────────
+    Workflow:
+      type: object
+      required: [id, projectId, name, status, phases, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/WorkflowStatus"
+        phases:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowPhase"
+        currentPhase:
+          type: string
+        executionCount:
+          type: integer
+        lastExecutedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    WorkflowPhase:
+      type: object
+      required: [name, steps]
+      properties:
+        name:
+          type: string
+        steps:
+          type: array
+          items:
+            type: string
+        condition:
+          type: string
+
+    CreateWorkflowInput:
+      type: object
+      required: [projectId, name, phases]
+      properties:
+        projectId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        phases:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowPhase"
+
+    FailWorkflowPhaseInput:
+      type: object
+      properties:
+        error:
+          type: string
+
+    WorkflowExecution:
+      type: object
+      required: [id, workflowId, status, startedAt]
+      properties:
+        id:
+          type: string
+        workflowId:
+          type: string
+        status:
+          $ref: "#/components/schemas/WorkflowStatus"
+        currentPhase:
+          type: string
+        completedPhases:
+          type: array
+          items:
+            type: string
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        errorMessage:
+          type: string
+
+    # ─── Event ─────────────────────────────────────────────────────────────────
+    Event:
+      type: object
+      required: [id, type, projectId, timestamp]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        projectId:
+          type: string
+        taskId:
+          type: string
+        workflowId:
+          type: string
+        payload:
+          type: object
+        severity:
+          type: string
+          enum: [info, warning, error, success]
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        correlationId:
+          type: string
+          description: >
+            Ties this event to a logical operation (scan, task execute, workflow
+            advance). All records sharing the same correlationId were produced
+            by a single call — filter by this to see the full trace.
+
+    # ─── Metrics ───────────────────────────────────────────────────────────────
+    MetricRecord:
+      type: object
+      required: [id, projectId, timestamp, overallScore]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        overallScore:
+          type: number
+        architectureScore:
+          type: number
+        securityScore:
+          type: number
+        performanceScore:
+          type: number
+        reliabilityScore:
+          type: number
+        maintainabilityScore:
+          type: number
+        testCoverage:
+          type: number
+        lintIssues:
+          type: integer
+        testsPassed:
+          type: integer
+        testsTotal:
+          type: integer
+        technicalDebt:
+          type: number
+        buildStatus:
+          type: string
+          enum: [passing, failing, unknown]
+
+    # ─── Knowledge Graph ───────────────────────────────────────────────────────
+    GraphProvenance:
+      type: object
+      required: [extractor, method, extractedAt]
+      properties:
+        extractor:
+          type: string
+          description: Which extractor produced this element (e.g. typescript-ast, python-ast, regex-fallback)
+        method:
+          type: string
+          description: The specific extraction technique (e.g. import-analysis, call-graph)
+        extractedAt:
+          type: string
+          format: date-time
+
+    GraphEdgeType:
+      type: string
+      description: Typed relationship category for Knowledge Graph 2.0
+      enum:
+        - imports
+        - calls
+        - extends
+        - implements
+        - uses
+        - emits
+        - observes
+        - produces
+        - depends_on
+
+    GraphEvidence:
+      type: object
+      description: A single piece of evidence that justifies a graph entity or relationship
+      required: [file, kind]
+      properties:
+        file:
+          type: string
+        line:
+          type: integer
+        column:
+          type: integer
+        snippet:
+          type: string
+          description: Source code snippet at the evidence location
+        kind:
+          type: string
+          enum: [import-statement, call-site, class-definition, interface-definition, jsdoc, heuristic]
+
+    GraphEntity:
+      type: object
+      required: [id, projectId, type, name, createdAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        scanJobId:
+          type: string
+          description: The scan job that produced this entity, if any
+        type:
+          $ref: "#/components/schemas/EntityType"
+        name:
+          type: string
+        path:
+          type: string
+        metadata:
+          type: object
+        # ── Knowledge Graph 2.0 semantic fields ────────────────────────────
+        kind:
+          type: string
+          description: Sub-kind within the entity type (e.g. arrow-function, class-method, decorator)
+        sourceType:
+          type: string
+          description: "Extraction source — typescript-ast | python-ast | regex-fallback | manual"
+        isDocumented:
+          type: boolean
+          description: True when the entity has JSDoc, a docstring, or equivalent documentation
+        semanticTags:
+          type: array
+          items:
+            type: string
+          description: Free-form semantic classification tags (e.g. auth, public-api, deprecated)
+        description:
+          type: string
+          description: Short description from doc comment or declaration signature
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: "Extraction confidence — 1.0 = AST certainty, 0.5 = heuristic, 0.0 = unknown"
+        domain:
+          type: string
+          description: Business domain (e.g. auth, payments, infra)
+        lifecycle:
+          type: string
+          description: "Lifecycle stage — stable | experimental | deprecated | internal"
+        provenance:
+          $ref: "#/components/schemas/GraphProvenance"
+        createdAt:
+          type: string
+          format: date-time
+
+    GraphRelationship:
+      type: object
+      required: [id, sourceId, targetId, relation, createdAt]
+      properties:
+        id:
+          type: string
+        sourceId:
+          type: string
+        targetId:
+          type: string
+        projectId:
+          type: string
+          description: Project this relationship belongs to (denormalised for efficient filtering)
+        relation:
+          type: string
+          description: Raw relation string preserved from the extractor
+        scanJobId:
+          type: string
+          description: The scan job that produced this relationship, if any
+        # ── Knowledge Graph 2.0 semantic fields ────────────────────────────
+        relationType:
+          $ref: "#/components/schemas/GraphEdgeType"
+        relationSubtype:
+          type: string
+          description: Fine-grained sub-classification (e.g. static-import, type-only-import)
+        weight:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: Edge weight for weighted graph algorithms (typically equals confidence)
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: "Extraction confidence [0,1] — lower values indicate heuristic inference"
+        isHeuristic:
+          type: boolean
+          description: True when inferred by heuristic rules rather than direct parse evidence
+        isRuntimeObserved:
+          type: boolean
+          description: True when observed at runtime, not inferred by static analysis
+        evidenceJson:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEvidence"
+          description: Structured evidence records that justify this relationship
+        evidenceCount:
+          type: integer
+          description: Number of evidence items (indexed separately for fast cardinality queries)
+        evidenceSummary:
+          type: string
+          description: Human-readable summary of the evidence
+        semanticTags:
+          type: array
+          items:
+            type: string
+        sourceType:
+          type: string
+          description: Which extractor produced this relationship
+        metadata:
+          type: object
+        provenance:
+          $ref: "#/components/schemas/GraphProvenance"
+        createdAt:
+          type: string
+          format: date-time
+
+    GraphImpactHop:
+      type: object
+      required: [entity, viaRelationship, depth]
+      properties:
+        entity:
+          $ref: "#/components/schemas/GraphEntity"
+        viaRelationship:
+          $ref: "#/components/schemas/GraphRelationship"
+        depth:
+          type: integer
+          description: How many hops from the root entity
+
+    GraphImpactResult:
+      type: object
+      required: [root, impacted, maxDepthReached]
+      properties:
+        root:
+          $ref: "#/components/schemas/GraphEntity"
+        impacted:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphImpactHop"
+        maxDepthReached:
+          type: integer
+
+    GraphPathStep:
+      type: object
+      required: [entity]
+      properties:
+        entity:
+          $ref: "#/components/schemas/GraphEntity"
+        relationship:
+          $ref: "#/components/schemas/GraphRelationship"
+
+    GraphPathResult:
+      type: object
+      required: [found]
+      properties:
+        found:
+          type: boolean
+        path:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphPathStep"
+        length:
+          type: integer
+
+    GraphCentralityScore:
+      type: object
+      required: [entityId, entityName, entityType, inDegree, outDegree, totalDegree]
+      properties:
+        entityId:
+          type: string
+        entityName:
+          type: string
+        entityType:
+          type: string
+        inDegree:
+          type: integer
+        outDegree:
+          type: integer
+        totalDegree:
+          type: integer
+
+    GraphSummary:
+      type: object
+      required: [projectId, entityCount, relationshipCount, entitiesByType, relationsByType, topConnected, avgDegree, isolatedCount, clusterCount]
+      properties:
+        projectId:
+          type: string
+        entityCount:
+          type: integer
+        relationshipCount:
+          type: integer
+        entitiesByType:
+          type: object
+          additionalProperties:
+            type: integer
+        relationsByType:
+          type: object
+          additionalProperties:
+            type: integer
+        topConnected:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphCentralityScore"
+        avgDegree:
+          type: number
+          format: float
+        isolatedCount:
+          type: integer
+        clusterCount:
+          type: integer
+
+    # ─── Knowledge Graph 2.0 — layered/neighborhood/evidence schemas ──────────
+
+    GraphSubgraphFilters:
+      type: object
+      properties:
+        edgeTypes:
+          type: array
+          items:
+            type: string
+        minConfidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        sourceTypes:
+          type: array
+          items:
+            type: string
+        semanticTags:
+          type: array
+          items:
+            type: string
+        observedOnly:
+          type: boolean
+        heuristicOnly:
+          type: boolean
+
+    GraphLayerCounts:
+      type: object
+      required: [entityCount, relationshipCount]
+      properties:
+        entityCount:
+          type: integer
+        relationshipCount:
+          type: integer
+
+    GraphSubgraph:
+      type: object
+      required: [entities, relationships, filters, layered]
+      properties:
+        entities:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEntity"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphRelationship"
+        filters:
+          $ref: "#/components/schemas/GraphSubgraphFilters"
+        layered:
+          type: object
+          required: [structural, heuristic, runtime]
+          properties:
+            structural:
+              $ref: "#/components/schemas/GraphLayerCounts"
+            heuristic:
+              $ref: "#/components/schemas/GraphLayerCounts"
+            runtime:
+              $ref: "#/components/schemas/GraphLayerCounts"
+
+    GraphSemanticNeighborhood:
+      type: object
+      required: [root, entities, relationships]
+      properties:
+        root:
+          $ref: "#/components/schemas/GraphEntity"
+        entities:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEntity"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphRelationship"
+
+    GraphEvidenceBundle:
+      type: object
+      required: [relationship, evidence]
+      properties:
+        relationship:
+          $ref: "#/components/schemas/GraphRelationship"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEvidence"
+
+    GraphEvidenceResponse:
+      type: object
+      required: [entity, evidence]
+      properties:
+        entity:
+          $ref: "#/components/schemas/GraphEntity"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEvidenceBundle"
+
+    GraphRuntimeSubgraph:
+      type: object
+      required: [entities, relationships]
+      properties:
+        entities:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEntity"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphRelationship"
+
+    # ─── Plugin request bodies ─────────────────────────────────────────────────
+    PluginProjectRequest:
+      type: object
+      required: [projectId]
+      properties:
+        projectId:
+          type: string
+
+    EvaluateRuleRequest:
+      type: object
+      required: [projectId]
+      properties:
+        projectId:
+          type: string
+
+    # ─── Plugin ────────────────────────────────────────────────────────────────
+    Plugin:
+      type: object
+      required: [id, name, version, enabled, capabilities]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        version:
+          type: string
+        enabled:
+          type: boolean
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum: [analyzer, rules, prompts, verifier, reporter]
+        supportedLanguages:
+          type: array
+          items:
+            type: string
+
+    # ─── Discovery ─────────────────────────────────────────────────────────────
+    SourceType:
+      type: string
+      enum:
+        - LOCAL_FOLDER
+        - WORKSPACE_PROJECT
+        - GIT_REPOSITORY
+        - ARCHIVE_UPLOAD
+        - REMOTE_FILESYSTEM
+        - DOCKER_VOLUME
+
+    DiscoverySourceConfig:
+      type: object
+      description: Source-specific configuration. Required fields depend on sourceType.
+      properties:
+        path:
+          type: string
+          description: Absolute path to the project directory (LOCAL_FOLDER)
+        url:
+          type: string
+          description: Git repository URL (GIT_REPOSITORY)
+        branch:
+          type: string
+          description: Branch to checkout; defaults to the remote HEAD (GIT_REPOSITORY)
+        credentials:
+          type: object
+          description: Repository credentials for private repos (GIT_REPOSITORY)
+          required:
+            - username
+            - token
+          properties:
+            username:
+              type: string
+            token:
+              type: string
+        uploadId:
+          type: string
+          description: Upload session ID from a prior file upload (ARCHIVE_UPLOAD)
+        projectId:
+          type: string
+          description: ID of an existing registered project (WORKSPACE_PROJECT)
+
+    DiscoveryOptions:
+      type: object
+      properties:
+        skipRules:
+          type: boolean
+          default: false
+        skipGraph:
+          type: boolean
+          default: false
+        maxDepth:
+          type: integer
+          minimum: 1
+          maximum: 20
+        includeTests:
+          type: boolean
+          default: true
+
+    DiscoverySourceCapability:
+      type: object
+      required: [sourceType, label, description, available]
+      properties:
+        sourceType:
+          $ref: "#/components/schemas/SourceType"
+        label:
+          type: string
+        description:
+          type: string
+        available:
+          type: boolean
+        icon:
+          type: string
+        requiredConfig:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+
+    StartDiscoveryInput:
+      type: object
+      required: [sourceType, sourceConfig]
+      properties:
+        sourceType:
+          $ref: "#/components/schemas/SourceType"
+        sourceConfig:
+          $ref: "#/components/schemas/DiscoverySourceConfig"
+        options:
+          $ref: "#/components/schemas/DiscoveryOptions"
+
+    ImportProjectInput:
+      type: object
+      required: [discoveryId]
+      properties:
+        discoveryId:
+          type: string
+        overrides:
+          type: object
+          properties:
+            name:
+              type: string
+            language:
+              type: string
+            framework:
+              type: string
+            description:
+              type: string
+
+    DiscoveryStepItem:
+      type: object
+      required: [name, status]
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, done, error]
+        durationMs:
+          type: ["integer", "null"]
+
+    DiscoverySessionStatus:
+      type: object
+      required: [id, status, progress, steps, startedAt]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [discovering, ready, imported, error]
+        progress:
+          type: integer
+        currentStep:
+          type: ["string", "null"]
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoveryStepItem"
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: ["string", "null"]
+          format: date-time
+        error:
+          type: ["string", "null"]
+        importedProjectId:
+          type: ["string", "null"]
+
+    DiscoveryRuleViolationItem:
+      type: object
+      required: [code, title, severity, count]
+      properties:
+        code:
+          type: string
+        title:
+          type: string
+        severity:
+          type: string
+        count:
+          type: integer
+
+    DiscoveryGraphSummaryData:
+      type: object
+      required: [entityCount, relationshipCount, entitiesByType, filesByLanguage]
+      properties:
+        entityCount:
+          type: integer
+        relationshipCount:
+          type: integer
+        entitiesByType:
+          type: object
+          additionalProperties:
+            type: integer
+        filesByLanguage:
+          type: object
+          additionalProperties:
+            type: integer
+
+    DiscoveryReport:
+      type: object
+      required:
+        - id
+        - detectedName
+        - detectedLanguage
+        - detectedLanguages
+        - isMonorepo
+        - hasDocker
+        - hasOpenApi
+        - packageCount
+        - moduleCount
+        - repoSizeBytes
+        - detectedApis
+        - detectedRisks
+        - qualityScore
+        - confidenceScore
+        - graphSummary
+        - ruleViolations
+      properties:
+        id:
+          type: string
+        detectedName:
+          type: string
+        detectedLanguage:
+          type: string
+        detectedLanguages:
+          type: array
+          items:
+            type: string
+        detectedFramework:
+          type: ["string", "null"]
+        detectedRuntime:
+          type: ["string", "null"]
+        detectedPackageManager:
+          type: ["string", "null"]
+        detectedArchitecture:
+          type: ["string", "null"]
+        detectedDb:
+          type: ["string", "null"]
+        detectedOrm:
+          type: ["string", "null"]
+        detectedTestFramework:
+          type: ["string", "null"]
+        detectedBuildTool:
+          type: ["string", "null"]
+        detectedCi:
+          type: ["string", "null"]
+        isMonorepo:
+          type: boolean
+        hasDocker:
+          type: boolean
+        hasOpenApi:
+          type: boolean
+        packageCount:
+          type: integer
+        moduleCount:
+          type: integer
+        repoSizeBytes:
+          type: integer
+        detectedApis:
+          type: array
+          items:
+            type: string
+        detectedRisks:
+          type: array
+          items:
+            type: string
+        qualityScore:
+          type: number
+        confidenceScore:
+          type: number
+        graphSummary:
+          $ref: "#/components/schemas/DiscoveryGraphSummaryData"
+        ruleViolations:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoveryRuleViolationItem"
+
+    # ─── Dashboard ─────────────────────────────────────────────────────────────
+    DashboardOverview:
+      type: object
+      required: [projectCount, activeTaskCount, completedTaskCount, failedTaskCount, recentEvents, projectScores]
+      properties:
+        projectCount:
+          type: integer
+        activeTaskCount:
+          type: integer
+        completedTaskCount:
+          type: integer
+        failedTaskCount:
+          type: integer
+        recentEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+        projectScores:
+          type: array
+          items:
+            type: object
+            required: [projectId, projectName, score, trend]
+            properties:
+              projectId:
+                type: string
+              projectName:
+                type: string
+              score:
+                type: number
+              trend:
+                type: string
+                enum: [improving, stable, declining]
+        taskStatusBreakdown:
+          type: object
+          additionalProperties:
+            type: integer
+        topRules:
+          type: array
+          items:
+            type: object
+            required: [ruleId, code, title, hitCount]
+            properties:
+              ruleId:
+                type: string
+              code:
+                type: string
+              title:
+                type: string
+              hitCount:
+                type: integer

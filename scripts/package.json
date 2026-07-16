@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
+    "check-codegen-drift": "tsx ./check-codegen-drift.ts",
+    "validate-truth-flow": "tsx ./validate-truth-flow.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

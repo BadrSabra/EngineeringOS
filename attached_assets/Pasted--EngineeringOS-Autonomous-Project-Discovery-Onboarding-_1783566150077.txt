@@ -1,0 +1,457 @@
+# EngineeringOS — Autonomous Project Discovery & Onboarding
+# Execution Directive
+# Version 1.0
+
+## Mission
+
+Do NOT improve the current "Register Project" form.
+
+Instead, replace the entire registration workflow with a new autonomous onboarding experience that reflects the vision of EngineeringOS as an intelligent engineering operating system.
+
+The objective is not to collect information from the user.
+
+The objective is to let EngineeringOS discover, understand, validate, summarize and import the project automatically.
+
+The user should feel that the system understands the repository before asking for any additional information.
+
+This is a UX architecture task, not just a UI redesign.
+
+--------------------------------------------------
+
+# Phase 1
+Repository Discovery Architecture
+
+First perform a complete audit of the existing registration workflow.
+
+Document:
+
+• current UI flow
+• current backend endpoints
+• database interactions
+• scanner entry point
+• project creation lifecycle
+
+Produce a sequence diagram before making any changes.
+
+Do NOT modify code before understanding the current flow.
+
+--------------------------------------------------
+
+# Phase 2
+Design a New Onboarding Flow
+
+The new flow must replace
+
+Register Project
+
+with
+
+Discover Project
+
+The entire experience becomes:
+
+Step 1
+Choose Project Source
+
+Supported sources:
+
+• Local Workspace Folder
+• Existing Workspace Repository
+• Git Repository URL
+• Uploaded Project Archive (future-ready)
+
+The user should never need to type:
+
+• Language
+• Framework
+• Runtime
+• Package Manager
+
+unless automatic detection completely fails.
+
+--------------------------------------------------
+
+Step 2
+Discovery Engine
+
+After selecting the source, automatically execute a discovery pipeline.
+
+The pipeline should detect:
+
+Project Name
+
+Repository Type
+
+Primary Language
+
+Secondary Languages
+
+Frameworks
+
+Package Manager
+
+Runtime
+
+Database
+
+ORM
+
+Testing Framework
+
+Build Tool
+
+Monorepo Structure
+
+OpenAPI
+
+GraphQL
+
+Docker
+
+CI
+
+Package Count
+
+Module Count
+
+Repository Size
+
+Architecture Style
+
+Potential Entry Points
+
+Configuration Files
+
+Dependencies
+
+Technology Stack
+
+Detected Risks
+
+Repository Health
+
+Confidence Score
+
+--------------------------------------------------
+
+Step 3
+Architecture Discovery
+
+Use the scanner to automatically build
+
+Repository Graph
+
+Dependency Graph
+
+Module Graph
+
+Technology Graph
+
+Folder Tree
+
+Architecture Layers
+
+Component Relationships
+
+This should become the first engineering artifact generated for every imported project.
+
+--------------------------------------------------
+
+Step 4
+Discovery Summary
+
+Instead of showing editable form fields,
+present a Discovery Report.
+
+Example:
+
+Project Name
+
+Language
+
+Framework
+
+Runtime
+
+Package Manager
+
+Architecture
+
+Detected Services
+
+Detected APIs
+
+Detected Database
+
+Detected Tests
+
+Detected Documentation
+
+Detected Risks
+
+Confidence Score
+
+Everything should be editable only if the user chooses to override the discovery result.
+
+--------------------------------------------------
+
+Step 5
+Import
+
+Only after the discovery report is accepted should the project be created inside EngineeringOS.
+
+Import should initialize:
+
+Project
+
+Rules
+
+Metrics
+
+Graph
+
+Tasks
+
+Events
+
+Knowledge Index
+
+Initial Scan
+
+Audit Entry
+
+--------------------------------------------------
+
+# UX Principles
+
+Never ask the user for information the system can discover.
+
+Prefer discovery over forms.
+
+Prefer confirmation over manual typing.
+
+Reduce required user input to the absolute minimum.
+
+--------------------------------------------------
+
+# UI Principles
+
+Replace the current registration form with a step-based wizard.
+
+Wizard structure:
+
+Step 1
+Select Source
+
+↓
+
+Step 2
+Analyzing Project...
+
+↓
+
+Step 3
+Discovery Report
+
+↓
+
+Step 4
+Import Project
+
+↓
+
+Step 5
+EngineeringOS Dashboard
+
+--------------------------------------------------
+
+# Scanner Integration
+
+Reuse the existing scanner.
+
+Do NOT duplicate scanner logic.
+
+Do NOT create another discovery implementation.
+
+The onboarding pipeline must become a thin orchestration layer over:
+
+scanner
+
+rule engine
+
+metrics
+
+graph extraction
+
+repository analysis
+
+--------------------------------------------------
+
+# API Requirements
+
+Create discovery endpoints if they do not exist.
+
+Example flow:
+
+POST /projects/discover
+
+returns
+
+Discovery Session ID
+
+--------------------------------
+
+GET /projects/discover/{id}
+
+returns
+
+Current Progress
+
+--------------------------------
+
+GET /projects/discover/{id}/summary
+
+returns
+
+Complete Discovery Report
+
+--------------------------------
+
+POST /projects/import
+
+creates project from discovery result
+
+without rescanning.
+
+--------------------------------------------------
+
+# Progress UX
+
+Discovery must stream progress.
+
+Example:
+
+Finding repository...
+
+Reading configuration...
+
+Detecting languages...
+
+Detecting frameworks...
+
+Scanning source...
+
+Building dependency graph...
+
+Calculating metrics...
+
+Extracting architecture...
+
+Preparing summary...
+
+Ready for import.
+
+--------------------------------------------------
+
+# Smart Detection Rules
+
+Project name should come from:
+
+package.json
+
+Cargo.toml
+
+go.mod
+
+pom.xml
+
+composer.json
+
+pyproject.toml
+
+or repository folder.
+
+Language should be automatically inferred.
+
+Framework should be automatically inferred.
+
+Runtime should be automatically inferred.
+
+Package manager should be automatically inferred.
+
+Never ask the user first.
+
+--------------------------------------------------
+
+# Override Support
+
+Users may manually override any detected value.
+
+The system should clearly distinguish
+
+Detected
+
+versus
+
+User Override
+
+--------------------------------------------------
+
+# Engineering Constraints
+
+Maintain compatibility with:
+
+OpenAPI
+
+React Query
+
+Drizzle
+
+Scanner
+
+Current API
+
+Dashboard Architecture
+
+Do not introduce duplicate sources of truth.
+
+--------------------------------------------------
+
+# Deliverables
+
+Before implementation produce:
+
+1.
+Current Registration Flow Diagram
+
+2.
+New Discovery Flow Diagram
+
+3.
+Required API Changes
+
+4.
+Database Impact
+
+5.
+UI Wireframe
+
+6.
+Sequence Diagram
+
+7.
+Risk Analysis
+
+Only after approval proceed with implementation.
+
+--------------------------------------------------
+
+# Success Criteria
+
+A first-time user should be able to onboard an existing repository by providing only its location.
+
+EngineeringOS should discover everything else automatically.
+
+The first interaction with EngineeringOS should demonstrate intelligence, not data entry.
+
+The onboarding experience must communicate that EngineeringOS understands the repository before managing it.

@@ -1,19 +1,14 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { getPort } from "./config";
+import { reconcileStuckJobs } from "./lib/job-reconciliation";
 
-const rawPort = process.env["PORT"];
+const port = getPort();
 
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
-const port = Number(rawPort);
-
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
-}
+// Reconcile any scan/discovery jobs orphaned by a previous process (crash,
+// deploy, kill) before accepting traffic — see job-reconciliation.ts. This
+// never throws, so a reconciliation bug can't block startup.
+await reconcileStuckJobs();
 
 app.listen(port, (err) => {
   if (err) {

@@ -1,0 +1,71 @@
+## PR title
+
+Harden auth context and prepare project-scoped authorization
+
+## Files
+
+* `artifacts/api-server/src/middleware/requireAuth.ts`
+* `artifacts/api-server/src/middleware/authz.ts` أو `access-policy.ts` إذا احتجنا helper جديدًا
+* `artifacts/api-server/src/types/express.d.ts` أو أي ملف typings مكافئ إذا كان المشروع يوسّع `Request`
+* `artifacts/api-server/src/app.ts` فقط إذا احتجنا تسجيل typing أو middleware إضافي
+* `artifacts/api-server/src/routes/*` بشكل غير مباشر فقط للتكيّف مع السياق الجديد، بدون تغيير سلوكي واسع في هذا PR
+
+## Changes
+
+1. **توحيد شكل سياق المصادقة**
+
+   * استخراج `userId` بشكل صريح من `req.auth`.
+   * إنشاء `req.authContext` أو `req.context.auth` كحقل موحّد بدل الاعتماد على حقول متفرقة.
+   * جعل السياق يتضمن على الأقل:
+
+     * `userId`
+     * `sessionId` إن كان متاحًا
+     * `orgId` / `tenantId` إن كانت متاحة من المزود
+     * `isAuthenticated: true`
+
+2. **إضافة طبقة تمهيدية للتفويض**
+
+   * تعريف helpers خفيفة مثل:
+
+     * `requireAuth()`
+     * `optionalAuth()`
+     * `requireProjectAccess(projectId)`
+     * `requireProjectWriteAccess(projectId)`
+   * في هذا الـ PR، يمكن أن تكون `requireProjectAccess` placeholder logic مع هيكل واضح، حتى لو لم تُفعّل بالكامل بعد، بشرط أن يكون السطح جاهزًا للـ PR التالي.
+
+3. **منع الاعتماد على auth خام داخل الراوتات**
+
+   * أي route بعد هذا التغيير يجب أن يقرأ من السياق الموحّد بدل الوصول المباشر إلى تفاصيل المزود.
+   * تقليل التكرار في التحقق من وجود session أو userId داخل كل route.
+
+4. **تحسين رسائل الرفض**
+
+   * توحيد رسائل `401` و `403`.
+   * جعل خطأ عدم المصادقة مختلفًا بوضوح عن خطأ عدم الصلاحية.
+
+5. **تهيئة الأرضية للـ project-scoped auth**
+
+   * هذا PR لا يضيف RBAC كاملًا.
+   * لكنه يثبت نقطة دخول واحدة سيُبنى عليها `projects.ts` في PR التالي.
+
+## Tests
+
+* test: الطلب غير المصادق عليه يُرجع `401`.
+* test: الطلب المصادق عليه يُمرّر `authContext` بشكل ثابت.
+* test: `requireAuth` لا يكسر المسارات الحالية التي تعتمد على المصادقة فقط.
+* test: helpers الجديدة ترجع الأخطاء الصحيحة عند غياب session أو userId.
+* test: لا يوجد regression في health route أو أي route عام غير محمي.
+
+## Risk
+
+* **متوسط**: أي تغيير في middleware قد يؤثر على عدد كبير من الراوتات.
+* الخطر الأكبر هو كسر شكل `req.auth` الذي تعتمد عليه ملفات أخرى.
+* خطر ثانوي: إظهار `403` بدل `401` في أماكن لم تكن مفصولة سابقًا.
+* إذا أُضيف typing جديد بشكل غير متوافق، قد تظهر أخطاء TypeScript متسلسلة.
+
+## Rollback
+
+* إعادة `requireAuth.ts` إلى النسخة السابقة إذا ظهرت regressions في auth flow.
+* إلغاء helper الجديد `authz.ts` إن تسبب في تعقيد مبكر.
+* إبقاء التغييرات محصورة داخل middleware فقط، دون لمس منطق routes في نفس الـ PR.
+* إذا تعطل build بسبب typings، نرجع التوسعة الجديدة لـ Request ونبقي التغيير runtime-only مؤقتًا.

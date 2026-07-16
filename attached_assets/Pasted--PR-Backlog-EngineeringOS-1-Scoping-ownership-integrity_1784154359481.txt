@@ -1,0 +1,279 @@
+# PR Backlog — EngineeringOS
+
+## ترتيب التنفيذ المقترح
+
+1. Scoping / ownership integrity
+2. Durability / recovery / background execution
+3. Surface cleanup / drift reduction / polish
+
+---
+
+## Phase 1 — Scoping and Ownership Integrity
+
+### PR-01 — Enforce project-scoped reads in dashboard and loaders
+
+**Scope:**
+توحيد كل قراءات المشروع في الواجهة الخلفية والأمامية على أساس `projectId + owner scope` بدل القراءات العامة أو التجميعات غير المقيدة. التركيز على أي dashboard queries, summary cards, counts, recent items, and drilldowns.
+
+**Files:**
+
+* `apps/dashboard/src/**`
+* `apps/api-server/src/**`
+* أي query helpers أو aggregation utilities مرتبطة بالـ dashboard
+* أي hooks أو loaders تستدعي بيانات المشروع
+
+**Risk:** High
+أي قراءة غير مقيدة قد تُظهر بيانات مشروع آخر أو تُنتج summary خاطئًا.
+
+**Acceptance:**
+
+* كل endpoint أو query يعرض بيانات مشروع يمر عبر scoping واضح.
+* لا توجد قراءة مباشرة من الجداول الحساسة بدون project guard.
+* اختبارات تؤكد أن المستخدم لا يرى إلا مشاريعه المصرح بها.
+* حالات التجميع في dashboard تُظهر أرقامًا مطابقة لمشروع واحد فقط.
+
+**Dependency:** None
+
+---
+
+### PR-02 — Centralize authorization and project-access helpers
+
+**Scope:**
+إخراج منطق `requireAuth` / `requireProjectAccess` / ownership checks إلى طبقة مساعدة واحدة موثقة، وإزالة التكرار بين routes وservices.
+
+**Files:**
+
+* `apps/api-server/src/lib/**`
+* `apps/api-server/src/routes/**`
+* أي middleware أو guard helpers
+
+**Risk:** High
+تكرار منطق الوصول يخلق drift ويجعل أي تعديل أمني غير متسق.
+
+**Acceptance:**
+
+* توجد نقطة واحدة مرجعية للـ project access checks.
+* كل routes الحساسة تستخدم helper موحد.
+* أي فشل في access يعيد رسالة/كود موحدين.
+* إضافة اختبارين على الأقل: authorized access / unauthorized access.
+
+**Dependency:** PR-01
+
+---
+
+### PR-03 — Lock down cross-layer query contracts
+
+**Scope:**
+إضافة guardrails تمنع استدعاء queries أو hooks التي لا تمرر owner/project context. الهدف هو تحويل scoping إلى contract، لا مجرد convention.
+
+**Files:**
+
+* `lib/**`
+* `apps/dashboard/src/lib/**`
+* `apps/api-server/src/lib/**`
+* generated hooks / client wrappers إذا كانت موجودة
+
+**Risk:** High
+الخطر هنا ليس bug واحدًا، بل عودة drift عبر أي استهلاك جديد.
+
+**Acceptance:**
+
+* أي helper أو hook جديد للمشروع يفرض context واضح.
+* لا توجد public helpers “عامة” يمكن استخدامها بطريقة تتجاوز scoping.
+* build/typecheck يلتقط أي استهلاك غير مقيد.
+* الوثائق تشير بوضوح إلى أن project scope إلزامي.
+
+**Dependency:** PR-01, PR-02
+
+---
+
+## Phase 2 — Durability and Recovery
+
+### PR-04 — Persist background jobs خارج الذاكرة
+
+**Scope:**
+تحويل queue الحالية من in-process memory إلى طبقة durable أو شبه durable، مع حفظ الحالة، إعادة التشغيل، ومعالجة المهام المعلّقة بعد إعادة الإقلاع.
+
+**Files:**
+
+* `apps/api-server/src/lib/job-queue.ts` أو ما يعادله
+* `apps/api-server/src/lib/job-reconciliation.ts`
+* أي job runner / worker utilities
+* أي DB schema أو migration مرتبط بالjobs
+
+**Risk:** Critical
+الاعتماد على الذاكرة فقط يعني فقدان المهام عند restart أو crash.
+
+**Acceptance:**
+
+* job state محفوظ في storage دائم.
+* restart لا يضيّع jobs pending/running.
+* توجد آلية rehydrate/reconcile واضحة.
+* حالات failure/retry موثقة ومختبرة.
+
+**Dependency:** PR-02
+
+---
+
+### PR-05 — Add retry, idempotency, and dead-letter semantics
+
+**Scope:**
+إضافة retry policy، idempotency keys، وفصل حالات الفشل النهائي عن الفشل المؤقت داخل طبقة التنفيذ الخلفي.
+
+**Files:**
+
+* job runner
+* reconciliation logic
+* أي service يستدعي external providers أو long-running tasks
+* DB tables أو audit records ذات الصلة
+
+**Risk:** High
+بدون idempotency، قد تتكرر العمليات أو تُنفذ بشكل جزئي.
+
+**Acceptance:**
+
+* كل job حساس له idempotency behavior واضح.
+* retries محددة بعدد ومحاولة وسبب.
+* failed-final jobs تنتقل إلى مسار واضح بدل الدوران.
+* توجد اختبارات لحالات: retry success, retry exhaustion, duplicate submission.
+
+**Dependency:** PR-04
+
+---
+
+### PR-06 — Make reconciliation observable and auditable
+
+**Scope:**
+إظهار حالة المهام الخلفية ونتائج reconciliation في audit/logs/dashboard بحيث يمكن معرفة ما الذي فشل ولماذا ومتى.
+
+**Files:**
+
+* audit/event logging layer
+* dashboard status surfaces
+* job reconciliation layer
+* docs أو truth records إن لزم
+
+**Risk:** Medium-High
+عدم قابلية المراقبة تجعل الديمومة غير قابلة للتحقق عمليًا.
+
+**Acceptance:**
+
+* يمكن رؤية job lifecycle من الإنشاء حتى الإنهاء.
+* reconciliation results مسجلة ومفهومة.
+* dashboard يعكس الحالة الفعلية.
+* لا توجد jobs “صامتة” لا يمكن تتبعها.
+
+**Dependency:** PR-04, PR-05
+
+---
+
+## Phase 3 — Surface Cleanup and Drift Reduction
+
+### PR-07 — Remove generated/export drift in shared client layer
+
+**Scope:**
+تنظيف تكرار re-exports أو أي تضارب في shared client / API client surfaces، خصوصًا أي index ملف أصبح source of drift.
+
+**Files:**
+
+* `lib/api-client-react/src/index.ts`
+* generated client wrappers
+* أي barrel files مشابهة
+
+**Risk:** Medium
+هذا لا يكسر core logic مباشرة، لكنه يخلق ambiguity ويصعّب التطوير اللاحق.
+
+**Acceptance:**
+
+* لا يوجد re-export مكرر أو متضارب.
+* imports واضحة ومباشرة.
+* typecheck/build نظيف على الحزمة المرتبطة.
+* generated surfaces تتوافق مع contract source.
+
+**Dependency:** PR-01, PR-03
+
+---
+
+### PR-08 — Replace placeholder copy and staged mock surfaces with production-ready states
+
+**Scope:**
+تنظيف أي نصوص placeholder، mock-only UX، surfaces تجريبية، أو copy غير نهائي في الواجهة.
+
+**Files:**
+
+* `apps/dashboard/src/**`
+* `artifacts/mockup-sandbox/**`
+* أي docs أو labels تظهر كـ prototype بدل status واضح
+
+**Risk:** Medium
+الواجهة قد توحي بنضج أعلى من الواقع أو تخفي حالة feature غير مكتملة.
+
+**Acceptance:**
+
+* أي surface غير مكتمل يظهر حالته بوضوح أو يُخفى.
+* لا توجد phrasing مضللة للمستخدم.
+* mock / sandbox content معزول ولا يُعامل كمنتج نهائي.
+* UX labels متسقة مع الحالة الحقيقية للميزات.
+
+**Dependency:** PR-01
+
+---
+
+### PR-09 — Strengthen frontend and contract tests around critical paths
+
+**Scope:**
+رفع مستوى الاختبارات على المسارات الحساسة في dashboard، client hooks، contract usage، والـ access boundaries.
+
+**Files:**
+
+* `apps/dashboard/src/**/*.test.*`
+* `apps/api-server/src/**/*.test.*`
+* contract tests
+* integration tests for access / jobs / reconciliation
+
+**Risk:** Medium-High
+بدون اختبار كافٍ، أي تحسين في scoping أو durability قد يتراجع بسرعة.
+
+**Acceptance:**
+
+* اختبارات تغطي scoping، jobs، reconciliation، and generated client usage.
+* أي drift في contract أو access يسبب فشلًا واضحًا.
+* تغطية معقولة للـ critical paths.
+* CI يمر على المسارات الأساسية.
+
+**Dependency:** PR-01, PR-02, PR-04
+
+---
+
+## Phase 4 — Documentation and Truth Alignment
+
+### PR-10 — Synchronize truth records with implementation reality
+
+**Scope:**
+مراجعة وتحديث ملفات الحقيقة/التحليل/الخطة بحيث تعكس الوضع الحالي بعد إغلاق scoping والديمومة، مع حذف أي ادعاء لم يعد دقيقًا.
+
+**Files:**
+
+* `docs/fact-record.md`
+* `docs/completion-plan.md`
+* `docs/PR_BACKLOG.md`
+* `docs/RUNTIME_EXECUTION_MATRIX.md`
+* أي truth/audit documents أخرى
+
+**Risk:** Medium
+الوثائق غير المتزامنة تعيد drift ذهني وتشغيلي حتى لو كان الكود صحيحًا.
+
+**Acceptance:**
+
+* الوثائق تشير إلى الواقع الحالي بلا مبالغة.
+* كل gap مذكور مع status جديد.
+* لا توجد contradictions بين docs والكود.
+* backlog القادم يصبح أصغر وأوضح بعد هذا التحديث.
+
+**Dependency:** PR-01 to PR-09 بحسب ما اكتمل
+
+---
+
+## التنفيذ المقترح المختصر
+
+ابدأ بـ PR-01 ثم PR-02 ثم PR-03 لإقفال scoping بالكامل. بعد ذلك انتقل إلى PR-04 وPR-05 ثم PR-06 لإغلاق durability. أخيرًا نفّذ PR-07 وPR-08 وPR-09 ثم PR-10 لتصفية السطح وتثبيت الحقيقة المرجعية.

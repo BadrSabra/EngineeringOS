@@ -13,6 +13,9 @@ const titleTransformer: InputTransformerFn = (config) => {
   return config;
 };
 
+// Post-process generated Zod file: replace z.looseObject (Zod v4) with z.object (Zod v3)
+// This runs automatically as part of the codegen pipeline via the package.json script.
+
 export default defineConfig({
   "api-client-react": {
     input: {
@@ -26,7 +29,6 @@ export default defineConfig({
       target: "generated",
       client: "react-query",
       mode: "split",
-      baseUrl: "/api",
       clean: true,
       prettier: true,
       override: {
