@@ -3,6 +3,22 @@
 ## الهدف
 تحويل Truth Flow Matrix إلى checklist تنفيذية قابلة للإغلاق عبر PRs متسلسلة.
 
+## تعريف الفئات الأربع (مرجع الـ schema)
+
+| الفئة | التعريف | المصدر |
+|---|---|---|
+| **baseline** | الحقيقة المجمّدة في `EXPECTED_CURRENT_TRUTH_FLOW_MATRIX`. لا تتغيّر إلا بقرار هندسي مراجَع. | `lib/api-zod/src/truth-flow-matrix.schema.ts` |
+| **derived** | إشارات drift تنتجها `listTruthFlowDriftSignals()` عند المقارنة بين الـ baseline والـ JSON الحيّ. مؤقتة ولا تُخزَّن. | `scripts/validate-truth-flow.ts` |
+| **historical** | ملفات `attached_assets/*` والوثائق الأرشيفية. صالحة كسياق/دليل، لكنها ليست الحقيقة الحالية أبداً. | `attached_assets/*` |
+| **runtime** | ما ينتجه pipeline الفعلي (scan/graph/provenance) أثناء التشغيل. يُعلم تحديثات الـ baseline لكن لا يُحدّثها تلقائياً. | DB rows + scan jobs |
+
+## قواعد الإغلاق
+
+- إغلاق node يعني: (1) تحديث `EXPECTED_CURRENT_TRUTH_FLOW_MATRIX` في الـ schema، (2) تحديث الـ JSON baseline، (3) نجاح `pnpm run truth:validate`.
+- أي node بلا `exactRepoPaths` حقيقية (min 1 مسار موثوق) لا يُعدّ مُغلَقاً.
+- الحالات الصالحة للـ status: `complete` | `partial` | `missing` (من `TruthFlowNodeStatusSchema`).
+- drift signals من `listTruthFlowDriftSignals()` هي: `missing` | `unexpected` | `status-mismatch` | `confidence-mismatch` | `repo-path-mismatch` | `duplicate-node` | `duplicate-path`.
+
 ## 1) Source Contracts
 - [ ] إضافة contract drift check بين OpenAPI وDB schema والـ runtime routes.
 - [ ] منع merge إذا وُجد mismatch غير مبرر.

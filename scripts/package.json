@@ -9,6 +9,9 @@
     "validate-truth-flow": "tsx ./validate-truth-flow.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "@workspace/api-zod": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "catalog:",
     "tsx": "catalog:"

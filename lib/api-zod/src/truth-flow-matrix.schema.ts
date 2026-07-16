@@ -4,10 +4,34 @@ import { z } from "zod";
 /**
  * EngineeringOS Truth Flow Matrix
  *
- * Source-aligned Zod schema for the current truth-flow reference.
- * - General schema: accepts any well-formed matrix.
- * - Current reference schema: validates against the live baseline captured in the
- *   current execution constitution.
+ * Single source-of-truth Zod schema for truth-flow verification and build governance.
+ *
+ * ─── Four Data Categories ──────────────────────────────────────────────────────
+ *
+ * BASELINE  — The frozen reference captured in EXPECTED_CURRENT_TRUTH_FLOW_MATRIX.
+ *             This is what CI compares against. It changes only when a deliberate
+ *             engineering decision is made and reviewed (e.g., a node transitions
+ *             from "partial" to "complete"). Validated by CurrentTruthFlowMatrixSchema.
+ *
+ * DERIVED   — Signals produced by comparing the live JSON matrix against the baseline.
+ *             See listTruthFlowDriftSignals(). These signals are ephemeral: they exist
+ *             only at validation time and are never persisted.
+ *
+ * HISTORICAL — Data from attached_assets/* and archived docs. Valid as evidence and
+ *             context, but NEVER authoritative for current system state. A historical
+ *             file that contradicts the baseline must lose.
+ *
+ * RUNTIME   — What the live graph/scan/provenance pipeline actually produces during
+ *             execution (DB rows, scan-job outputs, discovery sessions). Runtime data
+ *             informs baseline updates but does not replace them automatically.
+ *
+ * ─── Schema Hierarchy ──────────────────────────────────────────────────────────
+ *
+ * TruthFlowMatrixSchema        — General well-formedness gate (structure + dedup).
+ * CurrentTruthFlowMatrixSchema — Strict baseline gate (exact title/version/nodes).
+ *
+ * Rule: exactRepoPaths on every node is MANDATORY (min 1 path). A node without
+ * repo paths is not a truth-flow node — it is an opinion.
  */
 
 export const TruthFlowNodeStatusSchema = z.enum([
