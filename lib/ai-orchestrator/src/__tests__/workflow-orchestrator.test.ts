@@ -58,6 +58,28 @@ describe("validateDecision", () => {
     expect(result).toEqual(decision);
   });
 
+  // ── linear phase ordering (PR-01) ─────────────────────────────────────────
+
+  it("rejects phase skip (plan → verify)", () => {
+    const decision: WorkflowDecision = { action: "advance", reasoning: "skip build", nextPhase: "verify" };
+    const result = validateDecision(decision, { phases, currentPhase: "plan" });
+    expect(result.action).toBe("wait");
+    expect(result.action === "wait" ? result.blockers?.[0] : undefined).toMatch(/immediate successor/);
+  });
+
+  it("accepts sequential advance (plan → build)", () => {
+    const decision: WorkflowDecision = { action: "advance", reasoning: "plan complete", nextPhase: "build" };
+    const result = validateDecision(decision, { phases, currentPhase: "plan" });
+    expect(result).toEqual(decision);
+  });
+
+  it("skips the linear guard when currentPhase is null (unstarted workflow)", () => {
+    // Any known phase is allowed as the first phase when the workflow hasn't started.
+    const decision: WorkflowDecision = { action: "advance", reasoning: "start", nextPhase: "build" };
+    const result = validateDecision(decision, { phases, currentPhase: null });
+    expect(result).toEqual(decision);
+  });
+
   // ── invalid nextPhase ────────────────────────────────────────────────────────
 
   describe("invalid nextPhase", () => {
@@ -84,13 +106,15 @@ describe("validateDecision", () => {
       expect(result.action).toBe("advance");
     });
 
-    it("passes advance to a phase already in completedPhases — validateDecision does not track history", () => {
-      // validateDecision receives only `phases` and `currentPhase`, not
-      // completedPhases. Backward advances must be blocked by the caller if
-      // needed; this is not a responsibility of validateDecision.
+    it("rejects a backward advance (build → plan) — linear ordering blocks non-successive transitions", () => {
+      // The linear ordering guard rejects any nextPhase that is not the
+      // immediate successor of the current phase. Backward moves (re-running a
+      // completed phase) are caller-level concerns and are not allowed through
+      // validateDecision now that PR-01 enforces sequential ordering.
       const decision: WorkflowDecision = { action: "advance", reasoning: "re-running plan", nextPhase: "plan" };
       const result = validateDecision(decision, { phases, currentPhase: "build" });
-      expect(result.action).toBe("advance");
+      expect(result.action).toBe("wait");
+      expect(result.action === "wait" ? result.blockers?.[0] : undefined).toMatch(/immediate successor/);
     });
 
     it("rejects advance to the last phase when already at the last phase", () => {

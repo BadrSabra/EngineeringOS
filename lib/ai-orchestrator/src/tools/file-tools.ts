@@ -19,6 +19,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { type PendingChange } from "../schemas/chat.schema.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -28,18 +29,10 @@ const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".next", "__pycache__
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
-export type PendingChange = {
-  /** Path relative to project root — shown in the UI */
-  path: string;
-  /** Absolute path on disk — used by the apply-changes endpoint */
-  absolutePath: string;
-  /** Complete new content to write */
-  newContent: string;
-  /** Existing content before the change, null if the file doesn't exist yet */
-  originalContent: string | null;
-  /** One-sentence reason from the model */
-  reason: string;
-};
+// PendingChange is the canonical type from chat.schema.ts — re-exported here
+// so callers that already import from file-tools.ts do not need to change their
+// import path. The single schema in chat.schema.ts is the sole source of truth.
+export type { PendingChange } from "../schemas/chat.schema.js";
 
 export type ToolDefinition = {
   type: "function";
@@ -319,10 +312,15 @@ export async function executeFileTool(
         const lines = relative.trim().split("\n").slice(0, MAX_SEARCH_LINES).join("\n");
         return lines || "No matches found.";
       } catch (err) {
-        // grep exits with code 1 when no lines match — that is not an error.
-        if ((err as { code?: unknown }).code === 1) return "No matches found.";
-        // Any other failure (timeout, grep not found, etc.) degrades gracefully.
-        return "No matches found.";
+        const e = err as { code?: unknown; killed?: boolean; message?: string };
+        // grep exits 1 when no lines match — not an error.
+        if (e.code === 1) return "No matches found.";
+        // Timeout: execFile sets killed=true when the timeout fires.
+        if (e.killed) return "Error: search timed out. Try a more specific pattern or a narrower root path.";
+        // grep binary missing on this system.
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") return "Error: grep is not available in this environment.";
+        // Catch-all for anything else (ENOMEM, permission denied, etc.)
+        return `Error: search failed (${(e as Error).message ?? "unknown reason"}).`;
       }
     }
 

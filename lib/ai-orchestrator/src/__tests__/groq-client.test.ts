@@ -106,4 +106,115 @@ describe("groq-client", () => {
     });
     expect(create).toHaveBeenCalledTimes(3);
   });
+
+  it("classifies a 401 status as AUTH_ERROR and does not retry", async () => {
+    const create = vi.fn().mockRejectedValue(Object.assign(new Error("Unauthorized"), { status: 401 }));
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = { completions: { create } };
+      },
+    }));
+    const { complete } = await import("../groq-client.js");
+    await expect(complete([{ role: "user", content: "hi" }], { maxRetries: 3 })).rejects.toMatchObject({
+      code: "AUTH_ERROR",
+    });
+    // Auth failures are not retried — the credential error is deterministic.
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("classifies a 403 status as AUTH_ERROR without retry", async () => {
+    const create = vi.fn().mockRejectedValue(Object.assign(new Error("Forbidden"), { status: 403 }));
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = { completions: { create } };
+      },
+    }));
+    const { complete } = await import("../groq-client.js");
+    await expect(complete([{ role: "user", content: "hi" }], { maxRetries: 3 })).rejects.toMatchObject({
+      code: "AUTH_ERROR",
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a 429 rate-limit error up to maxRetries", async () => {
+    const create = vi.fn().mockRejectedValue(Object.assign(new Error("Too Many Requests"), { status: 429 }));
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = { completions: { create } };
+      },
+    }));
+    const { complete } = await import("../groq-client.js");
+    await expect(complete([{ role: "user", content: "hi" }], { maxRetries: 2 })).rejects.toBeDefined();
+    // Should have retried (called more than once).
+    expect(create.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("retries a 5xx server error up to maxRetries", async () => {
+    const create = vi
+      .fn()
+      .mockRejectedValueOnce(Object.assign(new Error("Internal Server Error"), { status: 500 }))
+      .mockRejectedValueOnce(Object.assign(new Error("Bad Gateway"), { status: 502 }))
+      .mockResolvedValueOnce({
+        choices: [{ message: { content: "recovered" } }],
+        model: "m",
+        usage: {},
+      });
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = { completions: { create } };
+      },
+    }));
+    const { complete } = await import("../groq-client.js");
+    const result = await complete([{ role: "user", content: "hi" }], { maxRetries: 2 });
+    expect(result.content).toBe("recovered");
+    expect(create).toHaveBeenCalledTimes(3);
+  });
+
+  it("uses per-user apiKey over env var when both are present", async () => {
+    let capturedKey: string | undefined;
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        constructor(opts: { apiKey?: string }) {
+          capturedKey = opts.apiKey;
+        }
+        chat = {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              choices: [{ message: { content: "ok" } }],
+              model: "m",
+              usage: {},
+            }),
+          },
+        };
+      },
+    }));
+    process.env.GROQ_API_KEY = "env-key";
+    const { complete } = await import("../groq-client.js");
+    await complete([{ role: "user", content: "hi" }], { apiKey: "per-user-key" });
+    expect(capturedKey).toBe("per-user-key");
+  });
+
+  it("falls back to env GROQ_API_KEY when no per-user key is provided", async () => {
+    let capturedKey: string | undefined;
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        constructor(opts: { apiKey?: string }) {
+          capturedKey = opts.apiKey;
+        }
+        chat = {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              choices: [{ message: { content: "ok" } }],
+              model: "m",
+              usage: {},
+            }),
+          },
+        };
+      },
+    }));
+    process.env.GROQ_API_KEY = "env-fallback-key";
+    const { complete } = await import("../groq-client.js");
+    await complete([{ role: "user", content: "hi" }]);
+    expect(capturedKey).toBe("env-fallback-key");
+  });
 });

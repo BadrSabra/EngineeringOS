@@ -19,7 +19,6 @@ import type {
   TraversalHop,
   GraphQueryFilters,
   GraphEvidence,
-  LayeredGraphView,
   LayeredGraphViewWithProvenance,
   LayeredProvenanceStats,
   ProvenanceSummary,

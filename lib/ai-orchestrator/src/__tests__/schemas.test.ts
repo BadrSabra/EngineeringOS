@@ -2,11 +2,15 @@ import { describe, it, expect } from "vitest";
 import {
   PendingChangeSchema,
   ChatResponseSchema,
+  ChatOutputSchema,
   CodeReviewResultSchema,
   ScanSummarySchema,
   TaskRecommendationSchema,
   WorkflowDecisionSchema,
 } from "../schemas/index.js";
+import { ScanInsightSchema } from "../schemas/scan.schema.js";
+import { CodeIssueSchema } from "../schemas/code-review.schema.js";
+import { WorkflowPhaseSchema } from "../schemas/workflow.schema.js";
 
 describe("PendingChangeSchema", () => {
   const valid = {
@@ -92,6 +96,90 @@ describe("ChatResponseSchema", () => {
   it("rejects an empty response string", () => {
     expect(ChatResponseSchema.safeParse({ response: "", sources: [] }).success).toBe(false);
   });
+
+  it("rejects extra fields", () => {
+    expect(ChatResponseSchema.safeParse({ response: "hi", sources: [], extra: 1 }).success).toBe(false);
+  });
+});
+
+describe("ChatOutputSchema", () => {
+  const valid = { response: "hi", sources: [], pendingChanges: [] };
+
+  it("accepts a valid chat output with no pending changes", () => {
+    expect(ChatOutputSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("defaults pendingChanges to empty array when omitted", () => {
+    const result = ChatOutputSchema.safeParse({ response: "hi", sources: [] });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.pendingChanges).toEqual([]);
+  });
+
+  it("rejects a pendingChange with a relative absolutePath", () => {
+    const badChange = {
+      path: "src/foo.ts",
+      absolutePath: "relative/path",
+      newContent: "",
+      originalContent: null,
+      reason: "test",
+    };
+    expect(ChatOutputSchema.safeParse({ ...valid, pendingChanges: [badChange] }).success).toBe(false);
+  });
+
+  it("accepts a pendingChange with a valid absolute absolutePath", () => {
+    const goodChange = {
+      path: "src/foo.ts",
+      absolutePath: "/home/project/src/foo.ts",
+      newContent: "export const x = 1;",
+      originalContent: null,
+      reason: "Add export",
+    };
+    expect(ChatOutputSchema.safeParse({ ...valid, pendingChanges: [goodChange] }).success).toBe(true);
+  });
+});
+
+describe("WorkflowPhaseSchema", () => {
+  it("accepts a valid phase with at least one step", () => {
+    expect(WorkflowPhaseSchema.safeParse({ name: "build", steps: ["compile"] }).success).toBe(true);
+  });
+
+  it("rejects a phase with an empty steps array", () => {
+    expect(WorkflowPhaseSchema.safeParse({ name: "build", steps: [] }).success).toBe(false);
+  });
+
+  it("rejects a phase where a step is an empty string", () => {
+    expect(WorkflowPhaseSchema.safeParse({ name: "build", steps: [""] }).success).toBe(false);
+  });
+});
+
+describe("CodeIssueSchema", () => {
+  const validIssue = {
+    type: "bug" as const,
+    severity: "high" as const,
+    title: "Null pointer dereference",
+    description: "Value may be null here",
+    suggestion: "Add a null guard before accessing",
+  };
+
+  it("accepts a valid issue", () => {
+    expect(CodeIssueSchema.safeParse(validIssue).success).toBe(true);
+  });
+
+  it("rejects extra fields", () => {
+    expect(CodeIssueSchema.safeParse({ ...validIssue, extra: 1 }).success).toBe(false);
+  });
+
+  it("rejects an empty suggestion", () => {
+    expect(CodeIssueSchema.safeParse({ ...validIssue, suggestion: "" }).success).toBe(false);
+  });
+
+  it("rejects an empty title", () => {
+    expect(CodeIssueSchema.safeParse({ ...validIssue, title: "" }).success).toBe(false);
+  });
+
+  it("rejects an empty description", () => {
+    expect(CodeIssueSchema.safeParse({ ...validIssue, description: "" }).success).toBe(false);
+  });
 });
 
 describe("CodeReviewResultSchema", () => {
@@ -116,39 +204,103 @@ describe("CodeReviewResultSchema", () => {
   it("rejects an invalid verdict", () => {
     expect(CodeReviewResultSchema.safeParse({ ...valid, verdict: "yolo" }).success).toBe(false);
   });
+
+  it("rejects extra fields", () => {
+    expect(CodeReviewResultSchema.safeParse({ ...valid, extra: 1 }).success).toBe(false);
+  });
+
+  it("rejects an empty summary", () => {
+    expect(CodeReviewResultSchema.safeParse({ ...valid, summary: "" }).success).toBe(false);
+  });
+});
+
+describe("ScanInsightSchema", () => {
+  const validInsight = {
+    category: "security" as const,
+    severity: "high" as const,
+    title: "SQL injection risk",
+    description: "Input is not sanitised",
+    recommendation: "Use parameterised queries",
+  };
+
+  it("accepts a valid insight", () => {
+    expect(ScanInsightSchema.safeParse(validInsight).success).toBe(true);
+  });
+
+  it("rejects extra fields", () => {
+    expect(ScanInsightSchema.safeParse({ ...validInsight, extra: 1 }).success).toBe(false);
+  });
+
+  it("rejects an empty title", () => {
+    expect(ScanInsightSchema.safeParse({ ...validInsight, title: "" }).success).toBe(false);
+  });
+
+  it("rejects an empty description", () => {
+    expect(ScanInsightSchema.safeParse({ ...validInsight, description: "" }).success).toBe(false);
+  });
+
+  it("rejects an empty recommendation", () => {
+    expect(ScanInsightSchema.safeParse({ ...validInsight, recommendation: "" }).success).toBe(false);
+  });
 });
 
 describe("ScanSummarySchema", () => {
+  const validSummary = {
+    summary: "s",
+    overallAssessment: "a",
+    insights: [],
+    topPriority: "p",
+    estimatedImpact: "i",
+  };
+
   it("accepts a valid scan summary", () => {
-    const valid = {
-      summary: "s",
-      overallAssessment: "a",
-      insights: [],
-      topPriority: "p",
-      estimatedImpact: "i",
-    };
-    expect(ScanSummarySchema.safeParse(valid).success).toBe(true);
+    expect(ScanSummarySchema.safeParse(validSummary).success).toBe(true);
+  });
+
+  it("rejects extra fields", () => {
+    expect(ScanSummarySchema.safeParse({ ...validSummary, extra: 1 }).success).toBe(false);
+  });
+
+  it("rejects an empty summary", () => {
+    expect(ScanSummarySchema.safeParse({ ...validSummary, summary: "" }).success).toBe(false);
+  });
+
+  it("rejects an empty overallAssessment", () => {
+    expect(ScanSummarySchema.safeParse({ ...validSummary, overallAssessment: "" }).success).toBe(false);
   });
 });
 
 describe("TaskRecommendationSchema", () => {
+  const validTask = { summary: "s", steps: ["do the thing"], result: "r", confidence: "high" as const };
+
   it("defaults needsHumanReview to true", () => {
-    const result = TaskRecommendationSchema.safeParse({
-      summary: "s",
-      result: "r",
-      confidence: "high",
-    });
+    const result = TaskRecommendationSchema.safeParse(validTask);
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.needsHumanReview).toBe(true);
   });
 
   it("rejects an invalid confidence value", () => {
-    const result = TaskRecommendationSchema.safeParse({
-      summary: "s",
-      result: "r",
-      confidence: "maybe",
-    });
-    expect(result.success).toBe(false);
+    expect(TaskRecommendationSchema.safeParse({ ...validTask, confidence: "maybe" }).success).toBe(false);
+  });
+
+  it("rejects extra fields", () => {
+    expect(TaskRecommendationSchema.safeParse({ ...validTask, extra: "injected" }).success).toBe(false);
+  });
+
+  it("rejects an empty summary", () => {
+    expect(TaskRecommendationSchema.safeParse({ ...validTask, summary: "" }).success).toBe(false);
+  });
+
+  it("rejects an empty steps array", () => {
+    expect(TaskRecommendationSchema.safeParse({ ...validTask, steps: [] }).success).toBe(false);
+  });
+
+  it("rejects steps containing an empty string", () => {
+    expect(TaskRecommendationSchema.safeParse({ ...validTask, steps: [""] }).success).toBe(false);
+  });
+
+  it("rejects an empty result", () => {
+    expect(TaskRecommendationSchema.safeParse({ ...validTask, result: "" }).success).toBe(false);
   });
 });
 

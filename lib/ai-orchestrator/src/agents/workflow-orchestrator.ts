@@ -91,6 +91,20 @@ export function validateDecision(
         `Rejected "advance" decision: nextPhase "${decision.nextPhase}" is already the current phase.`,
       );
     }
+
+    // Linear ordering: the model may only advance to the immediate successor.
+    // When currentPhase is null (workflow not yet started) the guard is skipped
+    // so the first phase can be freely selected. When currentPhase is present
+    // but not found in the phases list (corrupted state), the guard is also
+    // skipped rather than erroneously blocking a valid decision.
+    const phaseNames = state.phases.map((p) => p.name);
+    const currentIdx = state.currentPhase === null ? -1 : phaseNames.indexOf(state.currentPhase);
+    const nextIdx = phaseNames.indexOf(decision.nextPhase);
+    if (currentIdx !== -1 && nextIdx !== currentIdx + 1) {
+      return rejectedDecision(
+        `Rejected "advance" decision: phase "${decision.nextPhase}" is not the immediate successor of "${state.currentPhase}".`,
+      );
+    }
   }
 
   if (decision.action === "complete" && state.phases.length > 0) {

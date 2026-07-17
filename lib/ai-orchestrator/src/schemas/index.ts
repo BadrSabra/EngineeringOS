@@ -1,7 +1,7 @@
 export { AgentContextSchema } from "./context.schema.js";
 export type { AgentContext } from "./context.schema.js";
 
-export { PendingChangeSchema, ChatResponseSchema } from "./chat.schema.js";
+export { PendingChangeSchema, ChatResponseSchema, ChatOutputSchema } from "./chat.schema.js";
 export type { PendingChange, ChatOutput } from "./chat.schema.js";
 
 export { CodeIssueTypeSchema, SeveritySchema, CodeIssueSchema, CodeReviewResultSchema } from "./code-review.schema.js";

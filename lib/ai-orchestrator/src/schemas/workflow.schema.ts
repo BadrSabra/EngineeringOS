@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const WorkflowPhaseSchema = z.object({
   name: z.string().min(1),
-  steps: z.array(z.string().min(1)),
+  steps: z.array(z.string().min(1)).min(1),
   condition: z.string().optional(),
 });
 

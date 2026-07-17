@@ -44,7 +44,7 @@ import { completeRaw, MODEL_POWERFUL, MODEL_FAST } from "../groq-client.js";
 import type { RawMessage } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildChatSystemPrompt } from "../prompts/chat.prompt.js";
-import { ChatResponseSchema, type ChatOutput, type PendingChange } from "../schemas/chat.schema.js";
+import { ChatResponseSchema, ChatOutputSchema, type ChatOutput, type PendingChange } from "../schemas/chat.schema.js";
 import { parseAgentResponse } from "../parsing.js";
 import { FILE_TOOL_DEFINITIONS, executeFileTool } from "../tools/file-tools.js";
 
@@ -90,6 +90,7 @@ function fallbackChatOutput(raw: string): ChatOutput {
       return {
         response: (parsed as Record<string, unknown>).response as string,
         sources: Array.isArray(sources) ? (sources as string[]) : ["project context"],
+        pendingChanges: [],
       };
     }
   } catch {
@@ -98,6 +99,7 @@ function fallbackChatOutput(raw: string): ChatOutput {
   return {
     response: trimmed || "I couldn't generate a response — please try again.",
     sources: ["project context"],
+    pendingChanges: [],
   };
 }
 
@@ -249,11 +251,20 @@ export async function chat(opts: {
         ? [...toolSources, ...parsed.data.sources.filter((s) => !toolSources.includes(s))]
         : parsed.data.sources;
 
-    return {
+    const output = {
       ...parsed.data,
       sources: mergedSources,
-      ...(pendingChanges.length > 0 ? { pendingChanges } : {}),
+      pendingChanges,
     };
+    const check = ChatOutputSchema.safeParse(output);
+    if (!check.success) {
+      console.error(
+        JSON.stringify({ scope: "chat-agent", code: "CHAT_OUTPUT_INVALID", issues: check.error.issues }),
+      );
+      // Drop malformed pendingChanges rather than returning corrupt data.
+      return { ...parsed.data, sources: mergedSources, pendingChanges: [] };
+    }
+    return check.data;
   }
 
   // Exhausted iterations without a final text response.
@@ -266,6 +277,6 @@ export async function chat(opts: {
     // Use accumulated tool sources rather than the generic "tool-loop" string
     // so the caller retains a record of what was actually accessed.
     sources: toolSources.length > 0 ? toolSources : ["tool-loop"],
-    ...(pendingChanges.length > 0 ? { pendingChanges } : {}),
+    pendingChanges,
   };
 }

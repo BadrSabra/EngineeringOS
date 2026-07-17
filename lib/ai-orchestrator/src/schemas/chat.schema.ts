@@ -41,16 +41,18 @@ export type PendingChange = z.infer<typeof PendingChangeSchema>;
 
 export const ChatResponseSchema = z.object({
   response: z.string().min(1),
-  sources: z.array(z.string()).default([]),
-});
+  sources:  z.array(z.string()).default([]),
+}).strict();
 
 /**
- * ChatOutput is the full return value of the chat agent. The LLM-authored
+ * ChatOutputSchema is the full return value of the chat agent. The LLM-authored
  * fields (response, sources) come from ChatResponseSchema. pendingChanges
  * is appended server-side after the tool loop — it is never written by the
  * model — but it is typed here via PendingChangeSchema so the shape is a
  * single source of truth for both TypeScript and runtime validation.
  */
-export type ChatOutput = z.infer<typeof ChatResponseSchema> & {
-  pendingChanges?: PendingChange[];
-};
+export const ChatOutputSchema = ChatResponseSchema.extend({
+  pendingChanges: z.array(PendingChangeSchema).default([]),
+});
+
+export type ChatOutput = z.infer<typeof ChatOutputSchema>;

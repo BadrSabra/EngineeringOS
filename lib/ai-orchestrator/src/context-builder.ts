@@ -28,7 +28,7 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
     db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
     // Fetch more rows than we display so the client-side priority sort can
     // surface urgent tasks even if they were updated less recently.
-    db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)).orderBy(desc(tasksTable.updatedAt)).limit(20),
+    db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)).orderBy(desc(tasksTable.updatedAt)).limit(50),
     db.select().from(metricsTable).where(eq(metricsTable.projectId, projectId)).orderBy(desc(metricsTable.timestamp)).limit(1),
     // Order by confidence DESC so the most certain entities fill the cap first.
     db.select().from(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, projectId)).orderBy(desc(graphEntitiesTable.confidence)).limit(60),
