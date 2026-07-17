@@ -20,9 +20,58 @@ import type {
   GraphQueryFilters,
   GraphEvidence,
   LayeredGraphView,
+  LayeredGraphViewWithProvenance,
+  LayeredProvenanceStats,
+  ProvenanceSummary,
+  EvidenceBundle,
+  AnnotatedPathStep,
 } from "./types.js";
 
 type Db = typeof DbType;
+
+// ─── Provenance helpers ───────────────────────────────────────────────────────
+
+/**
+ * Compute a compact `ProvenanceSummary` from a relationship row.
+ * Prefers the structured `provenance` JSONB column; falls back to the
+ * denormalised `sourceType` column so rows from before PR-02 still have
+ * meaningful summaries.
+ */
+function buildProvenanceSummary(r: GraphRelationship): ProvenanceSummary {
+  const p = r.provenance as
+    | { sourceType?: string; method?: string; extractedAt?: string }
+    | null
+    | undefined;
+  return {
+    sourceType: p?.sourceType ?? r.sourceType ?? null,
+    method: p?.method ?? null,
+    extractedAt: p?.extractedAt ?? null,
+    evidenceCount: r.evidenceCount ?? 0,
+  };
+}
+
+/**
+ * Compute per-layer provenance statistics from a set of relationships.
+ * Returns zero-valued stats when the list is empty to keep the shape consistent.
+ */
+function computeLayerStats(rels: GraphRelationship[]): LayeredProvenanceStats {
+  if (rels.length === 0) {
+    return { avgConfidence: 0, sourceTypeBreakdown: {}, totalEvidenceCount: 0 };
+  }
+  const totalConf = rels.reduce((s, r) => s + (r.confidence ?? 0), 0);
+  const breakdown: Record<string, number> = {};
+  let totalEvidenceCount = 0;
+  for (const r of rels) {
+    const st = r.sourceType ?? "unknown";
+    breakdown[st] = (breakdown[st] ?? 0) + 1;
+    totalEvidenceCount += r.evidenceCount ?? 0;
+  }
+  return {
+    avgConfidence: totalConf / rels.length,
+    sourceTypeBreakdown: breakdown,
+    totalEvidenceCount,
+  };
+}
 
 // ─── Neighbor fetching ────────────────────────────────────────────────────────
 
@@ -335,12 +384,20 @@ export async function getEdgesByType(
 
 /**
  * Return all evidence records attached to outgoing relationships from the
- * given entity. Used by the `/graph/evidence/:entityId` API route.
+ * given entity, enriched with relationship-level provenance annotations.
+ *
+ * PR-03: Each bundle now surfaces `confidence`, `sourceType`, `isHeuristic`,
+ * `isRuntimeObserved`, and a compact `provenanceSummary` so callers can
+ * answer "why does this edge exist?" without parsing raw DB columns.
+ *
+ * Only relationships with at least one evidence record are returned — pure
+ * topology rows (no evidenceJson) are excluded because they cannot explain
+ * themselves at the source-location level.
  */
 export async function getEvidenceForNode(
   db: Db,
   entityId: string,
-): Promise<{ relationship: GraphRelationship; evidence: GraphEvidence[] }[]> {
+): Promise<EvidenceBundle[]> {
   const rels = await db
     .select()
     .from(graphRelationshipsTable)
@@ -356,9 +413,14 @@ export async function getEvidenceForNode(
       const ev = r.evidenceJson as unknown[] | null | undefined;
       return ev && ev.length > 0;
     })
-    .map((r) => ({
+    .map((r): EvidenceBundle => ({
       relationship: r,
       evidence: (r.evidenceJson ?? []) as GraphEvidence[],
+      confidence: r.confidence ?? null,
+      sourceType: r.sourceType ?? null,
+      isHeuristic: r.isHeuristic ?? false,
+      isRuntimeObserved: r.isRuntimeObserved ?? false,
+      provenanceSummary: buildProvenanceSummary(r),
     }));
 }
 
@@ -516,11 +578,25 @@ export async function getHighConfidencePath(
  *
  * Runtime edges have the highest trustworthiness — they were observed in a
  * live environment rather than inferred from static analysis.
+ *
+ * PR-03: Includes a `provenanceSummary` on the result so callers can inspect
+ * aggregate trustworthiness (avg confidence, source type breakdown) without
+ * iterating the full relationship list.
  */
 export async function getObservedRuntimeSubgraph(
   db: Db,
   projectId: string,
-): Promise<{ entities: GraphEntity[]; relationships: GraphRelationship[] }> {
+): Promise<{
+  entities: GraphEntity[];
+  relationships: GraphRelationship[];
+  provenanceSummary: {
+    layer: "runtime";
+    edgeCount: number;
+    avgConfidence: number;
+    sourceTypeBreakdown: Record<string, number>;
+    totalEvidenceCount: number;
+  };
+}> {
   const relationships = await db
     .select()
     .from(graphRelationshipsTable)
@@ -531,7 +607,19 @@ export async function getObservedRuntimeSubgraph(
       ),
     );
 
-  if (relationships.length === 0) return { entities: [], relationships: [] };
+  if (relationships.length === 0) {
+    return {
+      entities: [],
+      relationships: [],
+      provenanceSummary: {
+        layer: "runtime",
+        edgeCount: 0,
+        avgConfidence: 0,
+        sourceTypeBreakdown: {},
+        totalEvidenceCount: 0,
+      },
+    };
+  }
 
   const entityIds = new Set<string>();
   for (const r of relationships) {
@@ -540,7 +628,19 @@ export async function getObservedRuntimeSubgraph(
   }
 
   const entities = await fetchEntitiesByIds(db, [...entityIds]);
-  return { entities, relationships };
+  const stats = computeLayerStats(relationships);
+
+  return {
+    entities,
+    relationships,
+    provenanceSummary: {
+      layer: "runtime",
+      edgeCount: relationships.length,
+      avgConfidence: stats.avgConfidence,
+      sourceTypeBreakdown: stats.sourceTypeBreakdown,
+      totalEvidenceCount: stats.totalEvidenceCount,
+    },
+  };
 }
 
 /**
@@ -550,12 +650,17 @@ export async function getObservedRuntimeSubgraph(
  *   - runtime:    edges observed in a live environment
  *
  * Optionally applies KG 2.0 filters to all layers simultaneously.
+ *
+ * PR-03: Returns `LayeredGraphViewWithProvenance` — each layer now includes
+ * `provenanceStats` (avgConfidence, sourceTypeBreakdown, totalEvidenceCount)
+ * so callers can assess the trustworthiness of each layer without iterating
+ * the full relationship list themselves.
  */
 export async function getLayeredGraphView(
   db: Db,
   projectId: string,
   filters: GraphQueryFilters = {},
-): Promise<LayeredGraphView> {
+): Promise<LayeredGraphViewWithProvenance> {
   const entities = await db
     .select()
     .from(graphEntitiesTable)
@@ -587,5 +692,53 @@ export async function getLayeredGraphView(
     structural: { entities: entitiesInRels(structural), relationships: structural },
     heuristic: { entities: entitiesInRels(heuristic), relationships: heuristic },
     runtime: { entities: entitiesInRels(runtime), relationships: runtime },
+    provenanceStats: {
+      structural: computeLayerStats(structural),
+      heuristic: computeLayerStats(heuristic),
+      runtime: computeLayerStats(runtime),
+    },
   };
+}
+
+// ─── Provenance-aware path annotation (PR-03) ─────────────────────────────────
+
+/**
+ * Convert a list of bare `PathStep` objects into `AnnotatedPathStep` objects
+ * that expose relationship-level provenance for every hop.
+ *
+ * This is a pure, synchronous function — it does not make any DB calls.
+ * Call it on the `path` array returned by `getShortestPath()` or
+ * `getHighConfidencePath()` when you want to show *why* each edge was
+ * traversed, not just that it exists.
+ *
+ * The root step (index 0, where `relationship` is null) always has
+ * `confidence: null`, `edgeSourceType: null`, and an empty `evidence` array.
+ */
+export function annotatePathSteps(steps: PathStep[]): AnnotatedPathStep[] {
+  return steps.map((step): AnnotatedPathStep => {
+    const rel = step.relationship;
+    if (!rel) {
+      // Root node — no leading edge to annotate
+      return {
+        entity: step.entity,
+        relationship: null,
+        confidence: null,
+        edgeSourceType: null,
+        isHeuristic: false,
+        isRuntimeObserved: false,
+        evidence: [],
+        provenanceSummary: null,
+      };
+    }
+    return {
+      entity: step.entity,
+      relationship: rel,
+      confidence: rel.confidence ?? null,
+      edgeSourceType: rel.sourceType ?? null,
+      isHeuristic: rel.isHeuristic ?? false,
+      isRuntimeObserved: rel.isRuntimeObserved ?? false,
+      evidence: (rel.evidenceJson ?? []) as GraphEvidence[],
+      provenanceSummary: buildProvenanceSummary(rel),
+    };
+  });
 }

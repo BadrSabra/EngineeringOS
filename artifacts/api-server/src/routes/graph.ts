@@ -20,6 +20,7 @@ import {
   getSemanticNeighborhood,
   getLayeredGraphView,
   getObservedRuntimeSubgraph,
+  annotatePathSteps,
   type GraphQueryFilters,
   type GraphEdgeType,
 } from "@workspace/knowledge-engine";
@@ -261,7 +262,20 @@ router.get("/graph/path", async (req, res) => {
       ? await getHighConfidencePath(db, fromId, toId, minConf, maxDepth ?? 5)
       : await getShortestPath(db, fromId, toId, maxDepth ?? 5);
 
-  return res.json(result);
+  // PR-03: always annotate path steps so the response explains *why* each hop
+  // was traversed (confidence, sourceType, evidence) rather than returning
+  // pure topology. The root step carries null confidence/evidence so the
+  // shape is uniform across all steps and easy to iterate.
+  if (!result.found) return res.json(result);
+
+  return res.json({
+    found: true,
+    path: annotatePathSteps(result.path),
+    length: result.length,
+    ...(minConf !== undefined && !isNaN(minConf)
+      ? { minConfidenceApplied: minConf }
+      : {}),
+  });
 });
 
 // ─── Graph summary ────────────────────────────────────────────────────────────
@@ -301,40 +315,45 @@ router.get("/graph/subgraph", async (req, res) => {
   if (!project) return;
 
   const filters = parseKgFilters(req.query as Record<string, unknown>);
-  const { entities, relationships, ...layers } =
-    await getLayeredGraphView(db, project.id, filters);
+  // PR-03: getLayeredGraphView now returns LayeredGraphViewWithProvenance.
+  // Avoid destructuring non-existent top-level `entities`/`relationships` keys —
+  // those fields live inside each layer, not at the root of the view.
+  const view = await getLayeredGraphView(db, project.id, filters);
 
   // Flatten all layers so the caller gets a combined filtered view
   const allRels = [
-    ...layers.structural.relationships,
-    ...layers.heuristic.relationships,
-    ...layers.runtime.relationships,
+    ...view.structural.relationships,
+    ...view.heuristic.relationships,
+    ...view.runtime.relationships,
   ];
-  const allEntityIds = new Set(
-    allRels.flatMap((r) => [r.sourceId, r.targetId]),
-  );
   const allEntities = [
-    ...layers.structural.entities,
-    ...layers.heuristic.entities,
-    ...layers.runtime.entities,
+    ...view.structural.entities,
+    ...view.heuristic.entities,
+    ...view.runtime.entities,
   ].filter((e, i, arr) => arr.findIndex((x) => x.id === e.id) === i);
 
   return res.json({
     entities: allEntities,
     relationships: [...new Map(allRels.map((r) => [r.id, r])).values()],
     filters,
+    // PR-03: each layer now includes provenance statistics alongside counts
+    // so callers can see not just how many edges are in each layer but
+    // how trustworthy they are and where they came from.
     layered: {
       structural: {
-        entityCount: layers.structural.entities.length,
-        relationshipCount: layers.structural.relationships.length,
+        entityCount: view.structural.entities.length,
+        relationshipCount: view.structural.relationships.length,
+        ...view.provenanceStats.structural,
       },
       heuristic: {
-        entityCount: layers.heuristic.entities.length,
-        relationshipCount: layers.heuristic.relationships.length,
+        entityCount: view.heuristic.entities.length,
+        relationshipCount: view.heuristic.relationships.length,
+        ...view.provenanceStats.heuristic,
       },
       runtime: {
-        entityCount: layers.runtime.entities.length,
-        relationshipCount: layers.runtime.relationships.length,
+        entityCount: view.runtime.entities.length,
+        relationshipCount: view.runtime.relationships.length,
+        ...view.provenanceStats.runtime,
       },
     },
   });
@@ -393,7 +412,15 @@ router.get("/graph/evidence/:entityId", async (req, res) => {
   if (!ownerProject) return;
 
   const evidence = await getEvidenceForNode(db, entityId);
-  return res.json({ entity, evidence });
+  // PR-03: lift entity.provenance to a dedicated key so callers can immediately
+  // see who extracted this entity without parsing the full entity row.
+  // Each item in `evidence` is now an EvidenceBundle with confidence,
+  // sourceType, isHeuristic, isRuntimeObserved, and provenanceSummary.
+  return res.json({
+    entity,
+    entityProvenance: entity.provenance ?? null,
+    evidence,
+  });
 });
 
 /**

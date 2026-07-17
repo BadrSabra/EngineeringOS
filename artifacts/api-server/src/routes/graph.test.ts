@@ -701,6 +701,208 @@ describe("GET /api/graph/runtime-subgraph/:projectId", () => {
   });
 });
 
+// ─── PR-03: provenance-aware API responses ────────────────────────────────────
+
+describe("GET /api/graph/evidence/:entityId — PR-03 provenance bundles", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("evidence bundles include confidence, sourceType, and provenanceSummary", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const now = new Date();
+    const srcId = randomUUID();
+    const tgtId = randomUUID();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: srcId, projectId, type: "module", name: "src.ts", createdAt: now },
+      { id: tgtId, projectId, type: "module", name: "tgt.ts", createdAt: now },
+    ]);
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(),
+      projectId,
+      sourceId: srcId,
+      targetId: tgtId,
+      relation: "imports",
+      confidence: 0.85,
+      sourceType: "typescript-ast",
+      isHeuristic: false,
+      isRuntimeObserved: false,
+      evidenceJson: [{ file: "src.ts", line: 5, kind: "import-statement", snippet: "import tgt" }],
+      evidenceCount: 1,
+      createdAt: now,
+    });
+
+    const res = await request(app).get(`/api/graph/evidence/${srcId}`);
+    expect(res.status).toBe(200);
+
+    // Backward-compat fields still present
+    expect(res.body.entity.id).toBe(srcId);
+    expect(Array.isArray(res.body.evidence)).toBe(true);
+    expect(res.body.evidence[0].relationship).toBeDefined();
+    expect(Array.isArray(res.body.evidence[0].evidence)).toBe(true);
+
+    // PR-03: entityProvenance lifted to top level
+    expect("entityProvenance" in res.body).toBe(true);
+
+    // PR-03: enriched bundle fields
+    const b = res.body.evidence[0];
+    expect(b.confidence).toBe(0.85);
+    expect(b.sourceType).toBe("typescript-ast");
+    expect(b.isHeuristic).toBe(false);
+    expect(b.isRuntimeObserved).toBe(false);
+    expect(b.provenanceSummary).not.toBeNull();
+    expect(b.provenanceSummary.sourceType).toBe("typescript-ast");
+    expect(b.provenanceSummary.evidenceCount).toBe(1);
+  });
+});
+
+describe("GET /api/graph/subgraph — PR-03 provenance stats per layer", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  async function seedLayeredWithProvenance(projectId: string) {
+    const a = randomUUID();
+    const b = randomUUID();
+    const c = randomUUID();
+    const now = new Date();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: a, projectId, type: "module", name: "pA", createdAt: now },
+      { id: b, projectId, type: "module", name: "pB", createdAt: now },
+      { id: c, projectId, type: "module", name: "pC", createdAt: now },
+    ]);
+    // structural edge with known confidence + sourceType + evidence
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(), projectId, sourceId: a, targetId: b, relation: "imports",
+      isHeuristic: false, isRuntimeObserved: false,
+      confidence: 0.9, sourceType: "typescript-ast", evidenceCount: 2,
+      createdAt: now,
+    });
+    // heuristic edge
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(), projectId, sourceId: a, targetId: c, relation: "imports",
+      isHeuristic: true, isRuntimeObserved: false,
+      confidence: 0.5, sourceType: "regex-fallback", evidenceCount: 0,
+      createdAt: now,
+    });
+    return { a, b, c };
+  }
+
+  it("layered response includes avgConfidence, sourceTypeBreakdown, totalEvidenceCount per layer", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    await seedLayeredWithProvenance(projectId);
+
+    const res = await request(app)
+      .get("/api/graph/subgraph")
+      .query({ projectId });
+
+    expect(res.status).toBe(200);
+
+    // Original fields still present
+    expect(res.body.layered.structural.entityCount).toBeDefined();
+    expect(res.body.layered.structural.relationshipCount).toBe(1);
+
+    // PR-03: provenance stats merged into each layer
+    expect(typeof res.body.layered.structural.avgConfidence).toBe("number");
+    expect(typeof res.body.layered.structural.totalEvidenceCount).toBe("number");
+    expect(res.body.layered.structural.sourceTypeBreakdown).toBeDefined();
+    expect(res.body.layered.structural.sourceTypeBreakdown["typescript-ast"]).toBe(1);
+    expect(res.body.layered.structural.avgConfidence).toBeCloseTo(0.9);
+    expect(res.body.layered.structural.totalEvidenceCount).toBe(2);
+    expect(res.body.layered.heuristic.sourceTypeBreakdown["regex-fallback"]).toBe(1);
+
+    // Empty runtime layer → avgConfidence = 0
+    expect(res.body.layered.runtime.avgConfidence).toBe(0);
+    expect(res.body.layered.runtime.totalEvidenceCount).toBe(0);
+  });
+});
+
+describe("GET /api/graph/path — PR-03 annotated steps", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("path response always includes annotated steps with confidence and evidence arrays", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const { a, b } = await seedTriangle(projectId);
+
+    // shortest path (no minConfidence)
+    const res = await request(app)
+      .get("/api/graph/path")
+      .query({ fromId: a, toId: b });
+
+    expect(res.status).toBe(200);
+    expect(res.body.found).toBe(true);
+    // Root step
+    expect(res.body.path[0].entity.id).toBe(a);
+    expect(res.body.path[0].confidence).toBeNull();
+    expect(res.body.path[0].relationship).toBeNull();
+    expect(res.body.path[0].evidence).toEqual([]);
+    // Hop step
+    expect(res.body.path[1].entity.id).toBe(b);
+    expect(res.body.path[1].relationship).toBeDefined();
+    expect(typeof res.body.path[1].isHeuristic).toBe("boolean");
+    expect(Array.isArray(res.body.path[1].evidence)).toBe(true);
+    expect(res.body.path[1].provenanceSummary).not.toBeNull();
+  });
+
+  it("high-confidence path includes minConfidenceApplied and annotated steps", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const now = new Date();
+    const xId = randomUUID();
+    const yId = randomUUID();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: xId, projectId, type: "module", name: "x.ts", createdAt: now },
+      { id: yId, projectId, type: "module", name: "y.ts", createdAt: now },
+    ]);
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(), projectId, sourceId: xId, targetId: yId,
+      relation: "imports", confidence: 0.9, sourceType: "typescript-ast",
+      evidenceJson: [{ file: "x.ts", line: 5, kind: "import-statement" }],
+      evidenceCount: 1, createdAt: now,
+    });
+
+    const res = await request(app)
+      .get("/api/graph/path")
+      .query({ fromId: xId, toId: yId, minConfidence: "0.8" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.found).toBe(true);
+    expect(res.body.minConfidenceApplied).toBe(0.8);
+    // Root step
+    expect(res.body.path[0].confidence).toBeNull();
+    // Hop step: carries real confidence and evidence
+    expect(res.body.path[1].confidence).toBe(0.9);
+    expect(res.body.path[1].edgeSourceType).toBe("typescript-ast");
+    expect(Array.isArray(res.body.path[1].evidence)).toBe(true);
+    expect(res.body.path[1].evidence[0].kind).toBe("import-statement");
+    expect(res.body.path[1].provenanceSummary.sourceType).toBe("typescript-ast");
+    expect(res.body.path[1].provenanceSummary.evidenceCount).toBe(1);
+  });
+});
+
 // ─── Ownership isolation ───────────────────────────────────────────────────────
 
 describe("Ownership isolation — graph", () => {

@@ -27,6 +27,12 @@ export type {
   GraphQueryFilters,
   LayeredGraphView,
   LayeredGraphSummary,
+  // PR-03: provenance-aware extensions
+  ProvenanceSummary,
+  EvidenceBundle,
+  AnnotatedPathStep,
+  LayeredProvenanceStats,
+  LayeredGraphViewWithProvenance,
 } from "./types.js";
 
 export {
@@ -41,6 +47,8 @@ export {
   getHighConfidencePath,
   getObservedRuntimeSubgraph,
   getLayeredGraphView,
+  // PR-03: provenance-aware path annotation
+  annotatePathSteps,
 } from "./queries.js";
 
 export {
