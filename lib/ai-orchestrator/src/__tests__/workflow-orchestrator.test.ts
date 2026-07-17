@@ -84,4 +84,35 @@ describe("executeDecision", () => {
     const decision: WorkflowDecision = { action: "wait", reasoning: "blocked" };
     expect(executeDecision(decision, baseState)).toEqual(baseState);
   });
+
+  // ── Internal validation guard ─────────────────────────────────────────────
+  // These cases prove that executeDecision rejects illegal transitions even
+  // when the caller has not gone through validateDecision() first.
+
+  it("rejects advance to an unknown phase without mutating state", () => {
+    const decision: WorkflowDecision = { action: "advance", reasoning: "go", nextPhase: "deploy-to-mars" };
+    const next = executeDecision(decision, baseState);
+    expect(next).toEqual(baseState);
+  });
+
+  it("rejects advance to the already-current phase without mutating state", () => {
+    const decision: WorkflowDecision = { action: "advance", reasoning: "go", nextPhase: "plan" };
+    const next = executeDecision(decision, baseState);
+    expect(next).toEqual(baseState);
+  });
+
+  it("rejects premature complete (not at final phase) without mutating state", () => {
+    // currentPhase is "plan", final phase is "verify" — complete is premature.
+    const decision: WorkflowDecision = { action: "complete", reasoning: "done" };
+    const next = executeDecision(decision, baseState);
+    expect(next).toEqual(baseState);
+  });
+
+  it("allows complete only when at the final phase", () => {
+    const state: WorkflowState = { phases, currentPhase: "verify", completedPhases: ["plan", "build"] };
+    const decision: WorkflowDecision = { action: "complete", reasoning: "done" };
+    const next = executeDecision(decision, state);
+    expect(next.currentPhase).toBeNull();
+    expect(next.completedPhases).toContain("verify");
+  });
 });

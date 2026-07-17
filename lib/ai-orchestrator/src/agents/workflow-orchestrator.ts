@@ -2,12 +2,13 @@
  * Workflow Orchestrator — given a workflow definition and current execution
  * state, decides the next action: advance, wait, fail, or complete.
  *
- * Split into three explicit stages so the model can only ever *propose* a
- * transition, never force one through:
- *   decide()          — ask the model for a proposed decision
+ * Three explicit stages ensure the model can only ever *propose* a transition,
+ * never force one through:
+ *   decide()           — ask the model for a proposed decision
  *   validateDecision() — reject any decision inconsistent with real state
- *   executeDecision()  — pure state transition for a decision already
- *                        validated (callers persist the result themselves)
+ *   executeDecision()  — apply a state transition; validates internally so
+ *                        no caller can bypass the guard by calling this
+ *                        function directly with an unvalidated decision
  */
 import { complete, MODEL_POWERFUL, type Message } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
@@ -107,19 +108,65 @@ export function validateDecision(
 /**
  * Applies an already-validated decision to workflow state. Pure function —
  * callers persist the returned state. Only "advance" and "complete" mutate it.
+ *
+ * Validation is enforced internally for both mutating actions: a caller that
+ * skips validateDecision() and calls this function directly cannot produce an
+ * illegal transition. For callers that already validated (the normal path
+ * through orchestrateWorkflow), the re-check is idempotent — a valid decision
+ * passes through unchanged.
+ *
+ * When an unvalidated illegal decision reaches this function, the decision is
+ * downgraded to "wait", a warning is logged, and the original state is
+ * returned without modification.
  */
 export function executeDecision(decision: WorkflowDecision, state: WorkflowState): WorkflowState {
-  const advanceCompletedPhases = () =>
+  const advanceCompletedPhases = (): string[] =>
     state.currentPhase && !state.completedPhases.includes(state.currentPhase)
       ? [...state.completedPhases, state.currentPhase]
       : state.completedPhases;
 
-  if (decision.action === "advance" && decision.nextPhase) {
-    return { ...state, currentPhase: decision.nextPhase, completedPhases: advanceCompletedPhases() };
+  if (decision.action === "advance") {
+    const safe = validateDecision(decision, state);
+    if (safe.action !== "advance") {
+      // Decision was illegal (unknown phase, no-op, etc.) — reject it here
+      // rather than writing corrupt state. This branch is only reachable when
+      // a caller bypasses validateDecision(); the normal orchestrateWorkflow()
+      // path never reaches it.
+      console.warn(
+        JSON.stringify({
+          scope: "workflow-orchestrator",
+          stage: "executeDecision",
+          code: "DECISION_REJECTED_AT_EXECUTE",
+          originalAction: "advance",
+          reasoning: safe.reasoning,
+        }),
+      );
+      return state;
+    }
+    // safe.nextPhase is string (guaranteed by the advance schema variant and
+    // confirmed by validateDecision passing it through).
+    return { ...state, currentPhase: safe.nextPhase, completedPhases: advanceCompletedPhases() };
   }
+
   if (decision.action === "complete") {
+    const safe = validateDecision(decision, state);
+    if (safe.action !== "complete") {
+      // Premature completion — not at the final phase.
+      console.warn(
+        JSON.stringify({
+          scope: "workflow-orchestrator",
+          stage: "executeDecision",
+          code: "DECISION_REJECTED_AT_EXECUTE",
+          originalAction: "complete",
+          reasoning: safe.reasoning,
+        }),
+      );
+      return state;
+    }
     return { ...state, currentPhase: null, completedPhases: advanceCompletedPhases() };
   }
+
+  // "wait" and "fail" never mutate state — no validation needed.
   return state;
 }
 
