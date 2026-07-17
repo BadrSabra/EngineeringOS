@@ -139,7 +139,7 @@ export async function chat(opts: {
   const model = rootPath ? MODEL_POWERFUL : MODEL_FAST;
 
   const messages: RawMessage[] = [
-    { role: "system", content: buildChatSystemPrompt(projectContext) },
+    { role: "system", content: buildChatSystemPrompt(projectContext, !!rootPath) },
     ...history.slice(-10).map((m): RawMessage => ({ role: m.role, content: m.content })),
     { role: "user", content: message },
   ];
