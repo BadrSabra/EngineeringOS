@@ -1,11 +1,82 @@
 import { describe, it, expect } from "vitest";
 import {
+  PendingChangeSchema,
   ChatResponseSchema,
   CodeReviewResultSchema,
   ScanSummarySchema,
   TaskRecommendationSchema,
   WorkflowDecisionSchema,
 } from "../schemas/index.js";
+
+describe("PendingChangeSchema", () => {
+  const valid = {
+    path: "src/foo.ts",
+    absolutePath: "/home/project/src/foo.ts",
+    newContent: "export const x = 1;",
+    originalContent: "export const x = 0;",
+    reason: "Update constant value",
+  };
+
+  it("accepts a well-formed pending change", () => {
+    expect(PendingChangeSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("accepts originalContent of null (new file)", () => {
+    expect(PendingChangeSchema.safeParse({ ...valid, originalContent: null }).success).toBe(true);
+  });
+
+  it("accepts an empty newContent (file being cleared)", () => {
+    expect(PendingChangeSchema.safeParse({ ...valid, newContent: "" }).success).toBe(true);
+  });
+
+  it("rejects an empty path", () => {
+    expect(PendingChangeSchema.safeParse({ ...valid, path: "" }).success).toBe(false);
+  });
+
+  it("rejects an empty absolutePath", () => {
+    expect(PendingChangeSchema.safeParse({ ...valid, absolutePath: "" }).success).toBe(false);
+  });
+
+  it("rejects a relative absolutePath", () => {
+    expect(PendingChangeSchema.safeParse({ ...valid, absolutePath: "src/foo.ts" }).success).toBe(false);
+  });
+
+  it("rejects a dot-relative absolutePath", () => {
+    expect(PendingChangeSchema.safeParse({ ...valid, absolutePath: "./src/foo.ts" }).success).toBe(false);
+  });
+
+  it("rejects an empty reason", () => {
+    expect(PendingChangeSchema.safeParse({ ...valid, reason: "" }).success).toBe(false);
+  });
+
+  it("rejects originalContent of a non-string, non-null value", () => {
+    expect(PendingChangeSchema.safeParse({ ...valid, originalContent: 42 }).success).toBe(false);
+  });
+
+  it("rejects originalContent of undefined (must be null for new files, not omitted)", () => {
+    const { originalContent: _, ...without } = valid;
+    expect(PendingChangeSchema.safeParse(without).success).toBe(false);
+  });
+
+  it("rejects an unrecognised extra field", () => {
+    expect(PendingChangeSchema.safeParse({ ...valid, extra: "injected" }).success).toBe(false);
+  });
+
+  it("rejects a missing path field", () => {
+    const { path: _, ...without } = valid;
+    expect(PendingChangeSchema.safeParse(without).success).toBe(false);
+  });
+
+  it("rejects a missing absolutePath field", () => {
+    const { absolutePath: _, ...without } = valid;
+    expect(PendingChangeSchema.safeParse(without).success).toBe(false);
+  });
+
+  it("rejects a missing reason field", () => {
+    const { reason: _, ...without } = valid;
+    expect(PendingChangeSchema.safeParse(without).success).toBe(false);
+  });
+});
 
 describe("ChatResponseSchema", () => {
   it("accepts a valid chat response", () => {
