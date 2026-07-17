@@ -136,7 +136,12 @@ export async function chat(opts: {
   const tools = rootPath ? FILE_TOOL_DEFINITIONS : undefined;
   // Use the more capable model when tools are involved — smaller models are
   // unreliable at following multi-step tool-calling protocols.
-  const model = rootPath ? MODEL_POWERFUL : MODEL_FAST;
+  // Always use MODEL_FAST for the agentic chat loop — it handles multi-turn
+  // tool calls well and has significantly higher Groq rate limits than the
+  // powerful model, reducing 429 errors during the iterative tool-use phase.
+  // MODEL_POWERFUL is reserved for single-shot tasks (code review, analysis)
+  // that benefit from deeper reasoning but never loop.
+  const model = MODEL_FAST;
 
   const messages: RawMessage[] = [
     { role: "system", content: buildChatSystemPrompt(projectContext, !!rootPath) },

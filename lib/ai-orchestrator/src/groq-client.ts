@@ -44,7 +44,30 @@ export type CompleteOptions = {
 };
 
 const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_MAX_RETRIES = 1;
+const DEFAULT_MAX_RETRIES = 3;
+
+/**
+ * Exponential backoff with full jitter for transient failures.
+ *
+ * Base delay per attempt (ms):
+ *   attempt 0 (first retry): 1 000 ms  ±50 %  →  500 – 1 500 ms
+ *   attempt 1:                2 000 ms  ±50 %  → 1 000 – 3 000 ms
+ *   attempt 2:                4 000 ms  ±50 %  → 2 000 – 6 000 ms
+ *
+ * RATE_LIMITED errors get a longer base (2 000 ms) because Groq's free-tier
+ * tokens-per-minute window resets on a 1-minute boundary — waiting longer
+ * is almost always better than hammering the endpoint again in under a second.
+ */
+function retryDelayMs(attempt: number, code: GroqErrorCode): number {
+  const base = code === "RATE_LIMITED" ? 2_000 : 1_000;
+  const exponential = base * Math.pow(2, attempt);
+  // full jitter: uniform random in [0, exponential]
+  return Math.floor(Math.random() * exponential);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /** llama-3.3-70b — best quality; use for task execution, code review, orchestration */
 export const MODEL_POWERFUL = "llama-3.3-70b-versatile";
@@ -209,7 +232,12 @@ export async function completeRaw(
       return result;
     } catch (err) {
       lastError = err instanceof GroqClientError ? err : classifySdkError(err, false);
-      if (attempt < maxRetries && isRetryable(lastError.code)) continue;
+      if (attempt < maxRetries && isRetryable(lastError.code)) {
+        const delay = retryDelayMs(attempt, lastError.code);
+        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+        await sleep(delay);
+        continue;
+      }
       break;
     }
   }
@@ -325,6 +353,9 @@ export async function complete(messages: Message[], opts: CompleteOptions = {}):
     } catch (err) {
       lastError = err instanceof GroqClientError ? err : classifySdkError(err, false);
       if (attempt < maxRetries && isRetryable(lastError.code)) {
+        const delay = retryDelayMs(attempt, lastError.code);
+        console.info(JSON.stringify({ scope: "groq-client", event: "retry_backoff", attempt, code: lastError.code, delayMs: delay }));
+        await sleep(delay);
         continue;
       }
       break;
