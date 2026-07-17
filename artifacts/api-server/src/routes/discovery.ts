@@ -789,12 +789,22 @@ router.post("/projects/import", async (req, res) => {
       });
 
       // 3. Graph entity stubs from detected API routes
+      // Every stub carries a full provenance record so downstream consumers
+      // can always tell these rows came from discovery, not from a full AST scan.
       for (const apiRoute of result.detectedApis.slice(0, 50)) {
         await tx.insert(graphEntitiesTable).values({
           id: randomUUID(),
           projectId,
           type: "api",
           name: apiRoute,
+          sourceType: "discovery-import",
+          confidence: 0.8,
+          provenance: {
+            sourceType: "discovery-import",
+            method: "api-route-detection",
+            extractedAt: now.toISOString(),
+            evidence: [{ file: "discovery-session", kind: "heuristic" as const }],
+          },
           createdAt: now,
         });
       }

@@ -12,8 +12,21 @@ import {
   scanJobsTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
+import { mkdtempSync, rmdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import * as scanner from "@workspace/scanner";
 import { heavyJobQueue } from "../lib/job-queue.js";
+
+/** Create a real temp dir that `walkProject` can stat successfully. */
+function makeTempScanDir(): string {
+  return mkdtempSync(join(tmpdir(), "eng-os-test-"));
+}
+
+/** Remove a temp dir quietly (already gone = fine). */
+function removeTempDir(dir: string): void {
+  try { rmdirSync(dir); } catch { /* already cleaned up */ }
+}
 
 async function insertProject(rootPath: string, ownerId = "test-user"): Promise<string> {
   const id = randomUUID();
@@ -58,6 +71,7 @@ async function waitForScanJob(
 
 describe("POST /api/projects/:projectId/scan — error safety", () => {
   const cleanupQueue: string[] = [];
+  const tempDirs: string[] = [];
 
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -65,10 +79,18 @@ describe("POST /api/projects/:projectId/scan — error safety", () => {
       const id = cleanupQueue.pop();
       if (id) await cleanupProject(id);
     }
+    while (tempDirs.length > 0) {
+      const dir = tempDirs.pop();
+      if (dir) removeTempDir(dir);
+    }
   });
 
   it("queues a scan job immediately, then resolves to active with an audit entry", async () => {
-    const projectId = await insertProject("/tmp/definitely-does-not-exist-" + randomUUID());
+    // walkProject now throws for non-existent paths — use a real temp dir so
+    // the scan completes successfully and the audit entry is written.
+    const scanDir = makeTempScanDir();
+    tempDirs.push(scanDir);
+    const projectId = await insertProject(scanDir);
     cleanupQueue.push(projectId);
 
     // The route must respond immediately with a queued job rather than
@@ -85,12 +107,10 @@ describe("POST /api/projects/:projectId/scan — error safety", () => {
       .limit(1);
     expect(scanningProject[0]?.status).toBe("scanning");
 
-    // walkProject on a missing path does not throw (rootExists: false), so the
-    // background job should still complete successfully rather than getting
-    // stuck in "scanning".
+    // Real dir → walkProject succeeds with rootExists:true; job completes.
     const job = await waitForScanJob(res.body.id);
     expect(job.status).toBe("completed");
-    expect((job.result as { rootExists?: boolean } | null)?.rootExists).toBe(false);
+    expect((job.result as { rootExists?: boolean } | null)?.rootExists).toBe(true);
 
     const project = await db
       .select()
@@ -110,7 +130,12 @@ describe("POST /api/projects/:projectId/scan — error safety", () => {
   });
 
   it("marks the job failed and resets project status to active when the scan pipeline throws mid-scan", async () => {
-    const projectId = await insertProject("/tmp/scan-throw-test-" + randomUUID());
+    // Use a real path so walkProject succeeds; mock extractGraph to simulate
+    // a failure deep in the pipeline (the previous non-existent path caused
+    // walkProject itself to throw before extractGraph was ever called).
+    const scanDir = makeTempScanDir();
+    tempDirs.push(scanDir);
+    const projectId = await insertProject(scanDir);
     cleanupQueue.push(projectId);
 
     vi.spyOn(scanner, "extractGraph").mockImplementation(() => {
@@ -146,7 +171,9 @@ describe("POST /api/projects/:projectId/scan — error safety", () => {
   });
 
   it("GET scan-jobs/:jobId 404s for an unknown job", async () => {
-    const projectId = await insertProject("/tmp/job-404-test-" + randomUUID());
+    const scanDir = makeTempScanDir();
+    tempDirs.push(scanDir);
+    const projectId = await insertProject(scanDir);
     cleanupQueue.push(projectId);
 
     const res = await request(app).get(
@@ -156,9 +183,13 @@ describe("POST /api/projects/:projectId/scan — error safety", () => {
   });
 
   it("bounds concurrent execution when a burst of scans is triggered at once", async () => {
-    const projectIds = await Promise.all(
-      Array.from({ length: 6 }, () => insertProject("/tmp/burst-test-" + randomUUID())),
-    );
+    // Real dirs so all 6 scans complete without walkProject errors.
+    const dirs = Array.from({ length: 6 }, () => {
+      const d = makeTempScanDir();
+      tempDirs.push(d);
+      return d;
+    });
+    const projectIds = await Promise.all(dirs.map((d) => insertProject(d)));
     projectIds.forEach((id) => cleanupQueue.push(id));
 
     let maxObservedActive = 0;
@@ -221,6 +252,7 @@ describe("POST /api/projects — audit trail", () => {
 
 describe("POST /api/projects/:projectId/scan — DB side-effects", () => {
   const cleanupQueue: string[] = [];
+  const tempDirs: string[] = [];
 
   afterEach(async () => {
     vi.restoreAllMocks();
@@ -228,10 +260,16 @@ describe("POST /api/projects/:projectId/scan — DB side-effects", () => {
       const id = cleanupQueue.pop();
       if (id) await cleanupProject(id);
     }
+    while (tempDirs.length > 0) {
+      const dir = tempDirs.pop();
+      if (dir) removeTempDir(dir);
+    }
   });
 
   it("creates exactly one metrics row when the scan completes successfully", async () => {
-    const projectId = await insertProject("/tmp/definitely-does-not-exist-" + randomUUID());
+    const scanDir = makeTempScanDir();
+    tempDirs.push(scanDir);
+    const projectId = await insertProject(scanDir);
     cleanupQueue.push(projectId);
 
     const res = await request(app).post(`/api/projects/${projectId}/scan`);
@@ -247,7 +285,9 @@ describe("POST /api/projects/:projectId/scan — DB side-effects", () => {
   });
 
   it("creates a ProjectScanned event when the scan completes", async () => {
-    const projectId = await insertProject("/tmp/definitely-does-not-exist-" + randomUUID());
+    const scanDir = makeTempScanDir();
+    tempDirs.push(scanDir);
+    const projectId = await insertProject(scanDir);
     cleanupQueue.push(projectId);
 
     const res = await request(app).post(`/api/projects/${projectId}/scan`);
@@ -264,7 +304,11 @@ describe("POST /api/projects/:projectId/scan — DB side-effects", () => {
   });
 
   it("does not create a metrics row or ProjectScanned event when the scan fails", async () => {
-    const projectId = await insertProject("/tmp/scan-throw-test-" + randomUUID());
+    // Use a real path so walkProject passes; mock extractGraph to simulate
+    // a deep pipeline failure (no metrics/event should be written on failure).
+    const scanDir = makeTempScanDir();
+    tempDirs.push(scanDir);
+    const projectId = await insertProject(scanDir);
     cleanupQueue.push(projectId);
 
     vi.spyOn(scanner, "extractGraph").mockImplementation(() => {
@@ -290,7 +334,9 @@ describe("POST /api/projects/:projectId/scan — DB side-effects", () => {
   });
 
   it("GET scan-jobs/:jobId returns the completed job with a result field", async () => {
-    const projectId = await insertProject("/tmp/definitely-does-not-exist-" + randomUUID());
+    const scanDir = makeTempScanDir();
+    tempDirs.push(scanDir);
+    const projectId = await insertProject(scanDir);
     cleanupQueue.push(projectId);
 
     const scanRes = await request(app).post(`/api/projects/${projectId}/scan`);
@@ -309,7 +355,9 @@ describe("POST /api/projects/:projectId/scan — DB side-effects", () => {
   });
 
   it("second scan on the same project produces a second metrics row", async () => {
-    const projectId = await insertProject("/tmp/definitely-does-not-exist-" + randomUUID());
+    const scanDir = makeTempScanDir();
+    tempDirs.push(scanDir);
+    const projectId = await insertProject(scanDir);
     cleanupQueue.push(projectId);
 
     const res1 = await request(app).post(`/api/projects/${projectId}/scan`);

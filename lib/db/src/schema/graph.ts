@@ -24,19 +24,11 @@ export const entityTypeEnum = pgEnum("entity_type", [
 ]);
 
 /**
- * Provenance: where and how was this entity/relationship extracted?
- * Attached to every graph element for full auditability.
- */
-export type GraphProvenance = {
-  extractor: string; // e.g. "typescript-ast", "python-ast", "regex-fallback"
-  method: string;    // e.g. "import-analysis", "class-detection", "call-graph"
-  extractedAt: string; // ISO timestamp
-};
-
-/**
  * A single piece of evidence that justifies the existence of an entity or
  * relationship. Knowledge Graph 2.0 makes every graph element traceable to
  * its source — not just to the extractor, but to the specific file and line.
+ *
+ * Keep this in sync with `GraphEvidence` in lib/scanner/src/graph-extractor.ts.
  */
 export type GraphEvidenceRecord = {
   file: string;
@@ -47,9 +39,38 @@ export type GraphEvidenceRecord = {
     | "import-statement"
     | "call-site"
     | "class-definition"
+    | "function-definition"
     | "interface-definition"
     | "jsdoc"
     | "heuristic";
+};
+
+/**
+ * Unified provenance record stored on every graph entity and relationship.
+ * Covers both automated scanner extractors and manual/import paths so the
+ * same column shape is used regardless of how the row was produced.
+ *
+ * Field semantics:
+ *   sourceType  — broad extraction category:
+ *                 "typescript-ast" | "python-ast" | "regex-fallback" |
+ *                 "manual" | "discovery-import" | "provenance-registry-import"
+ *   method      — the specific mechanism within that category:
+ *                 "ts-compiler-api" | "python-ast-subprocess" |
+ *                 "regex-heuristic" | "manual-import" |
+ *                 "api-route-detection" | "manual-seed"
+ *   extractedAt — ISO-8601 timestamp of when this element was produced
+ *   evidence    — ≥1 records linking to the exact source location
+ *                 (present for automated extractors; omitted for manual seeds)
+ *
+ * Backward-compat note: the former `extractor` field is replaced by
+ * `sourceType`. Any historical rows with `extractor` are read as opaque JSONB
+ * and are not rejected by the DB.
+ */
+export type GraphProvenance = {
+  sourceType: string;
+  method: string;
+  extractedAt: string;
+  evidence?: GraphEvidenceRecord[];
 };
 
 // ─── Graph Entities ───────────────────────────────────────────────────────────

@@ -566,7 +566,7 @@ describe("GET /api/graph/evidence/:entityId", () => {
       sourceId: srcId,
       targetId: tgtId,
       relation: "imports",
-      evidenceJson: [{ file: "src.ts", line: 1, snippet: "import tgt", kind: "import" }],
+      evidenceJson: [{ file: "src.ts", line: 1, snippet: "import tgt", kind: "import-statement" }],
       evidenceCount: 1,
       createdAt: now,
     });

@@ -83,14 +83,23 @@ app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 // Resolve the publishable key from the incoming request host so the same
 // server can serve multiple Clerk custom domains. Falls back to
 // CLERK_PUBLISHABLE_KEY when the host doesn't map to a custom domain.
-app.use(
-  clerkMiddleware((req) => ({
-    publishableKey: publishableKeyFromHost(
-      getClerkProxyHost(req) ?? "",
-      process.env.CLERK_PUBLISHABLE_KEY,
-    ),
-  })),
-);
+//
+// Skipped in the vitest test environment (NODE_ENV=test): Clerk requires
+// CLERK_SECRET_KEY at middleware-mount time, but tests run without Clerk
+// credentials. The requireAuth middleware below already injects a synthetic
+// "test-user" identity when NODE_ENV=test, so skipping clerkMiddleware here
+// does not affect handler behaviour in tests — they still exercise the same
+// authContext shape that production code sees.
+if (config.nodeEnv !== "test") {
+  app.use(
+    clerkMiddleware((req) => ({
+      publishableKey: publishableKeyFromHost(
+        getClerkProxyHost(req) ?? "",
+        process.env.CLERK_PUBLISHABLE_KEY,
+      ),
+    })),
+  );
+}
 
 // API responses are dynamic, per-user, and change frequently — never let a
 // browser or intermediate proxy cache them. Without this, a stale response

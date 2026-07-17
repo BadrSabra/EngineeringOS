@@ -534,6 +534,38 @@ describe("POST /projects/import — transaction integrity", () => {
     expect(entities.every((e) => e.type === "api")).toBe(true);
   });
 
+  it("graph entity stubs from detectedApis carry a full provenance record", async () => {
+    const detectedApis = ["/api/users", "/api/orders"];
+    const discoveryId = await insertReadySession(fakeResult({ detectedApis }));
+    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+    expect(res.status).toBe(201);
+    projectId = res.body.id;
+
+    const entities = await db
+      .select()
+      .from(graphEntitiesTable)
+      .where(eq(graphEntitiesTable.projectId, projectId!));
+
+    expect(entities).toHaveLength(2);
+    for (const e of entities) {
+      // sourceType must be set — no "unknown" or null rows
+      expect(e.sourceType).toBe("discovery-import");
+      expect(typeof e.confidence).toBe("number");
+      // provenance must be a complete record (not null, not partial)
+      expect(e.provenance).not.toBeNull();
+      const prov = e.provenance as {
+        sourceType: string;
+        method: string;
+        extractedAt: string;
+        evidence?: unknown[];
+      };
+      expect(prov.sourceType).toBe("discovery-import");
+      expect(prov.method).toBe("api-route-detection");
+      expect(typeof prov.extractedAt).toBe("string");
+      expect(Array.isArray(prov.evidence)).toBe(true);
+    }
+  });
+
   it("creates no graph entities when detectedApis is empty", async () => {
     const discoveryId = await insertReadySession(fakeResult({ detectedApis: [] }));
     const res = await request(app).post("/api/projects/import").send({ discoveryId });

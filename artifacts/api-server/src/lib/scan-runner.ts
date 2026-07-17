@@ -25,6 +25,7 @@ import {
   type RuleViolationSummary,
 } from "./plugin-runtime.js";
 import { logger } from "./logger.js";
+import { provenanceFromEntity, provenanceFromRelationship, manualProvenance } from "./graph-provenance.js";
 
 export interface ScanJobResult {
   projectId: string;
@@ -255,6 +256,10 @@ async function performScan(projectId: string): Promise<ScanJobResult> {
       confidence: e.confidence,
       domain: e.domain,
       lifecycle: e.lifecycle,
+      // ── Provenance (mergeResult() guarantees this is present) ──────────
+      provenance: e.provenance
+        ? provenanceFromEntity(e.provenance, now)
+        : manualProvenance(e.sourceType ?? "typescript-ast", "ts-compiler-api", now),
       createdAt: now,
     }));
     await tx.insert(graphEntitiesTable).values(entityRows);
@@ -303,6 +308,10 @@ async function performScan(projectId: string): Promise<ScanJobResult> {
             : null,
         semanticTags: rel.semanticTags,
         sourceType: rel.sourceType,
+        // ── Provenance (mergeResult() guarantees this is present) ────────
+        provenance: rel.provenance
+          ? provenanceFromRelationship(rel.provenance, now)
+          : manualProvenance(rel.sourceType ?? "typescript-ast", "ts-compiler-api", now),
         metadata: {},
         createdAt: now,
       };

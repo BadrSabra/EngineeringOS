@@ -122,8 +122,11 @@ async function main() {
         provenanceSummary: seedRec?.provenance_summary || null,
         verifiedAt: seedRec?.verified_at ?? null,
       },
+      // sourceType mirrors the unified GraphProvenance shape used by the scanner
+      // and scan-runner — "provenance-registry-import" identifies this as a
+      // manual seed rather than an automated AST extraction.
       provenance: {
-        extractor: "provenance-registry-import",
+        sourceType: "provenance-registry-import",
         method: "manual-seed",
         extractedAt: now.toISOString(),
       },
@@ -172,7 +175,7 @@ async function main() {
     confidence: 1,
     metadata: null,
     provenance: {
-      extractor: "provenance-registry-import",
+      sourceType: "provenance-registry-import",
       method: "manual-seed",
       extractedAt: now.toISOString(),
     },
