@@ -1,20 +1,70 @@
 import { z } from "zod";
 
 export const WorkflowPhaseSchema = z.object({
-  name: z.string(),
-  steps: z.array(z.string()),
+  name: z.string().min(1),
+  steps: z.array(z.string().min(1)),
   condition: z.string().optional(),
 });
 
 export const WorkflowActionSchema = z.enum(["advance", "wait", "fail", "complete"]);
 
-export const WorkflowDecisionSchema = z.object({
-  action: WorkflowActionSchema,
+// ── Action-specific decision shapes ──────────────────────────────────────────
+//
+// Each variant is kept strict so extra keys (e.g. nextPhase on a wait/fail,
+// blockers on an advance/complete) are rejected rather than silently stripped.
+// This prevents a confused model response from slipping through validation
+// with cross-contaminated fields that contradict the declared action.
+//
+// Shared optional field: suggestions is allowed on every action.
+// Individual suggestion strings must be non-empty.
+
+/** advance — must name the phase to move to; blockers are not applicable. */
+const AdvanceDecisionSchema = z.object({
+  action: z.literal("advance"),
   reasoning: z.string().min(1),
-  nextPhase: z.string().optional(),
-  blockers: z.array(z.string()).optional(),
-  suggestions: z.array(z.string()).optional(),
-});
+  /** Required and non-empty. The agent's validateDecision() further checks
+   *  that this value is an actual phase name defined in the workflow. */
+  nextPhase: z.string().min(1),
+  suggestions: z.array(z.string().min(1)).optional(),
+}).strict();
+
+/** wait — may carry blockers explaining the hold; nextPhase is not applicable.
+ *
+ *  blockers is optional at the type level to stay compatible with the agent's
+ *  fallbackDecision(), which emits { action: "wait", ... } without blockers
+ *  as a safe degradation path. However, when blockers IS provided it must
+ *  contain at least one non-empty entry — an empty array means "waiting for
+ *  nothing", which is invalid. */
+const WaitDecisionSchema = z.object({
+  action: z.literal("wait"),
+  reasoning: z.string().min(1),
+  blockers: z.array(z.string().min(1)).min(1).optional(),
+  suggestions: z.array(z.string().min(1)).optional(),
+}).strict();
+
+/** fail — terminal failure; no phase to advance to, no blockers (the failure
+ *  IS the blocker — reasoning must explain it). */
+const FailDecisionSchema = z.object({
+  action: z.literal("fail"),
+  reasoning: z.string().min(1),
+  suggestions: z.array(z.string().min(1)).optional(),
+}).strict();
+
+/** complete — workflow finished; no further transition is possible. */
+const CompleteDecisionSchema = z.object({
+  action: z.literal("complete"),
+  reasoning: z.string().min(1),
+  suggestions: z.array(z.string().min(1)).optional(),
+}).strict();
+
+// ── Union ─────────────────────────────────────────────────────────────────────
+
+export const WorkflowDecisionSchema = z.discriminatedUnion("action", [
+  AdvanceDecisionSchema,
+  WaitDecisionSchema,
+  FailDecisionSchema,
+  CompleteDecisionSchema,
+]);
 
 export type WorkflowPhase = z.infer<typeof WorkflowPhaseSchema>;
 export type WorkflowAction = z.infer<typeof WorkflowActionSchema>;

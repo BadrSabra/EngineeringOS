@@ -21,7 +21,9 @@ describe("validateDecision", () => {
   });
 
   it("rejects advance with no nextPhase", () => {
-    const decision: WorkflowDecision = { action: "advance", reasoning: "go" };
+    // Cast required: the schema now rejects this shape at parse time, but
+    // validateDecision() still defends against it as a belt-and-suspenders guard.
+    const decision = { action: "advance", reasoning: "go" } as unknown as WorkflowDecision;
     const result = validateDecision(decision, { phases, currentPhase: "plan" });
     expect(result.action).toBe("wait");
   });
@@ -30,7 +32,8 @@ describe("validateDecision", () => {
     const decision: WorkflowDecision = { action: "advance", reasoning: "go", nextPhase: "deploy-to-mars" };
     const result = validateDecision(decision, { phases, currentPhase: "plan" });
     expect(result.action).toBe("wait");
-    expect(result.blockers?.[0]).toMatch(/not a defined phase/);
+    // Narrow to the wait variant before accessing blockers.
+    expect(result.action === "wait" ? result.blockers?.[0] : undefined).toMatch(/not a defined phase/);
   });
 
   it("rejects advance to the already-current phase (no-op transition)", () => {
