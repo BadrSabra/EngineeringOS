@@ -224,6 +224,15 @@ function classifySdkError(err: unknown, aborted: boolean): GroqClientError {
 
   const status = (err as { status?: number } | undefined)?.status;
   if (typeof status === "number") {
+    if (status === 401 || status === 403) {
+      return new GroqClientError("AUTH_ERROR", `Groq API authentication failed (${status})`, { cause: err });
+    }
+    if (status === 429) {
+      return new GroqClientError("RATE_LIMITED", "Groq API rate limit exceeded", { cause: err });
+    }
+    if (status >= 500) {
+      return new GroqClientError("SERVER_ERROR", `Groq API server error (${status})`, { cause: err });
+    }
     return new GroqClientError("NON_200", `Groq API responded with status ${status}`, { cause: err });
   }
   return new GroqClientError(
@@ -264,7 +273,17 @@ function readResponse(completion: Awaited<ReturnType<Groq["chat"]["completions"]
 }
 
 function isRetryable(code: GroqErrorCode): boolean {
-  return code === "TIMEOUT" || code === "NETWORK_ERROR";
+  // RATE_LIMITED and SERVER_ERROR were previously absorbed into NON_200
+  // (not retried). Now that they are distinct codes, retry both: rate-limit
+  // quotas reset after a short window; 5xx errors are transient infrastructure
+  // failures. AUTH_ERROR, NON_200, EMPTY_RESPONSE, and INVALID_CONFIG are
+  // never retryable — a retry cannot change the outcome.
+  return (
+    code === "TIMEOUT" ||
+    code === "NETWORK_ERROR" ||
+    code === "RATE_LIMITED" ||
+    code === "SERVER_ERROR"
+  );
 }
 
 function logOutcome(meta: {
