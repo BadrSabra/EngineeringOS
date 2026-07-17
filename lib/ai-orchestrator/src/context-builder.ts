@@ -13,6 +13,7 @@ import {
   metricsTable,
   graphEntitiesTable,
   eventsTable,
+  workflowsTable,
 } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import type { AgentContext } from "./schemas/context.schema.js";
@@ -24,7 +25,7 @@ export type ProjectContext = AgentContext;
 const PRIORITY_RANK: Record<string, number> = { p0: 0, p1: 1, p2: 2, p3: 3 };
 
 export async function buildProjectContext(projectId: string): Promise<ProjectContext> {
-  const [[project], rawTasks, [latestMetric], entities, recentEvents] = await Promise.all([
+  const [[project], rawTasks, [latestMetric], entities, recentEvents, rawWorkflows] = await Promise.all([
     db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
     // Fetch more rows than we display so the client-side priority sort can
     // surface urgent tasks even if they were updated less recently.
@@ -33,6 +34,7 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
     // Order by confidence DESC so the most certain entities fill the cap first.
     db.select().from(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, projectId)).orderBy(desc(graphEntitiesTable.confidence)).limit(60),
     db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId)).orderBy(desc(eventsTable.timestamp)).limit(10),
+    db.select().from(workflowsTable).where(eq(workflowsTable.projectId, projectId)).orderBy(desc(workflowsTable.updatedAt)).limit(20),
   ]);
 
   if (!project) throw new Error(`Project ${projectId} not found`);
@@ -165,8 +167,23 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
 
   const eventSummary = eventLines.length > 0 ? eventLines.join("\n") : "No recent events";
 
+  // ── Workflows ──────────────────────────────────────────────────────────────
+  const workflowLines = rawWorkflows.map((w) => {
+    const phases = Array.isArray(w.phases) ? w.phases : [];
+    const phaseNames = phases.map((p: { name: string }) => p.name).join(" → ");
+    const current = w.currentPhase ? ` | current: ${w.currentPhase}` : "";
+    const executions = w.executionCount > 0 ? ` | runs: ${w.executionCount}` : "";
+    const lastRun = w.lastExecutedAt
+      ? ` | last run: ${w.lastExecutedAt.toISOString().slice(0, 10)}`
+      : "";
+    return `- [${w.status.toUpperCase()}] ${w.name}${current}${executions}${lastRun}${phaseNames ? ` | phases: ${phaseNames}` : ""}`;
+  });
+  const workflowSummary =
+    workflowLines.length > 0 ? workflowLines.join("\n") : "No workflows defined yet";
+
   return {
     project: projectParts.join(" | "),
+    workflows: workflowSummary,
     recentTasks: taskSummary,
     latestMetrics: metricsSummary,
     graphSummary,

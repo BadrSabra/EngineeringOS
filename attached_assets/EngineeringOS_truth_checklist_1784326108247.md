@@ -1,0 +1,698 @@
+# Checklist مراجعة نهائية — تثبيت الحقيقة المرجعية
+
+هذا الملف يحوّل الشجرة الحالية داخل الأرشيف إلى قائمة تدقيق عملية، مع تصنيف كل ملف إلى: `live` / `generated` / `historical` / `memory`، وإضافة حالة الاعتماد.
+
+## مفتاح الاعتماد
+- **مباشر**: الملف جزء من الحقيقة التنفيذية الحالية.
+- **مقيد بالمصدر الأعلى**: الملف مشتق آليًا ويجب عدم تحريره يدويًا.
+- **مرجعي فقط**: الملف يُستخدم للتوثيق/التحليل/الأرشفة، لا كمرجع تنفيذي.
+- **ذاكرة**: الملف سياقي داخلي.
+
+## live source
+
+### الجذر / الإعدادات
+- [ ] `.gitattributes` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `.gitignore` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `.npmrc` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `.replit` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `.replitignore` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+
+### docs
+- [ ] `docs/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md` — **مرجعي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `docs/PR_BACKLOG.md` — **مرجعي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `docs/completion-plan.md` — **مرجعي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `docs/fact-record.md` — **مرجعي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `docs/truth-flow-pr-checklist.md` — **مرجعي/حاكم** — حالة الاعتماد: مباشر
+
+### scripts
+- [ ] `scripts/check-codegen-drift.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `scripts/package.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `scripts/post-merge.sh` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `scripts/src/hello.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `scripts/tsconfig.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `scripts/validate-truth-flow.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `scripts/verify-setup.sh` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+
+### lib
+- [ ] `lib/ai-orchestrator/package.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/__tests__/chat-agent.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/__tests__/file-tools.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/__tests__/groq-client.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/__tests__/parsing.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/__tests__/schemas.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/__tests__/workflow-orchestrator.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/agents/chat-agent.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/agents/code-reviewer.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/agents/scan-analyst.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/agents/task-agent.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/agents/workflow-orchestrator.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/context-builder.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/errors.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/groq-client.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/index.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/parsing.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/prompts/chat.prompt.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/prompts/index.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/prompts/review.prompt.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/prompts/scan.prompt.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/prompts/task.prompt.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/prompts/workflow.prompt.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/schemas/chat.schema.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/schemas/code-review.schema.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/schemas/context.schema.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/schemas/index.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/schemas/scan.schema.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/schemas/task.schema.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/schemas/workflow.schema.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/src/tools/file-tools.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/tsconfig.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/ai-orchestrator/vitest.config.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/api-client-react/package.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/api-client-react/src/custom-fetch.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/api-client-react/src/index.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/api-client-react/src/project-error.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/api-client-react/tsconfig.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/api-spec/openapi.yaml` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/api-spec/orval.config.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/api-spec/package.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/api-zod/package.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/api-zod/src/index.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/api-zod/src/truth-flow-matrix.schema.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/api-zod/tsconfig.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/drizzle.config.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/package.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/index.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/schema/ai_chats.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/schema/ai_provider_credentials.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/schema/audit_logs.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/schema/discovery.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/schema/events.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/schema/graph.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/schema/index.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/schema/metrics.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/schema/plugins.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/schema/projects.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/schema/rules.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/schema/scan_jobs.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/schema/task_logs.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/schema/tasks.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/src/schema/workflows.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/db/tsconfig.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/knowledge-engine/package.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/knowledge-engine/src/__tests__/inference.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/knowledge-engine/src/__tests__/queries.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/knowledge-engine/src/index.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/knowledge-engine/src/inference.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/knowledge-engine/src/queries.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/knowledge-engine/src/types.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/knowledge-engine/tsconfig.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/scanner/package.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/scanner/src/__tests__/file-walker.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/scanner/src/__tests__/graph-extractor.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/scanner/src/__tests__/metrics-calc.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/scanner/src/__tests__/rule-matcher.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/scanner/src/file-walker.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/scanner/src/graph-extractor.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/scanner/src/index.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/scanner/src/metrics-calc.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/scanner/src/python-ast-script.py` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/scanner/src/python-ast-script.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/scanner/src/python-extractor.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/scanner/src/rule-matcher.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/scanner/tsconfig.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `lib/scanner/vitest.config.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+
+### artifacts
+- [ ] `artifacts/api-server/.replit-artifact/artifact.toml` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/build.mjs` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/package.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/app.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/config.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/index.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/.gitkeep` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/audit.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/credentials-crypto.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/discovery-adapters.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/discovery-adapters.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/graph-provenance.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/job-queue.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/job-queue.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/job-reconciliation.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/job-reconciliation.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/logger.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/path-validation.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/path-validation.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/plugin-runtime.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/plugin-runtime.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/project-error.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/lib/scan-runner.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/middlewares/.gitkeep` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/middlewares/clerkProxyMiddleware.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/middlewares/requireAuth.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/middlewares/requireAuth.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/middlewares/requireProjectAccess.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/ai.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/ai.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/dashboard.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/dashboard.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/discovery.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/discovery.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/events.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/events.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/graph.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/graph.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/health.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/health.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/index.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/metrics.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/metrics.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/plugins.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/plugins.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/projects.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/projects.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/rules.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/rules.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/tasks.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/tasks.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/workflows.test.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/routes/workflows.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/scripts/seed-provenance.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/src/types/express.d.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/tsconfig.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/api-server/vitest.config.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/.replit-artifact/artifact.toml` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/components.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/index.html` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/package.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/public/favicon.svg` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/public/logo.svg` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/public/robots.txt` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/App.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/layout/Shell.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/layout/Sidebar.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/accordion.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/alert-dialog.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/alert.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/aspect-ratio.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/avatar.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/badge.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/breadcrumb.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/button-group.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/button.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/calendar.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/card.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/carousel.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/chart.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/checkbox.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/collapsible.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/command.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/context-menu.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/dialog.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/drawer.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/dropdown-menu.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/empty.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/field.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/form.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/hover-card.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/input-group.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/input-otp.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/input.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/item.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/kbd.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/label.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/menubar.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/navigation-menu.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/pagination.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/popover.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/progress.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/radio-group.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/resizable.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/scroll-area.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/select.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/separator.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/sheet.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/sidebar.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/skeleton.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/slider.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/sonner.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/spinner.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/switch.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/table.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/tabs.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/textarea.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/toast.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/toaster.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/toggle-group.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/toggle.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/components/ui/tooltip.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/hooks/use-mobile.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/hooks/use-toast.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/index.css` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/lib/clerk.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/lib/utils.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/main.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/pages/AiChat.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/pages/Dashboard.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/pages/Events.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/pages/Graph.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/pages/Landing.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/pages/Metrics.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/pages/ProjectDetail.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/pages/Projects.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/pages/Rules.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/pages/SignIn.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/pages/SignUp.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/pages/Tasks.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/pages/Workflows.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/src/pages/not-found.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/tsconfig.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/dashboard/vite.config.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/.replit-artifact/artifact.toml` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/components.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/index.html` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/mockupPreviewPlugin.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/package.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/App.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/accordion.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/alert-dialog.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/alert.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/aspect-ratio.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/avatar.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/badge.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/breadcrumb.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/button-group.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/button.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/calendar.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/card.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/carousel.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/chart.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/checkbox.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/collapsible.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/command.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/context-menu.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/dialog.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/drawer.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/dropdown-menu.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/empty.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/field.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/form.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/hover-card.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/input-group.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/input-otp.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/input.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/item.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/kbd.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/label.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/menubar.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/navigation-menu.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/pagination.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/popover.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/progress.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/radio-group.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/resizable.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/scroll-area.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/select.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/separator.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/sheet.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/sidebar.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/skeleton.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/slider.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/sonner.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/spinner.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/switch.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/table.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/tabs.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/textarea.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/toast.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/toaster.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/toggle-group.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/toggle.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/components/ui/tooltip.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/hooks/use-mobile.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/hooks/use-toast.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/index.css` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/lib/utils.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/src/main.tsx` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/tsconfig.json` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+- [ ] `artifacts/mockup-sandbox/vite.config.ts` — **تنفيذي/حاكم** — حالة الاعتماد: مباشر
+
+## generated outputs
+
+### lib/api-client-react
+- [ ] `lib/api-client-react/src/generated/api.schemas.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-client-react/src/generated/api.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+
+### lib/api-zod
+- [ ] `lib/api-zod/src/generated/api.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiChatMessage.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiChatMessageRole.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiChatOutput.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiChatRequest.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiChatSession.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiCodeIssue.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiCodeIssueSeverity.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiCodeIssueType.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiCodeReview.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiCodeReviewVerdict.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiOrchestrateRequest.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiOrchestrationDecision.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiOrchestrationDecisionAction.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiReviewRequest.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiReviewRequestFileContents.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiScanAnalysis.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiScanInsight.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiScanInsightCategory.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/aiScanInsightSeverity.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/createProjectInput.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/createRuleInput.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/createTaskInput.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/createWorkflowInput.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/dashboardOverview.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/dashboardOverviewProjectScoresItem.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/dashboardOverviewProjectScoresItemTrend.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/dashboardOverviewTaskStatusBreakdown.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/dashboardOverviewTopRulesItem.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/deleteGroqKey200.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/discoveryGraphSummaryData.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/discoveryGraphSummaryDataEntitiesByType.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/discoveryGraphSummaryDataFilesByLanguage.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/discoveryOptions.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/discoveryReport.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/discoveryRuleViolationItem.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/discoverySessionStatus.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/discoverySessionStatusStatus.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/discoverySourceCapability.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/discoverySourceConfig.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/discoverySourceConfigCredentials.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/discoveryStepItem.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/discoveryStepItemStatus.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/entityType.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/evaluateRuleRequest.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/event.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/eventPayload.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/eventSeverity.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/failWorkflowPhaseInput.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphEntityImpact404.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphEntityImpactParams.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphEntityNeighbors200.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphEntityNeighbors404.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphEvidence403.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphEvidence404.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphPathParams.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphRuntimeSubgraph403.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphRuntimeSubgraph404.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphSemanticNeighborhood400.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphSemanticNeighborhood403.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphSemanticNeighborhood404.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphSemanticNeighborhoodParams.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphSubgraph400.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphSubgraph403.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphSubgraph404.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getGraphSubgraphParams.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/getLatestMetricsParams.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphCentralityScore.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphEdgeType.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphEntity.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphEntityMetadata.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphEvidence.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphEvidenceBundle.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphEvidenceKind.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphEvidenceResponse.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphImpactHop.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphImpactResult.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphLayerCounts.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphPathResult.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphPathStep.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphProvenance.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphRelationship.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphRelationshipMetadata.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphRuntimeSubgraph.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphSemanticNeighborhood.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphSubgraph.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphSubgraphFilters.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphSubgraphLayered.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphSummary.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphSummaryEntitiesByType.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/graphSummaryRelationsByType.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/groqKeyStatus.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/healthStatus.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/healthStatusStatus.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/importProjectInput.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/importProjectInputOverrides.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/index.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/listAiChatSessionsParams.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/listEventsParams.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/listGraphEntitiesParams.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/listGraphRelationshipsParams.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/listMetricsParams.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/listRulesParams.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/listTasksParams.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/listWorkflowsParams.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/metricRecord.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/metricRecordBuildStatus.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/plugin.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/pluginCapabilitiesItem.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/pluginProjectRequest.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/project.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/projectStatus.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/projectSummary.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/projectSummaryTaskCounts.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/rule.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/ruleEvaluationResult.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/ruleEvaluationResultMatchesItem.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/ruleSeverity.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/saveGroqKeyInput.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/scanJob.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/scanJobStatus.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/scanResult.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/sourceType.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/startDiscoveryInput.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/task.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/taskLog.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/taskLogLevel.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/taskLogMetadata.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/taskPriority.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/taskStatus.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/updateProjectInput.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/updateProjectInputStatus.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/updateRuleInput.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/updateTaskInput.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/verificationResult.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/verificationResultStepsItem.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/workflow.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/workflowExecution.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/workflowPhase.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+- [ ] `lib/api-zod/src/generated/types/workflowStatus.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+
+### artifacts/mockup-sandbox
+- [ ] `artifacts/mockup-sandbox/src/.generated/mockup-components.ts` — **مشتق آليًا** — حالة الاعتماد: مقيد بالمصدر الأعلى
+
+## historical assets
+
+### docs
+- [ ] `docs/EXECUTION_ALIGNMENT_REPORT.md` — **تحليلي/مشتق** — حالة الاعتماد: مرجعي فقط
+- [ ] `docs/PLACEHOLDER_REGISTER.md` — **تحليلي/مشتق** — حالة الاعتماد: مرجعي فقط
+- [ ] `docs/RUNTIME_EXECUTION_MATRIX.md` — **تحليلي/مشتق** — حالة الاعتماد: مرجعي فقط
+- [ ] `docs/pr-backlog-ai-orchestrator.md` — **تحليلي/مشتق** — حالة الاعتماد: مرجعي فقط
+
+### attached_assets
+- [ ] `attached_assets/ENGINEERINGOS_EXECUTION_ALIGNMENT_REPORT_1784147505317.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION(2)_(2)_1784143389784.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/ENGINEERINGOS_PLACEHOLDER_REGISTER_1784147505353.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/ENGINEERINGOS_RUNTIME_EXECUTION_MATRIX_1784147505400.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Audit_Report_1783641389270.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Audit_Report_Expanded_1783642792349.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Combined_Deep_Analysis_(1)_1783706911895.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Engineering_Truth_Verification_1784082430324.csv` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Engineering_Truth_Verification_1784082430371.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Execution_Plan_1783831261195.pdf` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Executive_Build_Directive_v1_1783912619169.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_File_Inventory_Complete(1)_1783706911845.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_File_by_File_Fact_Record_1783725698283.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Implementation_Document_1783726156016.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Master_Truth_Register_(1)_1784077194501.xlsx` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Plan_1783818095882.pdf` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Project_1783718452179.pdf` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Truth_Flow_Matrix.schema_1784143389669.ts` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Truth_Flow_Matrix_1784143389833.json` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Truth_Flow_Matrix_1784143389882.ts` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Truth_Flow_PR_Checklist_1784143389929.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Truth_Register_Full_(1)_1784081699025.csv` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Truth_Register_Full_1784081611461.csv` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Truth_Register_and_PR_Roadmap_(1)_1784081698974.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_Truth_Register_and_PR_Roadmap_1784081611536.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_analysis_report(2)_(1)_1784047036210.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_api_zod_index_export_diff_1784143389744.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_architecture_analysis_report_1784040976647.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_archive_entries_1784040976692.csv` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_archive_entries_1784041152876.csv` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_code_deep_analysis_1784052671648.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_code_deep_analysis_1784052762652.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_current_analysis_report_1784052671601.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_current_analysis_report_1784052762572.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_deep_analysis_report_1783800987828.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_deep_dive_analysis_v2_1784152351310.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_deepest_analysis_report(1)_(2)_1784154247108.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_deepest_analysis_report_(1)_1784081611576.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_deepest_analysis_report_(1)_1784081699061.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_file_inventory_(1)_1783729892809.csv` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_file_inventory_current_1784052671527.csv` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_file_inventory_current_1784052762450.csv` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_file_inventory_full(2)_1783988496247.csv` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_file_inventory_full_1783800987783.csv` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_full_analysis_report_1783988496190.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_full_file_inventory(1)_1784040976594.csv` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_full_file_inventory(1)_1784041152926.csv` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_minimum_path_to_vision_(1)_1783830867380.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_minimum_path_to_vision_1783830816710.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_operational_status_record_1783912104506.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_project_analysis_report(1)_1783729892769.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_provenance_registry_linked_1783911530593.json` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_provenance_registry_seed_1783911530658.json` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_replit_execution_directive_1783800987701.json` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_replit_execution_directive_1783800987743.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series14_truth_matrix_1783966531635.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series15_deep_evidence_1783966531578.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series16_truth_matrix_(1)_1783966531512.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series17_deep_analysis_1783966531444.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series18_status_register_(1)_1783966531375.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series19_control_plane_evidence_1783966531303.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series20_status_register_1783966531239.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series21_deep_status_1783966531177.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series22_second_wave_analysis_1783966531113.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series23_self_verifying_architecture_1783966531049.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series24_deep_evidence_1783966530990.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series25_truth_register_1783966530939.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series26_boundary_analysis_1783966530884.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series27_failure_semantics_1783966530824.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series28_traceability_mesh_1783966530766.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series29_trust_boundary_register_1783966530702.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series30_release_handoff_audit_1783966530642.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series31_release_handoff_audit_1783966530586.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series32_phase_conformance_audit_1783966530537.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_series33_provenance_authority_graph_1783966530470.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_status_record_(1)_1783980758791.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_status_register_(1)_1783818095824.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_status_register_final_1783902107873.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_task_backlog_1783800987875.json` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/EngineeringOS_truth_register_current_1783825680736.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Engineering_Os_Fact_Record_1783718570175.pdf` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Engineering_Os_Phased_Completion_Plan_(1)_1783718452123.pdf` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Engineering_Os_Phased_Completion_Plan_1783718452216.pdf` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted---1783906604381_1783906604385.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted---1783956390496_1783956390501.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted---1784163447147_1784163447161.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted---1784163799356_1784163799366.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted---1784230995192_1784230995203.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted---1784231528183_1784231528198.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted---1784232069146_1784232069153.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--1--1784078393552_1784078393558.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--Backlog-Execution-Backlog-v1-0--1783975284276_1783975284279.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--Code-Review-Plan-Groq-Scope-Save-API--1784175594438_1784175594440.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--Discovery-Layer--1783988471815_1783988471818.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--EngineeringOS--1784145653787_1784145653789.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783565505918.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783566150077.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--EngineeringOS-PR-Backlog-File-by-File-backlog--1784168_1784168977036.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--EngineeringOS-PR-Backlog-File-by-File-backlog--1784169_1784169315352.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--EngineeringOS-PR-by-PR-Execution-Pack-for-Replit-AI-PR_1784154335102.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--EngineeringOS-PR-by-PR-Execution-Pack-for-Replit-AI-PR_1784155079326.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--GROQ-API-KEY-JavaScript-Groq--1784088277237_1784088277243.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--Knowledge-Graph-2-0--1784165514922_1784165514926.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--Knowledge-Graph-2-0-Checklist-File--1784165546932_1784165546935.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR--1784040954263_1784040954267.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR-01-Sync-OpenAPI-with-runtime-graph-surface-files-li_1784234215782.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR-03-Micro-Backlog-Contract-Layer-Stabilization-1-3--_1784158287520.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR-1-Hardening-Contract-Alignment-for-projects-ts-proj_1784052905584.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR-Backlog-EngineeringOS-1-Scoping-ownership-integrity_1784154359481.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR-Backlog-EngineeringOS-Execution-Alignment--17841474_1784147452495.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR-Title-fix-ai-chat-surface-AI-request-failures-and-r_1784130154946.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR-Title-fix-discovery-Classify-Project-Loading-Failur_1784086246178.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR-app-ts--1784047027177_1784047027183.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR-app-ts--1784047927706_1784047927710.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR-discovery-ts-PR-1-Discovery--1783996178319_1783996178325.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR-lib-ai-orchestrator-PR-1-Prompt-Templates--17839939_1783993953832.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR-lib-ai-orchestrator-PR-1-Prompt-Templates--17839939_1783993967887.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR-lib-ai-orchestrator-PR-1-Prompt-Templates--17839950_1783995013203.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR-title-Harden-auth-context-and-prepare-project-scope_1784044908893.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--PR-title-Hardening-discovery-ts-into-a-deterministic-o_1784053152915.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--Plan-3-Sync-fact-record-architecture-docs-3-Sync-Fact-_1783733496072.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--Plan-3-Sync-fact-record-architecture-docs-3-Sync-Fact-_1783790285219.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--artifacts-api-server-src-routes-discovery-ts--17839967_1783996711676.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--artifacts-api-server-src-routes-discovery-ts--17839967_1783997082105.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--lib-ai-orchestrator--1783993997216_1783993997218.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--lib-db-test-script--1784159470823_1784159470827.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--onboarding-o-1783988399961_1783988399964.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--src-context-builder-ts-src-schemas-context-schema-1784_1784305372706.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--test--1784245726594_1784245726598.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted--test--1784245803493_1784245803497.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted-7-Upgrade-Dashboard-to-Operational-UI-What-Why-Current-_1783734748019.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted-7-Upgrade-Dashboard-to-Operational-UI-What-Why-Current-_1783798897613.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted-PR-Title-security-ai-Harden-User-Scoped-Groq-Credential_1784127290653.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Pasted-Plan-6-Deepen-graph-scanner-discovery-6-Deepen-Graph-Sc_1783734658300.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Screenshot_٢٠٢٦٠٧٠٩-٠٦١٦٢٥_1783567039006.png` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Screenshot_٢٠٢٦٠٧٠٩-٠٦٢٠٣٨_1783610776566.png` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٣٥٣١٨_1783904118069.png` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٤٠٥١١_1783904724118.png` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٤٤٤٢٨_1783907108840.png` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٥٠١٣٨_1783908128704.png` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٥١٤٥٤_1783908924873.png` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٥١٩٤٨_1783909201747.png` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Screenshot_٢٠٢٦٠٧١٦-٠٧٣٧٤٤_1784176683628.png` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Screenshot_٢٠٢٦٠٧١٦-١٨٣٠٤١_1784216000977.png` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/Screenshot_٢٠٢٦٠٧١٦-١٨٣٠٤٦_1784216000942.png` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/agents_(1)_1783564013722.zip` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/ai_orchestrator_deep_dive_(1)_1783994021466.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/artifacts_(7)_(1)_1783564013761.zip` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/git_(2)_1783564013691.zip` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/gitattributes_1783564013915.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/gitignore_(1)_1783564013965.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/lib_(7)_(1)_1783564013810.zip` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/node_modules_(2)_1783564014266.zip` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/npmrc_(2)_1783564014024.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/package_(1)_(7)_1783564014328.json` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/pnpm-lock.yaml_(3)_1783564014392.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/pnpm-workspace.yaml_(3)_1783564014449.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/pr-backlog-ai-orchestrator_1784306020062.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/replit_(13)_1783564014085.md` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/replit_(2)_1783564014509.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/replitignore_1783564014569.txt` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/scripts_(8)_1783564013865.zip` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/tsconfig.base_(2)_(1)_1783564014142.json` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/tsconfig_(7)_1783564014202.json` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/تحليل_EngineeringOS_1783804577785.docx` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+- [ ] `attached_assets/خطة_العمل_التنفيذية_لمشروع_EngineeringOS_1783729892699.docx` — **أرشيفي/مرجعي** — حالة الاعتماد: أرشيفي
+
+## memory notes
+- [ ] `.agents/memory/MEMORY.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/ai-orchestrator-hardening.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/ai-orchestrator-layer.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/ai-tool-calling.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/audit-fixes.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/clerk-401-race-cookie-vs-bearer.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/clerk-auth-testing.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/completion-plan-stale-backlog.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/dashboard-scoping-pr01.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/discovery-adapter-registry.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/discovery-feature.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/discovery-multi-source.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/drizzle-error-wrapping.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/engineeringos-completion-plan.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/fk-atomic-claim-ordering.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/imported-project-clerk-secrets.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/imported-project-workflow-failures.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/knowledge-engine-bfs-depth.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/knowledge-engine.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/orval-openapi-codegen.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/pr02-provenance-layer.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/project-bootstrap.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/project-ownership-scoping.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/scanner-ast-extraction.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+- [ ] `.agents/memory/testing-drift-checks.md` — **ذاكرة تشغيلية** — حالة الاعتماد: ذاكرة
+
+## ملخص العدّ
+- live: 324 ملفًا
+- generated: 143 ملفًا
+- historical: 170 ملفًا
+- memory: 25 ملفًا

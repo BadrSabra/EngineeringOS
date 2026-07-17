@@ -18,6 +18,7 @@ export const AgentContextSchema = z
     latestMetrics: z.string().min(1),
     graphSummary: z.string().min(1),
     recentEvents: z.string().min(1),
+    workflows: z.string().min(1),
   })
   .strict();
 

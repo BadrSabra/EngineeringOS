@@ -34,6 +34,9 @@ ${context.project}
 **Knowledge graph:**
 ${context.graphSummary}
 
+**Workflows:**
+${context.workflows}
+
 **Recent tasks:**
 ${context.recentTasks}
 

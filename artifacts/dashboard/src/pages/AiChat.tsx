@@ -626,7 +626,7 @@ export default function AiChat() {
         <div className="h-12 border-b border-border flex items-center px-4 gap-2 shrink-0">
           <Bot className="w-4 h-4 text-primary" />
           <span className="text-sm font-medium">EngineeringOS AI</span>
-          <Badge variant="outline" className="text-xs font-mono ml-auto">Llama 3.3 · Groq</Badge>
+          <Badge variant="outline" className="text-xs font-mono ml-auto">Llama 3.1 · Groq</Badge>
         </div>
 
         {/* Messages */}

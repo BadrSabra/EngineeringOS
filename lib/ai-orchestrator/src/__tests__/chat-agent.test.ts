@@ -66,6 +66,7 @@ const originalApiKey = process.env.GROQ_API_KEY;
 function makeContext(): ProjectContext {
   return {
     project: "test | test project",
+    workflows: "No workflows defined yet",
     recentTasks: "",
     latestMetrics: "",
     graphSummary: "",
