@@ -41,10 +41,46 @@ export type GraphEvidence = {
     | "import-statement"
     | "call-site"
     | "class-definition"
+    | "function-definition"
     | "interface-definition"
     | "jsdoc"
     | "heuristic";
 };
+
+/**
+ * The specific extractor that produced a graph element.
+ * Narrows `sourceType` to a concrete mechanism so consumers can distinguish
+ * "real AST" from "regex guess" without string-matching on the broader sourceType field.
+ */
+export type ExtractionMethod =
+  | "ts-compiler-api"       // TypeScript compiler API (real AST, structural certainty)
+  | "python-ast-subprocess" // Python `ast` module via batched subprocess (real AST)
+  | "regex-heuristic"       // Regex line scan — approximate, may miss edge cases
+  | "manual-import";        // Hand-authored seed/provenance data
+
+/**
+ * Unified provenance record for a graph entity.
+ * Combines sourceType + extraction method + ≥1 evidence record in one place
+ * so consumers never need to reassemble them from separate fields.
+ */
+export interface EntityProvenance {
+  /** Extraction source category: typescript-ast | python-ast | regex-fallback | manual */
+  sourceType: string;
+  /** The specific extractor used — narrows sourceType to a concrete mechanism. */
+  method: ExtractionMethod;
+  /** ≥1 evidence records linking this entity to its source location. */
+  evidence: GraphEvidence[];
+}
+
+/**
+ * Unified provenance record for a graph relationship/edge.
+ * Same structure as EntityProvenance — every edge must be traceable.
+ */
+export interface RelationshipProvenance {
+  sourceType: string;
+  method: ExtractionMethod;
+  evidence: GraphEvidence[];
+}
 
 /**
  * A node in the knowledge graph. All fields beyond type/name/path are
@@ -74,6 +110,12 @@ export interface ExtractedEntity {
   domain?: string;
   /** Lifecycle stage: stable | experimental | deprecated | internal. */
   lifecycle?: string;
+  /**
+   * Unified provenance: sourceType + extraction method + evidence records.
+   * Optional at push sites — mergeResult() guarantees it is present on every
+   * entity in the final result. Never rely on this being absent.
+   */
+  provenance?: EntityProvenance;
 }
 
 /**
@@ -102,6 +144,12 @@ export interface ExtractedRelationship {
   semanticTags?: string[];
   /** Which extractor produced this relationship. */
   sourceType?: string;
+  /**
+   * Unified provenance: sourceType + extraction method + evidence records.
+   * Optional at push sites — mergeResult() guarantees it is present on every
+   * relationship in the final result.
+   */
+  provenance?: RelationshipProvenance;
 }
 
 export interface GraphExtractionResult {
@@ -265,6 +313,75 @@ function scoreExtractionConfidence(sourceType: string | undefined): number {
     case "manual":         return 1.0;
     default:               return 0.7;
   }
+}
+
+/**
+ * Map a sourceType category string to its concrete ExtractionMethod.
+ * This is the bridge between the broad category (what) and the mechanism (how).
+ */
+function methodForSourceType(sourceType: string): ExtractionMethod {
+  switch (sourceType) {
+    case "typescript-ast": return "ts-compiler-api";
+    case "python-ast":     return "python-ast-subprocess";
+    case "regex-fallback": return "regex-heuristic";
+    case "manual":         return "manual-import";
+    default:               return "ts-compiler-api";
+  }
+}
+
+/**
+ * Choose the best-fit GraphEvidence kind for an entity, given its type and
+ * how it was extracted. Heuristic extractions always use "heuristic" so
+ * consumers can filter low-confidence evidence in one step.
+ */
+function entityEvidenceKind(entityType: EntityType, sourceType: string): GraphEvidence["kind"] {
+  if (sourceType === "regex-fallback") return "heuristic";
+  switch (entityType) {
+    case "class":    return "class-definition";
+    case "function": return "function-definition";
+    case "api":      return "call-site";
+    default:         return "heuristic";
+  }
+}
+
+/**
+ * Build the unified EntityProvenance for a single entity.
+ * Called by mergeResult() — the single enrichment point — so every entity
+ * in the final result carries the same provenance shape regardless of extractor.
+ */
+function buildEntityProvenance(entity: ExtractedEntity, sourceType: string): EntityProvenance {
+  return {
+    sourceType,
+    method: methodForSourceType(sourceType),
+    evidence: [{
+      file: entity.path,
+      kind: entityEvidenceKind(entity.type, sourceType),
+      snippet: entity.name,
+    }],
+  };
+}
+
+/**
+ * Build the unified RelationshipProvenance for a single edge.
+ * Prefers any evidence already attached at the push site; builds a minimal
+ * fallback from the known source file and edge classification if none.
+ */
+function buildRelationshipProvenance(
+  rel: ExtractedRelationship,
+  sourceType: string,
+  isHeuristic: boolean,
+  relationType: GraphEdgeType,
+): RelationshipProvenance {
+  const existingEvidence = rel.evidence?.length ? rel.evidence : undefined;
+  const evidenceKind: GraphEvidence["kind"] =
+    isHeuristic ? "heuristic" :
+    relationType === "imports" ? "import-statement" :
+    "call-site";
+  return {
+    sourceType,
+    method: methodForSourceType(sourceType),
+    evidence: existingEvidence ?? [{ file: rel.sourceName, kind: evidenceKind }],
+  };
 }
 
 const EXPRESS_METHODS = new Set(["get", "post", "put", "patch", "delete", "all"]);
@@ -730,6 +847,8 @@ function extractFromPythonRegex(file: ScannedFile): PartialResult {
         sourceName: path,
         targetName: relImportMatch[1],
         relation: "imports",
+        sourceType: "regex-fallback",
+        evidence: [{ file: path, kind: "heuristic", snippet: line.trim() }],
       });
     }
   }
@@ -767,7 +886,13 @@ function toPartialResult(file: ScannedFile, parsed: PythonFileResult, knownPaths
     for (const candidate of pythonImportCandidates(imp, file.path)) {
       const targetName = matchPythonImportToEntity(candidate, knownPaths);
       if (targetName) {
-        relationships.push({ sourceName: file.path, targetName, relation: "imports" });
+        relationships.push({
+          sourceName: file.path,
+          targetName,
+          relation: "imports",
+          sourceType: "python-ast",
+          evidence: [{ file: file.path, kind: "import-statement" }],
+        });
       }
     }
   }
@@ -825,14 +950,18 @@ export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractio
 
   /**
    * Merge a partial extraction result into the global entity/relationship sets,
-   * deduplicating by key. Also performs the KG 2.0 enrichment pass:
-   * - Derives `sourceType` from `metadata.extractionMethod` when not explicit
-   * - Scores `confidence` from `sourceType`
-   * - Promotes `metadata.isDocumented` to a top-level field
-   * - Classifies relationships into typed `relationType` + optional `relationSubtype`
+   * deduplicating by key. This is the SINGLE enrichment point for every graph
+   * element — no extractor needs to know about provenance or KG 2.0 fields.
    *
-   * Enrichment happens here (the single merge point) rather than at every push
-   * site, so no extractor needs to know about the KG 2.0 fields.
+   * Enrichment pass (in order):
+   * 1. Deduplicate by key: entity.type::entity.name::entity.path  /  source→target::relation
+   * 2. Derive `sourceType` from metadata.extractionMethod when not explicit
+   * 3. Score `confidence` from `sourceType`
+   * 4. Promote `metadata.isDocumented` to top-level field
+   * 5. Classify relationships into typed `relationType` + optional `relationSubtype`
+   * 6. Build unified `provenance` (sourceType + method + evidence) for every element
+   *    — prefers any provenance already attached at the push site; builds a
+   *    minimal but correct fallback when absent.
    */
   function mergeResult(result: PartialResult): void {
     for (const entity of result.entities) {
@@ -850,6 +979,7 @@ export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractio
           sourceType,
           confidence: entity.confidence ?? scoreExtractionConfidence(sourceType),
           isDocumented: entity.isDocumented ?? (entity.metadata?.isDocumented as boolean | undefined),
+          provenance: entity.provenance ?? buildEntityProvenance(entity, sourceType),
         });
       }
     }
@@ -859,14 +989,17 @@ export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractio
         seenRelationships.add(key);
         const classified = classifyRelationType(rel.relation);
         const sourceType: string = rel.sourceType ?? "typescript-ast";
+        const isHeuristic = rel.isHeuristic ?? (classified.isHeuristic ?? false);
+        const relationType = rel.relationType ?? classified.relationType;
         allRelationships.push({
           ...rel,
-          relationType: rel.relationType ?? classified.relationType,
+          relationType,
           relationSubtype: rel.relationSubtype ?? classified.relationSubtype,
           confidence: rel.confidence ?? scoreExtractionConfidence(sourceType),
-          isHeuristic: rel.isHeuristic ?? (classified.isHeuristic ?? false),
+          isHeuristic,
           isRuntimeObserved: rel.isRuntimeObserved ?? false,
           sourceType,
+          provenance: rel.provenance ?? buildRelationshipProvenance(rel, sourceType, isHeuristic, relationType),
         });
       }
     }
