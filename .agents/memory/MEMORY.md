@@ -20,3 +20,4 @@
 - [completion-plan.md backlog is stale](completion-plan-stale-backlog.md) — its trailing "Remaining open items" list lags behind the phase log above it; verify against code, not the backlog text.
 - [Dashboard scoping PR-01](dashboard-scoping-pr01.md) — dashboard route scoped to ownerId; inArray needs non-empty guard; 7 isolation tests added.
 - [AI Tool Calling Architecture](ai-tool-calling.md) — file-system tools (read/list/search/write) with deferred write approval; completeRaw in groq-client; agentic loop in chat-agent.
+- [PR-02 provenance layer](pr02-provenance-layer.md) — GraphProvenance unified shape, graph-provenance.ts single-point helpers, clerkMiddleware test bypass, walkProject hard-fail scan test fix.
