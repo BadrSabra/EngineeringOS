@@ -5,7 +5,7 @@
  * (request validation, 400/404/409 paths, correct response shape, DB side
  * effects) without hitting the Groq API.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
@@ -120,6 +120,23 @@ async function insertWorkflow(projectId: string): Promise<string> {
 
 const projectIds: string[] = [];
 const workflowIds: string[] = [];
+
+// All AI routes require a Groq API key. Set a dummy env key for the entire
+// test file — every AI orchestrator call is mocked so the real key is never
+// used.  Individual tests that want to verify the 428 path remove the key
+// themselves and restore it in a finally block.
+let _savedGroqKeyFileLevel: string | undefined;
+beforeAll(() => {
+  _savedGroqKeyFileLevel = process.env.GROQ_API_KEY;
+  process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+});
+afterAll(() => {
+  if (_savedGroqKeyFileLevel !== undefined) {
+    process.env.GROQ_API_KEY = _savedGroqKeyFileLevel;
+  } else {
+    delete process.env.GROQ_API_KEY;
+  }
+});
 
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -396,6 +413,22 @@ describe("POST /api/ai/workflows/:workflowId/orchestrate", () => {
 // ─── POST /api/ai/tasks/:taskId/execute ──────────────────────────────────────
 
 describe("POST /api/ai/tasks/:taskId/execute", () => {
+  // executeTask is mocked — a real key is never sent to Groq.
+  // We set a dummy env key so requireGroqApiKey passes the availability check;
+  // the 428-without-key test explicitly deletes it and restores it in finally.
+  let savedGroqKey: string | undefined;
+  beforeAll(() => {
+    savedGroqKey = process.env.GROQ_API_KEY;
+    process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+  });
+  afterAll(() => {
+    if (savedGroqKey !== undefined) {
+      process.env.GROQ_API_KEY = savedGroqKey;
+    } else {
+      delete process.env.GROQ_API_KEY;
+    }
+  });
+
   it("returns 404 for an unknown task", async () => {
     const res = await request(app).post(`/api/ai/tasks/${randomUUID()}/execute`);
     expect(res.status).toBe(404);

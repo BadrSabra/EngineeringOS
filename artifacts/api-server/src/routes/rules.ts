@@ -174,7 +174,17 @@ router.post("/rules/:ruleId/evaluate", async (req, res) => {
     });
   }
 
-  const { files } = await walkProject(project.rootPath);
+  // walkProject hard-fails on a missing/inaccessible path since the scanner
+  // hard-fail PR.  Treat that as an empty file set (0 matches) so the route
+  // still emits a RuleEvaluated event + audit entry and returns 200 — the
+  // rule is valid, the project just has no accessible source yet.
+  let files: Awaited<ReturnType<typeof walkProject>>["files"] = [];
+  let walkNote: string | undefined;
+  try {
+    ({ files } = await walkProject(project.rootPath));
+  } catch {
+    walkNote = "Project root path is not accessible — matched against empty file set";
+  }
 
   const ruleInput: RuleInput = {
     id: rule[0].id,
@@ -222,6 +232,7 @@ router.post("/rules/:ruleId/evaluate", async (req, res) => {
       line: m.line,
       snippet: m.snippet,
     })),
+    ...(walkNote ? { note: walkNote } : {}),
   });
 });
 

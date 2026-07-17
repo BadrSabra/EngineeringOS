@@ -610,6 +610,17 @@ router.post("/projects/discover", async (req, res) => {
     startedAt: new Date(),
   });
 
+  // Read the session back BEFORE enqueueing the background job so the HTTP
+  // response always reflects the just-created "discovering" state.  Doing the
+  // SELECT after enqueue introduces a race: for non-existent LOCAL_FOLDER
+  // paths the background job can complete (stat → ENOENT → status="error")
+  // before the SELECT returns, making the 202 response show status="error".
+  const session = await db
+    .select()
+    .from(discoverySessionsTable)
+    .where(eq(discoverySessionsTable.id, id))
+    .limit(1);
+
   // Bounded, fire-and-forget: shares heavyJobQueue with project scans (see
   // job-queue.ts) so a burst of discovery + scan requests together still
   // can't run unbounded work at once. The try/finally guarantees that any
@@ -625,12 +636,6 @@ router.post("/projects/discover", async (req, res) => {
       await cleanupResolveResult(resolved).catch(() => undefined);
     }
   });
-
-  const session = await db
-    .select()
-    .from(discoverySessionsTable)
-    .where(eq(discoverySessionsTable.id, id))
-    .limit(1);
 
   return res.status(202).json(toSessionResponse(session[0]));
 });

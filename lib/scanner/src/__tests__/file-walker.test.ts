@@ -79,11 +79,13 @@ describe("walkProject", () => {
     }
   });
 
-  it("returns rootExists=false for a non-existent path (fallback to cwd)", async () => {
-    // walkProject does not throw — it falls back to cwd and sets rootExists=false.
-    // Hard-fail enforcement is the responsibility of the caller (e.g. discovery pipeline).
-    const result = await walkProject("/this/path/does/not/exist/at/all");
-    expect(result.rootExists).toBe(false);
+  it("throws for a non-existent path (hard-fail — callers mark jobs failed)", async () => {
+    // walkProject hard-fails on a missing path so callers (scan-runner, discovery)
+    // can mark the job/session as error. Silent cwd-fallback was removed to prevent
+    // scanning the wrong directory and producing plausible-but-wrong results.
+    await expect(
+      walkProject("/this/path/does/not/exist/at/all"),
+    ).rejects.toThrow("Project root does not exist or is inaccessible");
   });
 
   it("marks files over 512KB as oversized and skips their content", async () => {

@@ -290,7 +290,7 @@ export const PLUGIN_HOOKS: Record<string, PluginHook> = {
           heuristicRatio < 0.5 ? "warning" : "info";
 
         events.push({
-          type: "DocsPluginAdvisory",
+          type: "DocsPluginAnalysis",
           message: `Documentation heuristic (advisory): ${documentable.length} documentable entity/entities across ${ctx.sourceFiles} source file(s) — ratio is entity density, not real doc coverage`,
           severity,
           payload: {
