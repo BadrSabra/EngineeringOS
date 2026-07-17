@@ -21,3 +21,4 @@
 - [Dashboard scoping PR-01](dashboard-scoping-pr01.md) — dashboard route scoped to ownerId; inArray needs non-empty guard; 7 isolation tests added.
 - [AI Tool Calling Architecture](ai-tool-calling.md) — file-system tools (read/list/search/write) with deferred write approval; completeRaw in groq-client; agentic loop in chat-agent.
 - [PR-02 provenance layer](pr02-provenance-layer.md) — GraphProvenance unified shape, graph-provenance.ts single-point helpers, clerkMiddleware test bypass, walkProject hard-fail scan test fix.
+- [Project bootstrap checklist](project-bootstrap.md) — two steps always needed after import: push DB schema + provision Clerk before first run.
