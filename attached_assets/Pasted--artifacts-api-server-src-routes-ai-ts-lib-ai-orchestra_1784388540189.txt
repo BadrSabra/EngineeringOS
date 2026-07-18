@@ -1,0 +1,358 @@
+
+`artifacts/api-server/src/routes/ai.ts`، و`lib/ai-orchestrator/src/*`، و`lib/db/src/schema/*`، و`artifacts/dashboard/src/pages/AiChat.tsx`، و`lib/api-zod/src/generated/*`، و`lib/api-client-react/src/generated/*`، و`lib/ai-orchestrator/src/__tests__/*`، و`artifacts/api-server/src/routes/ai.test.ts`.
+
+## الصورة الفعلية للطبقة
+
+طبقة `AI Orchestrator` ليست ملفًا واحدًا ولا “chat bot” فقط. هي سلسلة تشغيل متصلة:
+
+`AiChat.tsx` → `POST /api/ai/chat` → `buildProjectContext()` → `chat()` / `analyzeScan()` / `reviewCode()` / `orchestrateWorkflow()` / `executeTask()` → `groq-client.ts` → أدوات الملفات والـ Git → schemas → DB events / logs / audit → رجوع النتيجة للواجهة.
+
+والطبقة متصلة مباشرة بجداول:
+`ai_chat_sessions`، `ai_chat_messages`، `ai_provider_credentials`، `projects`، `tasks`، `workflows`، `workflow_executions`، `events`، `task_logs`، `audit_logs`، و`graph_entities`.
+
+## ما الذي يثبت أن الطبقة مبنية فعلًا
+
+### 1) `routes/ai.ts` يربط الـ UI بالـ orchestrator والـ DB
+
+الراوتس ليست شكلية. عندك:
+
+* `/ai/chat`
+* `/ai/chat/apply-changes`
+* `/ai/chat/sessions`
+* `/ai/chat/:sessionId/messages`
+* `/ai/projects/:projectId/analyze`
+* `/ai/projects/:projectId/review`
+* `/ai/workflows/:workflowId/orchestrate`
+* `/ai/tasks/:taskId/execute`
+* `/ai/groq-key`
+
+وهذا يعني أن الطبقة تغطي:
+
+* دردشة
+* اقتراح تغييرات على الملفات
+* تحليل scan
+* review للكود
+* قرار workflow
+* تنفيذ task
+
+### 2) `groq-client.ts` صار طبقة حدود واضحة
+
+العميل لا يمرر أخطاء خام من Groq. كل شيء يصنف إلى:
+`TIMEOUT`, `NETWORK_ERROR`, `AUTH_ERROR`, `RATE_LIMITED`, `SERVER_ERROR`, `NON_200`, `EMPTY_RESPONSE`, `INVALID_CONFIG`.
+
+وفيه retry bounded، وtimeout، وclient cache حسب API key.
+
+### 3) `chat-agent.ts` فيه guardrails حقيقية
+
+* tool loop محدود
+* tool budget محدود
+* deduplication للـ tool calls
+* file reads/searches تُسجل في `toolSources`
+* `write_file` لا يكتب على القرص مباشرة
+* التعديل يذهب إلى `pendingChanges` فقط
+* الرد النهائي يمر عبر `ChatOutputSchema`
+
+### 4) `file-tools.ts` و`git-tools.ts` ليسا shell مفتوحًا
+
+* `safePath()` يمنع traversal وsymlink escape
+* `read_file` و`list_directory` و`search_code` فورية
+* `write_file` يضع التغيير في queue
+* `git_status` و`git_diff` و`git_log` read-only
+* `execFile` بدل shell string
+
+### 5) `context-builder.ts` يبني سياقًا عمليًا غنيًا
+
+يأخذ من DB:
+
+* project
+* latest metric
+* recent tasks
+* entities
+* recent events
+* workflows
+* latest scan job status
+
+ثم يكوّن `ProjectContext` واحدًا يضخ في كل agent prompt.
+
+---
+
+## التحليل العميق لما يربط هذه الطبقة ببقية المشروع
+
+### مسار chat
+
+`AiChat.tsx` يرسل `projectId` و`message` و`sessionId` إلى `/api/ai/chat`.
+الراوت:
+
+1. يتحقق من ملكية المشروع عبر `loadProjectByIdForUser`
+2. يجلب أو ينشئ `ai_chat_sessions`
+3. يحمّل آخر 10 رسائل
+4. يطلب Groq key عبر `requireGroqApiKey`
+5. يبني context
+6. يستدعي `chat()`
+7. يحفظ user message وassistant message
+8. يرجع `pendingChanges` للواجهة
+
+هذا يوضح أن الجلسة ليست ذاكرة UI فقط، بل مخزنة في `ai_chat_sessions` و`ai_chat_messages`.
+
+### مسار apply-changes
+
+`/ai/chat/apply-changes` هو المسار التنفيذي الحقيقي للتغييرات المقترحة:
+
+* يعيد فحص `project.rootPath`
+* يعيد حساب `path.resolve(change.absolutePath)`
+* يرفض أي خروج عن root
+* يكتب الملفات فعليًا
+* يسجل `auditLogs`
+* يسجل `events`
+* يستدعي `invalidateContextCache(projectId)`
+
+هذا مهم جدًا: الكتابة لا تتم من داخل `chat-agent` نفسه.
+
+### مسار analyze / review
+
+`analyzeScan()` و`reviewCode()` لا يستخدمان أدوات ملفات. هما single-shot:
+
+* يأخذان `ProjectContext`
+* يمران عبر prompt محدد
+* يخرجان schemas صارمة
+* ثم يُسجل حدث في `events`
+
+### مسار workflow orchestrate
+
+`/ai/workflows/:workflowId/orchestrate`:
+
+* يقرأ workflow من DB
+* يقرأ running execution إن وجد
+* يبني context
+* يمرر `phases/currentPhase/completedPhases`
+* يستدعي `orchestrateWorkflow()`
+* يسجل `AiWorkflowOrchestration` event
+
+### مسار task execute
+
+`/ai/tasks/:taskId/execute`:
+
+* يقرأ task
+* يتحقق من الحالة
+* يحصل على API key قبل claim
+* يضع task في `running`
+* يكتب `task_logs`
+* يبني context
+* يستدعي `executeTask()`
+* يحدّث task status و`agentResponse` و`verificationResult`
+* يضيف event وaudit record
+
+---
+
+## الفجوات الدقيقة الموجودة الآن في الملفات
+
+### 1) `buildProjectContext()` يرى العقد أكثر مما يرى العلاقات
+
+في `lib/db/src/schema/graph.ts` يوجد:
+
+* `graphEntitiesTable`
+* `graphRelationshipsTable`
+
+لكن `context-builder.ts` يستورد ويستخدم `graphEntitiesTable` فقط، ولا يحمّل `graphRelationshipsTable` أصلًا.
+
+النتيجة:
+
+* الـ AI يرى أسماء الكيانات
+* لكنه لا يرى topology والعلاقات بين الكيانات
+* فيصبح التحليل أقرب إلى “entity summary” من “graph reasoning”
+
+وفوق ذلك، السياق يضع حدودًا:
+
+* 60 entity فقط
+* 20 لكل type
+* latest events = 10
+* latest tasks = 10
+* workflows = 20
+
+هذا مقصود لضغط السياق، لكنه يعني أن الطبقة لا تملك صورة graph كاملة.
+
+### 2) cache السياق لا يُبطل في كل المسارات التي تغيّر الواقع
+
+`invalidateContextCache(projectId)` يُستدعى في `/ai/chat/apply-changes` فقط.
+
+لكن هناك مسارات تغيّر ما يجب أن يراه `buildProjectContext()`:
+
+* `analyze`
+* `review`
+* `orchestrate`
+* `executeTask`
+* ومسارات أخرى خارج AI layer تكتب `events`, `tasks`, `workflows`, `task_logs`
+
+بالتالي قد يظل السياق 30 ثانية قديمًا في لحظة يكون فيها الواقع قد تغير.
+
+### 3) الـ generated client لا يطابق runtime بالكامل
+
+في runtime، `/api/ai/chat` يرجع:
+
+* `sessionId`
+* `message`
+* `sources`
+* `pendingChanges`
+
+لكن في:
+
+* `lib/api-zod/src/generated/types/aiChatOutput.ts`
+* `lib/api-client-react/src/generated/api.schemas.ts`
+
+`AiChatOutput` ما زال يحتوي:
+
+* `sessionId`
+* `message`
+* `sources`
+
+فقط.
+
+وكذلك لا يظهر endpoint `apply-changes` في الـ generated client.
+الواجهة لذلك تستعمل `apiPost` يدويًا بدل generated hook.
+
+هذه فجوة contract drift حقيقية بين OpenAPI/generated layer وبين السلوك الفعلي.
+
+### 4) اختبارات `artifacts/api-server/src/routes/ai.test.ts` متأخرة عن العقود الحالية
+
+الـ mocks هنا لا تطابق schemas الحالية:
+
+* `analyzeScan` mock يرجع:
+
+  * `overallHealthAssessment`
+  * `immediateActions`
+  * `longTermRecommendations`
+
+  بينما schema الحالي يستخدم:
+
+  * `overallAssessment`
+  * `topPriority`
+  * `estimatedImpact`
+
+* `reviewCode` mock يرجع حقولًا قديمة مثل:
+
+  * `criticalIssues`
+  * `highIssues`
+  * `mediumIssues`
+  * `lowIssues`
+
+  وهذه ليست جزءًا من `CodeReviewResultSchema` الحالي.
+
+* `orchestrateWorkflow` mock يرجع:
+
+  * `confidence`
+  * `suggestedNextPhase`
+
+  بينما schema الحالي لا يحتوي هذه الحقول.
+
+* `executeTask` mock يرجع:
+
+  * `agentResponse`
+  * `filesModified`
+
+  وهذه أيضًا ليست من `TaskRecommendationSchema`.
+
+النتيجة:
+الاختبارات تثبت plumbing وstatus codes، لكنها لا تحمي contract الحالي فعليًا.
+
+### 5) `WorkflowPhaseSchema` ليس strict، ولا يوجد validation فعلي للـ phases القادمة من DB
+
+في `workflow.schema.ts`:
+
+* `WorkflowPhaseSchema` يعرّف `name`, `steps`, `condition`
+* لكنه لا يستخدم `.strict()`
+
+وفوق ذلك، `routes/ai.ts` يأخذ:
+
+```ts
+const phases = (workflow.phases as Array<{ name: string; steps: string[]; condition?: string }>) ?? [];
+```
+
+أي cast مباشر بدون runtime parse.
+
+النتيجة:
+
+* لو كانت `phases` في DB فيها مفاتيح إضافية أو تكرار أسماء أو شكل غير متوقع، فالتحقق الحقيقي غير مضمون
+* `validateDecision()` يعتمد على أسماء فريدة وترتيب خطي، لكنه لا يفرض uniqueness على أسماء المراحل
+
+### 6) `task` execution يكتب verification صوريًا أكثر من كونه تحققًا فعليًا
+
+في نهاية `POST /api/ai/tasks/:taskId/execute`:
+
+* `verificationResult.passed` = `finalStatus === "completed"`
+* وكل خطوة في `agentResult.steps` تُكتب `passed: true`
+
+هذا يعني أن “التحقق” هنا ليس verifier مستقلًا، بل انعكاس مباشر لقرار `needsHumanReview` من الـ agent.
+
+### 7) `MODEL_FAST` و`MODEL_POWERFUL` أصبحا نفس القيمة
+
+في `groq-client.ts`:
+
+* `MODEL_POWERFUL = "llama-3.3-70b-versatile"`
+* `MODEL_FAST = "llama-3.3-70b-versatile"`
+
+هذا يجعل branch الاختيار في `chat-agent.ts` موجودًا شكليًا، لكنه الآن غير مؤثر عمليًا.
+
+بمعنى أدق:
+
+* الكود ما زال يتصرف كما لو أن هناك fast/powerful distinction
+* لكن القيم الحالية تجعل الفرق فعليًا معدومًا
+
+### 8) salvage path في `chat-agent.ts` أضعف من `PendingChangeSchema`
+
+عندما يفشل `ChatOutputSchema.safeParse(...)`، الكود يحتفظ فقط بالتغييرات التي تحقق check يدويًا:
+
+* `path` string non-empty
+* `absolutePath` string non-empty
+* `newContent` string
+* `reason` string
+
+لكن هذا لا يعيد تطبيق `PendingChangeSchema` كاملًا.
+
+النتيجة:
+
+* لو `absolutePath` كان غير absolute لكنه غير فارغ، قد ينجو من salvage
+* route `apply-changes` لاحقًا يعيد فحص root bounds، لذلك هذا ليس hole أمنيًا مباشرًا
+* لكنه contract drift داخل الطبقة نفسها
+
+### 9) `POST /api/ai/chat` قد ينشئ session حتى لو فشل Groq لاحقًا
+
+الجلسة تُنشأ قبل التحقق النهائي من Groq response.
+لو فشل API key أو provider، قد تبقى session بلا messages.
+
+هذا ليس انهيارًا، لكنه أثر جانبي حقيقي في state model.
+
+---
+
+## ما الذي يبدو مضبوطًا فعلًا
+
+* `resolveGroqApiKey()` يفضل key المستخدم ثم env fallback
+* `ai_provider_credentials` مخزن مشفر
+* `handleOrchestratorError()` يكتب failure events إلى `events`
+* `auditLogs` و`taskLogs` و`events` يكوّنون trace جيدًا
+* `chat()` يجمع `toolSources` من القراءات الحقيقية
+* `write_file` لا يكتب مباشرة
+* `apply-changes` هو نقطة الكتابة الوحيدة
+* `workflow-orchestrator` لديه linear validation وmetrics gate
+* `buildProjectContext()` يضع warning صريح عندما تكون metrics غير موثوقة
+
+---
+
+## الخلاصة الدقيقة
+
+الطبقة الآن **مبنية ومترابطة** وليست مجرد skeleton.
+لكنها ما زالت تعاني من 4 فجوات بنيوية واضحة:
+
+1. **الـ context بلا relationships كافية**
+2. **الـ generated contract متأخر عن runtime**
+3. **الاختبارات لا تطابق schemas الحالية بالكامل**
+4. **بعض الضمانات ما زالت text-driven أو prompt-driven أكثر من كونها runtime-checked**
+
+ولو أردنا تقييمها كطبقة تشغيلية، فهي في مرحلة:
+
+* core موجود
+* safety موجود
+* traceability موجود
+* لكن truth completeness وcontract alignment وgraph reasoning ما زالت غير مغلقة بالكامل
+
+الخطوة التالية المنطقية ليست إضافة ميزات، بل **تثبيت الفجوات الحالية على مستوى الملفات نفسها**:
+`context-builder.ts`، ثم `chat-agent.ts`، ثم `routes/ai.ts`، ثم `ai.test.ts`، ثم generated client/schema sync، ثم `workflow.schema.ts` و`task execution` validation.
