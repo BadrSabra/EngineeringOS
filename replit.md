@@ -112,7 +112,7 @@ The discovery pipeline supports 6 source types via a **SourceAdapter** pattern i
 6. **Verify** — `bash scripts/verify-setup.sh`
    - Checks node_modules, all 3 secrets, DATABASE_URL, API healthz → 200, dashboard → 200, and DB schema.
 
-**Verified working 2026-07-16:** all 3 workflows start clean; `GET /api/healthz` → `{"status":"ok"}`; dashboard landing page renders with Sign In / Create Account buttons; Clerk dev keys loaded; no reconciliation errors on startup.
+**Verified working 2026-07-18:** all 3 workflows start clean; `GET /api/healthz` → `{"status":"ok"}`; dashboard landing page renders with Sign In / Create Account buttons; Clerk dev keys loaded; no reconciliation errors on startup.
 
 ## Gotchas
 
