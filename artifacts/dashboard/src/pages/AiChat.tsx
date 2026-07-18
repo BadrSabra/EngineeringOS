@@ -402,13 +402,19 @@ export default function AiChat() {
   const [agentStage, setAgentStage] = useState<string | null>(null);
   const agentStageTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // إصلاح #5: حفظ التغييرات المعلقة في localStorage مرتبطةً بالجلسة،
-  // حتى لا تضيع عند تحديث الصفحة قبل الموافقة عليها.
+  // G-06 fix: pending changes are stored with a timestamp so stale entries
+  // (from a crashed/closed tab after the server wrote the files but before
+  // onSuccess could clear them) expire automatically after 24 hours instead
+  // of becoming permanent phantom items.
+  const PENDING_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+  type StoredPending = { changes: PendingChange[]; savedAt: number };
+
   useEffect(() => {
     if (!sessionId) return;
     const key = `eos_pending_${sessionId}`;
     if (pendingChanges.length > 0) {
-      localStorage.setItem(key, JSON.stringify(pendingChanges));
+      const payload: StoredPending = { changes: pendingChanges, savedAt: Date.now() };
+      localStorage.setItem(key, JSON.stringify(payload));
     } else {
       localStorage.removeItem(key);
     }
@@ -417,16 +423,23 @@ export default function AiChat() {
   useEffect(() => {
     if (!sessionId) { setPendingChanges([]); return; }
     const key = `eos_pending_${sessionId}`;
-    const saved = localStorage.getItem(key);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as PendingChange[];
-        if (parsed.length > 0) setPendingChanges(parsed);
-      } catch {
+    const raw = localStorage.getItem(key);
+    if (!raw) { setPendingChanges([]); return; }
+    try {
+      const stored = JSON.parse(raw) as StoredPending | PendingChange[];
+      // Handle both the old format (plain array) and the new format ({ changes, savedAt }).
+      const changes = Array.isArray(stored) ? stored : stored.changes;
+      const savedAt  = Array.isArray(stored) ? 0       : stored.savedAt;
+      if (Date.now() - savedAt > PENDING_TTL_MS) {
+        // Entry is older than 24 h — the server almost certainly already wrote
+        // those files.  Remove the ghost entry rather than confusing the user.
         localStorage.removeItem(key);
+        setPendingChanges([]);
+        return;
       }
-    } else {
-      setPendingChanges([]);
+      if (changes.length > 0) setPendingChanges(changes);
+    } catch {
+      localStorage.removeItem(key);
     }
   }, [sessionId]);
 
@@ -557,7 +570,7 @@ export default function AiChat() {
         { changes, projectId: selectedProjectId },
       ),
     onSuccess: (data) => {
-      const failed = data.results.filter((r) => !r.ok);
+      const failed    = data.results.filter((r) => !r.ok);
       const succeeded = data.results.filter((r) => r.ok);
       if (failed.length > 0) {
         toast({
@@ -573,6 +586,10 @@ export default function AiChat() {
       // the user knows which files still need attention.
       const succeededPaths = new Set(succeeded.map((r) => r.path));
       setPendingChanges((prev) => prev.filter((c) => !succeededPaths.has(c.path)));
+
+      // G-05: refresh git-status in the GitPanel so it reflects the newly
+      // written files (dirty markers, unstaged changes) without a manual reload.
+      void qc.invalidateQueries({ queryKey: ['git-status', selectedProjectId] });
     },
     onError: (err) => {
       toast({ title: 'Failed to apply changes', description: describeAiError(err), variant: 'destructive' });
@@ -764,17 +781,17 @@ export default function AiChat() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={getPlaceholder()}
+              placeholder={applyMutation.isPending ? 'Applying changes… please wait' : getPlaceholder()}
               className="resize-none text-sm min-h-[44px] max-h-32 bg-secondary border-border"
               rows={1}
-              disabled={!isLoaded || projectsLoading || !selectedProjectId}
+              disabled={!isLoaded || projectsLoading || !selectedProjectId || applyMutation.isPending}
             />
             <Button
               size="icon"
               onClick={handleSend}
-              disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || sendMutation.isPending}
+              disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || sendMutation.isPending || applyMutation.isPending}
               className="shrink-0 h-11 w-11"
-              title={getSendTitle()}
+              title={applyMutation.isPending ? 'Applying changes…' : getSendTitle()}
             >
               {sendMutation.isPending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />

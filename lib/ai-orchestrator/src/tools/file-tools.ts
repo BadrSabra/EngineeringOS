@@ -351,6 +351,24 @@ export async function executeFileTool(
         return 'Error: "path" must be a file path, not the project root directory.';
       }
 
+      // G-15: reject writes to auto-generated files.  Changes to generated
+      // files are silently overwritten on the next codegen run, so the right
+      // fix is always to edit the source/schema/template that produces them.
+      const relForCheck = path.relative(resolvedRoot, abs);
+      const GENERATED_PATTERNS = [
+        /(?:^|\/)generated\//,          // any /generated/ directory
+        /(?:^|\/)__generated__\//,      // GraphQL __generated__
+        /(?:^|\/)\.generated\//,        // hidden .generated directories
+        /\.gen\.(ts|tsx|js|jsx|py)$/,   // *.gen.ts etc.
+        /\.generated\.(ts|tsx|js|jsx|py)$/, // *.generated.ts etc.
+      ];
+      if (GENERATED_PATTERNS.some((p) => p.test(relForCheck))) {
+        return (
+          `Error: "${args.path}" is an auto-generated file — editing it directly will be overwritten on ` +
+          `the next codegen run. Edit the source schema, template, or configuration that generates it instead.`
+        );
+      }
+
       // Read the current file content so the UI can show a proper diff.
       let originalContent: string | null = null;
       try {

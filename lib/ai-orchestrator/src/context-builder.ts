@@ -16,7 +16,7 @@ import {
   workflowsTable,
   scanJobsTable,
 } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, asc } from "drizzle-orm";
 import type { AgentContext } from "./schemas/context.schema.js";
 
 /** The context object every agent prompt is built from. Shape is enforced at runtime by `AgentContextSchema`. */
@@ -28,9 +28,11 @@ const PRIORITY_RANK: Record<string, number> = { p0: 0, p1: 1, p2: 2, p3: 3 };
 export async function buildProjectContext(projectId: string): Promise<ProjectContext> {
   const [[project], rawTasks, [latestMetric], entities, recentEvents, rawWorkflows, [latestScanJob]] = await Promise.all([
     db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
-    // Fetch more rows than we display so the client-side priority sort can
-    // surface urgent tasks even if they were updated less recently.
-    db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)).orderBy(desc(tasksTable.updatedAt)).limit(50),
+    // Sort in the DB by priority ASC (p0 < p1 < p2 < p3 lexically), then by
+    // recency DESC as a tiebreaker.  This ensures a P0 task that hasn't been
+    // touched in weeks is never cut before lower-priority recently-updated tasks
+    // (the previous LIMIT 50 + in-memory re-sort pattern had that bug).
+    db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)).orderBy(asc(tasksTable.priority), desc(tasksTable.updatedAt)).limit(10),
     db.select().from(metricsTable).where(eq(metricsTable.projectId, projectId)).orderBy(desc(metricsTable.timestamp)).limit(1),
     // Order by confidence DESC so the most certain entities fill the cap first.
     db.select().from(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, projectId)).orderBy(desc(graphEntitiesTable.confidence)).limit(60),
@@ -86,9 +88,10 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
   }
 
   // ── Tasks ──────────────────────────────────────────────────────────────────
-  // Sort: primary = priority (P0 first), secondary = recency (updatedAt DESC).
-  // This surfaces urgent tasks that haven't been touched recently above
-  // low-priority tasks that were just updated.
+  // DB query already orders by priority ASC, updatedAt DESC and limits to 10,
+  // so rawTasks arrives in the correct display order. The in-memory sort is
+  // kept as a safety net for any edge-case that slips through (e.g. unknown
+  // priority strings that the DB sorts differently from PRIORITY_RANK).
   const sortedTasks = [...rawTasks]
     .sort((a, b) => {
       const pa = PRIORITY_RANK[a.priority] ?? 99;

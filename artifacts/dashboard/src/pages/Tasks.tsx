@@ -164,7 +164,7 @@ export default function Tasks() {
           <div className="flex items-center gap-2 bg-secondary p-1 rounded-md border border-border">
             <select
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
+              onChange={(e) => setFilterStatus(e.target.value as TaskStatusFilter | '')}
               className="bg-transparent text-sm px-2 py-1 outline-none text-foreground border-r border-border min-w-[120px]"
             >
               <option value="">All Statuses</option>
@@ -176,7 +176,7 @@ export default function Tasks() {
             </select>
             <select
               value={filterPriority}
-              onChange={(e) => setFilterPriority(e.target.value)}
+              onChange={(e) => setFilterPriority(e.target.value as TaskPriorityFilter | '')}
               className="bg-transparent text-sm px-2 py-1 outline-none text-foreground min-w-[100px]"
             >
               <option value="">All Priorities</option>

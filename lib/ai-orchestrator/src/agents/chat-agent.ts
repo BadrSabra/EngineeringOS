@@ -354,11 +354,29 @@ export async function chat(opts: {
     };
     const check = ChatOutputSchema.safeParse(output);
     if (!check.success) {
-      console.error(
-        JSON.stringify({ scope: "chat-agent", code: "CHAT_OUTPUT_INVALID", issues: check.error.issues }),
+      // Attempt to salvage individual pending changes that are structurally
+      // sound — only the ones whose fields satisfy the minimum contract.
+      // This prevents silently discarding all the model's file-write intent
+      // when a single bad field (e.g. an extra property) fails the top-level
+      // schema check.
+      const validChanges = pendingChanges.filter(
+        (pc) =>
+          typeof pc.path === "string" && pc.path.length > 0 &&
+          typeof pc.absolutePath === "string" && pc.absolutePath.length > 0 &&
+          typeof pc.newContent === "string" &&
+          typeof pc.reason === "string",
       );
-      // Drop malformed pendingChanges rather than returning corrupt data.
-      return { ...parsed.data, sources: mergedSources, pendingChanges: [] };
+      console.error(
+        JSON.stringify({
+          scope: "chat-agent",
+          code: "CHAT_OUTPUT_INVALID",
+          issues: check.error.issues,
+          totalChanges: pendingChanges.length,
+          savedChanges: validChanges.length,
+          droppedChanges: pendingChanges.length - validChanges.length,
+        }),
+      );
+      return { ...parsed.data, sources: mergedSources, pendingChanges: validChanges };
     }
     return check.data;
   }

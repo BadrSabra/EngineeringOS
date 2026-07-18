@@ -19,8 +19,12 @@ import { db } from "@workspace/db";
 import {
   projectsTable,
   aiProviderCredentialsTable,
+  eventsTable,
+  scanJobsTable,
 } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
+import { runScanJob } from "../lib/scan-runner.js";
+import { heavyJobQueue } from "../lib/job-queue.js";
 import { requireProjectAccess, requireProjectWriteAccess } from "../middlewares/requireProjectAccess.js";
 import { encryptApiKey, decryptApiKey } from "../lib/credentials-crypto.js";
 import { recordAudit } from "../lib/audit.js";
@@ -254,6 +258,16 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
       stateAfter: { commitMessage: message.trim() },
     });
 
+    // G-14: emit a high-level event so commit appears in the dashboard
+    // activity feed and in the AI context's recentEvents.
+    await db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "GitCommitCreated",
+      projectId,
+      severity: "info",
+      message: `Git commit: ${message.trim().slice(0, 120)}`,
+    });
+
     return res.json({ ok: true, output: stdout || stderr });
   } catch (err) {
     const e = err as { stderr?: string; stdout?: string; message?: string };
@@ -307,6 +321,40 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
       projectId: project.id,
       stateBefore: {},
       stateAfter: { branch, remoteUrl: project.gitRemoteUrl },
+    });
+
+    // G-14: emit a high-level event so push appears in dashboard activity feed
+    // and in the AI context's recentEvents on the next chat request.
+    await db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "GitPushed",
+      projectId: project.id,
+      severity: "info",
+      message: `Pushed branch "${branch}" to ${project.gitRemoteUrl}`,
+    });
+
+    // G-03: fire-and-forget post-push scan so the knowledge graph and metrics
+    // reflect the new code without requiring a manual scan click.  We run this
+    // after the response is sent to avoid blocking the push acknowledgement.
+    setImmediate(async () => {
+      try {
+        const jobId = randomUUID();
+        const scanNow = new Date();
+        await db.insert(scanJobsTable).values({ id: jobId, projectId: project.id, status: "queued", createdAt: scanNow });
+        await db.update(projectsTable).set({ status: "scanning", updatedAt: scanNow }).where(eq(projectsTable.id, project.id));
+        await db.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "ProjectScanQueued",
+          projectId: project.id,
+          severity: "info",
+          message: "Automatic scan queued after push",
+          correlationId: jobId,
+        });
+        heavyJobQueue.enqueue(() => runScanJob(jobId, project.id));
+      } catch (scanErr) {
+        // Non-fatal — log but never surface to the user; the push itself succeeded.
+        console.error(JSON.stringify({ scope: "git-push", code: "POST_PUSH_SCAN_FAILED", error: String(scanErr) }));
+      }
     });
 
     return res.json({ ok: true, branch, output: redact(stdout || stderr) });

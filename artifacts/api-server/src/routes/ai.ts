@@ -487,7 +487,9 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
   }
 
   const appliedPaths = results.filter((r) => r.ok).map((r) => r.path);
+  const failedPaths  = results.filter((r) => !r.ok).map((r) => r.path);
   if (appliedPaths.length > 0) {
+    // Audit log for reversibility / compliance
     await recordAudit({
       entityType: "project",
       entityId: projectId,
@@ -495,6 +497,19 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       projectId,
       stateBefore: {},
       stateAfter: { filesWritten: appliedPaths },
+    });
+
+    // G-02 / G-14: emit an eventsTable row so this operation is visible in the
+    // dashboard activity feed and in the AI context's recentEvents on the next
+    // chat request.  Previously apply-changes was audit-only and invisible to
+    // both the UI event log and the AI context.
+    const preview = appliedPaths.slice(0, 3).join(", ") + (appliedPaths.length > 3 ? ` +${appliedPaths.length - 3} more` : "");
+    await db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiChangesApplied",
+      projectId,
+      severity: failedPaths.length > 0 ? "warning" : "success",
+      message: `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
     });
   }
 
