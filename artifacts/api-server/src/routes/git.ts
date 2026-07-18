@@ -181,7 +181,15 @@ router.get("/projects/:projectId/git/status", requireProjectAccess, async (req, 
     return res.json({ clean: files.length === 0, files });
   } catch (err) {
     const e = err as { stderr?: string; message?: string };
-    return res.status(500).json({ error: e.stderr?.trim() || e.message || "git status failed" });
+    const raw = e.stderr?.trim() || e.message || "git status failed";
+    // "not a git repository" is an expected state, not a server bug
+    if (raw.includes("not a git repository")) {
+      return res.status(400).json({
+        error: "not_a_git_repo",
+        hint: "This project directory is not a git repository. Run `git init` inside it or link an existing repo.",
+      });
+    }
+    return res.status(500).json({ error: raw });
   }
 });
 
@@ -203,7 +211,14 @@ router.get("/projects/:projectId/git/log", requireProjectAccess, async (req, res
     return res.json({ commits });
   } catch (err) {
     const e = err as { stderr?: string; message?: string };
-    return res.status(500).json({ error: e.stderr?.trim() || e.message || "git log failed" });
+    const raw = e.stderr?.trim() || e.message || "git log failed";
+    if (raw.includes("not a git repository")) {
+      return res.status(400).json({
+        error: "not_a_git_repo",
+        hint: "This project directory is not a git repository.",
+      });
+    }
+    return res.status(500).json({ error: raw });
   }
 });
 

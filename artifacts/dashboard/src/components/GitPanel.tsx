@@ -75,6 +75,25 @@ function FileBadge({ status }: { status: string }) {
   );
 }
 
+// ── Not-a-git-repo empty state ────────────────────────────────────────────────
+
+function NotAGitRepo({ error }: { error: Error }) {
+  const isNotRepo = error.message.includes("not_a_git_repo") || error.message.includes("not a git repository");
+  if (isNotRepo) {
+    return (
+      <div className="flex flex-col gap-1">
+        <p className="text-xs text-muted-foreground">
+          This directory is not a git repository yet.
+        </p>
+        <p className="text-xs text-muted-foreground font-mono bg-secondary/60 rounded px-2 py-1 mt-0.5">
+          git init &amp;&amp; git remote add origin &lt;url&gt;
+        </p>
+      </div>
+    );
+  }
+  return <p className="text-xs text-destructive">{error.message}</p>;
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface Props { projectId: string }
@@ -341,7 +360,7 @@ export default function GitPanel({ projectId }: Props) {
           {statusQ.isLoading ? (
             <div className="text-xs text-muted-foreground animate-pulse">Loading status…</div>
           ) : statusQ.isError ? (
-            <div className="text-xs text-destructive">{(statusQ.error as Error).message}</div>
+            <NotAGitRepo error={statusQ.error as Error} />
           ) : status?.clean ? (
             <div className="text-xs text-muted-foreground flex items-center gap-1.5">
               <Check className="w-3 h-3 text-emerald-500" /> Nothing to commit
