@@ -76,6 +76,15 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
   // Include description only when present — it is often empty on new projects.
   if (project.description) projectParts.push(`Description: ${project.description}`);
 
+  // Git remote — tells the agent what GitHub repo backs this project so it can
+  // reason about commits, pushes, and branch context without calling git_status.
+  if (project.gitRemoteUrl) {
+    const branch = project.gitDefaultBranch ?? "main";
+    projectParts.push(`Git remote: ${project.gitRemoteUrl} (branch: ${branch})`);
+  } else {
+    projectParts.push(`Git remote: not configured — user can add one in the GitHub panel`);
+  }
+
   // ── Tasks ──────────────────────────────────────────────────────────────────
   // Sort: primary = priority (P0 first), secondary = recency (updatedAt DESC).
   // This surfaces urgent tasks that haven't been touched recently above
