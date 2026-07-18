@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "2df-hGCcPyzBN8ZlqQr_C"
+uri = "file://docs/ai-orchestrator-forensic-analysis.md"
+type = "text"
+title = "AI Orchestrator — Forensic Reverse Engineering Report"
