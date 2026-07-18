@@ -169,12 +169,22 @@ export function computeMetrics(
   const performanceScore = clamp(100 - penalties.performance);
   const maintainabilityScore = clamp(100 - penalties.maintainability);
 
+  // testCoverage is included in the overall score so that projects with low
+  // test coverage cannot achieve a high overall score purely from clean code.
+  // Weight distribution (must sum to 1.00):
+  //   Security        0.27  — highest risk if broken
+  //   Reliability     0.18
+  //   Maintainability 0.18
+  //   Performance     0.12
+  //   Architecture    0.15
+  //   TestCoverage    0.10  — structural proxy; keeps 0% coverage from hitting 99/100
   const overallScore = clamp(
-    securityScore * 0.30 +
-    reliabilityScore * 0.20 +
-    maintainabilityScore * 0.20 +
-    performanceScore * 0.15 +
-    computeArchitectureScore(files) * 0.15,
+    securityScore * 0.27 +
+    reliabilityScore * 0.18 +
+    maintainabilityScore * 0.18 +
+    performanceScore * 0.12 +
+    computeArchitectureScore(files) * 0.15 +
+    computeTestCoverage(files) * 0.10,
   );
 
   const technicalDebt = Math.round((lintIssues * 30) / 60);

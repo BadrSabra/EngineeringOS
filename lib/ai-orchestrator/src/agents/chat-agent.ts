@@ -62,10 +62,10 @@ const MAX_TOOL_ITERATIONS = 6;
  * وصف الأدوات نظرياً بمسارات وهمية بدل استدعائها فعلياً (hallucination).
  */
 const TOOL_EXECUTION_PATTERNS: RegExp[] = [
-  // العربية: أفعال التنفيذ والاختبار والتحقق
-  /اختبر|نفّذ|نفذ|جرّب|جرب|شغّل|شغل|طبّق|طبق|ابدأ|أقرأ|اقرأ|اعرض|أظهر|افحص|تحقق|افعل/,
-  // الإنجليزية
-  /\b(test|execute|run|try|perform|apply|check|verify|demonstrate|show\s+me|read|list|search|find|scan|inspect)\b/i,
+  // العربية: أفعال التنفيذ والاختبار والتحقق والتحليل والفحص والاستعراض
+  /اختبر|نفّذ|نفذ|جرّب|جرب|شغّل|شغل|طبّق|طبق|ابدأ|أقرأ|اقرأ|اعرض|أظهر|افحص|تحقق|افعل|حلّل|حلل|تحليل|فحص|استعرض|راجع|أرني|ابحث|ابحث عن|اكتشف|استكشف/,
+  // الإنجليزية — analysis and exploration verbs added
+  /\b(test|execute|run|try|perform|apply|check|verify|demonstrate|show\s+me|read|list|search|find|scan|inspect|analyze|analyse|review|explore|investigate|examine|look\s+at|open|browse)\b/i,
 ];
 
 function requiresToolExecution(message: string): boolean {
