@@ -37,6 +37,12 @@ import {
 
 const router = Router();
 
+// Per-workflow in-memory orchestration lock. Prevents two concurrent
+// POST /orchestrate calls from producing conflicting phase decisions for the
+// same workflow. Note: process-local only — a multi-instance deployment needs
+// a DB-level advisory lock or a distributed mutex instead.
+const _orchestratingWorkflows = new Set<string>();
+
 /**
  * Maps GroqClientError codes to typed HTTP responses so callers receive a
  * structured error body instead of a generic 500. Returns true when a response
@@ -497,6 +503,20 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
   const results: Array<{ path: string; ok: boolean; error?: string }> = [];
 
   for (const change of changes) {
+    // Sensitive-extension guard — mirrors the same check in file-tools.ts write_file.
+    // Prevents a tampered or prompt-injected payload from overwriting .env files,
+    // shell scripts, or TLS material via the apply-changes route.
+    const BLOCKED_WRITE_EXTENSIONS =
+      /(?:^|[/\\])\.env(?:\.|$)|\.(sh|bash|zsh|fish|ps1|bat|cmd|pem|key|pfx|p12|crt|cer|der|pub|rsa|dsa|htpasswd)$/i;
+    if (BLOCKED_WRITE_EXTENSIONS.test(change.path)) {
+      results.push({
+        path: change.path,
+        ok: false,
+        error: "File type is classified as sensitive (secrets, credentials, or executable scripts) — apply manually.",
+      });
+      continue;
+    }
+
     // Re-validate path is inside the project root (guard against tampered payloads)
     const resolved = path.resolve(change.absolutePath);
     if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {
@@ -571,13 +591,23 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
   // state changes that the analysis may have written (events, updated scores).
   invalidateContextCache(projectId);
 
-  await db.insert(eventsTable).values({
-    id: randomUUID(),
-    type: "AiScanAnalysisCompleted",
-    projectId,
-    severity: "info",
-    message: `AI scan analysis completed: ${result.summary}`,
-  });
+  await Promise.all([
+    recordAudit({
+      entityType: "project",
+      entityId: projectId,
+      action: "ai_analyzed",
+      projectId,
+      stateBefore: {},
+      stateAfter: { summary: result.summary, overallAssessment: result.overallAssessment },
+    }),
+    db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiScanAnalysisCompleted",
+      projectId,
+      severity: "info",
+      message: `AI scan analysis completed: ${result.summary}`,
+    }),
+  ]);
 
   return res.json(result);
 });
@@ -590,6 +620,29 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
   const { fileContents } = req.body as { fileContents?: Record<string, string> };
 
   logger.info({ projectId }, "AI code review requested");
+
+  // Validate fileContents before touching the LLM:
+  //   (a) Keys must be relative — absolute paths could leak server internals.
+  //   (b) Keys must not contain traversal — defence against path confusion.
+  //   (c) Total payload capped at 50 KB — prevents hitting model context limits
+  //       with a silent truncation that the caller would never notice.
+  const MAX_FILE_CONTENTS_BYTES = 50_000;
+  if (fileContents) {
+    const invalidKey = Object.keys(fileContents).find(
+      (k) => path.isAbsolute(k) || k.includes(".."),
+    );
+    if (invalidKey) {
+      return res.status(400).json({
+        error: `fileContents key "${invalidKey}" must be a relative path without traversal (no ".." segments)`,
+      });
+    }
+    const totalSize = Object.values(fileContents).reduce((sum, v) => sum + v.length, 0);
+    if (totalSize > MAX_FILE_CONTENTS_BYTES) {
+      return res.status(413).json({
+        error: `fileContents total size (${Math.round(totalSize / 1_000)} KB) exceeds the ${MAX_FILE_CONTENTS_BYTES / 1_000} KB limit — send fewer or smaller files`,
+      });
+    }
+  }
 
   const apiKey = await requireGroqApiKey(req.userId, res);
   if (apiKey === null) return;
@@ -606,13 +659,23 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
   // Gap-2 fix: bust context cache after code review emits events.
   invalidateContextCache(projectId);
 
-  await db.insert(eventsTable).values({
-    id: randomUUID(),
-    type: "AiCodeReviewCompleted",
-    projectId,
-    severity: result.verdict === "approved" ? "success" : "warning",
-    message: `AI code review: ${result.verdict} (score: ${result.overallScore}/100)`,
-  });
+  await Promise.all([
+    recordAudit({
+      entityType: "project",
+      entityId: projectId,
+      action: "ai_reviewed",
+      projectId,
+      stateBefore: {},
+      stateAfter: { verdict: result.verdict, overallScore: result.overallScore },
+    }),
+    db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiCodeReviewCompleted",
+      projectId,
+      severity: result.verdict === "approved" ? "success" : "warning",
+      message: `AI code review: ${result.verdict} (score: ${result.overallScore}/100)`,
+    }),
+  ]);
 
   return res.json(result);
 });
@@ -663,6 +726,19 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
   const currentPhase = execution?.currentPhase ?? workflow.currentPhase;
   const completedPhases = (execution?.completedPhases as string[]) ?? [];
 
+  // Concurrency guard: reject a second simultaneous orchestrate call for the
+  // same workflow. Two concurrent decisions would read the same state and
+  // produce conflicting phase transitions — one would silently win depending
+  // on whichever DB write lands last.
+  // Note: process-local only; a multi-instance deployment needs a DB advisory
+  // lock or distributed mutex instead.
+  if (_orchestratingWorkflows.has(workflowId)) {
+    return res.status(409).json({
+      error: "An orchestration decision is already in progress for this workflow. Retry in a moment.",
+    });
+  }
+  _orchestratingWorkflows.add(workflowId);
+
   let decision: Awaited<ReturnType<typeof orchestrateWorkflow>>;
   try {
     decision = await orchestrateWorkflow({
@@ -675,8 +751,13 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
       apiKey,
     });
   } catch (err) {
+    _orchestratingWorkflows.delete(workflowId);
     if (handleOrchestratorError(err, res, { projectId: workflow.projectId, operation: "workflow-orchestration" })) return;
     throw err;
+  } finally {
+    // Always release the lock — even if orchestrateWorkflow throws an error
+    // not caught by handleOrchestratorError and propagates to Express.
+    _orchestratingWorkflows.delete(workflowId);
   }
 
   logger.info({ workflowId, decision }, "AI workflow orchestration decision");
@@ -685,13 +766,23 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
   // next chat turn sees the updated workflow state immediately.
   invalidateContextCache(workflow.projectId);
 
-  await db.insert(eventsTable).values({
-    id: randomUUID(),
-    type: "AiWorkflowOrchestration",
-    projectId: workflow.projectId,
-    severity: "info",
-    message: `AI orchestrator decision for "${workflow.name}": ${decision.action} — ${decision.reasoning.slice(0, 100)}`,
-  });
+  await Promise.all([
+    recordAudit({
+      entityType: "workflow",
+      entityId: workflowId,
+      action: "ai_orchestrated",
+      projectId: workflow.projectId,
+      stateBefore: { currentPhase, completedPhases },
+      stateAfter: { action: decision.action },
+    }),
+    db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiWorkflowOrchestration",
+      projectId: workflow.projectId,
+      severity: "info",
+      message: `AI orchestrator decision for "${workflow.name}": ${decision.action} — ${decision.reasoning.slice(0, 100)}`,
+    }),
+  ]);
 
   return res.json(decision);
 });

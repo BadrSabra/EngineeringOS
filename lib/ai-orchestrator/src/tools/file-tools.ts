@@ -340,6 +340,28 @@ export async function executeFileTool(
       if (!args.path || args.content === undefined) {
         return 'Error: "path" and "content" are required.';
       }
+
+      // ── Sensitive-extension guard ──────────────────────────────────────────
+      // Prevent the AI from proposing writes to secret material or executable
+      // scripts.  Defence-in-depth on top of the path-traversal guard: even
+      // if safePath passes, queuing a change to `.env.production` or
+      // `deploy.sh` is almost certainly unintentional — or an injection
+      // attempt.  The pattern covers:
+      //   • .env* files (any variant: .env, .env.local, .env.production …)
+      //   • Shell/PowerShell scripts (.sh, .bash, .zsh, .fish, .ps1, .bat, .cmd)
+      //   • TLS/crypto material (.pem, .key, .pfx, .p12, .crt, .cer, .der,
+      //     .pub, .rsa, .dsa)
+      //   • .htpasswd (Apache credential store)
+      const BLOCKED_WRITE_EXTENSIONS =
+        /(?:^|[/\\])\.env(?:\.|$)|\.(sh|bash|zsh|fish|ps1|bat|cmd|pem|key|pfx|p12|crt|cer|der|pub|rsa|dsa|htpasswd)$/i;
+      if (BLOCKED_WRITE_EXTENSIONS.test(args.path)) {
+        return (
+          `Error: writing to "${args.path}" is not allowed — the file type is ` +
+          `classified as sensitive (secrets, credentials, or executable scripts). ` +
+          `If this change is intentional, apply it manually via the terminal.`
+        );
+      }
+
       const abs = await safePath(resolvedRoot, args.path);
       if (!abs) return `Error: "${args.path}" resolves outside the project root.`;
 
