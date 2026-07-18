@@ -23,6 +23,7 @@ import {
   Key,
   Settings2,
   Loader2,
+  Download,
 } from 'lucide-react';
 
 // ── API helpers ───────────────────────────────────────────────────────────────
@@ -207,13 +208,23 @@ export default function GitPanel({ projectId }: Props) {
           <Github className="w-4 h-4 text-primary" />
           GitHub Integration
         </h2>
-        <button
-          onClick={openSettings}
-          className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
-          title="Configure"
-        >
-          <Settings2 className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <a
+            href={`/api/projects/${projectId}/export`}
+            download
+            className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+            title="Download project as tar.gz"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </a>
+          <button
+            onClick={openSettings}
+            className="p-1.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+            title="Configure"
+          >
+            <Settings2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       <div className="p-5 space-y-5">
@@ -267,6 +278,12 @@ export default function GitPanel({ projectId }: Props) {
                 value={remoteInput}
                 onChange={(e) => setRemoteInput(e.target.value)}
               />
+              {remoteInput.trim() && !remoteInput.trim().match(/^https?:\/\//) && (
+                <p className="text-xs text-yellow-500 flex items-center gap-1 mt-1">
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  SSH URLs are not supported — push requires an HTTPS URL.
+                </p>
+              )}
             </div>
 
             {/* Branch */}
@@ -378,7 +395,7 @@ export default function GitPanel({ projectId }: Props) {
         </div>
 
         {/* Commit */}
-        {!status?.clean && (
+        {statusQ.isSuccess && !status?.clean && (
           <div className="space-y-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Commit

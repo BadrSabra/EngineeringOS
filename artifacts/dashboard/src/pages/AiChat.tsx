@@ -558,16 +558,21 @@ export default function AiChat() {
       ),
     onSuccess: (data) => {
       const failed = data.results.filter((r) => !r.ok);
+      const succeeded = data.results.filter((r) => r.ok);
       if (failed.length > 0) {
         toast({
           title: `${failed.length} file(s) failed to apply`,
           description: failed.map((f) => `${f.path}: ${f.error}`).join('\n'),
           variant: 'destructive',
         });
-      } else {
-        toast({ title: `Applied ${data.results.length} file change${data.results.length !== 1 ? 's' : ''}` });
       }
-      setPendingChanges([]);
+      if (succeeded.length > 0) {
+        toast({ title: `Applied ${succeeded.length} file change${succeeded.length !== 1 ? 's' : ''}` });
+      }
+      // Only remove changes that were successfully applied — keep failed ones visible so
+      // the user knows which files still need attention.
+      const succeededPaths = new Set(succeeded.map((r) => r.path));
+      setPendingChanges((prev) => prev.filter((c) => !succeededPaths.has(c.path)));
     },
     onError: (err) => {
       toast({ title: 'Failed to apply changes', description: describeAiError(err), variant: 'destructive' });

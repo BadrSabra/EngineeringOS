@@ -1,0 +1,170 @@
+
+
+### أدوات Git داخل الـ AI Orchestrator
+
+في `lib/ai-orchestrator/src/tools/git-tools.ts` توجد فقط أدوات **قراءة**:
+
+* `git_status`
+* `git_diff`
+* `git_log`
+
+هذه الأدوات تُنفَّذ محليًا عبر `execFile` داخل جذر المشروع، ولا يوجد فيها `commit` أو `push`.
+
+### أدوات التعديل على Git في الـ API
+
+العمليات الكتابية موجودة في `artifacts/api-server/src/routes/git.ts`:
+
+* `POST /api/projects/:projectId/git/commit`
+* `POST /api/projects/:projectId/git/push`
+
+أما إعدادات التوكن والريموت فموجودة أيضًا هناك:
+
+* `GET /api/ai/github-token`
+* `PUT /api/ai/github-token`
+* `DELETE /api/ai/github-token`
+* `GET /api/projects/:projectId/git/config`
+* `PATCH /api/projects/:projectId/git/config`
+* `GET /api/projects/:projectId/git/status`
+* `GET /api/projects/:projectId/git/log`
+
+### الواجهة
+
+`artifacts/dashboard/src/components/GitPanel.tsx` هو المكان الذي يربط المستخدم بهذه العمليات: ضبط الريموت، حفظ GitHub token، commit، push، log.
+
+---
+
+## الأخطاء/الفجوات الحقيقية في الكود
+
+### 1) تضارب حقيقي بين prompt والواقع
+
+في `lib/ai-orchestrator/src/prompts/chat.prompt.ts` يوجد نص صريح يقول للنموذج:
+
+* لا تدّعِ القدرة على push to GitHub
+* لا تدّعِ القدرة على تشغيل git commands
+* لا تدّعِ القدرة على commit أو أي VCS operation
+
+لكن في نفس الوقت:
+
+* `chat-agent.ts` يمرر `git_status/git_diff/git_log` فعلًا
+* والـ API فيه `commit/push`
+* والـ UI فيه GitPanel كامل
+
+هذا ليس مجرد “أسلوب كتابة”، بل **تضارب تكاملي**: النموذج قد يُمنع نصيًا من الاعتراف بقدرات موجودة فعلًا. هذا يسبب إجابات خاطئة أو متناقضة حول دعم Git.
+
+---
+
+### 2) زر commit يظهر حتى عندما المشروع ليس git repo
+
+في `GitPanel.tsx` شرط عرض قسم commit هو:
+
+```ts
+{!status?.clean && (
+```
+
+لو `statusQ.isError` و`status` يصبح `undefined`، فالشرط يساوي `true`، وبالتالي **قسم commit يظهر حتى في حالة “not a git repository”**.
+
+هذا خطأ فعلي في الـ UI:
+
+* المستخدم يرى زر commit
+* ثم يضغطه في بيئة لا يوجد فيها repo
+* فيدخل في فشل يمكن تجنبه
+
+المفروض هذا القسم لا يظهر إلا إذا كان `statusQ.isSuccess && !status.clean`.
+
+---
+
+### 3) push يدعم HTTPS تقريبًا فقط، لكن الواجهة لا تفرض ذلك
+
+في `artifacts/api-server/src/routes/git.ts`:
+
+```ts
+function buildAuthUrl(remoteUrl: string, token: string): string {
+  return remoteUrl.replace(/^https?:\/\//, `https://x-access-token:${token}@`);
+}
+```
+
+هذا يعني:
+
+* إذا كان الريموت `https://github.com/...` → يعمل
+* إذا كان `git@github.com:owner/repo.git` أو SSH URL → **لن يُحقن التوكن أصلاً**، وغالبًا push سيفشل
+
+المشكلة أن `GitPanel` يسمح بحفظ أي `remoteUrl` تقريبًا، بينما `push` مبني عمليًا على GitHub HTTPS مع PAT.
+إذًا هناك **عدم تطابق بين ما تسمح به الواجهة وما يدعمه التنفيذ**.
+
+---
+
+### 4) فقدان تغييرات فاشلة من واجهة AI
+
+في `artifacts/dashboard/src/pages/AiChat.tsx`، عند `apply-changes`:
+
+* إذا عاد السيرفر بـ 207 partial success
+* الواجهة تعرض الرسالة
+* لكن بعدها مباشرة:
+
+```ts
+setPendingChanges([]);
+```
+
+هذا يعني أن **كل الـ pendingChanges تختفي من الواجهة حتى لو بعض الملفات فشل تطبيقها**.
+هذا سلوك خطر لأنه يضيّع رؤية المستخدم للملفات الفاشلة ويجعل الحالة غير واضحة.
+
+---
+
+### 5) لا يوجد download/export للنسخة الأخيرة داخل المشروع الحالي
+
+بحثت في المسارات ولم أجد:
+
+* endpoint لتصدير zip
+* endpoint لتنزيل snapshot
+* زر download في Dashboard
+* route يجهز archive للنسخة الأخيرة
+
+الموجود حاليًا هو:
+
+* تطبيق التعديلات محليًا عبر `POST /api/ai/chat/apply-changes`
+* ثم Git commit/push إذا كان عندك repo وremote
+
+إذًا **“تحميل النسخة الأخيرة” غير موجود كميزة مباشرة في الكود الحالي**.
+النسخة الأخيرة موجودة داخل workspace/root على الخادم بعد التطبيق، لكن لا يوجد مسار رسمي لتحويلها إلى ملف تحميل للمستخدم داخل الواجهة.
+
+---
+
+## كيف يحدّث المستخدم النسخة أو يدفعها إلى Git الآن
+
+### المسار الحالي داخل التطبيق
+
+1. يرسل المستخدم التعديل في AI Chat.
+2. تظهر `pendingChanges`.
+3. يضغط **Apply**.
+4. النظام يكتب الملفات على `project.rootPath` عبر `/api/ai/chat/apply-changes`.
+5. يفتح **GitHub Integration** في `GitPanel`.
+6. يضبط:
+
+   * `remoteUrl`
+   * `branch`
+   * GitHub PAT عبر `/api/ai/github-token`
+7. يضغط **Commit all changes**.
+8. يضغط **Push to branch**.
+
+### إذا أراد نسخة محلية محدثة خارج المنصة
+
+لا يوجد زر download داخل الكود الحالي.
+المسار العملي الموجود الآن هو:
+
+* الاعتماد على Git remote
+* ثم `git clone` أو `git pull` من نفس الريموت خارج النظام
+
+---
+
+## الخلاصة الدقيقة
+
+الطبقة ليست ناقصة “فكرة”، لكنها فيها 4 مشاكل ملموسة اليوم:
+
+1. **تضارب prompt مع أدوات Git الحقيقية**
+2. **commit UI يظهر في حالة non-repo**
+3. **push يعتمد HTTPS GitHub بينما الواجهة لا تفرضه**
+4. **partial apply يضيع pending changes من الواجهة**
+5. **لا يوجد download/export للنسخة الأخيرة أصلًا**
+
+رتب هذه النقاط الآن كـ **PR backlog إصلاحي فقط**:
+`PR-01` تضارب Git prompt، `PR-02` commit UI state، `PR-03` remote URL validation، `PR-04` apply-changes partial failure handling، `PR-05` download/export gap.

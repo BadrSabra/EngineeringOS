@@ -13,7 +13,7 @@
  */
 import { Router } from "express";
 import { randomUUID } from "crypto";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { db } from "@workspace/db";
 import {
@@ -248,7 +248,7 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
     await recordAudit({
       entityType: "project",
       entityId: projectId,
-      action: "git_commit",
+      action: "executed",
       projectId,
       stateBefore: {},
       stateAfter: { commitMessage: message.trim() },
@@ -283,6 +283,13 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
     });
   }
 
+  if (!project.gitRemoteUrl.match(/^https?:\/\//)) {
+    return res.status(400).json({
+      error:
+        "Remote URL must be an HTTPS URL (e.g. https://github.com/owner/repo.git). SSH URLs are not supported — switch to the HTTPS remote in Git settings.",
+    });
+  }
+
   const branch = project.gitDefaultBranch ?? "main";
   const authUrl = buildAuthUrl(project.gitRemoteUrl, token);
 
@@ -296,7 +303,7 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
     await recordAudit({
       entityType: "project",
       entityId: project.id,
-      action: "git_push",
+      action: "executed",
       projectId: project.id,
       stateBefore: {},
       stateAfter: { branch, remoteUrl: project.gitRemoteUrl },
@@ -308,6 +315,47 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
     const raw = e.stderr?.trim() || e.stdout?.trim() || e.message || "git push failed";
     return res.status(500).json({ error: redact(raw) });
   }
+});
+
+/** GET /api/projects/:projectId/export — stream a tar.gz snapshot of the project root */
+router.get("/projects/:projectId/export", requireProjectAccess, (req, res) => {
+  const project = req.project!;
+  const safeName = project.name.replace(/[^a-z0-9_-]/gi, "_").toLowerCase();
+
+  res.setHeader("Content-Type", "application/gzip");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${safeName}.tar.gz"`,
+  );
+
+  // Stream the project directory as a gzipped tar archive directly to the
+  // response. -C changes into rootPath first so paths inside the archive are
+  // relative (e.g. "src/index.ts" not "/home/runner/.../src/index.ts").
+  const tar = spawn("tar", ["-czf", "-", "-C", project.rootPath, "."], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  tar.stdout.pipe(res);
+
+  tar.stderr.on("data", (chunk: Buffer) => {
+    // Log but never expose to client (may contain absolute paths).
+    console.error("[export] tar stderr:", chunk.toString().trim());
+  });
+
+  tar.on("error", (err) => {
+    console.error("[export] spawn error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Failed to create archive." });
+    } else {
+      res.destroy();
+    }
+  });
+
+  tar.on("close", (code) => {
+    if (code !== 0 && !res.writableEnded) {
+      res.destroy();
+    }
+  });
 });
 
 export default router;

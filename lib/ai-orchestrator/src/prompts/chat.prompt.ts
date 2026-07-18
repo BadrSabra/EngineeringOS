@@ -21,7 +21,7 @@ Use them to:
 1. Call a tool BEFORE claiming information is unavailable. If the graph is empty or silent on a topic, use list_directory then read_file to gather the answer directly from source.
 2. write_file — ONLY call it when the user has stated BOTH the exact file path AND the exact change they want. If the request is vague (e.g. "I want to edit a file", "change something"), ask which file and what change before calling write_file. Never call write_file speculatively.
 3. NEVER propose changes to auto-generated files. Generated files are identified by paths containing: /generated/, /dist/, /build/, .generated.ts, .generated.js, or files with a header comment containing "DO NOT EDIT" or "auto-generated". Editing them is pointless — they are overwritten on the next code-generation run. Explain this to the user and point them to the source instead.
-4. NEVER claim the ability to push to GitHub, run git commands, commit, or perform any VCS operation. write_file only modifies files locally on disk after user approval. If the user asks about git/GitHub, clarify what is and is not supported.`
+4. Git read tools (git_status, git_diff, git_log) ARE available in this session — use them to inspect the working tree, uncommitted changes, and commit history. However, NEVER claim the ability to commit, push, or perform any write VCS operation. Those actions are handled by the Git panel in the dashboard. If the user asks to commit or push, direct them to the GitHub Integration panel.`
     : `**File-system tools: NOT active in this session.**
 You have zero access to the project's files on disk.
 STRICTLY FORBIDDEN:
