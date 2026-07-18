@@ -53,6 +53,24 @@ export type ChatMessage = { role: "user" | "assistant"; content: string };
 export type { ChatOutput };
 
 const MAX_TOOL_ITERATIONS = 6;
+
+/**
+ * إصلاح #2 — اكتشاف نية التنفيذ الفعلي للأدوات.
+ *
+ * عندما يطلب المستخدم صراحةً تنفيذ شيء ("اختبر الأدوات"، "run the tests"...)،
+ * نستخدم MODEL_POWERFUL بدلاً من MODEL_FAST لأن النموذج الأصغر يميل إلى
+ * وصف الأدوات نظرياً بمسارات وهمية بدل استدعائها فعلياً (hallucination).
+ */
+const TOOL_EXECUTION_PATTERNS: RegExp[] = [
+  // العربية: أفعال التنفيذ والاختبار والتحقق
+  /اختبر|نفّذ|نفذ|جرّب|جرب|شغّل|شغل|طبّق|طبق|ابدأ|أقرأ|اقرأ|اعرض|أظهر|افحص|تحقق|افعل/,
+  // الإنجليزية
+  /\b(test|execute|run|try|perform|apply|check|verify|demonstrate|show\s+me|read|list|search|find|scan|inspect)\b/i,
+];
+
+function requiresToolExecution(message: string): boolean {
+  return TOOL_EXECUTION_PATTERNS.some((p) => p.test(message));
+}
 /**
  * Hard cap on total tool executions per request (across all iterations).
  * Prevents a single model response from requesting unbounded tool calls.
@@ -144,7 +162,9 @@ export async function chat(opts: {
   // that benefit from deeper reasoning but never loop.
   // نوع string الصريح يمنع TypeScript من تضييق القيمة إلى literal ثابت،
   // وهو ضروري لمقارنة model !== MODEL_POWERFUL عند fallback النموذج.
-  const model: string = MODEL_FAST;
+  // إصلاح #2: استخدم MODEL_POWERFUL عندما يطلب المستخدم تنفيذاً فعلياً للأدوات
+  // (اختبر، نفّذ، run...) — يمنع MODEL_FAST من اختراع مسارات وهمية بدل قراءة الكود الحقيقي.
+  const model: string = (rootPath && requiresToolExecution(message)) ? MODEL_POWERFUL : MODEL_FAST;
 
   const messages: RawMessage[] = [
     { role: "system", content: buildChatSystemPrompt(projectContext, !!rootPath) },

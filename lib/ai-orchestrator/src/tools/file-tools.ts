@@ -259,6 +259,17 @@ export async function executeFileTool(
       const abs = await safePath(resolvedRoot, target);
       if (!abs) return `Error: "${target}" resolves outside the project root.`;
       try {
+        const stat = await fs.stat(abs);
+        // إصلاح #3: إعادة توجيه تلقائية عندما يُرسل النموذج list_directory على ملف.
+        // النموذج يخلط أحياناً بين read_file وlist_directory — نُصحّح بشفافية
+        // بدل إرجاع خطأ ENOTDIR الذي يُربك النموذج ويدفعه لتكرار المحاولة.
+        if (stat.isFile()) {
+          const buf = await fs.readFile(abs);
+          const truncated = buf.length > MAX_READ_BYTES;
+          const text = (truncated ? buf.subarray(0, MAX_READ_BYTES) : buf).toString("utf-8");
+          const content = truncated ? text + "\n\n[... truncated at 80 KB ...]" : text;
+          return `[note: "${target}" is a file, not a directory — returning its contents via read_file]\nFile: ${target}\n\`\`\`\n${content}\n\`\`\``;
+        }
         const entries = await fs.readdir(abs, { withFileTypes: true });
         const lines = entries
           .filter((e) => !SKIP_DIRS.has(e.name))

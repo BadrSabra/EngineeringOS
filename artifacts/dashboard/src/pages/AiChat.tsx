@@ -55,7 +55,11 @@ function describeAiError(err: unknown): string {
   if (err instanceof AiApiError) {
     switch (err.status) {
       case 400: return err.errorMessage;
+      // إصلاح #1: AUTH_ERROR يُعاد كـ401 — نوجّه المستخدم مباشرة لإصلاح المفتاح.
+      case 401: return err.hint ?? 'Groq API key is invalid — delete it and save a valid key from console.groq.com.';
       case 403: return 'Access denied — you may not have permission on this project.';
+      // إصلاح #4: RATE_LIMITED يُعاد كـ429 — رسالة واضحة بدل "provider error".
+      case 429: return err.hint ?? 'Groq rate limit reached — wait 30–60 seconds before retrying.';
       case 422: return err.hint ?? 'AI provider configuration is invalid. Re-save your Groq key.';
       case 428: return err.hint ?? 'No AI key configured — save a Groq API key first.';
       case 502: return err.hint ?? 'AI provider returned an error. Check your Groq key or try again.';

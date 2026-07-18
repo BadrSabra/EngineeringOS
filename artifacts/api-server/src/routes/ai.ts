@@ -53,8 +53,32 @@ function handleOrchestratorError(
     case "NETWORK_ERROR":
       res.status(503).json({ ...base, error: "AI provider unreachable — try again in a moment." });
       return true;
+    // إصلاح #1: AUTH_ERROR يُعاد كـ401 مع رسالة توجيهية واضحة بدل 502 عام.
+    // المستخدم يحتاج أن يعرف تحديداً أن المفتاح خاطئ وليس مشكلة عابرة.
+    case "AUTH_ERROR":
+      res.status(401).json({
+        ...base,
+        error: "Groq API key is invalid or unauthorized.",
+        hint: "Delete your current key and save a valid one from console.groq.com.",
+      });
+      return true;
+    // إصلاح #4: RATE_LIMITED → 429 مع نصيحة الانتظار. SERVER_ERROR → 502 مع رسالة مؤقتة.
+    case "RATE_LIMITED":
+      res.status(429).json({
+        ...base,
+        error: "Groq rate limit reached — please wait a moment before retrying.",
+        hint: "You've exceeded your Groq API quota. Wait 30–60 seconds or upgrade your Groq plan at console.groq.com.",
+      });
+      return true;
+    case "SERVER_ERROR":
+      res.status(502).json({
+        ...base,
+        error: "Groq server error — this is a temporary infrastructure issue.",
+        hint: "Try again in a moment. If it persists, check status.groq.com.",
+      });
+      return true;
     case "NON_200":
-      res.status(502).json({ ...base, error: "AI provider returned an error response.", hint: "Check your Groq API key or try again." });
+      res.status(502).json({ ...base, error: "AI provider returned an unexpected error.", hint: "Check your Groq API key or try again." });
       return true;
     case "EMPTY_RESPONSE":
       res.status(502).json({ ...base, error: "AI provider returned an empty response.", hint: "This may be a transient Groq issue — try again." });
