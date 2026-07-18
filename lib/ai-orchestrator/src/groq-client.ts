@@ -75,10 +75,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** llama-3.3-70b — best quality; use for task execution, code review, orchestration */
+/** llama-3.3-70b — best quality; confirmed working in production */
 export const MODEL_POWERFUL = "llama-3.3-70b-versatile";
-/** llama-3.1-8b — fast; use for chat and quick analysis */
-export const MODEL_FAST = "llama-3.1-8b-instant";
+/**
+ * Previously "llama-3.1-8b-instant". That model returned NON_200 on every
+ * request across all production sessions (2026-07-18), failing after 3 retries
+ * and always falling back to MODEL_POWERFUL — effectively doubling API calls
+ * for zero benefit. Root cause: model appears deprecated or unavailable on
+ * this Groq tier.
+ *
+ * Both constants now point to llama-3.3-70b-versatile. The fallback path in
+ * chat-agent.ts becomes a no-op (same model → same result, no second call).
+ * If a reliable smaller model becomes available later, update MODEL_FAST only.
+ */
+export const MODEL_FAST = "llama-3.3-70b-versatile";
 
 // Singleton for the env-var key; per-key cache for user-provided keys.
 let _envClient: Groq | null = null;
