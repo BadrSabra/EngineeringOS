@@ -25,7 +25,28 @@ export type ProjectContext = AgentContext;
 // Priority rank map: lower number = higher urgency (P0 is most urgent).
 const PRIORITY_RANK: Record<string, number> = { p0: 0, p1: 1, p2: 2, p3: 3 };
 
+// ── G-11: TTL context cache ───────────────────────────────────────────────────
+// 7 parallel DB queries fire on every single chat message.  A 30-second
+// in-process cache eliminates the vast majority of redundant reads during an
+// active conversation while keeping context fresh enough for any real change
+// (task update, scan completion, etc.) to surface within one turn.
+const CONTEXT_CACHE_TTL_MS = 30_000;
+const contextCache = new Map<string, { data: ProjectContext; expiresAt: number }>();
+
+/**
+ * Invalidate the cached context for a project immediately.
+ * Call after any write that changes context-relevant data — e.g. applying AI
+ * file changes, completing a scan, or updating a task.
+ */
+export function invalidateContextCache(projectId: string): void {
+  contextCache.delete(projectId);
+}
+
 export async function buildProjectContext(projectId: string): Promise<ProjectContext> {
+  // Return cached context when it is still fresh.
+  const now = Date.now();
+  const cached = contextCache.get(projectId);
+  if (cached && cached.expiresAt > now) return cached.data;
   const [[project], rawTasks, [latestMetric], entities, recentEvents, rawWorkflows, [latestScanJob]] = await Promise.all([
     db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
     // Sort in the DB by priority ASC (p0 < p1 < p2 < p3 lexically), then by
@@ -223,7 +244,7 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
   const workflowSummary =
     workflowLines.length > 0 ? workflowLines.join("\n") : "No workflows defined yet";
 
-  return {
+  const result: ProjectContext = {
     project: projectParts.join(" | "),
     workflows: workflowSummary,
     recentTasks: taskSummary,
@@ -231,4 +252,9 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
     graphSummary,
     recentEvents: eventSummary,
   };
+
+  // Store in cache — subsequent requests within the TTL window skip the 7
+  // parallel DB queries entirely.
+  contextCache.set(projectId, { data: result, expiresAt: Date.now() + CONTEXT_CACHE_TTL_MS });
+  return result;
 }

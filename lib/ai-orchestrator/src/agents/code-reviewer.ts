@@ -3,6 +3,7 @@
  * produces a structured quality report.
  */
 import { complete, MODEL_POWERFUL, type Message } from "../groq-client.js";
+import { GroqClientError } from "../errors.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildCodeReviewSystemPrompt, buildCodeReviewUserPrompt } from "../prompts/review.prompt.js";
 import { CodeReviewResultSchema, type CodeReviewOutput, type CodeIssue } from "../schemas/code-review.schema.js";
@@ -32,7 +33,19 @@ export async function reviewCode(
     { role: "user", content: buildCodeReviewUserPrompt(projectContext, fileContents) },
   ];
 
-  const response = await complete(messages, { model: MODEL_POWERFUL, apiKey: opts?.apiKey });
+  // G-18: single retry on transient Groq failures.
+  let response: Awaited<ReturnType<typeof complete>>;
+  try {
+    response = await complete(messages, { model: MODEL_POWERFUL, apiKey: opts?.apiKey });
+  } catch (err) {
+    if (err instanceof GroqClientError && (err.code === "NON_200" || err.code === "TIMEOUT")) {
+      console.warn(JSON.stringify({ scope: "code-reviewer", code: "MODEL_RETRY", originalError: err.code }));
+      response = await complete(messages, { model: MODEL_POWERFUL, apiKey: opts?.apiKey });
+    } else {
+      throw err;
+    }
+  }
+
   const parsed = parseAgentResponse(response.content, CodeReviewResultSchema, fallbackCodeReview);
   if (!parsed.ok) {
     console.warn(JSON.stringify({ scope: "code-reviewer", code: parsed.code, message: parsed.message }));

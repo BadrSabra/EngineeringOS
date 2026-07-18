@@ -196,5 +196,46 @@ export async function orchestrateWorkflow(opts: {
   apiKey?: string;
 }): Promise<WorkflowDecision> {
   const proposed = await decide(opts);
-  return validateDecision(proposed, { phases: opts.phases, currentPhase: opts.currentPhase });
+
+  // G-08: metrics gate — if the context carries unverified metrics (no
+  // successful scan has run), block "advance" and "complete" decisions.
+  // The prompt already instructs the model to emit "wait" in this case, but
+  // the instruction is text-only; this guard enforces it in code regardless
+  // of whether the model obeyed.
+  const metricsUnverified = opts.projectContext.latestMetrics.includes("⚠ WARNING:");
+  if (metricsUnverified && (proposed.action === "advance" || proposed.action === "complete")) {
+    const reason =
+      `Metrics gate: workflow cannot advance while project metrics are unverified. ` +
+      `Run a scan first so the orchestrator has reliable data to base its decision on.`;
+    console.warn(
+      JSON.stringify({
+        scope: "workflow-orchestrator",
+        code: "METRICS_GATE_BLOCKED",
+        proposedAction: proposed.action,
+        nextPhase: "nextPhase" in proposed ? proposed.nextPhase : undefined,
+      }),
+    );
+    return { action: "wait", reasoning: reason, blockers: [reason] };
+  }
+
+  const validated = validateDecision(proposed, { phases: opts.phases, currentPhase: opts.currentPhase });
+
+  // G-10: log a distinguishable warning when validateDecision silently
+  // changes the action, so callers (and the eventsTable entry that follows)
+  // can tell the difference between "AI chose wait" and "AI tried to advance
+  // but was rejected".
+  if (validated.action !== proposed.action) {
+    console.warn(
+      JSON.stringify({
+        scope: "workflow-orchestrator",
+        code: "DECISION_DOWNGRADED",
+        originalAction: proposed.action,
+        downgradedTo: validated.action,
+        reason: validated.reasoning,
+        nextPhase: "nextPhase" in proposed ? proposed.nextPhase : undefined,
+      }),
+    );
+  }
+
+  return validated;
 }

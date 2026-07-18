@@ -3,6 +3,7 @@
  * actionable engineering improvement suggestions.
  */
 import { complete, MODEL_POWERFUL, type Message } from "../groq-client.js";
+import { GroqClientError } from "../errors.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildScanAnalystSystemPrompt, buildScanAnalystUserPrompt } from "../prompts/scan.prompt.js";
 import { ScanSummarySchema, type ScanAnalysisOutput, type ScanInsight } from "../schemas/scan.schema.js";
@@ -29,7 +30,19 @@ export async function analyzeScan(
     { role: "user", content: buildScanAnalystUserPrompt(projectContext) },
   ];
 
-  const response = await complete(messages, { model: MODEL_POWERFUL, apiKey: opts?.apiKey });
+  // G-18: single retry on transient Groq failures.
+  let response: Awaited<ReturnType<typeof complete>>;
+  try {
+    response = await complete(messages, { model: MODEL_POWERFUL, apiKey: opts?.apiKey });
+  } catch (err) {
+    if (err instanceof GroqClientError && (err.code === "NON_200" || err.code === "TIMEOUT")) {
+      console.warn(JSON.stringify({ scope: "scan-analyst", code: "MODEL_RETRY", originalError: err.code }));
+      response = await complete(messages, { model: MODEL_POWERFUL, apiKey: opts?.apiKey });
+    } else {
+      throw err;
+    }
+  }
+
   const parsed = parseAgentResponse(response.content, ScanSummarySchema, fallbackScanAnalysis);
   if (!parsed.ok) {
     console.warn(JSON.stringify({ scope: "scan-analyst", code: parsed.code, message: parsed.message }));

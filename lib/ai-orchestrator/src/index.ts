@@ -9,7 +9,7 @@ export type { AgentErrorCode, GroqErrorCode } from "./errors.js";
 export { extractJson, parseAgentResponse } from "./parsing.js";
 export type { AgentParseResult } from "./parsing.js";
 
-export { buildProjectContext } from "./context-builder.js";
+export { buildProjectContext, invalidateContextCache } from "./context-builder.js";
 export type { ProjectContext } from "./context-builder.js";
 
 export * from "./schemas/index.js";

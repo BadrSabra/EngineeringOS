@@ -24,3 +24,4 @@
 - [Project bootstrap checklist](project-bootstrap.md) — two steps always needed after import: push DB schema + provision Clerk before first run.
 - [Git AI Orchestrator bug fixes](git-ai-orchestrator-fixes.md) — 5 bugs fixed: prompt/tools conflict, commit UI non-repo guard, HTTPS-only push enforcement, partial apply state, export endpoint.
 - [Gap analysis fixes batch-1](gap-analysis-fixes-batch1.md) — 9 gaps fixed: task DB sort, events for apply/commit/push, post-push scan, apply race guard, git-status invalidation, localStorage TTL, pendingChanges salvage, generated-file write guard.
+- [Gap analysis fixes batch-2](gap-analysis-fixes-batch2.md) — 5 remaining gaps fixed: context TTL cache + invalidation, workflow metrics gate, downgrade logging, single-shot agent retries, Tasks.tsx type cast.

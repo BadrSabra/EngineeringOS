@@ -17,6 +17,7 @@ import {
 import { eq, desc, and } from "drizzle-orm";
 import {
   buildProjectContext,
+  invalidateContextCache,
   chat,
   executeTask,
   analyzeScan,
@@ -498,6 +499,10 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       stateBefore: {},
       stateAfter: { filesWritten: appliedPaths },
     });
+
+    // G-11: bust the context cache so the very next /ai/chat request reflects
+    // the newly written files rather than serving a 30-second-old snapshot.
+    invalidateContextCache(projectId);
 
     // G-02 / G-14: emit an eventsTable row so this operation is visible in the
     // dashboard activity feed and in the AI context's recentEvents on the next
