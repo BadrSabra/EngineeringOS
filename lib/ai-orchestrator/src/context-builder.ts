@@ -14,6 +14,7 @@ import {
   graphEntitiesTable,
   eventsTable,
   workflowsTable,
+  scanJobsTable,
 } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 import type { AgentContext } from "./schemas/context.schema.js";
@@ -25,7 +26,7 @@ export type ProjectContext = AgentContext;
 const PRIORITY_RANK: Record<string, number> = { p0: 0, p1: 1, p2: 2, p3: 3 };
 
 export async function buildProjectContext(projectId: string): Promise<ProjectContext> {
-  const [[project], rawTasks, [latestMetric], entities, recentEvents, rawWorkflows] = await Promise.all([
+  const [[project], rawTasks, [latestMetric], entities, recentEvents, rawWorkflows, [latestScanJob]] = await Promise.all([
     db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
     // Fetch more rows than we display so the client-side priority sort can
     // surface urgent tasks even if they were updated less recently.
@@ -35,21 +36,42 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
     db.select().from(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, projectId)).orderBy(desc(graphEntitiesTable.confidence)).limit(60),
     db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId)).orderBy(desc(eventsTable.timestamp)).limit(10),
     db.select().from(workflowsTable).where(eq(workflowsTable.projectId, projectId)).orderBy(desc(workflowsTable.updatedAt)).limit(20),
+    // إصلاح: جلب حالة آخر عملية مسح لتمييز البيانات الحقيقية من القيم الافتراضية.
+    db.select({ status: scanJobsTable.status, error: scanJobsTable.error, finishedAt: scanJobsTable.finishedAt })
+      .from(scanJobsTable).where(eq(scanJobsTable.projectId, projectId)).orderBy(desc(scanJobsTable.createdAt)).limit(1),
   ]);
 
   if (!project) throw new Error(`Project ${projectId} not found`);
+
+  // ── Scan reliability ──────────────────────────────────────────────────────
+  // Determines whether metrics and graph data come from a real scan or are
+  // import-time defaults. The AI must know when it is working with unverified
+  // data so it does not present placeholder scores as factual measurements.
+  const scanVerified = latestScanJob?.status === "completed";
+  const scanFailed   = latestScanJob?.status === "failed";
+  const scanPending  = latestScanJob?.status === "queued" || latestScanJob?.status === "running";
+  const scanLabel = scanVerified
+    ? "completed"
+    : scanFailed
+      ? `FAILED (${latestScanJob.error?.slice(0, 80) ?? "unknown error"})`
+      : scanPending
+        ? latestScanJob.status
+        : "never run";
 
   // ── Project ────────────────────────────────────────────────────────────────
   const lastScan = project.lastScanAt
     ? project.lastScanAt.toISOString().slice(0, 10)
     : "never";
+  const qualityNote = scanVerified
+    ? project.qualityScore?.toFixed(1) ?? "N/A"
+    : `${project.qualityScore?.toFixed(1) ?? "N/A"} ⚠ unverified`;
   const projectParts: string[] = [
     `Name: ${project.name}`,
     `Language: ${project.language}${project.framework ? ` / ${project.framework}` : ""}`,
     `Status: ${project.status}`,
-    `Quality: ${project.qualityScore?.toFixed(1) ?? "N/A"}/100`,
+    `Quality: ${qualityNote}/100`,
     `Path: ${project.rootPath}`,
-    `Last scan: ${lastScan}`,
+    `Last scan: ${lastScan} [${scanLabel}]`,
   ];
   // Include description only when present — it is often empty on new projects.
   if (project.description) projectParts.push(`Description: ${project.description}`);
@@ -82,6 +104,8 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
   // ── Metrics ────────────────────────────────────────────────────────────────
   // Every column of the metrics row is represented; nullable fields are shown
   // as "N/A" rather than omitted so agents know the data exists but is absent.
+  // إصلاح: نُميّز بين المقاييس الحقيقية (من مسح ناجح) والقيم الافتراضية (من الاستيراد).
+  // النموذج يجب أن يعرف عندما يعمل بقيم غير موثوقة حتى لا يقدّمها كنتائج فعلية.
   let metricsSummary: string;
   if (latestMetric) {
     const fmt = (v: number | null | undefined) => (v != null ? v.toFixed(1) : "N/A");
@@ -111,9 +135,15 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
     }
 
     parts.push(`(as of ${asOf})`);
-    metricsSummary = parts.join(" | ");
+    const rawMetrics = parts.join(" | ");
+
+    // أضف تحذيراً صريحاً إذا لم يكن المسح ناجحاً — القيم قد تكون مُعيَّنة مسبقاً
+    // وليست نتيجة تحليل حقيقي للكود.
+    metricsSummary = scanVerified
+      ? rawMetrics
+      : `${rawMetrics}\n⚠ WARNING: These metrics were NOT produced by a successful scan. They are placeholder values set at import time and do NOT reflect real code analysis. Do NOT present them to the user as actual quality measurements. Tell the user to run a scan first.`;
   } else {
-    metricsSummary = "No metrics available yet";
+    metricsSummary = "No metrics available yet — a scan has not been run for this project.";
   }
 
   // ── Knowledge graph ────────────────────────────────────────────────────────
