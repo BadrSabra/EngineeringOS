@@ -11,6 +11,7 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import path from "node:path";
 
 const execFileAsync = promisify(execFile);
 
@@ -103,7 +104,20 @@ export async function executeGitTool(
     case "git_diff": {
       // Show all uncommitted changes (staged + unstaged) against HEAD.
       const gitArgs = ["diff", "HEAD"];
-      if (args.path) gitArgs.push("--", args.path);
+      if (args.path) {
+        // D-01: Bounds-check the path before handing it to git, mirroring the
+        // safePath guard in file-tools.ts.  git -C rootPath handles the
+        // working-directory, but a traversal like "../../other-project" would
+        // still resolve outside the project root if the git repo's root is an
+        // ancestor directory.  We reject any resolved path that escapes rootPath
+        // before the "--" separator is added to the git command.
+        const normalRoot = path.resolve(rootPath);
+        const resolved   = path.resolve(rootPath, args.path);
+        if (resolved !== normalRoot && !resolved.startsWith(normalRoot + path.sep)) {
+          return `[git-tools]: Rejected — path "${args.path}" resolves outside the project root.`;
+        }
+        gitArgs.push("--", args.path);
+      }
       const out = await safeGit(gitArgs, rootPath);
       return out || "No uncommitted changes.";
     }

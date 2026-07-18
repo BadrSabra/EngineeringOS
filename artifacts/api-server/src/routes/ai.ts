@@ -45,8 +45,28 @@ const router = Router();
 function handleOrchestratorError(
   err: unknown,
   res: import("express").Response,
+  /** D-04: optional context so failures are emitted to eventsTable and become
+   *  visible in the AI's recentEvents on the next request. */
+  ctx?: { projectId?: string; operation?: string },
 ): boolean {
   if (!(err instanceof GroqClientError)) return false;
+
+  // Emit a DB event for every operational failure so the AI's context reflects
+  // that an attempt was made and failed.  Previously a 429 or AUTH_ERROR was
+  // returned to the client with no eventsTable write, leaving the AI with no
+  // awareness of the failure pattern on the next turn.
+  if (ctx?.projectId) {
+    void db
+      .insert(eventsTable)
+      .values({
+        id: randomUUID(),
+        type: "AiOrchestratorError",
+        projectId: ctx.projectId,
+        severity: "error",
+        message: `AI request failed [${err.code}]${ctx.operation ? ` during ${ctx.operation}` : ""}: ${err.message.slice(0, 180)}`,
+      })
+      .catch(() => {}); // fire-and-forget; response is already being sent
+  }
 
   const base = { code: err.code };
   switch (err.code) {
@@ -346,7 +366,7 @@ router.post("/ai/chat", async (req, res) => {
       apiKey,
     });
   } catch (err) {
-    if (handleOrchestratorError(err, res)) return;
+    if (handleOrchestratorError(err, res, { projectId, operation: "chat" })) return;
     throw err;
   }
 
@@ -538,7 +558,7 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
   try {
     result = await analyzeScan(projectContext, { apiKey });
   } catch (err) {
-    if (handleOrchestratorError(err, res)) return;
+    if (handleOrchestratorError(err, res, { projectId, operation: "scan-analysis" })) return;
     throw err;
   }
 
@@ -570,7 +590,7 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
   try {
     result = await reviewCode(projectContext, fileContents, { apiKey });
   } catch (err) {
-    if (handleOrchestratorError(err, res)) return;
+    if (handleOrchestratorError(err, res, { projectId, operation: "code-review" })) return;
     throw err;
   }
 
@@ -635,7 +655,7 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
       apiKey,
     });
   } catch (err) {
-    if (handleOrchestratorError(err, res)) return;
+    if (handleOrchestratorError(err, res, { projectId: workflow.projectId, operation: "workflow-orchestration" })) return;
     throw err;
   }
 
@@ -733,7 +753,7 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       metadata: { error: String(err), correlationId },
       correlationId,
     });
-    if (handleOrchestratorError(err, res)) return;
+    if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution" })) return;
     throw err;
   }
 

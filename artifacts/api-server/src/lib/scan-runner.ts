@@ -72,16 +72,30 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
     const message = err instanceof Error ? err.message : String(err);
     logger.error({ err, projectId, jobId }, "scan job failed");
     try {
+      const failedAt = new Date();
       await db
         .update(scanJobsTable)
-        .set({ status: "failed", error: message, finishedAt: new Date() })
+        .set({ status: "failed", error: message, finishedAt: failedAt })
         .where(eq(scanJobsTable.id, jobId));
       // Guard with `status = "scanning"` so a newer job that has already
       // taken ownership of this project is not clobbered by this failure path.
       await db
         .update(projectsTable)
-        .set({ status: "active", updatedAt: new Date() })
+        .set({ status: "active", updatedAt: failedAt })
         .where(and(eq(projectsTable.id, projectId), eq(projectsTable.status, "scanning")));
+
+      // D-02: emit a ProjectScanFailed event so the AI context's recentEvents
+      // reflects the failure.  Previously only the scan_jobs row was updated;
+      // the event log was silent, leaving the AI unaware that a scan attempt
+      // had been made and failed.
+      await db.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "ProjectScanFailed",
+        projectId,
+        severity: "error",
+        message: `Scan failed: ${message.slice(0, 200)}`,
+        correlationId: jobId,
+      });
     } catch (cleanupErr) {
       // Even the failure-path writes are wrapped: if the DB is unreachable
       // there is nothing more we can safely do in-process, but we must

@@ -225,7 +225,15 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
   // Timestamp is now included so agents can reason about staleness.
   const eventLines = recentEvents.map((e) => {
     const ts = e.timestamp.toISOString().slice(0, 16).replace("T", " ");
-    return `- [${e.severity.toUpperCase()}] ${ts} ${e.type}: ${e.message}`;
+    // D-05: include entity references so agents can correlate events to the
+    // tasks/workflows listed in the context.  Previously taskId, workflowId,
+    // and correlationId were dropped, making "TaskCompleted" events anonymous.
+    const refs: string[] = [];
+    if (e.taskId)       refs.push(`task:${e.taskId.slice(0, 8)}`);
+    if (e.workflowId)   refs.push(`wf:${e.workflowId.slice(0, 8)}`);
+    if (e.correlationId) refs.push(`corr:${e.correlationId.slice(0, 8)}`);
+    const refStr = refs.length > 0 ? ` [${refs.join(" ")}]` : "";
+    return `- [${e.severity.toUpperCase()}] ${ts} ${e.type}: ${e.message}${refStr}`;
   });
 
   const eventSummary = eventLines.length > 0 ? eventLines.join("\n") : "No recent events";

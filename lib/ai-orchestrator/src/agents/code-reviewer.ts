@@ -38,7 +38,9 @@ export async function reviewCode(
   try {
     response = await complete(messages, { model: MODEL_POWERFUL, apiKey: opts?.apiKey });
   } catch (err) {
-    if (err instanceof GroqClientError && (err.code === "NON_200" || err.code === "TIMEOUT")) {
+    // Retry only NON_200 — TIMEOUT/NETWORK_ERROR/RATE_LIMITED/SERVER_ERROR
+    // are already retried 3× by the base completeRaw() client.
+    if (err instanceof GroqClientError && err.code === "NON_200") {
       console.warn(JSON.stringify({ scope: "code-reviewer", code: "MODEL_RETRY", originalError: err.code }));
       response = await complete(messages, { model: MODEL_POWERFUL, apiKey: opts?.apiKey });
     } else {

@@ -129,6 +129,29 @@ router.patch("/tasks/:taskId", async (req, res) => {
     stateAfter: updated[0],
   });
 
+  // D-03: emit an event for meaningful field changes (status/priority) so the
+  // AI context's recentEvents reflects manual edits.  Previously only the
+  // audit_log was updated — the AI could see a task's current state in
+  // recentTasks but had no event explaining when or why it changed.
+  const changes: string[] = [];
+  if (body.status && body.status !== before[0].status)
+    changes.push(`status: ${before[0].status} → ${body.status}`);
+  if (body.priority && body.priority !== before[0].priority)
+    changes.push(`priority: ${before[0].priority} → ${body.priority}`);
+  if (body.title && body.title !== before[0].title)
+    changes.push(`title updated`);
+
+  if (changes.length > 0) {
+    await db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "TaskUpdated",
+      projectId: before[0].projectId,
+      taskId,
+      severity: "info",
+      message: `Task "${updated[0].title}" updated — ${changes.join(", ")}`,
+    });
+  }
+
   return res.json(updated[0]);
 });
 

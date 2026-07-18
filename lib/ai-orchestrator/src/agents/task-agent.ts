@@ -44,7 +44,12 @@ export async function executeTask(input: TaskAgentInput): Promise<TaskAgentOutpu
   try {
     response = await complete(messages, { model: MODEL_POWERFUL, apiKey: input.apiKey });
   } catch (err) {
-    if (err instanceof GroqClientError && (err.code === "NON_200" || err.code === "TIMEOUT")) {
+    // Retry only NON_200 at the agent level.  TIMEOUT / NETWORK_ERROR /
+    // RATE_LIMITED / SERVER_ERROR are already retried 3× inside completeRaw;
+    // adding an agent-level retry for those would produce up to 6 total
+    // attempts, which is excessive.  NON_200 (an unexpected HTTP status that
+    // the base client treats as non-retryable) is the only gap worth covering.
+    if (err instanceof GroqClientError && err.code === "NON_200") {
       console.warn(JSON.stringify({ scope: "task-agent", code: "MODEL_RETRY", originalError: err.code }));
       response = await complete(messages, { model: MODEL_POWERFUL, apiKey: input.apiKey });
     } else {
