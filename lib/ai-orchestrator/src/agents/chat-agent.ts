@@ -41,6 +41,7 @@
  *   dashboard UI before anything is written.
  */
 import { completeRaw, MODEL_POWERFUL, MODEL_FAST } from "../groq-client.js";
+import { GroqClientError } from "../errors.js";
 import type { RawMessage } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildChatSystemPrompt } from "../prompts/chat.prompt.js";
@@ -141,7 +142,9 @@ export async function chat(opts: {
   // powerful model, reducing 429 errors during the iterative tool-use phase.
   // MODEL_POWERFUL is reserved for single-shot tasks (code review, analysis)
   // that benefit from deeper reasoning but never loop.
-  const model = MODEL_FAST;
+  // نوع string الصريح يمنع TypeScript من تضييق القيمة إلى literal ثابت،
+  // وهو ضروري لمقارنة model !== MODEL_POWERFUL عند fallback النموذج.
+  const model: string = MODEL_FAST;
 
   const messages: RawMessage[] = [
     { role: "system", content: buildChatSystemPrompt(projectContext, !!rootPath) },
@@ -150,7 +153,22 @@ export async function chat(opts: {
   ];
 
   for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
-    const result = await completeRaw(messages, { model, maxTokens: 4096, apiKey, tools });
+    // إصلاح #1 و #2: timeout ممتد + fallback تلقائي إلى MODEL_POWERFUL عند NON_200 من MODEL_FAST.
+    // llama-3.1-8b-instant يفشل أحياناً بـNON_200 تحت حِمل tool-use ثقيل؛
+    // إعادة المحاولة بالنموذج الأقوى تُنقذ الطلب بدل إرجاع 502 للمستخدم.
+    let result: Awaited<ReturnType<typeof completeRaw>>;
+    try {
+      result = await completeRaw(messages, { model, maxTokens: 4096, timeoutMs: 60_000, apiKey, tools });
+    } catch (err) {
+      if (err instanceof GroqClientError && err.code === "NON_200" && model !== MODEL_POWERFUL) {
+        console.warn(
+          JSON.stringify({ scope: "chat-agent", code: "MODEL_FALLBACK", from: model, to: MODEL_POWERFUL, iter }),
+        );
+        result = await completeRaw(messages, { model: MODEL_POWERFUL, maxTokens: 4096, timeoutMs: 60_000, apiKey, tools });
+      } else {
+        throw err;
+      }
+    }
 
     // Model wants to call one or more tools → execute them and loop.
     if (result.toolCalls && result.toolCalls.length > 0) {
@@ -179,9 +197,9 @@ export async function chat(opts: {
 
         if (cached !== undefined) {
           // ── Guard 2: deduplication ─────────────────────────────────────────
-          // Identical call seen before — return the cached result at no cost.
-          // This short-circuits stuck loops (model re-reading the same file)
-          // and prevents duplicate pendingChanges entries for write_file.
+          // Identical call seen before — return cached result at no cost.
+          // إصلاح #4: نُعلم النموذج صراحةً أن هذه النتيجة مخزّنة مسبقاً حتى
+          // لا يتوهم أنه لم يتلقَّ ردًّا ويعيد طلب نفس الأداة مجدداً.
           console.warn(
             JSON.stringify({
               scope: "chat-agent",
@@ -190,7 +208,11 @@ export async function chat(opts: {
               iter,
             }),
           );
-          messages.push({ role: "tool", tool_call_id: tc.id, content: cached });
+          messages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: `[cached — identical call already executed this request]\n${cached}`,
+          });
           continue;
         }
 
@@ -258,7 +280,14 @@ export async function chat(opts: {
       messages.push({ role: "assistant", content });
       messages.push({ role: "user", content: correctionPrompt });
       try {
-        const retry = await completeRaw(messages, { model, maxTokens: 4096, apiKey });
+        // إصلاح #3: response_format: json_object يُجبر Groq على إرجاع JSON صالح.
+        // مقبول هنا لأن طلب التصحيح لا يحمل tools (متبادلان حصريًا على Groq).
+        const retry = await completeRaw(messages, {
+          model,
+          maxTokens: 4096,
+          apiKey,
+          responseFormat: { type: "json_object" },
+        });
         const retryContent = retry.content ?? "";
         const retryParsed = parseAgentResponse(retryContent, ChatResponseSchema, fallbackChatOutput);
         if (retryParsed.ok) {

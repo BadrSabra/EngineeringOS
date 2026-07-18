@@ -395,6 +395,36 @@ export default function AiChat() {
   const [input, setInput] = useState('');
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
+  const [agentStage, setAgentStage] = useState<string | null>(null);
+  const agentStageTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // إصلاح #5: حفظ التغييرات المعلقة في localStorage مرتبطةً بالجلسة،
+  // حتى لا تضيع عند تحديث الصفحة قبل الموافقة عليها.
+  useEffect(() => {
+    if (!sessionId) return;
+    const key = `eos_pending_${sessionId}`;
+    if (pendingChanges.length > 0) {
+      localStorage.setItem(key, JSON.stringify(pendingChanges));
+    } else {
+      localStorage.removeItem(key);
+    }
+  }, [pendingChanges, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId) { setPendingChanges([]); return; }
+    const key = `eos_pending_${sessionId}`;
+    const saved = localStorage.getItem(key);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as PendingChange[];
+        if (parsed.length > 0) setPendingChanges(parsed);
+      } catch {
+        localStorage.removeItem(key);
+      }
+    } else {
+      setPendingChanges([]);
+    }
+  }, [sessionId]);
 
   // Use the generated hook (same URL and auth path as Projects.tsx) so this
   // query uses customFetch — which throws ApiError on non-2xx, preserving the
@@ -454,6 +484,33 @@ export default function AiChat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [localMessages]);
 
+  // إصلاح #2: مؤشر المراحل — يُظهر للمستخدم ما يفعله الوكيل أثناء الانتظار
+  // بدلاً من رسالة ثابتة "Reading code…" طوال 20-50 ثانية.
+  const AGENT_STAGES = [
+    'Thinking…',
+    'Reading project context…',
+    'Searching code…',
+    'Analyzing patterns…',
+    'Synthesizing answer…',
+  ];
+
+  function startAgentStages() {
+    let idx = 0;
+    setAgentStage(AGENT_STAGES[0]);
+    agentStageTimerRef.current = setInterval(() => {
+      idx = Math.min(idx + 1, AGENT_STAGES.length - 1);
+      setAgentStage(AGENT_STAGES[idx]);
+    }, 8_000);
+  }
+
+  function stopAgentStages() {
+    if (agentStageTimerRef.current) {
+      clearInterval(agentStageTimerRef.current);
+      agentStageTimerRef.current = null;
+    }
+    setAgentStage(null);
+  }
+
   const sendMutation = useMutation({
     mutationFn: (msg: string) =>
       apiPost<{ sessionId: string; message: ChatMessage; sources: string[]; pendingChanges?: PendingChange[] }>(
@@ -468,8 +525,10 @@ export default function AiChat() {
         createdAt: new Date().toISOString(),
       };
       setLocalMessages((prev) => [...prev, optimistic]);
+      startAgentStages();
     },
     onSuccess: (data) => {
+      stopAgentStages();
       setSessionId(data.sessionId);
       setLocalMessages((prev) => {
         const withoutOpt = prev.filter((m) => !m.id.startsWith('opt-'));
@@ -479,6 +538,7 @@ export default function AiChat() {
       void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
     },
     onError: (err) => {
+      stopAgentStages();
       setLocalMessages((prev) => prev.filter((m) => !m.id.startsWith('opt-')));
       const description =
         err instanceof ApiError ? (classifyProjectError(err)?.message ?? err.message) : describeAiError(err);
@@ -668,7 +728,9 @@ export default function AiChat() {
                   </div>
                   <div className="bg-secondary border border-border rounded-xl rounded-tl-sm px-4 py-3 flex items-center gap-2">
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">Reading code…</span>
+                    <span className="text-xs text-muted-foreground transition-all duration-500">
+                      {agentStage ?? 'Thinking…'}
+                    </span>
                   </div>
                 </div>
               )}

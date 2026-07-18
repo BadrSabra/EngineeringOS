@@ -41,6 +41,12 @@ export type CompleteOptions = {
    * singleton. Each distinct key gets its own cached client instance.
    */
   apiKey?: string;
+  /**
+   * Force a structured JSON response from the model.
+   * Only use when tools are NOT present in the request — Groq rejects
+   * response_format + tools together.
+   */
+  responseFormat?: { type: "json_object" };
 };
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -209,16 +215,19 @@ export async function completeRaw(
     maxRetries = DEFAULT_MAX_RETRIES,
     apiKey,
     tools,
+    responseFormat,
   } = opts;
 
   const client = getClient(apiKey);
+  const hasTools = tools && tools.length > 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const request: any = {
     messages,
     model,
     temperature,
     max_tokens: maxTokens,
-    ...(tools && tools.length > 0 ? { tools, tool_choice: "auto" } : {}),
+    // response_format and tools are mutually exclusive on Groq; tools take priority.
+    ...(hasTools ? { tools, tool_choice: "auto" } : responseFormat ? { response_format: responseFormat } : {}),
   };
 
   const startedAt = Date.now();
