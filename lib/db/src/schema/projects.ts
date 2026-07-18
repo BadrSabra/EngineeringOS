@@ -25,6 +25,10 @@ export const projectsTable = pgTable("projects", {
   status: projectStatusEnum("status").notNull().default("active"),
   qualityScore: real("quality_score"),
   lastScanAt: timestamp("last_scan_at"),
+  /** HTTPS remote URL for git push/pull — e.g. https://github.com/user/repo.git */
+  gitRemoteUrl: text("git_remote_url"),
+  /** Default branch to push to — e.g. main */
+  gitDefaultBranch: text("git_default_branch"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, (t) => [

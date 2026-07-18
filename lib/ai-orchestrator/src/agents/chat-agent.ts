@@ -48,6 +48,7 @@ import { buildChatSystemPrompt } from "../prompts/chat.prompt.js";
 import { ChatResponseSchema, ChatOutputSchema, type ChatOutput, type PendingChange } from "../schemas/chat.schema.js";
 import { parseAgentResponse } from "../parsing.js";
 import { FILE_TOOL_DEFINITIONS, executeFileTool } from "../tools/file-tools.js";
+import { GIT_TOOL_DEFINITIONS, executeGitTool } from "../tools/git-tools.js";
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 export type { ChatOutput };
@@ -152,7 +153,7 @@ export async function chat(opts: {
   /** Running count of tool executions that hit the real filesystem/grep. */
   let totalToolCalls = 0;
 
-  const tools = rootPath ? FILE_TOOL_DEFINITIONS : undefined;
+  const tools = rootPath ? [...FILE_TOOL_DEFINITIONS, ...GIT_TOOL_DEFINITIONS] : undefined;
   // Use the more capable model when tools are involved — smaller models are
   // unreliable at following multi-step tool-calling protocols.
   // Always use MODEL_FAST for the agentic chat loop — it handles multi-turn
@@ -257,7 +258,10 @@ export async function chat(opts: {
 
         // ── Execute ──────────────────────────────────────────────────────────
         totalToolCalls++;
-        const output = await executeFileTool(tc.function.name, args, rootPath!, pendingChanges);
+        const isGitTool = tc.function.name.startsWith("git_");
+        const output = isGitTool
+          ? await executeGitTool(tc.function.name, args, rootPath!)
+          : await executeFileTool(tc.function.name, args, rootPath!, pendingChanges);
 
         // Cache result for deduplication on future iterations.
         toolCallCache.set(key, output);
@@ -273,6 +277,15 @@ export async function chat(opts: {
             break;
           case "search_code":
             if (args.pattern) toolSources.push(`search: ${args.pattern}`);
+            break;
+          case "git_status":
+            toolSources.push("git:status");
+            break;
+          case "git_diff":
+            toolSources.push(args.path ? `git:diff:${args.path}` : "git:diff");
+            break;
+          case "git_log":
+            toolSources.push("git:log");
             break;
         }
 

@@ -10,6 +10,7 @@ import graphRouter from "./graph.js";
 import pluginsRouter from "./plugins.js";
 import dashboardRouter from "./dashboard.js";
 import aiRouter from "./ai.js";
+import gitRouter from "./git.js";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use(graphRouter);
 router.use(pluginsRouter);
 router.use(dashboardRouter);
 router.use(aiRouter);
+router.use(gitRouter);
 
 export default router;

@@ -9,7 +9,9 @@ import type { ProjectContext } from "../context-builder.js";
  */
 export function buildChatSystemPrompt(context: ProjectContext, hasTools = false): string {
   const toolSection = hasTools
-    ? `**File-system tools available in this session:** read_file · list_directory · search_code · write_file
+    ? `**Tools available in this session:**
+File tools: read_file · list_directory · search_code · write_file
+Git tools: git_status · git_diff · git_log
 Use them to:
 - Read specific file content not captured in entity descriptions.
 - Search for patterns across the codebase when the graph lacks insufficient detail.

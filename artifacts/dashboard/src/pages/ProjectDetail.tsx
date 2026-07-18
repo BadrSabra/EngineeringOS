@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useRoute } from 'wouter';
+import GitPanel from '@/components/GitPanel';
 import {
   useGetProject,
   useGetProjectSummary,
@@ -263,6 +264,9 @@ export default function ProjectDetail() {
           )}
         </div>
       )}
+
+      {/* GitHub integration */}
+      <GitPanel projectId={projectId} />
 
       {/* Metrics + tasks grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
