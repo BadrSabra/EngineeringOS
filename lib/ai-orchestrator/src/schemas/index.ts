@@ -13,5 +13,5 @@ export type { ScanInsight, ScanAnalysisOutput } from "./scan.schema.js";
 export { TaskRecommendationSchema } from "./task.schema.js";
 export type { TaskAgentOutput } from "./task.schema.js";
 
-export { WorkflowPhaseSchema, WorkflowActionSchema, WorkflowDecisionSchema } from "./workflow.schema.js";
+export { WorkflowPhaseSchema, WorkflowActionSchema, WorkflowDecisionSchema, parseWorkflowPhases } from "./workflow.schema.js";
 export type { WorkflowPhase, WorkflowAction, WorkflowDecision } from "./workflow.schema.js";

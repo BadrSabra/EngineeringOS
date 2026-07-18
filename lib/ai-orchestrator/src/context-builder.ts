@@ -12,6 +12,7 @@ import {
   tasksTable,
   metricsTable,
   graphEntitiesTable,
+  graphRelationshipsTable,
   eventsTable,
   workflowsTable,
   scanJobsTable,
@@ -47,7 +48,7 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
   const now = Date.now();
   const cached = contextCache.get(projectId);
   if (cached && cached.expiresAt > now) return cached.data;
-  const [[project], rawTasks, [latestMetric], entities, recentEvents, rawWorkflows, [latestScanJob]] = await Promise.all([
+  const [[project], rawTasks, [latestMetric], entities, recentEvents, rawWorkflows, [latestScanJob], relationships] = await Promise.all([
     db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
     // Sort in the DB by priority ASC (p0 < p1 < p2 < p3 lexically), then by
     // recency DESC as a tiebreaker.  This ensures a P0 task that hasn't been
@@ -62,6 +63,23 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
     // إصلاح: جلب حالة آخر عملية مسح لتمييز البيانات الحقيقية من القيم الافتراضية.
     db.select({ status: scanJobsTable.status, error: scanJobsTable.error, finishedAt: scanJobsTable.finishedAt })
       .from(scanJobsTable).where(eq(scanJobsTable.projectId, projectId)).orderBy(desc(scanJobsTable.createdAt)).limit(1),
+    // Gap-1 fix: load relationships so the AI sees graph topology (edges), not
+    // just entity nodes. Previously context-builder only fetched graphEntitiesTable
+    // — the AI had entity names but no topology, making analysis purely a summary
+    // rather than real graph reasoning. Capped at 40 high-confidence edges to
+    // keep the context string from becoming too large.
+    db.select({
+      id: graphRelationshipsTable.id,
+      sourceId: graphRelationshipsTable.sourceId,
+      targetId: graphRelationshipsTable.targetId,
+      relation: graphRelationshipsTable.relation,
+      relationType: graphRelationshipsTable.relationType,
+      confidence: graphRelationshipsTable.confidence,
+      isHeuristic: graphRelationshipsTable.isHeuristic,
+    }).from(graphRelationshipsTable)
+      .where(eq(graphRelationshipsTable.projectId, projectId))
+      .orderBy(desc(graphRelationshipsTable.confidence))
+      .limit(40),
   ]);
 
   if (!project) throw new Error(`Project ${projectId} not found`);
@@ -215,9 +233,28 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
     if (shownIds.size >= 50) break;
   }
 
+  // ── Graph Relationships (topology) ──────────────────────────────────────
+  // Build a name-lookup from already-fetched entities so we can show human-
+  // readable "A → calls → B" lines instead of bare UUIDs. Entities outside
+  // the 60-row cap appear as truncated IDs — still useful for tracing.
+  const entityNameById = new Map<string, string>(entities.map((e) => [e.id, e.name]));
+  const relLines: string[] = [];
+  for (const r of relationships) {
+    const src = entityNameById.get(r.sourceId) ?? r.sourceId.slice(0, 8);
+    const tgt = entityNameById.get(r.targetId) ?? r.targetId.slice(0, 8);
+    const label = r.relationType ?? r.relation;
+    const conf = r.confidence != null ? ` [${(r.confidence * 100).toFixed(0)}%]` : "";
+    const heuristic = r.isHeuristic ? " [heuristic]" : "";
+    relLines.push(`  • ${src} → ${label} → ${tgt}${conf}${heuristic}`);
+  }
+  const relSummary =
+    relLines.length > 0
+      ? `\nRelationships (${relationships.length} shown):\n${relLines.join("\n")}`
+      : "";
+
   const graphSummary =
     entities.length > 0
-      ? `${entities.length} entities total:\n${entityLines.join("\n")}`
+      ? `${entities.length} entities total:\n${entityLines.join("\n")}${relSummary}`
       : "Knowledge graph empty — run a scan first";
 
   // ── Events ────────────────────────────────────────────────────────────────

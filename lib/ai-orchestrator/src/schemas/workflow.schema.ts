@@ -1,10 +1,41 @@
 import { z } from "zod";
 
-export const WorkflowPhaseSchema = z.object({
-  name: z.string().min(1),
-  steps: z.array(z.string().min(1)).min(1),
-  condition: z.string().optional(),
-});
+export const WorkflowPhaseSchema = z
+  .object({
+    name: z.string().min(1),
+    steps: z.array(z.string().min(1)).min(1),
+    condition: z.string().optional(),
+  })
+  .strict();
+
+/**
+ * Parse and validate a raw `phases` value from the DB.
+ *
+ * Enforces:
+ *   1. Every phase matches WorkflowPhaseSchema (name, steps[≥1], optional condition).
+ *   2. Phase names are unique within the workflow — duplicate names break
+ *      validateDecision(), which relies on linear name-based lookups.
+ *
+ * Returns `{ ok: true, phases }` on success or `{ ok: false, error }` on failure
+ * so callers can decide whether to abort or fall back gracefully.
+ */
+export function parseWorkflowPhases(
+  raw: unknown,
+): { ok: true; phases: WorkflowPhase[] } | { ok: false; error: string } {
+  const parsed = z.array(WorkflowPhaseSchema).safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues.map((i) => i.message).join("; ") };
+  }
+  const names = parsed.data.map((p) => p.name);
+  const seen = new Set<string>();
+  for (const name of names) {
+    if (seen.has(name)) {
+      return { ok: false, error: `Duplicate phase name: "${name}". Phase names must be unique within a workflow.` };
+    }
+    seen.add(name);
+  }
+  return { ok: true, phases: parsed.data };
+}
 
 export const WorkflowActionSchema = z.enum(["advance", "wait", "fail", "complete"]);
 

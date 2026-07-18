@@ -2147,7 +2147,35 @@ export const AiChatResponse = zod.object({
   "sources": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 }),
-  "sources": zod.array(zod.string())
+  "sources": zod.array(zod.string()),
+  "pendingChanges": zod.array(zod.object({
+  "path": zod.string().describe('Normalized relative path within the project root'),
+  "absolutePath": zod.string().describe('Absolute filesystem path; must be inside the project root'),
+  "newContent": zod.string().describe('Full new content to write to the file'),
+  "originalContent": zod.string().nullish().describe('Original content before the change, or null for new files'),
+  "reason": zod.string().describe('One-sentence explanation of why this change is proposed')
+})).describe('File changes proposed by the AI agent — ephemeral, not persisted in DB')
+})
+
+
+/**
+ * @summary Apply AI-proposed file changes approved by the user
+ */
+export const AiApplyChangesBody = zod.object({
+  "projectId": zod.string(),
+  "changes": zod.array(zod.object({
+  "path": zod.string(),
+  "absolutePath": zod.string(),
+  "newContent": zod.string()
+}))
+})
+
+export const AiApplyChangesResponse = zod.object({
+  "results": zod.array(zod.object({
+  "path": zod.string(),
+  "ok": zod.boolean(),
+  "error": zod.string().optional()
+}))
 })
 
 

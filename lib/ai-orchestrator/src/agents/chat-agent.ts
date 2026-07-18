@@ -45,7 +45,7 @@ import { GroqClientError } from "../errors.js";
 import type { RawMessage } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildChatSystemPrompt } from "../prompts/chat.prompt.js";
-import { ChatResponseSchema, ChatOutputSchema, type ChatOutput, type PendingChange } from "../schemas/chat.schema.js";
+import { ChatResponseSchema, ChatOutputSchema, PendingChangeSchema, type ChatOutput, type PendingChange } from "../schemas/chat.schema.js";
 import { parseAgentResponse } from "../parsing.js";
 import { FILE_TOOL_DEFINITIONS, executeFileTool } from "../tools/file-tools.js";
 import { GIT_TOOL_DEFINITIONS, executeGitTool } from "../tools/git-tools.js";
@@ -354,17 +354,14 @@ export async function chat(opts: {
     };
     const check = ChatOutputSchema.safeParse(output);
     if (!check.success) {
-      // Attempt to salvage individual pending changes that are structurally
-      // sound — only the ones whose fields satisfy the minimum contract.
-      // This prevents silently discarding all the model's file-write intent
-      // when a single bad field (e.g. an extra property) fails the top-level
-      // schema check.
+      // Attempt to salvage individual pending changes that fully satisfy
+      // PendingChangeSchema (including the absolutePath.isAbsolute refinement
+      // and the .strict() guard that rejects extra properties). This is more
+      // precise than the previous manual type-checks, which passed a relative
+      // absolutePath or an extra field through the salvage path despite the
+      // schema forbidding both.
       const validChanges = pendingChanges.filter(
-        (pc) =>
-          typeof pc.path === "string" && pc.path.length > 0 &&
-          typeof pc.absolutePath === "string" && pc.absolutePath.length > 0 &&
-          typeof pc.newContent === "string" &&
-          typeof pc.reason === "string",
+        (pc) => PendingChangeSchema.safeParse(pc).success,
       );
       console.error(
         JSON.stringify({

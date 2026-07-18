@@ -1373,6 +1373,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/AiChatOutput"
 
+  /api/ai/chat/apply-changes:
+    post:
+      operationId: aiApplyChanges
+      summary: Apply AI-proposed file changes approved by the user
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiApplyChangesRequest"
+      responses:
+        "200":
+          description: All changes applied successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiApplyChangesResult"
+        "207":
+          description: Partial success — some changes applied, some failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiApplyChangesResult"
+
   /api/ai/chat/sessions:
     get:
       operationId: listAiChatSessions
@@ -1667,9 +1692,66 @@ components:
         additionalContext:
           type: string
 
+    AiPendingChange:
+      type: object
+      required: [path, absolutePath, newContent, reason]
+      properties:
+        path:
+          type: string
+          description: Normalized relative path within the project root
+        absolutePath:
+          type: string
+          description: Absolute filesystem path; must be inside the project root
+        newContent:
+          type: string
+          description: Full new content to write to the file
+        originalContent:
+          type: string
+          nullable: true
+          description: Original content before the change, or null for new files
+        reason:
+          type: string
+          description: One-sentence explanation of why this change is proposed
+
+    AiApplyChangesRequest:
+      type: object
+      required: [projectId, changes]
+      properties:
+        projectId:
+          type: string
+        changes:
+          type: array
+          items:
+            type: object
+            required: [path, absolutePath, newContent]
+            properties:
+              path:
+                type: string
+              absolutePath:
+                type: string
+              newContent:
+                type: string
+
+    AiApplyChangesResult:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            required: [path, ok]
+            properties:
+              path:
+                type: string
+              ok:
+                type: boolean
+              error:
+                type: string
+
     AiChatOutput:
       type: object
-      required: [sessionId, message, sources]
+      required: [sessionId, message, sources, pendingChanges]
       properties:
         sessionId:
           type: string
@@ -1679,6 +1761,11 @@ components:
           type: array
           items:
             type: string
+        pendingChanges:
+          type: array
+          description: File changes proposed by the AI agent — ephemeral, not persisted in DB
+          items:
+            $ref: "#/components/schemas/AiPendingChange"
 
     AiScanInsight:
       type: object

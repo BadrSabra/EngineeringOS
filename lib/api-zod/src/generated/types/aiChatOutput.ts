@@ -6,9 +6,12 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { AiChatMessage } from './aiChatMessage';
+import type { AiPendingChange } from './aiPendingChange';
 
 export interface AiChatOutput {
   sessionId: string;
   message: AiChatMessage;
   sources: string[];
+  /** File changes proposed by the AI agent — ephemeral, not persisted in DB */
+  pendingChanges: AiPendingChange[];
 }

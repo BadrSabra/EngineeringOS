@@ -6,6 +6,10 @@
  * OpenAPI spec version: 1.0.0
  */
 
+export * from './aiApplyChangesRequest';
+export * from './aiApplyChangesRequestChangesItem';
+export * from './aiApplyChangesResult';
+export * from './aiApplyChangesResultResultsItem';
 export * from './aiChatMessage';
 export * from './aiChatMessageRole';
 export * from './aiChatOutput';
@@ -19,6 +23,7 @@ export * from './aiCodeReviewVerdict';
 export * from './aiOrchestrateRequest';
 export * from './aiOrchestrationDecision';
 export * from './aiOrchestrationDecisionAction';
+export * from './aiPendingChange';
 export * from './aiReviewRequest';
 export * from './aiReviewRequestFileContents';
 export * from './aiScanAnalysis';

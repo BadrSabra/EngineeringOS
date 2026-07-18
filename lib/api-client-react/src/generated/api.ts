@@ -20,6 +20,8 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AiApplyChangesRequest,
+  AiApplyChangesResult,
   AiChatMessage,
   AiChatOutput,
   AiChatRequest,
@@ -4454,6 +4456,77 @@ export const useAiChat = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getAiChatMutationOptions(options));
+    }
+
+export const getAiApplyChangesUrl = () => {
+
+
+
+
+  return `/api/ai/chat/apply-changes`
+}
+
+/**
+ * @summary Apply AI-proposed file changes approved by the user
+ */
+export const aiApplyChanges = async (aiApplyChangesRequest: AiApplyChangesRequest, options?: RequestInit): Promise<AiApplyChangesResult> => {
+
+  return customFetch<AiApplyChangesResult>(getAiApplyChangesUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aiApplyChangesRequest)
+  }
+);}
+
+
+
+
+
+export const getAiApplyChangesMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof aiApplyChanges>>, TError,{data: BodyType<AiApplyChangesRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof aiApplyChanges>>, TError,{data: BodyType<AiApplyChangesRequest>}, TContext> => {
+
+const mutationKey = ['aiApplyChanges'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof aiApplyChanges>>, {data: BodyType<AiApplyChangesRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  aiApplyChanges(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AiApplyChangesMutationResult = NonNullable<Awaited<ReturnType<typeof aiApplyChanges>>>
+    export type AiApplyChangesMutationBody = BodyType<AiApplyChangesRequest>
+    export type AiApplyChangesMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Apply AI-proposed file changes approved by the user
+ */
+export const useAiApplyChanges = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof aiApplyChanges>>, TError,{data: BodyType<AiApplyChangesRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof aiApplyChanges>>,
+        TError,
+        {data: BodyType<AiApplyChangesRequest>},
+        TContext
+      > => {
+      return useMutation(getAiApplyChangesMutationOptions(options));
     }
 
 export const getListAiChatSessionsUrl = (params: ListAiChatSessionsParams,) => {

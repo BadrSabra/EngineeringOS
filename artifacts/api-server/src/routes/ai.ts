@@ -24,6 +24,7 @@ import {
   reviewCode,
   orchestrateWorkflow,
   GroqClientError,
+  parseWorkflowPhases,
 } from "@workspace/ai-orchestrator";
 import type { PendingChange } from "@workspace/ai-orchestrator";
 import { recordAudit } from "../lib/audit.js";
@@ -270,37 +271,30 @@ router.post("/ai/chat", async (req, res) => {
 
   const now = new Date();
 
-  // Find or create session
-  let session;
+  // Gap-9 fix: session creation is deferred to after the Groq call succeeds.
+  // Previously the session was created here unconditionally, which left empty
+  // orphaned sessions (a session with a question but no answer) whenever Groq
+  // returned a 429/502/401 error. Now we only look up an existing session for
+  // history loading — a new session is created only on the success path below.
+  let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
   if (sessionId) {
-    const [existing] = await db
+    const [found] = await db
       .select()
       .from(aiChatSessionsTable)
       .where(eq(aiChatSessionsTable.id, sessionId))
       .limit(1);
-    session = existing;
-  }
-  if (!session) {
-    const [created] = await db
-      .insert(aiChatSessionsTable)
-      .values({
-        id: randomUUID(),
-        projectId,
-        title: message.slice(0, 60),
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
-    session = created;
+    existingSession = found;
   }
 
-  // Load history (last 10 messages)
-  const history = await db
-    .select()
-    .from(aiChatMessagesTable)
-    .where(eq(aiChatMessagesTable.sessionId, session.id))
-    .orderBy(desc(aiChatMessagesTable.createdAt))
-    .limit(10);
+  // Load history from the existing session. New sessions have no prior history.
+  const historyRows = existingSession
+    ? await db
+        .select()
+        .from(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+        .orderBy(desc(aiChatMessagesTable.createdAt))
+        .limit(10)
+    : [];
 
   // Resolve API key — returns 428 and stops if neither user key nor env key is set
   const apiKey = await requireGroqApiKey(req.userId, res);
@@ -346,18 +340,13 @@ router.post("/ai/chat", async (req, res) => {
     }
   }
 
-  // NOTE: The user message is intentionally saved AFTER the Groq call succeeds
-  // (see below). Saving it here — before the LLM call — would leave orphaned
-  // user messages in the DB whenever Groq returns a 502/429 error, creating
-  // sessions that appear to have unanswered questions. Moved to the success path.
-
   // Build context and run chat agent (file-system tools activated via rootPath)
   const projectContext = await buildProjectContext(projectId);
   let result: Awaited<ReturnType<typeof chat>>;
   try {
     result = await chat({
       message,
-      history: history
+      history: historyRows
         .reverse()
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
@@ -370,12 +359,28 @@ router.post("/ai/chat", async (req, res) => {
     throw err;
   }
 
-  // Save BOTH the user message and the assistant response atomically.
-  // Doing this here — after a successful Groq call — prevents orphaned user
-  // messages (sessions with a question but no answer) that previously appeared
-  // whenever Groq returned a 429/502 error. If this insert fails, the client
-  // still receives the error and can retry; no ghost session is created.
+  // Groq call succeeded — now resolve or create the session.
+  // Creating the session here (Gap-9 fix) guarantees we never leave an empty
+  // orphaned session when the Groq call fails above.
   const msgNow = new Date();
+  let session: typeof aiChatSessionsTable.$inferSelect;
+  if (existingSession) {
+    session = existingSession;
+  } else {
+    const [created] = await db
+      .insert(aiChatSessionsTable)
+      .values({
+        id: randomUUID(),
+        projectId,
+        title: message.slice(0, 60),
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    session = created;
+  }
+
+  // Save BOTH the user message and the assistant response atomically.
   const [, [assistantMsg]] = await Promise.all([
     db.insert(aiChatMessagesTable).values({
       id: randomUUID(),
@@ -562,6 +567,10 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
     throw err;
   }
 
+  // Gap-2 fix: invalidate context cache so next chat request reflects any
+  // state changes that the analysis may have written (events, updated scores).
+  invalidateContextCache(projectId);
+
   await db.insert(eventsTable).values({
     id: randomUUID(),
     type: "AiScanAnalysisCompleted",
@@ -593,6 +602,9 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
     if (handleOrchestratorError(err, res, { projectId, operation: "code-review" })) return;
     throw err;
   }
+
+  // Gap-2 fix: bust context cache after code review emits events.
+  invalidateContextCache(projectId);
 
   await db.insert(eventsTable).values({
     id: randomUUID(),
@@ -639,7 +651,15 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
 
   const projectContext = await buildProjectContext(workflow.projectId);
 
-  const phases = (workflow.phases as Array<{ name: string; steps: string[]; condition?: string }>) ?? [];
+  // Gap-5 fix: parse and validate phases using WorkflowPhaseSchema instead of
+  // a raw cast. This catches malformed phase shapes and duplicate phase names
+  // (which break validateDecision's linear name-based lookups) before the
+  // orchestrator runs rather than producing a silent mis-decision.
+  const phasesResult = parseWorkflowPhases(workflow.phases ?? []);
+  if (!phasesResult.ok) {
+    return res.status(422).json({ error: `Invalid workflow phases: ${phasesResult.error}` });
+  }
+  const phases = phasesResult.phases;
   const currentPhase = execution?.currentPhase ?? workflow.currentPhase;
   const completedPhases = (execution?.completedPhases as string[]) ?? [];
 
@@ -660,6 +680,10 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
   }
 
   logger.info({ workflowId, decision }, "AI workflow orchestration decision");
+
+  // Gap-2 fix: orchestration decisions write an event; bust the cache so the
+  // next chat turn sees the updated workflow state immediately.
+  invalidateContextCache(workflow.projectId);
 
   await db.insert(eventsTable).values({
     id: randomUUID(),
@@ -757,6 +781,10 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
     throw err;
   }
 
+  // Gap-2 fix: task execution mutates task status and emits events — bust
+  // context cache so the next chat request sees the updated task immediately.
+  invalidateContextCache(task.projectId);
+
   const finalStatus = agentResult.needsHumanReview ? "verifying" : "completed";
   const agentResponseText = JSON.stringify(agentResult, null, 2);
 
@@ -765,9 +793,16 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
     .set({
       status: finalStatus,
       agentResponse: agentResponseText,
+      // Gap-6 fix: verification reflects the agent's actual recommendation rather
+      // than blindly marking every step as passed. When needsHumanReview is true,
+      // the agent is uncertain — steps are marked accordingly so the UI can surface
+      // "needs review" instead of a misleading all-green verification record.
       verificationResult: {
-        passed: finalStatus === "completed",
-        steps: agentResult.steps.map((s: string) => ({ name: s, passed: true })),
+        passed: !agentResult.needsHumanReview,
+        steps: agentResult.steps.map((s: string) => ({
+          name: s,
+          passed: !agentResult.needsHumanReview,
+        })),
       },
       updatedAt: new Date(),
       completedAt: finalStatus === "completed" ? new Date() : null,

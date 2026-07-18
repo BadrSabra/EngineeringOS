@@ -29,43 +29,69 @@ import {
 
 vi.mock("@workspace/ai-orchestrator", () => ({
   buildProjectContext: vi.fn(async () => "mocked project context string"),
+  // invalidateContextCache is a synchronous cache-bust helper called after
+  // every mutating AI operation (Gap-2 fix). Must be in the mock so routes
+  // that call it don't throw "undefined is not a function" in tests.
+  invalidateContextCache: vi.fn(),
+  // Gap-4 fix: chat mock now includes pendingChanges so the response shape
+  // matches ChatOutput and the pendingChanges contract test below passes.
   chat: vi.fn(async () => ({
     response: "AI response text",
     sources: ["metrics", "tasks"],
+    pendingChanges: [],
   })),
+  // Gap-4 fix: analyzeScan mock updated to match ScanSummarySchema.
+  // Removed stale fields: overallHealthAssessment, immediateActions, longTermRecommendations.
+  // Added correct fields: overallAssessment, topPriority, estimatedImpact.
+  // Insight shape uses `severity` (not `priority`) per ScanInsightSchema.
   analyzeScan: vi.fn(async () => ({
     summary: "Analysis complete",
-    insights: [{ priority: "high", category: "security", title: "Mock insight", description: "desc", recommendation: "fix it" }],
-    overallHealthAssessment: "good",
-    immediateActions: [],
-    longTermRecommendations: [],
+    overallAssessment: "The codebase is in good overall health",
+    insights: [{
+      category: "security",
+      severity: "high",
+      title: "Mock insight",
+      description: "desc",
+      recommendation: "fix it",
+    }],
+    topPriority: "Address security vulnerabilities",
+    estimatedImpact: "High — reduces attack surface significantly",
   })),
+  // Gap-4 fix: reviewCode mock updated to match CodeReviewResultSchema.
+  // Removed stale fields: criticalIssues, highIssues, mediumIssues, lowIssues.
+  // Added correct fields: refactoringOpportunities, securityConcerns.
   reviewCode: vi.fn(async () => ({
     verdict: "approved",
     overallScore: 85,
     summary: "Looks good",
     issues: [],
     strengths: ["Clean code"],
-    criticalIssues: 0,
-    highIssues: 0,
-    mediumIssues: 0,
-    lowIssues: 0,
+    refactoringOpportunities: [],
+    securityConcerns: [],
   })),
+  // Gap-4 fix: orchestrateWorkflow mock updated to match WorkflowDecisionSchema.
+  // action "advance" requires nextPhase (enforced by AdvanceDecisionSchema.strict()).
+  // Removed stale fields: confidence, suggestedNextPhase, blockers.
   orchestrateWorkflow: vi.fn(async () => ({
     action: "advance",
     reasoning: "All conditions met",
-    confidence: "high",
-    blockers: [],
-    suggestedNextPhase: null,
+    nextPhase: "Phase 2",
   })),
+  // Gap-4 fix: executeTask mock updated to match TaskRecommendationSchema.
+  // Removed stale fields: agentResponse, filesModified.
+  // Added missing field: result (required by TaskRecommendationSchema.min(1)).
   executeTask: vi.fn(async () => ({
     summary: "Task completed by AI",
     confidence: "high",
     steps: ["Analyzed the codebase", "Applied fix"],
+    result: "Task analyzed and fix applied successfully",
     needsHumanReview: false,
-    agentResponse: "Done",
-    filesModified: [],
   })),
+  parseWorkflowPhases: vi.fn((raw: unknown) => {
+    // Minimal real implementation for tests: parse array of phase-like objects.
+    if (!Array.isArray(raw)) return { ok: false, error: "phases must be an array" };
+    return { ok: true, phases: raw };
+  }),
 }));
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -217,6 +243,19 @@ describe("POST /api/ai/chat", () => {
     expect(res.body.message.role).toBe("assistant");
     expect(res.body.message.content).toBe("AI response text");
     expect(Array.isArray(res.body.sources)).toBe(true);
+  });
+
+  it("includes pendingChanges array in the response", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "What files need changes?" });
+    expect(res.status).toBe(200);
+    // Gap-4: pendingChanges must be present in the response (was missing from
+    // both the runtime response and the generated client contract before this fix).
+    expect(Array.isArray(res.body.pendingChanges)).toBe(true);
   });
 
   it("reuses an existing session when sessionId is provided", async () => {

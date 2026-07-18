@@ -77,10 +77,46 @@ export interface AiOrchestrateRequest {
   additionalContext?: string;
 }
 
+export interface AiPendingChange {
+  /** Normalized relative path within the project root */
+  path: string;
+  /** Absolute filesystem path; must be inside the project root */
+  absolutePath: string;
+  /** Full new content to write to the file */
+  newContent: string;
+  /** Original content before the change, or null for new files */
+  originalContent?: string | null;
+  /** One-sentence explanation of why this change is proposed */
+  reason: string;
+}
+
+export type AiApplyChangesRequestChangesItem = {
+  path: string;
+  absolutePath: string;
+  newContent: string;
+};
+
+export interface AiApplyChangesRequest {
+  projectId: string;
+  changes: AiApplyChangesRequestChangesItem[];
+}
+
+export type AiApplyChangesResultResultsItem = {
+  path: string;
+  ok: boolean;
+  error?: string;
+};
+
+export interface AiApplyChangesResult {
+  results: AiApplyChangesResultResultsItem[];
+}
+
 export interface AiChatOutput {
   sessionId: string;
   message: AiChatMessage;
   sources: string[];
+  /** File changes proposed by the AI agent — ephemeral, not persisted in DB */
+  pendingChanges: AiPendingChange[];
 }
 
 export type AiScanInsightCategory = typeof AiScanInsightCategory[keyof typeof AiScanInsightCategory];
