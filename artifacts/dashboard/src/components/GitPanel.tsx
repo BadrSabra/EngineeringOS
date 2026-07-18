@@ -26,23 +26,23 @@ import {
 } from 'lucide-react';
 
 // ── API helpers ───────────────────────────────────────────────────────────────
-
-const BASE = import.meta.env.BASE_URL ?? '/dashboard/';
+// Use root-relative paths (/api/...) — same pattern as AiChat.tsx.
+// Do NOT prefix with BASE_URL: that points to /dashboard/ and will 404.
 
 async function apiFetch<T>(
   method: string,
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const resp = await fetch(`${BASE}api${path}`, {
+  const resp = await fetch(path, {
     method,
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!resp.ok) {
-    const err = await resp.json().catch(() => ({ error: resp.statusText }));
-    throw new Error((err as { error?: string }).error ?? resp.statusText);
+    let parsed: { error?: string } = {};
+    try { parsed = await resp.json() as typeof parsed; } catch { /* not JSON */ }
+    throw new Error(parsed.error ?? `Request failed (${resp.status})`);
   }
   return resp.json() as Promise<T>;
 }
@@ -94,25 +94,25 @@ export default function GitPanel({ projectId }: Props) {
 
   const configQ = useQuery<GitConfig>({
     queryKey: ['git-config', projectId],
-    queryFn: () => apiFetch('GET', `/projects/${projectId}/git/config`),
+    queryFn: () => apiFetch('GET', `/api/projects/${projectId}/git/config`),
     staleTime: 30_000,
   });
 
   const tokenQ = useQuery<TokenStatus>({
     queryKey: ['github-token'],
-    queryFn: () => apiFetch('GET', '/ai/github-token'),
+    queryFn: () => apiFetch('GET', '/api/ai/github-token'),
     staleTime: 60_000,
   });
 
   const statusQ = useQuery<GitStatus>({
     queryKey: ['git-status', projectId],
-    queryFn: () => apiFetch('GET', `/projects/${projectId}/git/status`),
+    queryFn: () => apiFetch('GET', `/api/projects/${projectId}/git/status`),
     refetchInterval: 15_000,
   });
 
   const logQ = useQuery<GitLog>({
     queryKey: ['git-log', projectId],
-    queryFn: () => apiFetch('GET', `/projects/${projectId}/git/log`),
+    queryFn: () => apiFetch('GET', `/api/projects/${projectId}/git/log`),
     enabled: showLog,
     staleTime: 30_000,
   });
@@ -121,7 +121,7 @@ export default function GitPanel({ projectId }: Props) {
 
   const saveConfig = useMutation({
     mutationFn: () =>
-      apiFetch('PATCH', `/projects/${projectId}/git/config`, {
+      apiFetch('PATCH', `/api/projects/${projectId}/git/config`, {
         remoteUrl: remoteInput.trim() || null,
         branch: branchInput.trim() || 'main',
       }),
@@ -132,7 +132,7 @@ export default function GitPanel({ projectId }: Props) {
   });
 
   const saveToken = useMutation({
-    mutationFn: () => apiFetch('PUT', '/ai/github-token', { token: tokenInput.trim() }),
+    mutationFn: () => apiFetch('PUT', '/api/ai/github-token', { token: tokenInput.trim() }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['github-token'] });
       setTokenInput('');
@@ -140,13 +140,13 @@ export default function GitPanel({ projectId }: Props) {
   });
 
   const removeToken = useMutation({
-    mutationFn: () => apiFetch('DELETE', '/ai/github-token'),
+    mutationFn: () => apiFetch('DELETE', '/api/ai/github-token'),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['github-token'] }),
   });
 
   const commitMut = useMutation({
     mutationFn: () =>
-      apiFetch<{ ok: boolean; output: string }>('POST', `/projects/${projectId}/git/commit`, {
+      apiFetch<{ ok: boolean; output: string }>('POST', `/api/projects/${projectId}/git/commit`, {
         message: commitMsg.trim(),
       }),
     onSuccess: () => {
@@ -158,7 +158,7 @@ export default function GitPanel({ projectId }: Props) {
 
   const pushMut = useMutation({
     mutationFn: () =>
-      apiFetch<{ ok: boolean; branch: string; output: string }>('POST', `/projects/${projectId}/git/push`),
+      apiFetch<{ ok: boolean; branch: string; output: string }>('POST', `/api/projects/${projectId}/git/push`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['git-status', projectId] });
     },
