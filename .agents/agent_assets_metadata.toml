@@ -6,3 +6,9 @@ id = "2df-hGCcPyzBN8ZlqQr_C"
 uri = "file://docs/ai-orchestrator-forensic-analysis.md"
 type = "text"
 title = "AI Orchestrator — Forensic Reverse Engineering Report"
+
+[[outputs]]
+id = "ehZtW-OX5wbT1pGHHvw04"
+uri = "file://docs/ai-orchestrator-executive-table.md"
+type = "text"
+title = "AI Orchestrator — جدول تنفيذي: الملف → الدور → الفجوة"
