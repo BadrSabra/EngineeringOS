@@ -7,6 +7,7 @@ import {
   aiChatSessionsTable,
   aiChatMessagesTable,
   aiProviderCredentialsTable,
+  projectsTable,
   tasksTable,
   workflowsTable,
   workflowExecutionsTable,
@@ -256,38 +257,54 @@ router.post("/ai/chat", async (req, res) => {
     .orderBy(desc(aiChatMessagesTable.createdAt))
     .limit(10);
 
-  // Save user message
-  await db.insert(aiChatMessagesTable).values({
-    id: randomUUID(),
-    sessionId: session.id,
-    role: "user",
-    content: message,
-    createdAt: now,
-  });
-
   // Resolve API key — returns 428 and stops if neither user key nor env key is set
   const apiKey = await requireGroqApiKey(req.userId, res);
   if (apiKey === null) return;
 
   // Validate rootPath is accessible on disk before activating file-system tools.
-  // If the project was imported from a temp directory that no longer exists
-  // (e.g. after a server restart), we fall back to knowledge-graph-only mode.
+  // If the project's stored path is a deleted temp directory (e.g. a GitHub
+  // discovery clone under /tmp/eos-git-*), fall back to the workspace root so
+  // file tools remain active. If neither is accessible, degrade gracefully to
+  // knowledge-graph-only mode rather than disabling all tooling silently.
+  const WORKSPACE_FALLBACK = process.env.WORKSPACE_PATH ?? "/home/runner/workspace";
   let validRootPath: string | undefined;
   if (project.rootPath) {
     try {
       await fs.access(project.rootPath);
       validRootPath = project.rootPath;
     } catch {
-      console.warn(
-        JSON.stringify({
-          scope: "ai-route",
-          code: "ROOTPATH_NOT_ACCESSIBLE",
-          rootPath: project.rootPath,
-          projectId,
-        }),
-      );
+      // Primary path inaccessible — try workspace root as fallback.
+      try {
+        await fs.access(WORKSPACE_FALLBACK);
+        validRootPath = WORKSPACE_FALLBACK;
+        console.warn(
+          JSON.stringify({
+            scope: "ai-route",
+            code: "ROOTPATH_FALLBACK",
+            original: project.rootPath,
+            fallback: WORKSPACE_FALLBACK,
+            projectId,
+          }),
+        );
+        // Persist the corrected path so subsequent requests don't repeat the fallback dance.
+        await db.update(projectsTable).set({ rootPath: WORKSPACE_FALLBACK }).where(eq(projectsTable.id, projectId));
+      } catch {
+        console.warn(
+          JSON.stringify({
+            scope: "ai-route",
+            code: "ROOTPATH_NOT_ACCESSIBLE",
+            rootPath: project.rootPath,
+            projectId,
+          }),
+        );
+      }
     }
   }
+
+  // NOTE: The user message is intentionally saved AFTER the Groq call succeeds
+  // (see below). Saving it here — before the LLM call — would leave orphaned
+  // user messages in the DB whenever Groq returns a 502/429 error, creating
+  // sessions that appear to have unanswered questions. Moved to the success path.
 
   // Build context and run chat agent (file-system tools activated via rootPath)
   const projectContext = await buildProjectContext(projectId);
@@ -308,23 +325,37 @@ router.post("/ai/chat", async (req, res) => {
     throw err;
   }
 
-  // Save assistant message
-  const [assistantMsg] = await db
-    .insert(aiChatMessagesTable)
-    .values({
+  // Save BOTH the user message and the assistant response atomically.
+  // Doing this here — after a successful Groq call — prevents orphaned user
+  // messages (sessions with a question but no answer) that previously appeared
+  // whenever Groq returned a 429/502 error. If this insert fails, the client
+  // still receives the error and can retry; no ghost session is created.
+  const msgNow = new Date();
+  const [, [assistantMsg]] = await Promise.all([
+    db.insert(aiChatMessagesTable).values({
       id: randomUUID(),
       sessionId: session.id,
-      role: "assistant",
-      content: result.response,
-      sources: JSON.stringify(result.sources),
-      createdAt: new Date(),
-    })
-    .returning();
+      role: "user",
+      content: message,
+      createdAt: now, // use the request timestamp so history ordering is stable
+    }),
+    db
+      .insert(aiChatMessagesTable)
+      .values({
+        id: randomUUID(),
+        sessionId: session.id,
+        role: "assistant",
+        content: result.response,
+        sources: JSON.stringify(result.sources),
+        createdAt: msgNow,
+      })
+      .returning(),
+  ]);
 
   // Update session timestamp
   await db
     .update(aiChatSessionsTable)
-    .set({ updatedAt: new Date() })
+    .set({ updatedAt: msgNow })
     .where(eq(aiChatSessionsTable.id, session.id));
 
   return res.json({
@@ -436,7 +467,7 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
     await recordAudit({
       entityType: "project",
       entityId: projectId,
-      action: "ai_apply_changes",
+      action: "ai_executed",
       projectId,
       stateBefore: {},
       stateAfter: { filesWritten: appliedPaths },

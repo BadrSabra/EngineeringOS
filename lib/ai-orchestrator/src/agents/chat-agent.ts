@@ -241,9 +241,38 @@ export async function chat(opts: {
     }
 
     // No tool calls — this is the final response.
-    const content = result.content ?? "";
-    const parsed = parseAgentResponse(content, ChatResponseSchema, fallbackChatOutput);
-    if (!parsed.ok) {
+    let content = result.content ?? "";
+    let parsed = parseAgentResponse(content, ChatResponseSchema, fallbackChatOutput);
+
+    // JSON format correction: when MODEL_FAST ignores the JSON output instruction
+    // (common with non-English responses), send one corrective follow-up that
+    // shows the model its own answer and asks it to reformat — without making
+    // another full tool loop iteration (iter budget is shared).
+    if (!parsed.ok && iter < MAX_TOOL_ITERATIONS - 1) {
+      console.warn(JSON.stringify({ scope: "chat-agent", code: parsed.code, message: parsed.message, action: "json_correction_retry" }));
+      const correctionPrompt =
+        "Your previous response was not valid JSON. " +
+        "Reformat it as required — output ONLY a valid JSON object with this exact shape, " +
+        "nothing before or after it:\n" +
+        `{"response":"<your full answer as a markdown string>","sources":["<entity or metric cited>"]}`;
+      messages.push({ role: "assistant", content });
+      messages.push({ role: "user", content: correctionPrompt });
+      try {
+        const retry = await completeRaw(messages, { model, maxTokens: 4096, apiKey });
+        const retryContent = retry.content ?? "";
+        const retryParsed = parseAgentResponse(retryContent, ChatResponseSchema, fallbackChatOutput);
+        if (retryParsed.ok) {
+          // Correction succeeded — use the reformatted response.
+          parsed = retryParsed;
+          content = retryContent;
+        } else {
+          // Correction also failed — the fallback already wraps raw text gracefully.
+          console.warn(JSON.stringify({ scope: "chat-agent", code: "JSON_CORRECTION_FAILED", original: parsed.code }));
+        }
+      } catch {
+        // Groq error during correction — keep the original fallback output.
+      }
+    } else if (!parsed.ok) {
       console.warn(JSON.stringify({ scope: "chat-agent", code: parsed.code, message: parsed.message }));
     }
 

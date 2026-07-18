@@ -504,22 +504,42 @@ function extractFromTsJs(file: ScannedFile, knownPaths: Set<string>): PartialRes
   const visit = (node: ts.Node): void => {
     // export function foo() {}  /  export default function foo() {}  /
     // function foo() {} ... export = foo;
+    // Non-exported top-level async/named functions are also captured at lower
+    // confidence (0.5) — they represent significant implementation units (route
+    // handlers, middleware, workers) that the AI needs to reason about even
+    // though they are module-internal. Confidence distinguishes them from
+    // exported public-API functions (which get the default 0.95 via mergeResult).
     if (
       ts.isFunctionDeclaration(node) &&
-      node.name &&
-      (isExported(node) || exportEqualsNames.has(node.name.text))
+      node.name
     ) {
-      entities.push({ type: "function", name: node.name.text, path, metadata: { isDocumented: hasJsDoc(node, content) } });
+      const exported = isExported(node) || exportEqualsNames.has(node.name.text);
+      entities.push({
+        type: "function",
+        name: node.name.text,
+        path,
+        metadata: { isDocumented: hasJsDoc(node, content), exported },
+        // Non-exported functions get lower confidence so the context builder
+        // surfaces exported ones first when space is constrained.
+        confidence: exported ? undefined : 0.5,
+      });
     }
 
     // export class Foo {}  /  export default class Foo {}  /
     // class Foo {} ... export = Foo;
+    // Non-exported classes captured at confidence 0.5 for the same reason.
     if (
       ts.isClassDeclaration(node) &&
-      node.name &&
-      (isExported(node) || exportEqualsNames.has(node.name.text))
+      node.name
     ) {
-      entities.push({ type: "class", name: node.name.text, path, metadata: { isDocumented: hasJsDoc(node, content) } });
+      const exported = isExported(node) || exportEqualsNames.has(node.name.text);
+      entities.push({
+        type: "class",
+        name: node.name.text,
+        path,
+        metadata: { isDocumented: hasJsDoc(node, content), exported },
+        confidence: exported ? undefined : 0.5,
+      });
       // Public instance/static methods on the class, recorded as function
       // entities qualified by their owning class so `Foo.bar` and `Baz.bar`
       // don't collide. Constructors and private (#-named) members are
