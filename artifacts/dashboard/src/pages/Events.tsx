@@ -130,8 +130,7 @@ export default function Events() {
         <div className="flex-1 overflow-y-auto p-2">
           {isLoading ? (
             <div className="p-4 text-primary animate-pulse flex items-center gap-2">
-              <span className="w-2 h-2 bg-primary rounded-full animate-ping"></span> Connecting to
-              event stream...
+              <span className="w-2 h-2 bg-primary rounded-full animate-ping"></span> Loading events…
             </div>
           ) : (events?.length ?? 0) === 0 ? (
             <div className="p-8 text-muted-foreground opacity-50">No events recorded.</div>

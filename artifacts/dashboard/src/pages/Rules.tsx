@@ -42,6 +42,7 @@ export default function Rules() {
     pattern: '',
     fixDescription: '',
     severity: 'high' as RuleSeverity,
+    verifySteps: [] as string[],
   });
 
   const { data: rules, isLoading } = useListRules(
@@ -78,12 +79,12 @@ export default function Rules() {
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     createRule.mutate(
-      { data: { ...newRule, verifySteps: [] } },
+      { data: { ...newRule, verifySteps: newRule.verifySteps.map((s) => s.trim()).filter(Boolean) } },
       {
         onSuccess: () => {
           setShowCreate(false);
           queryClient.invalidateQueries({ queryKey: getListRulesQueryKey() });
-          setNewRule({ title: '', code: '', description: '', pattern: '', fixDescription: '', severity: 'high' });
+          setNewRule({ title: '', code: '', description: '', pattern: '', fixDescription: '', severity: 'high', verifySteps: [] });
         },
       },
     );
@@ -276,6 +277,54 @@ export default function Rules() {
                 </select>
               </div>
             </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                  Verification Steps
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setNewRule({ ...newRule, verifySteps: [...newRule.verifySteps, ''] })}
+                  className="text-xs text-primary hover:underline flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" /> Add step
+                </button>
+              </div>
+              {newRule.verifySteps.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">None — optional shell commands run to verify the rule fix.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {newRule.verifySteps.map((step, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <input
+                        value={step}
+                        onChange={(e) =>
+                          setNewRule({
+                            ...newRule,
+                            verifySteps: newRule.verifySteps.map((s, i) => (i === idx ? e.target.value : s)),
+                          })
+                        }
+                        className="flex-1 bg-secondary border border-border rounded-md px-3 py-1.5 text-sm font-mono focus:border-primary focus:outline-none"
+                        placeholder="e.g. pnpm run lint -- --rule no-eval"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setNewRule({
+                            ...newRule,
+                            verifySteps: newRule.verifySteps.filter((_, i) => i !== idx),
+                          })
+                        }
+                        className="text-muted-foreground hover:text-destructive p-1"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="flex gap-3">
               <button
                 type="submit"

@@ -127,7 +127,10 @@ export default function GitPanel({ projectId }: Props) {
   const statusQ = useQuery<GitStatus>({
     queryKey: ['git-status', projectId],
     queryFn: () => apiFetch('GET', `/api/projects/${projectId}/git/status`),
-    refetchInterval: 15_000,
+    // Stop polling if the directory is not a git repo (400) — retrying every
+    // 15 s would just flood the server with known-bad requests.
+    refetchInterval: (query) => (query.state.status === 'error' ? false : 15_000),
+    retry: false,
   });
 
   const logQ = useQuery<GitLog>({

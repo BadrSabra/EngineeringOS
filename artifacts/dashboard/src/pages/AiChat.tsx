@@ -352,7 +352,7 @@ function GroqKeyCard() {
           </div>
         </div>
       ) : (
-        <p className="text-muted-foreground mb-2">No key saved — using server default.</p>
+        <p className="text-muted-foreground mb-2">No personal key saved — the server's key will be used if one is configured.</p>
       )}
 
       {(showInput || !status?.configured) && (

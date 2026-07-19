@@ -10,6 +10,7 @@ import {
   type TaskLog,
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useToast } from '@/hooks/use-toast';
 import {
   Play,
   RotateCcw,
@@ -104,6 +105,7 @@ export default function Tasks() {
     },
   );
 
+  const { toast } = useToast();
   const executeTask = useExecuteTask();
   const retryTask   = useRetryTask();
   const rollbackTask = useRollbackTask();
@@ -115,8 +117,13 @@ export default function Tasks() {
   ) ?? [];
 
   const handleAction = (action: 'execute' | 'retry' | 'rollback', taskId: string) => {
+    const label = action.charAt(0).toUpperCase() + action.slice(1);
     const options = {
       onSuccess: () => queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() }),
+      onError: (err: unknown) => {
+        const description = err instanceof Error ? err.message : 'Request failed — check the API server logs.';
+        toast({ title: `${label} failed`, description, variant: 'destructive' });
+      },
     };
     if (action === 'execute') executeTask.mutate({ taskId }, options);
     if (action === 'retry')   retryTask.mutate({ taskId }, options);

@@ -154,7 +154,7 @@ export default function Graph() {
   const [selectedEntityId, setSelectedEntityId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [detailTab, setDetailTab] = useState<'relations' | 'impact'>('relations');
-  const [_impactExpanded, _setImpactExpanded] = useState(false);
+  const [impactExpanded, setImpactExpanded] = useState(false);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const [svgSize, setSvgSize] = useState({ w: 600, h: 420 });
@@ -633,7 +633,10 @@ export default function Graph() {
                           </div>
                         </div>
                         <div className="space-y-1">
-                          {impactData.impacted.map((hop) => (
+                          {(impactExpanded
+                            ? impactData.impacted
+                            : impactData.impacted.slice(0, 5)
+                          ).map((hop) => (
                             <button
                               key={hop.entity.id}
                               onClick={() => setSelectedEntityId(hop.entity.id)}
@@ -651,6 +654,16 @@ export default function Graph() {
                               </div>
                             </button>
                           ))}
+                          {impactData.impacted.length > 5 && (
+                            <button
+                              onClick={() => setImpactExpanded((v) => !v)}
+                              className="w-full text-xs text-primary hover:underline text-center py-1"
+                            >
+                              {impactExpanded
+                                ? 'Show less'
+                                : `Show ${impactData.impacted.length - 5} more…`}
+                            </button>
+                          )}
                         </div>
                       </>
                     )}

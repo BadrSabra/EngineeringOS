@@ -36,18 +36,47 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
   const { data: projects } = useListProjects();
   const createWorkflow = useCreateWorkflow();
 
+  type PhaseInput = { name: string; steps: string[] };
+
   const [projectId, setProjectId] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [phases, setPhases] = useState<string[]>(['build', 'test', 'deploy']);
+  const [phases, setPhases] = useState<PhaseInput[]>([
+    { name: 'build', steps: [] },
+    { name: 'test', steps: [] },
+    { name: 'deploy', steps: [] },
+  ]);
 
-  const updatePhase = (idx: number, value: string) => {
-    setPhases((prev) => prev.map((p, i) => (i === idx ? value : p)));
-  };
-  const addPhase = () => setPhases((prev) => [...prev, '']);
+  const updatePhaseName = (idx: number, value: string) =>
+    setPhases((prev) => prev.map((p, i) => (i === idx ? { ...p, name: value } : p)));
+
+  const addPhaseStep = (phaseIdx: number) =>
+    setPhases((prev) =>
+      prev.map((p, i) => (i === phaseIdx ? { ...p, steps: [...p.steps, ''] } : p)),
+    );
+
+  const updatePhaseStep = (phaseIdx: number, stepIdx: number, value: string) =>
+    setPhases((prev) =>
+      prev.map((p, i) =>
+        i === phaseIdx
+          ? { ...p, steps: p.steps.map((s, j) => (j === stepIdx ? value : s)) }
+          : p,
+      ),
+    );
+
+  const removePhaseStep = (phaseIdx: number, stepIdx: number) =>
+    setPhases((prev) =>
+      prev.map((p, i) =>
+        i === phaseIdx ? { ...p, steps: p.steps.filter((_, j) => j !== stepIdx) } : p,
+      ),
+    );
+
+  const addPhase = () => setPhases((prev) => [...prev, { name: '', steps: [] }]);
   const removePhase = (idx: number) => setPhases((prev) => prev.filter((_, i) => i !== idx));
 
-  const cleanedPhases = phases.map((p) => p.trim()).filter(Boolean);
+  const cleanedPhases = phases
+    .map((p) => ({ name: p.name.trim(), steps: p.steps.map((s) => s.trim()).filter(Boolean) }))
+    .filter((p) => p.name);
   const canSubmit = !!projectId && name.trim().length > 0 && cleanedPhases.length > 0;
 
   const handleSubmit = () => {
@@ -58,7 +87,7 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
           projectId,
           name: name.trim(),
           description: description.trim() || undefined,
-          phases: cleanedPhases.map((p) => ({ name: p, steps: [] })),
+          phases: cleanedPhases,
         },
       },
       {
@@ -130,23 +159,51 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
             </label>
             <div className="space-y-2">
               {phases.map((phase, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  <span className="text-xs font-mono text-muted-foreground w-5 text-center">
-                    {idx + 1}
-                  </span>
-                  <input
-                    value={phase}
-                    onChange={(e) => updatePhase(idx, e.target.value)}
-                    placeholder="phase name"
-                    className="flex-1 bg-secondary/50 border border-border rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                  <button
-                    onClick={() => removePhase(idx)}
-                    disabled={phases.length <= 1}
-                    className="text-muted-foreground hover:text-destructive disabled:opacity-30 p-1"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                <div key={idx} className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-muted-foreground w-5 text-center shrink-0">
+                      {idx + 1}
+                    </span>
+                    <input
+                      value={phase.name}
+                      onChange={(e) => updatePhaseName(idx, e.target.value)}
+                      placeholder="phase name"
+                      className="flex-1 bg-secondary/50 border border-border rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => addPhaseStep(idx)}
+                      className="text-muted-foreground hover:text-primary p-1 shrink-0"
+                      title="Add a step to this phase"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removePhase(idx)}
+                      disabled={phases.length <= 1}
+                      className="text-muted-foreground hover:text-destructive disabled:opacity-30 p-1 shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  {phase.steps.map((step, stepIdx) => (
+                    <div key={stepIdx} className="flex items-center gap-2 ml-7">
+                      <input
+                        value={step}
+                        onChange={(e) => updatePhaseStep(idx, stepIdx, e.target.value)}
+                        placeholder="step description or shell command"
+                        className="flex-1 bg-secondary/30 border border-border/60 rounded-md px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removePhaseStep(idx, stepIdx)}
+                        className="text-muted-foreground hover:text-destructive p-1 shrink-0"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
