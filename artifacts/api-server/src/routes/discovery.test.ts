@@ -120,12 +120,16 @@ describe("GET /discovery/sources — source capability listing", () => {
     expect((byType["WORKSPACE_PROJECT"] as { available: boolean }).available).toBe(true);
   });
 
-  it("marks ARCHIVE_UPLOAD, REMOTE_FILESYSTEM, DOCKER_VOLUME as not available", async () => {
+  it("marks ARCHIVE_UPLOAD, REMOTE_FILESYSTEM, DOCKER_VOLUME as not available and includes a notes field", async () => {
     const res = await request(app).get("/api/discovery/sources");
     const byType = Object.fromEntries(res.body.map((c: { sourceType: string }) => [c.sourceType, c]));
-    expect((byType["ARCHIVE_UPLOAD"] as { available: boolean }).available).toBe(false);
-    expect((byType["REMOTE_FILESYSTEM"] as { available: boolean }).available).toBe(false);
-    expect((byType["DOCKER_VOLUME"] as { available: boolean }).available).toBe(false);
+    for (const type of ["ARCHIVE_UPLOAD", "REMOTE_FILESYSTEM", "DOCKER_VOLUME"]) {
+      const cap = byType[type] as { available: boolean; notes?: string; hint?: string };
+      expect(cap.available).toBe(false);
+      expect(typeof cap.notes).toBe("string");
+      expect(cap.notes!.length).toBeGreaterThan(0);
+      expect(typeof cap.hint).toBe("string");
+    }
   });
 
   it("capabilities list is the single source of truth — all 6 SourceType enum values are represented", async () => {
@@ -197,26 +201,31 @@ describe("POST /projects/discover — path validation and session creation", () 
     expect(res.body.error).toMatch(/projectId is required/i);
   });
 
-  it("returns 501 for ARCHIVE_UPLOAD (unsupported source type)", async () => {
+  it("returns 501 for ARCHIVE_UPLOAD (unsupported source type) with structured error body", async () => {
     const res = await request(app)
       .post("/api/projects/discover")
       .send({ sourceType: "ARCHIVE_UPLOAD", sourceConfig: { uploadId: "fake-id" } });
     expect(res.status).toBe(501);
+    expect(res.body.reason).toBe("unsupported_source");
     expect(res.body.error).toMatch(/not available/i);
   });
 
-  it("returns 501 for REMOTE_FILESYSTEM", async () => {
+  it("returns 501 for REMOTE_FILESYSTEM with structured error body", async () => {
     const res = await request(app)
       .post("/api/projects/discover")
       .send({ sourceType: "REMOTE_FILESYSTEM", sourceConfig: {} });
     expect(res.status).toBe(501);
+    expect(res.body.reason).toBe("unsupported_source");
+    expect(typeof res.body.error).toBe("string");
   });
 
-  it("returns 501 for DOCKER_VOLUME", async () => {
+  it("returns 501 for DOCKER_VOLUME with structured error body", async () => {
     const res = await request(app)
       .post("/api/projects/discover")
       .send({ sourceType: "DOCKER_VOLUME", sourceConfig: {} });
     expect(res.status).toBe(501);
+    expect(res.body.reason).toBe("unsupported_source");
+    expect(typeof res.body.error).toBe("string");
   });
 
   it("creates a session and returns 202 for a valid LOCAL_FOLDER path", async () => {
