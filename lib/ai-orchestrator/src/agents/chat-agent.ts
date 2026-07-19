@@ -118,10 +118,35 @@ function fallbackChatOutput(raw: string): ChatOutput {
       ((parsed as Record<string, unknown>).response as string).length > 0
     ) {
       const sources = (parsed as Record<string, unknown>).sources;
+
+      // PR-03: attempt to salvage any pendingChanges that individually pass
+      // schema validation rather than silently collapsing the whole array to [].
+      // Changes that fail the schema are logged so they can be diagnosed without
+      // requiring a repro of the original model output.
+      const rawChanges = (parsed as Record<string, unknown>).pendingChanges;
+      const salvaged: PendingChange[] = [];
+      if (Array.isArray(rawChanges)) {
+        for (const pc of rawChanges) {
+          const check = PendingChangeSchema.safeParse(pc);
+          if (check.success) {
+            salvaged.push(check.data);
+          } else {
+            console.warn(
+              JSON.stringify({
+                scope: "chat-agent",
+                code: "PENDING_CHANGE_SCHEMA_FAIL",
+                path: typeof pc === "object" && pc !== null ? (pc as Record<string, unknown>).path : undefined,
+                issues: check.error.issues,
+              }),
+            );
+          }
+        }
+      }
+
       return {
         response: (parsed as Record<string, unknown>).response as string,
         sources: Array.isArray(sources) ? (sources as string[]) : ["project context"],
-        pendingChanges: [],
+        pendingChanges: salvaged,
       };
     }
   } catch {

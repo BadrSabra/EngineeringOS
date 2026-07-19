@@ -44,6 +44,12 @@ const router = Router();
 // a DB-level advisory lock or a distributed mutex instead.
 const _orchestratingWorkflows = new Set<string>();
 
+// Per-project apply lock (R-01 fix). Held for the duration of an
+// apply-changes write so that concurrent chat requests cannot read a
+// partially-written context snapshot.  Process-local only — a multi-instance
+// deployment would need a distributed mutex or a DB advisory lock.
+const _applyingProjects = new Set<string>();
+
 // ── Per-project LLM rate limiting ─────────────────────────────────────────────
 // Sliding-window guard: at most LLM_RATE_LIMIT calls per project per minute.
 // Prevents a single project from exhausting the shared Groq quota.
@@ -399,6 +405,17 @@ router.post("/ai/chat", async (req, res) => {
         );
       }
     }
+  }
+
+  // R-01: block chat context reads while an apply is writing files for this
+  // project. Without this guard a chat request starting milliseconds after
+  // apply-changes begins can read a partially-written snapshot and give the
+  // user a confused or contradictory response.
+  if (_applyingProjects.has(projectId)) {
+    return res.status(409).json({
+      error: "apply_in_progress",
+      hint: "File changes are still being written for this project — wait a moment, then retry.",
+    });
   }
 
   // Build context and run chat agent (file-system tools activated via rootPath)
@@ -789,77 +806,99 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
   if (!project) return;
 
   const resolvedRoot = path.resolve(project.rootPath);
-  const results: Array<{ path: string; ok: boolean; error?: string }> = [];
 
-  for (const change of changes) {
-    // Sensitive-extension guard — mirrors the same check in file-tools.ts write_file.
-    // Prevents a tampered or prompt-injected payload from overwriting .env files,
-    // shell scripts, or TLS material via the apply-changes route.
-    const BLOCKED_WRITE_EXTENSIONS =
-      /(?:^|[/\\])\.env(?:\.|$)|\.(sh|bash|zsh|fish|ps1|bat|cmd|pem|key|pfx|p12|crt|cer|der|pub|rsa|dsa|htpasswd)$/i;
-    if (BLOCKED_WRITE_EXTENSIONS.test(change.path)) {
-      results.push({
-        path: change.path,
-        ok: false,
-        error: "File type is classified as sensitive (secrets, credentials, or executable scripts) — apply manually.",
+  // R-01: acquire the per-project apply lock before touching the filesystem.
+  // Held for the full duration of the write + cache-invalidation cycle so that
+  // concurrent chat requests (which check _applyingProjects before building
+  // context) cannot read a partially-written snapshot.
+  if (_applyingProjects.has(projectId)) {
+    return res.status(409).json({
+      error: "apply_in_progress",
+      hint: "An apply operation is already in progress for this project — wait for it to complete before starting another.",
+    });
+  }
+  _applyingProjects.add(projectId);
+
+  let results: Array<{ path: string; ok: boolean; error?: string }>;
+  try {
+    results = [];
+
+    for (const change of changes) {
+      // Sensitive-extension guard — mirrors the same check in file-tools.ts write_file.
+      // Prevents a tampered or prompt-injected payload from overwriting .env files,
+      // shell scripts, or TLS material via the apply-changes route.
+      const BLOCKED_WRITE_EXTENSIONS =
+        /(?:^|[/\\])\.env(?:\.|$)|\.(sh|bash|zsh|fish|ps1|bat|cmd|pem|key|pfx|p12|crt|cer|der|pub|rsa|dsa|htpasswd)$/i;
+      if (BLOCKED_WRITE_EXTENSIONS.test(change.path)) {
+        results.push({
+          path: change.path,
+          ok: false,
+          error: "File type is classified as sensitive (secrets, credentials, or executable scripts) — apply manually.",
+        });
+        continue;
+      }
+
+      // Re-validate path is inside the project root (guard against tampered payloads)
+      const resolved = path.resolve(change.absolutePath);
+      if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {
+        results.push({ path: change.path, ok: false, error: "Path is outside the project root" });
+        continue;
+      }
+      try {
+        await fs.mkdir(path.dirname(resolved), { recursive: true });
+        await fs.writeFile(resolved, change.newContent, "utf-8");
+        results.push({ path: change.path, ok: true });
+      } catch (e) {
+        results.push({ path: change.path, ok: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
+    const appliedPaths = results.filter((r) => r.ok).map((r) => r.path);
+    const failedPaths  = results.filter((r) => !r.ok).map((r) => r.path);
+    // One correlationId ties the audit record and the event for this apply batch
+    // together — callers can retrieve the full trace with a single correlationId filter.
+    const applyCorrelationId = randomUUID();
+    if (appliedPaths.length > 0) {
+      // Audit log for reversibility / compliance
+      await recordAudit({
+        entityType: "project",
+        entityId: projectId,
+        action: "ai_executed",
+        projectId,
+        stateBefore: {},
+        stateAfter: { filesWritten: appliedPaths },
+        correlationId: applyCorrelationId,
       });
-      continue;
+
+      // G-11: bust the context cache so the very next /ai/chat request reflects
+      // the newly written files rather than serving a 30-second-old snapshot.
+      // Cache invalidation happens inside the lock so the next chat request that
+      // passes the _applyingProjects guard is guaranteed to see the fresh cache.
+      invalidateContextCache(projectId);
+
+      // G-02 / G-14: emit an eventsTable row so this operation is visible in the
+      // dashboard activity feed and in the AI context's recentEvents on the next
+      // chat request.  Previously apply-changes was audit-only and invisible to
+      // both the UI event log and the AI context.
+      const preview = appliedPaths.slice(0, 3).join(", ") + (appliedPaths.length > 3 ? ` +${appliedPaths.length - 3} more` : "");
+      await db.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "AiChangesApplied",
+        projectId,
+        severity: failedPaths.length > 0 ? "warning" : "success",
+        message: `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
+        correlationId: applyCorrelationId,
+        payload: { appliedFiles: appliedPaths, failedFiles: failedPaths },
+      });
     }
 
-    // Re-validate path is inside the project root (guard against tampered payloads)
-    const resolved = path.resolve(change.absolutePath);
-    if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {
-      results.push({ path: change.path, ok: false, error: "Path is outside the project root" });
-      continue;
-    }
-    try {
-      await fs.mkdir(path.dirname(resolved), { recursive: true });
-      await fs.writeFile(resolved, change.newContent, "utf-8");
-      results.push({ path: change.path, ok: true });
-    } catch (e) {
-      results.push({ path: change.path, ok: false, error: e instanceof Error ? e.message : String(e) });
-    }
+    const allOk = results.every((r) => r.ok);
+    return res.status(allOk ? 200 : 207).json({ results });
+  } finally {
+    // Always release the lock — even if an unexpected exception escapes the
+    // try block — so the project isn't permanently locked out of chat.
+    _applyingProjects.delete(projectId);
   }
-
-  const appliedPaths = results.filter((r) => r.ok).map((r) => r.path);
-  const failedPaths  = results.filter((r) => !r.ok).map((r) => r.path);
-  // One correlationId ties the audit record and the event for this apply batch
-  // together — callers can retrieve the full trace with a single correlationId filter.
-  const applyCorrelationId = randomUUID();
-  if (appliedPaths.length > 0) {
-    // Audit log for reversibility / compliance
-    await recordAudit({
-      entityType: "project",
-      entityId: projectId,
-      action: "ai_executed",
-      projectId,
-      stateBefore: {},
-      stateAfter: { filesWritten: appliedPaths },
-      correlationId: applyCorrelationId,
-    });
-
-    // G-11: bust the context cache so the very next /ai/chat request reflects
-    // the newly written files rather than serving a 30-second-old snapshot.
-    invalidateContextCache(projectId);
-
-    // G-02 / G-14: emit an eventsTable row so this operation is visible in the
-    // dashboard activity feed and in the AI context's recentEvents on the next
-    // chat request.  Previously apply-changes was audit-only and invisible to
-    // both the UI event log and the AI context.
-    const preview = appliedPaths.slice(0, 3).join(", ") + (appliedPaths.length > 3 ? ` +${appliedPaths.length - 3} more` : "");
-    await db.insert(eventsTable).values({
-      id: randomUUID(),
-      type: "AiChangesApplied",
-      projectId,
-      severity: failedPaths.length > 0 ? "warning" : "success",
-      message: `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
-      correlationId: applyCorrelationId,
-      payload: { appliedFiles: appliedPaths, failedFiles: failedPaths },
-    });
-  }
-
-  const allOk = results.every((r) => r.ok);
-  return res.status(allOk ? 200 : 207).json({ results });
 });
 
 // ── Scan Analysis ────────────────────────────────────────────────────────────
