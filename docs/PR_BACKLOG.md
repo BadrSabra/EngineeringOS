@@ -10,7 +10,7 @@ Ordering principle: **correctness before completeness, backend before frontend, 
 ---
 
 ## PR-A — Discovery stub honesty
-**Status:** 🔲 Open  
+**Status:** ✅ Closed  
 **Priority:** P1 — highest clarity-per-effort ratio  
 **Risk:** Medium — currently `ARCHIVE_UPLOAD`, `REMOTE_FILESYSTEM`, `DOCKER_VOLUME` return soft "coming soon" notes in both the adapter and the `GET /api/discovery/sources` response. A caller cannot distinguish "unsupported" from "broken".
 
@@ -31,7 +31,7 @@ Ordering principle: **correctness before completeness, backend before frontend, 
 ---
 
 ## PR-B — Write-path event emission consistency
-**Status:** 🔲 Open  
+**Status:** ✅ Closed  
 **Priority:** P1 — audit chain completeness; without this, the Events feed is an unreliable view of system state  
 **Risk:** Medium — missing events are silent gaps; over-emitting is noisy but safe
 
@@ -52,7 +52,7 @@ Ordering principle: **correctness before completeness, backend before frontend, 
 ---
 
 ## PR-C — AI auto-trigger on `verifying` state
-**Status:** 🔲 Open  
+**Status:** ✅ Closed  
 **Priority:** P1 — the endpoint exists (`POST /api/ai/tasks/:taskId/execute`) but nothing calls it automatically  
 **Risk:** Low-medium — a background fire-and-forget; the task already transitions to `verifying` correctly; adding the trigger only adds the auto-execute side-effect
 
@@ -72,7 +72,7 @@ Ordering principle: **correctness before completeness, backend before frontend, 
 ---
 
 ## PR-D — Workflow phase condition evaluation
-**Status:** 🔲 Open  
+**Status:** ✅ Closed  
 **Priority:** P2 — the `phases[].condition` field exists in the DB schema and OpenAPI spec but is never evaluated; advance always moves linearly  
 **Risk:** Low — purely additive; a `condition` that evaluates to false returns `409` instead of advancing; no regression on workflows without conditions
 
@@ -91,7 +91,7 @@ Ordering principle: **correctness before completeness, backend before frontend, 
 ---
 
 ## PR-E — AI parse failure and 429 surfacing
-**Status:** 🔲 Open  
+**Status:** ✅ Closed  
 **Priority:** P2 — forensic §10 risk #4: "silent fallback in parsing or decision validation"  
 **Risk:** Low-medium — hardens existing code, doesn't change API shape
 
@@ -112,7 +112,7 @@ Ordering principle: **correctness before completeness, backend before frontend, 
 ---
 
 ## PR-F — Plugin-runtime documentation heuristic
-**Status:** 🔲 Open  
+**Status:** ✅ Closed  
 **Priority:** P2 — low-urgency but listed in both PLACEHOLDER_REGISTER and forensic §8  
 **Risk:** Low  
 
@@ -131,7 +131,7 @@ Ordering principle: **correctness before completeness, backend before frontend, 
 ---
 
 ## PR-G — Architecture documentation
-**Status:** 🔲 Open  
+**Status:** ✅ Closed  
 **Priority:** P2 — forensic §6 and completion-plan P1 both flag the absence of a single architectural deliverable  
 **Risk:** None (docs only)
 
@@ -155,7 +155,7 @@ Ordering principle: **correctness before completeness, backend before frontend, 
 ---
 
 ## PR-H — Job queue crash safety
-**Status:** 🔲 Open — **decision point before implementation**  
+**Status:** ✅ Closed (H-1 — observability baseline)  
 **Priority:** P3 — in-process queue is a known risk; not blocking current functionality  
 **Risk:** High implementation risk if replacing the queue; low risk if documenting behavior
 
@@ -183,7 +183,7 @@ Ordering principle: **correctness before completeness, backend before frontend, 
 ---
 
 ## PR-I — SSE streaming for AI chat
-**Status:** 🔲 Open — large architectural change  
+**Status:** ✅ Closed  
 **Priority:** P3 — UX improvement, not a correctness gap  
 **Risk:** High — changes the HTTP contract for `/api/ai/chat`, requires OpenAPI update + codegen + client rewrite
 
@@ -247,3 +247,13 @@ PR-F  ────────────────────────�
 | Old PR 05 (partial) | DiscoverProjectWizard 7 fixes | 2026-07-19 |
 | Old PR 06 (partial) | AiChat error classification | 2026-07-15 |
 | Old PR 09 (partial) | codegen:check + typecheck + test scripts | 2026-07-15 |
+| PR-A | Discovery stub honesty (UnsupportedAdapter → 501) | 2026-07-19 |
+| PR-B | Write-path event emission (apply/commit/push/task/workflow) | 2026-07-19 |
+| PR-C | AI auto-trigger on verifying state | 2026-07-19 |
+| PR-D | Workflow phase condition evaluation | 2026-07-19 |
+| PR-E | AI parse failure + 429 surfacing as 422 | 2026-07-19 |
+| PR-F | Plugin doc heuristic + custom-fetch comment | 2026-07-19 |
+| PR-G | Architecture documentation (`docs/architecture.md`) | 2026-07-19 |
+| PR-H | Job queue crash safety — H-1 observability baseline | 2026-07-19 |
+| PR-I | SSE streaming for AI chat (`/ai/chat/stream` + `useAiChatStream`) | 2026-07-19 |
+| Forensic audit fixes | apply/chat race lock, pendingChanges salvage, transactional context, tool registry, rootPath fallback | 2026-07-19 |

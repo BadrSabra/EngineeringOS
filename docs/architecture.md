@@ -1,6 +1,6 @@
 # EngineeringOS — Architecture Reference
 
-> **This is the current truth baseline** (last verified 2026-07-19, post PR-A through PR-F).
+> **This is the current truth baseline** (last verified 2026-07-19, post all PRs A–I + forensic audit correctness fixes).
 > `docs/completion-plan.md` and `docs/fact-record.md` are historical phase logs — see those
 > files' banners for context.
 
@@ -209,7 +209,7 @@ These entries capture non-obvious tradeoffs. The `.agents/memory/` files hold th
 | Decision | File | Why |
 |---|---|---|
 | Deferred FK + atomic claim ordering | `fk-atomic-claim-ordering.md` | Real FK on claim column breaks pre-tx optimistic patterns |
-| Parse-failure surfaced as 422, not silent 200 | (PR-E, this backlog) | Callers must distinguish "bad model output" from "network error" |
+| Parse-failure surfaced as 422, not silent 200 | (PR-E) | Callers must distinguish "bad model output" from "network error" |
 | Context cache: TTL is perf, not correctness | `context-cache-invalidation-rule.md` | Any DB write to context tables must bust the cache immediately |
 | Drizzle error wrapping: `.cause` not `err` | `drizzle-error-wrapping.md` | Raw pg error is on `err.cause` with node-postgres driver |
 | `git-diff` vs `git-status` for drift check | `testing-drift-checks.md` | `git-status --porcelain` is reliable; `git-diff` has edge cases |
@@ -218,6 +218,11 @@ These entries capture non-obvious tradeoffs. The `.agents/memory/` files hold th
 | requireAuth bypass on NODE_ENV=test | `clerk-auth-testing.md` | Lets supertest integration tests run without mocking Clerk tokens |
 | Rate limit + key check before atomic claim | (PR-E, routes/ai.ts) | Task never stuck in "running" on a 428/429 rejection |
 | SourceAdapter URL whitelist (https only) | `pr04-discovery-hardening.md` | Prevent SSRF via git clone of internal URLs |
+| Apply/chat race lock (`_applyingProjects`) | (forensic G-04) | Chat context reads during an active file-write window see partial disk state |
+| `fallbackChatOutput` salvages valid changes | (forensic G-09) | Schema-invalid model output previously silently dropped all proposed changes |
+| `buildProjectContext` in REPEATABLE READ tx | (forensic G-12) | 8 independent queries could produce an internally inconsistent context on concurrent writes |
+| Tool dispatch via explicit registry Sets | (forensic G-13) | `startsWith("git_")` would silently misroute any future tool whose name collided with the prefix |
+| rootPath fallback not persisted to DB | (forensic G-16) | Writing `WORKSPACE_FALLBACK` permanently over stored rootPath exposes entire monorepo to AI tools |
 
 ---
 
