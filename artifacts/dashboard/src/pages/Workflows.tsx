@@ -36,7 +36,7 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
   const { data: projects } = useListProjects();
   const createWorkflow = useCreateWorkflow();
 
-  type PhaseInput = { name: string; steps: string[] };
+  type PhaseInput = { name: string; steps: string[]; condition?: string };
 
   const [projectId, setProjectId] = useState('');
   const [name, setName] = useState('');
@@ -71,11 +71,18 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
       ),
     );
 
+  const updatePhaseCondition = (idx: number, value: string) =>
+    setPhases((prev) => prev.map((p, i) => (i === idx ? { ...p, condition: value } : p)));
+
   const addPhase = () => setPhases((prev) => [...prev, { name: '', steps: [] }]);
   const removePhase = (idx: number) => setPhases((prev) => prev.filter((_, i) => i !== idx));
 
   const cleanedPhases = phases
-    .map((p) => ({ name: p.name.trim(), steps: p.steps.map((s) => s.trim()).filter(Boolean) }))
+    .map((p) => ({
+      name: p.name.trim(),
+      steps: p.steps.map((s) => s.trim()).filter(Boolean),
+      ...(p.condition?.trim() ? { condition: p.condition.trim() } : {}),
+    }))
     .filter((p) => p.name);
   const canSubmit = !!projectId && name.trim().length > 0 && cleanedPhases.length > 0;
 
@@ -204,6 +211,16 @@ function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
                       </button>
                     </div>
                   ))}
+                  {/* PR-D: optional advance condition per phase */}
+                  <div className="ml-7 mt-1">
+                    <input
+                      value={phase.condition ?? ''}
+                      onChange={(e) => updatePhaseCondition(idx, e.target.value)}
+                      placeholder="Advance condition (optional) — e.g. qualityScore >= 80"
+                      title="JS expression evaluated before advancing past this phase. Available: qualityScore, currentPhase, completedPhases"
+                      className="w-full bg-secondary/20 border border-border/40 rounded-md px-2.5 py-1 text-xs font-mono text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary placeholder:italic"
+                    />
+                  </div>
                 </div>
               ))}
             </div>

@@ -368,6 +368,47 @@ router.post("/workflows/:workflowId/advance", async (req, res) => {
     return res.status(409).json({ error: "Workflow has no running execution to advance" });
   }
 
+  // PR-D: evaluate the current phase's advance condition before moving forward.
+  // The condition is a JS expression evaluated against observable workflow state —
+  // qualityScore (from the project row, updated on each scan), currentPhase, and
+  // completedPhases. An empty/absent condition means "always advance" (no change
+  // to existing behaviour).
+  type PhaseShape = { name: string; condition?: string };
+  const allPhases = (workflow[0].phases as PhaseShape[]) ?? [];
+  const currentPhaseObj = allPhases.find((p) => p.name === execution.currentPhase);
+  if (currentPhaseObj?.condition) {
+    const condition = currentPhaseObj.condition.trim();
+    const evalContext: Record<string, unknown> = {
+      qualityScore: advanceOwnerProject.qualityScore ?? null,
+      currentPhase: execution.currentPhase,
+      completedPhases: (execution.completedPhases as string[] | null) ?? [],
+    };
+    let conditionMet: boolean;
+    try {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function(...Object.keys(evalContext), `return !!(${condition})`);
+      conditionMet = fn(...Object.values(evalContext)) as boolean;
+    } catch (err) {
+      return res.status(400).json({
+        error: "condition_evaluation_error",
+        condition,
+        detail: err instanceof Error ? err.message : String(err),
+        hint: "Check condition expression syntax. Available variables: qualityScore (number|null), currentPhase (string), completedPhases (string[])",
+      });
+    }
+    if (!conditionMet) {
+      return res.status(409).json({
+        error: "condition_not_met",
+        condition,
+        hint: `Phase "${execution.currentPhase}" has an advance condition that is not yet satisfied`,
+        context: evalContext,
+        // blockers mirrors the AI orchestrator's wait-action shape so the
+        // dashboard can display both sources of blocking uniformly.
+        blockers: [`condition_not_met: ${condition}`],
+      });
+    }
+  }
+
   const phases = (workflow[0].phases as Array<{ name: string }>) ?? [];
   const currentIndex = phases.findIndex((p) => p.name === execution.currentPhase);
   const isLastPhase = currentIndex === -1 || currentIndex === phases.length - 1;

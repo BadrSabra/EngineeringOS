@@ -27,10 +27,10 @@ import {
   GroqClientError,
   parseWorkflowPhases,
 } from "@workspace/ai-orchestrator";
-import type { PendingChange } from "@workspace/ai-orchestrator";
 import { recordAudit } from "../lib/audit.js";
 import { logger } from "../lib/logger.js";
 import { encryptApiKey, decryptApiKey } from "../lib/credentials-crypto.js";
+import { heavyJobQueue } from "../lib/job-queue.js";
 import {
   loadProjectByIdForUser,
   requireProjectAccess,

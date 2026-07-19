@@ -136,6 +136,98 @@ describe("Workflow phase orchestration", () => {
     expect(res.status).toBe(409);
   });
 
+  // ── PR-D: condition evaluation ──────────────────────────────────────────────
+
+  async function createStartedWorkflowWithCondition(condition: string, qualityScore: number | null = null) {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+
+    // Set a qualityScore on the project so the condition evaluator can read it.
+    if (qualityScore !== null) {
+      await db.update(projectsTable).set({ qualityScore }).where(eq(projectsTable.id, projectId));
+    }
+
+    const created = await request(app)
+      .post("/api/workflows")
+      .send({
+        projectId,
+        name: `wf-cond-${randomUUID().slice(0, 8)}`,
+        phases: [
+          { name: "build", steps: [], condition },
+          { name: "deploy", steps: [] },
+        ],
+      });
+    expect(created.status).toBe(201);
+    const workflowId = created.body.id;
+
+    const started = await request(app).post(`/api/workflows/${workflowId}/start`);
+    expect(started.status).toBe(202);
+
+    return { projectId, workflowId };
+  }
+
+  it("blocks advance with 409 when the phase condition is not met (qualityScore too low)", async () => {
+    const { workflowId } = await createStartedWorkflowWithCondition("qualityScore >= 80", 60);
+
+    const res = await request(app).post(`/api/workflows/${workflowId}/advance`);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("condition_not_met");
+    expect(res.body.condition).toBe("qualityScore >= 80");
+    expect(res.body.blockers).toEqual(["condition_not_met: qualityScore >= 80"]);
+    expect(res.body.context.qualityScore).toBe(60);
+  });
+
+  it("allows advance when the phase condition is met (qualityScore high enough)", async () => {
+    const { workflowId } = await createStartedWorkflowWithCondition("qualityScore >= 80", 90);
+
+    const res = await request(app).post(`/api/workflows/${workflowId}/advance`);
+    expect(res.status).toBe(200);
+    expect(res.body.currentPhase).toBe("deploy");
+  });
+
+  it("allows advance when the phase has no condition (existing behaviour unchanged)", async () => {
+    const { workflowId } = await createStartedWorkflow();
+
+    const res = await request(app).post(`/api/workflows/${workflowId}/advance`);
+    expect(res.status).toBe(200);
+  });
+
+  it("returns 400 when the condition expression has a syntax error", async () => {
+    const { workflowId } = await createStartedWorkflowWithCondition("qualityScore >=== !!!");
+
+    const res = await request(app).post(`/api/workflows/${workflowId}/advance`);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("condition_evaluation_error");
+    expect(res.body.condition).toBe("qualityScore >=== !!!");
+    expect(res.body.hint).toMatch(/qualityScore.*currentPhase.*completedPhases/);
+  });
+
+  it("returns 409 when condition evaluates against completedPhases array", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+
+    // Three-phase workflow: phase1 has a condition requiring phase2 already done.
+    // Since we just started on phase1, completedPhases is empty → should block.
+    const created = await request(app)
+      .post("/api/workflows")
+      .send({
+        projectId,
+        name: `wf-phases-${randomUUID().slice(0, 8)}`,
+        phases: [
+          { name: "phase1", steps: [], condition: "completedPhases.includes('phase0')" },
+          { name: "phase2", steps: [] },
+        ],
+      });
+    expect(created.status).toBe(201);
+    const workflowId = created.body.id;
+
+    await request(app).post(`/api/workflows/${workflowId}/start`);
+
+    const res = await request(app).post(`/api/workflows/${workflowId}/advance`);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("condition_not_met");
+  });
+
   it("returns 409 when retrying an execution that isn't failed", async () => {
     const { workflowId } = await createStartedWorkflow();
     const executions = await db

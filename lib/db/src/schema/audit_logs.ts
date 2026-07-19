@@ -36,6 +36,10 @@ export const auditActionEnum = pgEnum("audit_action", [
   "imported",
   "scanned",
   "ai_executed",
+  "ai_analyzed",
+  "ai_reviewed",
+  "ai_orchestrated",
+  "ai_auto_executed",
 ]);
 
 export const auditLogsTable = pgTable("audit_logs", {
