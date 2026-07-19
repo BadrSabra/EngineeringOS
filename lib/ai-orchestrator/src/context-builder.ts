@@ -48,42 +48,50 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
   const now = Date.now();
   const cached = contextCache.get(projectId);
   if (cached && cached.expiresAt > now) return cached.data;
-  // Promise.allSettled instead of Promise.all: a single flaky DB connection
-  // no longer kills the entire context. The project row is critical — we throw
-  // if that query fails. All other tables degrade gracefully to empty arrays so
-  // agents receive a partial-but-valid context rather than a raw 500.
+  // PR-04 / G-12: wrap all 8 reads in a single REPEATABLE READ transaction so
+  // every query sees the same committed DB snapshot.  Without this, a concurrent
+  // write (e.g. a scan completing between the metrics query and the entities
+  // query) can produce an internally-inconsistent context where one half reflects
+  // post-write state and the other half reflects pre-write state.
+  //
+  // Promise.allSettled is retained inside the transaction so a single flaky
+  // query still degrades gracefully rather than rolling back the whole read and
+  // serving a 500.  The project row remains a hard failure — all others degrade
+  // to empty arrays with a logged warning.
   const [
     projectResult, tasksResult, metricsResult, entitiesResult,
     eventsResult, workflowsResult, scanJobResult, relationshipsResult,
-  ] = await Promise.allSettled([
-    db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
-    // Sort in the DB by priority ASC (p0 < p1 < p2 < p3 lexically), then by
-    // recency DESC as a tiebreaker.  This ensures a P0 task that hasn't been
-    // touched in weeks is never cut before lower-priority recently-updated tasks.
-    db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)).orderBy(asc(tasksTable.priority), desc(tasksTable.updatedAt)).limit(10),
-    db.select().from(metricsTable).where(eq(metricsTable.projectId, projectId)).orderBy(desc(metricsTable.timestamp)).limit(1),
-    // Order by confidence DESC so the most certain entities fill the cap first.
-    db.select().from(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, projectId)).orderBy(desc(graphEntitiesTable.confidence)).limit(60),
-    db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId)).orderBy(desc(eventsTable.timestamp)).limit(10),
-    db.select().from(workflowsTable).where(eq(workflowsTable.projectId, projectId)).orderBy(desc(workflowsTable.updatedAt)).limit(20),
-    // Fetch scan job to distinguish real scans from import-time defaults.
-    db.select({ status: scanJobsTable.status, error: scanJobsTable.error, finishedAt: scanJobsTable.finishedAt })
-      .from(scanJobsTable).where(eq(scanJobsTable.projectId, projectId)).orderBy(desc(scanJobsTable.createdAt)).limit(1),
-    // Gap-1 fix: load relationships so the AI sees graph topology (edges), not
-    // just entity nodes. Capped at 40 high-confidence edges.
-    db.select({
-      id: graphRelationshipsTable.id,
-      sourceId: graphRelationshipsTable.sourceId,
-      targetId: graphRelationshipsTable.targetId,
-      relation: graphRelationshipsTable.relation,
-      relationType: graphRelationshipsTable.relationType,
-      confidence: graphRelationshipsTable.confidence,
-      isHeuristic: graphRelationshipsTable.isHeuristic,
-    }).from(graphRelationshipsTable)
-      .where(eq(graphRelationshipsTable.projectId, projectId))
-      .orderBy(desc(graphRelationshipsTable.confidence))
-      .limit(40),
-  ]);
+  ] = await db.transaction(async (tx) => {
+    return Promise.allSettled([
+      tx.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
+      // Sort in the DB by priority ASC (p0 < p1 < p2 < p3 lexically), then by
+      // recency DESC as a tiebreaker.  This ensures a P0 task that hasn't been
+      // touched in weeks is never cut before lower-priority recently-updated tasks.
+      tx.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)).orderBy(asc(tasksTable.priority), desc(tasksTable.updatedAt)).limit(10),
+      tx.select().from(metricsTable).where(eq(metricsTable.projectId, projectId)).orderBy(desc(metricsTable.timestamp)).limit(1),
+      // Order by confidence DESC so the most certain entities fill the cap first.
+      tx.select().from(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, projectId)).orderBy(desc(graphEntitiesTable.confidence)).limit(60),
+      tx.select().from(eventsTable).where(eq(eventsTable.projectId, projectId)).orderBy(desc(eventsTable.timestamp)).limit(10),
+      tx.select().from(workflowsTable).where(eq(workflowsTable.projectId, projectId)).orderBy(desc(workflowsTable.updatedAt)).limit(20),
+      // Fetch scan job to distinguish real scans from import-time defaults.
+      tx.select({ status: scanJobsTable.status, error: scanJobsTable.error, finishedAt: scanJobsTable.finishedAt })
+        .from(scanJobsTable).where(eq(scanJobsTable.projectId, projectId)).orderBy(desc(scanJobsTable.createdAt)).limit(1),
+      // Gap-1 fix: load relationships so the AI sees graph topology (edges), not
+      // just entity nodes. Capped at 40 high-confidence edges.
+      tx.select({
+        id: graphRelationshipsTable.id,
+        sourceId: graphRelationshipsTable.sourceId,
+        targetId: graphRelationshipsTable.targetId,
+        relation: graphRelationshipsTable.relation,
+        relationType: graphRelationshipsTable.relationType,
+        confidence: graphRelationshipsTable.confidence,
+        isHeuristic: graphRelationshipsTable.isHeuristic,
+      }).from(graphRelationshipsTable)
+        .where(eq(graphRelationshipsTable.projectId, projectId))
+        .orderBy(desc(graphRelationshipsTable.confidence))
+        .limit(40),
+    ]);
+  }, { isolationLevel: "repeatable read" });
 
   // Helper: returns the fulfilled value or an empty array, logging a warning
   // so degraded contexts are visible in server logs.

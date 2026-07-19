@@ -33,6 +33,13 @@ const { _tableData, _mockDb } = vi.hoisted(() => {
     select: () => ({
       from: (table: object) => makeChain(_tableData.get(table) ?? []),
     }),
+    // PR-04: buildProjectContext now wraps all queries in db.transaction().
+    // The mock runs the callback synchronously with a tx that has the same
+    // select chain so all existing tests continue to work unchanged.
+    transaction: async (
+      callback: (tx: typeof _mockDb) => Promise<unknown>,
+      _opts?: unknown,
+    ) => callback(_mockDb),
   };
 
   return { _tableData, _mockDb };

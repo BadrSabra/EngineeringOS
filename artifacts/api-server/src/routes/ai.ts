@@ -383,6 +383,13 @@ router.post("/ai/chat", async (req, res) => {
       try {
         await fs.access(WORKSPACE_FALLBACK);
         validRootPath = WORKSPACE_FALLBACK;
+        // G-16: log the fallback but do NOT persist it to the DB.  Writing
+        // WORKSPACE_FALLBACK permanently over the stored rootPath would expose
+        // the entire monorepo as the project's file scope and make the original
+        // path unrecoverable — e.g. if the project is re-scanned or re-imported
+        // after the temp clone is refreshed.  The fallback applies to this
+        // request only; the DB retains the authoritative (currently inaccessible)
+        // path so future operations can resolve it correctly.
         console.warn(
           JSON.stringify({
             scope: "ai-route",
@@ -390,10 +397,9 @@ router.post("/ai/chat", async (req, res) => {
             original: project.rootPath,
             fallback: WORKSPACE_FALLBACK,
             projectId,
+            note: "transient fallback only — rootPath not persisted",
           }),
         );
-        // Persist the corrected path so subsequent requests don't repeat the fallback dance.
-        await db.update(projectsTable).set({ rootPath: WORKSPACE_FALLBACK }).where(eq(projectsTable.id, projectId));
       } catch {
         console.warn(
           JSON.stringify({

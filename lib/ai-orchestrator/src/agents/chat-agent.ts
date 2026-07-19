@@ -190,6 +190,15 @@ export async function chat(opts: {
   let totalToolCalls = 0;
 
   const tools = rootPath ? [...FILE_TOOL_DEFINITIONS, ...GIT_TOOL_DEFINITIONS] : undefined;
+
+  // PR-02: build explicit name Sets from the authoritative definition arrays.
+  // Replaces the startsWith("git_") prefix heuristic so any future tool whose
+  // name happens to start with "git_" is not silently misrouted to the git
+  // handler, and any unregistered name produces a loud error instead of falling
+  // through to the file handler with undefined behaviour.
+  const GIT_TOOL_NAMES  = new Set(GIT_TOOL_DEFINITIONS.map((t) => t.function.name));
+  const FILE_TOOL_NAMES = new Set(FILE_TOOL_DEFINITIONS.map((t) => t.function.name));
+
   // Use the more capable model when tools are involved — smaller models are
   // unreliable at following multi-step tool-calling protocols.
   // Always use MODEL_FAST for the agentic chat loop — it handles multi-turn
@@ -292,9 +301,31 @@ export async function chat(opts: {
           continue;
         }
 
+        // PR-02: registry assertion — reject names that don't match any
+        // registered handler before touching the tool budget counter.
+        const isGitTool  = GIT_TOOL_NAMES.has(tc.function.name);
+        const isFileTool = FILE_TOOL_NAMES.has(tc.function.name);
+        if (!isGitTool && !isFileTool) {
+          console.error(
+            JSON.stringify({
+              scope: "chat-agent",
+              code: "UNKNOWN_TOOL",
+              tool: tc.function.name,
+              iter,
+              knownGit:  [...GIT_TOOL_NAMES],
+              knownFile: [...FILE_TOOL_NAMES],
+            }),
+          );
+          messages.push({
+            role: "tool",
+            tool_call_id: tc.id,
+            content: `Error: Tool "${tc.function.name}" is not registered — use one of the tools listed in the system prompt.`,
+          });
+          continue;
+        }
+
         // ── Execute ──────────────────────────────────────────────────────────
         totalToolCalls++;
-        const isGitTool = tc.function.name.startsWith("git_");
         const output = isGitTool
           ? await executeGitTool(tc.function.name, args, rootPath!)
           : await executeFileTool(tc.function.name, args, rootPath!, pendingChanges);
