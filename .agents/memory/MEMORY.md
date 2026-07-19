@@ -30,3 +30,4 @@
 - [Context cache invalidation rule](context-cache-invalidation-rule.md) — any DB write to a context-builder table must call invalidateContextCache; TTL is perf, not correctness.
 - [Discovery resolution hardening](pr04-discovery-hardening.md) — URL scheme whitelist (https only), credential redaction, validateRootPath is async + realpath symlink check.
 - [PR-C AI auto-trigger](pr-c-ai-autotrigger.md) — scheduleAiTaskExecution was already in ai.ts; PR-C was wiring only (import + 2 call sites in tasks.ts); vi.mock importOriginal pattern for integration test spy.
+- [PR-D Workflow conditions](pr-d-workflow-conditions.md) — condition eval in /advance: Function() with safe context {qualityScore,currentPhase,completedPhases}; 409/400 shapes; audit enum extended; heavyJobQueue import fix.
