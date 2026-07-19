@@ -525,15 +525,28 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
  * UX-level trust, not a security boundary.
  */
 router.post("/ai/chat/apply-changes", async (req, res) => {
-  const { changes, projectId } = req.body as {
-    changes: Array<Pick<PendingChange, "path" | "absolutePath" | "newContent">>;
-    projectId: string;
-  };
-
-  if (!projectId) return res.status(400).json({ error: "projectId is required" });
-  if (!Array.isArray(changes) || changes.length === 0) {
-    return res.status(400).json({ error: "changes must be a non-empty array" });
+  const ChangeItemSchema = z.object({
+    path:         z.string().min(1, "each change must have a non-empty path"),
+    absolutePath: z.string()
+                    .min(1, "each change must have a non-empty absolutePath")
+                    .refine((v) => path.isAbsolute(v), "absolutePath must be an absolute path"),
+    newContent:   z.string(),
+  });
+  const ApplyChangesBodySchema = z.object({
+    projectId: z.string({ required_error: "projectId is required" }).min(1, "projectId is required"),
+    changes:   z.array(ChangeItemSchema)
+                 .min(1, "changes must be a non-empty array")
+                 .max(50, "too many changes — max 50 per request"),
+  });
+  const applyBody = ApplyChangesBodySchema.safeParse(req.body);
+  if (!applyBody.success) {
+    const issue = applyBody.error.issues[0];
+    const raw   = issue?.message ?? "Invalid request body";
+    const field = String(issue?.path[0] ?? "");
+    const error = raw === "Required" && field ? `${field} is required` : raw;
+    return res.status(400).json({ error });
   }
+  const { changes, projectId } = applyBody.data;
 
   // Verify the user owns this project
   const project = await loadProjectByIdForUser(projectId, req.userId, res);

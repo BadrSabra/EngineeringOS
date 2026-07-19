@@ -48,26 +48,29 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
   const now = Date.now();
   const cached = contextCache.get(projectId);
   if (cached && cached.expiresAt > now) return cached.data;
-  const [[project], rawTasks, [latestMetric], entities, recentEvents, rawWorkflows, [latestScanJob], relationships] = await Promise.all([
+  // Promise.allSettled instead of Promise.all: a single flaky DB connection
+  // no longer kills the entire context. The project row is critical — we throw
+  // if that query fails. All other tables degrade gracefully to empty arrays so
+  // agents receive a partial-but-valid context rather than a raw 500.
+  const [
+    projectResult, tasksResult, metricsResult, entitiesResult,
+    eventsResult, workflowsResult, scanJobResult, relationshipsResult,
+  ] = await Promise.allSettled([
     db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
     // Sort in the DB by priority ASC (p0 < p1 < p2 < p3 lexically), then by
     // recency DESC as a tiebreaker.  This ensures a P0 task that hasn't been
-    // touched in weeks is never cut before lower-priority recently-updated tasks
-    // (the previous LIMIT 50 + in-memory re-sort pattern had that bug).
+    // touched in weeks is never cut before lower-priority recently-updated tasks.
     db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)).orderBy(asc(tasksTable.priority), desc(tasksTable.updatedAt)).limit(10),
     db.select().from(metricsTable).where(eq(metricsTable.projectId, projectId)).orderBy(desc(metricsTable.timestamp)).limit(1),
     // Order by confidence DESC so the most certain entities fill the cap first.
     db.select().from(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, projectId)).orderBy(desc(graphEntitiesTable.confidence)).limit(60),
     db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId)).orderBy(desc(eventsTable.timestamp)).limit(10),
     db.select().from(workflowsTable).where(eq(workflowsTable.projectId, projectId)).orderBy(desc(workflowsTable.updatedAt)).limit(20),
-    // إصلاح: جلب حالة آخر عملية مسح لتمييز البيانات الحقيقية من القيم الافتراضية.
+    // Fetch scan job to distinguish real scans from import-time defaults.
     db.select({ status: scanJobsTable.status, error: scanJobsTable.error, finishedAt: scanJobsTable.finishedAt })
       .from(scanJobsTable).where(eq(scanJobsTable.projectId, projectId)).orderBy(desc(scanJobsTable.createdAt)).limit(1),
     // Gap-1 fix: load relationships so the AI sees graph topology (edges), not
-    // just entity nodes. Previously context-builder only fetched graphEntitiesTable
-    // — the AI had entity names but no topology, making analysis purely a summary
-    // rather than real graph reasoning. Capped at 40 high-confidence edges to
-    // keep the context string from becoming too large.
+    // just entity nodes. Capped at 40 high-confidence edges.
     db.select({
       id: graphRelationshipsTable.id,
       sourceId: graphRelationshipsTable.sourceId,
@@ -81,6 +84,33 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
       .orderBy(desc(graphRelationshipsTable.confidence))
       .limit(40),
   ]);
+
+  // Helper: returns the fulfilled value or an empty array, logging a warning
+  // so degraded contexts are visible in server logs.
+  function settled<T>(result: PromiseSettledResult<T[]>, label: string): T[] {
+    if (result.status === "fulfilled") return result.value;
+    console.warn(
+      JSON.stringify({ scope: "context-builder", code: "QUERY_DEGRADED", query: label, projectId, error: String(result.reason) }),
+    );
+    return [];
+  }
+
+  // Project is critical — a query failure is a hard error, not a degradation.
+  if (projectResult.status === "rejected") {
+    console.error(
+      JSON.stringify({ scope: "context-builder", code: "PROJECT_QUERY_FAILED", projectId, error: String(projectResult.reason) }),
+    );
+    throw new Error(`Failed to load project ${projectId}: ${projectResult.reason}`);
+  }
+
+  const [project]       = projectResult.value;
+  const rawTasks        = settled(tasksResult,         "tasks");
+  const [latestMetric]  = settled(metricsResult,       "metrics");
+  const entities        = settled(entitiesResult,      "graphEntities");
+  const recentEvents    = settled(eventsResult,        "events");
+  const rawWorkflows    = settled(workflowsResult,     "workflows");
+  const [latestScanJob] = settled(scanJobResult,       "scanJobs");
+  const relationships   = settled(relationshipsResult, "graphRelationships");
 
   if (!project) throw new Error(`Project ${projectId} not found`);
 
@@ -298,7 +328,29 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
     recentEvents: eventSummary,
   };
 
-  // Store in cache — subsequent requests within the TTL window skip the 7
+  // ── Token budget warning ───────────────────────────────────────────────────
+  // llama-3.3-70b context window is 128 K tokens (~512 K chars at 4 chars/token).
+  // The system prompt alone (built from `result`) uses most of the budget; add
+  // the chat history + user message on top. Warn when the context string total
+  // exceeds 80 K chars (~20 K tokens) so operators can tune the entity/relation
+  // caps before hitting silent model-side truncation.
+  const CONTEXT_WARN_CHARS = 80_000;
+  const totalChars = Object.values(result).reduce((sum, v) => sum + v.length, 0);
+  if (totalChars > CONTEXT_WARN_CHARS) {
+    console.warn(
+      JSON.stringify({
+        scope: "context-builder",
+        code: "CONTEXT_SIZE_WARNING",
+        projectId,
+        totalChars,
+        estimatedTokens: Math.round(totalChars / 4),
+        threshold: CONTEXT_WARN_CHARS,
+        hint: "Consider reducing entity/relationship caps or shortening prompt templates.",
+      }),
+    );
+  }
+
+  // Store in cache — subsequent requests within the TTL window skip the 8
   // parallel DB queries entirely.
   contextCache.set(projectId, { data: result, expiresAt: Date.now() + CONTEXT_CACHE_TTL_MS });
   return result;

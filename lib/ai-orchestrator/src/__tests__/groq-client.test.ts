@@ -137,16 +137,25 @@ describe("groq-client", () => {
   });
 
   it("retries a 429 rate-limit error up to maxRetries", async () => {
-    const create = vi.fn().mockRejectedValue(Object.assign(new Error("Too Many Requests"), { status: 429 }));
-    vi.doMock("groq-sdk", () => ({
-      default: class {
-        chat = { completions: { create } };
-      },
-    }));
-    const { complete } = await import("../groq-client.js");
-    await expect(complete([{ role: "user", content: "hi" }], { maxRetries: 2 })).rejects.toBeDefined();
-    // Should have retried (called more than once).
-    expect(create.mock.calls.length).toBeGreaterThan(1);
+    // Pin Math.random to 0 so retryDelayMs always returns 0 ms regardless of
+    // the RATE_LIMITED base (2 000 ms × jitter).  Without this the test is
+    // flaky: at attempt 1 the jitter window is [0, 4 000 ms] and the default
+    // test timeout is 5 000 ms — a bad roll causes a spurious timeout failure.
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      const create = vi.fn().mockRejectedValue(Object.assign(new Error("Too Many Requests"), { status: 429 }));
+      vi.doMock("groq-sdk", () => ({
+        default: class {
+          chat = { completions: { create } };
+        },
+      }));
+      const { complete } = await import("../groq-client.js");
+      await expect(complete([{ role: "user", content: "hi" }], { maxRetries: 2 })).rejects.toBeDefined();
+      // Should have retried (called more than once).
+      expect(create.mock.calls.length).toBeGreaterThan(1);
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 
   it("retries a 5xx server error up to maxRetries", async () => {
