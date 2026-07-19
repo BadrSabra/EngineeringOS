@@ -1045,4 +1045,191 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
   return res.status(202).json(updated);
 });
 
+// ── PR-C: AI auto-trigger on verifying state ──────────────────────────────────
+
+/**
+ * Schedules an AI task execution job for a task that just entered `verifying`
+ * status with a non-null prompt. Fire-and-forget: enqueued into the shared
+ * heavyJobQueue so it never blocks the caller's HTTP response.
+ *
+ * The job re-confirms the task is still in `verifying` before doing anything —
+ * guards against a user cancelling or manually resolving the task between the
+ * trigger point and when a queue slot becomes free.
+ *
+ * Re-uses the same pipeline as POST /api/ai/tasks/:taskId/execute
+ * (resolveGroqApiKey, checkProjectRateLimit, buildProjectContext, executeTask)
+ * so the two paths are mechanically identical.
+ *
+ * @param taskId  ID of the task to auto-execute.
+ * @param userId  Owner — used for Groq API key resolution (user key → env fallback).
+ */
+export function scheduleAiTaskExecution(taskId: string, userId: string): void {
+  heavyJobQueue.enqueue(async () => {
+    try {
+      // Re-fetch to confirm the task is still eligible — the user may have
+      // cancelled or manually changed the status while the job was queued.
+      const [task] = await db
+        .select()
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId))
+        .limit(1);
+
+      if (!task || task.status !== "verifying" || !task.prompt) {
+        logger.info(
+          { taskId, status: task?.status ?? "gone", hasPrompt: !!task?.prompt },
+          "AI auto-trigger: task no longer eligible — skipping",
+        );
+        return;
+      }
+
+      const apiKey = await resolveGroqApiKey(userId);
+      if (!apiKey) {
+        // No key configured — leave task in verifying for manual resolution and
+        // emit a skipped event so the situation is visible in the event feed.
+        logger.warn({ taskId }, "AI auto-trigger: no Groq API key configured — task stays in verifying");
+        await db.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "TaskAutoTriggered",
+          projectId: task.projectId,
+          taskId,
+          severity: "warning",
+          message: `AI auto-trigger skipped for "${task.title}": no Groq API key configured`,
+          payload: { skipped: true, reason: "no_api_key" },
+        });
+        return;
+      }
+
+      const rl = checkProjectRateLimit(task.projectId);
+      if (!rl.allowed) {
+        logger.warn(
+          { taskId, retryAfterSec: rl.retryAfterSec },
+          "AI auto-trigger: rate limited — task stays in verifying",
+        );
+        return;
+      }
+
+      const correlationId = randomUUID();
+
+      // Emit TaskAutoTriggered before the atomic claim so the event is visible
+      // in the feed even if the claim races with a concurrent state change.
+      await db.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "TaskAutoTriggered",
+        projectId: task.projectId,
+        taskId,
+        severity: "info",
+        message: `AI auto-execution triggered for "${task.title}"`,
+        correlationId,
+        payload: { trigger: "verifying_state", before: { status: "verifying" }, after: { status: "running" } },
+      });
+
+      // Atomic claim: verifying → running — guards against a concurrent manual
+      // /execute call winning the same task at the same time.
+      const [claimed] = await db
+        .update(tasksTable)
+        .set({ status: "running", updatedAt: new Date() })
+        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "verifying")))
+        .returning();
+      if (!claimed) {
+        logger.info({ taskId }, "AI auto-trigger: concurrent state change won the claim — skipping");
+        return;
+      }
+
+      await db.insert(taskLogsTable).values({
+        id: randomUUID(),
+        taskId,
+        level: "info",
+        message: "AI auto-execution started (triggered by verifying state transition)",
+        correlationId,
+      });
+
+      const projectContext = await buildProjectContext(task.projectId);
+
+      let agentResult: Awaited<ReturnType<typeof executeTask>>;
+      try {
+        agentResult = await executeTask({
+          taskTitle: task.title,
+          taskDescription: task.description,
+          taskPrompt: task.prompt,
+          taskPriority: task.priority,
+          relatedFiles: (task.relatedFiles as string[]) ?? [],
+          projectContext,
+          apiKey,
+        });
+      } catch (execErr) {
+        // Roll back to verifying so the task is not stuck in running.
+        await db
+          .update(tasksTable)
+          .set({ status: "verifying", updatedAt: new Date() })
+          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")));
+        await db.insert(taskLogsTable).values({
+          id: randomUUID(),
+          taskId,
+          level: "error",
+          message: `AI auto-execution failed: ${execErr instanceof Error ? execErr.message : String(execErr)}`,
+          correlationId,
+        });
+        throw execErr; // re-throw so the job queue's catch block logs it
+      }
+
+      invalidateContextCache(task.projectId);
+
+      const autoFinalStatus = agentResult.needsHumanReview ? "verifying" : "completed";
+
+      await db
+        .update(tasksTable)
+        .set({
+          status: autoFinalStatus,
+          agentResponse: JSON.stringify(agentResult, null, 2),
+          verificationResult: {
+            passed: !agentResult.needsHumanReview,
+            steps: agentResult.steps.map((s: string) => ({
+              name: s,
+              passed: !agentResult.needsHumanReview,
+            })),
+          },
+          updatedAt: new Date(),
+          completedAt: autoFinalStatus === "completed" ? new Date() : null,
+        })
+        .where(eq(tasksTable.id, taskId));
+
+      await db.insert(taskLogsTable).values({
+        id: randomUUID(),
+        taskId,
+        level: autoFinalStatus === "completed" ? "info" : "warn",
+        message: `AI auto-execution: ${agentResult.summary} (confidence: ${agentResult.confidence})`,
+        metadata: { agentResult, correlationId },
+        correlationId,
+      });
+
+      await db.insert(eventsTable).values({
+        id: randomUUID(),
+        type: autoFinalStatus === "completed" ? "TaskCompleted" : "TaskVerifying",
+        projectId: task.projectId,
+        taskId,
+        severity: autoFinalStatus === "completed" ? "success" : "warning",
+        message: `AI auto-executed "${task.title}" → ${autoFinalStatus} (${agentResult.confidence} confidence)`,
+        correlationId,
+        payload: { before: { status: "running" }, after: { status: autoFinalStatus } },
+      });
+
+      await recordAudit({
+        entityType: "task",
+        entityId: taskId,
+        action: "ai_auto_executed",
+        projectId: task.projectId,
+        stateBefore: { status: "verifying" },
+        stateAfter: { status: autoFinalStatus },
+        correlationId,
+      });
+    } catch (err) {
+      // Top-level catch satisfies the job queue's contract (jobs must not let
+      // errors escape unhandled). The inner try/catch already rolled back the
+      // atomic claim and logged a task-level entry; this just prevents process
+      // instability from an unexpected throw path.
+      logger.error({ err, taskId }, "AI auto-trigger: unhandled error in auto-execution job");
+    }
+  });
+}
+
 export default router;
