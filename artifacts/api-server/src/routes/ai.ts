@@ -602,6 +602,9 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
 
   const appliedPaths = results.filter((r) => r.ok).map((r) => r.path);
   const failedPaths  = results.filter((r) => !r.ok).map((r) => r.path);
+  // One correlationId ties the audit record and the event for this apply batch
+  // together — callers can retrieve the full trace with a single correlationId filter.
+  const applyCorrelationId = randomUUID();
   if (appliedPaths.length > 0) {
     // Audit log for reversibility / compliance
     await recordAudit({
@@ -611,6 +614,7 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       projectId,
       stateBefore: {},
       stateAfter: { filesWritten: appliedPaths },
+      correlationId: applyCorrelationId,
     });
 
     // G-11: bust the context cache so the very next /ai/chat request reflects
@@ -628,6 +632,8 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       projectId,
       severity: failedPaths.length > 0 ? "warning" : "success",
       message: `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
+      correlationId: applyCorrelationId,
+      payload: { appliedFiles: appliedPaths, failedFiles: failedPaths },
     });
   }
 

@@ -426,6 +426,10 @@ router.post("/workflows/:workflowId/advance", async (req, res) => {
           ? `Workflow "${workflow[0].name}" completed all phases`
           : `Workflow "${workflow[0].name}" advanced to phase: ${nextPhase}`,
         correlationId,
+        payload: {
+          before: { phase: execution.currentPhase, status: "running" },
+          after: { phase: nextPhase, status: isLastPhase ? "completed" : "running" },
+        },
       });
 
       return claimedExecution;
@@ -494,6 +498,10 @@ router.post("/workflows/:workflowId/fail-phase", async (req, res) => {
         severity: "error",
         message: `Workflow "${workflow[0].name}" failed at phase "${execution.currentPhase ?? "unknown"}": ${errorMessage}`,
         correlationId,
+        payload: {
+          before: { status: "running", phase: execution.currentPhase },
+          after: { status: "failed", errorMessage },
+        },
       });
 
       return claimedExecution;
@@ -566,6 +574,10 @@ router.post("/workflows/:workflowId/executions/:executionId/retry-phase", async 
         severity: "warning",
         message: `Workflow "${workflow[0].name}" retrying phase "${execution.currentPhase ?? "unknown"}"`,
         correlationId,
+        payload: {
+          before: { status: "failed", phase: execution.currentPhase },
+          after: { status: "running", phase: execution.currentPhase },
+        },
       });
 
       return claimedExecution;

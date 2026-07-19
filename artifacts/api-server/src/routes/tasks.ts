@@ -142,13 +142,19 @@ router.patch("/tasks/:taskId", async (req, res) => {
     changes.push(`title updated`);
 
   if (changes.length > 0) {
+    // Use TaskStatusChanged (with structured before/after payload) when the
+    // status field specifically changed — other field changes keep TaskUpdated.
+    const isStatusChange = body.status !== undefined && body.status !== before[0].status;
     await db.insert(eventsTable).values({
       id: randomUUID(),
-      type: "TaskUpdated",
+      type: isStatusChange ? "TaskStatusChanged" : "TaskUpdated",
       projectId: before[0].projectId,
       taskId,
       severity: "info",
       message: `Task "${updated[0].title}" updated — ${changes.join(", ")}`,
+      ...(isStatusChange
+        ? { payload: { before: { status: before[0].status }, after: { status: body.status } } }
+        : {}),
     });
   }
 
@@ -243,6 +249,7 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
     severity: "info",
     message: `Executing task "${task[0].title}"`,
     correlationId,
+    payload: { before: { status: task[0].status }, after: { status: "running" } },
   });
 
   type VerificationStep = { name: string; passed: boolean; output?: string };
@@ -357,6 +364,7 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
             : "warning",
       message: `Task "${task[0].title}" → ${finalStatus}`,
       correlationId,
+      payload: { before: { status: "running" }, after: { status: finalStatus } },
     });
 
     return [row];
@@ -436,6 +444,7 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
         severity: "warning",
         message: `Task "${task[0].title}" queued for retry (#${retryCount + 1})`,
         correlationId,
+        payload: { before: { status: task[0].status, retryCount }, after: { status: "queued", retryCount: retryCount + 1 } },
       });
 
       return [row];
@@ -508,6 +517,7 @@ router.post("/tasks/:taskId/rollback", async (req, res) => {
         severity: "warning",
         message: `Task "${task[0].title}" rolled back`,
         correlationId,
+        payload: { before: { status: task[0].status }, after: { status: "cancelled" } },
       });
 
       return [row];
