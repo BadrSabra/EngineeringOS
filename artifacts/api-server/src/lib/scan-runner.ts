@@ -18,6 +18,7 @@ import {
 import { eq, and, or, isNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { walkProject, matchRules, extractGraph, computeMetrics, type RuleInput } from "@workspace/scanner";
+import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { recordAudit } from "./audit.js";
 import {
   dispatchOnScanComplete,
@@ -96,6 +97,11 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
         message: `Scan failed: ${message.slice(0, 200)}`,
         correlationId: jobId,
       });
+
+      // Bust the context cache so the next AI request sees "failed" scan
+      // state rather than the stale "running"/"queued" snapshot that was
+      // cached while the scan was in progress.
+      invalidateContextCache(projectId);
     } catch (cleanupErr) {
       // Even the failure-path writes are wrapped: if the DB is unreachable
       // there is nothing more we can safely do in-process, but we must
@@ -422,6 +428,13 @@ async function performScan(projectId: string): Promise<ScanJobResult> {
       },
       correlationId,
     });
+
+    // Bust the context cache so the very next AI chat turn reflects the
+    // completed scan (new metrics, graph entities, scan status = "completed")
+    // rather than the pre-scan or mid-scan snapshot that was cached while the
+    // job was in progress.  Placed after recordAudit so it only fires when
+    // the full transaction has durably committed.
+    invalidateContextCache(projectId);
 
     // Dispatch plugin hooks outside the transaction — same best-effort
     // semantics as recordAudit: a plugin failure must not roll back a

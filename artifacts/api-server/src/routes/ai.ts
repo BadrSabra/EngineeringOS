@@ -54,6 +54,21 @@ const LLM_RATE_WINDOW_MS = 60_000; // 1 minute
 
 const _projectCallTimestamps = new Map<string, number[]>();
 
+// Periodically sweep entries that have no live timestamps so the Map doesn't
+// accumulate one entry per project forever in a long-running server.
+// .unref() ensures the timer doesn't prevent a clean process exit.
+setInterval(() => {
+  const cutoff = Date.now() - LLM_RATE_WINDOW_MS;
+  for (const [projectId, timestamps] of _projectCallTimestamps) {
+    const live = timestamps.filter((t) => t > cutoff);
+    if (live.length === 0) {
+      _projectCallTimestamps.delete(projectId);
+    } else {
+      _projectCallTimestamps.set(projectId, live);
+    }
+  }
+}, 5 * 60_000 /* 5 min */).unref();
+
 function checkProjectRateLimit(projectId: string): { allowed: boolean; retryAfterSec?: number } {
   const now = Date.now();
   const cutoff = now - LLM_RATE_WINDOW_MS;

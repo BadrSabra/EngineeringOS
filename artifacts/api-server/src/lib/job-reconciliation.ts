@@ -16,6 +16,7 @@
  */
 import { db, scanJobsTable, discoverySessionsTable, projectsTable } from "@workspace/db";
 import { and, eq, inArray } from "drizzle-orm";
+import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 
 const ORPHANED_JOB_MESSAGE =
@@ -54,6 +55,13 @@ async function reconcileScanJobs(): Promise<number> {
           eq(projectsTable.status, "scanning"),
         ),
       );
+
+    // Bust the context cache for this project so any context entry built
+    // before reconciliation ran (e.g. during a health-check request that
+    // races the startup sweep) is not served as "scanning" to subsequent
+    // AI requests.  The cache is empty on a fresh process, so this is a
+    // safe no-op in the common case and a correctness fix in the race.
+    invalidateContextCache(job.projectId);
   }
 
   const stuckIds = stuck.map((j: { id: string; projectId: string }) => j.id);

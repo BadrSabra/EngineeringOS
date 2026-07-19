@@ -1,8 +1,18 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { db, projectsTable, scanJobsTable, discoverySessionsTable } from "@workspace/db";
 import { reconcileStuckJobs } from "./job-reconciliation.js";
+
+// ── PR-03: cache invalidation spy ─────────────────────────────────────────────
+// Replace @workspace/ai-orchestrator with a spy so we can assert that
+// invalidateContextCache is called for every reconciled project without
+// needing a live context-builder instance.  The existing DB-integration
+// tests are unaffected because they don't touch this package.
+vi.mock("@workspace/ai-orchestrator", () => ({
+  invalidateContextCache: vi.fn(),
+}));
+import { invalidateContextCache } from "@workspace/ai-orchestrator";
 
 async function insertProject(status: "active" | "scanning"): Promise<string> {
   const id = randomUUID();
@@ -123,6 +133,47 @@ describe("reconcileStuckJobs", () => {
     expect(session[0]?.status).toBe("error");
     expect(session[0]?.error).toBeTruthy();
     expect(session[0]?.completedAt).not.toBeNull();
+  });
+
+  // PR-03: verify cache invalidation is triggered for every reconciled project
+  it("calls invalidateContextCache for each project whose scan job was reconciled", async () => {
+    vi.mocked(invalidateContextCache).mockClear();
+
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+
+    const now = new Date();
+    await db.insert(scanJobsTable).values({
+      id: randomUUID(),
+      projectId,
+      status: "running",
+      createdAt: now,
+      startedAt: now,
+    });
+
+    await reconcileStuckJobs();
+
+    expect(vi.mocked(invalidateContextCache)).toHaveBeenCalledWith(projectId);
+  });
+
+  it("does not call invalidateContextCache when there are no stuck jobs", async () => {
+    vi.mocked(invalidateContextCache).mockClear();
+    // Insert a project with a completed job — nothing to reconcile.
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const now = new Date();
+    await db.insert(scanJobsTable).values({
+      id: randomUUID(),
+      projectId,
+      status: "completed",
+      createdAt: now,
+      startedAt: now,
+      finishedAt: now,
+    });
+
+    await reconcileStuckJobs();
+
+    expect(vi.mocked(invalidateContextCache)).not.toHaveBeenCalledWith(projectId);
   });
 
   it("leaves ready/imported discovery sessions untouched", async () => {

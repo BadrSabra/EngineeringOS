@@ -231,4 +231,62 @@ describe("buildProjectContext → AgentContextSchema", () => {
     expect(ctx.graphSummary).toMatch(/AuthService|UserRepo/);
     expect(() => AgentContextSchema.parse(ctx)).not.toThrow();
   });
+
+  // PR-03: cache invalidation correctness
+  it("serves cached data on repeated calls within the TTL", async () => {
+    // First call — populates cache.
+    const first = await buildProjectContext(PROJECT_ID);
+    // Mutate the DB mock to return a different project name.
+    _tableData.set(projectsTable as object, [makeProject({ name: "MutatedProject" })]);
+    // Second call — must return the cached (first) result, NOT the mutated one.
+    const second = await buildProjectContext(PROJECT_ID);
+    expect(second.project).toBe(first.project);
+    expect(second.project).not.toContain("MutatedProject");
+  });
+
+  it("invalidateContextCache causes the next call to fetch fresh data from DB", async () => {
+    // Populate the cache with the initial project name.
+    await buildProjectContext(PROJECT_ID);
+    // Mutate the DB mock THEN bust the cache.
+    _tableData.set(projectsTable as object, [makeProject({ name: "PostScanProject" })]);
+    invalidateContextCache(PROJECT_ID);
+    // Next call must hit the DB and return the updated name — not the stale cache.
+    const fresh = await buildProjectContext(PROJECT_ID);
+    expect(fresh.project).toContain("PostScanProject");
+  });
+
+  it("invalidateContextCache is idempotent — calling it twice does not throw", () => {
+    expect(() => {
+      invalidateContextCache(PROJECT_ID);
+      invalidateContextCache(PROJECT_ID);
+    }).not.toThrow();
+  });
+
+  it("invalidating project A does not affect cached context for project B", async () => {
+    const PROJECT_B = "proj-ctx-test-002";
+    // Seed tables for both projects — the mock uses the same tables but we
+    // only need one consistent project row since _tableData is global.
+    _tableData.set(projectsTable as object, [makeProject()]);
+    const ctxA = await buildProjectContext(PROJECT_ID);
+    // buildProjectContext for B will use the same mock rows (same table data),
+    // but it gets its own cache entry keyed by PROJECT_B.
+    const ctxB1 = await buildProjectContext(PROJECT_B);
+
+    // Mutate DB and invalidate only A.
+    _tableData.set(projectsTable as object, [makeProject({ name: "UpdatedProject" })]);
+    invalidateContextCache(PROJECT_ID);
+
+    // A must fetch fresh data.
+    const freshA = await buildProjectContext(PROJECT_ID);
+    expect(freshA.project).toContain("UpdatedProject");
+
+    // B must still serve the cached pre-mutation snapshot.
+    const cachedB = await buildProjectContext(PROJECT_B);
+    expect(cachedB.project).toBe(ctxB1.project);
+
+    // Cleanup B's cache entry so other tests are not polluted.
+    invalidateContextCache(PROJECT_B);
+
+    void ctxA; // suppress unused warning
+  });
 });
