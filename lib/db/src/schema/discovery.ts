@@ -5,6 +5,7 @@ import { projectsTable } from "./projects.js";
 // Distinct from DiscoveryStep["status"], which tracks each individual
 // pipeline step (pending/running/done/error) inside the `steps` jsonb array.
 export const discoverySessionStatusEnum = pgEnum("discovery_session_status", [
+  "pending",
   "discovering",
   "ready",
   "error",

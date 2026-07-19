@@ -239,7 +239,7 @@ describe("POST /projects/discover — path validation and session creation", () 
       });
     expect(res.status).toBe(202);
     expect(typeof res.body.id).toBe("string");
-    expect(res.body.status).toBe("discovering");
+    expect(res.body.status).toBe("pending");
     expect(res.body.progress).toBe(0);
     expect(typeof res.body.startedAt).toBe("string");
     createdSessionIds.push(res.body.id);

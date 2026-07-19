@@ -1976,7 +1976,7 @@ export const StartDiscoveryBody = zod.object({
 
 export const StartDiscoveryResponse = zod.object({
   "id": zod.string(),
-  "status": zod.enum(['discovering', 'ready', 'imported', 'error']),
+  "status": zod.enum(['pending', 'discovering', 'ready', 'imported', 'error']),
   "progress": zod.number(),
   "currentStep": zod.string().nullish(),
   "steps": zod.array(zod.object({
@@ -2000,7 +2000,7 @@ export const GetDiscoverySessionParams = zod.object({
 
 export const GetDiscoverySessionResponse = zod.object({
   "id": zod.string(),
-  "status": zod.enum(['discovering', 'ready', 'imported', 'error']),
+  "status": zod.enum(['pending', 'discovering', 'ready', 'imported', 'error']),
   "progress": zod.number(),
   "currentStep": zod.string().nullish(),
   "steps": zod.array(zod.object({

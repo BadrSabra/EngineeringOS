@@ -10,6 +10,7 @@ export type DiscoverySessionStatusStatus = typeof DiscoverySessionStatusStatus[k
 
 
 export const DiscoverySessionStatusStatus = {
+  pending: 'pending',
   discovering: 'discovering',
   ready: 'ready',
   imported: 'imported',

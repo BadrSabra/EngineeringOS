@@ -3362,7 +3362,7 @@ components:
           type: string
         status:
           type: string
-          enum: [discovering, ready, imported, error]
+          enum: [pending, discovering, ready, imported, error]
         progress:
           type: integer
         currentStep:
