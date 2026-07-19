@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { z } from "zod";
 import { randomUUID } from "crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -42,6 +43,29 @@ const router = Router();
 // same workflow. Note: process-local only — a multi-instance deployment needs
 // a DB-level advisory lock or a distributed mutex instead.
 const _orchestratingWorkflows = new Set<string>();
+
+// ── Per-project LLM rate limiting ─────────────────────────────────────────────
+// Sliding-window guard: at most LLM_RATE_LIMIT calls per project per minute.
+// Prevents a single project from exhausting the shared Groq quota.
+// Note: process-local only; a multi-instance deployment needs a shared store
+// (Redis etc.) for accurate cross-instance limiting.
+const LLM_RATE_LIMIT = 20;
+const LLM_RATE_WINDOW_MS = 60_000; // 1 minute
+
+const _projectCallTimestamps = new Map<string, number[]>();
+
+function checkProjectRateLimit(projectId: string): { allowed: boolean; retryAfterSec?: number } {
+  const now = Date.now();
+  const cutoff = now - LLM_RATE_WINDOW_MS;
+  const prev = (_projectCallTimestamps.get(projectId) ?? []).filter((t) => t > cutoff);
+  if (prev.length >= LLM_RATE_LIMIT) {
+    const oldest = prev[0]!;
+    return { allowed: false, retryAfterSec: Math.ceil((oldest + LLM_RATE_WINDOW_MS - now) / 1_000) };
+  }
+  prev.push(now);
+  _projectCallTimestamps.set(projectId, prev);
+  return { allowed: true };
+}
 
 /**
  * Maps GroqClientError codes to typed HTTP responses so callers receive a
@@ -261,19 +285,35 @@ router.delete("/ai/groq-key", async (req, res) => {
 
 /** POST /api/ai/chat — send a message and get an AI response */
 router.post("/ai/chat", async (req, res) => {
-  const { projectId, message, sessionId } = req.body as {
-    projectId: string;
-    message: string;
-    sessionId?: string;
-  };
-
-  if (!projectId || !message?.trim()) {
-    return res.status(400).json({ error: "projectId and message are required" });
+  const ChatBodySchema = z.object({
+    projectId: z.string({ required_error: "projectId is required" }).min(1, "projectId is required"),
+    // .trim() collapses blank-only strings to "" before min(1) validation so
+    // messages that are only whitespace are rejected with 400, not forwarded.
+    message:   z.string({ required_error: "message is required" }).trim().min(1, "message is required").max(10_000, "message must be ≤ 10 000 characters"),
+    sessionId: z.string().uuid("sessionId must be a valid UUID").optional(),
+  });
+  const chatBody = ChatBodySchema.safeParse(req.body);
+  if (!chatBody.success) {
+    const issue = chatBody.error.issues[0];
+    // Zod emits "Required" for missing fields; replace with the field-aware
+    // message so clients know exactly which field is absent.
+    const raw   = issue?.message ?? "Invalid request body";
+    const field = String(issue?.path[0] ?? "");
+    const error = raw === "Required" && field ? `${field} is required` : raw;
+    return res.status(400).json({ error });
   }
+  const { projectId, message, sessionId } = chatBody.data;
 
   // Verify ownership of the project
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
+
+  const rlChat = checkProjectRateLimit(projectId);
+  if (!rlChat.allowed) {
+    return res.status(429).json({
+      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlChat.retryAfterSec}s.`,
+    });
+  }
 
   const now = new Date();
 
@@ -579,6 +619,14 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
   if (apiKey === null) return;
 
   const projectContext = await buildProjectContext(projectId);
+
+  const rlAnalyze = checkProjectRateLimit(projectId);
+  if (!rlAnalyze.allowed) {
+    return res.status(429).json({
+      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlAnalyze.retryAfterSec}s.`,
+    });
+  }
+
   let result: Awaited<ReturnType<typeof analyzeScan>>;
   try {
     result = await analyzeScan(projectContext, { apiKey });
@@ -644,6 +692,13 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
     }
   }
 
+  const rlReview = checkProjectRateLimit(projectId);
+  if (!rlReview.allowed) {
+    return res.status(429).json({
+      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlReview.retryAfterSec}s.`,
+    });
+  }
+
   const apiKey = await requireGroqApiKey(req.userId, res);
   if (apiKey === null) return;
 
@@ -685,7 +740,14 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
 /** POST /api/ai/workflows/:workflowId/orchestrate — AI workflow decision */
 router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
   const { workflowId } = req.params;
-  const { additionalContext } = req.body as { additionalContext?: string };
+  const OrchestrateBodySchema = z.object({
+    additionalContext: z.string().max(2_000, "additionalContext must be ≤ 2 000 characters").optional(),
+  });
+  const orchestrateBody = OrchestrateBodySchema.safeParse(req.body);
+  if (!orchestrateBody.success) {
+    return res.status(400).json({ error: orchestrateBody.error.issues[0]?.message ?? "Invalid request body" });
+  }
+  const { additionalContext } = orchestrateBody.data;
 
   const [workflow] = await db
     .select()
@@ -725,6 +787,13 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
   const phases = phasesResult.phases;
   const currentPhase = execution?.currentPhase ?? workflow.currentPhase;
   const completedPhases = (execution?.completedPhases as string[]) ?? [];
+
+  const rlOrch = checkProjectRateLimit(workflow.projectId);
+  if (!rlOrch.allowed) {
+    return res.status(429).json({
+      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlOrch.retryAfterSec}s.`,
+    });
+  }
 
   // Concurrency guard: reject a second simultaneous orchestrate call for the
   // same workflow. Two concurrent decisions would read the same state and
@@ -815,6 +884,15 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
   // reading the DB after receiving the 428 response.
   const apiKey = await requireGroqApiKey(req.userId, res);
   if (apiKey === null) return;
+
+  // Rate limit BEFORE the atomic claim — if we hit the limit after claiming,
+  // the task stays stuck in "running" with no automatic rollback.
+  const rlExecute = checkProjectRateLimit(task.projectId);
+  if (!rlExecute.allowed) {
+    return res.status(429).json({
+      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlExecute.retryAfterSec}s.`,
+    });
+  }
 
   const correlationId = randomUUID();
   const now = new Date();

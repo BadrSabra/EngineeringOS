@@ -105,6 +105,83 @@ const _keyedClients = new Map<string, Groq>();
  */
 const MAX_KEYED_CLIENTS = 50;
 
+// ── Circuit Breaker ──────────────────────────────────────────────────────────
+// Protects against cascade failures and Groq quota exhaustion during outages.
+// Each distinct API key gets its own independent breaker so a single broken
+// user key cannot trip the shared env-var client.
+//
+// State machine:
+//   CLOSED    — normal operation; consecutive failure count is tracked.
+//   OPEN      — calls fail immediately (no network round-trip) after
+//               CIRCUIT_FAILURE_THRESHOLD consecutive final-call failures
+//               (i.e. after all retries are spent).
+//   HALF_OPEN — one probe call allowed after CIRCUIT_RESET_MS has elapsed;
+//               success → CLOSED; failure → OPEN (timeout resets).
+const CIRCUIT_FAILURE_THRESHOLD = 5;
+const CIRCUIT_RESET_MS = 60_000; // 1-minute cooldown before probing
+
+type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN";
+interface CircuitEntry {
+  state: CircuitState;
+  failures: number; // consecutive final-call failures (after all retries spent)
+  openedAt: number; // epoch ms when the circuit last opened
+}
+const _circuits = new Map<string, CircuitEntry>();
+
+function getCircuit(key: string): CircuitEntry {
+  let cb = _circuits.get(key);
+  if (!cb) {
+    cb = { state: "CLOSED", failures: 0, openedAt: 0 };
+    _circuits.set(key, cb);
+  }
+  return cb;
+}
+
+/**
+ * Returns "allow" if the call should proceed; "reject" if the circuit is OPEN.
+ * Transitions OPEN → HALF_OPEN when the cooldown period has elapsed.
+ */
+function circuitCheck(key: string): "allow" | "reject" {
+  const cb = getCircuit(key);
+  if (cb.state === "CLOSED" || cb.state === "HALF_OPEN") return "allow";
+  if (Date.now() - cb.openedAt >= CIRCUIT_RESET_MS) {
+    cb.state = "HALF_OPEN";
+    return "allow";
+  }
+  return "reject";
+}
+
+/**
+ * Record the outcome of one complete()/completeRaw() call (after all retries).
+ * A success resets the breaker; a failure increments the counter and may open it.
+ */
+function circuitRecord(key: string, success: boolean): void {
+  const cb = getCircuit(key);
+  if (success) {
+    if (cb.state !== "CLOSED") {
+      console.info(
+        JSON.stringify({ scope: "groq-client", event: "circuit_closed", key: key === "env" ? key : "user" }),
+      );
+    }
+    cb.state = "CLOSED";
+    cb.failures = 0;
+  } else {
+    cb.failures++;
+    if (cb.state === "HALF_OPEN" || cb.failures >= CIRCUIT_FAILURE_THRESHOLD) {
+      cb.state = "OPEN";
+      cb.openedAt = Date.now();
+      console.warn(
+        JSON.stringify({
+          scope: "groq-client",
+          event: "circuit_open",
+          key: key === "env" ? key : "user",
+          failures: cb.failures,
+        }),
+      );
+    }
+  }
+}
+
 function getClient(apiKey?: string): Groq {
   if (apiKey) {
     let client = _keyedClients.get(apiKey);
@@ -228,6 +305,15 @@ export async function completeRaw(
     responseFormat,
   } = opts;
 
+  const circuitKey = apiKey ?? "env";
+  if (circuitCheck(circuitKey) === "reject") {
+    const remaining = Math.max(0, Math.ceil((getCircuit(circuitKey).openedAt + CIRCUIT_RESET_MS - Date.now()) / 1_000));
+    throw new GroqClientError(
+      "SERVER_ERROR",
+      `Groq circuit breaker open — service appears unavailable. Retry in ~${remaining}s.`,
+    );
+  }
+
   const client = getClient(apiKey);
   const hasTools = tools && tools.length > 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -248,6 +334,7 @@ export async function completeRaw(
       const completion = await sendRequest(client, request, timeoutMs);
       const result = readRawResponse(completion);
       logOutcome({ model: result.model, durationMs: Date.now() - startedAt, attempt, outcome: "success" });
+      circuitRecord(circuitKey, true);
       return result;
     } catch (err) {
       lastError = err instanceof GroqClientError ? err : classifySdkError(err, false);
@@ -262,6 +349,7 @@ export async function completeRaw(
   }
 
   logOutcome({ model, durationMs: Date.now() - startedAt, attempt: maxRetries, outcome: "failure", code: lastError?.code });
+  circuitRecord(circuitKey, false);
   throw lastError ?? new GroqClientError("NETWORK_ERROR", "Unknown Groq client failure");
 }
 
@@ -358,6 +446,15 @@ export async function complete(messages: Message[], opts: CompleteOptions = {}):
     apiKey,
   } = opts;
 
+  const circuitKey = apiKey ?? "env";
+  if (circuitCheck(circuitKey) === "reject") {
+    const remaining = Math.max(0, Math.ceil((getCircuit(circuitKey).openedAt + CIRCUIT_RESET_MS - Date.now()) / 1_000));
+    throw new GroqClientError(
+      "SERVER_ERROR",
+      `Groq circuit breaker open — service appears unavailable. Retry in ~${remaining}s.`,
+    );
+  }
+
   const client = getClient(apiKey);
   const request = buildRequest(messages, { model, temperature, maxTokens });
   const startedAt = Date.now();
@@ -368,6 +465,7 @@ export async function complete(messages: Message[], opts: CompleteOptions = {}):
       const completion = await sendRequest(client, request, timeoutMs);
       const result = readResponse(completion);
       logOutcome({ model: result.model, durationMs: Date.now() - startedAt, attempt, outcome: "success" });
+      circuitRecord(circuitKey, true);
       return result;
     } catch (err) {
       lastError = err instanceof GroqClientError ? err : classifySdkError(err, false);
@@ -388,5 +486,6 @@ export async function complete(messages: Message[], opts: CompleteOptions = {}):
     outcome: "failure",
     code: lastError?.code,
   });
+  circuitRecord(circuitKey, false);
   throw lastError ?? new GroqClientError("NETWORK_ERROR", "Unknown Groq client failure");
 }
