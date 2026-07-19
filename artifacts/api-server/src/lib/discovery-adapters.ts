@@ -305,8 +305,10 @@ export async function resolveSource(
   }
 
   if (!adapter.available) {
+    // Surface the adapter's own descriptive reason so the 501 body explains
+    // *why* this source type is unavailable, not just that it is.
     return {
-      error: `Source type '${sourceType}' is not yet available in this environment`,
+      error: adapter.reason,
       status: 501,
       reason: "unsupported_source",
     };
