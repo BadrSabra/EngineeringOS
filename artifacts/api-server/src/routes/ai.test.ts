@@ -451,6 +451,69 @@ describe("POST /api/ai/workflows/:workflowId/orchestrate", () => {
 
 // ─── POST /api/ai/tasks/:taskId/execute ──────────────────────────────────────
 
+// ─── POST /api/ai/chat/apply-changes ─────────────────────────────────────────
+
+describe("POST /api/ai/chat/apply-changes", () => {
+  it("returns 400 when changes array is missing", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const res = await request(app)
+      .post("/api/ai/chat/apply-changes")
+      .send({ projectId });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when projectId is missing", async () => {
+    const res = await request(app)
+      .post("/api/ai/chat/apply-changes")
+      .send({ changes: [{ path: "a.ts", absolutePath: "/tmp/a.ts", newContent: "" }] });
+    expect(res.status).toBe(400);
+  });
+
+  it("emits an AiChangesApplied event when at least one file is successfully written", async () => {
+    // Use /tmp as the project rootPath so the handler can actually write files.
+    const id = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id,
+      ownerId: "test-user",
+      name: `apply-test-${id.slice(0, 8)}`,
+      rootPath: "/tmp",
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    projectIds.push(id);
+
+    const fileName = `apply-test-${randomUUID().slice(0, 8)}.ts`;
+    const absolutePath = `/tmp/${fileName}`;
+    const res = await request(app)
+      .post("/api/ai/chat/apply-changes")
+      .send({
+        projectId: id,
+        changes: [{ path: fileName, absolutePath, newContent: "// applied" }],
+      });
+    expect(res.status).toBe(200);
+    expect(
+      (res.body.results as Array<{ path: string; ok: boolean }>).some(
+        (r) => r.path === fileName && r.ok,
+      ),
+    ).toBe(true);
+
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, id));
+    const ev = events.find((e) => e.type === "AiChangesApplied");
+    expect(ev).toBeDefined();
+    expect(ev?.severity).toBe("success");
+    expect(
+      (ev?.payload as { appliedFiles?: string[] })?.appliedFiles,
+    ).toContain(fileName);
+  });
+});
+
 describe("POST /api/ai/tasks/:taskId/execute", () => {
   // executeTask is mocked — a real key is never sent to Groq.
   // We set a dummy env key so requireGroqApiKey passes the availability check;

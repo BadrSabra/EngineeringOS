@@ -92,6 +92,67 @@ describe("Workflow phase orchestration", () => {
     expect(workflow[0].currentPhase).toBeNull();
   });
 
+  // ── PR-B: event emission on workflow operations ─────────────────────────────
+
+  it("emits WorkflowPhaseAdvanced when advancing to the next phase", async () => {
+    const { projectId, workflowId } = await createStartedWorkflow();
+
+    await request(app).post(`/api/workflows/${workflowId}/advance`);
+
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    expect(events.some((e) => e.type === "WorkflowPhaseAdvanced")).toBe(true);
+  });
+
+  it("emits WorkflowCompleted when the last phase is advanced", async () => {
+    const { projectId, workflowId } = await createStartedWorkflow();
+
+    // Advance past all three phases to reach completion
+    await request(app).post(`/api/workflows/${workflowId}/advance`);
+    await request(app).post(`/api/workflows/${workflowId}/advance`);
+    await request(app).post(`/api/workflows/${workflowId}/advance`);
+
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    expect(events.some((e) => e.type === "WorkflowCompleted")).toBe(true);
+  });
+
+  it("emits WorkflowPhaseFailed when fail-phase is called", async () => {
+    const { projectId, workflowId } = await createStartedWorkflow();
+
+    await request(app)
+      .post(`/api/workflows/${workflowId}/fail-phase`)
+      .send({ error: "build exploded" });
+
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    expect(events.some((e) => e.type === "WorkflowPhaseFailed")).toBe(true);
+  });
+
+  it("emits WorkflowPhaseRetried when retry-phase is called", async () => {
+    const { projectId, workflowId } = await createStartedWorkflow();
+
+    const failed = await request(app)
+      .post(`/api/workflows/${workflowId}/fail-phase`)
+      .send({ error: "oops" });
+
+    await request(app).post(
+      `/api/workflows/${workflowId}/executions/${failed.body.id}/retry-phase`,
+    );
+
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    expect(events.some((e) => e.type === "WorkflowPhaseRetried")).toBe(true);
+  });
+
   it("marks a phase failed and allows retrying it in place", async () => {
     const { workflowId } = await createStartedWorkflow();
 

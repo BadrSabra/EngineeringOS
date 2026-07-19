@@ -144,6 +144,65 @@ describe("Task lifecycle", () => {
     const fetched = await request(app).get(`/api/tasks/${taskId}`);
     expect(fetched.status).toBe(404);
   });
+
+  // ── PR-B: event emission on task state transitions ──────────────────────────
+
+  it("emits a TaskStatusChanged event when PATCH changes the task status", async () => {
+    const { projectId, taskId } = await createTask();
+
+    await request(app)
+      .patch(`/api/tasks/${taskId}`)
+      .send({ status: "queued" });
+
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    const ev = events.find((e) => e.type === "TaskStatusChanged");
+    expect(ev).toBeDefined();
+    expect((ev?.payload as { after?: { status?: string } })?.after?.status).toBe("queued");
+  });
+
+  it("emits a TaskExecutionStarted and a TaskCompleted/TaskVerifying event on execute", async () => {
+    const { projectId, taskId } = await createTask();
+
+    await request(app).post(`/api/tasks/${taskId}/execute`);
+
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    const types = events.map((e) => e.type);
+    expect(types).toContain("TaskExecutionStarted");
+    expect(
+      types.includes("TaskCompleted") || types.includes("TaskVerifying"),
+    ).toBe(true);
+  });
+
+  it("emits a TaskRetried event on retry", async () => {
+    const { projectId, taskId } = await createTask();
+    await db.update(tasksTable).set({ status: "failed" }).where(eq(tasksTable.id, taskId));
+
+    await request(app).post(`/api/tasks/${taskId}/retry`);
+
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    expect(events.some((e) => e.type === "TaskRetried")).toBe(true);
+  });
+
+  it("emits a TaskRolledBack event on rollback", async () => {
+    const { projectId, taskId } = await createTask();
+
+    await request(app).post(`/api/tasks/${taskId}/rollback`);
+
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    expect(events.some((e) => e.type === "TaskRolledBack")).toBe(true);
+  });
 });
 
 // ─── Ownership isolation ───────────────────────────────────────────────────────
