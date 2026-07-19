@@ -1,0 +1,14 @@
+file,endpoints,middleware_auth,require_project_access,require_project_write,ownership_lookup
+artifacts/api-server/src/routes/ai.ts,11,False,True,False,True
+artifacts/api-server/src/routes/dashboard.ts,1,True,False,False,False
+artifacts/api-server/src/routes/discovery.ts,5,False,True,False,False
+artifacts/api-server/src/routes/events.ts,1,True,True,False,True
+artifacts/api-server/src/routes/git.ts,10,False,True,True,False
+artifacts/api-server/src/routes/graph.ts,10,True,True,False,True
+artifacts/api-server/src/routes/health.ts,1,False,False,False,False
+artifacts/api-server/src/routes/metrics.ts,2,True,True,False,True
+artifacts/api-server/src/routes/plugins.ts,3,False,False,False,False
+artifacts/api-server/src/routes/projects.ts,8,False,True,True,False
+artifacts/api-server/src/routes/rules.ts,6,True,True,False,True
+artifacts/api-server/src/routes/tasks.ts,9,True,True,False,True
+artifacts/api-server/src/routes/workflows.ts,10,True,True,False,True
