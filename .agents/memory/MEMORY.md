@@ -27,3 +27,4 @@
 - [Gap analysis fixes batch-2](gap-analysis-fixes-batch2.md) — 5 remaining gaps fixed: context TTL cache + invalidation, workflow metrics gate, downgrade logging, single-shot agent retries, Tasks.tsx type cast.
 - [Trace-by-Trace Analysis](trace-analysis.md) — 7 divergences (Prompt/Context/Events/Security) found and fixed; full report in docs/ai-orchestrator-trace-analysis.md.
 - [AI orchestrator gap closure](ai-orchestrator-gap-closure.md) — 10 gaps closed across groq-client, file-tools, routes/ai, context-builder; vi.hoisted pattern needed for drizzle mock.
+- [Context cache invalidation rule](context-cache-invalidation-rule.md) — any DB write to a context-builder table must call invalidateContextCache; TTL is perf, not correctness.
