@@ -5,10 +5,13 @@ import {
   useGetDiscoverySession,
   useGetDiscoverySummary,
   useImportProject,
+  useListProjects,
+  useScanProject,
   getListProjectsQueryKey,
   getGetDiscoverySessionQueryKey,
   getGetDiscoverySummaryQueryKey,
 } from '@workspace/api-client-react';
+import type { Project } from '@workspace/api-client-react';
 import { useLocation } from 'wouter';
 import {
   X,
@@ -126,8 +129,7 @@ const SOURCE_DEFS: SourceDef[] = [
     label: 'Existing Project',
     description: 'Re-scan a registered project',
     icon: Layers,
-    available: false,
-    badge: 'Soon',
+    available: true,
   },
   {
     type: 'ARCHIVE_UPLOAD',
@@ -178,6 +180,31 @@ function severityBadge(sev: string): string {
     info: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
   };
   return map[sev] ?? map.info;
+}
+
+// ─── API error helpers ─────────────────────────────────────────────────────────
+
+const REASON_HINTS: Record<string, string> = {
+  invalid_source: 'The source configuration is invalid. Check your path or URL.',
+  no_project_root: 'No recognizable project root was found at the given location.',
+  resolution_failed: 'Discovery did not complete successfully. Try starting over.',
+  not_found: 'The discovery session could not be found.',
+  permission_denied: 'You do not have access to this discovery session.',
+  import_failed: 'The project could not be imported. Try again.',
+  server_error: 'An unexpected server error occurred.',
+};
+
+function extractApiError(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object') {
+    const e = err as Record<string, unknown>;
+    const resp = e['response'] as Record<string, unknown> | undefined;
+    const data = resp?.['data'] as Record<string, unknown> | undefined;
+    const reason = typeof data?.['reason'] === 'string' ? (data['reason'] as string) : undefined;
+    if (reason && REASON_HINTS[reason]) return REASON_HINTS[reason];
+    if (typeof data?.['error'] === 'string') return data['error'] as string;
+    if (typeof e['message'] === 'string' && e['message']) return e['message'] as string;
+  }
+  return fallback;
 }
 
 // ─── Step icon ─────────────────────────────────────────────────────────────────
@@ -284,9 +311,14 @@ export function DiscoverProjectWizard({ onClose }: Props) {
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [importError, setImportError] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+  const [workspaceProjectId, setWorkspaceProjectId] = useState<string>('');
+  const [importedProjectId, setImportedProjectId] = useState<string | null>(null);
+  const [scanTriggered, setScanTriggered] = useState(false);
 
   const startDiscovery = useStartDiscovery();
   const importProject = useImportProject();
+  const scanProject = useScanProject();
+  const { data: projectsListData } = useListProjects();
 
   // Polling via react-query (enabled only when discoveryId set and not done)
   const { data: sessionData } = useGetDiscoverySession(discoveryId ?? '', {
@@ -301,7 +333,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
     },
   });
 
-  const { data: summaryData } = useGetDiscoverySummary(discoveryId ?? '', {
+  const { data: summaryData, error: summaryError } = useGetDiscoverySummary(discoveryId ?? '', {
     query: {
       queryKey: getGetDiscoverySummaryQueryKey(discoveryId ?? ''),
       enabled: !!discoveryId && (session?.status === 'ready' || sessionData?.status === 'ready'),
@@ -330,6 +362,11 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       const p = localPath.trim();
       return p ? (p.startsWith('/') ? p : `/${p}`) : 'Local Folder';
     }
+    if (sourceType === 'WORKSPACE_PROJECT') {
+      const projects = projectsListData as Project[] | undefined;
+      const proj = projects?.find((p) => p.id === workspaceProjectId);
+      return proj?.name ?? 'Existing Project';
+    }
     return sourceType;
   };
 
@@ -351,6 +388,9 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       if (useCredentials && gitToken.trim()) {
         sourceConfig.credentials = { username: gitUsername.trim() || 'oauth2', token: gitToken.trim() };
       }
+    } else if (sourceType === 'WORKSPACE_PROJECT') {
+      if (!workspaceProjectId) { setStartError('Please select a project.'); return; }
+      sourceConfig = { projectId: workspaceProjectId };
     }
 
     try {
@@ -362,15 +402,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       setSession(s);
       setStep(2);
     } catch (err: unknown) {
-      let msg = 'Failed to start discovery. Check your configuration and try again.';
-      if (err && typeof err === 'object') {
-        const e = err as Record<string, unknown>;
-        const resp = e['response'] as Record<string, unknown> | undefined;
-        const data = resp?.['data'] as Record<string, unknown> | undefined;
-        if (typeof data?.['error'] === 'string') msg = data['error'] as string;
-        else if (typeof e['message'] === 'string' && e['message']) msg = e['message'] as string;
-      }
-      setStartError(msg);
+      setStartError(extractApiError(err, 'Failed to start discovery. Check your configuration and try again.'));
     }
   };
 
@@ -381,14 +413,16 @@ export function DiscoverProjectWizard({ onClose }: Props) {
       const project = await importProject.mutateAsync({
         data: { discoveryId, overrides: Object.keys(overrides).length > 0 ? overrides : undefined },
       });
+      const pid = (project as unknown as { id: string }).id;
+      setImportedProjectId(pid);
       setStep(4);
       queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
       setTimeout(() => {
         onClose();
-        navigate(`/projects/${(project as unknown as { id: string }).id}`);
+        navigate(`/projects/${pid}`);
       }, 2200);
     } catch (err) {
-      setImportError(err instanceof Error ? err.message : 'Import failed');
+      setImportError(extractApiError(err, 'Import failed'));
     }
   };
 
@@ -447,6 +481,49 @@ export function DiscoverProjectWizard({ onClose }: Props) {
 
       {/* Per-source config */}
       <div className="space-y-3">
+        {sourceType === 'WORKSPACE_PROJECT' && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Select Project</label>
+            {(() => {
+              const projects = projectsListData as Project[] | undefined;
+              if (!projects || projects.length === 0) {
+                return (
+                  <p className="text-xs text-muted-foreground/60 py-2">
+                    No projects found. Import a project first via Local Folder or Git Repository.
+                  </p>
+                );
+              }
+              return (
+                <div className="space-y-1.5">
+                  {projects.map((proj) => (
+                    <button
+                      key={proj.id}
+                      type="button"
+                      onClick={() => setWorkspaceProjectId(proj.id)}
+                      className={`w-full text-left rounded-lg border px-3.5 py-2.5 flex items-center gap-3 transition-all
+                        ${workspaceProjectId === proj.id
+                          ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
+                          : 'border-border hover:border-primary/40 bg-card'
+                        }`}
+                    >
+                      <div className={`w-7 h-7 rounded-md flex items-center justify-center shrink-0 ${workspaceProjectId === proj.id ? 'bg-primary/15' : 'bg-secondary'}`}>
+                        <Layers className={`w-3.5 h-3.5 ${workspaceProjectId === proj.id ? 'text-primary' : 'text-muted-foreground'}`} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">{proj.name}</div>
+                        <div className="text-xs text-muted-foreground/60 font-mono truncate">{proj.rootPath}</div>
+                      </div>
+                      {proj.language && (
+                        <span className="text-[10px] bg-secondary text-muted-foreground/70 border border-border/50 px-1.5 py-0.5 rounded-full shrink-0">{proj.language}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
         {sourceType === 'LOCAL_FOLDER' && (
           <>
             <div className="space-y-1.5">
@@ -490,6 +567,16 @@ export function DiscoverProjectWizard({ onClose }: Props) {
                   className="w-full bg-secondary border border-border rounded-lg pl-10 pr-4 py-2.5 text-sm font-mono focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
                 />
               </div>
+              {(() => {
+                const u = gitUrl.trim();
+                const isSsh = u.startsWith('ssh://') || u.startsWith('git@');
+                return isSsh ? (
+                  <p className="text-xs text-amber-400/80 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3 h-3 shrink-0" />
+                    SSH URLs are not supported. Use the <span className="font-mono">https://</span> URL instead.
+                  </p>
+                ) : null;
+              })()}
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Branch <span className="normal-case font-normal text-muted-foreground/60">(optional, defaults to HEAD)</span></label>
@@ -641,6 +728,30 @@ export function DiscoverProjectWizard({ onClose }: Props) {
   // ── Step 3 ──────────────────────────────────────────────────────────────────
   const renderStep3 = () => {
     if (!report) {
+      if (summaryError) {
+        return (
+          <div className="space-y-4 py-4">
+            <div className="flex items-start gap-3 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div>
+                <div className="font-medium mb-0.5">Failed to load discovery report</div>
+                <div className="text-xs opacity-80">{extractApiError(summaryError, 'Unable to retrieve the analysis results.')}</div>
+              </div>
+            </div>
+            <div className="flex justify-between pt-2">
+              <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-border hover:border-primary/40 text-muted-foreground hover:text-foreground transition-colors">
+                Close
+              </button>
+              <button
+                onClick={() => { setStep(1); setDiscoveryId(null); setSession(null); setReport(null); }}
+                className="px-4 py-2 bg-primary text-primary-foreground text-sm rounded-lg"
+              >
+                Try Again
+              </button>
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="w-6 h-6 animate-spin text-primary" />
@@ -844,6 +955,31 @@ export function DiscoverProjectWizard({ onClose }: Props) {
         ))}
       </div>
 
+      {importedProjectId && !scanTriggered && (
+        <div className="flex justify-center">
+          <button
+            onClick={async () => {
+              setScanTriggered(true);
+              await scanProject.mutateAsync({ projectId: importedProjectId });
+            }}
+            disabled={scanProject.isPending}
+            className="px-5 py-2 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold rounded-lg flex items-center gap-2 disabled:opacity-60 transition-colors"
+          >
+            {scanProject.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <GitBranch className="w-4 h-4" />}
+            Scan Now
+          </button>
+        </div>
+      )}
+      {scanTriggered && !scanProject.isPending && !scanProject.isError && (
+        <p className="text-center text-xs text-emerald-400 flex items-center justify-center gap-1.5">
+          <CheckCircle2 className="w-3.5 h-3.5" /> Scan enqueued — results will appear in the project dashboard.
+        </p>
+      )}
+      {scanProject.isError && (
+        <p className="text-center text-xs text-red-400 flex items-center justify-center gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5" /> {extractApiError(scanProject.error, 'Scan could not be started.')}
+        </p>
+      )}
       <p className="text-center text-xs text-muted-foreground">Redirecting to project dashboard…</p>
     </div>
   );
