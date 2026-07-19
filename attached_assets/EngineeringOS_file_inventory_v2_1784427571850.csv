@@ -1,0 +1,698 @@
+path,category,live_status,role_guess,lines,imports,internal_imports,exports,todos,incoming_internal,resolved_internal_out,notes
+.agents/agent_assets_metadata.toml,runtime-source,live,Runtime module,15,0,0,0,0,0,0,
+.agents/memory/MEMORY.md,operational-memory,reference,Operational memory / working notes,30,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/ai-orchestrator-gap-closure.md,operational-memory,reference,Operational memory / working notes,41,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/ai-orchestrator-hardening.md,operational-memory,reference,Operational memory / working notes,13,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/ai-orchestrator-layer.md,operational-memory,reference,Operational memory / working notes,41,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/ai-tool-calling.md,operational-memory,reference,Operational memory / working notes,36,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/audit-fixes.md,operational-memory,reference,Operational memory / working notes,11,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/clerk-401-race-cookie-vs-bearer.md,operational-memory,reference,Operational memory / working notes,33,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/clerk-auth-testing.md,operational-memory,reference,Operational memory / working notes,15,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/completion-plan-stale-backlog.md,operational-memory,reference,Operational memory / working notes,24,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/dashboard-scoping-pr01.md,operational-memory,reference,Operational memory / working notes,26,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/discovery-adapter-registry.md,operational-memory,reference,Operational memory / working notes,18,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/discovery-feature.md,operational-memory,reference,Operational memory / working notes,32,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/discovery-multi-source.md,operational-memory,reference,Operational memory / working notes,44,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/drizzle-error-wrapping.md,operational-memory,reference,Operational memory / working notes,20,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/engineeringos-completion-plan.md,operational-memory,reference,Operational memory / working notes,21,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/fk-atomic-claim-ordering.md,operational-memory,reference,Operational memory / working notes,30,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/gap-analysis-fixes-batch1.md,operational-memory,reference,Operational memory / working notes,46,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/gap-analysis-fixes-batch2.md,operational-memory,reference,Operational memory / working notes,28,1,1,0,0,0,0,Not executed; guides review context
+.agents/memory/git-ai-orchestrator-fixes.md,operational-memory,reference,Operational memory / working notes,35,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/imported-project-clerk-secrets.md,operational-memory,reference,Operational memory / working notes,11,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/imported-project-workflow-failures.md,operational-memory,reference,Operational memory / working notes,16,1,0,0,0,0,0,Not executed; guides review context
+.agents/memory/knowledge-engine-bfs-depth.md,operational-memory,reference,Operational memory / working notes,10,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/knowledge-engine.md,operational-memory,reference,Operational memory / working notes,43,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/orval-openapi-codegen.md,operational-memory,reference,Operational memory / working notes,30,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/pr02-provenance-layer.md,operational-memory,reference,Operational memory / working notes,37,0,0,0,1,0,0,Not executed; guides review context
+.agents/memory/project-bootstrap.md,operational-memory,reference,Operational memory / working notes,26,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/project-ownership-scoping.md,operational-memory,reference,Operational memory / working notes,43,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/scanner-ast-extraction.md,operational-memory,reference,Operational memory / working notes,17,0,0,0,0,0,0,Not executed; guides review context
+.agents/memory/testing-drift-checks.md,operational-memory,reference,Operational memory / working notes,10,1,0,0,0,0,0,Not executed; guides review context
+.agents/memory/trace-analysis.md,operational-memory,reference,Operational memory / working notes,33,0,0,0,0,0,0,Not executed; guides review context
+.gitattributes,repo-config,config,Repository / workspace config,0,0,0,0,0,0,0,
+.gitignore,repo-config,config,Repository / workspace config,0,0,0,0,0,0,0,
+.npmrc,repo-config,config,Repository / workspace config,0,0,0,0,0,0,0,
+.replit,repo-config,config,Repository / workspace config,0,0,0,0,0,0,0,
+.replitignore,repo-config,config,Repository / workspace config,0,0,0,0,0,0,0,
+artifacts/api-server/.replit-artifact/artifact.toml,runtime-source,live,Runtime module,33,0,0,0,1,0,0,
+artifacts/api-server/build.mjs,runtime-source,live,Runtime module,127,9,0,0,0,0,0,
+artifacts/api-server/package.json,runtime-source,live,Runtime module,47,0,0,0,0,0,0,
+artifacts/api-server/src/app.ts,runtime-source,live,Entrypoint / facade,141,13,6,1,0,0,0,
+artifacts/api-server/src/config.ts,runtime-source,live,Library module,60,1,0,3,0,0,0,
+artifacts/api-server/src/index.ts,runtime-source,live,Entrypoint / facade,26,5,5,0,1,0,5,
+artifacts/api-server/src/lib/.gitkeep,runtime-source,live,Server support library,0,0,0,0,0,0,0,
+artifacts/api-server/src/lib/audit.ts,runtime-source,live,Server support library,64,4,1,4,0,0,0,
+artifacts/api-server/src/lib/credentials-crypto.ts,runtime-source,live,Server support library,45,1,0,2,0,0,0,
+artifacts/api-server/src/lib/discovery-adapters.test.ts,test,test,Test,334,3,1,0,0,0,0,
+artifacts/api-server/src/lib/discovery-adapters.ts,runtime-source,live,Server support library,292,7,0,13,0,0,0,
+artifacts/api-server/src/lib/graph-provenance.ts,runtime-source,live,Server support library,70,4,0,3,0,0,0,
+artifacts/api-server/src/lib/job-queue.test.ts,test,test,Test,94,2,1,0,0,0,0,
+artifacts/api-server/src/lib/job-queue.ts,runtime-source,live,Server support library,96,1,1,2,0,0,0,
+artifacts/api-server/src/lib/job-reconciliation.test.ts,test,test,Test,154,5,1,0,0,0,0,
+artifacts/api-server/src/lib/job-reconciliation.ts,runtime-source,live,Server support library,114,3,1,1,0,1,0,
+artifacts/api-server/src/lib/logger.ts,runtime-source,live,Server support library,22,2,1,1,0,1,0,
+artifacts/api-server/src/lib/path-validation.test.ts,test,test,Test,194,5,1,0,2,0,0,
+artifacts/api-server/src/lib/path-validation.ts,runtime-source,live,Server support library,127,1,0,3,3,0,0,
+artifacts/api-server/src/lib/plugin-runtime.test.ts,test,test,Test,293,2,1,0,0,0,0,
+artifacts/api-server/src/lib/plugin-runtime.ts,runtime-source,live,Server support library,366,5,1,8,1,0,0,
+artifacts/api-server/src/lib/project-error.test.ts,test,test,Test,210,5,1,0,0,0,0,
+artifacts/api-server/src/lib/scan-runner.ts,runtime-source,live,Server support library,456,9,4,2,0,0,0,
+artifacts/api-server/src/lib/startup-migrations.ts,runtime-source,live,Server support library,61,5,1,1,3,1,1,
+artifacts/api-server/src/middlewares/.gitkeep,runtime-source,live,Middleware,0,0,0,0,0,0,0,
+artifacts/api-server/src/middlewares/clerkProxyMiddleware.ts,runtime-source,live,Middleware,147,4,1,3,0,0,0,
+artifacts/api-server/src/middlewares/requireAuth.test.ts,test,test,Test,161,2,0,0,0,0,0,
+artifacts/api-server/src/middlewares/requireAuth.ts,runtime-source,live,Middleware,82,4,2,2,0,0,0,
+artifacts/api-server/src/middlewares/requireProjectAccess.ts,runtime-source,live,Middleware,136,3,0,3,0,0,0,
+artifacts/api-server/src/routes/ai.test.ts,test,test,Test,592,6,1,0,0,0,0,
+artifacts/api-server/src/routes/ai.ts,runtime-source,live,HTTP route handler,1028,14,4,1,2,0,0,
+artifacts/api-server/src/routes/dashboard.test.ts,test,test,Test,392,6,1,0,0,0,0,
+artifacts/api-server/src/routes/dashboard.ts,runtime-source,live,HTTP route handler,157,5,1,1,0,0,0,
+artifacts/api-server/src/routes/discovery.test.ts,test,test,Test,734,35,1,0,0,0,0,
+artifacts/api-server/src/routes/discovery.ts,runtime-source,live,HTTP route handler,922,17,5,1,3,0,0,
+artifacts/api-server/src/routes/events.test.ts,test,test,Test,222,6,1,0,0,0,0,
+artifacts/api-server/src/routes/events.ts,runtime-source,live,HTTP route handler,62,6,2,1,0,0,0,
+artifacts/api-server/src/routes/git.ts,runtime-source,live,HTTP route handler,410,12,5,1,0,0,0,
+artifacts/api-server/src/routes/graph.test.ts,test,test,Test,967,6,1,0,0,0,0,
+artifacts/api-server/src/routes/graph.ts,runtime-source,live,HTTP route handler,438,8,2,1,0,0,0,
+artifacts/api-server/src/routes/health.test.ts,test,test,Test,23,3,1,0,0,0,0,
+artifacts/api-server/src/routes/health.ts,runtime-source,live,HTTP route handler,12,2,0,1,0,0,0,
+artifacts/api-server/src/routes/index.ts,runtime-source,live,Entrypoint / facade,33,13,12,1,0,0,0,
+artifacts/api-server/src/routes/metrics.test.ts,test,test,Test,128,6,1,0,0,0,0,
+artifacts/api-server/src/routes/metrics.ts,runtime-source,live,HTTP route handler,92,7,2,1,0,0,0,
+artifacts/api-server/src/routes/plugins.test.ts,test,test,Test,35,3,1,0,0,0,0,
+artifacts/api-server/src/routes/plugins.ts,runtime-source,live,HTTP route handler,151,6,1,1,0,0,0,
+artifacts/api-server/src/routes/projects.test.ts,test,test,Test,516,11,2,0,3,0,0,
+artifacts/api-server/src/routes/projects.ts,runtime-source,live,HTTP route handler,287,11,5,1,0,0,0,
+artifacts/api-server/src/routes/rules.test.ts,test,test,Test,343,6,1,0,0,0,0,
+artifacts/api-server/src/routes/rules.ts,runtime-source,live,HTTP route handler,240,10,3,1,0,0,0,
+artifacts/api-server/src/routes/tasks.test.ts,test,test,Test,205,6,1,0,0,0,0,
+artifacts/api-server/src/routes/tasks.ts,runtime-source,live,HTTP route handler,556,10,3,1,0,0,0,
+artifacts/api-server/src/routes/workflows.test.ts,test,test,Test,153,6,1,0,0,0,0,
+artifacts/api-server/src/routes/workflows.ts,runtime-source,live,HTTP route handler,595,9,3,1,0,0,0,
+artifacts/api-server/src/scripts/seed-provenance.ts,runtime-source,live,Library module,241,8,0,0,0,0,0,
+artifacts/api-server/src/types/express.d.ts,runtime-source,live,Library module,52,1,0,2,0,0,0,
+artifacts/api-server/tsconfig.json,runtime-source,live,Runtime module,32,0,0,0,0,0,0,
+artifacts/api-server/vitest.config.ts,runtime-source,live,Runtime module,11,1,0,1,0,0,0,
+artifacts/dashboard/.replit-artifact/artifact.toml,runtime-source,live,Runtime module,28,0,0,0,0,0,0,
+artifacts/dashboard/components.json,runtime-source,live,Runtime module,20,0,0,0,0,0,0,
+artifacts/dashboard/index.html,runtime-source,live,Runtime module,25,0,0,0,0,0,0,
+artifacts/dashboard/package.json,runtime-source,live,Runtime module,83,0,0,0,0,0,0,
+artifacts/dashboard/public/favicon.svg,runtime-source,live,Runtime module,4,0,0,0,0,0,0,
+artifacts/dashboard/public/logo.svg,runtime-source,live,Runtime module,12,0,0,0,0,0,0,
+artifacts/dashboard/public/robots.txt,runtime-source,live,Runtime module,3,0,0,0,0,0,0,
+artifacts/dashboard/src/App.tsx,runtime-source,live,Entrypoint / facade,190,23,0,1,0,0,0,
+artifacts/dashboard/src/components/GitPanel.tsx,runtime-source,live,Dashboard component,491,3,0,1,0,0,0,
+artifacts/dashboard/src/components/layout/Shell.tsx,runtime-source,live,Dashboard component,38,3,1,1,0,0,1,
+artifacts/dashboard/src/components/layout/Sidebar.tsx,runtime-source,live,Dashboard component,104,5,0,1,0,1,0,
+artifacts/dashboard/src/components/ui/accordion.tsx,runtime-source,live,UI primitive,55,4,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/alert-dialog.tsx,runtime-source,live,UI primitive,139,4,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/alert.tsx,runtime-source,live,UI primitive,59,3,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/aspect-ratio.tsx,runtime-source,live,UI primitive,6,1,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/avatar.tsx,runtime-source,live,UI primitive,50,3,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/badge.tsx,runtime-source,live,UI primitive,43,3,0,2,0,0,0,
+artifacts/dashboard/src/components/ui/breadcrumb.tsx,runtime-source,live,UI primitive,115,4,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/button-group.tsx,runtime-source,live,UI primitive,83,4,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/button.tsx,runtime-source,live,UI primitive,65,4,0,2,0,0,0,
+artifacts/dashboard/src/components/ui/calendar.tsx,runtime-source,live,UI primitive,213,5,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/card.tsx,runtime-source,live,UI primitive,83,2,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/carousel.tsx,runtime-source,live,UI primitive,260,5,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/chart.tsx,runtime-source,live,UI primitive,367,3,0,2,0,0,0,
+artifacts/dashboard/src/components/ui/checkbox.tsx,runtime-source,live,UI primitive,28,4,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/collapsible.tsx,runtime-source,live,UI primitive,12,1,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/command.tsx,runtime-source,live,UI primitive,153,6,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/context-menu.tsx,runtime-source,live,UI primitive,198,4,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/dialog.tsx,runtime-source,live,UI primitive,120,4,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/drawer.tsx,runtime-source,live,UI primitive,116,3,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/dropdown-menu.tsx,runtime-source,live,UI primitive,201,4,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/empty.tsx,runtime-source,live,UI primitive,104,2,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/field.tsx,runtime-source,live,UI primitive,244,5,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/form.tsx,runtime-source,live,UI primitive,179,6,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/hover-card.tsx,runtime-source,live,UI primitive,27,3,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/input-group.tsx,runtime-source,live,UI primitive,168,6,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/input-otp.tsx,runtime-source,live,UI primitive,69,4,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/input.tsx,runtime-source,live,UI primitive,22,2,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/item.tsx,runtime-source,live,UI primitive,193,5,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/kbd.tsx,runtime-source,live,UI primitive,29,1,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/label.tsx,runtime-source,live,UI primitive,26,4,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/menubar.tsx,runtime-source,live,UI primitive,254,4,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/navigation-menu.tsx,runtime-source,live,UI primitive,128,5,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/pagination.tsx,runtime-source,live,UI primitive,117,4,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/popover.tsx,runtime-source,live,UI primitive,31,3,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/progress.tsx,runtime-source,live,UI primitive,28,3,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/radio-group.tsx,runtime-source,live,UI primitive,42,4,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/resizable.tsx,runtime-source,live,UI primitive,45,3,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/scroll-area.tsx,runtime-source,live,UI primitive,46,3,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/select.tsx,runtime-source,live,UI primitive,159,4,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/separator.tsx,runtime-source,live,UI primitive,29,3,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/sheet.tsx,runtime-source,live,UI primitive,140,5,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/sidebar.tsx,runtime-source,live,UI primitive,727,12,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/skeleton.tsx,runtime-source,live,UI primitive,16,1,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/slider.tsx,runtime-source,live,UI primitive,26,3,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/sonner.tsx,runtime-source,live,UI primitive,32,2,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/spinner.tsx,runtime-source,live,UI primitive,16,2,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/switch.tsx,runtime-source,live,UI primitive,27,3,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/table.tsx,runtime-source,live,UI primitive,120,2,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/tabs.tsx,runtime-source,live,UI primitive,53,3,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/textarea.tsx,runtime-source,live,UI primitive,22,2,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/toast.tsx,runtime-source,live,UI primitive,127,5,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/toaster.tsx,runtime-source,live,UI primitive,34,2,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/toggle-group.tsx,runtime-source,live,UI primitive,61,5,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/toggle.tsx,runtime-source,live,UI primitive,43,4,0,1,0,0,0,
+artifacts/dashboard/src/components/ui/tooltip.tsx,runtime-source,live,UI primitive,32,3,0,1,0,0,0,
+artifacts/dashboard/src/hooks/use-mobile.tsx,runtime-source,live,Library module,20,1,0,1,0,0,0,
+artifacts/dashboard/src/hooks/use-toast.ts,runtime-source,live,Library module,188,2,0,2,0,0,0,
+artifacts/dashboard/src/index.css,runtime-source,live,Library module,231,2,0,0,0,0,0,
+artifacts/dashboard/src/lib/clerk.ts,runtime-source,live,Library module,64,1,0,3,0,0,0,
+artifacts/dashboard/src/lib/utils.ts,runtime-source,live,Library module,7,2,0,1,0,0,0,
+artifacts/dashboard/src/main.tsx,runtime-source,live,Entrypoint / facade,8,3,2,0,0,0,2,
+artifacts/dashboard/src/pages/AiChat.tsx,runtime-source,live,Dashboard page,808,12,0,1,0,0,0,
+artifacts/dashboard/src/pages/Dashboard.tsx,runtime-source,live,Dashboard page,306,4,0,1,0,0,0,
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx,runtime-source,live,Dashboard page,899,5,0,1,0,0,0,
+artifacts/dashboard/src/pages/Events.tsx,runtime-source,live,Dashboard page,176,3,0,1,0,0,0,
+artifacts/dashboard/src/pages/Graph.tsx,runtime-source,live,Dashboard page,671,4,0,1,0,0,0,
+artifacts/dashboard/src/pages/Landing.tsx,runtime-source,live,Dashboard page,69,2,0,1,0,0,0,
+artifacts/dashboard/src/pages/Metrics.tsx,runtime-source,live,Dashboard page,276,4,0,1,0,0,0,
+artifacts/dashboard/src/pages/ProjectDetail.tsx,runtime-source,live,Dashboard page,404,7,0,1,0,0,0,
+artifacts/dashboard/src/pages/Projects.tsx,runtime-source,live,Dashboard page,216,5,1,1,0,0,1,
+artifacts/dashboard/src/pages/Rules.tsx,runtime-source,live,Dashboard page,416,4,0,1,0,0,0,
+artifacts/dashboard/src/pages/SignIn.tsx,runtime-source,live,Dashboard page,15,2,0,1,0,0,0,
+artifacts/dashboard/src/pages/SignUp.tsx,runtime-source,live,Dashboard page,15,2,0,1,0,0,0,
+artifacts/dashboard/src/pages/Tasks.tsx,runtime-source,live,Dashboard page,425,4,0,1,0,0,0,
+artifacts/dashboard/src/pages/Workflows.tsx,runtime-source,live,Dashboard page,514,4,0,1,0,0,0,
+artifacts/dashboard/src/pages/not-found.tsx,runtime-source,live,Dashboard page,26,3,0,1,0,0,0,
+artifacts/dashboard/tsconfig.json,runtime-source,live,Runtime module,23,0,0,0,0,0,0,
+artifacts/dashboard/vite.config.ts,runtime-source,live,Runtime module,82,5,0,1,0,0,0,
+artifacts/mockup-sandbox/.replit-artifact/artifact.toml,runtime-source,sandbox,Runtime module,18,0,0,0,0,0,0,
+artifacts/mockup-sandbox/components.json,runtime-source,sandbox,Runtime module,22,0,0,0,0,0,0,
+artifacts/mockup-sandbox/index.html,runtime-source,sandbox,Runtime module,32,0,0,0,0,0,0,
+artifacts/mockup-sandbox/mockupPreviewPlugin.ts,runtime-source,sandbox,Runtime module,181,6,0,1,0,0,0,
+artifacts/mockup-sandbox/package.json,runtime-source,sandbox,Runtime module,75,0,0,0,0,0,0,
+artifacts/mockup-sandbox/src/.generated/mockup-components.ts,generated-code,generated,Generated source surface,6,0,0,1,0,0,0,Should be regenerated from spec/inputs
+artifacts/mockup-sandbox/src/App.tsx,runtime-source,sandbox,Entrypoint / facade,147,2,1,1,0,0,1,
+artifacts/mockup-sandbox/src/components/ui/accordion.tsx,runtime-source,sandbox,UI primitive,56,4,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/alert-dialog.tsx,runtime-source,sandbox,UI primitive,140,4,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/alert.tsx,runtime-source,sandbox,UI primitive,60,3,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/aspect-ratio.tsx,runtime-source,sandbox,UI primitive,6,1,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/avatar.tsx,runtime-source,sandbox,UI primitive,51,3,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/badge.tsx,runtime-source,sandbox,UI primitive,38,3,0,2,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/breadcrumb.tsx,runtime-source,sandbox,UI primitive,116,4,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/button-group.tsx,runtime-source,sandbox,UI primitive,84,4,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/button.tsx,runtime-source,sandbox,UI primitive,59,4,0,2,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/calendar.tsx,runtime-source,sandbox,UI primitive,214,5,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/card.tsx,runtime-source,sandbox,UI primitive,77,2,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/carousel.tsx,runtime-source,sandbox,UI primitive,261,5,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/chart.tsx,runtime-source,sandbox,UI primitive,366,3,0,2,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/checkbox.tsx,runtime-source,sandbox,UI primitive,29,4,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/collapsible.tsx,runtime-source,sandbox,UI primitive,12,1,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/command.tsx,runtime-source,sandbox,UI primitive,154,6,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/context-menu.tsx,runtime-source,sandbox,UI primitive,199,4,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/dialog.tsx,runtime-source,sandbox,UI primitive,121,4,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/drawer.tsx,runtime-source,sandbox,UI primitive,117,3,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/dropdown-menu.tsx,runtime-source,sandbox,UI primitive,202,4,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/empty.tsx,runtime-source,sandbox,UI primitive,105,2,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/field.tsx,runtime-source,sandbox,UI primitive,245,5,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/form.tsx,runtime-source,sandbox,UI primitive,177,6,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/hover-card.tsx,runtime-source,sandbox,UI primitive,28,3,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/input-group.tsx,runtime-source,sandbox,UI primitive,166,6,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/input-otp.tsx,runtime-source,sandbox,UI primitive,70,4,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/input.tsx,runtime-source,sandbox,UI primitive,23,2,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/item.tsx,runtime-source,sandbox,UI primitive,194,5,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/kbd.tsx,runtime-source,sandbox,UI primitive,29,1,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/label.tsx,runtime-source,sandbox,UI primitive,27,4,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/menubar.tsx,runtime-source,sandbox,UI primitive,255,4,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/navigation-menu.tsx,runtime-source,sandbox,UI primitive,129,5,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/pagination.tsx,runtime-source,sandbox,UI primitive,118,4,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/popover.tsx,runtime-source,sandbox,UI primitive,32,3,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/progress.tsx,runtime-source,sandbox,UI primitive,29,3,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/radio-group.tsx,runtime-source,sandbox,UI primitive,43,4,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/resizable.tsx,runtime-source,sandbox,UI primitive,46,3,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/scroll-area.tsx,runtime-source,sandbox,UI primitive,47,3,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/select.tsx,runtime-source,sandbox,UI primitive,160,4,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/separator.tsx,runtime-source,sandbox,UI primitive,30,3,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/sheet.tsx,runtime-source,sandbox,UI primitive,141,5,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/sidebar.tsx,runtime-source,sandbox,UI primitive,715,12,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/skeleton.tsx,runtime-source,sandbox,UI primitive,16,1,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/slider.tsx,runtime-source,sandbox,UI primitive,27,3,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/sonner.tsx,runtime-source,sandbox,UI primitive,32,2,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/spinner.tsx,runtime-source,sandbox,UI primitive,17,2,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/switch.tsx,runtime-source,sandbox,UI primitive,28,3,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/table.tsx,runtime-source,sandbox,UI primitive,121,2,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/tabs.tsx,runtime-source,sandbox,UI primitive,54,3,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/textarea.tsx,runtime-source,sandbox,UI primitive,23,2,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/toast.tsx,runtime-source,sandbox,UI primitive,128,5,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/toaster.tsx,runtime-source,sandbox,UI primitive,34,2,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/toggle-group.tsx,runtime-source,sandbox,UI primitive,62,5,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/toggle.tsx,runtime-source,sandbox,UI primitive,44,4,0,1,0,0,0,
+artifacts/mockup-sandbox/src/components/ui/tooltip.tsx,runtime-source,sandbox,UI primitive,33,3,0,1,0,0,0,
+artifacts/mockup-sandbox/src/hooks/use-mobile.tsx,runtime-source,sandbox,Library module,20,1,0,1,0,0,0,
+artifacts/mockup-sandbox/src/hooks/use-toast.ts,runtime-source,sandbox,Library module,190,2,0,2,0,0,0,
+artifacts/mockup-sandbox/src/index.css,runtime-source,sandbox,Library module,186,2,0,0,0,0,0,
+artifacts/mockup-sandbox/src/lib/utils.ts,runtime-source,sandbox,Library module,7,2,0,1,0,0,0,
+artifacts/mockup-sandbox/src/main.tsx,runtime-source,sandbox,Entrypoint / facade,6,3,2,0,0,0,2,
+artifacts/mockup-sandbox/tsconfig.json,runtime-source,sandbox,Runtime module,19,0,0,0,0,0,0,
+artifacts/mockup-sandbox/vite.config.ts,runtime-source,sandbox,Runtime module,72,6,1,1,0,0,1,
+attached_assets/ENGINEERINGOS_EXECUTION_ALIGNMENT_REPORT_1784147505317.md,historical-asset,reference,Reference evidence / historical artifact,87,0,0,0,1,0,0,Not part of runtime execution
+attached_assets/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION(2)_(2)_1784143389784.md,historical-asset,reference,Reference evidence / historical artifact,467,0,0,4,0,0,0,Not part of runtime execution
+attached_assets/ENGINEERINGOS_PLACEHOLDER_REGISTER_1784147505353.md,historical-asset,reference,Reference evidence / historical artifact,44,0,0,0,2,0,0,Not part of runtime execution
+attached_assets/ENGINEERINGOS_RUNTIME_EXECUTION_MATRIX_1784147505400.md,historical-asset,reference,Reference evidence / historical artifact,24,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Audit_Report_1783641389270.md,historical-asset,reference,Reference evidence / historical artifact,257,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Audit_Report_Expanded_1783642792349.md,historical-asset,reference,Reference evidence / historical artifact,266,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Combined_Deep_Analysis_(1)_1783706911895.md,historical-asset,reference,Reference evidence / historical artifact,246,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Engineering_Truth_Verification_1784082430324.csv,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Engineering_Truth_Verification_1784082430371.md,historical-asset,reference,Reference evidence / historical artifact,154,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Execution_Plan_1783831261195.pdf,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Executive_Build_Directive_v1_1783912619169.md,historical-asset,reference,Reference evidence / historical artifact,350,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_File_Inventory_Complete(1)_1783706911845.md,historical-asset,reference,Reference evidence / historical artifact,360,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_File_by_File_Fact_Record_1783725698283.md,historical-asset,reference,Reference evidence / historical artifact,412,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Implementation_Document_1783726156016.md,historical-asset,reference,Reference evidence / historical artifact,605,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Master_Truth_Register_(1)_1784077194501.xlsx,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Plan_1783818095882.pdf,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Project_1783718452179.pdf,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Truth_Flow_Matrix.schema_1784143389669.ts,historical-asset,reference,Reference evidence / historical artifact,407,1,0,21,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Truth_Flow_Matrix_1784143389833.json,historical-asset,reference,Reference evidence / historical artifact,141,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Truth_Flow_Matrix_1784143389882.ts,historical-asset,reference,Reference evidence / historical artifact,37,0,0,4,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Truth_Flow_PR_Checklist_1784143389929.md,historical-asset,reference,Reference evidence / historical artifact,65,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Truth_Register_Full_(1)_1784081699025.csv,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Truth_Register_Full_1784081611461.csv,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Truth_Register_and_PR_Roadmap_(1)_1784081698974.md,historical-asset,reference,Reference evidence / historical artifact,215,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_Truth_Register_and_PR_Roadmap_1784081611536.md,historical-asset,reference,Reference evidence / historical artifact,215,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_analysis_report(2)_(1)_1784047036210.md,historical-asset,reference,Reference evidence / historical artifact,626,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_api_zod_index_export_diff_1784143389744.txt,historical-asset,reference,Reference evidence / historical artifact,8,3,3,2,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_architecture_analysis_report_1784040976647.md,historical-asset,reference,Reference evidence / historical artifact,252,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_archive_entries_1784040976692.csv,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_archive_entries_1784041152876.csv,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_code_deep_analysis_1784052671648.md,historical-asset,reference,Reference evidence / historical artifact,378,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_code_deep_analysis_1784052762652.md,historical-asset,reference,Reference evidence / historical artifact,378,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_current_analysis_report_1784052671601.md,historical-asset,reference,Reference evidence / historical artifact,263,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_current_analysis_report_1784052762572.md,historical-asset,reference,Reference evidence / historical artifact,263,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_deep_analysis_report_1783800987828.md,historical-asset,reference,Reference evidence / historical artifact,320,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_deep_dive_analysis_v2_1784152351310.md,historical-asset,reference,Reference evidence / historical artifact,292,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_deepest_analysis_report(1)_(2)_1784154247108.md,historical-asset,reference,Reference evidence / historical artifact,199,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_deepest_analysis_report_(1)_1784081611576.md,historical-asset,reference,Reference evidence / historical artifact,257,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_deepest_analysis_report_(1)_1784081699061.md,historical-asset,reference,Reference evidence / historical artifact,257,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_file_inventory_(1)_1783729892809.csv,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_file_inventory_current_1784052671527.csv,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_file_inventory_current_1784052762450.csv,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_file_inventory_full(2)_1783988496247.csv,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_file_inventory_full_1783800987783.csv,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_full_analysis_report_1783988496190.md,historical-asset,reference,Reference evidence / historical artifact,123,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_full_file_inventory(1)_1784040976594.csv,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_full_file_inventory(1)_1784041152926.csv,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_minimum_path_to_vision_(1)_1783830867380.md,historical-asset,reference,Reference evidence / historical artifact,274,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_minimum_path_to_vision_1783830816710.md,historical-asset,reference,Reference evidence / historical artifact,274,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_operational_status_record_1783912104506.md,historical-asset,reference,Reference evidence / historical artifact,52,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_project_analysis_report(1)_1783729892769.md,historical-asset,reference,Reference evidence / historical artifact,226,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_provenance_registry_linked_1783911530593.json,historical-asset,reference,Reference evidence / historical artifact,12985,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_provenance_registry_seed_1783911530658.json,historical-asset,reference,Reference evidence / historical artifact,9182,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_replit_execution_directive_1783800987701.json,historical-asset,reference,Reference evidence / historical artifact,299,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_replit_execution_directive_1783800987743.md,historical-asset,reference,Reference evidence / historical artifact,291,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series14_truth_matrix_1783966531635.md,historical-asset,reference,Reference evidence / historical artifact,310,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series15_deep_evidence_1783966531578.md,historical-asset,reference,Reference evidence / historical artifact,443,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series16_truth_matrix_(1)_1783966531512.md,historical-asset,reference,Reference evidence / historical artifact,248,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series17_deep_analysis_1783966531444.md,historical-asset,reference,Reference evidence / historical artifact,336,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series18_status_register_(1)_1783966531375.md,historical-asset,reference,Reference evidence / historical artifact,150,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series19_control_plane_evidence_1783966531303.md,historical-asset,reference,Reference evidence / historical artifact,313,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series20_status_register_1783966531239.md,historical-asset,reference,Reference evidence / historical artifact,346,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series21_deep_status_1783966531177.md,historical-asset,reference,Reference evidence / historical artifact,230,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series22_second_wave_analysis_1783966531113.md,historical-asset,reference,Reference evidence / historical artifact,203,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series23_self_verifying_architecture_1783966531049.md,historical-asset,reference,Reference evidence / historical artifact,222,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series24_deep_evidence_1783966530990.md,historical-asset,reference,Reference evidence / historical artifact,216,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series25_truth_register_1783966530939.md,historical-asset,reference,Reference evidence / historical artifact,251,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series26_boundary_analysis_1783966530884.md,historical-asset,reference,Reference evidence / historical artifact,269,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series27_failure_semantics_1783966530824.md,historical-asset,reference,Reference evidence / historical artifact,314,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series28_traceability_mesh_1783966530766.md,historical-asset,reference,Reference evidence / historical artifact,228,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series29_trust_boundary_register_1783966530702.md,historical-asset,reference,Reference evidence / historical artifact,174,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series30_release_handoff_audit_1783966530642.md,historical-asset,reference,Reference evidence / historical artifact,171,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series31_release_handoff_audit_1783966530586.md,historical-asset,reference,Reference evidence / historical artifact,292,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series32_phase_conformance_audit_1783966530537.md,historical-asset,reference,Reference evidence / historical artifact,144,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_series33_provenance_authority_graph_1783966530470.md,historical-asset,reference,Reference evidence / historical artifact,165,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_status_record_(1)_1783980758791.md,historical-asset,reference,Reference evidence / historical artifact,63,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_status_register_(1)_1783818095824.md,historical-asset,reference,Reference evidence / historical artifact,203,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_status_register_final_1783902107873.md,historical-asset,reference,Reference evidence / historical artifact,172,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_task_backlog_1783800987875.json,historical-asset,reference,Reference evidence / historical artifact,128,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_truth_checklist_1784322972343.md,historical-asset,reference,Reference evidence / historical artifact,698,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_truth_checklist_1784326108247.md,historical-asset,reference,Reference evidence / historical artifact,698,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/EngineeringOS_truth_register_current_1783825680736.md,historical-asset,reference,Reference evidence / historical artifact,224,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Engineering_Os_Fact_Record_1783718570175.pdf,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Engineering_Os_Phased_Completion_Plan_(1)_1783718452123.pdf,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Engineering_Os_Phased_Completion_Plan_1783718452216.pdf,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted---1783906604381_1783906604385.txt,historical-asset,reference,Reference evidence / historical artifact,43,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted---1783956390496_1783956390501.txt,historical-asset,reference,Reference evidence / historical artifact,409,0,0,1,0,0,0,Not part of runtime execution
+attached_assets/Pasted---1784163447147_1784163447161.txt,historical-asset,reference,Reference evidence / historical artifact,162,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted---1784163799356_1784163799366.txt,historical-asset,reference,Reference evidence / historical artifact,22,0,0,0,4,0,0,Not part of runtime execution
+attached_assets/Pasted---1784230995192_1784230995203.txt,historical-asset,reference,Reference evidence / historical artifact,9,0,0,0,1,0,0,Not part of runtime execution
+attached_assets/Pasted---1784231528183_1784231528198.txt,historical-asset,reference,Reference evidence / historical artifact,9,0,0,0,1,0,0,Not part of runtime execution
+attached_assets/Pasted---1784232069146_1784232069153.txt,historical-asset,reference,Reference evidence / historical artifact,11,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted---1784348446604_1784348446608.txt,historical-asset,reference,Reference evidence / historical artifact,302,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted---1784389595241_1784389595255.txt,historical-asset,reference,Reference evidence / historical artifact,416,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--1--1784078393552_1784078393558.txt,historical-asset,reference,Reference evidence / historical artifact,265,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--Backlog-Execution-Backlog-v1-0--1783975284276_1783975284279.txt,historical-asset,reference,Reference evidence / historical artifact,699,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--Code-Review-Plan-Groq-Scope-Save-API--1784175594438_1784175594440.txt,historical-asset,reference,Reference evidence / historical artifact,811,0,0,0,1,0,0,Not part of runtime execution
+attached_assets/Pasted--Discovery-Layer--1783988471815_1783988471818.txt,historical-asset,reference,Reference evidence / historical artifact,579,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--EngineeringOS--1784145653787_1784145653789.txt,historical-asset,reference,Reference evidence / historical artifact,308,0,0,0,1,0,0,Not part of runtime execution
+attached_assets/Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783565505918.txt,historical-asset,reference,Reference evidence / historical artifact,457,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783566150077.txt,historical-asset,reference,Reference evidence / historical artifact,457,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--EngineeringOS-PR-Backlog-File-by-File-backlog--1784168_1784168977036.txt,historical-asset,reference,Reference evidence / historical artifact,412,0,0,0,6,0,0,Not part of runtime execution
+attached_assets/Pasted--EngineeringOS-PR-Backlog-File-by-File-backlog--1784169_1784169315352.txt,historical-asset,reference,Reference evidence / historical artifact,412,0,0,0,6,0,0,Not part of runtime execution
+attached_assets/Pasted--EngineeringOS-PR-by-PR-Execution-Pack-for-Replit-AI-PR_1784154335102.txt,historical-asset,reference,Reference evidence / historical artifact,411,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--EngineeringOS-PR-by-PR-Execution-Pack-for-Replit-AI-PR_1784155079326.txt,historical-asset,reference,Reference evidence / historical artifact,411,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--GROQ-API-KEY-JavaScript-Groq--1784088277237_1784088277243.txt,historical-asset,reference,Reference evidence / historical artifact,195,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--Git-AI-Orchestrator-lib-ai-orchestrator-src-tools-git-_1784347517831.txt,historical-asset,reference,Reference evidence / historical artifact,171,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--Knowledge-Graph-2-0--1784165514922_1784165514926.txt,historical-asset,reference,Reference evidence / historical artifact,334,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--Knowledge-Graph-2-0-Checklist-File--1784165546932_1784165546935.txt,historical-asset,reference,Reference evidence / historical artifact,42,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--PR--1784040954263_1784040954267.txt,historical-asset,reference,Reference evidence / historical artifact,322,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--PR-01-Sync-OpenAPI-with-runtime-graph-surface-files-li_1784234215782.txt,historical-asset,reference,Reference evidence / historical artifact,57,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--PR-03-Micro-Backlog-Contract-Layer-Stabilization-1-3--_1784158287520.txt,historical-asset,reference,Reference evidence / historical artifact,216,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--PR-1-Hardening-Contract-Alignment-for-projects-ts-proj_1784052905584.txt,historical-asset,reference,Reference evidence / historical artifact,106,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--PR-Backlog-EngineeringOS-1-Scoping-ownership-integrity_1784154359481.txt,historical-asset,reference,Reference evidence / historical artifact,280,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--PR-Backlog-EngineeringOS-Execution-Alignment--17841474_1784147452495.txt,historical-asset,reference,Reference evidence / historical artifact,182,0,0,0,4,0,0,Not part of runtime execution
+attached_assets/Pasted--PR-Title-fix-ai-chat-surface-AI-request-failures-and-r_1784130154946.txt,historical-asset,reference,Reference evidence / historical artifact,138,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--PR-Title-fix-discovery-Classify-Project-Loading-Failur_1784086246178.txt,historical-asset,reference,Reference evidence / historical artifact,476,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--PR-app-ts--1784047027177_1784047027183.txt,historical-asset,reference,Reference evidence / historical artifact,520,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--PR-app-ts--1784047927706_1784047927710.txt,historical-asset,reference,Reference evidence / historical artifact,520,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--PR-discovery-ts-PR-1-Discovery--1783996178319_1783996178325.txt,historical-asset,reference,Reference evidence / historical artifact,316,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--PR-lib-ai-orchestrator-PR-1-Prompt-Templates--17839939_1783993953832.txt,historical-asset,reference,Reference evidence / historical artifact,191,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--PR-lib-ai-orchestrator-PR-1-Prompt-Templates--17839939_1783993967887.txt,historical-asset,reference,Reference evidence / historical artifact,191,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--PR-lib-ai-orchestrator-PR-1-Prompt-Templates--17839950_1783995013203.txt,historical-asset,reference,Reference evidence / historical artifact,191,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--PR-title-Harden-auth-context-and-prepare-project-scope_1784044908893.txt,historical-asset,reference,Reference evidence / historical artifact,72,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--PR-title-Hardening-discovery-ts-into-a-deterministic-o_1784053152915.txt,historical-asset,reference,Reference evidence / historical artifact,134,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--Plan-3-Sync-fact-record-architecture-docs-3-Sync-Fact-_1783733496072.txt,historical-asset,reference,Reference evidence / historical artifact,260,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--Plan-3-Sync-fact-record-architecture-docs-3-Sync-Fact-_1783790285219.txt,historical-asset,reference,Reference evidence / historical artifact,260,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--artifacts-api-server-src-routes-ai-ts-lib-ai-orchestra_1784388540189.txt,historical-asset,reference,Reference evidence / historical artifact,359,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--artifacts-api-server-src-routes-discovery-ts--17839967_1783996711676.txt,historical-asset,reference,Reference evidence / historical artifact,317,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--artifacts-api-server-src-routes-discovery-ts--17839967_1783997082105.txt,historical-asset,reference,Reference evidence / historical artifact,317,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--lib-ai-orchestrator--1783993997216_1783993997218.txt,historical-asset,reference,Reference evidence / historical artifact,267,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--lib-db-test-script--1784159470823_1784159470827.txt,historical-asset,reference,Reference evidence / historical artifact,202,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--onboarding-o-1783988399961_1783988399964.txt,historical-asset,reference,Reference evidence / historical artifact,97,0,0,0,2,0,0,Not part of runtime execution
+attached_assets/Pasted--src-context-builder-ts-src-schemas-context-schema-1784_1784305372706.txt,historical-asset,reference,Reference evidence / historical artifact,168,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--test--1784245726594_1784245726598.txt,historical-asset,reference,Reference evidence / historical artifact,368,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted--test--1784245803493_1784245803497.txt,historical-asset,reference,Reference evidence / historical artifact,368,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted-7-Upgrade-Dashboard-to-Operational-UI-What-Why-Current-_1783734748019.txt,historical-asset,reference,Reference evidence / historical artifact,36,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted-7-Upgrade-Dashboard-to-Operational-UI-What-Why-Current-_1783798897613.txt,historical-asset,reference,Reference evidence / historical artifact,35,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted-PR-Title-security-ai-Harden-User-Scoped-Groq-Credential_1784127290653.txt,historical-asset,reference,Reference evidence / historical artifact,350,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Pasted-Plan-6-Deepen-graph-scanner-discovery-6-Deepen-Graph-Sc_1783734658300.txt,historical-asset,reference,Reference evidence / historical artifact,35,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧٠٩-٠٦١٦٢٥_1783567039006.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧٠٩-٠٦٢٠٣٨_1783610776566.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٣٥٣١٨_1783904118069.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٤٠٥١١_1783904724118.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٤٤٤٢٨_1783907108840.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٥٠١٣٨_1783908128704.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٥١٤٥٤_1783908924873.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٥١٩٤٨_1783909201747.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٦-٠٧٣٧٤٤_1784176683628.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٦-١٨٣٠٤١_1784216000977.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٦-١٨٣٠٤٦_1784216000942.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٨-٠١٠٨١٠_1784326132441.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٨-٠٦١٢٠٢_1784344398002.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٨-٠٦١٢٤٢_1784344397966.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٨-٠٦١٢٤٦_1784344397931.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٨-٠٦١٩١٠_1784344762476.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٩-٠٤٣٥١٧_1784424954601.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/Screenshot_٢٠٢٦٠٧١٩-٠٤٣٥٢١_1784424954559.png,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/agents_(1)_1783564013722.zip,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/ai_orchestrator_deep_dive_(1)_1783994021466.md,historical-asset,reference,Reference evidence / historical artifact,269,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/artifacts_(7)_(1)_1783564013761.zip,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/git_(2)_1783564013691.zip,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/gitattributes_1783564013915.txt,historical-asset,reference,Reference evidence / historical artifact,2,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/gitignore_(1)_1783564013965.txt,historical-asset,reference,Reference evidence / historical artifact,50,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/lib_(7)_(1)_1783564013810.zip,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/node_modules_(2)_1783564014266.zip,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/npmrc_(2)_1783564014024.txt,historical-asset,reference,Reference evidence / historical artifact,3,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/package_(1)_(7)_1783564014328.json,historical-asset,reference,Reference evidence / historical artifact,20,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/pnpm-lock.yaml_(3)_1783564014392.txt,historical-asset,reference,Reference evidence / historical artifact,5574,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/pnpm-workspace.yaml_(3)_1783564014449.txt,historical-asset,reference,Reference evidence / historical artifact,161,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/pr-backlog-ai-orchestrator_1784306020062.md,historical-asset,reference,Reference evidence / historical artifact,373,1,1,10,0,0,0,Not part of runtime execution
+attached_assets/replit_(13)_1783564014085.md,historical-asset,reference,Reference evidence / historical artifact,46,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/replit_(2)_1783564014509.txt,historical-asset,reference,Reference evidence / historical artifact,24,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/replitignore_1783564014569.txt,historical-asset,reference,Reference evidence / historical artifact,6,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/scripts_(8)_1783564013865.zip,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/tsconfig.base_(2)_(1)_1783564014142.json,historical-asset,reference,Reference evidence / historical artifact,27,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/tsconfig_(7)_1783564014202.json,historical-asset,reference,Reference evidence / historical artifact,20,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/تحليل_EngineeringOS_1783804577785.docx,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+attached_assets/خطة_العمل_التنفيذية_لمشروع_EngineeringOS_1783729892699.docx,historical-asset,reference,Reference evidence / historical artifact,0,0,0,0,0,0,0,Not part of runtime execution
+docs/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md,documentation,reference,Documentation / historical alignment note,467,0,0,4,0,0,0,Used only for comparison to code
+docs/EXECUTION_ALIGNMENT_REPORT.md,documentation,reference,Documentation / historical alignment note,90,0,0,0,1,0,0,Used only for comparison to code
+docs/PLACEHOLDER_REGISTER.md,documentation,reference,Documentation / historical alignment note,55,0,0,0,1,0,0,Used only for comparison to code
+docs/PR_BACKLOG.md,documentation,reference,Documentation / historical alignment note,206,0,0,0,4,0,0,Used only for comparison to code
+docs/RUNTIME_EXECUTION_MATRIX.md,documentation,reference,Documentation / historical alignment note,27,0,0,0,0,0,0,Used only for comparison to code
+docs/ai-orchestrator-executive-table.md,documentation,reference,Documentation / historical alignment note,35,0,0,0,0,0,0,Used only for comparison to code
+docs/ai-orchestrator-forensic-analysis.md,documentation,reference,Documentation / historical alignment note,428,0,0,0,0,0,0,Used only for comparison to code
+docs/ai-orchestrator-gap-analysis.md,documentation,reference,Documentation / historical alignment note,158,0,0,0,0,0,0,Used only for comparison to code
+docs/ai-orchestrator-trace-analysis.md,documentation,reference,Documentation / historical alignment note,224,0,0,0,0,0,0,Used only for comparison to code
+docs/completion-plan.md,documentation,reference,Documentation / historical alignment note,540,0,0,0,0,0,0,Used only for comparison to code
+docs/fact-record.md,documentation,reference,Documentation / historical alignment note,648,0,0,0,0,0,0,Used only for comparison to code
+docs/pr-backlog-ai-orchestrator.md,documentation,reference,Documentation / historical alignment note,373,1,1,10,0,0,0,Used only for comparison to code
+docs/truth-flow-pr-checklist.md,documentation,reference,Documentation / historical alignment note,81,0,0,0,0,0,0,Used only for comparison to code
+docs/truth-flow-pr-review-plan.md,documentation,reference,Documentation / historical alignment note,515,0,0,0,0,0,0,Used only for comparison to code
+lib/ai-orchestrator/package.json,runtime-source,live,Runtime module,26,0,0,0,0,0,0,
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts,test,test,Test,197,3,2,0,0,0,0,
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts,test,test,Test,82,3,1,0,0,0,0,
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts,test,test,Test,230,1,0,0,0,0,0,
+lib/ai-orchestrator/src/__tests__/parsing.test.ts,test,test,Test,95,3,1,0,0,0,0,
+lib/ai-orchestrator/src/__tests__/schemas.test.ts,test,test,Test,320,5,4,0,0,0,0,
+lib/ai-orchestrator/src/__tests__/workflow-orchestrator.test.ts,test,test,Test,442,3,2,0,0,0,0,
+lib/ai-orchestrator/src/agents/chat-agent.ts,runtime-source,live,AI agent,394,9,9,3,0,0,0,
+lib/ai-orchestrator/src/agents/code-reviewer.ts,runtime-source,live,AI agent,57,6,6,2,0,0,0,
+lib/ai-orchestrator/src/agents/scan-analyst.ts,runtime-source,live,AI agent,54,6,6,2,0,0,0,
+lib/ai-orchestrator/src/agents/task-agent.ts,runtime-source,live,AI agent,66,6,6,3,0,0,0,
+lib/ai-orchestrator/src/agents/workflow-orchestrator.ts,runtime-source,live,AI agent,242,5,5,7,0,0,0,
+lib/ai-orchestrator/src/context-builder.test.ts,test,test,Test,235,4,2,0,0,0,0,
+lib/ai-orchestrator/src/context-builder.ts,runtime-source,live,Library module,358,4,1,3,0,0,0,
+lib/ai-orchestrator/src/errors.ts,runtime-source,live,Library module,61,0,0,3,0,0,0,
+lib/ai-orchestrator/src/groq-client.ts,runtime-source,live,Library module,492,2,1,11,0,0,0,
+lib/ai-orchestrator/src/index.ts,runtime-source,live,Entrypoint / facade,29,1,1,18,0,0,0,
+lib/ai-orchestrator/src/parsing.ts,runtime-source,live,Library module,108,2,1,3,0,0,0,
+lib/ai-orchestrator/src/prompts/chat.prompt.ts,runtime-source,live,Prompt template,87,1,1,1,0,0,0,
+lib/ai-orchestrator/src/prompts/index.ts,runtime-source,live,Entrypoint / facade,6,0,0,5,0,0,0,
+lib/ai-orchestrator/src/prompts/review.prompt.ts,runtime-source,live,Prompt template,64,1,1,2,0,0,0,
+lib/ai-orchestrator/src/prompts/scan.prompt.ts,runtime-source,live,Prompt template,48,1,1,2,0,0,0,
+lib/ai-orchestrator/src/prompts/task.prompt.ts,runtime-source,live,Prompt template,59,1,1,2,0,0,0,
+lib/ai-orchestrator/src/prompts/workflow.prompt.ts,runtime-source,live,Prompt template,76,2,2,2,0,0,0,
+lib/ai-orchestrator/src/schemas/chat.schema.ts,runtime-source,live,Runtime schema / contract,59,2,0,5,0,0,0,
+lib/ai-orchestrator/src/schemas/code-review.schema.ts,runtime-source,live,Runtime schema / contract,27,1,0,6,0,0,0,
+lib/ai-orchestrator/src/schemas/context.schema.ts,runtime-source,live,Runtime schema / contract,26,1,0,2,0,0,0,
+lib/ai-orchestrator/src/schemas/index.ts,runtime-source,live,Entrypoint / facade,18,0,0,12,0,0,0,
+lib/ai-orchestrator/src/schemas/scan.schema.ts,runtime-source,live,Runtime schema / contract,22,2,1,4,0,0,0,
+lib/ai-orchestrator/src/schemas/task.schema.ts,runtime-source,live,Runtime schema / contract,12,1,0,2,0,0,0,
+lib/ai-orchestrator/src/schemas/workflow.schema.ts,runtime-source,live,Runtime schema / contract,103,1,0,7,0,0,0,
+lib/ai-orchestrator/src/tools/file-tools.ts,runtime-source,live,Tooling / model tool executor,421,6,2,4,0,0,0,
+lib/ai-orchestrator/src/tools/git-tools.ts,runtime-source,live,Tooling / model tool executor,137,3,0,3,0,0,0,
+lib/ai-orchestrator/tsconfig.json,runtime-source,live,Runtime module,16,0,0,0,0,0,0,
+lib/ai-orchestrator/vitest.config.ts,runtime-source,live,Runtime module,15,1,0,1,0,0,0,
+lib/api-client-react/package.json,runtime-source,live,Runtime module,16,0,0,0,0,0,0,
+lib/api-client-react/src/custom-fetch.ts,runtime-source,live,Library module,372,0,0,9,0,0,0,
+lib/api-client-react/src/generated/api.schemas.ts,generated-code,generated,Generated source surface,1224,0,0,169,0,0,0,Should be regenerated from spec/inputs
+lib/api-client-react/src/generated/api.ts,generated-code,generated,Generated source surface,5198,5,3,454,0,0,3,Should be regenerated from spec/inputs
+lib/api-client-react/src/index.ts,runtime-source,live,Entrypoint / facade,15,2,2,6,0,0,2,
+lib/api-client-react/src/project-error.ts,runtime-source,live,Library module,167,1,1,6,0,0,0,
+lib/api-client-react/tsconfig.json,runtime-source,live,Runtime module,13,0,0,0,0,0,0,
+lib/api-spec/openapi.yaml,runtime-source,live,Runtime module,3146,0,0,0,0,0,0,
+lib/api-spec/orval.config.ts,runtime-source,live,Runtime module,75,2,0,1,0,0,0,
+lib/api-spec/package.json,runtime-source,live,Runtime module,12,0,0,0,0,0,0,
+lib/api-zod/package.json,runtime-source,live,Runtime module,13,0,0,0,0,0,0,
+lib/api-zod/src/generated/api.ts,generated-code,generated,Generated source surface,2361,1,0,223,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiApplyChangesRequest.ts,generated-code,generated,Generated source surface,14,1,1,1,0,0,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiApplyChangesRequestChangesItem.ts,generated-code,generated,Generated source surface,14,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiApplyChangesResult.ts,generated-code,generated,Generated source surface,13,1,1,1,0,0,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiApplyChangesResultResultsItem.ts,generated-code,generated,Generated source surface,14,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiChatMessage.ts,generated-code,generated,Generated source surface,18,1,1,1,0,0,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiChatMessageRole.ts,generated-code,generated,Generated source surface,17,0,0,2,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiChatOutput.ts,generated-code,generated,Generated source surface,18,2,2,1,0,0,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiChatRequest.ts,generated-code,generated,Generated source surface,14,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiChatSession.ts,generated-code,generated,Generated source surface,16,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiCodeIssue.ts,generated-code,generated,Generated source surface,19,2,2,1,0,0,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiCodeIssueSeverity.ts,generated-code,generated,Generated source surface,18,0,0,2,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiCodeIssueType.ts,generated-code,generated,Generated source surface,19,0,0,2,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiCodeReview.ts,generated-code,generated,Generated source surface,20,2,2,1,0,0,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiCodeReviewVerdict.ts,generated-code,generated,Generated source surface,17,0,0,2,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiOrchestrateRequest.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiOrchestrationDecision.ts,generated-code,generated,Generated source surface,17,1,1,1,0,0,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiOrchestrationDecisionAction.ts,generated-code,generated,Generated source surface,18,0,0,2,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiPendingChange.ts,generated-code,generated,Generated source surface,21,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiReviewRequest.ts,generated-code,generated,Generated source surface,13,1,1,1,0,0,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiReviewRequestFileContents.ts,generated-code,generated,Generated source surface,10,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiScanAnalysis.ts,generated-code,generated,Generated source surface,17,1,1,1,0,0,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiScanInsight.ts,generated-code,generated,Generated source surface,18,2,2,1,0,1,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiScanInsightCategory.ts,generated-code,generated,Generated source surface,19,0,0,2,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/aiScanInsightSeverity.ts,generated-code,generated,Generated source surface,18,0,0,2,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/createProjectInput.ts,generated-code,generated,Generated source surface,16,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/createRuleInput.ts,generated-code,generated,Generated source surface,20,1,1,1,0,0,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/createTaskInput.ts,generated-code,generated,Generated source surface,21,1,1,1,0,0,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/createWorkflowInput.ts,generated-code,generated,Generated source surface,16,1,1,1,0,0,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/dashboardOverview.ts,generated-code,generated,Generated source surface,23,4,4,1,0,0,4,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/dashboardOverviewProjectScoresItem.ts,generated-code,generated,Generated source surface,16,1,1,1,0,1,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/dashboardOverviewProjectScoresItemTrend.ts,generated-code,generated,Generated source surface,17,0,0,2,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/dashboardOverviewTaskStatusBreakdown.ts,generated-code,generated,Generated source surface,10,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/dashboardOverviewTopRulesItem.ts,generated-code,generated,Generated source surface,15,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/deleteGroqKey200.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/discoveryGraphSummaryData.ts,generated-code,generated,Generated source surface,17,2,2,1,0,0,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/discoveryGraphSummaryDataEntitiesByType.ts,generated-code,generated,Generated source surface,10,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/discoveryGraphSummaryDataFilesByLanguage.ts,generated-code,generated,Generated source surface,10,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/discoveryOptions.ts,generated-code,generated,Generated source surface,19,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/discoveryReport.ts,generated-code,generated,Generated source surface,47,2,2,1,0,0,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/discoveryRuleViolationItem.ts,generated-code,generated,Generated source surface,15,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/discoverySessionStatus.ts,generated-code,generated,Generated source surface,26,2,2,1,0,0,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/discoverySessionStatusStatus.ts,generated-code,generated,Generated source surface,18,0,0,2,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/discoverySourceCapability.ts,generated-code,generated,Generated source surface,19,1,1,1,0,0,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/discoverySourceConfig.ts,generated-code,generated,Generated source surface,27,1,1,1,0,0,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/discoverySourceConfigCredentials.ts,generated-code,generated,Generated source surface,16,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/discoveryStepItem.ts,generated-code,generated,Generated source surface,16,1,1,1,0,1,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/discoveryStepItemStatus.ts,generated-code,generated,Generated source surface,18,0,0,2,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/entityType.ts,generated-code,generated,Generated source surface,22,0,0,2,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/evaluateRuleRequest.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/event.ts,generated-code,generated,Generated source surface,24,2,2,1,0,1,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/eventPayload.ts,generated-code,generated,Generated source surface,10,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/eventSeverity.ts,generated-code,generated,Generated source surface,18,0,0,2,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/failWorkflowPhaseInput.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphEntityImpact404.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphEntityImpactParams.ts,generated-code,generated,Generated source surface,17,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphEntityNeighbors200.ts,generated-code,generated,Generated source surface,17,2,2,1,0,0,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphEntityNeighbors404.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphEvidence403.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphEvidence404.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphPathParams.ts,generated-code,generated,Generated source surface,18,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphRuntimeSubgraph403.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphRuntimeSubgraph404.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphSemanticNeighborhood400.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphSemanticNeighborhood403.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphSemanticNeighborhood404.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphSemanticNeighborhoodParams.ts,generated-code,generated,Generated source surface,22,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphSubgraph400.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphSubgraph403.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphSubgraph404.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getGraphSubgraphParams.ts,generated-code,generated,Generated source surface,18,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/getLatestMetricsParams.ts,generated-code,generated,Generated source surface,12,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphCentralityScore.ts,generated-code,generated,Generated source surface,17,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphEdgeType.ts,generated-code,generated,Generated source surface,26,0,0,2,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphEntity.ts,generated-code,generated,Generated source surface,44,3,3,1,0,1,3,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphEntityMetadata.ts,generated-code,generated,Generated source surface,10,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphEvidence.ts,generated-code,generated,Generated source surface,21,1,1,1,0,0,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphEvidenceBundle.ts,generated-code,generated,Generated source surface,15,2,2,1,0,0,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphEvidenceKind.ts,generated-code,generated,Generated source surface,20,0,0,2,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphEvidenceResponse.ts,generated-code,generated,Generated source surface,15,2,2,1,0,0,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphImpactHop.ts,generated-code,generated,Generated source surface,17,2,2,1,0,0,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphImpactResult.ts,generated-code,generated,Generated source surface,16,2,2,1,0,0,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphLayerCounts.ts,generated-code,generated,Generated source surface,13,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphPathResult.ts,generated-code,generated,Generated source surface,15,1,1,1,0,0,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphPathStep.ts,generated-code,generated,Generated source surface,15,2,2,1,0,1,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphProvenance.ts,generated-code,generated,Generated source surface,16,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphRelationship.ts,generated-code,generated,Generated source surface,55,4,4,1,0,4,4,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphRelationshipMetadata.ts,generated-code,generated,Generated source surface,10,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphRuntimeSubgraph.ts,generated-code,generated,Generated source surface,15,2,2,1,0,0,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphSemanticNeighborhood.ts,generated-code,generated,Generated source surface,16,2,2,1,0,0,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphSubgraph.ts,generated-code,generated,Generated source surface,19,4,4,1,0,0,4,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphSubgraphFilters.ts,generated-code,generated,Generated source surface,21,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphSubgraphLayered.ts,generated-code,generated,Generated source surface,15,1,1,1,0,1,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphSummary.ts,generated-code,generated,Generated source surface,23,3,3,1,0,0,3,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphSummaryEntitiesByType.ts,generated-code,generated,Generated source surface,10,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/graphSummaryRelationsByType.ts,generated-code,generated,Generated source surface,10,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/groqKeyStatus.ts,generated-code,generated,Generated source surface,19,0,0,1,0,0,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/healthStatus.ts,generated-code,generated,Generated source surface,13,1,1,1,0,0,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/healthStatusStatus.ts,generated-code,generated,Generated source surface,15,0,0,2,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/importProjectInput.ts,generated-code,generated,Generated source surface,14,1,1,1,0,0,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/importProjectInputOverrides.ts,generated-code,generated,Generated source surface,15,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/index.ts,generated-code,generated,Generated source surface,152,143,143,143,0,0,143,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/listAiChatSessionsParams.ts,generated-code,generated,Generated source surface,12,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/listEventsParams.ts,generated-code,generated,Generated source surface,18,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/listGraphEntitiesParams.ts,generated-code,generated,Generated source surface,14,1,1,1,0,1,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/listGraphRelationshipsParams.ts,generated-code,generated,Generated source surface,13,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/listMetricsParams.ts,generated-code,generated,Generated source surface,14,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/listRulesParams.ts,generated-code,generated,Generated source surface,14,1,1,1,0,1,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/listTasksParams.ts,generated-code,generated,Generated source surface,16,2,2,1,0,1,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/listWorkflowsParams.ts,generated-code,generated,Generated source surface,12,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/metricRecord.ts,generated-code,generated,Generated source surface,27,1,1,1,0,1,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/metricRecordBuildStatus.ts,generated-code,generated,Generated source surface,17,0,0,2,0,2,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/plugin.ts,generated-code,generated,Generated source surface,19,1,1,1,0,1,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/pluginCapabilitiesItem.ts,generated-code,generated,Generated source surface,19,0,0,2,0,2,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/pluginProjectRequest.ts,generated-code,generated,Generated source surface,12,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/project.ts,generated-code,generated,Generated source surface,25,1,1,1,0,1,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/projectStatus.ts,generated-code,generated,Generated source surface,18,0,0,2,0,2,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/projectSummary.ts,generated-code,generated,Generated source surface,19,3,3,1,0,1,3,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/projectSummaryTaskCounts.ts,generated-code,generated,Generated source surface,16,0,0,1,0,2,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/rule.ts,generated-code,generated,Generated source surface,25,1,1,1,0,1,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/ruleEvaluationResult.ts,generated-code,generated,Generated source surface,17,1,1,1,0,1,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/ruleEvaluationResultMatchesItem.ts,generated-code,generated,Generated source surface,14,0,0,1,0,2,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/ruleSeverity.ts,generated-code,generated,Generated source surface,19,0,0,2,0,4,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/saveGroqKeyInput.ts,generated-code,generated,Generated source surface,16,0,0,1,0,1,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/scanJob.ts,generated-code,generated,Generated source surface,24,2,2,1,0,1,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/scanJobStatus.ts,generated-code,generated,Generated source surface,18,0,0,2,0,2,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/scanResult.ts,generated-code,generated,Generated source surface,17,0,0,1,0,2,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/sourceType.ts,generated-code,generated,Generated source surface,20,0,0,2,0,2,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/startDiscoveryInput.ts,generated-code,generated,Generated source surface,17,3,3,1,0,1,3,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/task.ts,generated-code,generated,Generated source surface,33,3,3,1,0,1,3,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/taskLog.ts,generated-code,generated,Generated source surface,19,2,2,1,0,1,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/taskLogLevel.ts,generated-code,generated,Generated source surface,18,0,0,2,0,2,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/taskLogMetadata.ts,generated-code,generated,Generated source surface,10,0,0,1,0,2,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/taskPriority.ts,generated-code,generated,Generated source surface,18,0,0,2,0,4,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/taskStatus.ts,generated-code,generated,Generated source surface,21,0,0,2,0,3,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/updateProjectInput.ts,generated-code,generated,Generated source surface,15,1,1,1,0,1,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/updateProjectInputStatus.ts,generated-code,generated,Generated source surface,18,0,0,2,0,2,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/updateRuleInput.ts,generated-code,generated,Generated source surface,18,1,1,1,0,1,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/updateTaskInput.ts,generated-code,generated,Generated source surface,17,2,2,1,0,1,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/verificationResult.ts,generated-code,generated,Generated source surface,14,1,1,1,0,2,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/verificationResultStepsItem.ts,generated-code,generated,Generated source surface,14,0,0,1,0,2,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/workflow.ts,generated-code,generated,Generated source surface,24,2,2,1,0,1,2,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/workflowExecution.ts,generated-code,generated,Generated source surface,20,1,1,1,0,1,1,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/workflowPhase.ts,generated-code,generated,Generated source surface,14,0,0,1,0,3,0,Should be regenerated from spec/inputs
+lib/api-zod/src/generated/types/workflowStatus.ts,generated-code,generated,Generated source surface,19,0,0,2,0,3,0,Should be regenerated from spec/inputs
+lib/api-zod/src/index.ts,runtime-source,live,Entrypoint / facade,4,3,3,3,0,0,3,
+lib/api-zod/src/truth-flow-matrix.schema.ts,runtime-source,live,Library module,451,1,0,21,0,1,0,
+lib/api-zod/tsconfig.json,runtime-source,live,Runtime module,12,0,0,0,0,0,0,
+lib/db/drizzle.config.ts,runtime-source,live,Runtime module,15,2,0,1,0,0,0,
+lib/db/package.json,runtime-source,live,Runtime module,26,0,0,0,0,0,0,
+lib/db/src/index.ts,runtime-source,live,Entrypoint / facade,17,4,2,3,0,0,0,
+lib/db/src/schema/ai_chats.ts,runtime-source,live,DB schema module,36,2,1,7,0,0,0,
+lib/db/src/schema/ai_provider_credentials.ts,runtime-source,live,DB schema module,30,1,0,3,0,0,0,
+lib/db/src/schema/audit_logs.ts,runtime-source,live,DB schema module,69,1,0,5,0,0,0,
+lib/db/src/schema/discovery.ts,runtime-source,live,DB schema module,138,2,1,12,0,0,0,
+lib/db/src/schema/events.ts,runtime-source,live,DB schema module,40,4,3,4,0,0,0,
+lib/db/src/schema/graph.ts,runtime-source,live,DB schema module,226,9,2,9,0,0,0,
+lib/db/src/schema/index.ts,runtime-source,live,Entrypoint / facade,15,14,14,14,0,0,0,
+lib/db/src/schema/metrics.ts,runtime-source,live,DB schema module,46,2,1,4,0,0,0,
+lib/db/src/schema/plugins.ts,runtime-source,live,DB schema module,18,1,0,3,0,0,0,
+lib/db/src/schema/projects.ts,runtime-source,live,DB schema module,41,1,0,4,0,0,0,
+lib/db/src/schema/rules.ts,runtime-source,live,DB schema module,43,2,1,4,0,0,0,
+lib/db/src/schema/scan_jobs.ts,runtime-source,live,DB schema module,40,2,1,4,0,0,0,
+lib/db/src/schema/task_logs.ts,runtime-source,live,DB schema module,26,2,1,4,0,0,0,
+lib/db/src/schema/tasks.ts,runtime-source,live,DB schema module,68,4,3,5,0,0,0,
+lib/db/src/schema/workflows.ts,runtime-source,live,DB schema module,53,2,1,6,0,0,0,
+lib/db/tsconfig.json,runtime-source,live,Runtime module,13,0,0,0,0,0,0,
+lib/knowledge-engine/package.json,runtime-source,live,Runtime module,23,0,0,0,0,0,0,
+lib/knowledge-engine/src/__tests__/inference.test.ts,test,test,Test,173,3,2,0,0,0,0,
+lib/knowledge-engine/src/__tests__/queries.test.ts,test,test,Test,417,5,1,0,0,0,0,
+lib/knowledge-engine/src/index.ts,runtime-source,live,Entrypoint / facade,64,0,0,3,0,0,0,
+lib/knowledge-engine/src/inference.ts,runtime-source,live,Library module,362,1,1,7,0,0,0,
+lib/knowledge-engine/src/queries.ts,runtime-source,live,Library module,744,3,1,11,0,0,0,
+lib/knowledge-engine/src/types.ts,runtime-source,live,Library module,267,2,0,20,0,0,0,
+lib/knowledge-engine/tsconfig.json,runtime-source,live,Runtime module,16,0,0,0,0,0,0,
+lib/scanner/package.json,runtime-source,live,Runtime module,23,0,0,0,0,0,0,
+lib/scanner/src/__tests__/file-walker.test.ts,test,test,Test,126,6,2,0,0,0,0,
+lib/scanner/src/__tests__/graph-extractor.test.ts,test,test,Test,566,6,5,0,0,0,0,
+lib/scanner/src/__tests__/metrics-calc.test.ts,test,test,Test,140,4,3,0,0,0,0,
+lib/scanner/src/__tests__/rule-matcher.test.ts,test,test,Test,109,4,3,0,0,0,0,
+lib/scanner/src/file-walker.ts,runtime-source,live,Library module,192,2,0,3,0,0,0,
+lib/scanner/src/graph-extractor.ts,runtime-source,live,Library module,1061,11,2,10,0,0,0,
+lib/scanner/src/index.ts,runtime-source,live,Entrypoint / facade,22,0,0,8,0,0,0,
+lib/scanner/src/metrics-calc.ts,runtime-source,live,Library module,206,2,2,2,0,0,0,
+lib/scanner/src/python-ast-script.py,runtime-source,live,Library module,0,0,0,0,0,0,0,
+lib/scanner/src/python-ast-script.ts,runtime-source,live,Library module,10,0,0,1,0,0,0,
+lib/scanner/src/python-extractor.ts,runtime-source,live,Library module,109,5,1,4,1,0,0,
+lib/scanner/src/rule-matcher.ts,runtime-source,live,Library module,157,1,1,6,0,0,0,
+lib/scanner/tsconfig.json,runtime-source,live,Runtime module,13,0,0,0,0,0,0,
+lib/scanner/vitest.config.ts,runtime-source,live,Runtime module,15,1,0,1,0,0,0,
+package.json,repo-config,config,Repository / workspace config,24,0,0,0,0,0,0,
+pnpm-lock.yaml,repo-config,config,Repository / workspace config,7178,0,0,0,0,0,0,
+pnpm-workspace.yaml,repo-config,config,Repository / workspace config,161,0,0,0,0,0,0,
+replit.md,repo-config,config,Repository / workspace config,130,0,0,0,1,0,0,
+scripts/check-codegen-drift.ts,runtime-source,live,Script / gate,81,2,0,0,0,0,0,
+scripts/package.json,runtime-source,live,Script / gate,20,0,0,0,0,0,0,
+scripts/post-merge.sh,runtime-source,live,Script / gate,14,0,0,0,0,0,0,
+scripts/src/hello.ts,runtime-source,live,Script / gate,2,0,0,0,0,0,0,
+scripts/trigger-scan.mts,runtime-source,live,Script / gate,131,6,0,0,0,0,0,
+scripts/tsconfig.json,runtime-source,live,Script / gate,9,0,0,0,0,0,0,
+scripts/validate-truth-flow.ts,runtime-source,live,Script / gate,120,3,0,0,0,0,0,
+scripts/verify-setup.sh,runtime-source,live,Script / gate,88,0,0,0,0,0,0,
+tsconfig.base.json,repo-config,config,Repository / workspace config,27,0,0,0,0,0,0,
+tsconfig.base.json.bak,repo-config,config,Repository / workspace config,0,0,0,0,0,0,0,
+tsconfig.json,repo-config,config,Repository / workspace config,26,0,0,0,0,0,0,
