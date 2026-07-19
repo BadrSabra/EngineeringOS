@@ -420,6 +420,19 @@ router.post("/ai/chat", async (req, res) => {
     throw err;
   }
 
+  // PR-E: parse failure detected — surface as 422 so the dashboard shows a
+  // specific "model output invalid" message rather than a confusing degraded 200.
+  // The raw field is truncated to 500 chars to avoid leaking huge model outputs.
+  if (result._parseError) {
+    return res.status(422).json({
+      error: "model_output_invalid",
+      code: "model_output_invalid",
+      hint: "The AI model returned an unexpected response — try rephrasing your message.",
+      raw: result._parseError.raw.slice(0, 500),
+      parseCode: result._parseError.code,
+    });
+  }
+
   // Groq call succeeded — now resolve or create the session.
   // Creating the session here (Gap-9 fix) guarantees we never leave an empty
   // orphaned session when the Groq call fails above.

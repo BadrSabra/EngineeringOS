@@ -60,7 +60,12 @@ function describeAiError(err: unknown): string {
       case 403: return 'Access denied — you may not have permission on this project.';
       // إصلاح #4: RATE_LIMITED يُعاد كـ429 — رسالة واضحة بدل "provider error".
       case 429: return err.hint ?? 'Groq rate limit reached — wait 30–60 seconds before retrying.';
-      case 422: return err.hint ?? 'AI provider configuration is invalid. Re-save your Groq key.';
+      // PR-E: distinguish model parse failure from config errors on the same 422 status.
+      case 422:
+        if (err.code === 'model_output_invalid') {
+          return 'The AI returned an unexpected response format — try rephrasing your message.';
+        }
+        return err.hint ?? 'AI provider configuration is invalid. Re-save your Groq key.';
       case 428: return err.hint ?? 'No AI key configured — save a Groq API key first.';
       case 502: return err.hint ?? 'AI provider returned an error. Check your Groq key or try again.';
       case 503: return 'AI provider is temporarily unreachable — try again in a moment.';

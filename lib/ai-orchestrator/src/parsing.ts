@@ -75,7 +75,7 @@ export function extractJson(raw: string): JsonExtractResult {
 
 export type AgentParseResult<T> =
   | { ok: true; data: T }
-  | { ok: false; data: T; code: AgentErrorCode; message: string };
+  | { ok: false; data: T; code: AgentErrorCode; message: string; raw: string };
 
 /**
  * Extracts JSON from `raw`, validates it against `schema`, and returns the
@@ -90,7 +90,7 @@ export function parseAgentResponse<T>(
 ): AgentParseResult<T> {
   const extracted = extractJson(raw);
   if (!extracted.ok) {
-    return { ok: false, data: fallback(raw), code: extracted.code, message: extracted.message };
+    return { ok: false, data: fallback(raw), code: extracted.code, message: extracted.message, raw };
   }
 
   const validated = schema.safeParse(extracted.data);
@@ -100,6 +100,7 @@ export function parseAgentResponse<T>(
       data: fallback(raw),
       code: "SCHEMA_VALIDATION_FAILED",
       message: validated.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; "),
+      raw,
     };
   }
 

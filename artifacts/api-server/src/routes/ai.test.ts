@@ -258,6 +258,30 @@ describe("POST /api/ai/chat", () => {
     expect(Array.isArray(res.body.pendingChanges)).toBe(true);
   });
 
+  // PR-E: parse failure surfaced as 422 instead of silent degraded 200.
+  it("returns 422 with model_output_invalid when chat returns _parseError", async () => {
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockChat).mockResolvedValueOnce({
+      response: "fallback text",
+      sources: ["project context"],
+      pendingChanges: [],
+      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "response: min 1", raw: "bad model output" },
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "trigger parse failure" });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("model_output_invalid");
+    expect(res.body.code).toBe("model_output_invalid");
+    expect(typeof res.body.hint).toBe("string");
+    expect(res.body.raw).toBe("bad model output");
+    expect(res.body.parseCode).toBe("SCHEMA_VALIDATION_FAILED");
+  });
+
   it("reuses an existing session when sessionId is provided", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

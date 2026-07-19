@@ -42,6 +42,7 @@
  */
 import { completeRaw, MODEL_POWERFUL, MODEL_FAST } from "../groq-client.js";
 import { GroqClientError } from "../errors.js";
+import type { AgentErrorCode } from "../errors.js";
 import type { RawMessage } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildChatSystemPrompt } from "../prompts/chat.prompt.js";
@@ -52,6 +53,16 @@ import { GIT_TOOL_DEFINITIONS, executeGitTool } from "../tools/git-tools.js";
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 export type { ChatOutput };
+
+/**
+ * PR-E: Extended return type that carries an optional parse-failure marker.
+ * When the model output cannot be parsed after all correction retries,
+ * the route surfaces `_parseError` as HTTP 422 instead of a silent 200
+ * with degraded fallback content.
+ */
+export type ChatResult = ChatOutput & {
+  _parseError?: { code: AgentErrorCode; message: string; raw: string };
+};
 
 const MAX_TOOL_ITERATIONS = 6;
 
@@ -131,7 +142,7 @@ export async function chat(opts: {
   rootPath?: string;
   /** Optional per-user Groq API key. Falls back to process.env.GROQ_API_KEY. */
   apiKey?: string;
-}): Promise<ChatOutput> {
+}): Promise<ChatResult> {
   const { message, history, projectContext, rootPath, apiKey } = opts;
 
   const pendingChanges: PendingChange[] = [];
@@ -338,6 +349,13 @@ export async function chat(opts: {
       console.warn(JSON.stringify({ scope: "chat-agent", code: parsed.code, message: parsed.message }));
     }
 
+    // PR-E: capture parse failure after all correction retries so the route can
+    // surface it as 422 instead of silently returning degraded fallback content.
+    let parseError: { code: AgentErrorCode; message: string; raw: string } | undefined;
+    if (!parsed.ok) {
+      parseError = { code: parsed.code, message: parsed.message, raw: parsed.raw };
+    }
+
     // Merge ground-truth tool sources with model-reported sources.
     // Tool sources are prepended (they are factual); model sources follow and
     // are deduplicated so the model's entity/metric references are preserved
@@ -373,9 +391,9 @@ export async function chat(opts: {
           droppedChanges: pendingChanges.length - validChanges.length,
         }),
       );
-      return { ...parsed.data, sources: mergedSources, pendingChanges: validChanges };
+      return { ...parsed.data, sources: mergedSources, pendingChanges: validChanges, _parseError: parseError };
     }
-    return check.data;
+    return parseError ? { ...check.data, _parseError: parseError } : check.data;
   }
 
   // Exhausted iterations without a final text response.

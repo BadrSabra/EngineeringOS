@@ -15,7 +15,7 @@ export type { ProjectContext } from "./context-builder.js";
 export * from "./schemas/index.js";
 
 export { chat } from "./agents/chat-agent.js";
-export type { ChatMessage } from "./agents/chat-agent.js";
+export type { ChatMessage, ChatResult } from "./agents/chat-agent.js";
 
 export { executeTask } from "./agents/task-agent.js";
 export type { TaskAgentInput } from "./agents/task-agent.js";

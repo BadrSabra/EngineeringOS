@@ -91,4 +91,28 @@ describe("parseAgentResponse", () => {
       expect(() => parseAgentResponse(raw, schema, fallback)).not.toThrow();
     }
   });
+
+  // PR-E: raw string is preserved on failure so callers can surface it in 422 responses.
+  it("includes the original raw string in the failure result for EMPTY_MODEL_RESPONSE", () => {
+    const result = parseAgentResponse("", schema, fallback);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.raw).toBe("");
+  });
+
+  it("includes the original raw string in the failure result for MALFORMED_JSON", () => {
+    const raw = "{broken json";
+    const result = parseAgentResponse(raw, schema, fallback);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.raw).toBe(raw);
+  });
+
+  it("includes the original raw string in the failure result for SCHEMA_VALIDATION_FAILED", () => {
+    const raw = '{"foo":"bar"}'; // missing count
+    const result = parseAgentResponse(raw, schema, fallback);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.raw).toBe(raw);
+      expect(result.code).toBe("SCHEMA_VALIDATION_FAILED");
+    }
+  });
 });
