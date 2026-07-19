@@ -17,40 +17,40 @@ import { validateRootPath, verifyProjectRoot, EOS_GIT_TEMP_PREFIX } from "./path
 // ─── validateRootPath ─────────────────────────────────────────────────────────
 
 describe("validateRootPath — EOS_GIT_TEMP_PREFIX bypass (Rule 0)", () => {
-  it("allows /tmp/eos-git-<uuid> regardless of depth or environment", () => {
+  it("allows /tmp/eos-git-<uuid> regardless of depth or environment", async () => {
     const path = `${EOS_GIT_TEMP_PREFIX}550e8400-e29b-41d4-a716-446655440000`;
-    expect(validateRootPath(path)).toBeNull();
+    expect(await validateRootPath(path)).toBeNull();
   });
 
-  it("allows any path starting with the exact EOS_GIT_TEMP_PREFIX", () => {
-    expect(validateRootPath(`${EOS_GIT_TEMP_PREFIX}abc-def`)).toBeNull();
+  it("allows any path starting with the exact EOS_GIT_TEMP_PREFIX", async () => {
+    expect(await validateRootPath(`${EOS_GIT_TEMP_PREFIX}abc-def`)).toBeNull();
   });
 
-  it("does NOT allow /tmp paths that don't start with the prefix", () => {
+  it("does NOT allow /tmp paths that don't start with the prefix", async () => {
     // /tmp/malicious has only 1 segment so fails Rule 1 (depth)
-    const result = validateRootPath("/tmp/malicious");
+    const result = await validateRootPath("/tmp/malicious");
     expect(result).not.toBeNull();
   });
 });
 
 describe("validateRootPath — Rule 1: minimum depth", () => {
-  it("rejects a single-segment path (/tmp)", () => {
-    const result = validateRootPath("/tmp");
+  it("rejects a single-segment path (/tmp)", async () => {
+    const result = await validateRootPath("/tmp");
     expect(result).not.toBeNull();
     expect(result).toMatch(/too shallow/i);
   });
 
-  it("rejects a two-segment path (/home/runner)", () => {
-    const result = validateRootPath("/home/runner");
+  it("rejects a two-segment path (/home/runner)", async () => {
+    const result = await validateRootPath("/home/runner");
     expect(result).not.toBeNull();
     expect(result).toMatch(/too shallow/i);
   });
 
-  it("allows a three-segment path outside Replit env", () => {
+  it("allows a three-segment path outside Replit env", async () => {
     const saved = process.env.REPLIT_DEV_DOMAIN;
     delete process.env.REPLIT_DEV_DOMAIN;
     try {
-      expect(validateRootPath("/home/user/project")).toBeNull();
+      expect(await validateRootPath("/home/user/project")).toBeNull();
     } finally {
       if (saved !== undefined) process.env.REPLIT_DEV_DOMAIN = saved;
     }
@@ -58,7 +58,7 @@ describe("validateRootPath — Rule 1: minimum depth", () => {
 });
 
 describe("validateRootPath — Rule 2: system prefix block list", () => {
-  it("rejects /usr/local/bin (exact system prefix) — wait, /usr has < 3 segs", () => {
+  it("does not block /usr/local/bin by Rule 2 (only exact matches are blocked)", async () => {
     // /usr/local/bin has 3 segments but starts with /usr which is in the block list
     // as an exact-match only — /usr/local/bin is NOT an exact match of /usr, so
     // Rule 2 won't fire. Only Rule 3 (Replit env) would catch it outside of workspace.
@@ -66,7 +66,7 @@ describe("validateRootPath — Rule 2: system prefix block list", () => {
     const saved = process.env.REPLIT_DEV_DOMAIN;
     delete process.env.REPLIT_DEV_DOMAIN;
     try {
-      const result = validateRootPath("/usr/local/bin");
+      const result = await validateRootPath("/usr/local/bin");
       // Rule 2 only blocks exact matches — /usr/local/bin is not in the set
       // (we're checking that behaviour is as documented)
       expect(result).toBeNull();
@@ -91,25 +91,103 @@ describe("validateRootPath — Rule 3: Replit workspace constraint", () => {
     }
   });
 
-  it("rejects a path outside /home/runner/workspace in Replit env", () => {
-    const result = validateRootPath("/var/app/project");
+  it("rejects a path outside /home/runner/workspace in Replit env", async () => {
+    const result = await validateRootPath("/var/app/project");
     expect(result).not.toBeNull();
     expect(result).toMatch(/home\/runner\/workspace/i);
   });
 
-  it("allows /home/runner/workspace/my-project in Replit env", () => {
-    expect(validateRootPath("/home/runner/workspace/my-project")).toBeNull();
+  it("allows /home/runner/workspace/my-project in Replit env", async () => {
+    expect(await validateRootPath("/home/runner/workspace/my-project")).toBeNull();
   });
 
-  it("allows /tmp/eos-git-<uuid> even in Replit env (Rule 0 fires first)", () => {
+  it("allows /tmp/eos-git-<uuid> even in Replit env (Rule 0 fires first)", async () => {
     const path = `${EOS_GIT_TEMP_PREFIX}test-uuid-1234`;
-    expect(validateRootPath(path)).toBeNull();
+    expect(await validateRootPath(path)).toBeNull();
   });
 
-  it("rejects /tmp/not-an-eos-git-path/with/depth in Replit env (Rule 3)", () => {
-    const result = validateRootPath("/tmp/not-eos/nested/path");
+  it("rejects /tmp/not-an-eos-git-path/with/depth in Replit env (Rule 3)", async () => {
+    const result = await validateRootPath("/tmp/not-eos/nested/path");
     expect(result).not.toBeNull();
     expect(result).toMatch(/home\/runner\/workspace/i);
+  });
+});
+
+// ─── validateRootPath — Rule 4: symlink escape prevention ─────────────────────
+
+describe("validateRootPath — Rule 4: symlink resolution", () => {
+  let workDir: string;
+  const originalEnv = process.env.REPLIT_DEV_DOMAIN;
+
+  beforeEach(async () => {
+    // Create a real temp dir inside /tmp so the base dir itself is safe.
+    // Tests create symlinks inside this dir that point elsewhere.
+    workDir = await mkdtemp(join(tmpdir(), "eos-symlink-test-"));
+    process.env.REPLIT_DEV_DOMAIN = "test.replit.dev";
+  });
+
+  afterEach(async () => {
+    if (workDir) await rm(workDir, { recursive: true, force: true });
+    if (originalEnv === undefined) {
+      delete process.env.REPLIT_DEV_DOMAIN;
+    } else {
+      process.env.REPLIT_DEV_DOMAIN = originalEnv;
+    }
+  });
+
+  it("rejects a symlink inside /home/runner/workspace that points outside the workspace boundary", async () => {
+    // Simulate a workspace symlink by creating a symlink inside a workspace-like dir.
+    // We can't create /home/runner/workspace/evil here, so we test the underlying
+    // mechanism: a path that resolves (via realpath) to a blocked destination.
+    // Create a temp workspace tree: /tmp/eos-symlink-test-<id>/workspace/project/
+    //                               /tmp/eos-symlink-test-<id>/workspace/evil-link -> /etc
+    const workspace = join(workDir, "workspace");
+    await mkdir(workspace, { recursive: true });
+    const { symlink } = await import("node:fs/promises");
+    const linkPath = join(workspace, "evil-link");
+    // /etc exists on the system — point the symlink at it
+    try {
+      await symlink("/etc", linkPath);
+    } catch {
+      // If symlink creation fails (permissions), skip the test body
+      return;
+    }
+
+    // Temporarily override REPLIT_DEV_DOMAIN env check target so our test workspace passes.
+    // We patch validateRootPath's env check by unsetting the env — this lets us test
+    // the raw realpath mechanism without workspace-prefix gating.
+    delete process.env.REPLIT_DEV_DOMAIN;
+
+    // The link itself has 3 segments from workDir's perspective, passes depth rule,
+    // passes exact-match block list (not a member). Without realpath resolution it
+    // would return null (valid). WITH realpath it resolves to /etc which has only
+    // 1 segment → Rule 1 fires.
+    const result = await validateRootPath(linkPath);
+    // /etc resolves to 1 segment — too shallow OR is in the block list.
+    expect(result).not.toBeNull();
+  });
+
+  it("allows a symlink pointing to a valid project directory", async () => {
+    // Create a real target dir with 3 path segments.
+    const realTarget = join(workDir, "real-project");
+    await mkdir(realTarget, { recursive: true });
+    const { symlink } = await import("node:fs/promises");
+    const linkDir = join(workDir, "links");
+    await mkdir(linkDir, { recursive: true });
+    const linkPath = join(linkDir, "my-project");
+    try {
+      await symlink(realTarget, linkPath);
+    } catch {
+      return; // symlink not supported — skip
+    }
+
+    // Unset Replit env so Rule 3 doesn't interfere with the /tmp paths.
+    delete process.env.REPLIT_DEV_DOMAIN;
+
+    // realTarget resolves inside workDir which has > 3 segments (/tmp/eos-symlink-test-*/real-project)
+    // so it should pass all rules.
+    const result = await validateRootPath(linkPath);
+    expect(result).toBeNull();
   });
 });
 

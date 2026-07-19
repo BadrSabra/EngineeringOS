@@ -22,6 +22,16 @@ import { db } from "@workspace/db";
 import { projectsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
+/**
+ * Redacts any embedded `user:password@` credentials from a URL string.
+ * Used to sanitize error messages before they are returned to clients or
+ * written to logs — git clone errors include the full command, which may
+ * contain a token-injected clone URL in plain text.
+ */
+function redactUrlCredentials(text: string): string {
+  return text.replace(/https?:\/\/[^@\s"']+@/g, "https://[credentials-redacted]@");
+}
+
 const execFileAsync = promisify(execFile);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -122,6 +132,20 @@ const gitRepositoryAdapter: SupportedAdapter = {
     if (!config.url) {
       return { error: "sourceConfig.url is required for GIT_REPOSITORY", status: 400, reason: "invalid_source" };
     }
+
+    // Scheme whitelist — only HTTPS (and HTTP for local/internal registries).
+    // Reject file://, ssh://, git://, and bare SCP-syntax (git@host:path)
+    // paths which could be used to clone local filesystem paths or bypass
+    // the expected authentication model.
+    const url = config.url.trim();
+    if (!url.startsWith("https://") && !url.startsWith("http://")) {
+      return {
+        error: "Only HTTPS (and HTTP) repository URLs are supported. SSH and file:// URLs are not permitted.",
+        status: 400,
+        reason: "invalid_source",
+      };
+    }
+
     return null;
   },
 
@@ -140,8 +164,17 @@ const gitRepositoryAdapter: SupportedAdapter = {
         parsed.username = config.credentials.username ?? "oauth2";
         parsed.password = config.credentials.token;
         cloneUrl = parsed.toString();
-      } catch {
-        // URL parse failed — use as-is and let git surface the error.
+      } catch (parseErr) {
+        // URL parse failed — log a warning so operators can diagnose mis-configured
+        // credentials, then fall through to the raw URL and let git surface the error.
+        console.warn(
+          JSON.stringify({
+            scope: "git-adapter",
+            code: "URL_PARSE_FAILED",
+            error: parseErr instanceof Error ? parseErr.message : String(parseErr),
+            hint: "Credential injection skipped; clone will proceed without authentication.",
+          }),
+        );
       }
     }
     cloneArgs.push(cloneUrl, tempDir);
@@ -160,13 +193,13 @@ const gitRepositoryAdapter: SupportedAdapter = {
     } catch (err) {
       // Clean up the partial clone before returning the error — same fn.
       void doCleanup();
-      const msg = err instanceof Error ? err.message : String(err);
+      // Redact any embedded credentials before surfacing the message.
+      // execFileAsync includes the full command in err.message on failure,
+      // which may contain the token-injected clone URL in plain text.
+      const raw = err instanceof Error ? err.message : String(err);
+      const msg = redactUrlCredentials(raw);
       return { error: `Git clone failed: ${msg}`, status: 422, reason: "resolution_failed" };
     }
-  },
-
-  async cleanup(tempDir) {
-    await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
   },
 };
 

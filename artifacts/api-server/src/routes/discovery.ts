@@ -569,8 +569,8 @@ router.post("/projects/discover", async (req, res) => {
   const normalizedPath = resolved.rootPath;
 
   // Validate rootPath before doing anything — reject dangerous system paths
-  // synchronously so we never enqueue a job that could OOM the process.
-  const pathError = validateRootPath(normalizedPath);
+  // and symlink escapes before enqueueing a job that could OOM the process.
+  const pathError = await validateRootPath(normalizedPath);
   if (pathError) {
     // Clean up any temp resources (e.g. a git clone dir) created during resolution.
     cleanupResolveResult(resolved).catch(() => undefined);
@@ -580,6 +580,11 @@ router.post("/projects/discover", async (req, res) => {
   // For GIT_REPOSITORY clones (and any source that produces a temp dir), verify
   // the directory contains a recognisable project root before enqueuing a scan.
   // This gives a fast, actionable 422 instead of a scan job that discovers nothing.
+  //
+  // LOCAL_FOLDER intentionally skips this check: the user is providing a path
+  // on the server they are assumed to control, and they may be scanning a project
+  // with an unconventional structure. validateRootPath() (above) is the appropriate
+  // safety boundary for those paths.
   if (resolved.tempDir) {
     const rootError = await verifyProjectRoot(normalizedPath);
     if (rootError) {

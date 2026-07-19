@@ -134,8 +134,12 @@ describe("GIT_REPOSITORY adapter — validate", () => {
   const adapter = ADAPTERS["GIT_REPOSITORY"];
   if (!adapter.available) throw new Error("GIT_REPOSITORY must be available");
 
-  it("returns null (valid) when url is provided", () => {
+  it("returns null (valid) when url is provided with https://", () => {
     expect(adapter.validate({ url: "https://github.com/owner/repo" })).toBeNull();
+  });
+
+  it("returns null (valid) for http:// URLs (local/internal registries)", () => {
+    expect(adapter.validate({ url: "http://internal.corp/repo.git" })).toBeNull();
   });
 
   it("returns an error when url is missing", () => {
@@ -143,6 +147,75 @@ describe("GIT_REPOSITORY adapter — validate", () => {
     expect(err).not.toBeNull();
     expect(err!.status).toBe(400);
     expect(err!.error).toMatch(/url is required/i);
+  });
+
+  // PR-04: URL scheme whitelist
+  it("rejects ssh:// URLs (scheme not allowed)", () => {
+    const err = adapter.validate({ url: "ssh://git@github.com/owner/repo.git" });
+    expect(err).not.toBeNull();
+    expect(err!.status).toBe(400);
+    expect(err!.reason).toBe("invalid_source");
+    expect(err!.error).toMatch(/only https/i);
+  });
+
+  it("rejects SCP-syntax git@host URLs (bare SSH, no https scheme)", () => {
+    const err = adapter.validate({ url: "git@github.com:owner/repo.git" });
+    expect(err).not.toBeNull();
+    expect(err!.status).toBe(400);
+    expect(err!.reason).toBe("invalid_source");
+  });
+
+  it("rejects file:// URLs (could clone local filesystem paths)", () => {
+    const err = adapter.validate({ url: "file:///home/runner/workspace" });
+    expect(err).not.toBeNull();
+    expect(err!.status).toBe(400);
+    expect(err!.reason).toBe("invalid_source");
+    expect(err!.error).toMatch(/only https/i);
+  });
+
+  it("rejects git:// URLs", () => {
+    const err = adapter.validate({ url: "git://github.com/owner/repo.git" });
+    expect(err).not.toBeNull();
+    expect(err!.status).toBe(400);
+    expect(err!.reason).toBe("invalid_source");
+  });
+
+  it("rejects an empty url string", () => {
+    const err = adapter.validate({ url: "" });
+    expect(err).not.toBeNull();
+    expect(err!.status).toBe(400);
+    // An empty string doesn't start with https:// so hits the scheme check
+    // (or the presence check if we add a truthy guard first).
+  });
+});
+
+// PR-04: Credential redaction in git clone errors
+describe("GIT_REPOSITORY adapter — credential redaction", () => {
+  it("resolveSource returns 400 for GIT_REPOSITORY with a file:// URL before any clone attempt", async () => {
+    // The scheme check is in validate(), which runs before resolve(), so a
+    // file:// URL is rejected with 400 before git is ever invoked.
+    const result = await resolveSource(
+      "GIT_REPOSITORY",
+      { url: "file:///etc/passwd" },
+      "test-user",
+    );
+    expect(isResolveError(result)).toBe(true);
+    if (isResolveError(result)) {
+      expect(result.status).toBe(400);
+      expect(result.reason).toBe("invalid_source");
+    }
+  });
+
+  it("resolveSource returns 400 for GIT_REPOSITORY with an ssh:// URL", async () => {
+    const result = await resolveSource(
+      "GIT_REPOSITORY",
+      { url: "ssh://git@github.com/owner/repo.git" },
+      "test-user",
+    );
+    expect(isResolveError(result)).toBe(true);
+    if (isResolveError(result)) {
+      expect(result.status).toBe(400);
+    }
   });
 });
 

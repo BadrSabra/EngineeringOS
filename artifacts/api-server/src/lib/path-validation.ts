@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { stat, realpath } from "node:fs/promises";
 
 /**
  * System-level paths that must never be scanned — they contain the entire
@@ -43,8 +43,14 @@ export const EOS_GIT_TEMP_PREFIX = "/tmp/eos-git-";
  *  2. Must not be an exact match of a known system prefix.
  *  3. In Replit environments (REPLIT_DEV_DOMAIN set), must be under
  *     /home/runner/workspace so we never scan the host OS.
+ *  4. Symlink escape check: for user-provided paths (non-temp-dir), resolve
+ *     all symlinks with realpath() and re-run Rules 1-3 on the resolved path.
+ *     This prevents a symlink at /home/runner/workspace/evil-link → /etc from
+ *     bypassing the path-boundary checks. If realpath() fails (path does not
+ *     exist yet), the string-only rules still apply and the downstream stat()
+ *     in runDiscovery will surface a clear ENOENT error.
  */
-export function validateRootPath(rootPath: string): string | null {
+export async function validateRootPath(rootPath: string): Promise<string | null> {
   // Auto-prepend "/" so "home/runner/..." is treated the same as "/home/runner/..."
   const withSlash = rootPath.startsWith("/") ? rootPath : `/${rootPath}`;
   const normalized = withSlash.replace(/\/+$/, "") || "/";
@@ -57,19 +63,39 @@ export function validateRootPath(rootPath: string): string | null {
     return null;
   }
 
+  // Rule 4 — resolve symlinks before running string-based boundary checks.
+  // This must happen before Rules 1-3 so that a symlink pointing outside the
+  // allowed zone is caught even if the *lexical* path looks valid.
+  let resolved = normalized;
+  try {
+    resolved = await realpath(normalized);
+  } catch {
+    // Path does not exist (or is not accessible) — leave `resolved` as the
+    // lexical path. The downstream stat() in runDiscovery will surface ENOENT.
+  }
+
+  // If the resolved path is a managed temp dir (unusual but theoretically
+  // possible if a symlink points at one), allow it unconditionally.
+  if (resolved.startsWith(EOS_GIT_TEMP_PREFIX)) {
+    return null;
+  }
+
+  // Run Rules 1-3 on the RESOLVED path, not the raw input.
+
   // Rule 1 — minimum depth
-  const segments = normalized.split("/").filter(Boolean);
+  const segments = resolved.split("/").filter(Boolean);
   if (segments.length < 3) {
     return (
-      `Path "${normalized}" is too shallow (${segments.length} segment(s)). ` +
+      `Path "${normalized}" resolves to "${resolved}" which is too shallow ` +
+      `(${segments.length} segment(s)). ` +
       "Provide the full path to a specific project directory, e.g. /home/runner/workspace/my-project."
     );
   }
 
   // Rule 2 — system root block list (exact match only)
-  if (BLOCKED_PATH_PREFIXES.has(normalized)) {
+  if (BLOCKED_PATH_PREFIXES.has(resolved)) {
     return (
-      `Path "${normalized}" is a system directory and cannot be scanned. ` +
+      `Path "${normalized}" resolves to the system directory "${resolved}" and cannot be scanned. ` +
       "Provide the full path to a specific project directory."
     );
   }
@@ -77,10 +103,10 @@ export function validateRootPath(rootPath: string): string | null {
   // Rule 3 — Replit environment: must be under /home/runner/workspace
   if (process.env.REPLIT_DEV_DOMAIN) {
     const WORKSPACE = "/home/runner/workspace";
-    if (!normalized.startsWith(WORKSPACE)) {
+    if (!resolved.startsWith(WORKSPACE)) {
       return (
         `In this environment, the project path must be under ${WORKSPACE}. ` +
-        `Received: "${normalized}".`
+        `"${normalized}" resolves to "${resolved}".`
       );
     }
   }
