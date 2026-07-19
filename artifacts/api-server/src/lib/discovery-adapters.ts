@@ -242,21 +242,33 @@ const workspaceProjectAdapter: SupportedAdapter = {
   },
 };
 
-// ─── Coming-soon stubs ────────────────────────────────────────────────────────
+// ─── Unsupported adapters ──────────────────────────────────────────────────────
+// These source types are known but not implemented in this deployment.
+// resolveSource returns { status: 501, reason: "unsupported_source" } for them;
+// the route maps that to an HTTP 501 — no JS exception escapes to the generic
+// error handler.
 
 const archiveUploadAdapter: UnsupportedAdapter = {
   available: false,
-  reason: "coming soon — requires a file-upload step before scanning",
+  reason:
+    "Archive upload requires server-side file-upload handling that is not " +
+    "available in this deployment. To scan code from a zip or tarball, push " +
+    "it to a Git repository and use the GIT_REPOSITORY source type instead.",
 };
 
 const remoteFilesystemAdapter: UnsupportedAdapter = {
   available: false,
-  reason: "coming soon",
+  reason:
+    "Remote filesystem mounting via SSH/SFTP requires server-side file " +
+    "access that is not supported in this deployment.",
 };
 
 const dockerVolumeAdapter: UnsupportedAdapter = {
   available: false,
-  reason: "coming soon",
+  reason:
+    "Docker volume access requires a local Docker daemon, which is not " +
+    "available in this deployment. To scan a container's source code, clone " +
+    "its repository via GIT_REPOSITORY instead.",
 };
 
 // ─── Registry ─────────────────────────────────────────────────────────────────

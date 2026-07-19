@@ -524,7 +524,8 @@ const SOURCE_CAPABILITIES = [
     available: false,
     icon: "package",
     requiredConfig: ["uploadId"],
-    notes: "Coming soon — requires a file upload step first",
+    notes: "Not supported in this deployment — requires server-side file-upload handling. Use GIT_REPOSITORY to scan remote code.",
+    hint: "Push your code to a Git repository and use the Git Repository source type instead.",
   },
   {
     sourceType: "REMOTE_FILESYSTEM",
@@ -533,7 +534,8 @@ const SOURCE_CAPABILITIES = [
     available: false,
     icon: "cloud",
     requiredConfig: [],
-    notes: "Coming soon",
+    notes: "Not supported in this deployment — requires server-side SSH/SFTP file access.",
+    hint: "Clone the remote repository via Git and use the Git Repository source type instead.",
   },
   {
     sourceType: "DOCKER_VOLUME",
@@ -542,7 +544,8 @@ const SOURCE_CAPABILITIES = [
     available: false,
     icon: "container",
     requiredConfig: [],
-    notes: "Coming soon",
+    notes: "Not supported in this deployment — requires a local Docker daemon.",
+    hint: "Clone the container's source repository via Git and use the Git Repository source type instead.",
   },
 ] as const;
 

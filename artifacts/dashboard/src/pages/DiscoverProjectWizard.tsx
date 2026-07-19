@@ -107,6 +107,8 @@ interface SourceDef {
   icon: React.ElementType;
   available: boolean;
   badge?: string;
+  /** Human-readable explanation shown on disabled cards so the user knows *why* the option is unavailable. */
+  disabledReason?: string;
 }
 
 const SOURCE_DEFS: SourceDef[] = [
@@ -137,7 +139,8 @@ const SOURCE_DEFS: SourceDef[] = [
     description: 'Upload and scan a .zip file',
     icon: Package,
     available: false,
-    badge: 'Soon',
+    badge: 'Unavailable',
+    disabledReason: 'Requires server-side file-upload handling — not supported in this deployment. Use Git Repository instead.',
   },
   {
     type: 'REMOTE_FILESYSTEM',
@@ -145,7 +148,8 @@ const SOURCE_DEFS: SourceDef[] = [
     description: 'Mount and scan a remote path',
     icon: Cloud,
     available: false,
-    badge: 'Soon',
+    badge: 'Unavailable',
+    disabledReason: 'Requires server-side SSH/SFTP file access — not supported in this deployment.',
   },
   {
     type: 'DOCKER_VOLUME',
@@ -153,7 +157,8 @@ const SOURCE_DEFS: SourceDef[] = [
     description: 'Scan a Docker container volume',
     icon: Box,
     available: false,
-    badge: 'Soon',
+    badge: 'Unavailable',
+    disabledReason: 'Requires a local Docker daemon — not supported in this deployment. Use Git Repository instead.',
   },
 ];
 
@@ -186,6 +191,7 @@ function severityBadge(sev: string): string {
 
 const REASON_HINTS: Record<string, string> = {
   invalid_source: 'The source configuration is invalid. Check your path or URL.',
+  unsupported_source: 'This source type is not supported in this deployment. Use Local Folder or Git Repository instead.',
   no_project_root: 'No recognizable project root was found at the given location.',
   resolution_failed: 'Discovery did not complete successfully. Try starting over.',
   not_found: 'The discovery session could not be found.',
@@ -465,6 +471,12 @@ export function DiscoverProjectWizard({ onClose }: Props) {
               <div className="min-w-0">
                 <div className={`text-sm font-semibold ${selected ? 'text-foreground' : 'text-foreground/80'}`}>{src.label}</div>
                 <div className="text-xs text-muted-foreground mt-0.5 leading-snug">{src.description}</div>
+                {!src.available && src.disabledReason && (
+                  <div className="text-[10px] text-amber-400/70 mt-1.5 leading-snug flex items-start gap-1">
+                    <AlertTriangle className="w-2.5 h-2.5 shrink-0 mt-px" />
+                    <span>{src.disabledReason}</span>
+                  </div>
+                )}
               </div>
               {src.badge && (
                 <span className="absolute top-2 right-2 text-[9px] font-bold bg-secondary text-muted-foreground/60 border border-border/50 px-1.5 py-0.5 rounded-full">{src.badge}</span>
@@ -536,7 +548,7 @@ export function DiscoverProjectWizard({ onClose }: Props) {
                   autoFocus
                   value={localPath}
                   onChange={(e) => setLocalPath(e.target.value)}
-                  placeholder="/home/runner/workspace/my-project"
+                  placeholder="/path/to/your/project"
                   className="w-full bg-secondary border border-border rounded-lg pl-10 pr-4 py-2.5 text-sm font-mono focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 transition-colors"
                 />
               </div>
