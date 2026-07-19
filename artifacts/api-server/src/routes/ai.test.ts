@@ -398,6 +398,29 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
     const ev = events.find((e) => e.type === "AiScanAnalysisCompleted");
     expect(ev).toBeDefined();
   });
+
+  // PR-E: parse failure surfaced as 422 instead of silent degraded 200.
+  it("returns 422 with model_output_invalid when analyzeScan returns _parseError", async () => {
+    const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockAnalyzeScan).mockResolvedValueOnce({
+      summary: "fallback",
+      overallAssessment: "fallback",
+      insights: [],
+      topPriority: "fallback",
+      estimatedImpact: "fallback",
+      _parseError: { code: "MALFORMED_JSON", message: "JSON parse error", raw: "not json" },
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app).post(`/api/ai/projects/${projectId}/analyze`);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("model_output_invalid");
+    expect(res.body.code).toBe("model_output_invalid");
+    expect(res.body.parseCode).toBe("MALFORMED_JSON");
+    expect(typeof res.body.hint).toBe("string");
+  });
 });
 
 // ─── POST /api/ai/projects/:projectId/review ──────────────────────────────────
@@ -428,6 +451,31 @@ describe("POST /api/ai/projects/:projectId/review", () => {
     const ev = events.find((e) => e.type === "AiCodeReviewCompleted");
     expect(ev).toBeDefined();
     expect(ev?.severity).toBe("success"); // verdict === "approved"
+  });
+
+  // PR-E: parse failure surfaced as 422 instead of silent degraded 200.
+  it("returns 422 with model_output_invalid when reviewCode returns _parseError", async () => {
+    const { reviewCode: mockReviewCode } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockReviewCode).mockResolvedValueOnce({
+      summary: "fallback",
+      overallScore: 70,
+      strengths: [],
+      issues: [],
+      refactoringOpportunities: [],
+      securityConcerns: [],
+      verdict: "needs_changes",
+      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "missing field", raw: "bad output" },
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app).post(`/api/ai/projects/${projectId}/review`).send({});
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("model_output_invalid");
+    expect(res.body.code).toBe("model_output_invalid");
+    expect(res.body.parseCode).toBe("SCHEMA_VALIDATION_FAILED");
+    expect(typeof res.body.hint).toBe("string");
   });
 });
 
@@ -470,6 +518,28 @@ describe("POST /api/ai/workflows/:workflowId/orchestrate", () => {
       .where(eq(eventsTable.projectId, projectId));
     const ev = events.find((e) => e.type === "AiWorkflowOrchestration");
     expect(ev).toBeDefined();
+  });
+
+  // PR-E: parse failure surfaced as 422 instead of a silent degraded "wait" 200.
+  it("returns 422 with model_output_invalid when orchestrateWorkflow returns _parseError", async () => {
+    const { orchestrateWorkflow: mockOrchestrate } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockOrchestrate).mockResolvedValueOnce({
+      action: "wait",
+      reasoning: "fallback — model output could not be parsed",
+      _parseError: { code: "EMPTY_MODEL_RESPONSE", message: "Model returned an empty response", raw: "" },
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const workflowId = await insertWorkflow(projectId);
+    workflowIds.push(workflowId);
+
+    const res = await request(app).post(`/api/ai/workflows/${workflowId}/orchestrate`).send({});
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("model_output_invalid");
+    expect(res.body.code).toBe("model_output_invalid");
+    expect(res.body.parseCode).toBe("EMPTY_MODEL_RESPONSE");
+    expect(typeof res.body.hint).toBe("string");
   });
 });
 
@@ -647,6 +717,43 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       .where(eq(auditLogsTable.entityId, taskId));
     const auditEntry = audits.find((a) => a.action === "ai_executed");
     expect(auditEntry).toBeDefined();
+  });
+
+  // PR-E: parse failure surfaced as 422; task claim rolled back so it's not stuck in "running".
+  it("returns 422 with model_output_invalid when executeTask returns _parseError, and rolls back task status", async () => {
+    const { executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockExecuteTask).mockResolvedValueOnce({
+      summary: "fallback",
+      result: "fallback",
+      confidence: "low",
+      steps: [],
+      needsHumanReview: true,
+      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "required field missing", raw: "{ bad json }" },
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "pending");
+
+    const res = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe("model_output_invalid");
+    expect(res.body.code).toBe("model_output_invalid");
+    expect(res.body.parseCode).toBe("SCHEMA_VALIDATION_FAILED");
+    expect(typeof res.body.hint).toBe("string");
+
+    // Task must be rolled back to its original status — not stuck in "running".
+    const [task] = await db
+      .select()
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId))
+      .limit(1);
+    expect(task?.status).toBe("pending");
+
+    // A taskLog entry must record the parse failure.
+    const logs = await db.select().from(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+    const errLog = logs.find((l) => l.level === "error");
+    expect(errLog).toBeDefined();
   });
 
   it("returns 428 and leaves task in original status when no Groq API key is configured", async () => {

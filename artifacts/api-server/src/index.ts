@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { getPort } from "./config";
 import { reconcileStuckJobs } from "./lib/job-reconciliation";
 import { fixDeadRootPaths } from "./lib/startup-migrations";
+import { heavyJobQueue } from "./lib/job-queue";
 
 const port = getPort();
 
@@ -21,5 +22,12 @@ app.listen(port, (err) => {
     process.exit(1);
   }
 
-  logger.info({ port }, "Server listening");
+  // PR-H (H-1): log queue stats on startup so operators can confirm the queue
+  // is empty (running=0, queued=0) at a clean boot vs. after a crash-restart
+  // where reconciliation may have re-enqueued pending jobs.
+  // ⚠️  Durability caveat: this queue is process-local. Jobs in flight at the
+  // time of a crash/restart are lost; reconciliation marks their DB rows as
+  // `failed` so callers can detect and re-submit them.
+  const queueStats = heavyJobQueue.getStats();
+  logger.info({ port, jobQueue: queueStats }, "Server listening");
 });

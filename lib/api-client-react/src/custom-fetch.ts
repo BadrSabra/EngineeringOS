@@ -360,6 +360,12 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
+  // Request cancellation: AbortController signals can be passed via `options.signal`
+  // (CustomFetchOptions extends RequestInit, so the field is forwarded through `...init`
+  // to the underlying fetch call). No additional AbortController lifecycle management
+  // is performed here — callers are responsible for creating and aborting their own
+  // controllers. Note: some React Native fetch polyfills ignore `signal` entirely;
+  // in those environments, request cancellation is effectively not implemented.
   const response = await fetch(input, { ...init, method, headers });
 
   if (!response.ok) {

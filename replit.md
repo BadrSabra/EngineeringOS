@@ -124,6 +124,7 @@ The discovery pipeline supports 6 source types via a **SourceAdapter** pattern i
 
 ## Pointers
 
+- See **`docs/architecture.md`** for the authoritative layer map, package dependency graph, trust boundaries, key execution flows, and decision log
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
-- See `docs/fact-record.md` for the current file-by-file truth of what's built vs. aspirational
-- See `docs/completion-plan.md` for the phased plan taking the project from skeleton to complete platform
+- `docs/fact-record.md` — historical phase log (state at end of original 14-PR plan); not a current truth baseline
+- `docs/completion-plan.md` — historical sequencing log; not a current truth baseline

@@ -41,6 +41,24 @@ export class JobQueue {
   }
 
   /**
+   * PR-H (H-1): Snapshot of current queue state.
+   *
+   * ⚠️  Durability caveat: this queue is in-process only. Any jobs in the
+   * `running` or `queued` slots are **lost if the process restarts** (crash,
+   * deploy, SIGKILL). The job-reconciliation module at startup marks stale
+   * DB rows as `failed` so the state is consistent, but the work itself must
+   * be re-submitted by the caller. A future H-2 migration to pg-boss would
+   * make jobs durable across restarts.
+   */
+  getStats(): { running: number; queued: number; concurrency: number } {
+    return {
+      running: this.running,
+      queued: this.pending.length,
+      concurrency: this.concurrency,
+    };
+  }
+
+  /**
    * Enqueue a job. Resolves immediately (fire-and-forget semantics) —
    * this is intentionally not awaited by callers, matching the existing
    * pattern where the HTTP response doesn't wait on job completion. Each

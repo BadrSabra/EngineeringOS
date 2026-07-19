@@ -32,3 +32,4 @@
 - [PR-C AI auto-trigger](pr-c-ai-autotrigger.md) — scheduleAiTaskExecution was already in ai.ts; PR-C was wiring only (import + 2 call sites in tasks.ts); vi.mock importOriginal pattern for integration test spy.
 - [PR-D Workflow conditions](pr-d-workflow-conditions.md) — condition eval in /advance: Function() with safe context {qualityScore,currentPhase,completedPhases}; 409/400 shapes; audit enum extended; heavyJobQueue import fix.
 - [PR-01 Job Durability](pr01-job-durability.md) — pending status + discovery-runner extraction + reconciliation split (queued→re-enqueue, running→fail, pending→re-enqueue, discovering→fail).
+- [PR-H and PR-I completion](pr-h-i-completion.md) — H-1 observability (getStats/healthz/startup log); SSE chat stream endpoint + useAiChatStream hook; TS7030 SSE handler gotcha.

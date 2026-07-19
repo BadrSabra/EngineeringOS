@@ -10,13 +10,14 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import {
-  ApiError,
   useListProjects,
   getListProjectsQueryKey,
   classifyProjectError,
   isRetryableProjectError,
   emitProjectLoadFailed,
+  useAiChatStream,
 } from '@workspace/api-client-react';
+import type { AiStreamErrorEvent } from '@workspace/api-client-react';
 
 type Project = { id: string; name: string; language: string };
 type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string; sources?: string; createdAt: string };
@@ -404,8 +405,10 @@ export default function AiChat() {
   const [input, setInput] = useState('');
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
+  // PR-I: agentStage is now driven by real SSE stage events from the server
+  // rather than a client-side timer that rotated through fake labels.
   const [agentStage, setAgentStage] = useState<string | null>(null);
-  const agentStageTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { send: streamSend, isPending: isSending } = useAiChatStream();
 
   // G-06 fix: pending changes are stored with a timestamp so stale entries
   // (from a crashed/closed tab after the server wrote the files but before
@@ -506,67 +509,30 @@ export default function AiChat() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [localMessages]);
 
-  // إصلاح #2: مؤشر المراحل — يُظهر للمستخدم ما يفعله الوكيل أثناء الانتظار
-  // بدلاً من رسالة ثابتة "Reading code…" طوال 20-50 ثانية.
-  const AGENT_STAGES = [
-    'Thinking…',
-    'Reading project context…',
-    'Searching code…',
-    'Analyzing patterns…',
-    'Synthesizing answer…',
-  ];
+  /** Map server-side stage identifiers to user-facing labels. */
+  const STAGE_LABELS: Record<string, string> = {
+    'building-context': 'Building context…',
+    'calling-model':    'Calling AI model…',
+  };
 
-  function startAgentStages() {
-    let idx = 0;
-    setAgentStage(AGENT_STAGES[0]);
-    agentStageTimerRef.current = setInterval(() => {
-      idx = Math.min(idx + 1, AGENT_STAGES.length - 1);
-      setAgentStage(AGENT_STAGES[idx]);
-    }, 8_000);
+  /** Translate an AiStreamErrorEvent to a user-facing error description. */
+  function describeStreamError(err: AiStreamErrorEvent): string {
+    // Reuse describeAiError by constructing a temporary AiApiError from
+    // the SSE error event's code → HTTP status mapping.
+    const statusForCode: Record<string, number> = {
+      RATE_LIMITED: 429,
+      model_output_invalid: 422,
+      AUTH_ERROR: 401,
+      request_failed: 400,
+    };
+    const tmpErr = new AiApiError(
+      statusForCode[err.code] ?? 502,
+      err.message,
+      err.hint,
+      err.code,
+    );
+    return describeAiError(tmpErr);
   }
-
-  function stopAgentStages() {
-    if (agentStageTimerRef.current) {
-      clearInterval(agentStageTimerRef.current);
-      agentStageTimerRef.current = null;
-    }
-    setAgentStage(null);
-  }
-
-  const sendMutation = useMutation({
-    mutationFn: (msg: string) =>
-      apiPost<{ sessionId: string; message: ChatMessage; sources: string[]; pendingChanges?: PendingChange[] }>(
-        '/api/ai/chat',
-        { projectId: selectedProjectId, message: msg, sessionId },
-      ),
-    onMutate: (msg) => {
-      const optimistic: ChatMessage = {
-        id: `opt-${Date.now()}`,
-        role: 'user',
-        content: msg,
-        createdAt: new Date().toISOString(),
-      };
-      setLocalMessages((prev) => [...prev, optimistic]);
-      startAgentStages();
-    },
-    onSuccess: (data) => {
-      stopAgentStages();
-      setSessionId(data.sessionId);
-      setLocalMessages((prev) => {
-        const withoutOpt = prev.filter((m) => !m.id.startsWith('opt-'));
-        return [...withoutOpt, data.message];
-      });
-      setPendingChanges(data.pendingChanges ?? []);
-      void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
-    },
-    onError: (err) => {
-      stopAgentStages();
-      setLocalMessages((prev) => prev.filter((m) => !m.id.startsWith('opt-')));
-      const description =
-        err instanceof ApiError ? (classifyProjectError(err)?.message ?? err.message) : describeAiError(err);
-      toast({ title: 'Failed to send message', description, variant: 'destructive' });
-    },
-  });
 
   const applyMutation = useMutation({
     mutationFn: (changes: PendingChange[]) =>
@@ -608,9 +574,42 @@ export default function AiChat() {
       toast({ title: 'No project selected', description: 'Select a project first to start chatting.', variant: 'destructive' });
       return;
     }
-    if (sendMutation.isPending) return;
+    if (isSending) return;
     setInput('');
-    sendMutation.mutate(msg);
+
+    // Optimistic user message shown immediately while the stream runs
+    const optimistic: ChatMessage = {
+      id: `opt-${Date.now()}`,
+      role: 'user',
+      content: msg,
+      createdAt: new Date().toISOString(),
+    };
+    setLocalMessages((prev) => [...prev, optimistic]);
+    setAgentStage('Connecting…');
+
+    void streamSend(
+      { projectId: selectedProjectId, message: msg, sessionId },
+      {
+        onStage: (stage) => {
+          setAgentStage(STAGE_LABELS[stage] ?? stage);
+        },
+        onDone: (data) => {
+          setAgentStage(null);
+          setSessionId(data.sessionId);
+          setLocalMessages((prev) => {
+            const withoutOpt = prev.filter((m) => !m.id.startsWith('opt-'));
+            return [...withoutOpt, data.message as ChatMessage];
+          });
+          setPendingChanges(data.pendingChanges ?? []);
+          void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+        },
+        onError: (err) => {
+          setAgentStage(null);
+          setLocalMessages((prev) => prev.filter((m) => !m.id.startsWith('opt-')));
+          toast({ title: 'Failed to send message', description: describeStreamError(err), variant: 'destructive' });
+        },
+      },
+    );
   }
 
   function handleQuickAction(prompt: string) {
@@ -752,7 +751,7 @@ export default function AiChat() {
               {messages.map((msg) => (
                 <MessageBubble key={msg.id} msg={msg} />
               ))}
-              {sendMutation.isPending && (
+              {isSending && (
                 <div className="flex gap-3 mb-4">
                   <div className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center shrink-0">
                     <Bot className="w-4 h-4 text-primary" />
@@ -786,19 +785,19 @@ export default function AiChat() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={applyMutation.isPending ? 'Applying changes… please wait' : getPlaceholder()}
+              placeholder={applyMutation.isPending ? 'Applying changes… please wait' : isSending ? 'Sending…' : getPlaceholder()}
               className="resize-none text-sm min-h-[44px] max-h-32 bg-secondary border-border"
               rows={1}
-              disabled={!isLoaded || projectsLoading || !selectedProjectId || applyMutation.isPending}
+              disabled={!isLoaded || projectsLoading || !selectedProjectId || applyMutation.isPending || isSending}
             />
             <Button
               size="icon"
               onClick={handleSend}
-              disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || sendMutation.isPending || applyMutation.isPending}
+              disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || isSending || applyMutation.isPending}
               className="shrink-0 h-11 w-11"
-              title={applyMutation.isPending ? 'Applying changes…' : getSendTitle()}
+              title={applyMutation.isPending ? 'Applying changes…' : isSending ? 'Sending…' : getSendTitle()}
             >
-              {sendMutation.isPending ? (
+              {isSending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Send className="w-4 h-4" />

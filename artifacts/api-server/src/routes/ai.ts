@@ -492,6 +492,214 @@ router.post("/ai/chat", async (req, res) => {
   });
 });
 
+// ── Chat (SSE streaming) ─────────────────────────────────────────────────────
+
+/**
+ * POST /api/ai/chat/stream — SSE-based AI chat (PR-I)
+ *
+ * Emits a sequence of Server-Sent Events over a `text/event-stream` response:
+ *   { type: "stage",  stage: "building-context" | "calling-model" }
+ *   { type: "done",   sessionId, message, sources, pendingChanges }
+ *   { type: "error",  code, message, hint?, raw?, parseCode? }
+ *
+ * The non-streaming `POST /api/ai/chat` endpoint remains available as a
+ * fallback for programmatic / non-browser clients.
+ */
+router.post("/ai/chat/stream", async (req, res) => {
+  const ChatBodySchema = z.object({
+    projectId: z.string({ required_error: "projectId is required" }).min(1, "projectId is required"),
+    message:   z.string({ required_error: "message is required" }).trim().min(1, "message is required").max(10_000, "message must be ≤ 10 000 characters"),
+    sessionId: z.string().uuid("sessionId must be a valid UUID").optional(),
+  });
+  const chatBody = ChatBodySchema.safeParse(req.body);
+  if (!chatBody.success) {
+    const issue = chatBody.error.issues[0];
+    const raw   = issue?.message ?? "Invalid request body";
+    const field = String(issue?.path[0] ?? "");
+    const error = raw === "Required" && field ? `${field} is required` : raw;
+    return res.status(400).json({ error });
+  }
+  const { projectId, message, sessionId } = chatBody.data;
+
+  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+  if (!project) return;
+
+  const rlChat = checkProjectRateLimit(projectId);
+  if (!rlChat.allowed) {
+    return res.status(429).json({
+      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlChat.retryAfterSec}s.`,
+    });
+  }
+
+  const apiKey = await requireGroqApiKey(req.userId, res);
+  if (apiKey === null) return;
+
+  // ── SSE setup ──────────────────────────────────────────────────────────────
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  // Disable nginx/proxy buffering so events are flushed immediately.
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  /** Send a single SSE data event. */
+  function sse(data: Record<string, unknown>): void {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  }
+
+  const now = new Date();
+
+  // Load or locate the existing session for history
+  let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
+  if (sessionId) {
+    const [found] = await db
+      .select()
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, sessionId))
+      .limit(1);
+    existingSession = found;
+  }
+
+  const historyRows = existingSession
+    ? await db
+        .select()
+        .from(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+        .orderBy(desc(aiChatMessagesTable.createdAt))
+        .limit(10)
+    : [];
+
+  // rootPath validation (same logic as /api/ai/chat)
+  const WORKSPACE_FALLBACK = process.env.WORKSPACE_PATH ?? "/home/runner/workspace";
+  let validRootPath: string | undefined;
+  if (project.rootPath) {
+    try {
+      await fs.access(project.rootPath);
+      validRootPath = project.rootPath;
+    } catch {
+      try {
+        await fs.access(WORKSPACE_FALLBACK);
+        validRootPath = WORKSPACE_FALLBACK;
+        await db.update(projectsTable).set({ rootPath: WORKSPACE_FALLBACK }).where(eq(projectsTable.id, projectId));
+      } catch { /* neither accessible — file tools disabled */ }
+    }
+  }
+
+  // ── Stage: building context ────────────────────────────────────────────────
+  sse({ type: "stage", stage: "building-context" });
+  const projectContext = await buildProjectContext(projectId);
+
+  // ── Stage: calling model ───────────────────────────────────────────────────
+  sse({ type: "stage", stage: "calling-model" });
+
+  let result: Awaited<ReturnType<typeof chat>>;
+  try {
+    result = await chat({
+      message,
+      history: historyRows
+        .reverse()
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+      projectContext,
+      rootPath: validRootPath,
+      apiKey,
+    });
+  } catch (err) {
+    if (err instanceof GroqClientError) {
+      const base = { type: "error", code: err.code };
+      switch (err.code) {
+        case "RATE_LIMITED":
+          sse({ ...base, message: "Groq rate limit reached — wait 30–60 seconds before retrying.", hint: err.message });
+          break;
+        case "AUTH_ERROR":
+          sse({ ...base, message: "Groq API key is invalid or unauthorized.", hint: "Delete your current key and save a valid one." });
+          break;
+        case "TIMEOUT":
+        case "NETWORK_ERROR":
+          sse({ ...base, message: "AI provider is temporarily unreachable — try again in a moment." });
+          break;
+        default:
+          sse({ ...base, message: "AI provider error.", hint: err.message });
+      }
+    } else {
+      sse({ type: "error", code: "unknown", message: err instanceof Error ? err.message : String(err) });
+    }
+    res.end();
+    return;
+  }
+
+  // PR-E: parse failure
+  if (result._parseError) {
+    sse({
+      type: "error",
+      code: "model_output_invalid",
+      message: "The AI model returned an unexpected response — try rephrasing your message.",
+      raw: result._parseError.raw.slice(0, 500),
+      parseCode: result._parseError.code,
+    });
+    res.end();
+    return;
+  }
+
+  // ── DB writes (identical to /api/ai/chat success path) ────────────────────
+  invalidateContextCache(projectId);
+
+  const msgNow = new Date();
+  let session: typeof aiChatSessionsTable.$inferSelect;
+  if (existingSession) {
+    session = existingSession;
+  } else {
+    const [created] = await db
+      .insert(aiChatSessionsTable)
+      .values({
+        id: randomUUID(),
+        projectId,
+        title: message.slice(0, 60),
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    session = created;
+  }
+
+  const [, [assistantMsg]] = await Promise.all([
+    db.insert(aiChatMessagesTable).values({
+      id: randomUUID(),
+      sessionId: session.id,
+      role: "user",
+      content: message,
+      createdAt: now,
+    }),
+    db
+      .insert(aiChatMessagesTable)
+      .values({
+        id: randomUUID(),
+        sessionId: session.id,
+        role: "assistant",
+        content: result.response,
+        sources: JSON.stringify(result.sources),
+        createdAt: msgNow,
+      })
+      .returning(),
+  ]);
+
+  await db
+    .update(aiChatSessionsTable)
+    .set({ updatedAt: msgNow })
+    .where(eq(aiChatSessionsTable.id, session.id));
+
+  // ── Done ───────────────────────────────────────────────────────────────────
+  sse({
+    type: "done",
+    sessionId: session.id,
+    message: assistantMsg,
+    sources: result.sources,
+    pendingChanges: result.pendingChanges ?? [],
+  });
+  res.end();
+  return;
+});
+
 /** GET /api/ai/chat/sessions?projectId=xxx — list chat sessions */
 router.get("/ai/chat/sessions", async (req, res) => {
   const project = await loadProjectByIdForUser(
@@ -682,6 +890,18 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
     throw err;
   }
 
+  // PR-E: parse failure detected — return 422 so the dashboard shows a specific
+  // "model output invalid" message rather than silently returning degraded content.
+  if (result._parseError) {
+    return res.status(422).json({
+      error: "model_output_invalid",
+      code: "model_output_invalid",
+      hint: "The AI model returned an unexpected response — try again in a moment.",
+      raw: result._parseError.raw.slice(0, 500),
+      parseCode: result._parseError.code,
+    });
+  }
+
   // Gap-2 fix: invalidate context cache so next chat request reflects any
   // state changes that the analysis may have written (events, updated scores).
   invalidateContextCache(projectId);
@@ -756,6 +976,17 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
   } catch (err) {
     if (handleOrchestratorError(err, res, { projectId, operation: "code-review" })) return;
     throw err;
+  }
+
+  // PR-E: parse failure detected — return 422 instead of a silent degraded 200.
+  if (result._parseError) {
+    return res.status(422).json({
+      error: "model_output_invalid",
+      code: "model_output_invalid",
+      hint: "The AI model returned an unexpected response — try again in a moment.",
+      raw: result._parseError.raw.slice(0, 500),
+      parseCode: result._parseError.code,
+    });
   }
 
   // Gap-2 fix: bust context cache after code review emits events.
@@ -874,6 +1105,18 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
     // Always release the lock — even if orchestrateWorkflow throws an error
     // not caught by handleOrchestratorError and propagates to Express.
     _orchestratingWorkflows.delete(workflowId);
+  }
+
+  // PR-E: parse failure detected — return 422 instead of a silent degraded 200
+  // (which would look like a valid "wait" decision but with no model reasoning).
+  if (decision._parseError) {
+    return res.status(422).json({
+      error: "model_output_invalid",
+      code: "model_output_invalid",
+      hint: "The AI model returned an unexpected response — try again in a moment.",
+      raw: decision._parseError.raw.slice(0, 500),
+      parseCode: decision._parseError.code,
+    });
   }
 
   logger.info({ workflowId, decision }, "AI workflow orchestration decision");
@@ -995,6 +1238,31 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
     });
     if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution" })) return;
     throw err;
+  }
+
+  // PR-E: parse failure detected — roll back the atomic claim so the task
+  // doesn't stay stuck in "running", then return 422 so the caller knows the
+  // AI produced unusable output rather than a silent degraded result.
+  if (agentResult._parseError) {
+    await db
+      .update(tasksTable)
+      .set({ status: task.status, updatedAt: new Date() })
+      .where(eq(tasksTable.id, taskId));
+    await db.insert(taskLogsTable).values({
+      id: randomUUID(),
+      taskId,
+      level: "error",
+      message: `AI agent parse failure [${agentResult._parseError.code}]: ${agentResult._parseError.message}`,
+      metadata: { parseError: agentResult._parseError, correlationId },
+      correlationId,
+    });
+    return res.status(422).json({
+      error: "model_output_invalid",
+      code: "model_output_invalid",
+      hint: "The AI model returned an unexpected response — try executing the task again.",
+      raw: agentResult._parseError.raw.slice(0, 500),
+      parseCode: agentResult._parseError.code,
+    });
   }
 
   // Gap-2 fix: task execution mutates task status and emits events — bust

@@ -1,5 +1,10 @@
 # EngineeringOS — Phased Completion Plan
 
+> ⚠️ **Historical phase log — not a current truth baseline.**
+> This document records the sequencing decisions made during the original build-out phases.
+> For the current system architecture, package layout, and execution flows, see **`docs/architecture.md`**.
+> For open work items, see `attached_assets/PR_BACKLOG_1784476473246.md`.
+
 Source of truth for sequencing further work on EngineeringOS. Companion to `docs/fact-record.md`.
 Do not start from the UI — always work inside-out: data → execution → analysis → orchestration →
 governance → tests → presentation → docs.

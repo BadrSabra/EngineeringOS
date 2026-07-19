@@ -115,6 +115,7 @@ export * from './healthStatus';
 export * from './healthStatusStatus';
 export * from './importProjectInput';
 export * from './importProjectInputOverrides';
+export * from './jobQueueStats';
 export * from './listAiChatSessionsParams';
 export * from './listEventsParams';
 export * from './listGraphEntitiesParams';

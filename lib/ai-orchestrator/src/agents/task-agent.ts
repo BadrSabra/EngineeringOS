@@ -3,7 +3,7 @@
  * and returns a structured response that gets written back as agentResponse.
  */
 import { complete, MODEL_POWERFUL, type Message } from "../groq-client.js";
-import { GroqClientError } from "../errors.js";
+import { GroqClientError, type AgentErrorCode } from "../errors.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildTaskAgentSystemPrompt, buildTaskAgentUserPrompt } from "../prompts/task.prompt.js";
 import { TaskRecommendationSchema, type TaskAgentOutput } from "../schemas/task.schema.js";
@@ -22,6 +22,15 @@ export type TaskAgentInput = {
 
 export type { TaskAgentOutput };
 
+/**
+ * PR-E: Extended return type that carries an optional parse-failure marker.
+ * When the model output cannot be parsed, the route surfaces `_parseError`
+ * as HTTP 422 instead of a silent 200 with degraded fallback content.
+ */
+export type TaskAgentResult = TaskAgentOutput & {
+  _parseError?: { code: AgentErrorCode; message: string; raw: string };
+};
+
 function fallbackTaskOutput(raw: string): TaskAgentOutput {
   return {
     summary: "Task analyzed by AI agent",
@@ -32,7 +41,7 @@ function fallbackTaskOutput(raw: string): TaskAgentOutput {
   };
 }
 
-export async function executeTask(input: TaskAgentInput): Promise<TaskAgentOutput> {
+export async function executeTask(input: TaskAgentInput): Promise<TaskAgentResult> {
   const messages: Message[] = [
     { role: "system", content: buildTaskAgentSystemPrompt(input.projectContext) },
     { role: "user", content: buildTaskAgentUserPrompt(input) },
@@ -60,6 +69,9 @@ export async function executeTask(input: TaskAgentInput): Promise<TaskAgentOutpu
   const parsed = parseAgentResponse(response.content, TaskRecommendationSchema, fallbackTaskOutput);
   if (!parsed.ok) {
     console.warn(JSON.stringify({ scope: "task-agent", code: parsed.code, message: parsed.message }));
+    // PR-E: surface parse failure to the route so it can return 422 instead of
+    // silently returning degraded fallback content as a 200.
+    return { ...parsed.data, _parseError: { code: parsed.code, message: parsed.message, raw: parsed.raw } };
   }
   return parsed.data;
 }

@@ -12,8 +12,21 @@ export const HealthStatusStatus = {
   ok: 'ok',
 } as const;
 
+/**
+ * Current state of the in-process job queue (scan + discovery jobs). ⚠️ This queue is process-local — jobs in flight are lost on restart. The reconciliation layer marks orphaned DB rows as `failed` on startup, but the work must be re-submitted by the caller.
+ */
+export interface JobQueueStats {
+  /** Number of jobs currently executing */
+  running: number;
+  /** Number of jobs waiting for a free concurrency slot */
+  queued: number;
+  /** Maximum number of jobs that can run simultaneously */
+  concurrency: number;
+}
+
 export interface HealthStatus {
   status: HealthStatusStatus;
+  jobQueue?: JobQueueStats;
 }
 
 export interface GroqKeyStatus {

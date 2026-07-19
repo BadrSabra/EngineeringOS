@@ -11,6 +11,7 @@
  *                        function directly with an unvalidated decision
  */
 import { complete, MODEL_POWERFUL, type Message } from "../groq-client.js";
+import type { AgentErrorCode } from "../errors.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildWorkflowSystemPrompt, buildWorkflowUserPrompt } from "../prompts/workflow.prompt.js";
 import { WorkflowDecisionSchema, type WorkflowDecision, type WorkflowPhase } from "../schemas/workflow.schema.js";
@@ -19,6 +20,15 @@ import { parseAgentResponse } from "../parsing.js";
 export type { WorkflowPhase };
 /** @deprecated use `WorkflowDecision` from "../schemas/workflow.schema.js" */
 export type OrchestrationDecision = WorkflowDecision;
+
+/**
+ * PR-E: Extended return type that carries an optional parse-failure marker.
+ * When the model output cannot be parsed, the route surfaces `_parseError`
+ * as HTTP 422 instead of a silent 200 with a degraded "wait" fallback.
+ */
+export type WorkflowDecisionResult = WorkflowDecision & {
+  _parseError?: { code: AgentErrorCode; message: string; raw: string };
+};
 
 export type WorkflowState = {
   phases: WorkflowPhase[];
@@ -51,7 +61,7 @@ export async function decide(opts: {
   additionalContext?: string;
   /** Optional per-user Groq API key. Falls back to process.env.GROQ_API_KEY. */
   apiKey?: string;
-}): Promise<WorkflowDecision> {
+}): Promise<WorkflowDecisionResult> {
   const messages: Message[] = [
     { role: "system", content: buildWorkflowSystemPrompt() },
     { role: "user", content: buildWorkflowUserPrompt(opts) },
@@ -61,6 +71,9 @@ export async function decide(opts: {
   const parsed = parseAgentResponse(response.content, WorkflowDecisionSchema, fallbackDecision);
   if (!parsed.ok) {
     console.warn(JSON.stringify({ scope: "workflow-orchestrator", stage: "decide", code: parsed.code, message: parsed.message }));
+    // PR-E: surface parse failure to the route so it can return 422 instead of
+    // silently returning a degraded "wait" fallback as a 200.
+    return { ...parsed.data, _parseError: { code: parsed.code, message: parsed.message, raw: parsed.raw } };
   }
   return parsed.data;
 }
@@ -194,8 +207,10 @@ export async function orchestrateWorkflow(opts: {
   additionalContext?: string;
   /** Optional per-user Groq API key. Falls back to process.env.GROQ_API_KEY. */
   apiKey?: string;
-}): Promise<WorkflowDecision> {
+}): Promise<WorkflowDecisionResult> {
   const proposed = await decide(opts);
+  // PR-E: save parse error before any gate/validation that strips the extended field.
+  const parseError = proposed._parseError;
 
   // G-08: metrics gate — if the context carries unverified metrics (no
   // successful scan has run), block "advance" and "complete" decisions.
@@ -237,5 +252,6 @@ export async function orchestrateWorkflow(opts: {
     );
   }
 
-  return validated;
+  // PR-E: re-attach parse error (if any) so the route can return 422.
+  return parseError ? { ...validated, _parseError: parseError } : validated;
 }
