@@ -2358,3 +2358,149 @@ export const DeleteGroqKeyResponse = zod.object({
 })
 
 
+/**
+ * @summary Get GitHub PAT configuration status (never returns the token itself)
+ */
+export const GetGitHubTokenStatusResponse = zod.object({
+  "configured": zod.boolean(),
+  "last4": zod.string().nullish().describe('Last 4 characters of the saved token — shown in UI for confirmation'),
+  "updatedAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Save or update the authenticated user's GitHub Personal Access Token
+ */
+
+
+
+export const SaveGitHubTokenBody = zod.object({
+  "token": zod.string().min(1).describe('GitHub Personal Access Token. Must not be logged or returned.')
+})
+
+export const SaveGitHubTokenResponse = zod.object({
+  "configured": zod.boolean(),
+  "last4": zod.string().nullish().describe('Last 4 characters of the saved token — shown in UI for confirmation'),
+  "updatedAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Remove the authenticated user's saved GitHub PAT
+ */
+export const DeleteGitHubTokenResponse = zod.object({
+  "configured": zod.boolean(),
+  "last4": zod.string().nullish().describe('Last 4 characters of the saved token — shown in UI for confirmation'),
+  "updatedAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Get git remote URL and default branch for a project
+ */
+export const GetGitConfigParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const GetGitConfigResponse = zod.object({
+  "remoteUrl": zod.string().nullish().describe('HTTPS remote URL (e.g. https:\/\/github.com\/owner\/repo.git), or null if not set'),
+  "branch": zod.string().describe('Default branch name (e.g. main)')
+})
+
+
+/**
+ * @summary Update git remote URL and/or default branch for a project
+ */
+export const UpdateGitConfigParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const UpdateGitConfigBody = zod.object({
+  "remoteUrl": zod.string().optional().describe('HTTPS remote URL. Pass an empty string to clear it.'),
+  "branch": zod.string().optional().describe('Default branch name. Defaults to \"main\" if cleared.')
+})
+
+export const UpdateGitConfigResponse = zod.object({
+  "remoteUrl": zod.string().nullish().describe('HTTPS remote URL (e.g. https:\/\/github.com\/owner\/repo.git), or null if not set'),
+  "branch": zod.string().describe('Default branch name (e.g. main)')
+})
+
+
+/**
+ * @summary Get git working-tree status for a project
+ */
+export const GetGitStatusParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const GetGitStatusResponse = zod.object({
+  "clean": zod.boolean().describe('True when there are no uncommitted changes'),
+  "files": zod.array(zod.object({
+  "status": zod.string().describe('Two-character git porcelain status code (e.g. \"M \", \" M\", \"??\")'),
+  "path": zod.string().describe('File path relative to the project root')
+}))
+})
+
+
+/**
+ * @summary Get recent git commit history for a project (last 20 commits)
+ */
+export const GetGitLogParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const GetGitLogResponse = zod.object({
+  "commits": zod.array(zod.object({
+  "hash": zod.string().describe('Full 40-character commit SHA'),
+  "shortHash": zod.string().describe('Abbreviated commit SHA'),
+  "date": zod.string().describe('Commit date in YYYY-MM-DD format'),
+  "author": zod.string().describe('Author name'),
+  "subject": zod.string().describe('First line of the commit message')
+}))
+})
+
+
+/**
+ * @summary Stage all changes and create a git commit
+ */
+export const GitCommitParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+
+
+
+export const GitCommitBody = zod.object({
+  "message": zod.string().min(1).describe('Commit message. All tracked and untracked changes are staged automatically.')
+})
+
+export const GitCommitResponse = zod.object({
+  "ok": zod.boolean(),
+  "output": zod.string().describe('Combined stdout\/stderr from git, with any embedded credentials redacted')
+})
+
+
+/**
+ * @summary Push the current branch to the configured remote using the stored GitHub token
+ */
+export const GitPushParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const GitPushResponse = zod.object({
+  "ok": zod.boolean(),
+  "branch": zod.string().describe('Branch that was pushed'),
+  "output": zod.string().describe('Combined stdout\/stderr from git push, with any embedded credentials redacted')
+})
+
+
+/**
+ * @summary Download a gzipped tar archive of the project root
+ */
+export const ExportProjectParams = zod.object({
+  "projectId": zod.coerce.string()
+})
+
+export const ExportProjectResponse = zod.unknown()
+
+

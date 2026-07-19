@@ -35,6 +35,87 @@ export interface SaveGroqKeyInput {
   apiKey: string;
 }
 
+export interface GitHubTokenStatus {
+  configured: boolean;
+  /** Last 4 characters of the saved token — shown in UI for confirmation */
+  last4?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface SaveGitHubTokenInput {
+  /**
+     * GitHub Personal Access Token. Must not be logged or returned.
+     * @minLength 1
+     */
+  token: string;
+}
+
+export interface GitConfig {
+  /** HTTPS remote URL (e.g. https://github.com/owner/repo.git), or null if not set */
+  remoteUrl?: string | null;
+  /** Default branch name (e.g. main) */
+  branch: string;
+}
+
+export interface UpdateGitConfigInput {
+  /** HTTPS remote URL. Pass an empty string to clear it. */
+  remoteUrl?: string;
+  /** Default branch name. Defaults to "main" if cleared. */
+  branch?: string;
+}
+
+export interface GitStatusFile {
+  /** Two-character git porcelain status code (e.g. "M ", " M", "??") */
+  status: string;
+  /** File path relative to the project root */
+  path: string;
+}
+
+export interface GitStatus {
+  /** True when there are no uncommitted changes */
+  clean: boolean;
+  files: GitStatusFile[];
+}
+
+export interface GitCommitEntry {
+  /** Full 40-character commit SHA */
+  hash: string;
+  /** Abbreviated commit SHA */
+  shortHash: string;
+  /** Commit date in YYYY-MM-DD format */
+  date: string;
+  /** Author name */
+  author: string;
+  /** First line of the commit message */
+  subject: string;
+}
+
+export interface GitLog {
+  commits: GitCommitEntry[];
+}
+
+export interface GitCommitInput {
+  /**
+     * Commit message. All tracked and untracked changes are staged automatically.
+     * @minLength 1
+     */
+  message: string;
+}
+
+export interface GitOperationResult {
+  ok: boolean;
+  /** Combined stdout/stderr from git, with any embedded credentials redacted */
+  output: string;
+}
+
+export interface GitPushResult {
+  ok: boolean;
+  /** Branch that was pushed */
+  branch: string;
+  /** Combined stdout/stderr from git push, with any embedded credentials redacted */
+  output: string;
+}
+
 export interface AiChatRequest {
   projectId: string;
   message: string;

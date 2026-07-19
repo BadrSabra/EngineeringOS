@@ -1587,6 +1587,273 @@ paths:
         "401":
           description: Not authenticated
 
+  /api/ai/github-token:
+    get:
+      operationId: getGitHubTokenStatus
+      summary: Get GitHub PAT configuration status (never returns the token itself)
+      tags: [Git]
+      security:
+        - ClerkSession: []
+      responses:
+        "200":
+          description: Token status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubTokenStatus"
+        "401":
+          description: Not authenticated
+    put:
+      operationId: saveGitHubToken
+      summary: Save or update the authenticated user's GitHub Personal Access Token
+      tags: [Git]
+      security:
+        - ClerkSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveGitHubTokenInput"
+      responses:
+        "200":
+          description: Token saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubTokenStatus"
+        "400":
+          description: Token is missing or empty
+        "401":
+          description: Not authenticated
+    delete:
+      operationId: deleteGitHubToken
+      summary: Remove the authenticated user's saved GitHub PAT
+      tags: [Git]
+      security:
+        - ClerkSession: []
+      responses:
+        "200":
+          description: Token removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubTokenStatus"
+        "401":
+          description: Not authenticated
+
+  /api/projects/{projectId}/git/config:
+    get:
+      operationId: getGitConfig
+      summary: Get git remote URL and default branch for a project
+      tags: [Git]
+      security:
+        - ClerkSession: []
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Git configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitConfig"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Access denied
+        "404":
+          description: Project not found
+    patch:
+      operationId: updateGitConfig
+      summary: Update git remote URL and/or default branch for a project
+      tags: [Git]
+      security:
+        - ClerkSession: []
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateGitConfigInput"
+      responses:
+        "200":
+          description: Updated git configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitConfig"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Access denied
+        "404":
+          description: Project not found
+
+  /api/projects/{projectId}/git/status:
+    get:
+      operationId: getGitStatus
+      summary: Get git working-tree status for a project
+      tags: [Git]
+      security:
+        - ClerkSession: []
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Git status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitStatus"
+        "400":
+          description: Project directory is not a git repository
+        "401":
+          description: Not authenticated
+        "403":
+          description: Access denied
+        "404":
+          description: Project not found
+
+  /api/projects/{projectId}/git/log:
+    get:
+      operationId: getGitLog
+      summary: Get recent git commit history for a project (last 20 commits)
+      tags: [Git]
+      security:
+        - ClerkSession: []
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Git commit log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitLog"
+        "400":
+          description: Project directory is not a git repository
+        "401":
+          description: Not authenticated
+        "403":
+          description: Access denied
+        "404":
+          description: Project not found
+
+  /api/projects/{projectId}/git/commit:
+    post:
+      operationId: gitCommit
+      summary: Stage all changes and create a git commit
+      tags: [Git]
+      security:
+        - ClerkSession: []
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitCommitInput"
+      responses:
+        "200":
+          description: Commit created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitOperationResult"
+        "400":
+          description: Commit message is missing
+        "401":
+          description: Not authenticated
+        "403":
+          description: Access denied
+        "404":
+          description: Project not found
+        "409":
+          description: Nothing to commit — working tree is clean
+
+  /api/projects/{projectId}/git/push:
+    post:
+      operationId: gitPush
+      summary: Push the current branch to the configured remote using the stored GitHub token
+      tags: [Git]
+      security:
+        - ClerkSession: []
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Push succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitPushResult"
+        "400":
+          description: No remote URL configured or remote URL is not HTTPS
+        "401":
+          description: Not authenticated
+        "403":
+          description: Access denied
+        "404":
+          description: Project not found
+        "428":
+          description: GitHub token not configured
+
+  /api/projects/{projectId}/export:
+    get:
+      operationId: exportProject
+      summary: Download a gzipped tar archive of the project root
+      tags: [Projects]
+      security:
+        - ClerkSession: []
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project archive streamed as application/gzip
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Not authenticated
+        "403":
+          description: Access denied
+        "404":
+          description: Project not found
+
 components:
   securitySchemes:
     ClerkSession:
@@ -1629,6 +1896,137 @@ components:
           type: string
           minLength: 10
           description: The Groq API key to save. Must not be logged or returned.
+
+    # ─── Git ───────────────────────────────────────────────────────────────────
+    GitHubTokenStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured:
+          type: boolean
+        last4:
+          type: string
+          nullable: true
+          description: Last 4 characters of the saved token — shown in UI for confirmation
+        updatedAt:
+          type: string
+          nullable: true
+          format: date-time
+
+    SaveGitHubTokenInput:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: GitHub Personal Access Token. Must not be logged or returned.
+
+    GitConfig:
+      type: object
+      required: [branch]
+      properties:
+        remoteUrl:
+          type: string
+          nullable: true
+          description: HTTPS remote URL (e.g. https://github.com/owner/repo.git), or null if not set
+        branch:
+          type: string
+          description: Default branch name (e.g. main)
+
+    UpdateGitConfigInput:
+      type: object
+      properties:
+        remoteUrl:
+          type: string
+          description: HTTPS remote URL. Pass an empty string to clear it.
+        branch:
+          type: string
+          description: Default branch name. Defaults to "main" if cleared.
+
+    GitStatusFile:
+      type: object
+      required: [status, path]
+      properties:
+        status:
+          type: string
+          description: Two-character git porcelain status code (e.g. "M ", " M", "??")
+        path:
+          type: string
+          description: File path relative to the project root
+
+    GitStatus:
+      type: object
+      required: [clean, files]
+      properties:
+        clean:
+          type: boolean
+          description: True when there are no uncommitted changes
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/GitStatusFile"
+
+    GitCommitEntry:
+      type: object
+      required: [hash, shortHash, date, author, subject]
+      properties:
+        hash:
+          type: string
+          description: Full 40-character commit SHA
+        shortHash:
+          type: string
+          description: Abbreviated commit SHA
+        date:
+          type: string
+          description: Commit date in YYYY-MM-DD format
+        author:
+          type: string
+          description: Author name
+        subject:
+          type: string
+          description: First line of the commit message
+
+    GitLog:
+      type: object
+      required: [commits]
+      properties:
+        commits:
+          type: array
+          items:
+            $ref: "#/components/schemas/GitCommitEntry"
+
+    GitCommitInput:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          minLength: 1
+          description: Commit message. All tracked and untracked changes are staged automatically.
+
+    GitOperationResult:
+      type: object
+      required: [ok, output]
+      properties:
+        ok:
+          type: boolean
+        output:
+          type: string
+          description: Combined stdout/stderr from git, with any embedded credentials redacted
+
+    GitPushResult:
+      type: object
+      required: [ok, branch, output]
+      properties:
+        ok:
+          type: boolean
+        branch:
+          type: string
+          description: Branch that was pushed
+        output:
+          type: string
+          description: Combined stdout/stderr from git push, with any embedded credentials redacted
 
     AiChatRequest:
       type: object

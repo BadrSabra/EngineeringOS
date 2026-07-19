@@ -61,6 +61,13 @@ import type {
   GetGraphSubgraph404,
   GetGraphSubgraphParams,
   GetLatestMetricsParams,
+  GitCommitInput,
+  GitConfig,
+  GitHubTokenStatus,
+  GitLog,
+  GitOperationResult,
+  GitPushResult,
+  GitStatus,
   GraphEntity,
   GraphEvidenceResponse,
   GraphImpactResult,
@@ -88,11 +95,13 @@ import type {
   ProjectSummary,
   Rule,
   RuleEvaluationResult,
+  SaveGitHubTokenInput,
   SaveGroqKeyInput,
   ScanJob,
   StartDiscoveryInput,
   Task,
   TaskLog,
+  UpdateGitConfigInput,
   UpdateProjectInput,
   UpdateRuleInput,
   UpdateTaskInput,
@@ -5194,4 +5203,746 @@ export const useDeleteGroqKey = <TError = ErrorType<void>,
       > => {
       return useMutation(getDeleteGroqKeyMutationOptions(options));
     }
+
+export const getGetGitHubTokenStatusUrl = () => {
+
+
+
+
+  return `/api/ai/github-token`
+}
+
+/**
+ * @summary Get GitHub PAT configuration status (never returns the token itself)
+ */
+export const getGitHubTokenStatus = async ( options?: RequestInit): Promise<GitHubTokenStatus> => {
+
+  return customFetch<GitHubTokenStatus>(getGetGitHubTokenStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetGitHubTokenStatusQueryKey = () => {
+    return [
+    `/api/ai/github-token`
+    ] as const;
+    }
+
+
+export const getGetGitHubTokenStatusQueryOptions = <TData = Awaited<ReturnType<typeof getGitHubTokenStatus>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGitHubTokenStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGitHubTokenStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGitHubTokenStatus>>> = ({ signal }) => getGitHubTokenStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGitHubTokenStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetGitHubTokenStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getGitHubTokenStatus>>>
+export type GetGitHubTokenStatusQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get GitHub PAT configuration status (never returns the token itself)
+ */
+
+export function useGetGitHubTokenStatus<TData = Awaited<ReturnType<typeof getGitHubTokenStatus>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGitHubTokenStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetGitHubTokenStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSaveGitHubTokenUrl = () => {
+
+
+
+
+  return `/api/ai/github-token`
+}
+
+/**
+ * @summary Save or update the authenticated user's GitHub Personal Access Token
+ */
+export const saveGitHubToken = async (saveGitHubTokenInput: SaveGitHubTokenInput, options?: RequestInit): Promise<GitHubTokenStatus> => {
+
+  return customFetch<GitHubTokenStatus>(getSaveGitHubTokenUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(saveGitHubTokenInput)
+  }
+);}
+
+
+
+
+
+export const getSaveGitHubTokenMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveGitHubToken>>, TError,{data: BodyType<SaveGitHubTokenInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveGitHubToken>>, TError,{data: BodyType<SaveGitHubTokenInput>}, TContext> => {
+
+const mutationKey = ['saveGitHubToken'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveGitHubToken>>, {data: BodyType<SaveGitHubTokenInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveGitHubToken(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveGitHubTokenMutationResult = NonNullable<Awaited<ReturnType<typeof saveGitHubToken>>>
+    export type SaveGitHubTokenMutationBody = BodyType<SaveGitHubTokenInput>
+    export type SaveGitHubTokenMutationError = ErrorType<void>
+
+    /**
+ * @summary Save or update the authenticated user's GitHub Personal Access Token
+ */
+export const useSaveGitHubToken = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveGitHubToken>>, TError,{data: BodyType<SaveGitHubTokenInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof saveGitHubToken>>,
+        TError,
+        {data: BodyType<SaveGitHubTokenInput>},
+        TContext
+      > => {
+      return useMutation(getSaveGitHubTokenMutationOptions(options));
+    }
+
+export const getDeleteGitHubTokenUrl = () => {
+
+
+
+
+  return `/api/ai/github-token`
+}
+
+/**
+ * @summary Remove the authenticated user's saved GitHub PAT
+ */
+export const deleteGitHubToken = async ( options?: RequestInit): Promise<GitHubTokenStatus> => {
+
+  return customFetch<GitHubTokenStatus>(getDeleteGitHubTokenUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteGitHubTokenMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteGitHubToken>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteGitHubToken>>, TError,void, TContext> => {
+
+const mutationKey = ['deleteGitHubToken'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteGitHubToken>>, void> = () => {
+
+
+          return  deleteGitHubToken(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteGitHubTokenMutationResult = NonNullable<Awaited<ReturnType<typeof deleteGitHubToken>>>
+
+    export type DeleteGitHubTokenMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove the authenticated user's saved GitHub PAT
+ */
+export const useDeleteGitHubToken = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteGitHubToken>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteGitHubToken>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDeleteGitHubTokenMutationOptions(options));
+    }
+
+export const getGetGitConfigUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/git/config`
+}
+
+/**
+ * @summary Get git remote URL and default branch for a project
+ */
+export const getGitConfig = async (projectId: string, options?: RequestInit): Promise<GitConfig> => {
+
+  return customFetch<GitConfig>(getGetGitConfigUrl(projectId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetGitConfigQueryKey = (projectId: string,) => {
+    return [
+    `/api/projects/${projectId}/git/config`
+    ] as const;
+    }
+
+
+export const getGetGitConfigQueryOptions = <TData = Awaited<ReturnType<typeof getGitConfig>>, TError = ErrorType<void>>(projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGitConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGitConfigQueryKey(projectId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGitConfig>>> = ({ signal }) => getGitConfig(projectId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGitConfig>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetGitConfigQueryResult = NonNullable<Awaited<ReturnType<typeof getGitConfig>>>
+export type GetGitConfigQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get git remote URL and default branch for a project
+ */
+
+export function useGetGitConfig<TData = Awaited<ReturnType<typeof getGitConfig>>, TError = ErrorType<void>>(
+ projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGitConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetGitConfigQueryOptions(projectId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateGitConfigUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/git/config`
+}
+
+/**
+ * @summary Update git remote URL and/or default branch for a project
+ */
+export const updateGitConfig = async (projectId: string,
+    updateGitConfigInput: UpdateGitConfigInput, options?: RequestInit): Promise<GitConfig> => {
+
+  return customFetch<GitConfig>(getUpdateGitConfigUrl(projectId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(updateGitConfigInput)
+  }
+);}
+
+
+
+
+
+export const getUpdateGitConfigMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateGitConfig>>, TError,{projectId: string;data: BodyType<UpdateGitConfigInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateGitConfig>>, TError,{projectId: string;data: BodyType<UpdateGitConfigInput>}, TContext> => {
+
+const mutationKey = ['updateGitConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateGitConfig>>, {projectId: string;data: BodyType<UpdateGitConfigInput>}> = (props) => {
+          const {projectId,data} = props ?? {};
+
+          return  updateGitConfig(projectId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateGitConfigMutationResult = NonNullable<Awaited<ReturnType<typeof updateGitConfig>>>
+    export type UpdateGitConfigMutationBody = BodyType<UpdateGitConfigInput>
+    export type UpdateGitConfigMutationError = ErrorType<void>
+
+    /**
+ * @summary Update git remote URL and/or default branch for a project
+ */
+export const useUpdateGitConfig = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateGitConfig>>, TError,{projectId: string;data: BodyType<UpdateGitConfigInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateGitConfig>>,
+        TError,
+        {projectId: string;data: BodyType<UpdateGitConfigInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateGitConfigMutationOptions(options));
+    }
+
+export const getGetGitStatusUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/git/status`
+}
+
+/**
+ * @summary Get git working-tree status for a project
+ */
+export const getGitStatus = async (projectId: string, options?: RequestInit): Promise<GitStatus> => {
+
+  return customFetch<GitStatus>(getGetGitStatusUrl(projectId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetGitStatusQueryKey = (projectId: string,) => {
+    return [
+    `/api/projects/${projectId}/git/status`
+    ] as const;
+    }
+
+
+export const getGetGitStatusQueryOptions = <TData = Awaited<ReturnType<typeof getGitStatus>>, TError = ErrorType<void>>(projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGitStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGitStatusQueryKey(projectId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGitStatus>>> = ({ signal }) => getGitStatus(projectId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGitStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetGitStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getGitStatus>>>
+export type GetGitStatusQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get git working-tree status for a project
+ */
+
+export function useGetGitStatus<TData = Awaited<ReturnType<typeof getGitStatus>>, TError = ErrorType<void>>(
+ projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGitStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetGitStatusQueryOptions(projectId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetGitLogUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/git/log`
+}
+
+/**
+ * @summary Get recent git commit history for a project (last 20 commits)
+ */
+export const getGitLog = async (projectId: string, options?: RequestInit): Promise<GitLog> => {
+
+  return customFetch<GitLog>(getGetGitLogUrl(projectId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetGitLogQueryKey = (projectId: string,) => {
+    return [
+    `/api/projects/${projectId}/git/log`
+    ] as const;
+    }
+
+
+export const getGetGitLogQueryOptions = <TData = Awaited<ReturnType<typeof getGitLog>>, TError = ErrorType<void>>(projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGitLog>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGitLogQueryKey(projectId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGitLog>>> = ({ signal }) => getGitLog(projectId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGitLog>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetGitLogQueryResult = NonNullable<Awaited<ReturnType<typeof getGitLog>>>
+export type GetGitLogQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get recent git commit history for a project (last 20 commits)
+ */
+
+export function useGetGitLog<TData = Awaited<ReturnType<typeof getGitLog>>, TError = ErrorType<void>>(
+ projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGitLog>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetGitLogQueryOptions(projectId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGitCommitUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/git/commit`
+}
+
+/**
+ * @summary Stage all changes and create a git commit
+ */
+export const gitCommit = async (projectId: string,
+    gitCommitInput: GitCommitInput, options?: RequestInit): Promise<GitOperationResult> => {
+
+  return customFetch<GitOperationResult>(getGitCommitUrl(projectId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(gitCommitInput)
+  }
+);}
+
+
+
+
+
+export const getGitCommitMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof gitCommit>>, TError,{projectId: string;data: BodyType<GitCommitInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof gitCommit>>, TError,{projectId: string;data: BodyType<GitCommitInput>}, TContext> => {
+
+const mutationKey = ['gitCommit'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof gitCommit>>, {projectId: string;data: BodyType<GitCommitInput>}> = (props) => {
+          const {projectId,data} = props ?? {};
+
+          return  gitCommit(projectId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GitCommitMutationResult = NonNullable<Awaited<ReturnType<typeof gitCommit>>>
+    export type GitCommitMutationBody = BodyType<GitCommitInput>
+    export type GitCommitMutationError = ErrorType<void>
+
+    /**
+ * @summary Stage all changes and create a git commit
+ */
+export const useGitCommit = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof gitCommit>>, TError,{projectId: string;data: BodyType<GitCommitInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof gitCommit>>,
+        TError,
+        {projectId: string;data: BodyType<GitCommitInput>},
+        TContext
+      > => {
+      return useMutation(getGitCommitMutationOptions(options));
+    }
+
+export const getGitPushUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/git/push`
+}
+
+/**
+ * @summary Push the current branch to the configured remote using the stored GitHub token
+ */
+export const gitPush = async (projectId: string, options?: RequestInit): Promise<GitPushResult> => {
+
+  return customFetch<GitPushResult>(getGitPushUrl(projectId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getGitPushMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof gitPush>>, TError,{projectId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof gitPush>>, TError,{projectId: string}, TContext> => {
+
+const mutationKey = ['gitPush'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof gitPush>>, {projectId: string}> = (props) => {
+          const {projectId} = props ?? {};
+
+          return  gitPush(projectId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GitPushMutationResult = NonNullable<Awaited<ReturnType<typeof gitPush>>>
+
+    export type GitPushMutationError = ErrorType<void>
+
+    /**
+ * @summary Push the current branch to the configured remote using the stored GitHub token
+ */
+export const useGitPush = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof gitPush>>, TError,{projectId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof gitPush>>,
+        TError,
+        {projectId: string},
+        TContext
+      > => {
+      return useMutation(getGitPushMutationOptions(options));
+    }
+
+export const getExportProjectUrl = (projectId: string,) => {
+
+
+
+
+  return `/api/projects/${projectId}/export`
+}
+
+/**
+ * @summary Download a gzipped tar archive of the project root
+ */
+export const exportProject = async (projectId: string, options?: RequestInit): Promise<Blob> => {
+
+  return customFetch<Blob>(getExportProjectUrl(projectId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportProjectQueryKey = (projectId: string,) => {
+    return [
+    `/api/projects/${projectId}/export`
+    ] as const;
+    }
+
+
+export const getExportProjectQueryOptions = <TData = Awaited<ReturnType<typeof exportProject>>, TError = ErrorType<void>>(projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportProject>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportProjectQueryKey(projectId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportProject>>> = ({ signal }) => exportProject(projectId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportProject>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ExportProjectQueryResult = NonNullable<Awaited<ReturnType<typeof exportProject>>>
+export type ExportProjectQueryError = ErrorType<void>
+
+
+/**
+ * @summary Download a gzipped tar archive of the project root
+ */
+
+export function useExportProject<TData = Awaited<ReturnType<typeof exportProject>>, TError = ErrorType<void>>(
+ projectId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportProject>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getExportProjectQueryOptions(projectId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
