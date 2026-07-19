@@ -333,7 +333,7 @@ describe("resolveSource", () => {
     if (isResolveError(result)) {
       expect(result.status).toBe(501);
       expect(result.reason).toBe("unsupported_source");
-      expect(result.error).toMatch(/not yet available/i);
+      expect(result.error).toMatch(/not available/i);
     }
   });
 

@@ -202,7 +202,7 @@ describe("POST /projects/discover — path validation and session creation", () 
       .post("/api/projects/discover")
       .send({ sourceType: "ARCHIVE_UPLOAD", sourceConfig: { uploadId: "fake-id" } });
     expect(res.status).toBe(501);
-    expect(res.body.error).toMatch(/not yet available/i);
+    expect(res.body.error).toMatch(/not available/i);
   });
 
   it("returns 501 for REMOTE_FILESYSTEM", async () => {

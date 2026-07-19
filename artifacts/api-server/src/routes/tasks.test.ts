@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { vi, afterEach, beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import { eq } from "drizzle-orm";
 import app from "../app.js";
@@ -11,6 +11,18 @@ import {
   auditLogsTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
+
+// PR-C: hoist mock fn so vi.mock factory can close over it before module eval.
+const { mockScheduleAiTaskExecution } = vi.hoisted(() => ({
+  mockScheduleAiTaskExecution: vi.fn(),
+}));
+
+// Keep the real ai router intact (so mounted routes still work) while
+// replacing only scheduleAiTaskExecution with a spy.
+vi.mock("./ai.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./ai.js")>();
+  return { ...actual, scheduleAiTaskExecution: mockScheduleAiTaskExecution };
+});
 
 async function insertProject(): Promise<string> {
   const id = randomUUID();
@@ -200,5 +212,92 @@ describe("Ownership isolation — tasks", () => {
 
     const res = await request(app).get(`/api/tasks/${taskId}`);
     expect(res.status).toBe(403);
+  });
+});
+
+// ─── PR-C: AI auto-trigger on verifying state ──────────────────────────────────
+
+describe("PR-C — AI auto-trigger on verifying", () => {
+  const cleanup: string[] = [];
+
+  beforeEach(() => {
+    mockScheduleAiTaskExecution.mockClear();
+  });
+
+  afterEach(async () => {
+    while (cleanup.length > 0) {
+      const id = cleanup.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  async function createTaskWithPrompt(prompt: string | null = "Fix the failing tests") {
+    const projectId = await insertProject();
+    cleanup.push(projectId);
+    const res = await request(app)
+      .post("/api/tasks")
+      .send({ projectId, title: `autotrigger-${randomUUID().slice(0, 6)}`, priority: "p2" });
+    expect(res.status).toBe(201);
+    const taskId: string = res.body.id;
+    if (prompt !== null) {
+      await db.update(tasksTable).set({ prompt }).where(eq(tasksTable.id, taskId));
+    }
+    return { projectId, taskId };
+  }
+
+  it("execute route: schedules AI when task enters verifying with a prompt", async () => {
+    const { taskId } = await createTaskWithPrompt("Fix the auth middleware");
+
+    const res = await request(app).post(`/api/tasks/${taskId}/execute`);
+    expect(res.status).toBe(202);
+    expect(res.body.status).toBe("verifying");
+
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledOnce();
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user");
+  });
+
+  it("execute route: does NOT schedule AI when task enters verifying without a prompt", async () => {
+    const { taskId } = await createTaskWithPrompt(null);
+
+    const res = await request(app).post(`/api/tasks/${taskId}/execute`);
+    expect(res.status).toBe(202);
+    expect(res.body.status).toBe("verifying");
+
+    expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
+  });
+
+  it("PATCH route: schedules AI when status is manually set to verifying with a prompt", async () => {
+    const { taskId } = await createTaskWithPrompt("Refactor the DB layer");
+
+    const res = await request(app)
+      .patch(`/api/tasks/${taskId}`)
+      .send({ status: "verifying" });
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe("verifying");
+
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledOnce();
+    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user");
+  });
+
+  it("PATCH route: does NOT schedule AI when status is set to verifying but prompt is null", async () => {
+    const { taskId } = await createTaskWithPrompt(null);
+
+    const res = await request(app)
+      .patch(`/api/tasks/${taskId}`)
+      .send({ status: "verifying" });
+    expect(res.status).toBe(200);
+
+    expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
+  });
+
+  it("PATCH route: does NOT schedule AI when status changes to something other than verifying", async () => {
+    const { taskId } = await createTaskWithPrompt("Some prompt");
+
+    const res = await request(app)
+      .patch(`/api/tasks/${taskId}`)
+      .send({ status: "completed" });
+    expect(res.status).toBe(200);
+
+    expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
   });
 });

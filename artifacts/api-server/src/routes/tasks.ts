@@ -24,6 +24,7 @@ import { walkProject, checkPatternInFiles } from "@workspace/scanner";
 import { recordAudit } from "../lib/audit.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
+import { scheduleAiTaskExecution } from "./ai.js";
 
 const router = Router();
 
@@ -156,6 +157,12 @@ router.patch("/tasks/:taskId", async (req, res) => {
         ? { payload: { before: { status: before[0].status }, after: { status: body.status } } }
         : {}),
     });
+  }
+
+  // PR-C: auto-trigger AI execution when a manual PATCH sets status → verifying
+  // and the task has a generated prompt.  Fire-and-forget — never blocks response.
+  if (body.status === "verifying" && updated[0].prompt) {
+    scheduleAiTaskExecution(taskId, req.userId);
   }
 
   return res.json(updated[0]);
@@ -380,6 +387,13 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
     changedFields: { verificationResult },
     correlationId,
   });
+
+  // PR-C: auto-trigger AI execution when the execute path lands on `verifying`
+  // and the task already has a generated prompt. Fire-and-forget into the shared
+  // heavyJobQueue — never blocks this HTTP response.
+  if (finalStatus === "verifying" && task[0].prompt) {
+    scheduleAiTaskExecution(taskId, req.userId);
+  }
 
   return res.status(202).json(updated);
 });
