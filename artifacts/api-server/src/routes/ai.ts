@@ -238,6 +238,73 @@ async function resolveProvider(
 }
 
 /**
+ * Resolve a fallback AI provider to use when the primary provider is rate-limited.
+ *
+ * When the user has both Groq and DeepSeek configured, RATE_LIMITED from one
+ * can transparently retry with the other instead of surfacing an error. Returns
+ * `undefined` when only one provider is configured (no fallback available).
+ */
+async function resolveFallbackProvider(
+  userId: string,
+  currentProvider: "groq" | "deepseek",
+): Promise<{ provider: "groq" | "deepseek"; apiKey: string } | undefined> {
+  if (currentProvider === "groq") {
+    const key = await resolveDeepSeekApiKey(userId);
+    if (key) return { provider: "deepseek", apiKey: key };
+  } else {
+    const key = await resolveGroqApiKey(userId);
+    if (key) return { provider: "groq", apiKey: key };
+  }
+  return undefined;
+}
+
+/**
+ * Call `chat()` with automatic provider fallback on RATE_LIMITED.
+ *
+ * Tries `initialProvider` first. If it throws `GroqClientError` with code
+ * `RATE_LIMITED` AND the user has a second provider configured, retries once
+ * with that alternate provider. Re-throws on all other error codes, or if no
+ * fallback is configured.
+ */
+async function chatWithFallback(
+  userId: string,
+  baseParams: {
+    message: string;
+    history: { role: "user" | "assistant"; content: string }[];
+    projectContext: Awaited<ReturnType<typeof buildProjectContext>>;
+    rootPath: string | undefined;
+  },
+  initialProvider: { provider: "groq" | "deepseek"; apiKey: string },
+): Promise<{ result: Awaited<ReturnType<typeof chat>>; effectiveProvider: "groq" | "deepseek" }> {
+  try {
+    const result = await chat({
+      ...baseParams,
+      apiKey: initialProvider.apiKey,
+      provider: initialProvider.provider,
+    });
+    return { result, effectiveProvider: initialProvider.provider };
+  } catch (err) {
+    if (err instanceof GroqClientError && err.code === "RATE_LIMITED") {
+      const fallback = await resolveFallbackProvider(userId, initialProvider.provider);
+      if (fallback) {
+        logger.info(
+          { primary: initialProvider.provider, fallback: fallback.provider },
+          "primary provider rate-limited; retrying with fallback provider",
+        );
+        // Let any error from the fallback propagate — the caller handles it.
+        const result = await chat({
+          ...baseParams,
+          apiKey: fallback.apiKey,
+          provider: fallback.provider,
+        });
+        return { result, effectiveProvider: fallback.provider };
+      }
+    }
+    throw err;
+  }
+}
+
+/**
  * Rejects the request with 428 if no provider key can be resolved.
  * Returns { provider, apiKey } on success, null on failure (response already sent).
  */
@@ -498,21 +565,25 @@ router.post("/ai/chat", async (req, res) => {
   }
   await applyProbe.release();
 
-  // Build context and run chat agent (file-system tools activated via rootPath)
+  // Build context and run chat agent (file-system tools activated via rootPath).
+  // chatWithFallback automatically retries with the alternate provider on RATE_LIMITED.
   const projectContext = await buildProjectContext(projectId);
   let result: Awaited<ReturnType<typeof chat>>;
   try {
-    result = await chat({
-      message,
-      history: historyRows
-        .reverse()
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-      projectContext,
-      rootPath: validRootPath,
-      apiKey,
-      provider,
-    });
+    const chatOut = await chatWithFallback(
+      req.userId,
+      {
+        message,
+        history: historyRows
+          .reverse()
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+        projectContext,
+        rootPath: validRootPath,
+      },
+      { provider, apiKey },
+    );
+    result = chatOut.result;
   } catch (err) {
     if (handleOrchestratorError(err, res, { projectId, operation: "chat" })) return;
     throw err;
@@ -687,28 +758,33 @@ router.post("/ai/chat/stream", async (req, res) => {
   // ── Stage: calling model ───────────────────────────────────────────────────
   sse({ type: "stage", stage: "calling-model" });
 
+  // chatWithFallback automatically retries with the alternate provider on RATE_LIMITED.
   let result: Awaited<ReturnType<typeof chat>>;
   try {
-    result = await chat({
-      message,
-      history: historyRows
-        .reverse()
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-      projectContext,
-      rootPath: validRootPath,
-      apiKey,
-      provider,
-    });
+    const chatOut = await chatWithFallback(
+      req.userId,
+      {
+        message,
+        history: historyRows
+          .reverse()
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+        projectContext,
+        rootPath: validRootPath,
+      },
+      { provider, apiKey },
+    );
+    result = chatOut.result;
   } catch (err) {
     if (err instanceof GroqClientError) {
       const base = { type: "error", code: err.code };
       switch (err.code) {
         case "RATE_LIMITED":
-          sse({ ...base, message: "Groq rate limit reached — wait 30–60 seconds before retrying.", hint: err.message });
+          // Both providers exhausted (fallback also failed or not configured).
+          sse({ ...base, message: "Rate limit reached on all configured AI providers — wait 30–60 seconds and retry.", hint: err.message });
           break;
         case "AUTH_ERROR":
-          sse({ ...base, message: "Groq API key is invalid or unauthorized.", hint: "Delete your current key and save a valid one." });
+          sse({ ...base, message: "AI provider key is invalid or unauthorized.", hint: "Delete your current key and save a valid one." });
           break;
         case "TIMEOUT":
         case "NETWORK_ERROR":
