@@ -30,6 +30,7 @@ import {
 } from "@workspace/scanner";
 import { eq, and, isNull } from "drizzle-orm";
 import { logger } from "./logger.js";
+import { tryAdvisoryLock, LockNamespace } from "./advisory-lock.js";
 
 // ─── Step names ────────────────────────────────────────────────────────────────
 
@@ -290,6 +291,28 @@ function computeConfidence(result: Partial<DiscoveryResultData>, fileCount: numb
  * Never throws — all errors are recorded on the session row.
  */
 export async function runDiscovery(sessionId: string, rootPath: string): Promise<void> {
+  // PR-3: Acquire a PostgreSQL advisory lock keyed on this sessionId before
+  // starting execution. In a multi-instance deployment the reconciliation layer
+  // on both instances may re-enqueue the same pending session; the lock ensures
+  // only one proceeds. The other instance detects the busy lock and returns
+  // immediately without touching the session row.
+  let lock;
+  try {
+    lock = await tryAdvisoryLock(LockNamespace.DISCOVERY_SESSION, sessionId);
+  } catch (lockErr) {
+    logger.error({ lockErr, sessionId }, "discovery-runner: advisory lock acquisition failed; proceeding without lock");
+    lock = null;
+  }
+
+  if (lock && !lock.acquired) {
+    logger.warn(
+      { sessionId },
+      "discovery-runner: advisory lock busy — another instance is already running this session; skipping",
+    );
+    return;
+  }
+
+  try {
   // Transition pending → discovering so reconciliation can distinguish
   // "waiting in queue" from "actually started running".
   await updateSession(sessionId, { status: "discovering" });
@@ -463,5 +486,14 @@ export async function runDiscovery(sessionId: string, rootPath: string): Promise
       error: message,
       completedAt: new Date(),
     }).catch(() => undefined);
+  }
+  } finally {
+    // PR-3: Release the advisory lock so other instances (or a subsequent
+    // reconciliation run) can acquire it for a fresh attempt if needed.
+    if (lock?.acquired) {
+      await lock.release().catch((releaseErr) => {
+        logger.warn({ releaseErr, sessionId }, "discovery-runner: failed to release advisory lock");
+      });
+    }
   }
 }

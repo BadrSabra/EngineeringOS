@@ -26,6 +26,7 @@ import {
   type RuleViolationSummary,
 } from "./plugin-runtime.js";
 import { logger } from "./logger.js";
+import { tryAdvisoryLock, LockNamespace } from "./advisory-lock.js";
 import { provenanceFromEntity, provenanceFromRelationship, manualProvenance } from "./graph-provenance.js";
 
 export interface ScanJobResult {
@@ -49,6 +50,29 @@ export interface ScanJobResult {
  * "scanning" forever or crash the process that enqueued it.
  */
 export async function runScanJob(jobId: string, projectId: string): Promise<void> {
+  // PR-3: Acquire a PostgreSQL advisory lock keyed on this jobId before
+  // starting execution. In a multi-instance deployment two processes can
+  // dequeue the same job from reconciliation; the advisory lock ensures only
+  // one actually runs it. The other instance detects the busy lock, logs a
+  // warning, and returns without touching the job row — the first instance
+  // owns the job and will update it on completion or failure.
+  let lock;
+  try {
+    lock = await tryAdvisoryLock(LockNamespace.SCAN_JOB, jobId);
+  } catch (lockErr) {
+    // Pool connection failure — fail open rather than silently dropping the job.
+    logger.error({ lockErr, jobId, projectId }, "scan-runner: advisory lock acquisition failed; proceeding without lock");
+    lock = null;
+  }
+
+  if (lock && !lock.acquired) {
+    logger.warn(
+      { jobId, projectId },
+      "scan-runner: advisory lock busy — another instance is already running this job; skipping",
+    );
+    return;
+  }
+
   // Everything below is inside one try/catch — including the very first
   // status-flip update — because this function is invoked fire-and-forget
   // (`void runScanJob(...)`) from the route. Any rejection that escapes here
@@ -107,6 +131,14 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
       // there is nothing more we can safely do in-process, but we must
       // still not throw out of a fire-and-forget call.
       logger.error({ cleanupErr, projectId, jobId }, "failed to record scan job failure");
+    }
+  } finally {
+    // PR-3: Always release the advisory lock so other instances (or a
+    // subsequent reconciliation run) can pick up the job if needed.
+    if (lock?.acquired) {
+      await lock.release().catch((releaseErr) => {
+        logger.warn({ releaseErr, jobId }, "scan-runner: failed to release advisory lock");
+      });
     }
   }
 }

@@ -31,6 +31,23 @@ export const LockNamespace = {
   ORCHESTRATION: 1001,
   /** Guards POST /ai/chat/apply-changes */
   APPLY: 1002,
+  /**
+   * PR-3: Guards scan job execution.
+   *
+   * Prevents two API-server instances from running the same scan job
+   * simultaneously in a multi-instance deployment. The lock is keyed on
+   * jobId, so two different jobs can still run concurrently — only the
+   * same jobId is serialised across instances. If the lock is not acquired,
+   * the second instance logs a warning and returns without failing the job
+   * row (the first instance owns it and will update the row on completion).
+   */
+  SCAN_JOB: 1003,
+  /**
+   * PR-3: Guards discovery session execution.
+   *
+   * Same rationale as SCAN_JOB but keyed on sessionId.
+   */
+  DISCOVERY_SESSION: 1004,
 } as const;
 
 /**

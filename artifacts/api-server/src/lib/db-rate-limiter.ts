@@ -18,6 +18,7 @@
 import { db, rateLimitWindowsTable } from "@workspace/db";
 import { lt, sql } from "drizzle-orm";
 import { logger } from "./logger.js";
+import { incrementRateLimiterFailOpen } from "./operational-counters.js";
 
 /** Maximum LLM calls allowed per project per rate-limit window. */
 export const LLM_RATE_LIMIT = 20;
@@ -55,7 +56,13 @@ export async function checkProjectRateLimitDb(
 
     if (!row) {
       // Unexpected — fail open so a DB hiccup doesn't block all AI calls.
-      logger.warn({ projectId, bucket }, "db-rate-limiter: upsert returned no row — failing open");
+      // PR-2: log at ERROR (not warn) and increment the operational counter so
+      // GET /api/healthz surfaces this degradation without requiring log search.
+      incrementRateLimiterFailOpen();
+      logger.error(
+        { projectId, bucket },
+        "db-rate-limiter: upsert returned no row — rate limit NOT enforced for this call",
+      );
       return { allowed: true };
     }
 
@@ -71,7 +78,13 @@ export async function checkProjectRateLimitDb(
   } catch (err) {
     // Fail open on unexpected DB errors — a broken rate limiter should not
     // block legitimate requests.
-    logger.warn({ err, projectId }, "db-rate-limiter: unexpected error — failing open");
+    // PR-2: log at ERROR and increment the operational counter so healthz
+    // surfaces this as a degraded subsystem requiring investigation.
+    incrementRateLimiterFailOpen();
+    logger.error(
+      { err, projectId },
+      "db-rate-limiter: unexpected DB error — rate limit NOT enforced for this call",
+    );
     return { allowed: true };
   }
 }

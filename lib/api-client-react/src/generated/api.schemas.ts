@@ -24,9 +24,20 @@ export interface JobQueueStats {
   concurrency: number;
 }
 
+/**
+ * PR-2: In-process counters for degraded subsystems. Resets to zero on process restart. A non-zero value means a best-effort or fail-open fallback was triggered and should be investigated via logs.
+ */
+export interface OperationalCounters {
+  /** Number of audit_logs insert failures since last startup. Non-zero means state changes went unrecorded in the traceability trail. */
+  auditWriteFailures: number;
+  /** Number of times the LLM rate limiter failed open due to a DB error. Non-zero means the per-project call budget was not enforced for those calls. */
+  rateLimiterFailOpenCount: number;
+}
+
 export interface HealthStatus {
   status: HealthStatusStatus;
   jobQueue?: JobQueueStats;
+  operationalCounters?: OperationalCounters;
 }
 
 export interface GroqKeyStatus {

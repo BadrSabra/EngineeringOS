@@ -7,8 +7,10 @@
  */
 import type { HealthStatusStatus } from './healthStatusStatus';
 import type { JobQueueStats } from './jobQueueStats';
+import type { OperationalCounters } from './operationalCounters';
 
 export interface HealthStatus {
   status: HealthStatusStatus;
   jobQueue?: JobQueueStats;
+  operationalCounters?: OperationalCounters;
 }

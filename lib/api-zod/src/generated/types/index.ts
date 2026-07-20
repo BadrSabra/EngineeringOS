@@ -130,6 +130,7 @@ export * from './listTasksParams';
 export * from './listWorkflowsParams';
 export * from './metricRecord';
 export * from './metricRecordBuildStatus';
+export * from './operationalCounters';
 export * from './plugin';
 export * from './pluginCapabilitiesItem';
 export * from './pluginProjectRequest';

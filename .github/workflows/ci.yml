@@ -6,7 +6,47 @@ on:
   pull_request:
     branches: [main]
 
+# PR-5: A dedicated fast-path job runs codegen:check + typecheck whenever the
+# OpenAPI spec changes. It completes in ~60 s and catches drift before the full
+# test suite (which takes several minutes) even starts. The full job always runs
+# in parallel so neither blocks the other.
 jobs:
+  contract-drift:
+    name: OpenAPI contract drift guard
+    runs-on: ubuntu-latest
+    # Only worth running when the spec or generated outputs might have changed.
+    # The full `validate` job still runs unconditionally as the final gate.
+    if: |
+      github.event_name == 'push' ||
+      contains(github.event.pull_request.changed_files, 'lib/api-spec/openapi.yaml') ||
+      contains(github.event.pull_request.changed_files, 'lib/api-zod/src/generated') ||
+      contains(github.event.pull_request.changed_files, 'lib/api-client-react/src/generated')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # PR-5: Run codegen then check whether any generated file changed.
+      # Fails immediately so developers get a tight feedback loop without
+      # waiting for the full test suite.
+      - name: Check codegen drift (fast-path)
+        run: pnpm run codegen:check
+
+      - name: Type-check generated surfaces
+        run: pnpm run typecheck:libs
+
   validate:
     name: Validate (codegen drift + typecheck + tests)
     runs-on: ubuntu-latest
@@ -28,9 +68,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # PR-06: fail the build if generated files are out of sync with openapi.yaml.
-      # This catches the case where a developer edits the spec but forgets to
-      # run `pnpm codegen` before committing.
+      # PR-5 / PR-06: fail the build if generated files are out of sync with
+      # openapi.yaml. This catches the case where a developer edits the spec
+      # but forgets to run `pnpm codegen` before committing.
       - name: Check codegen drift
         run: pnpm run codegen:check
 

@@ -2,6 +2,7 @@ import { db } from "@workspace/db";
 import { auditLogsTable, auditEntityTypeEnum, auditActionEnum } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { logger } from "./logger.js";
+import { incrementAuditFailures } from "./operational-counters.js";
 
 // Derived from the DB enum so the schema stays the single source of truth —
 // adding a new entity type or action means updating lib/db/src/schema/audit_logs.ts
@@ -55,6 +56,9 @@ export async function recordAudit(params: RecordAuditParams): Promise<void> {
       correlationId: params.correlationId ?? null,
     });
   } catch (err) {
+    // PR-2: increment the in-process counter so GET /api/healthz can surface
+    // audit-write degradation without requiring operators to search logs.
+    incrementAuditFailures();
     logger.error(
       { err, entityType: params.entityType, entityId: params.entityId, action: params.action },
       "failed to record audit log entry",

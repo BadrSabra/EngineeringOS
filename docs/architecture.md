@@ -1,6 +1,6 @@
 # EngineeringOS — Architecture Reference
 
-> **This is the current truth baseline** (last verified 2026-07-19, post all PRs A–I + forensic audit correctness fixes).
+> **This is the current truth baseline** (last verified 2026-07-20, post all PRs A–I + forensic audit PRs 1–5).
 > `docs/completion-plan.md` and `docs/fact-record.md` are historical phase logs — see those
 > files' banners for context.
 
@@ -92,7 +92,7 @@ workspace (pnpm root)
 
 ### Rate limiting
 
-- Per-project LLM rate limit (configurable, default 10 req/min) enforced in `ai.ts` before any Groq call.
+- Per-project LLM rate limit (configurable, default 20 req/min) enforced in `ai.ts` before any Groq call.
 - Rate limit check occurs **before** the atomic task claim so a task is never left stuck in `running` on a rate-limit rejection.
 
 ---
@@ -143,7 +143,7 @@ Client POST /api/ai/chat  { projectId, message, sessionId? }
   → requireAuth + loadProjectByIdForUser
   → requireGroqApiKey (DB lookup → env fallback → 428 if missing)
   → checkProjectRateLimit → 429 if exceeded
-  → buildProjectContext(projectId)  ← cached 5 min; invalidated on any context-table write
+  → buildProjectContext(projectId)  ← cached 30 s; invalidated on any context-table write
   → chat({ message, history, projectContext, rootPath, apiKey })
        GroqClient.complete() with tool definitions (read/list/search/write)
        agentic loop (max 6 tool iterations)
@@ -285,7 +285,7 @@ All agents: GroqClientError codes → `handleOrchestratorError` → 429/401/502/
 
 ## 9. Closed PRs Summary
 
-All PRs A–I are closed.
+All PRs A–I and forensic audit PRs 1–5 are closed.
 
 | PR | Title | Status |
 |---|---|---|
@@ -298,6 +298,11 @@ All PRs A–I are closed.
 | PR-G | Architecture documentation (this file) | ✅ Closed |
 | PR-H | Job queue crash safety — H-1 observability baseline (see §7) | ✅ Closed |
 | PR-I | SSE streaming for AI chat (see §5 and below) | ✅ Closed |
+| Audit PR-1 | Verification bootstrap — setup/build/test runnable from clean clone | ✅ Closed |
+| Audit PR-2 | Observability hardening — audit + rate-limiter failures surfaced in `/api/healthz` via `operationalCounters`; rate-limiter fail-open upgraded from WARN to ERROR | ✅ Closed |
+| Audit PR-3 | Durability upgrade — PostgreSQL advisory locks in `runScanJob` and `runDiscovery` prevent duplicate concurrent execution on multi-instance deployments | ✅ Closed |
+| Audit PR-4 | Doc/code reconciliation — rate limit corrected to 20 req/min; context cache corrected to 30 s | ✅ Closed |
+| Audit PR-5 | Generated-artifact drift guard — dedicated `contract-drift` CI job runs codegen:check + typecheck on every PR touching `lib/api-spec/openapi.yaml`; full validate job unchanged | ✅ Closed |
 
 ### PR-I: SSE streaming for AI chat
 
