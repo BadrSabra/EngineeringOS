@@ -73,6 +73,10 @@ describe("reconcileStuckJobs", () => {
       id: runningJobId,
       projectId,
       status: "running",
+      // PR-01: set retryCount === maxRetries so this job hits the permanent-fail
+      // path rather than being re-enqueued for another attempt.
+      retryCount: 2,
+      maxRetries: 2,
       createdAt: now,
       startedAt: now,
     });
@@ -245,6 +249,10 @@ describe("reconcileStuckJobs", () => {
       id: randomUUID(),
       projectId,
       status: "running",
+      // PR-01: set retryCount === maxRetries so the job is permanently failed
+      // (and invalidateContextCache is called) rather than re-enqueued.
+      retryCount: 2,
+      maxRetries: 2,
       createdAt: now,
       startedAt: now,
     });

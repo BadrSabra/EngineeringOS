@@ -59,10 +59,13 @@ describe("ADAPTERS registry", () => {
     expect(ADAPTERS["WORKSPACE_PROJECT"].available).toBe(true);
   });
 
-  it("marks ARCHIVE_UPLOAD, REMOTE_FILESYSTEM, DOCKER_VOLUME as not available", () => {
-    expect(ADAPTERS["ARCHIVE_UPLOAD"].available).toBe(false);
+  it("marks REMOTE_FILESYSTEM, DOCKER_VOLUME as not available (ARCHIVE_UPLOAD is now implemented)", () => {
     expect(ADAPTERS["REMOTE_FILESYSTEM"].available).toBe(false);
     expect(ADAPTERS["DOCKER_VOLUME"].available).toBe(false);
+  });
+
+  it("marks ARCHIVE_UPLOAD as available (Epic D implemented)", () => {
+    expect(ADAPTERS["ARCHIVE_UPLOAD"].available).toBe(true);
   });
 
   it("unsupported adapters have a human-readable reason", () => {
@@ -327,13 +330,12 @@ describe("resolveSource", () => {
     }
   });
 
-  it("returns 501 for ARCHIVE_UPLOAD", async () => {
-    const result = await resolveSource("ARCHIVE_UPLOAD", { uploadId: "fake" }, TEST_USER);
+  it("returns 404 for ARCHIVE_UPLOAD with an unknown uploadId (Epic D: adapter is now available)", async () => {
+    const result = await resolveSource("ARCHIVE_UPLOAD", { uploadId: "nonexistent-upload-id" }, TEST_USER);
     expect(isResolveError(result)).toBe(true);
     if (isResolveError(result)) {
-      expect(result.status).toBe(501);
-      expect(result.reason).toBe("unsupported_source");
-      expect(result.error).toMatch(/not available/i);
+      expect(result.status).toBe(404);
+      expect(result.reason).toBe("not_found");
     }
   });
 

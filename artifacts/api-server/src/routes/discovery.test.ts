@@ -120,16 +120,21 @@ describe("GET /discovery/sources — source capability listing", () => {
     expect((byType["WORKSPACE_PROJECT"] as { available: boolean }).available).toBe(true);
   });
 
-  it("marks ARCHIVE_UPLOAD, REMOTE_FILESYSTEM, DOCKER_VOLUME as not available and includes a notes field", async () => {
+  it("marks REMOTE_FILESYSTEM, DOCKER_VOLUME as not available and includes a notes field (ARCHIVE_UPLOAD is now implemented)", async () => {
     const res = await request(app).get("/api/discovery/sources");
     const byType = Object.fromEntries(res.body.map((c: { sourceType: string }) => [c.sourceType, c]));
-    for (const type of ["ARCHIVE_UPLOAD", "REMOTE_FILESYSTEM", "DOCKER_VOLUME"]) {
+    for (const type of ["REMOTE_FILESYSTEM", "DOCKER_VOLUME"]) {
       const cap = byType[type] as { available: boolean; notes?: string; hint?: string };
       expect(cap.available).toBe(false);
       expect(typeof cap.notes).toBe("string");
       expect(cap.notes!.length).toBeGreaterThan(0);
-      expect(typeof cap.hint).toBe("string");
     }
+  });
+
+  it("marks ARCHIVE_UPLOAD as available (Epic D implemented)", async () => {
+    const res = await request(app).get("/api/discovery/sources");
+    const byType = Object.fromEntries(res.body.map((c: { sourceType: string }) => [c.sourceType, c]));
+    expect((byType["ARCHIVE_UPLOAD"] as { available: boolean }).available).toBe(true);
   });
 
   it("capabilities list is the single source of truth — all 6 SourceType enum values are represented", async () => {
@@ -201,13 +206,12 @@ describe("POST /projects/discover — path validation and session creation", () 
     expect(res.body.error).toMatch(/projectId is required/i);
   });
 
-  it("returns 501 for ARCHIVE_UPLOAD (unsupported source type) with structured error body", async () => {
+  it("returns 404 for ARCHIVE_UPLOAD with an unknown uploadId (Epic D: source is now available)", async () => {
     const res = await request(app)
       .post("/api/projects/discover")
-      .send({ sourceType: "ARCHIVE_UPLOAD", sourceConfig: { uploadId: "fake-id" } });
-    expect(res.status).toBe(501);
-    expect(res.body.reason).toBe("unsupported_source");
-    expect(res.body.error).toMatch(/not available/i);
+      .send({ sourceType: "ARCHIVE_UPLOAD", sourceConfig: { uploadId: "nonexistent-upload-id" } });
+    expect(res.status).toBe(404);
+    expect(res.body.reason).toBe("not_found");
   });
 
   it("returns 501 for REMOTE_FILESYSTEM with structured error body", async () => {
