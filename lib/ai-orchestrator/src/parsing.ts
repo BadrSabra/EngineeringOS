@@ -25,7 +25,11 @@ type JsonExtractResult =
  * - truly malformed JSON (reported, not thrown)
  */
 export function extractJson(raw: string): JsonExtractResult {
-  const trimmed = (raw ?? "").trim();
+  // Safety net: strip DeepSeek-R1 <think>...</think> reasoning traces that
+  // were not already removed by readRawResponse() (e.g. in unit tests that
+  // pass raw strings directly, or if the model embeds a second think block).
+  const stripped = (raw ?? "").replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  const trimmed = stripped || (raw ?? "").trim();
   if (!trimmed) {
     return { ok: false, code: "EMPTY_MODEL_RESPONSE", message: "Model returned an empty response" };
   }

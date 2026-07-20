@@ -75,20 +75,23 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** llama-3.3-70b — best quality; confirmed working in production */
-export const MODEL_POWERFUL = "llama-3.3-70b-versatile";
 /**
- * Previously "llama-3.1-8b-instant". That model returned NON_200 on every
- * request across all production sessions (2026-07-18), failing after 3 retries
- * and always falling back to MODEL_POWERFUL — effectively doubling API calls
- * for zero benefit. Root cause: model appears deprecated or unavailable on
- * this Groq tier.
+ * DeepSeek-R1 distilled on Llama-70B — a reasoning model that thinks before
+ * it responds. Significantly stronger than llama-3.3-70b-versatile on code
+ * analysis, structured JSON output, and multi-step reasoning. Available on
+ * Groq with the same API key — no provider change needed.
  *
- * Both constants now point to llama-3.3-70b-versatile. The fallback path in
- * chat-agent.ts becomes a no-op (same model → same result, no second call).
- * If a reliable smaller model becomes available later, update MODEL_FAST only.
+ * The model emits <think>...</think> tokens before its final answer.
+ * These are stripped in readRawResponse() below so agents always receive
+ * clean content, and conversation history stays compact.
  */
-export const MODEL_FAST = "llama-3.3-70b-versatile";
+export const MODEL_POWERFUL = "deepseek-r1-distill-llama-70b";
+/**
+ * Same model as MODEL_POWERFUL — both point to DeepSeek-R1.
+ * The distinction is kept for forward compatibility: if a faster/cheaper
+ * model becomes available for the iterative chat loop, update MODEL_FAST only.
+ */
+export const MODEL_FAST = "deepseek-r1-distill-llama-70b";
 
 // Singleton for the env-var key; per-key cache for user-provided keys.
 let _envClient: Groq | null = null;
@@ -267,13 +270,23 @@ function readRawResponse(
   };
   const msg = c.choices[0]?.message;
   if (!msg) throw new GroqClientError("EMPTY_RESPONSE", "Groq returned an empty response");
-  const hasContent = !!msg.content;
+
+  // DeepSeek-R1 reasoning models emit <think>...</think> blocks before the
+  // final answer. Strip them here — at the source — so every downstream
+  // consumer (chat-agent loop, parseAgentResponse, conversation history)
+  // always receives clean content without reasoning traces.
+  const rawContent = msg.content ?? null;
+  const content = rawContent
+    ? (rawContent.replace(/<think>[\s\S]*?<\/think>/gi, "").trim() || null)
+    : null;
+
+  const hasContent = !!content;
   const hasCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
   if (!hasContent && !hasCalls) {
     throw new GroqClientError("EMPTY_RESPONSE", "Groq returned neither content nor tool calls");
   }
   return {
-    content: msg.content ?? null,
+    content,
     toolCalls: hasCalls ? (msg.tool_calls as ToolCall[]) : null,
     model: c.model,
     usage: {
