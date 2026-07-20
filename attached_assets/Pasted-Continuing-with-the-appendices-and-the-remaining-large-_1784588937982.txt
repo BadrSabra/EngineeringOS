@@ -1,0 +1,85 @@
+Continuing with the appendices and the remaining large-repo tables.
+
+## 17) Coverage Table
+
+| ID    | Scope                                                       |      Examined |                                                 Deferred | Why deferred                                           | Impact on confidence             |
+| ----- | ----------------------------------------------------------- | ------------: | -------------------------------------------------------: | ------------------------------------------------------ | -------------------------------- |
+| C-001 | `artifacts/api-server/src/*`                                |          100% |                                                        0 | Core runtime, fully traced                             | High confidence                  |
+| C-002 | `artifacts/dashboard/src/*`                                 |         ~100% |                                                        0 | UI routing and shell inspected; no test suite present  | Medium confidence                |
+| C-003 | `lib/ai-orchestrator/src/*`                                 |          100% |                                                        0 | Central orchestration layer, fully traced              | High confidence                  |
+| C-004 | `lib/scanner/src/*`                                         |          100% |                                                        0 | Core analysis engine, fully traced                     | High confidence                  |
+| C-005 | `lib/knowledge-engine/src/*`                                |          100% |                                                        0 | Small pure utility layer, fully traced                 | High confidence                  |
+| C-006 | `lib/db/src/*`                                              |          100% |                                                        0 | Persistence schema and helper surface, fully traced    | High confidence                  |
+| C-007 | `lib/api-spec/*`, `lib/api-zod/*`, `lib/api-client-react/*` |          100% |                                                        0 | Contract chain and generated artifacts inspected       | High confidence                  |
+| C-008 | `scripts/*`                                                 |          100% |                                                        0 | Tooling and validation scripts inspected               | High confidence                  |
+| C-009 | `docs/*`, `.agents/memory/*`, `attached_assets/*`           | ~100% sampled |                            Some binaries/assets excluded | Large historical set; used as supporting evidence only | Medium confidence                |
+| C-010 | Binary/assets under 1 MB                                    |      Excluded |                                                 44 files | No runtime logic and mostly assets                     | Low effect on runtime confidence |
+| C-011 | Large/binary files over 1 MB                                |      Excluded | 0 files above threshold that required runtime inspection | None met mandatory runtime-in-path condition           | No reduction                     |
+| C-012 | Runtime entry coverage                                      |          100% |                                                        0 | Start points identified and traced                     | High confidence                  |
+
+## 18) Dependency Table
+
+| Source                                         | Dependent                                                         | Relationship type                       | Coupling strength |
+| ---------------------------------------------- | ----------------------------------------------------------------- | --------------------------------------- | ----------------- |
+| `artifacts/api-server/src/index.ts`            | `app.ts`, `job-reconciliation.ts`, `startup-migrations.ts`        | Bootstrap sequencing                    | Strong            |
+| `artifacts/api-server/src/app.ts`              | `routes/*`, auth middleware, security middleware                  | HTTP composition                        | Strong            |
+| `artifacts/api-server/src/routes/ai.ts`        | `lib/ai-orchestrator/*`, `lib/db`, `lib/scanner`, `heavyJobQueue` | Transport → orchestration → persistence | Strong            |
+| `artifacts/api-server/src/routes/projects.ts`  | `scan-runner.ts`, DB tables                                       | Job scheduling / project state mutation | Strong            |
+| `artifacts/api-server/src/routes/discovery.ts` | `discovery-runner.ts`, DB tables                                  | Import workflow                         | Strong            |
+| `artifacts/api-server/src/lib/job-queue.ts`    | `scan-runner.ts`, `discovery-runner.ts`, AI task jobs             | In-process execution queue              | Strong            |
+| `lib/ai-orchestrator/src/context-builder.ts`   | `lib/db`, cache                                                   | Context assembly                        | Medium            |
+| `lib/ai-orchestrator/src/groq-client.ts`       | Groq SDK, env config                                              | Provider adapter                        | Strong            |
+| `lib/scanner/src/file-walker.ts`               | filesystem                                                        | Input enumeration                       | Strong            |
+| `lib/scanner/src/graph-extractor.ts`           | scanner outputs                                                   | Structural analysis                     | Medium            |
+| `lib/knowledge-engine/src/*`                   | query consumers                                                   | Pure analysis helpers                   | Medium            |
+| `lib/db/src/schema/*`                          | server routes, runners, scripts                                   | Shared persistence contract             | Strong            |
+| `lib/api-spec/openapi.yaml`                    | generated client/zod, parity scripts                              | Contract root                           | Strong            |
+| `scripts/check-codegen-drift.ts`               | generated outputs, OpenAPI                                        | Guardrail                               | Strong            |
+| `artifacts/dashboard/src/App.tsx`              | generated client, Clerk                                           | Presentation shell                      | Strong            |
+
+## 19) Runtime Trace Table
+
+| Path                      | Entry point                                            | Intermediaries                                                                                                 | Exit point                                                   | Potential failure                     | Failure impact                                    |
+| ------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------- | ------------------------------------------------- |
+| P-001 Bootstrap           | `artifacts/api-server/src/index.ts:1-38`               | `reconcileStuckJobs()` → `fixDeadRootPaths()` → `app.listen()` → stale-job sweep                               | Server ready and background reconciliation running           | DB unavailable or env invalid         | Server fails to start or starts in degraded state |
+| P-002 Project scan        | `artifacts/api-server/src/routes/projects.ts:184-223`  | DB insert → `heavyJobQueue.enqueue()` → `scan-runner.ts:169-194` → `scan-runner.ts:248-475`                    | Scan result persisted, metrics updated, events/audit written | Queue drop or transaction failure     | Scan lost or marked failed                        |
+| P-003 Discovery import    | `artifacts/api-server/src/routes/discovery.ts:133-283` | Session creation → `runDiscovery()` → language/framework detection → source import                             | Discovery session set to ready or error                      | Runner error or bad input path        | Import incomplete or failed                       |
+| P-004 AI chat             | `artifacts/api-server/src/routes/ai.ts:454-865`        | Ownership checks → rate limit → context builder → provider resolution/fallback → agent response → persistence  | Response returned and conversation stored                    | Provider failure or parse failure     | Request fails with 4xx/5xx or degraded fallback   |
+| P-005 AI apply changes    | `artifacts/api-server/src/routes/ai.ts:927-1048`       | Path validation → sensitive extension guard → containment check → file writes → audit/event/cache invalidation | Files modified and logged                                    | Invalid path or blocked file type     | Refusal or partial no-op                          |
+| P-006 AI task execution   | `artifacts/api-server/src/routes/ai.ts:1335-1699`      | Claim guard → rate limit → execution → verification result → logs/events; async path via queue                 | Task state transitions recorded                              | Verification failure or queue failure | Task may remain pending/failed                    |
+| P-007 Codegen drift check | `scripts/check-codegen-drift.ts:1-16, 27-40`           | OpenAPI source → generated artifacts parity check                                                              | CI pass or fail                                              | Missing regeneration                  | Merge blocked or drift accepted if bypassed       |
+
+## 20) Additional Critical Observations
+
+| ID    | Path / Scope                                         | Type | Role (Documented vs Actual)                              | Evidence                                              | Status    | Confidence | Impact                                     | Dependencies              | Next Action                     |
+| ----- | ---------------------------------------------------- | ---- | -------------------------------------------------------- | ----------------------------------------------------- | --------- | ---------- | ------------------------------------------ | ------------------------- | ------------------------------- |
+| O-001 | `artifacts/api-server/src/routes/upload.ts`          | File | Live route that is not represented in the contract chain | `routes/upload.ts:1-91`                               | Confirmed | High       | Contract mismatch                          | OpenAPI, generated client | Add spec coverage               |
+| O-002 | `artifacts/api-server/src/lib/startup-migrations.ts` | File | Startup repair logic for root-path cleanup               | `startup-migrations.ts:29-60`                         | Confirmed | Medium     | Recovery behavior on boot                  | DB, path state            | Keep and monitor                |
+| O-003 | `artifacts/api-server/src/lib/feature-flags.ts`      | File | Central flag gate for behavior toggles                   | `feature-flags.ts:1-37`                               | Confirmed | Medium     | Can alter runtime behavior                 | env/config                | Document flag semantics         |
+| O-004 | `lib/api-client-react/src/src/use-entity-events.ts`  | File | SSE-style client hook for entity events                  | `use-entity-events.ts:1-...`                          | Confirmed | Medium     | Real-time UI updates                       | backend events endpoint   | Add integration tests           |
+| O-005 | `lib/scanner/src/metrics-calc.ts`                    | File | Heuristic metrics estimator                              | `metrics-calc.ts:1-...` and `schema/metrics.ts:18-38` | Confirmed | Medium     | Metrics can be misread as literal coverage | scanner outputs           | Rename/clarify metric semantics |
+
+## 21) Unresolved Items
+
+| ID    | Scope                                    | Reason unresolved                                                                        | Verification plan                                                     |
+| ----- | ---------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| U-001 | Full browser-level behavior of dashboard | Static file review cannot confirm actual user-flow behavior                              | Run dashboard in browser against real API and record page transitions |
+| U-002 | Real durability under host restart       | In-process queue logic is visible, but actual host failure behavior is runtime-dependent | Kill the server during queued work and inspect recovery on restart    |
+| U-003 | External provider failure modes          | Provider adapter code is visible, but live API behavior is external                      | Inject failures / rate limits in a staging environment                |
+| U-004 | Generated client parity at runtime       | Generated files exist, but build-time and browser runtime parity need execution          | Run codegen drift script and browser smoke tests                      |
+| U-005 | Historical docs accuracy                 | Docs are supporting evidence, not truth                                                  | Reconcile each claim against code and tests only                      |
+
+## 22) File Group Summary
+
+| Group                                  | Notable status       | Main takeaway                                                       |
+| -------------------------------------- | -------------------- | ------------------------------------------------------------------- |
+| `artifacts/api-server`                 | Core runtime         | Strong, but AI route and job queue are the main complexity hotspots |
+| `artifacts/dashboard`                  | Presentation         | Implemented, but test coverage is thin                              |
+| `lib/ai-orchestrator`                  | Core orchestration   | Good provider discipline and caching, with fallback logic           |
+| `lib/scanner`                          | Core analysis        | Clean and explicit, with bounded traversal                          |
+| `lib/db`                               | Core state           | Mature and consistent schema surface                                |
+| `lib/api-spec` + generated packages    | Contract / generated | Mostly aligned, except for the upload route drift                   |
+| `scripts`                              | Tooling              | Useful guardrails already in place                                  |
+| `docs` / `.agents` / `attached_assets` | Historical evidence  | Useful for context only, not governing truth                        |
+
+want the next step, I can keep going with a **file-by-file appendix for the remaining high-impact modules** or turn this into a **PR-by-PR execution checklist**.
