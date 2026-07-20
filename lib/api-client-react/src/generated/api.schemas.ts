@@ -5,6 +5,22 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+export interface ApiError {
+  error: string;
+}
+
+export interface ArchiveUploadInput {
+  /** Archive file (.zip or .tar.gz), max 50 MB */
+  archive: Blob;
+}
+
+export interface ArchiveUploadOutput {
+  /** Opaque ID referencing the extracted upload. Pass this as `sourceConfig.uploadId` when starting an ARCHIVE_UPLOAD discovery session. */
+  uploadId: string;
+  /** Original filename as reported by the browser. */
+  originalName: string;
+}
+
 export type HealthStatusStatus = typeof HealthStatusStatus[keyof typeof HealthStatusStatus];
 
 

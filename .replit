@@ -23,6 +23,3 @@ timeoutMs = 20000
 channel = "stable-25_05"
 
 [userenv]
-
-[userenv.shared]
-AI_CREDENTIALS_ENCRYPTION_KEY = "48fc84bc494b9d76da4eb904c4854f96422cb2b1595c134d9a8c6f56b15d0909"

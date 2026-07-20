@@ -32,6 +32,9 @@ import type {
   AiOrchestrationDecision,
   AiReviewRequest,
   AiScanAnalysis,
+  ApiError,
+  ArchiveUploadInput,
+  ArchiveUploadOutput,
   CreateProjectInput,
   CreateRuleInput,
   CreateTaskInput,
@@ -4321,6 +4324,79 @@ export const useImportProject = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getImportProjectMutationOptions(options));
+    }
+
+export const getUploadArchiveUrl = () => {
+
+
+
+
+  return `/api/upload/archive`
+}
+
+/**
+ * @summary Upload a .zip or .tar.gz archive for ARCHIVE_UPLOAD discovery
+ */
+export const uploadArchive = async (archiveUploadInput: ArchiveUploadInput, options?: RequestInit): Promise<ArchiveUploadOutput> => {
+    const formData = new FormData();
+formData.append(`archive`, archiveUploadInput.archive);
+
+  return customFetch<ArchiveUploadOutput>(getUploadArchiveUrl(),
+  {
+    ...options,
+    method: 'POST'
+    ,
+    body: formData
+  }
+);}
+
+
+
+
+
+export const getUploadArchiveMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadArchive>>, TError,{data: BodyType<ArchiveUploadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof uploadArchive>>, TError,{data: BodyType<ArchiveUploadInput>}, TContext> => {
+
+const mutationKey = ['uploadArchive'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof uploadArchive>>, {data: BodyType<ArchiveUploadInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  uploadArchive(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UploadArchiveMutationResult = NonNullable<Awaited<ReturnType<typeof uploadArchive>>>
+    export type UploadArchiveMutationBody = BodyType<ArchiveUploadInput>
+    export type UploadArchiveMutationError = ErrorType<ApiError>
+
+    /**
+ * @summary Upload a .zip or .tar.gz archive for ARCHIVE_UPLOAD discovery
+ */
+export const useUploadArchive = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadArchive>>, TError,{data: BodyType<ArchiveUploadInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof uploadArchive>>,
+        TError,
+        {data: BodyType<ArchiveUploadInput>},
+        TContext
+      > => {
+      return useMutation(getUploadArchiveMutationOptions(options));
     }
 
 export const getGetDashboardUrl = () => {

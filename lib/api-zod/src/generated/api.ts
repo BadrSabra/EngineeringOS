@@ -2100,6 +2100,19 @@ export const ImportProjectResponse = zod.object({
 
 
 /**
+ * @summary Upload a .zip or .tar.gz archive for ARCHIVE_UPLOAD discovery
+ */
+export const UploadArchiveBody = zod.object({
+  "archive": zod.instanceof(File).describe('Archive file (.zip or .tar.gz), max 50 MB')
+})
+
+export const UploadArchiveResponse = zod.object({
+  "uploadId": zod.string().describe('Opaque ID referencing the extracted upload. Pass this as `sourceConfig.uploadId` when starting an ARCHIVE_UPLOAD discovery session.\n'),
+  "originalName": zod.string().describe('Original filename as reported by the browser.')
+})
+
+
+/**
  * @summary Aggregated dashboard data (projects, active tasks, recent events, scores)
  */
 export const GetDashboardResponse = zod.object({

@@ -1340,6 +1340,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/Project"
 
+  # ─── Upload ──────────────────────────────────────────────────────────────────
+  /api/upload/archive:
+    post:
+      operationId: uploadArchive
+      summary: Upload a .zip or .tar.gz archive for ARCHIVE_UPLOAD discovery
+      tags: [Upload]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ArchiveUploadInput"
+      responses:
+        "201":
+          description: Archive uploaded and extracted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArchiveUploadOutput"
+        "400":
+          description: Missing file or unsupported archive format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: Archive extraction failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
   # ─── Dashboard aggregate ─────────────────────────────────────────────────────
   /api/dashboard:
     get:
@@ -1986,6 +2018,35 @@ components:
         SDK after sign-in — no manual header injection is needed.
 
   schemas:
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    ArchiveUploadInput:
+      type: object
+      required: [archive]
+      properties:
+        archive:
+          type: string
+          format: binary
+          description: Archive file (.zip or .tar.gz), max 50 MB
+
+    ArchiveUploadOutput:
+      type: object
+      required: [uploadId, originalName]
+      properties:
+        uploadId:
+          type: string
+          description: >
+            Opaque ID referencing the extracted upload. Pass this as
+            `sourceConfig.uploadId` when starting an ARCHIVE_UPLOAD discovery session.
+        originalName:
+          type: string
+          description: Original filename as reported by the browser.
+
     HealthStatus:
       type: object
       required: [status]
