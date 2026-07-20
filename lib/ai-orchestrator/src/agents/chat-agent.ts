@@ -41,6 +41,7 @@
  *   dashboard UI before anything is written.
  */
 import { completeRaw, MODEL_POWERFUL, MODEL_FAST } from "../groq-client.js";
+import { deepseekCompleteRaw, DEEPSEEK_MODEL_FAST, DEEPSEEK_MODEL_POWERFUL } from "../deepseek-client.js";
 import { GroqClientError } from "../errors.js";
 import type { AgentErrorCode } from "../errors.js";
 import type { RawMessage } from "../groq-client.js";
@@ -165,10 +166,17 @@ export async function chat(opts: {
   projectContext: ProjectContext;
   /** Absolute path to the project root on disk. Activates file-system tools when provided. */
   rootPath?: string;
-  /** Optional per-user Groq API key. Falls back to process.env.GROQ_API_KEY. */
+  /** Optional per-user API key for the selected provider. */
   apiKey?: string;
+  /** AI provider to use. Defaults to "groq". */
+  provider?: "groq" | "deepseek";
 }): Promise<ChatResult> {
-  const { message, history, projectContext, rootPath, apiKey } = opts;
+  const { message, history, projectContext, rootPath, apiKey, provider = "groq" } = opts;
+
+  // Route to the correct client + model constants based on provider.
+  const callRaw     = provider === "deepseek" ? deepseekCompleteRaw : completeRaw;
+  const fastModel   = provider === "deepseek" ? DEEPSEEK_MODEL_FAST    : MODEL_FAST;
+  const powerModel  = provider === "deepseek" ? DEEPSEEK_MODEL_POWERFUL : MODEL_POWERFUL;
 
   const pendingChanges: PendingChange[] = [];
 
@@ -210,7 +218,7 @@ export async function chat(opts: {
   // وهو ضروري لمقارنة model !== MODEL_POWERFUL عند fallback النموذج.
   // إصلاح #2: استخدم MODEL_POWERFUL عندما يطلب المستخدم تنفيذاً فعلياً للأدوات
   // (اختبر، نفّذ، run...) — يمنع MODEL_FAST من اختراع مسارات وهمية بدل قراءة الكود الحقيقي.
-  const model: string = (rootPath && requiresToolExecution(message)) ? MODEL_POWERFUL : MODEL_FAST;
+  const model: string = (rootPath && requiresToolExecution(message)) ? powerModel : fastModel;
 
   const messages: RawMessage[] = [
     { role: "system", content: buildChatSystemPrompt(projectContext, !!rootPath) },
@@ -224,13 +232,15 @@ export async function chat(opts: {
     // إعادة المحاولة بالنموذج الأقوى تُنقذ الطلب بدل إرجاع 502 للمستخدم.
     let result: Awaited<ReturnType<typeof completeRaw>>;
     try {
-      result = await completeRaw(messages, { model, maxTokens: 4096, timeoutMs: 60_000, apiKey, tools });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      result = await (callRaw as any)(messages, { model, maxTokens: 4096, timeoutMs: 60_000, apiKey, tools });
     } catch (err) {
-      if (err instanceof GroqClientError && err.code === "NON_200" && model !== MODEL_POWERFUL) {
+      if (err instanceof GroqClientError && err.code === "NON_200" && model !== powerModel) {
         console.warn(
-          JSON.stringify({ scope: "chat-agent", code: "MODEL_FALLBACK", from: model, to: MODEL_POWERFUL, iter }),
+          JSON.stringify({ scope: "chat-agent", code: "MODEL_FALLBACK", from: model, to: powerModel, provider, iter }),
         );
-        result = await completeRaw(messages, { model: MODEL_POWERFUL, maxTokens: 4096, timeoutMs: 60_000, apiKey, tools });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        result = await (callRaw as any)(messages, { model: powerModel, maxTokens: 4096, timeoutMs: 60_000, apiKey, tools });
       } else {
         throw err;
       }

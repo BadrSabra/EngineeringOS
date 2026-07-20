@@ -22,7 +22,9 @@ import type { AiStreamErrorEvent } from '@workspace/api-client-react';
 type Project = { id: string; name: string; language: string };
 type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string; sources?: string; createdAt: string };
 type Session = { id: string; title: string; updatedAt: string };
-type GroqKeyStatus = { configured: boolean; last4: string | null; updatedAt: string | null };
+type GroqKeyStatus    = { configured: boolean; last4: string | null; updatedAt: string | null };
+type DeepSeekKeyStatus = { configured: boolean; last4: string | null; updatedAt: string | null };
+type ActiveProvider   = { provider: 'groq' | 'deepseek' | null; configured: boolean };
 type PendingChange = {
   path: string;
   absolutePath: string;
@@ -283,6 +285,112 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
   );
 }
 
+function DeepSeekKeyCard() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [keyInput, setKeyInput] = useState('');
+  const [showInput, setShowInput] = useState(false);
+
+  const { data: status, isLoading } = useQuery<DeepSeekKeyStatus>({
+    queryKey: ['deepseek-key-status'],
+    queryFn: () => apiGet<DeepSeekKeyStatus>('/api/ai/deepseek-key'),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: (apiKey: string) => apiPut<DeepSeekKeyStatus>('/api/ai/deepseek-key', { apiKey }),
+    onSuccess: (data) => {
+      void qc.setQueryData(['deepseek-key-status'], data);
+      void qc.invalidateQueries({ queryKey: ['active-provider'] });
+      setKeyInput('');
+      setShowInput(false);
+      toast({ title: 'DeepSeek key saved', description: `Ends in ···${data.last4}` });
+    },
+    onError: (err) => {
+      toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => apiDelete<{ configured: boolean }>('/api/ai/deepseek-key'),
+    onSuccess: () => {
+      void qc.setQueryData(['deepseek-key-status'], { configured: false, last4: null, updatedAt: null });
+      void qc.invalidateQueries({ queryKey: ['active-provider'] });
+      toast({ title: 'DeepSeek key removed' });
+    },
+    onError: (err) => {
+      toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+    },
+  });
+
+  function handleSave() {
+    const trimmed = keyInput.trim();
+    if (trimmed.length < 10) {
+      toast({ title: 'Key too short', description: 'Enter a valid DeepSeek API key.', variant: 'destructive' });
+      return;
+    }
+    saveMutation.mutate(trimmed);
+  }
+
+  return (
+    <div className="mx-2 mb-2 rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+      <div className="flex items-center gap-1.5 mb-2">
+        <Key className="w-3 h-3 text-muted-foreground" />
+        <span className="font-mono text-muted-foreground uppercase tracking-wider">DeepSeek API Key</span>
+        <span className="ml-auto text-[10px] text-emerald-500 font-medium">Preferred</span>
+      </div>
+
+      {isLoading ? (
+        <p className="text-muted-foreground">Loading…</p>
+      ) : status?.configured ? (
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-green-500">
+            <Check className="w-3 h-3" />
+            <span>···{status.last4}</span>
+          </div>
+          <div className="flex gap-1">
+            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs" onClick={() => setShowInput((v) => !v)}>
+              Change
+            </Button>
+            <Button
+              size="sm" variant="ghost"
+              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive"
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-muted-foreground mb-2">
+          Get a free key at <span className="font-mono">platform.deepseek.com</span> — higher quality than Groq.
+        </p>
+      )}
+
+      {(showInput || !status?.configured) && (
+        <div className="flex gap-1 mt-2">
+          <Input
+            type="password"
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            placeholder="sk-…"
+            className="h-7 text-xs font-mono bg-background border-border flex-1"
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
+            autoComplete="new-password"
+          />
+          <Button
+            size="sm" className="h-7 px-2 text-xs"
+            onClick={handleSave}
+            disabled={saveMutation.isPending || !keyInput.trim()}
+          >
+            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GroqKeyCard() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -409,6 +517,12 @@ export default function AiChat() {
   // rather than a client-side timer that rotated through fake labels.
   const [agentStage, setAgentStage] = useState<string | null>(null);
   const { send: streamSend, isPending: isSending } = useAiChatStream();
+
+  const { data: activeProvider } = useQuery<ActiveProvider>({
+    queryKey: ['active-provider'],
+    queryFn: () => apiGet<ActiveProvider>('/api/ai/active-provider'),
+    staleTime: 30_000,
+  });
 
   // G-06 fix: pending changes are stored with a timestamp so stale entries
   // (from a crashed/closed tab after the server wrote the files but before
@@ -704,8 +818,9 @@ export default function AiChat() {
           </div>
         </ScrollArea>
 
-        {/* Groq API Key card — bottom of sidebar */}
+        {/* Provider key cards — bottom of sidebar */}
         <div className="border-t border-border pt-2">
+          <DeepSeekKeyCard />
           <GroqKeyCard />
         </div>
       </div>
@@ -716,7 +831,9 @@ export default function AiChat() {
         <div className="h-12 border-b border-border flex items-center px-4 gap-2 shrink-0">
           <Bot className="w-4 h-4 text-primary" />
           <span className="text-sm font-medium">EngineeringOS AI</span>
-          <Badge variant="outline" className="text-xs font-mono ml-auto">DeepSeek R1 · Groq</Badge>
+          <Badge variant="outline" className="text-xs font-mono ml-auto">
+            {activeProvider?.provider === 'deepseek' ? 'DeepSeek V3' : 'Llama 3.3 · Groq'}
+          </Badge>
         </div>
 
         {/* Messages */}

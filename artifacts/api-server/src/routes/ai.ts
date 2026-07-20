@@ -172,13 +172,8 @@ function handleOrchestratorError(
  *
  * Resolution order:
  *   1. User's own saved key (decrypted from DB).
- *   2. Server-wide fallback: process.env.GROQ_API_KEY — allows platform
- *      operators to pre-configure a shared key without requiring every user
- *      to supply their own.
+ *   2. Server-wide fallback: process.env.GROQ_API_KEY.
  *   3. undefined — caller MUST return 428 to the client.
- *
- * The key value is never logged. Errors during decryption are logged without
- * the ciphertext or decrypted value.
  */
 async function resolveGroqApiKey(userId: string): Promise<string | undefined> {
   const [row] = await db
@@ -196,20 +191,79 @@ async function resolveGroqApiKey(userId: string): Promise<string | undefined> {
     try {
       return decryptApiKey(row.encryptedApiKey);
     } catch (err) {
-      // Log the error but never the ciphertext or decrypted value.
       logger.error({ err, ownerId: userId }, "Failed to decrypt stored Groq API key — falling back to env");
     }
   }
 
-  // Server-wide fallback — present when the platform operator has configured
-  // GROQ_API_KEY in the environment (e.g. during onboarding before users have
-  // set up their own keys).
   return process.env.GROQ_API_KEY || undefined;
 }
 
 /**
+ * Resolve the DeepSeek API key for a given user (DB only, no env fallback).
+ */
+async function resolveDeepSeekApiKey(userId: string): Promise<string | undefined> {
+  const [row] = await db
+    .select()
+    .from(aiProviderCredentialsTable)
+    .where(
+      and(
+        eq(aiProviderCredentialsTable.ownerId, userId),
+        eq(aiProviderCredentialsTable.provider, "deepseek"),
+      ),
+    )
+    .limit(1);
+
+  if (row) {
+    try {
+      return decryptApiKey(row.encryptedApiKey);
+    } catch (err) {
+      logger.error({ err, ownerId: userId }, "Failed to decrypt stored DeepSeek API key");
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Resolve which AI provider to use for a request.
+ *
+ * Priority: DeepSeek (if key saved) → Groq (key or env fallback) → undefined.
+ * DeepSeek is preferred when configured because it is the higher-quality option.
+ */
+async function resolveProvider(
+  userId: string,
+): Promise<{ provider: "groq" | "deepseek"; apiKey: string } | undefined> {
+  const deepseekKey = await resolveDeepSeekApiKey(userId);
+  if (deepseekKey) return { provider: "deepseek", apiKey: deepseekKey };
+
+  const groqKey = await resolveGroqApiKey(userId);
+  if (groqKey) return { provider: "groq", apiKey: groqKey };
+
+  return undefined;
+}
+
+/**
+ * Rejects the request with 428 if no provider key can be resolved.
+ * Returns { provider, apiKey } on success, null on failure (response already sent).
+ */
+async function requireProvider(
+  userId: string,
+  res: import("express").Response,
+): Promise<{ provider: "groq" | "deepseek"; apiKey: string } | null> {
+  const resolved = await resolveProvider(userId);
+  if (!resolved) {
+    res.status(428).json({
+      error: "AI provider not configured",
+      hint: "Save a DeepSeek API key via PUT /api/ai/deepseek-key or a Groq API key via PUT /api/ai/groq-key.",
+    });
+    return null;
+  }
+  return resolved;
+}
+
+/**
  * Rejects the request with 428 if no Groq API key can be resolved.
- * Returns the key string on success, null on failure (response already sent).
+ * Kept for backward-compatibility with non-chat routes that only support Groq.
  */
 async function requireGroqApiKey(
   userId: string,
@@ -225,6 +279,68 @@ async function requireGroqApiKey(
   }
   return key;
 }
+
+// ── DeepSeek key management ──────────────────────────────────────────────────
+
+/** GET /api/ai/deepseek-key — return DeepSeek key status (never the key itself) */
+router.get("/ai/deepseek-key", async (req, res) => {
+  const [row] = await db
+    .select({ last4: aiProviderCredentialsTable.last4, updatedAt: aiProviderCredentialsTable.updatedAt })
+    .from(aiProviderCredentialsTable)
+    .where(and(
+      eq(aiProviderCredentialsTable.ownerId, req.userId),
+      eq(aiProviderCredentialsTable.provider, "deepseek"),
+    ))
+    .limit(1);
+  if (!row) return res.json({ configured: false, last4: null, updatedAt: null });
+  return res.json({ configured: true, last4: row.last4, updatedAt: row.updatedAt });
+});
+
+/** PUT /api/ai/deepseek-key — save or update the user's DeepSeek API key */
+router.put("/ai/deepseek-key", async (req, res) => {
+  const { apiKey } = req.body as { apiKey?: string };
+  if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length < 10) {
+    return res.status(400).json({ error: "apiKey must be at least 10 characters" });
+  }
+  const trimmed = apiKey.trim();
+  const last4 = trimmed.slice(-4);
+  let encryptedApiKey: string;
+  try {
+    encryptedApiKey = encryptApiKey(trimmed);
+  } catch (err) {
+    logger.error({ err }, "DeepSeek key encryption failed");
+    return res.status(500).json({ error: "Key storage unavailable — encryption not configured" });
+  }
+  const now = new Date();
+  await db
+    .insert(aiProviderCredentialsTable)
+    .values({ id: randomUUID(), ownerId: req.userId, provider: "deepseek", encryptedApiKey, last4, createdAt: now, updatedAt: now })
+    .onConflictDoUpdate({
+      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+      set: { encryptedApiKey, last4, updatedAt: now },
+    });
+  return res.json({ configured: true, last4, updatedAt: now });
+});
+
+/** DELETE /api/ai/deepseek-key — remove the user's saved DeepSeek API key */
+router.delete("/ai/deepseek-key", async (req, res) => {
+  await db
+    .delete(aiProviderCredentialsTable)
+    .where(and(
+      eq(aiProviderCredentialsTable.ownerId, req.userId),
+      eq(aiProviderCredentialsTable.provider, "deepseek"),
+    ));
+  return res.json({ configured: false });
+});
+
+/** GET /api/ai/active-provider — which provider will be used for this user */
+router.get("/ai/active-provider", async (req, res) => {
+  const resolved = await resolveProvider(req.userId);
+  if (!resolved) return res.json({ provider: null, configured: false });
+  return res.json({ provider: resolved.provider, configured: true });
+});
+
+// ── Groq key management ──────────────────────────────────────────────────────
 
 /** GET /api/ai/groq-key — return key status (never the key itself) */
 router.get("/ai/groq-key", async (req, res) => {
@@ -363,9 +479,10 @@ router.post("/ai/chat", async (req, res) => {
         .limit(10)
     : [];
 
-  // Resolve API key — returns 428 and stops if neither user key nor env key is set
-  const apiKey = await requireGroqApiKey(req.userId, res);
-  if (apiKey === null) return;
+  // Resolve provider + API key (DeepSeek preferred over Groq when both configured).
+  const providerResolved = await requireProvider(req.userId, res);
+  if (!providerResolved) return;
+  const { provider, apiKey } = providerResolved;
 
   // Validate rootPath is accessible on disk before activating file-system tools.
   // If the project's stored path is a deleted temp directory (e.g. a GitHub
@@ -437,6 +554,7 @@ router.post("/ai/chat", async (req, res) => {
       projectContext,
       rootPath: validRootPath,
       apiKey,
+      provider,
     });
   } catch (err) {
     if (handleOrchestratorError(err, res, { projectId, operation: "chat" })) return;
@@ -554,8 +672,9 @@ router.post("/ai/chat/stream", async (req, res) => {
     });
   }
 
-  const apiKey = await requireGroqApiKey(req.userId, res);
-  if (apiKey === null) return;
+  const providerResolved = await requireProvider(req.userId, res);
+  if (!providerResolved) return;
+  const { provider, apiKey } = providerResolved;
 
   // ── SSE setup ──────────────────────────────────────────────────────────────
   res.setHeader("Content-Type", "text/event-stream");
@@ -629,6 +748,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       projectContext,
       rootPath: validRootPath,
       apiKey,
+      provider,
     });
   } catch (err) {
     if (err instanceof GroqClientError) {
