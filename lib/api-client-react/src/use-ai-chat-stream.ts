@@ -90,11 +90,20 @@ export function useAiChatStream() {
       if (!res.ok) {
         let parsed: { code?: string; error?: string; hint?: string } = {};
         try { parsed = await res.json() as typeof parsed; } catch { /* ignore */ }
+
+        // HTTP 401 without a structured code means the Clerk session expired
+        // (the auth middleware rejected the request before it reached the AI handler).
+        // Surface this as AUTH_ERROR so describeStreamError maps it to the
+        // correct 401 case with a session-expiry hint rather than the generic
+        // "Groq API key is invalid" fallback.
+        const isSessionExpiry = res.status === 401 && !parsed.code;
         callbacks.onError?.({
           type: 'error',
-          code: parsed.code ?? 'request_failed',
+          code: isSessionExpiry ? 'AUTH_ERROR' : (parsed.code ?? 'request_failed'),
           message: parsed.error ?? `Request failed (${res.status})`,
-          hint: parsed.hint,
+          hint: isSessionExpiry
+            ? 'جلستك انتهت — أعد تحميل الصفحة لتسجيل الدخول. / Your session expired — refresh the page to sign in again.'
+            : parsed.hint,
         });
         return;
       }

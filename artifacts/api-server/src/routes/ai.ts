@@ -602,8 +602,11 @@ router.post("/ai/chat/stream", async (req, res) => {
     } catch {
       try {
         await fs.access(WORKSPACE_FALLBACK);
+        // Use fallback for this request only — do NOT persist it to the DB.
+        // Writing WORKSPACE_FALLBACK over the stored rootPath would permanently
+        // expose the entire monorepo to AI file tools for every future request,
+        // regardless of what the project was originally scoped to (G-16 fix).
         validRootPath = WORKSPACE_FALLBACK;
-        await db.update(projectsTable).set({ rootPath: WORKSPACE_FALLBACK }).where(eq(projectsTable.id, projectId));
       } catch { /* neither accessible — file tools disabled */ }
     }
   }

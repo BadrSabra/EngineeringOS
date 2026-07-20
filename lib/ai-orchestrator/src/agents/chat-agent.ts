@@ -9,11 +9,11 @@
  *
  * Tool execution discipline — three interlocking guards:
  *
- *   MAX_TOOL_ITERATIONS (6)
+ *   MAX_TOOL_ITERATIONS (12)
  *     Bounds the number of model API calls. On exhaustion the agent returns a
  *     best-effort answer with whatever sources and pending changes accumulated.
  *
- *   MAX_TOOL_CALLS (10)
+ *   MAX_TOOL_CALLS (25)
  *     Bounds total tool executions across all iterations. Each iteration the
  *     model may request multiple tool calls in a single response; this cap
  *     prevents a single confused response from spawning unlimited executions.
@@ -64,7 +64,7 @@ export type ChatResult = ChatOutput & {
   _parseError?: { code: AgentErrorCode; message: string; raw: string };
 };
 
-const MAX_TOOL_ITERATIONS = 6;
+const MAX_TOOL_ITERATIONS = 12;
 
 /**
  * إصلاح #2 — اكتشاف نية التنفيذ الفعلي للأدوات.
@@ -88,7 +88,7 @@ function requiresToolExecution(message: string): boolean {
  * Prevents a single model response from requesting unbounded tool calls.
  * Duplicate calls do not count against this budget — they are free.
  */
-const MAX_TOOL_CALLS = 10;
+const MAX_TOOL_CALLS = 25;
 
 /**
  * Canonical cache key for a tool call.
@@ -456,12 +456,17 @@ export async function chat(opts: {
   console.warn(
     JSON.stringify({ scope: "chat-agent", code: "TOOL_LOOP_EXHAUSTED", iterations: MAX_TOOL_ITERATIONS }),
   );
+  // Bilingual exhaustion message: detect Arabic by checking if the original user
+  // message contains Arabic characters (Unicode block U+0600–U+06FF).
+  const isArabic = /[\u0600-\u06FF]/.test(message);
+  const exhaustionMessage = isArabic
+    ? "وصلت إلى الحد الأقصى من خطوات الأدوات. حاول طرح سؤال أكثر تحديداً أو تقسيمه إلى أجزاء أصغر."
+    : "I reached the maximum number of tool steps. Try asking a more specific question or break it into smaller parts.";
   return {
-    response:
-      "I reached the maximum number of tool steps. Try asking a more specific question or break it into smaller parts.",
+    response: exhaustionMessage,
     // Use accumulated tool sources rather than the generic "tool-loop" string
     // so the caller retains a record of what was actually accessed.
-    sources: toolSources.length > 0 ? toolSources : ["tool-loop"],
+    sources: toolSources.length > 0 ? toolSources : [],
     pendingChanges,
   };
 }
