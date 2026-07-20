@@ -32,6 +32,12 @@ export type DeepSeekCompleteOptions = {
   timeoutMs?: number;
   apiKey:     string;               // required — no server-side fallback for DeepSeek
   tools?:     ToolDefinition[];
+  /**
+   * Force a structured JSON response.
+   * Mutually exclusive with `tools` — when both are present, tools take precedence
+   * (same constraint as Groq). Only use in single-shot correction turns.
+   */
+  responseFormat?: { type: "json_object" };
 };
 
 /** Strip <think>…</think> reasoning blocks emitted by DeepSeek-R1. */
@@ -88,6 +94,9 @@ export async function deepseekCompleteRaw(
   if (hasTools) {
     body.tools        = tools;
     body.tool_choice  = "auto";
+  } else if (opts.responseFormat) {
+    // tools and response_format are mutually exclusive on DeepSeek (same as Groq).
+    body.response_format = opts.responseFormat;
   }
 
   const controller = new AbortController();

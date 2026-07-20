@@ -390,9 +390,12 @@ export async function chat(opts: {
       messages.push({ role: "assistant", content });
       messages.push({ role: "user", content: correctionPrompt });
       try {
-        // إصلاح #3: response_format: json_object يُجبر Groq على إرجاع JSON صالح.
-        // مقبول هنا لأن طلب التصحيح لا يحمل tools (متبادلان حصريًا على Groq).
-        const retry = await completeRaw(messages, {
+        // إصلاح #3: response_format: json_object يُجبر النموذج على إرجاع JSON صالح.
+        // Use provider-aware `callRaw` (not the hardcoded `completeRaw`) so that
+        // DeepSeek correction calls hit api.deepseek.com with the DeepSeek key
+        // instead of failing with AUTH_ERROR against Groq's endpoint.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const retry = await (callRaw as any)(messages, {
           model,
           maxTokens: 4096,
           apiKey,

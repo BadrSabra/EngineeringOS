@@ -557,20 +557,29 @@ router.post("/ai/chat", async (req, res) => {
     throw err;
   }
 
-  // PR-E: parse failure detected — surface as 422 so the dashboard shows a
-  // specific "model output invalid" message rather than a confusing degraded 200.
-  // The raw field is truncated to 500 chars to avoid leaking huge model outputs.
+  // PR-E: parse failure handling.
+  // If the fallback produced a usable response (result.response is non-empty),
+  // log a warning and proceed rather than hard-failing with 422 — the user gets
+  // a real answer even if the model didn't follow the strict JSON schema.
+  // Hard-fail only when the response itself is empty/unusable.
   if (result._parseError) {
-    return res.status(422).json({
-      error: "model_output_invalid",
-      code: "model_output_invalid",
-      hint: "The AI model returned an unexpected response — try rephrasing your message.",
-      raw: result._parseError.raw.slice(0, 500),
-      parseCode: result._parseError.code,
-    });
+    if (!result.response) {
+      return res.status(422).json({
+        error: "model_output_invalid",
+        code: "model_output_invalid",
+        hint: "The AI model returned an unexpected response — try rephrasing your message.",
+        raw: result._parseError.raw.slice(0, 500),
+        parseCode: result._parseError.code,
+      });
+    }
+    // Fallback response is non-empty — log the schema mismatch and continue.
+    logger.warn(
+      { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
+      "AI parse failure — using fallback response",
+    );
   }
 
-  // Groq call succeeded — now resolve or create the session.
+  // Model call succeeded — now resolve or create the session.
   // Creating the session here (Gap-9 fix) guarantees we never leave an empty
   // orphaned session when the Groq call fails above.
   const msgNow = new Date();
@@ -770,17 +779,27 @@ router.post("/ai/chat/stream", async (req, res) => {
     return;
   }
 
-  // PR-E: parse failure
+  // PR-E: parse failure handling.
+  // If the fallback extracted a usable response (result.response is non-empty),
+  // log a warning and continue — the user gets a real answer rather than an error.
+  // Hard-fail via SSE error only when the response itself is empty/unusable.
   if (result._parseError) {
-    sse({
-      type: "error",
-      code: "model_output_invalid",
-      message: "The AI model returned an unexpected response — try rephrasing your message.",
-      raw: result._parseError.raw.slice(0, 500),
-      parseCode: result._parseError.code,
-    });
-    res.end();
-    return;
+    if (!result.response) {
+      sse({
+        type: "error",
+        code: "model_output_invalid",
+        message: "The AI model returned an unexpected response — try rephrasing your message.",
+        raw: result._parseError.raw.slice(0, 500),
+        parseCode: result._parseError.code,
+      });
+      res.end();
+      return;
+    }
+    // Fallback response is non-empty — log and continue.
+    logger.warn(
+      { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
+      "AI parse failure — using fallback response",
+    );
   }
 
   // ── DB writes (identical to /api/ai/chat success path) ────────────────────

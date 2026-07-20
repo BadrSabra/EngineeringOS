@@ -258,8 +258,10 @@ describe("POST /api/ai/chat", () => {
     expect(Array.isArray(res.body.pendingChanges)).toBe(true);
   });
 
-  // PR-E: parse failure surfaced as 422 instead of silent degraded 200.
-  it("returns 422 with model_output_invalid when chat returns _parseError", async () => {
+  // PR-E (updated): _parseError with a non-empty fallback response → 200, not 422.
+  // DeepSeek (and other providers) may return valid text without strict JSON schema
+  // compliance; the fallback extracts the response and the route should deliver it.
+  it("returns 200 with fallback when chat has _parseError but non-empty response", async () => {
     const { chat: mockChat } = await import("@workspace/ai-orchestrator");
     vi.mocked(mockChat).mockResolvedValueOnce({
       response: "fallback text",
@@ -274,6 +276,27 @@ describe("POST /api/ai/chat", () => {
     const res = await request(app)
       .post("/api/ai/chat")
       .send({ projectId, message: "trigger parse failure" });
+    // Fallback produced a usable response — expect 200 with the message.
+    expect(res.status).toBe(200);
+    expect(res.body.message).toBeDefined();
+  });
+
+  // PR-E: hard-fail (422) only when the model returned an empty/unusable response.
+  it("returns 422 with model_output_invalid when chat returns _parseError with empty response", async () => {
+    const { chat: mockChat } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockChat).mockResolvedValueOnce({
+      response: "",
+      sources: [],
+      pendingChanges: [],
+      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "response: min 1", raw: "bad model output" },
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, message: "trigger hard parse failure" });
     expect(res.status).toBe(422);
     expect(res.body.error).toBe("model_output_invalid");
     expect(res.body.code).toBe("model_output_invalid");
