@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
-import { db, projectsTable, scanJobsTable, discoverySessionsTable } from "@workspace/db";
+import { db, projectsTable, scanJobsTable, discoverySessionsTable, tasksTable, taskLogsTable } from "@workspace/db";
 import { reconcileStuckJobs } from "./job-reconciliation.js";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -308,5 +308,130 @@ describe("reconcileStuckJobs", () => {
       .where(eq(discoverySessionsTable.id, sessionId))
       .limit(1);
     expect(session[0]?.status).toBe("ready");
+  });
+
+  // ── AI tasks: running → verifying (retryable) ─────────────────────────────
+
+  it("resets running AI tasks to verifying when retryCount < maxRetries", async () => {
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+
+    const taskId = randomUUID();
+    const now = new Date();
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "reconcile-test-task",
+      status: "running",
+      retryCount: 1,
+      maxRetries: 3,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await reconcileStuckJobs();
+    expect(result.aiTasks).toBeGreaterThanOrEqual(1);
+
+    const task = await db
+      .select()
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId))
+      .limit(1);
+    expect(task[0]?.status).toBe("verifying");
+    // retryCount must be incremented so we eventually give up
+    expect(task[0]?.retryCount).toBe(2);
+
+    // A task_log entry must have been written
+    const logs = await db
+      .select()
+      .from(taskLogsTable)
+      .where(eq(taskLogsTable.taskId, taskId));
+    expect(logs.length).toBeGreaterThan(0);
+    expect(logs[0]?.level).toBe("warn");
+
+    // Cleanup
+    await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+    await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+  });
+
+  // ── AI tasks: running → failed (retry limit exceeded) ─────────────────────
+
+  it("marks running AI tasks as failed when retryCount >= maxRetries", async () => {
+    vi.mocked(invalidateContextCache).mockClear();
+
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+
+    const taskId = randomUUID();
+    const now = new Date();
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "reconcile-test-task-exhausted",
+      status: "running",
+      retryCount: 3,
+      maxRetries: 3,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await reconcileStuckJobs();
+    expect(result.aiTasks).toBeGreaterThanOrEqual(1);
+
+    const task = await db
+      .select()
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId))
+      .limit(1);
+    expect(task[0]?.status).toBe("failed");
+    expect(task[0]?.completedAt).not.toBeNull();
+
+    // Cache must be busted so the AI context doesn't serve stale state
+    expect(vi.mocked(invalidateContextCache)).toHaveBeenCalledWith(projectId);
+
+    // A task_log error entry must have been written
+    const logs = await db
+      .select()
+      .from(taskLogsTable)
+      .where(eq(taskLogsTable.taskId, taskId));
+    expect(logs.length).toBeGreaterThan(0);
+    expect(logs[0]?.level).toBe("error");
+
+    // Cleanup
+    await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+    await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+  });
+
+  // ── AI tasks: terminal states untouched ───────────────────────────────────
+
+  it("does not touch AI tasks in terminal states (completed, failed, pending)", async () => {
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+
+    const now = new Date();
+    const completedId = randomUUID();
+    const failedId = randomUUID();
+    const pendingId = randomUUID();
+
+    await db.insert(tasksTable).values([
+      { id: completedId, projectId, title: "completed-task", status: "completed", createdAt: now, updatedAt: now, completedAt: now },
+      { id: failedId,    projectId, title: "failed-task",    status: "failed",    createdAt: now, updatedAt: now, completedAt: now },
+      { id: pendingId,   projectId, title: "pending-task",   status: "pending",   createdAt: now, updatedAt: now },
+    ]);
+
+    await reconcileStuckJobs();
+
+    const tasks = await db
+      .select({ id: tasksTable.id, status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.projectId, projectId));
+
+    const byId = Object.fromEntries(tasks.map((t) => [t.id, t.status]));
+    expect(byId[completedId]).toBe("completed");
+    expect(byId[failedId]).toBe("failed");
+    expect(byId[pendingId]).toBe("pending");
+
+    // Cleanup
+    await db.delete(tasksTable).where(eq(tasksTable.projectId, projectId));
   });
 });
