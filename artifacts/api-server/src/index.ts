@@ -1,7 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { getPort } from "./config";
-import { reconcileStuckJobs } from "./lib/job-reconciliation";
+import { reconcileStuckJobs, startStaleJobSweep } from "./lib/job-reconciliation";
 import { fixDeadRootPaths } from "./lib/startup-migrations";
 import { heavyJobQueue } from "./lib/job-queue";
 
@@ -30,4 +30,9 @@ app.listen(port, (err) => {
   // `failed` so callers can detect and re-submit them.
   const queueStats = heavyJobQueue.getStats();
   logger.info({ port, jobQueue: queueStats }, "Server listening");
+
+  // PR-02: start the periodic stale-job sweep now that the server is up.
+  // Handles scan jobs that get stuck while the process is running (not just
+  // crash-recovery, which is covered by reconcileStuckJobs above).
+  startStaleJobSweep();
 });

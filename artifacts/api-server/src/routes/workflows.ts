@@ -15,6 +15,11 @@ import { randomUUID } from "crypto";
 import { recordAudit } from "../lib/audit.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
+import {
+  checkAdvanceCondition,
+  computePhaseAdvancement,
+  type PhaseShape,
+} from "../services/workflow-service.js";
 
 const router = Router();
 
@@ -368,55 +373,42 @@ router.post("/workflows/:workflowId/advance", async (req, res) => {
     return res.status(409).json({ error: "Workflow has no running execution to advance" });
   }
 
-  // PR-D: evaluate the current phase's advance condition before moving forward.
-  // The condition is a JS expression evaluated against observable workflow state —
-  // qualityScore (from the project row, updated on each scan), currentPhase, and
-  // completedPhases. An empty/absent condition means "always advance" (no change
-  // to existing behaviour).
-  type PhaseShape = { name: string; condition?: string };
+  // Evaluate the current phase's advance condition using the safe evaluator
+  // (replaces the previous `new Function` approach — audit finding R-001/W-001).
+  // An empty/absent condition means "always advance".
   const allPhases = (workflow[0].phases as PhaseShape[]) ?? [];
   const currentPhaseObj = allPhases.find((p) => p.name === execution.currentPhase);
-  if (currentPhaseObj?.condition) {
-    const condition = currentPhaseObj.condition.trim();
-    const evalContext: Record<string, unknown> = {
-      qualityScore: advanceOwnerProject.qualityScore ?? null,
-      currentPhase: execution.currentPhase,
-      completedPhases: (execution.completedPhases as string[] | null) ?? [],
-    };
-    let conditionMet: boolean;
-    try {
-      // eslint-disable-next-line no-new-func
-      const fn = new Function(...Object.keys(evalContext), `return !!(${condition})`);
-      conditionMet = fn(...Object.values(evalContext)) as boolean;
-    } catch (err) {
+  const conditionCheck = checkAdvanceCondition(currentPhaseObj?.condition, {
+    qualityScore: advanceOwnerProject.qualityScore ?? null,
+    currentPhase: execution.currentPhase ?? "",
+    completedPhases: (execution.completedPhases as string[] | null) ?? [],
+  });
+  if (!conditionCheck.allowed) {
+    if (conditionCheck.reason === "condition_evaluation_error") {
       return res.status(400).json({
         error: "condition_evaluation_error",
-        condition,
-        detail: err instanceof Error ? err.message : String(err),
+        condition: conditionCheck.condition,
+        detail: conditionCheck.detail,
         hint: "Check condition expression syntax. Available variables: qualityScore (number|null), currentPhase (string), completedPhases (string[])",
       });
     }
-    if (!conditionMet) {
-      return res.status(409).json({
-        error: "condition_not_met",
-        condition,
-        hint: `Phase "${execution.currentPhase}" has an advance condition that is not yet satisfied`,
-        context: evalContext,
-        // blockers mirrors the AI orchestrator's wait-action shape so the
-        // dashboard can display both sources of blocking uniformly.
-        blockers: [`condition_not_met: ${condition}`],
-      });
-    }
+    return res.status(409).json({
+      error: "condition_not_met",
+      condition: conditionCheck.condition,
+      hint: `Phase "${execution.currentPhase}" has an advance condition that is not yet satisfied`,
+      context: conditionCheck.context,
+      // blockers mirrors the AI orchestrator's wait-action shape so the
+      // dashboard can display both sources of blocking uniformly.
+      blockers: [`condition_not_met: ${conditionCheck.condition}`],
+    });
   }
 
-  const phases = (workflow[0].phases as Array<{ name: string }>) ?? [];
-  const currentIndex = phases.findIndex((p) => p.name === execution.currentPhase);
-  const isLastPhase = currentIndex === -1 || currentIndex === phases.length - 1;
-  const nextPhase = isLastPhase ? null : phases[currentIndex + 1].name;
-  const completedPhases = [
-    ...((execution.completedPhases as string[] | null) ?? []),
-    ...(execution.currentPhase ? [execution.currentPhase] : []),
-  ];
+  const phases = (workflow[0].phases as PhaseShape[]) ?? [];
+  const { nextPhase, completedPhases, isLastPhase } = computePhaseAdvancement(
+    phases,
+    execution.currentPhase ?? "",
+    (execution.completedPhases as string[] | null) ?? [],
+  );
   const now = new Date();
 
   const correlationId = randomUUID();

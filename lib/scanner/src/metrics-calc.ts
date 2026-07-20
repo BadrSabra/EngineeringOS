@@ -8,7 +8,8 @@ export interface ComputedMetrics {
   maintainabilityScore: number;
   reliabilityScore: number;
   performanceScore: number;
-  testCoverage: number;
+  /** Structural proxy for test coverage — NOT measured branch/line coverage. */
+  structuralTestEstimate: number;
   technicalDebt: number;
   lintIssues: number;
 }
@@ -61,9 +62,9 @@ const TEST_CONFIG_RE =
  *      intentional test setup, not just stray test files.
  *
  * This is still a proxy metric — actual branch coverage requires instrumented
- * runs (Istanbul, coverage.py, etc.). Score is labelled as `testCoverage` in
- * `ComputedMetrics` to match the DB column, but callers should treat it as a
- * structural heuristic until real instrumentation data is wired in.
+ * runs (Istanbul, coverage.py, etc.). Score is labelled as `structuralTestEstimate`
+ * in `ComputedMetrics` to make the heuristic nature explicit — callers must not
+ * treat this number as measured branch/line coverage (audit finding W-004/R-003).
  */
 function computeTestCoverage(files: ScannedFile[]): number {
   const sourceFiles = files.filter(
@@ -169,15 +170,15 @@ export function computeMetrics(
   const performanceScore = clamp(100 - penalties.performance);
   const maintainabilityScore = clamp(100 - penalties.maintainability);
 
-  // testCoverage is included in the overall score so that projects with low
-  // test coverage cannot achieve a high overall score purely from clean code.
+  // structuralTestEstimate is included in the overall score so that projects
+  // with no test files cannot achieve a high overall score purely from clean code.
   // Weight distribution (must sum to 1.00):
-  //   Security        0.27  — highest risk if broken
-  //   Reliability     0.18
-  //   Maintainability 0.18
-  //   Performance     0.12
-  //   Architecture    0.15
-  //   TestCoverage    0.10  — structural proxy; keeps 0% coverage from hitting 99/100
+  //   Security               0.27  — highest risk if broken
+  //   Reliability            0.18
+  //   Maintainability        0.18
+  //   Performance            0.12
+  //   Architecture           0.15
+  //   StructuralTestEstimate 0.10  — structural proxy; keeps 0% from hitting 99/100
   const overallScore = clamp(
     securityScore * 0.27 +
     reliabilityScore * 0.18 +
@@ -188,7 +189,7 @@ export function computeMetrics(
   );
 
   const technicalDebt = Math.round((lintIssues * 30) / 60);
-  const testCoverage = computeTestCoverage(files);
+  const structuralTestEstimate = computeTestCoverage(files);
   const architectureScore = computeArchitectureScore(files);
 
   return {
@@ -198,7 +199,7 @@ export function computeMetrics(
     maintainabilityScore,
     reliabilityScore,
     performanceScore,
-    testCoverage,
+    structuralTestEstimate,
     technicalDebt,
     lintIssues,
   };

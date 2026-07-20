@@ -354,7 +354,7 @@ async function performScan(projectId: string): Promise<ScanJobResult> {
       maintainabilityScore: metrics.maintainabilityScore,
       reliabilityScore: metrics.reliabilityScore,
       performanceScore: metrics.performanceScore,
-      testCoverage: metrics.testCoverage,
+      testCoverage: metrics.structuralTestEstimate,
       technicalDebt: metrics.technicalDebt,
       lintIssues: metrics.lintIssues,
       correlationId,

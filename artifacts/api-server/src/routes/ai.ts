@@ -29,6 +29,7 @@ import {
 } from "@workspace/ai-orchestrator";
 import { recordAudit } from "../lib/audit.js";
 import { logger } from "../lib/logger.js";
+import { resolveRootPath } from "../lib/rootpath-validator.js";
 import { encryptApiKey, decryptApiKey } from "../lib/credentials-crypto.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { tryAdvisoryLock, LockNamespace } from "../lib/advisory-lock.js";
@@ -478,51 +479,11 @@ router.post("/ai/chat", async (req, res) => {
   if (!providerResolved) return;
   const { provider, apiKey } = providerResolved;
 
-  // Validate rootPath is accessible on disk before activating file-system tools.
-  // If the project's stored path is a deleted temp directory (e.g. a GitHub
-  // discovery clone under /tmp/eos-git-*), fall back to the workspace root so
-  // file tools remain active. If neither is accessible, degrade gracefully to
-  // knowledge-graph-only mode rather than disabling all tooling silently.
-  const WORKSPACE_FALLBACK = process.env.WORKSPACE_PATH ?? "/home/runner/workspace";
-  let validRootPath: string | undefined;
-  if (project.rootPath) {
-    try {
-      await fs.access(project.rootPath);
-      validRootPath = project.rootPath;
-    } catch {
-      // Primary path inaccessible — try workspace root as fallback.
-      try {
-        await fs.access(WORKSPACE_FALLBACK);
-        validRootPath = WORKSPACE_FALLBACK;
-        // G-16: log the fallback but do NOT persist it to the DB.  Writing
-        // WORKSPACE_FALLBACK permanently over the stored rootPath would expose
-        // the entire monorepo as the project's file scope and make the original
-        // path unrecoverable — e.g. if the project is re-scanned or re-imported
-        // after the temp clone is refreshed.  The fallback applies to this
-        // request only; the DB retains the authoritative (currently inaccessible)
-        // path so future operations can resolve it correctly.
-        console.warn(
-          JSON.stringify({
-            scope: "ai-route",
-            code: "ROOTPATH_FALLBACK",
-            original: project.rootPath,
-            fallback: WORKSPACE_FALLBACK,
-            projectId,
-            note: "transient fallback only — rootPath not persisted",
-          }),
-        );
-      } catch {
-        console.warn(
-          JSON.stringify({
-            scope: "ai-route",
-            code: "ROOTPATH_NOT_ACCESSIBLE",
-            rootPath: project.rootPath,
-            projectId,
-          }),
-        );
-      }
-    }
-  }
+  // Resolve the effective rootPath via the shared validator (audit W-005/R-004, PR-05).
+  // Falls back to workspace root if the stored path is inaccessible (e.g. a deleted
+  // /tmp git clone). Uses structured pino logging, not console.warn. G-16: fallback
+  // is request-scoped only — the stored rootPath is never overwritten.
+  const { validRootPath } = await resolveRootPath(project.rootPath, projectId);
 
   // Block chat context reads while an apply-changes operation is writing files
   // for this project. We probe the APPLY advisory lock non-blocking: if another
@@ -716,24 +677,8 @@ router.post("/ai/chat/stream", async (req, res) => {
         .limit(10)
     : [];
 
-  // rootPath validation (same logic as /api/ai/chat)
-  const WORKSPACE_FALLBACK = process.env.WORKSPACE_PATH ?? "/home/runner/workspace";
-  let validRootPath: string | undefined;
-  if (project.rootPath) {
-    try {
-      await fs.access(project.rootPath);
-      validRootPath = project.rootPath;
-    } catch {
-      try {
-        await fs.access(WORKSPACE_FALLBACK);
-        // Use fallback for this request only — do NOT persist it to the DB.
-        // Writing WORKSPACE_FALLBACK over the stored rootPath would permanently
-        // expose the entire monorepo to AI file tools for every future request,
-        // regardless of what the project was originally scoped to (G-16 fix).
-        validRootPath = WORKSPACE_FALLBACK;
-      } catch { /* neither accessible — file tools disabled */ }
-    }
-  }
+  // rootPath validation — shared validator (audit W-005/R-004, PR-05).
+  const { validRootPath } = await resolveRootPath(project.rootPath, projectId);
 
   // ── Stage: building context ────────────────────────────────────────────────
   sse({ type: "stage", stage: "building-context" });

@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Validate (codegen drift + typecheck + tests)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # PR-06: fail the build if generated files are out of sync with openapi.yaml.
+      # This catches the case where a developer edits the spec but forgets to
+      # run `pnpm codegen` before committing.
+      - name: Check codegen drift
+        run: pnpm run codegen:check
+
+      - name: Type-check all packages
+        run: pnpm run typecheck
+
+      - name: Run tests
+        run: pnpm run test

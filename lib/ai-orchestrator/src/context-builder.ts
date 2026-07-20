@@ -216,8 +216,8 @@ export async function buildProjectContext(projectId: string): Promise<ProjectCon
     if (latestMetric.testsTotal != null) {
       parts.push(`Tests: ${fmtInt(latestMetric.testsPassed)}/${fmtInt(latestMetric.testsTotal)} passed`);
     }
-    if (latestMetric.testCoverage != null) {
-      parts.push(`Coverage: ${fmt(latestMetric.testCoverage)}%`);
+    if (latestMetric.structuralTestEstimate != null) {
+      parts.push(`StructuralTestEstimate: ${fmt(latestMetric.structuralTestEstimate)}% (heuristic — not measured coverage)`);
     }
     if (latestMetric.lintIssues != null) {
       parts.push(`LintIssues: ${latestMetric.lintIssues}`);

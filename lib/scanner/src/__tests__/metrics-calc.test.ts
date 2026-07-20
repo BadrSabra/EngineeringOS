@@ -89,14 +89,14 @@ describe("computeMetrics", () => {
     expect(result.technicalDebt).toBe(2);
   });
 
-  it("returns testCoverage = 0 when no test files exist", () => {
+  it("returns structuralTestEstimate = 0 when no test files exist", () => {
     const files = [makeFile("src/index.ts"), makeFile("src/utils.ts")];
     const result = computeMetrics(files, []);
 
-    expect(result.testCoverage).toBe(0);
+    expect(result.structuralTestEstimate).toBe(0);
   });
 
-  it("returns testCoverage > 0 when test files are present", () => {
+  it("returns structuralTestEstimate > 0 when test files are present", () => {
     const files = [
       makeFile("src/index.ts"),
       makeFile("src/utils.ts"),
@@ -105,7 +105,7 @@ describe("computeMetrics", () => {
     ];
     const result = computeMetrics(files, []);
 
-    expect(result.testCoverage).toBeGreaterThan(0);
+    expect(result.structuralTestEstimate).toBeGreaterThan(0);
   });
 
   it("returns architectureScore in [0, 100]", () => {

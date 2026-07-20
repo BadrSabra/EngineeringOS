@@ -27,7 +27,7 @@
  * and marks the session "error" with a clear message.
  */
 import { db, scanJobsTable, discoverySessionsTable, projectsTable } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, lt } from "drizzle-orm";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
@@ -184,6 +184,96 @@ async function reconcileDiscoverySessions(): Promise<number> {
   }
 
   return discovering.length + pending.length;
+}
+
+// ── Stale running-job sweep (PR-02 / audit W-002) ────────────────────────────
+//
+// Startup reconciliation already fails ALL running jobs on restart (correct for
+// crash recovery). But a scan job can also get hung while the server is up — e.g.
+// walkProject against a huge repo that never finishes, or a zombie worker that
+// neither completes nor throws. The periodic sweep below covers that gap by
+// timing out any scan job that has been "running" longer than STALE_JOB_TIMEOUT_MS
+// without completing.
+//
+// Default: 2 hours (configurable via STALE_JOB_TIMEOUT_MS env var).
+// The sweep itself runs every STALE_JOB_SWEEP_INTERVAL_MS (default: 30 minutes)
+// and is started from index.ts after the server begins accepting traffic.
+
+export const STALE_JOB_TIMEOUT_MS = Number(
+  process.env.STALE_JOB_TIMEOUT_MS ?? 2 * 60 * 60 * 1000, // 2 hours
+);
+const STALE_JOB_SWEEP_INTERVAL_MS = Number(
+  process.env.STALE_JOB_SWEEP_INTERVAL_MS ?? 30 * 60 * 1000, // 30 minutes
+);
+
+/**
+ * Mark scan jobs that have been in "running" state for longer than
+ * `STALE_JOB_TIMEOUT_MS` as "failed". Returns the number of rows updated.
+ *
+ * Safe to call at any time — uses a server-side timestamp comparison so it
+ * does not race with legitimate fast-running jobs.
+ */
+export async function failStaleRunningJobs(): Promise<number> {
+  const cutoff = new Date(Date.now() - STALE_JOB_TIMEOUT_MS);
+
+  let staleCount = 0;
+  try {
+    const staleJobs = await db
+      .select({ id: scanJobsTable.id, projectId: scanJobsTable.projectId })
+      .from(scanJobsTable)
+      .where(
+        and(
+          eq(scanJobsTable.status, "running"),
+          lt(scanJobsTable.startedAt, cutoff),
+        ),
+      );
+
+    if (staleJobs.length === 0) return 0;
+
+    for (const job of staleJobs) {
+      await db
+        .update(scanJobsTable)
+        .set({
+          status: "failed",
+          error: `Timed out — job was still "running" after ${Math.round(STALE_JOB_TIMEOUT_MS / 60_000)} minutes`,
+        })
+        .where(
+          and(eq(scanJobsTable.id, job.id), eq(scanJobsTable.status, "running")),
+        );
+      staleCount++;
+      logger.warn(
+        {
+          scope: "job-reconciliation",
+          code: "STALE_JOB_TIMEOUT",
+          jobId: job.id,
+          projectId: job.projectId,
+          cutoff: cutoff.toISOString(),
+          timeoutMs: STALE_JOB_TIMEOUT_MS,
+        },
+        "scan job timed out — marked as failed",
+      );
+    }
+  } catch (err) {
+    logger.error({ err, scope: "job-reconciliation" }, "failStaleRunningJobs failed");
+  }
+  return staleCount;
+}
+
+/**
+ * Start the periodic stale-job sweep. Returns the interval handle so the
+ * caller can clear it on graceful shutdown if needed.
+ */
+export function startStaleJobSweep(): NodeJS.Timeout {
+  logger.info(
+    { intervalMs: STALE_JOB_SWEEP_INTERVAL_MS, timeoutMs: STALE_JOB_TIMEOUT_MS },
+    "stale-job sweep scheduled",
+  );
+  return setInterval(async () => {
+    const failed = await failStaleRunningJobs();
+    if (failed > 0) {
+      logger.warn({ failed }, "stale-job sweep: timed out scan jobs marked failed");
+    }
+  }, STALE_JOB_SWEEP_INTERVAL_MS);
 }
 
 /**

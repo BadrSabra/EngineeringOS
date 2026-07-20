@@ -208,10 +208,10 @@ export default function Metrics() {
                     <Legend wrapperStyle={{ fontSize: '12px' }} />
                     <Bar
                       yAxisId="left"
-                      dataKey="testCoverage"
+                      dataKey="structuralTestEstimate"
                       fill="hsl(var(--primary))"
                       radius={[4, 4, 0, 0]}
-                      name="Coverage %"
+                      name="Test Estimate % (structural)"
                     />
                     <Bar
                       yAxisId="right"

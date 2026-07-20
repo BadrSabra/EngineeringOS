@@ -4,7 +4,6 @@ import {
   tasksTable,
   eventsTable,
   taskLogsTable,
-  rulesTable,
 } from "@workspace/db";
 import {
   CreateTaskBody,
@@ -20,8 +19,8 @@ import {
 } from "@workspace/api-zod";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
-import { walkProject, checkPatternInFiles } from "@workspace/scanner";
 import { recordAudit } from "../lib/audit.js";
+import { runTaskVerification } from "../services/task-service.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 import { scheduleAiTaskExecution } from "./ai.js";
@@ -259,76 +258,9 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
     payload: { before: { status: task[0].status }, after: { status: "running" } },
   });
 
-  type VerificationStep = { name: string; passed: boolean; output?: string };
-  const verificationSteps: VerificationStep[] = [];
-  let finalStatus: "completed" | "failed" | "verifying" = "verifying";
-
-  const relatedFiles = (task[0].relatedFiles as string[] | null) ?? [];
-
-  let rulePattern: string | null = null;
-  if (task[0].ruleId) {
-    const rule = await db
-      .select()
-      .from(rulesTable)
-      .where(eq(rulesTable.id, task[0].ruleId))
-      .limit(1);
-    rulePattern = rule[0]?.pattern ?? null;
-  }
-
-  if (rulePattern) {
-    const { files: projectFiles } = await walkProject(project.rootPath);
-
-    let targetFiles = projectFiles;
-    if (relatedFiles.length > 0) {
-      targetFiles = projectFiles.filter((f) =>
-        relatedFiles.some((rf) => f.path === rf || f.path.endsWith("/" + rf) || f.path.endsWith(rf)),
-      );
-
-      if (targetFiles.length === 0 && projectFiles.length > 0) {
-        verificationSteps.push({
-          name: "File scan",
-          passed: false,
-          output: `relatedFiles specified but none found in project tree — cannot confirm fix`,
-        });
-        finalStatus = "verifying";
-      }
-    }
-
-    if (targetFiles.length > 0 || relatedFiles.length === 0) {
-      const patternStillPresent = checkPatternInFiles(rulePattern, targetFiles);
-      verificationSteps.push({
-        name: "Pattern check",
-        passed: !patternStillPresent,
-        output: patternStillPresent
-          ? `Pattern still found in ${targetFiles.length > 0 ? "target" : "project"} files`
-          : `Pattern no longer detected — fix confirmed`,
-      });
-      finalStatus = patternStillPresent ? "failed" : "completed";
-    }
-  } else if (relatedFiles.length > 0) {
-    const { files: projectFiles } = await walkProject(project.rootPath);
-    const projectFilePaths = new Set(projectFiles.map((f) => f.path));
-
-    const fileChecks = relatedFiles.map((rf) => ({
-      file: rf,
-      present: projectFilePaths.has(rf) || [...projectFilePaths].some((p) => p.endsWith("/" + rf) || p.endsWith(rf)),
-    }));
-
-    const allPresent = fileChecks.every((c) => c.present);
-    verificationSteps.push({
-      name: "File existence check",
-      passed: allPresent,
-      output: fileChecks.map((c) => `${c.present ? "✓" : "✗"} ${c.file}`).join(", "),
-    });
-    finalStatus = allPresent ? "completed" : "failed";
-  } else {
-    verificationSteps.push({
-      name: "Automated verification",
-      passed: false,
-      output: "No rule pattern or relatedFiles specified. Task queued for AI/human verification.",
-    });
-    finalStatus = "verifying";
-  }
+  // Delegate to the task service (business logic extracted from route — audit W-003/PR-03).
+  const verification = await runTaskVerification(task[0], project.rootPath);
+  const { finalStatus, steps: verificationSteps } = verification;
 
   const verificationResult = { passed: finalStatus === "completed", steps: verificationSteps };
   const completedAt = finalStatus === "completed" ? now : null;

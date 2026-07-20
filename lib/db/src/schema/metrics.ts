@@ -27,7 +27,8 @@ export const metricsTable = pgTable("metrics", {
   performanceScore: real("performance_score"),
   reliabilityScore: real("reliability_score"),
   maintainabilityScore: real("maintainability_score"),
-  testCoverage: real("test_coverage"),
+  /** Structural heuristic — NOT measured branch/line coverage. See metrics-calc.ts. */
+  structuralTestEstimate: real("test_coverage"),
   lintIssues: integer("lint_issues"),
   testsPassed: integer("tests_passed"),
   testsTotal: integer("tests_total"),
