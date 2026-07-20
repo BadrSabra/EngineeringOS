@@ -11,6 +11,7 @@ import pluginsRouter from "./plugins.js";
 import dashboardRouter from "./dashboard.js";
 import aiRouter from "./ai.js";
 import gitRouter from "./git.js";
+import uploadRouter from "./upload.js";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(pluginsRouter);
 router.use(dashboardRouter);
 router.use(aiRouter);
 router.use(gitRouter);
+router.use(uploadRouter);
 
 export default router;

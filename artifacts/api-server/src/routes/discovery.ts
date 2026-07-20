@@ -93,13 +93,12 @@ const SOURCE_CAPABILITIES = [
   },
   {
     sourceType: "ARCHIVE_UPLOAD",
-    label: "Zip Archive",
-    description: "Upload a .zip or .tar.gz and scan its contents",
-    available: false,
+    label: "Zip / Tar Archive",
+    description: "Upload a .zip or .tar.gz and scan its contents directly",
+    available: true,
     icon: "package",
     requiredConfig: ["uploadId"],
-    notes: "Not supported in this deployment — requires server-side file-upload handling. Use GIT_REPOSITORY to scan remote code.",
-    hint: "Push your code to a Git repository and use the Git Repository source type instead.",
+    notes: "First upload the archive via POST /api/upload/archive (multipart field 'archive', ≤ 50 MB). Use the returned uploadId as sourceConfig.uploadId. Archives expire after 1 hour.",
   },
   {
     sourceType: "REMOTE_FILESYSTEM",

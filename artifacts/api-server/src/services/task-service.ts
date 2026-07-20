@@ -1,12 +1,19 @@
 /**
  * Task domain service — extracted from routes/tasks.ts (audit finding W-003).
  *
- * Contains the pure verification logic that determines task completion status.
+ * Contains the verification logic that determines task completion status.
  * No HTTP concerns live here; the route handler owns request parsing,
  * authentication, DB claim/update, event/audit emission, and HTTP response.
  *
- * Keeping this logic in a separate module makes it independently testable
- * without spinning up an HTTP server.
+ * ⚠️  This module is NOT purely functional — it reads from the database:
+ *   1. `db.select().from(rulesTable)` — to resolve the rule pattern for tasks
+ *      that have a `ruleId`.
+ *   2. `walkProject(projectRootPath)` — which performs filesystem I/O.
+ *
+ * PR-05 fix: the original header incorrectly described this as "pure
+ * verification logic". Callers and unit tests must account for both the DB
+ * dependency (inject/mock `db`) and the filesystem dependency (`projectRootPath`
+ * must exist on disk or walkProject will throw).
  */
 import { walkProject, checkPatternInFiles } from "@workspace/scanner";
 import { db, rulesTable } from "@workspace/db";

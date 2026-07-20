@@ -18,6 +18,9 @@ import {
   useAiChatStream,
 } from '@workspace/api-client-react';
 import type { AiStreamErrorEvent } from '@workspace/api-client-react';
+// PR-06: import shared fetch helpers and error class from lib/api-fetch so
+// the duplicate implementations in AiChat and GitPanel are unified.
+import { ApiError, apiFetch, apiPost, apiGet, apiPut, apiDelete } from '@/lib/api-fetch';
 
 type Project = { id: string; name: string; language: string };
 type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string; sources?: string; createdAt: string };
@@ -33,22 +36,9 @@ type PendingChange = {
   reason: string;
 };
 
-// ── Typed AI fetch error ───────────────────────────────────────────────────────
-// AI-specific endpoints return structured JSON errors: { error, hint?, code? }.
-// AiApiError preserves these fields so onError handlers can display the right
-// message rather than showing raw JSON text to the user.
-
-class AiApiError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly errorMessage: string,
-    public readonly hint?: string,
-    public readonly code?: string,
-  ) {
-    super(errorMessage);
-    this.name = 'AiApiError';
-  }
-}
+// PR-06: AiApiError replaced by the shared ApiError from lib/api-fetch.
+// Alias retained only to avoid renaming the one remaining internal reference.
+const AiApiError = ApiError;
 
 /**
  * Maps an AiApiError (or any error) to a concise, user-facing string.
@@ -79,31 +69,8 @@ function describeAiError(err: unknown): string {
   return String(err);
 }
 
-// AI-specific endpoints (sessions, messages, send) use raw fetch — cookie-based
-// Clerk auth is automatic for same-origin requests. Do not add Bearer/getToken here.
-async function apiFetch<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method,
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    let parsed: { error?: string; hint?: string; code?: string } = {};
-    try { parsed = await res.json() as typeof parsed; } catch { /* body may not be JSON */ }
-    throw new AiApiError(
-      res.status,
-      parsed.error ?? `Request failed (${res.status})`,
-      parsed.hint,
-      parsed.code,
-    );
-  }
-  return res.json() as Promise<T>;
-}
-
-const apiPost   = <T,>(path: string, body: unknown) => apiFetch<T>('POST',   path, body);
-const apiGet    = <T,>(path: string)                 => apiFetch<T>('GET',    path);
-const apiPut    = <T,>(path: string, body: unknown)  => apiFetch<T>('PUT',    path, body);
-const apiDelete = <T,>(path: string)                 => apiFetch<T>('DELETE', path);
+// AI-specific endpoints use cookie-based Clerk auth (same-origin — no Bearer needed).
+// apiFetch, apiPost, apiGet, apiPut, apiDelete are imported from lib/api-fetch (PR-06).
 
 /**
  * Safely parse the `sources` field from a chat message.

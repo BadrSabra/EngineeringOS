@@ -7,7 +7,7 @@
  * route enqueue the work and return immediately; the actual computation runs
  * out-of-band and reports its progress/result here.
  */
-import { pgTable, text, timestamp, jsonb, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, pgEnum, index } from "drizzle-orm/pg-core";
 import { projectsTable } from "./projects.js";
 
 export const scanJobStatusEnum = pgEnum("scan_job_status", [
@@ -27,6 +27,19 @@ export const scanJobsTable = pgTable("scan_jobs", {
   result: jsonb("result").$type<Record<string, unknown>>(),
   /** Populated if the job fails. */
   error: text("error"),
+  /**
+   * PR-01: Number of times this job has been re-enqueued after a crash-restart
+   * interrupted it mid-execution. Incremented by job-reconciliation before
+   * re-enqueuing so the counter is accurate in the DB before the job runs.
+   */
+  retryCount: integer("retry_count").notNull().default(0),
+  /**
+   * PR-01: Maximum number of crash-restart retries allowed before the job is
+   * permanently marked failed. Default is 2 — a scan should succeed within
+   * three total attempts; more retries suggest a structural problem (OOM, bad
+   * rootPath) rather than a transient crash.
+   */
+  maxRetries: integer("max_retries").notNull().default(2),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
   finishedAt: timestamp("finished_at"),

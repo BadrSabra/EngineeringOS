@@ -5,13 +5,19 @@ import { join, extname, relative } from "node:path";
 const MAX_CONTENT_BYTES = 512 * 1024;
 
 /**
- * Hard cap on the number of source files collected in a single walk.
- * Prevents OOM when a user points discovery at a system root (e.g. /home)
- * or a directory containing many node_modules copies. The walk aborts and
- * throws so the discovery session is marked `error` rather than crashing
- * the process.
+ * Soft cap on the number of source files collected in a single walk.
+ * When this limit is reached the walk stops collecting new files and returns
+ * immediately with `truncated: true` rather than throwing — callers receive
+ * a partial-but-valid result they can persist and surface to the user rather
+ * than a hard failure.
+ *
+ * PR-04: changed from throw to soft-truncate so large repos produce a usable
+ * (if incomplete) scan result instead of a failed job.
  */
 const MAX_FILES = 5_000;
+
+/** Maximum directory depth to recurse into. */
+const MAX_DEPTH = 12;
 
 /** Directories always excluded from scanning. */
 const IGNORE_DIRS = new Set([
@@ -83,20 +89,55 @@ export interface WalkResult {
   rootExists: boolean;
   totalFiles: number;
   sourceFiles: number;
+  /**
+   * PR-04: True when the walk was stopped early due to a hard cap (file count
+   * or depth limit). Callers should surface this to the user so they know the
+   * scan result is incomplete rather than assuming full coverage.
+   */
+  truncated: boolean;
+  /**
+   * PR-04: Human-readable reason for truncation, when `truncated` is true.
+   * Machine-parseable prefix before the colon: "file_limit", "depth_limit".
+   */
+  truncationReason?: string;
+  /**
+   * PR-04: Approximate number of source files skipped due to the cap.
+   * Only meaningful when `truncated` is true. -1 means the count is unknown
+   * (scan was aborted before all skipped files were counted).
+   */
+  filesSkipped: number;
+}
+
+/** Mutable walk state — shared across the recursive walkDir calls. */
+interface WalkState {
+  aborted: boolean;
+  truncationReason?: string;
 }
 
 async function walkDir(
   dir: string,
   rootPath: string,
   files: ScannedFile[],
+  state: WalkState,
   depth = 0,
 ): Promise<void> {
-  if (depth > 12) return;
-  if (files.length >= MAX_FILES) {
-    throw new Error(
-      `File limit exceeded: found more than ${MAX_FILES} source files under "${rootPath}". ` +
-        `Point discovery at a specific project directory, not a system root.`,
-    );
+  // PR-04: depth cap — record truncation but don't abort the whole walk (other
+  // branches at this level may still be within the depth limit).
+  if (depth > MAX_DEPTH) {
+    if (!state.truncationReason) {
+      state.truncationReason = `depth_limit:${MAX_DEPTH}`;
+      state.aborted = true;
+    }
+    return;
+  }
+
+  // PR-04: file-count cap — soft abort: stop collecting, mark truncated.
+  if (state.aborted || files.length >= MAX_FILES) {
+    state.aborted = true;
+    if (!state.truncationReason) {
+      state.truncationReason = `file_limit:${MAX_FILES}`;
+    }
+    return;
   }
 
   let entries;
@@ -108,10 +149,18 @@ async function walkDir(
 
   await Promise.all(
     entries.map(async (entry) => {
+      if (state.aborted) return; // respect abort in concurrent branches
+
       if (entry.isDirectory()) {
         if (IGNORE_DIRS.has(entry.name) || entry.name.startsWith(".")) return;
-        await walkDir(join(dir, entry.name), rootPath, files, depth + 1);
+        await walkDir(join(dir, entry.name), rootPath, files, state, depth + 1);
       } else if (entry.isFile()) {
+        if (state.aborted || files.length >= MAX_FILES) {
+          state.aborted = true;
+          if (!state.truncationReason) state.truncationReason = `file_limit:${MAX_FILES}`;
+          return;
+        }
+
         const ext = extname(entry.name).toLowerCase();
         const language = LANGUAGE_MAP[ext];
         if (!language) return;
@@ -151,11 +200,13 @@ async function walkDir(
 /**
  * Walk a project directory and collect all source files.
  *
- * Throws explicitly when `rootPath` does not exist or is not a directory —
- * a silent fallback to `process.cwd()` would cause scanners to silently walk
- * the wrong directory and report results that look plausible but are wrong.
- * Callers (scan-runner.ts, discovery.ts) already wrap walkProject in try/catch
- * and mark jobs failed on any error, so throwing here is the safe path.
+ * Throws when `rootPath` does not exist or is not a directory — a silent
+ * fallback would cause scanners to walk the wrong directory and report
+ * plausible-looking but wrong results.
+ *
+ * PR-04: no longer throws on file-count cap. Instead returns `truncated: true`
+ * with the files collected so far, so callers can persist a partial result
+ * and surface the truncation to the user.
  */
 export async function walkProject(rootPath: string): Promise<WalkResult> {
   try {
@@ -165,13 +216,15 @@ export async function walkProject(rootPath: string): Promise<WalkResult> {
     }
   } catch (statErr) {
     if (statErr instanceof Error && statErr.message.startsWith("Path exists but")) {
-      throw statErr; // re-throw the "not a directory" error as-is
+      throw statErr;
     }
     throw new Error(`Project root does not exist or is inaccessible: ${rootPath}`);
   }
 
   const files: ScannedFile[] = [];
-  await walkDir(rootPath, rootPath, files);
+  const state: WalkState = { aborted: false };
+
+  await walkDir(rootPath, rootPath, files, state);
 
   const sourceFiles = files.filter(
     (f) =>
@@ -187,5 +240,10 @@ export async function walkProject(rootPath: string): Promise<WalkResult> {
     rootExists: true,
     totalFiles: files.length,
     sourceFiles,
+    truncated: state.aborted,
+    truncationReason: state.truncationReason,
+    // When aborted by file count, skipped count is unknown (Promise.all
+    // branches were concurrent); signal with -1.
+    filesSkipped: state.aborted ? -1 : 0,
   };
 }

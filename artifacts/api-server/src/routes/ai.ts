@@ -37,6 +37,7 @@ import {
   loadProjectByIdForUser,
   requireProjectAccess,
 } from "../middlewares/requireProjectAccess.js";
+import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../lib/db-rate-limiter.js";
 
 const router = Router();
 
@@ -45,43 +46,11 @@ const router = Router();
 // former process-local Set<string> guards and work correctly across multiple
 // server instances without a separate Redis/coordination layer.
 
-// ── Per-project LLM rate limiting ─────────────────────────────────────────────
-// Sliding-window guard: at most LLM_RATE_LIMIT calls per project per minute.
-// Prevents a single project from exhausting the shared Groq quota.
-// Note: process-local only; a multi-instance deployment needs a shared store
-// (Redis etc.) for accurate cross-instance limiting.
-const LLM_RATE_LIMIT = 20;
-const LLM_RATE_WINDOW_MS = 60_000; // 1 minute
-
-const _projectCallTimestamps = new Map<string, number[]>();
-
-// Periodically sweep entries that have no live timestamps so the Map doesn't
-// accumulate one entry per project forever in a long-running server.
-// .unref() ensures the timer doesn't prevent a clean process exit.
-setInterval(() => {
-  const cutoff = Date.now() - LLM_RATE_WINDOW_MS;
-  for (const [projectId, timestamps] of _projectCallTimestamps) {
-    const live = timestamps.filter((t) => t > cutoff);
-    if (live.length === 0) {
-      _projectCallTimestamps.delete(projectId);
-    } else {
-      _projectCallTimestamps.set(projectId, live);
-    }
-  }
-}, 5 * 60_000 /* 5 min */).unref();
-
-function checkProjectRateLimit(projectId: string): { allowed: boolean; retryAfterSec?: number } {
-  const now = Date.now();
-  const cutoff = now - LLM_RATE_WINDOW_MS;
-  const prev = (_projectCallTimestamps.get(projectId) ?? []).filter((t) => t > cutoff);
-  if (prev.length >= LLM_RATE_LIMIT) {
-    const oldest = prev[0]!;
-    return { allowed: false, retryAfterSec: Math.ceil((oldest + LLM_RATE_WINDOW_MS - now) / 1_000) };
-  }
-  prev.push(now);
-  _projectCallTimestamps.set(projectId, prev);
-  return { allowed: true };
-}
+// ── Per-project LLM rate limiting (PR-02: DB-backed) ─────────────────────────
+// The former in-process sliding-window Map has been replaced with a PostgreSQL
+// fixed-window rate limiter (lib/db-rate-limiter.ts) so the limit is enforced
+// correctly across restarts and multiple instances without a Redis dependency.
+// checkProjectRateLimitDb and LLM_RATE_LIMIT are imported from that module.
 
 /**
  * Maps GroqClientError codes to typed HTTP responses so callers receive a
@@ -507,7 +476,7 @@ router.post("/ai/chat", async (req, res) => {
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
 
-  const rlChat = checkProjectRateLimit(projectId);
+  const rlChat = await checkProjectRateLimitDb(projectId);
   if (!rlChat.allowed) {
     return res.status(429).json({
       error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlChat.retryAfterSec}s.`,
@@ -550,7 +519,11 @@ router.post("/ai/chat", async (req, res) => {
   // Falls back to workspace root if the stored path is inaccessible (e.g. a deleted
   // /tmp git clone). Uses structured pino logging, not console.warn. G-16: fallback
   // is request-scoped only — the stored rootPath is never overwritten.
-  const { validRootPath } = await resolveRootPath(project.rootPath, projectId);
+  // PR-03: destructure fallbackUsed so we can surface it in the response _meta.
+  // Callers can detect when the stored rootPath was inaccessible and a workspace
+  // fallback was used — useful for debugging "AI can't see my project files".
+  const { validRootPath, fallbackUsed: rootFallbackUsed, originalPath: rootOriginalPath } =
+    await resolveRootPath(project.rootPath, projectId);
 
   // Block chat context reads while an apply-changes operation is writing files
   // for this project. We probe the APPLY advisory lock non-blocking: if another
@@ -667,6 +640,11 @@ router.post("/ai/chat", async (req, res) => {
     // Pending changes are ephemeral — not persisted in the DB.
     // The frontend holds them in local state until the user approves or rejects.
     pendingChanges: result.pendingChanges ?? [],
+    // PR-03: surface rootPath fallback so callers can warn the user when the
+    // AI is reading from the workspace root rather than the project directory.
+    _meta: rootFallbackUsed
+      ? { rootPathFallback: { used: true, original: rootOriginalPath } }
+      : undefined,
   });
 });
 
@@ -702,7 +680,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
 
-  const rlChat = checkProjectRateLimit(projectId);
+  const rlChat = await checkProjectRateLimitDb(projectId);
   if (!rlChat.allowed) {
     return res.status(429).json({
       error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlChat.retryAfterSec}s.`,
@@ -749,7 +727,11 @@ router.post("/ai/chat/stream", async (req, res) => {
     : [];
 
   // rootPath validation — shared validator (audit W-005/R-004, PR-05).
-  const { validRootPath } = await resolveRootPath(project.rootPath, projectId);
+  // PR-03: destructure fallbackUsed so we can surface it in the response _meta.
+  // Callers can detect when the stored rootPath was inaccessible and a workspace
+  // fallback was used — useful for debugging "AI can't see my project files".
+  const { validRootPath, fallbackUsed: rootFallbackUsed, originalPath: rootOriginalPath } =
+    await resolveRootPath(project.rootPath, projectId);
 
   // ── Stage: building context ────────────────────────────────────────────────
   sse({ type: "stage", stage: "building-context" });
@@ -1079,7 +1061,7 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
 
   const projectContext = await buildProjectContext(projectId);
 
-  const rlAnalyze = checkProjectRateLimit(projectId);
+  const rlAnalyze = await checkProjectRateLimitDb(projectId);
   if (!rlAnalyze.allowed) {
     return res.status(429).json({
       error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlAnalyze.retryAfterSec}s.`,
@@ -1163,7 +1145,7 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
     }
   }
 
-  const rlReview = checkProjectRateLimit(projectId);
+  const rlReview = await checkProjectRateLimitDb(projectId);
   if (!rlReview.allowed) {
     return res.status(429).json({
       error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlReview.retryAfterSec}s.`,
@@ -1270,7 +1252,7 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
   const currentPhase = execution?.currentPhase ?? workflow.currentPhase;
   const completedPhases = (execution?.completedPhases as string[]) ?? [];
 
-  const rlOrch = checkProjectRateLimit(workflow.projectId);
+  const rlOrch = await checkProjectRateLimitDb(workflow.projectId);
   if (!rlOrch.allowed) {
     return res.status(429).json({
       error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlOrch.retryAfterSec}s.`,
@@ -1378,7 +1360,7 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
 
   // Rate limit BEFORE the atomic claim — if we hit the limit after claiming,
   // the task stays stuck in "running" with no automatic rollback.
-  const rlExecute = checkProjectRateLimit(task.projectId);
+  const rlExecute = await checkProjectRateLimitDb(task.projectId);
   if (!rlExecute.allowed) {
     return res.status(429).json({
       error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlExecute.retryAfterSec}s.`,
@@ -1539,7 +1521,7 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
  * trigger point and when a queue slot becomes free.
  *
  * Re-uses the same pipeline as POST /api/ai/tasks/:taskId/execute
- * (resolveGroqApiKey, checkProjectRateLimit, buildProjectContext, executeTask)
+ * (resolveGroqApiKey, checkProjectRateLimitDb, buildProjectContext, executeTask)
  * so the two paths are mechanically identical.
  *
  * @param taskId  ID of the task to auto-execute.
@@ -1581,7 +1563,7 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
         return;
       }
 
-      const rl = checkProjectRateLimit(task.projectId);
+      const rl = await checkProjectRateLimitDb(task.projectId);
       if (!rl.allowed) {
         logger.warn(
           { taskId, retryAfterSec: rl.retryAfterSec },

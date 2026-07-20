@@ -52,39 +52,80 @@ async function reconcileScanJobs(): Promise<number> {
   // These jobs were actively executing when the process died. We cannot
   // safely determine how far they got, so they are marked failed and the
   // owning project is reset to "active".
+  // PR-01: also select retryCount and maxRetries so we can decide whether to
+  // retry or permanently fail each interrupted job.
   const running = await db
-    .select({ id: scanJobsTable.id, projectId: scanJobsTable.projectId })
+    .select({
+      id: scanJobsTable.id,
+      projectId: scanJobsTable.projectId,
+      retryCount: scanJobsTable.retryCount,
+      maxRetries: scanJobsTable.maxRetries,
+    })
     .from(scanJobsTable)
     .where(eq(scanJobsTable.status, "running"));
 
+  let retriedCount = 0;
+  let failedCount  = 0;
+
   for (const job of running) {
-    await db
-      .update(scanJobsTable)
-      .set({ status: "failed", error: ORPHANED_RUNNING_MESSAGE, finishedAt: now })
-      .where(eq(scanJobsTable.id, job.id));
+    if (job.retryCount < job.maxRetries) {
+      // PR-01: Job was mid-flight when the process died. Re-queue it — transient
+      // crashes (OOM, SIGKILL) shouldn't permanently fail a scan. Increment
+      // retryCount so we eventually give up after maxRetries attempts.
+      await db
+        .update(scanJobsTable)
+        .set({
+          status: "queued",
+          retryCount: job.retryCount + 1,
+          error: null,
+          startedAt: null,
+          finishedAt: null,
+        })
+        .where(eq(scanJobsTable.id, job.id));
 
-    // Only reset the project if it is still "scanning" — it may have already
-    // been reassigned or completed by a newer job in the meantime.
-    await db
-      .update(projectsTable)
-      .set({ status: "active", updatedAt: now })
-      .where(
-        and(
-          eq(projectsTable.id, job.projectId),
-          eq(projectsTable.status, "scanning"),
-        ),
-      );
+      heavyJobQueue.enqueue(() => runScanJob(job.id, job.projectId));
+      retriedCount++;
+    } else {
+      // Exceeded maxRetries — mark permanently failed and reset project status.
+      await db
+        .update(scanJobsTable)
+        .set({
+          status: "failed",
+          error: `${ORPHANED_RUNNING_MESSAGE} (retry limit of ${job.maxRetries} exceeded)`,
+          finishedAt: now,
+        })
+        .where(eq(scanJobsTable.id, job.id));
 
-    // Bust the context cache so AI requests don't see stale "scanning" state.
-    invalidateContextCache(job.projectId);
+      // Only reset the project if it is still "scanning" — it may have already
+      // been reassigned or completed by a newer job in the meantime.
+      await db
+        .update(projectsTable)
+        .set({ status: "active", updatedAt: now })
+        .where(
+          and(
+            eq(projectsTable.id, job.projectId),
+            eq(projectsTable.status, "scanning"),
+          ),
+        );
+
+      // Bust the context cache so AI requests don't see stale "scanning" state.
+      invalidateContextCache(job.projectId);
+      failedCount++;
+    }
   }
 
   if (running.length > 0) {
-    const runningIds = running.map((j) => j.id);
-    const runningProjectIds = [...new Set(running.map((j) => j.projectId))];
+    const runningIds         = running.map((j) => j.id);
+    const runningProjectIds  = [...new Set(running.map((j) => j.projectId))];
     logger.warn(
-      { count: running.length, jobIds: runningIds, projectIds: runningProjectIds },
-      "marked interrupted scan jobs as failed (process restart)",
+      {
+        count: running.length,
+        retried: retriedCount,
+        failed: failedCount,
+        jobIds: runningIds,
+        projectIds: runningProjectIds,
+      },
+      "reconciled interrupted scan jobs after restart: retried or failed",
     );
   }
 

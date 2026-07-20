@@ -27,26 +27,11 @@ import {
 } from 'lucide-react';
 
 // ── API helpers ───────────────────────────────────────────────────────────────
-// Use root-relative paths (/api/...) — same pattern as AiChat.tsx.
-// Do NOT prefix with BASE_URL: that points to /dashboard/ and will 404.
-
-async function apiFetch<T>(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<T> {
-  const resp = await fetch(path, {
-    method,
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  if (!resp.ok) {
-    let parsed: { error?: string } = {};
-    try { parsed = await resp.json() as typeof parsed; } catch { /* not JSON */ }
-    throw new Error(parsed.error ?? `Request failed (${resp.status})`);
-  }
-  return resp.json() as Promise<T>;
-}
+// Use root-relative paths (/api/...). Do NOT prefix with BASE_URL: that points
+// to /dashboard/ and will 404.
+// PR-06: apiFetch is imported from the shared lib/api-fetch module to eliminate
+// the duplicate implementation that previously lived in GitPanel and AiChat.
+import { apiFetch } from '@/lib/api-fetch';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

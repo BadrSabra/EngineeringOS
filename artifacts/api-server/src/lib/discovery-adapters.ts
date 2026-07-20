@@ -15,6 +15,7 @@
  */
 
 import { rm } from "node:fs/promises";
+import { lookupUpload, removeUpload } from "./upload-store.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "crypto";
@@ -248,12 +249,46 @@ const workspaceProjectAdapter: SupportedAdapter = {
 // the route maps that to an HTTP 501 — no JS exception escapes to the generic
 // error handler.
 
-const archiveUploadAdapter: UnsupportedAdapter = {
-  available: false,
-  reason:
-    "Archive upload requires server-side file-upload handling that is not " +
-    "available in this deployment. To scan code from a zip or tarball, push " +
-    "it to a Git repository and use the GIT_REPOSITORY source type instead.",
+// ─── ARCHIVE_UPLOAD ───────────────────────────────────────────────────────────
+// Epic D: Implemented. Client must first POST /api/upload/archive (multipart,
+// field name "archive", .zip or .tar.gz, ≤ 50 MB) to receive an `uploadId`.
+// That uploadId is then passed here as sourceConfig.uploadId.
+
+const archiveUploadAdapter: SupportedAdapter = {
+  available: true,
+
+  validate(config) {
+    if (!config.uploadId) {
+      return {
+        error:
+          "sourceConfig.uploadId is required for ARCHIVE_UPLOAD. " +
+          "Call POST /api/upload/archive first and use the returned uploadId.",
+        status: 400,
+        reason: "invalid_source",
+      };
+    }
+    return null;
+  },
+
+  async resolve(config) {
+    const entry = lookupUpload(config.uploadId!);
+    if (!entry) {
+      return {
+        error:
+          "Upload not found or expired. Archives are held for 1 hour — " +
+          "re-upload the file via POST /api/upload/archive and use the new uploadId.",
+        status: 404,
+        reason: "not_found",
+      };
+    }
+    const uploadId = config.uploadId!;
+    return {
+      rootPath: entry.extractedDir,
+      tempDir: entry.extractedDir,
+      // Delegate cleanup to the store so it handles both Map removal and rm().
+      cleanup: async () => removeUpload(uploadId),
+    };
+  },
 };
 
 const remoteFilesystemAdapter: UnsupportedAdapter = {
