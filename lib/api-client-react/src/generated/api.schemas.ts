@@ -48,6 +48,48 @@ export interface SaveGroqKeyInput {
   apiKey: string;
 }
 
+export interface DeepSeekKeyStatus {
+  configured: boolean;
+  /**
+     * Last 4 characters of the saved key — shown in UI for confirmation
+     * @nullable
+     */
+  last4?: string | null;
+  /** @nullable */
+  updatedAt?: string | null;
+}
+
+export interface SaveDeepSeekKeyInput {
+  /**
+     * The DeepSeek API key to save. Must not be logged or returned.
+     * @minLength 10
+     */
+  apiKey: string;
+}
+
+/**
+ * The AI provider that will be used, or null if none is configured
+ * @nullable
+ */
+export type ActiveProviderStatusProvider = typeof ActiveProviderStatusProvider[keyof typeof ActiveProviderStatusProvider] | null;
+
+
+export const ActiveProviderStatusProvider = {
+  groq: 'groq',
+  deepseek: 'deepseek',
+  null: 'null',
+} as const;
+
+export interface ActiveProviderStatus {
+  /**
+     * The AI provider that will be used, or null if none is configured
+     * @nullable
+     */
+  provider?: ActiveProviderStatusProvider;
+  /** True if at least one provider key is available (personal or server-wide) */
+  configured: boolean;
+}
+
 export interface GitHubTokenStatus {
   configured: boolean;
   /** Last 4 characters of the saved token — shown in UI for confirmation */
@@ -1313,6 +1355,10 @@ projectId: string;
 };
 
 export type DeleteGroqKey200 = {
+  configured: boolean;
+};
+
+export type DeleteDeepSeekKey200 = {
   configured: boolean;
 };
 

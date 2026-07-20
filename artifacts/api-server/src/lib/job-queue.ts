@@ -43,12 +43,13 @@ export class JobQueue {
   /**
    * PR-H (H-1): Snapshot of current queue state.
    *
-   * ⚠️  Durability caveat: this queue is in-process only. Any jobs in the
-   * `running` or `queued` slots are **lost if the process restarts** (crash,
-   * deploy, SIGKILL). The job-reconciliation module at startup marks stale
-   * DB rows as `failed` so the state is consistent, but the work itself must
-   * be re-submitted by the caller. A future H-2 migration to pg-boss would
-   * make jobs durable across restarts.
+   * Durability: this queue is in-process only. Jobs actively executing at
+   * restart time (`running` / `discovering`) are marked failed by the
+   * job-reconciliation module — they cannot be safely resumed from an unknown
+   * midpoint. Jobs waiting for a free slot (`queued` / `pending`) are
+   * automatically re-enqueued by job-reconciliation at next startup: all
+   * parameters needed to re-run them are persisted to DB rows before they
+   * reach this queue, so no pending work is silently lost across restarts.
    */
   getStats(): { running: number; queued: number; concurrency: number } {
     return {

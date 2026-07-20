@@ -220,6 +220,7 @@ async function performScan(projectId: string): Promise<ScanJobResult> {
       type: e.type,
       name: e.name,
       path: e.path,
+      isDocumented: e.isDocumented,
     }));
 
     const existingEntities = await tx

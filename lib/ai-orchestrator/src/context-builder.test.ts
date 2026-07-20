@@ -27,7 +27,18 @@ const { _tableData, _mockDb } = vi.hoisted(() => {
     return c;
   }
 
-  const _mockDb = {
+  // Explicit interface avoids the "implicitly has type 'any'" circular-ref error
+  // that TypeScript emits when `typeof _mockDb` is referenced inside the object
+  // literal that defines `_mockDb` itself.
+  interface MockDb {
+    select: () => { from: (table: object) => Record<string, unknown> };
+    transaction: (
+      callback: (tx: MockDb) => Promise<unknown>,
+      _opts?: unknown,
+    ) => Promise<unknown>;
+  }
+
+  const _mockDb: MockDb = {
     // select() accepts optional field projections but we ignore them — the mock
     // always returns the full pre-configured row arrays.
     select: () => ({
@@ -37,7 +48,7 @@ const { _tableData, _mockDb } = vi.hoisted(() => {
     // The mock runs the callback synchronously with a tx that has the same
     // select chain so all existing tests continue to work unchanged.
     transaction: async (
-      callback: (tx: typeof _mockDb) => Promise<unknown>,
+      callback: (tx: MockDb) => Promise<unknown>,
       _opts?: unknown,
     ) => callback(_mockDb),
   };

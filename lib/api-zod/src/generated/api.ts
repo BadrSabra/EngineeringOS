@@ -2382,6 +2382,51 @@ export const DeleteGroqKeyResponse = zod.object({
 
 
 /**
+ * @summary Get DeepSeek API key configuration status (never returns the key itself)
+ */
+export const GetDeepSeekKeyStatusResponse = zod.object({
+  "configured": zod.boolean(),
+  "last4": zod.string().nullish().describe('Last 4 characters of the saved key — shown in UI for confirmation'),
+  "updatedAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Save or update the authenticated user's DeepSeek API key
+ */
+export const saveDeepSeekKeyBodyApiKeyMin = 10;
+
+
+
+export const SaveDeepSeekKeyBody = zod.object({
+  "apiKey": zod.string().min(saveDeepSeekKeyBodyApiKeyMin).describe('The DeepSeek API key to save. Must not be logged or returned.')
+})
+
+export const SaveDeepSeekKeyResponse = zod.object({
+  "configured": zod.boolean(),
+  "last4": zod.string().nullish().describe('Last 4 characters of the saved key — shown in UI for confirmation'),
+  "updatedAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Remove the authenticated user's saved DeepSeek API key
+ */
+export const DeleteDeepSeekKeyResponse = zod.object({
+  "configured": zod.boolean()
+})
+
+
+/**
+ * @summary Get which AI provider will be used for the authenticated user
+ */
+export const GetActiveProviderResponse = zod.object({
+  "provider": zod.enum(['groq', 'deepseek', 'null']).nullish().describe('The AI provider that will be used, or null if none is configured'),
+  "configured": zod.boolean().describe('True if at least one provider key is available (personal or server-wide)')
+})
+
+
+/**
  * @summary Get GitHub PAT configuration status (never returns the token itself)
  */
 export const GetGitHubTokenStatusResponse = zod.object({

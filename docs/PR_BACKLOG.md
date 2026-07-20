@@ -257,3 +257,11 @@ PR-F  ────────────────────────�
 | PR-H | Job queue crash safety — H-1 observability baseline | 2026-07-19 |
 | PR-I | SSE streaming for AI chat (`/ai/chat/stream` + `useAiChatStream`) | 2026-07-19 |
 | Forensic audit fixes | apply/chat race lock, pendingChanges salvage, transactional context, tool registry, rootPath fallback | 2026-07-19 |
+| Forensic-audit PR-03 | OpenAPI sync — 4 live AI endpoints (deepseek-key GET/PUT/DELETE, active-provider GET) + 3 schemas | 2026-07-20 |
+| Forensic-audit PR-04 | Codegen regeneration after PR-03 (orval zod + React Query client regenerated; TS circular-ref fixed) | 2026-07-20 |
+| Forensic-audit PR-01 | Durable job queue docs — comment updated to accurately reflect reconciliation-based restart recovery | 2026-07-20 |
+| Forensic-audit PR-02 | Distributed advisory lock — replaced process-local Set guards with PostgreSQL session-level advisory locks (LockNamespace.ORCHESTRATION + LockNamespace.APPLY) | 2026-07-20 |
+| Forensic-audit PR-05 | Real doc extraction — plugin-docs.onScanComplete now uses entity.isDocumented from scanner AST; heuristic ratio retained as legacy fallback only | 2026-07-20 |
+| Forensic-audit PR-06 | Route parity enforcement test — ai-route-parity.test.ts: 3 tests check code↔spec bidirectional parity for all /api/ai/ routes | 2026-07-20 |
+| Forensic-audit PR-07 | Docs refresh — PR_BACKLOG.md updated with all 8 forensic-audit PRs and live endpoint status | 2026-07-20 |
+| Forensic-audit PR-08 | UX placeholder cleanup — removed opinionated "higher quality than Groq" copy; "Preferred" badge replaced with "Optional" | 2026-07-20 |

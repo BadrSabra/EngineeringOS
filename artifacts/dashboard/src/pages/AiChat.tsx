@@ -336,7 +336,7 @@ function DeepSeekKeyCard() {
       <div className="flex items-center gap-1.5 mb-2">
         <Key className="w-3 h-3 text-muted-foreground" />
         <span className="font-mono text-muted-foreground uppercase tracking-wider">DeepSeek API Key</span>
-        <span className="ml-auto text-[10px] text-emerald-500 font-medium">Preferred</span>
+        <span className="ml-auto text-[10px] text-muted-foreground">Optional</span>
       </div>
 
       {isLoading ? (
@@ -363,7 +363,7 @@ function DeepSeekKeyCard() {
         </div>
       ) : (
         <p className="text-muted-foreground mb-2">
-          Get a free key at <span className="font-mono">platform.deepseek.com</span> — higher quality than Groq.
+          Get a free API key at <span className="font-mono">platform.deepseek.com</span> to use DeepSeek as your AI provider.
         </p>
       )}
 

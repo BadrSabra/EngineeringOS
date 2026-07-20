@@ -1629,6 +1629,84 @@ paths:
         "401":
           description: Not authenticated
 
+  /api/ai/deepseek-key:
+    get:
+      operationId: getDeepSeekKeyStatus
+      summary: Get DeepSeek API key configuration status (never returns the key itself)
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      responses:
+        "200":
+          description: Key status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeepSeekKeyStatus"
+        "401":
+          description: Not authenticated
+    put:
+      operationId: saveDeepSeekKey
+      summary: Save or update the authenticated user's DeepSeek API key
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveDeepSeekKeyInput"
+      responses:
+        "200":
+          description: Key saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeepSeekKeyStatus"
+        "400":
+          description: Invalid key (too short or missing)
+        "401":
+          description: Not authenticated
+        "500":
+          description: Encryption not configured — AI_CREDENTIALS_ENCRYPTION_KEY missing
+    delete:
+      operationId: deleteDeepSeekKey
+      summary: Remove the authenticated user's saved DeepSeek API key
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      responses:
+        "200":
+          description: Key removed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [configured]
+                properties:
+                  configured:
+                    type: boolean
+        "401":
+          description: Not authenticated
+
+  /api/ai/active-provider:
+    get:
+      operationId: getActiveProvider
+      summary: Get which AI provider will be used for the authenticated user
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      responses:
+        "200":
+          description: Active provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActiveProviderStatus"
+        "401":
+          description: Not authenticated
+
   /api/ai/github-token:
     get:
       operationId: getGitHubTokenStatus
@@ -1959,6 +2037,40 @@ components:
           type: string
           minLength: 10
           description: The Groq API key to save. Must not be logged or returned.
+
+    DeepSeekKeyStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured:
+          type: boolean
+        last4:
+          type: ["string", "null"]
+          description: Last 4 characters of the saved key — shown in UI for confirmation
+        updatedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    SaveDeepSeekKeyInput:
+      type: object
+      required: [apiKey]
+      properties:
+        apiKey:
+          type: string
+          minLength: 10
+          description: The DeepSeek API key to save. Must not be logged or returned.
+
+    ActiveProviderStatus:
+      type: object
+      required: [configured]
+      properties:
+        provider:
+          type: ["string", "null"]
+          enum: [groq, deepseek, "null"]
+          description: The AI provider that will be used, or null if none is configured
+        configured:
+          type: boolean
+          description: True if at least one provider key is available (personal or server-wide)
 
     # ─── Git ───────────────────────────────────────────────────────────────────
     GitHubTokenStatus:

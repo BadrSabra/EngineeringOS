@@ -31,6 +31,7 @@ import { recordAudit } from "../lib/audit.js";
 import { logger } from "../lib/logger.js";
 import { encryptApiKey, decryptApiKey } from "../lib/credentials-crypto.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
+import { tryAdvisoryLock, LockNamespace } from "../lib/advisory-lock.js";
 import {
   loadProjectByIdForUser,
   requireProjectAccess,
@@ -38,17 +39,10 @@ import {
 
 const router = Router();
 
-// Per-workflow in-memory orchestration lock. Prevents two concurrent
-// POST /orchestrate calls from producing conflicting phase decisions for the
-// same workflow. Note: process-local only — a multi-instance deployment needs
-// a DB-level advisory lock or a distributed mutex instead.
-const _orchestratingWorkflows = new Set<string>();
-
-// Per-project apply lock (R-01 fix). Held for the duration of an
-// apply-changes write so that concurrent chat requests cannot read a
-// partially-written context snapshot.  Process-local only — a multi-instance
-// deployment would need a distributed mutex or a DB advisory lock.
-const _applyingProjects = new Set<string>();
+// Orchestration and apply-changes concurrency is now managed via PostgreSQL
+// session-level advisory locks (see lib/advisory-lock.ts). These replace the
+// former process-local Set<string> guards and work correctly across multiple
+// server instances without a separate Redis/coordination layer.
 
 // ── Per-project LLM rate limiting ─────────────────────────────────────────────
 // Sliding-window guard: at most LLM_RATE_LIMIT calls per project per minute.
@@ -530,16 +524,18 @@ router.post("/ai/chat", async (req, res) => {
     }
   }
 
-  // R-01: block chat context reads while an apply is writing files for this
-  // project. Without this guard a chat request starting milliseconds after
-  // apply-changes begins can read a partially-written snapshot and give the
-  // user a confused or contradictory response.
-  if (_applyingProjects.has(projectId)) {
+  // Block chat context reads while an apply-changes operation is writing files
+  // for this project. We probe the APPLY advisory lock non-blocking: if another
+  // session holds it, an apply is in progress and we should wait. If we acquire
+  // it immediately, no apply is running — release it and proceed.
+  const applyProbe = await tryAdvisoryLock(LockNamespace.APPLY, projectId);
+  if (!applyProbe.acquired) {
     return res.status(409).json({
       error: "apply_in_progress",
       hint: "File changes are still being written for this project — wait a moment, then retry.",
     });
   }
+  await applyProbe.release();
 
   // Build context and run chat agent (file-system tools activated via rootPath)
   const projectContext = await buildProjectContext(projectId);
@@ -936,17 +932,17 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
 
   const resolvedRoot = path.resolve(project.rootPath);
 
-  // R-01: acquire the per-project apply lock before touching the filesystem.
-  // Held for the full duration of the write + cache-invalidation cycle so that
-  // concurrent chat requests (which check _applyingProjects before building
-  // context) cannot read a partially-written snapshot.
-  if (_applyingProjects.has(projectId)) {
+  // Acquire a DB advisory lock for the duration of the write + cache-invalidation
+  // cycle so that concurrent apply-changes calls (or another server instance)
+  // cannot produce a partially-written filesystem snapshot that a chat context
+  // build reads mid-write.
+  const applyLock = await tryAdvisoryLock(LockNamespace.APPLY, projectId);
+  if (!applyLock.acquired) {
     return res.status(409).json({
       error: "apply_in_progress",
       hint: "An apply operation is already in progress for this project — wait for it to complete before starting another.",
     });
   }
-  _applyingProjects.add(projectId);
 
   let results: Array<{ path: string; ok: boolean; error?: string }>;
   try {
@@ -1024,9 +1020,9 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
     const allOk = results.every((r) => r.ok);
     return res.status(allOk ? 200 : 207).json({ results });
   } finally {
-    // Always release the lock — even if an unexpected exception escapes the
-    // try block — so the project isn't permanently locked out of chat.
-    _applyingProjects.delete(projectId);
+    // Always release the DB advisory lock — even if an exception escapes the
+    // try block — so no other instance is permanently locked out of apply.
+    await applyLock.release();
   }
 });
 
@@ -1244,15 +1240,14 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
   // Concurrency guard: reject a second simultaneous orchestrate call for the
   // same workflow. Two concurrent decisions would read the same state and
   // produce conflicting phase transitions — one would silently win depending
-  // on whichever DB write lands last.
-  // Note: process-local only; a multi-instance deployment needs a DB advisory
-  // lock or distributed mutex instead.
-  if (_orchestratingWorkflows.has(workflowId)) {
+  // on whichever DB write lands last. Uses a PostgreSQL session-level advisory
+  // lock so the guard works across multiple server instances.
+  const orchLock = await tryAdvisoryLock(LockNamespace.ORCHESTRATION, workflowId);
+  if (!orchLock.acquired) {
     return res.status(409).json({
       error: "An orchestration decision is already in progress for this workflow. Retry in a moment.",
     });
   }
-  _orchestratingWorkflows.add(workflowId);
 
   let decision: Awaited<ReturnType<typeof orchestrateWorkflow>>;
   try {
@@ -1266,13 +1261,11 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
       apiKey,
     });
   } catch (err) {
-    _orchestratingWorkflows.delete(workflowId);
     if (handleOrchestratorError(err, res, { projectId: workflow.projectId, operation: "workflow-orchestration" })) return;
     throw err;
   } finally {
-    // Always release the lock — even if orchestrateWorkflow throws an error
-    // not caught by handleOrchestratorError and propagates to Express.
-    _orchestratingWorkflows.delete(workflowId);
+    // Always release the DB advisory lock regardless of outcome.
+    await orchLock.release();
   }
 
   // PR-E: parse failure detected — return 422 instead of a silent degraded 200

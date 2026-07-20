@@ -33,3 +33,4 @@
 - [PR-D Workflow conditions](pr-d-workflow-conditions.md) — condition eval in /advance: Function() with safe context {qualityScore,currentPhase,completedPhases}; 409/400 shapes; audit enum extended; heavyJobQueue import fix.
 - [PR-01 Job Durability](pr01-job-durability.md) — pending status + discovery-runner extraction + reconciliation split (queued→re-enqueue, running→fail, pending→re-enqueue, discovering→fail).
 - [PR-H and PR-I completion](pr-h-i-completion.md) — H-1 observability (getStats/healthz/startup log); SSE chat stream endpoint + useAiChatStream hook; TS7030 SSE handler gotcha.
+- [Forensic audit PR-01–08](forensic-audit-batch.md) — advisory locks, real doc extraction, route parity test, OpenAPI sync, codegen; all 8 closed 2026-07-20.

@@ -6,6 +6,8 @@
  * OpenAPI spec version: 1.0.0
  */
 
+export * from './activeProviderStatus';
+export * from './activeProviderStatusProvider';
 export * from './aiApplyChangesRequest';
 export * from './aiApplyChangesRequestChangesItem';
 export * from './aiApplyChangesResult';
@@ -39,6 +41,8 @@ export * from './dashboardOverviewProjectScoresItem';
 export * from './dashboardOverviewProjectScoresItemTrend';
 export * from './dashboardOverviewTaskStatusBreakdown';
 export * from './dashboardOverviewTopRulesItem';
+export * from './deepSeekKeyStatus';
+export * from './deleteDeepSeekKey200';
 export * from './deleteGroqKey200';
 export * from './discoveryGraphSummaryData';
 export * from './discoveryGraphSummaryDataEntitiesByType';
@@ -137,6 +141,7 @@ export * from './rule';
 export * from './ruleEvaluationResult';
 export * from './ruleEvaluationResultMatchesItem';
 export * from './ruleSeverity';
+export * from './saveDeepSeekKeyInput';
 export * from './saveGitHubTokenInput';
 export * from './saveGroqKeyInput';
 export * from './scanJob';

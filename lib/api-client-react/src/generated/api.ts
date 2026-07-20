@@ -20,6 +20,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  ActiveProviderStatus,
   AiApplyChangesRequest,
   AiApplyChangesResult,
   AiChatMessage,
@@ -36,6 +37,8 @@ import type {
   CreateTaskInput,
   CreateWorkflowInput,
   DashboardOverview,
+  DeepSeekKeyStatus,
+  DeleteDeepSeekKey200,
   DeleteGroqKey200,
   DiscoveryReport,
   DiscoverySessionStatus,
@@ -95,6 +98,7 @@ import type {
   ProjectSummary,
   Rule,
   RuleEvaluationResult,
+  SaveDeepSeekKeyInput,
   SaveGitHubTokenInput,
   SaveGroqKeyInput,
   ScanJob,
@@ -5280,6 +5284,302 @@ export const useDeleteGroqKey = <TError = ErrorType<void>,
       > => {
       return useMutation(getDeleteGroqKeyMutationOptions(options));
     }
+
+export const getGetDeepSeekKeyStatusUrl = () => {
+
+
+
+
+  return `/api/ai/deepseek-key`
+}
+
+/**
+ * @summary Get DeepSeek API key configuration status (never returns the key itself)
+ */
+export const getDeepSeekKeyStatus = async ( options?: RequestInit): Promise<DeepSeekKeyStatus> => {
+
+  return customFetch<DeepSeekKeyStatus>(getGetDeepSeekKeyStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetDeepSeekKeyStatusQueryKey = () => {
+    return [
+    `/api/ai/deepseek-key`
+    ] as const;
+    }
+
+
+export const getGetDeepSeekKeyStatusQueryOptions = <TData = Awaited<ReturnType<typeof getDeepSeekKeyStatus>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDeepSeekKeyStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDeepSeekKeyStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDeepSeekKeyStatus>>> = ({ signal }) => getDeepSeekKeyStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDeepSeekKeyStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetDeepSeekKeyStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getDeepSeekKeyStatus>>>
+export type GetDeepSeekKeyStatusQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get DeepSeek API key configuration status (never returns the key itself)
+ */
+
+export function useGetDeepSeekKeyStatus<TData = Awaited<ReturnType<typeof getDeepSeekKeyStatus>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDeepSeekKeyStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetDeepSeekKeyStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSaveDeepSeekKeyUrl = () => {
+
+
+
+
+  return `/api/ai/deepseek-key`
+}
+
+/**
+ * @summary Save or update the authenticated user's DeepSeek API key
+ */
+export const saveDeepSeekKey = async (saveDeepSeekKeyInput: SaveDeepSeekKeyInput, options?: RequestInit): Promise<DeepSeekKeyStatus> => {
+
+  return customFetch<DeepSeekKeyStatus>(getSaveDeepSeekKeyUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(saveDeepSeekKeyInput)
+  }
+);}
+
+
+
+
+
+export const getSaveDeepSeekKeyMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveDeepSeekKey>>, TError,{data: BodyType<SaveDeepSeekKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveDeepSeekKey>>, TError,{data: BodyType<SaveDeepSeekKeyInput>}, TContext> => {
+
+const mutationKey = ['saveDeepSeekKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveDeepSeekKey>>, {data: BodyType<SaveDeepSeekKeyInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveDeepSeekKey(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveDeepSeekKeyMutationResult = NonNullable<Awaited<ReturnType<typeof saveDeepSeekKey>>>
+    export type SaveDeepSeekKeyMutationBody = BodyType<SaveDeepSeekKeyInput>
+    export type SaveDeepSeekKeyMutationError = ErrorType<void>
+
+    /**
+ * @summary Save or update the authenticated user's DeepSeek API key
+ */
+export const useSaveDeepSeekKey = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveDeepSeekKey>>, TError,{data: BodyType<SaveDeepSeekKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof saveDeepSeekKey>>,
+        TError,
+        {data: BodyType<SaveDeepSeekKeyInput>},
+        TContext
+      > => {
+      return useMutation(getSaveDeepSeekKeyMutationOptions(options));
+    }
+
+export const getDeleteDeepSeekKeyUrl = () => {
+
+
+
+
+  return `/api/ai/deepseek-key`
+}
+
+/**
+ * @summary Remove the authenticated user's saved DeepSeek API key
+ */
+export const deleteDeepSeekKey = async ( options?: RequestInit): Promise<DeleteDeepSeekKey200> => {
+
+  return customFetch<DeleteDeepSeekKey200>(getDeleteDeepSeekKeyUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteDeepSeekKeyMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteDeepSeekKey>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteDeepSeekKey>>, TError,void, TContext> => {
+
+const mutationKey = ['deleteDeepSeekKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteDeepSeekKey>>, void> = () => {
+
+
+          return  deleteDeepSeekKey(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteDeepSeekKeyMutationResult = NonNullable<Awaited<ReturnType<typeof deleteDeepSeekKey>>>
+
+    export type DeleteDeepSeekKeyMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove the authenticated user's saved DeepSeek API key
+ */
+export const useDeleteDeepSeekKey = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteDeepSeekKey>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteDeepSeekKey>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDeleteDeepSeekKeyMutationOptions(options));
+    }
+
+export const getGetActiveProviderUrl = () => {
+
+
+
+
+  return `/api/ai/active-provider`
+}
+
+/**
+ * @summary Get which AI provider will be used for the authenticated user
+ */
+export const getActiveProvider = async ( options?: RequestInit): Promise<ActiveProviderStatus> => {
+
+  return customFetch<ActiveProviderStatus>(getGetActiveProviderUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetActiveProviderQueryKey = () => {
+    return [
+    `/api/ai/active-provider`
+    ] as const;
+    }
+
+
+export const getGetActiveProviderQueryOptions = <TData = Awaited<ReturnType<typeof getActiveProvider>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getActiveProvider>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetActiveProviderQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getActiveProvider>>> = ({ signal }) => getActiveProvider({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getActiveProvider>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetActiveProviderQueryResult = NonNullable<Awaited<ReturnType<typeof getActiveProvider>>>
+export type GetActiveProviderQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get which AI provider will be used for the authenticated user
+ */
+
+export function useGetActiveProvider<TData = Awaited<ReturnType<typeof getActiveProvider>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getActiveProvider>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetActiveProviderQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetGitHubTokenStatusUrl = () => {
 
