@@ -1,0 +1,758 @@
+id,path,categories,package,size_bytes
+F-0001,.agents/agent_assets_metadata.toml,Documentation; Configuration,,414
+F-0002,.agents/memory/MEMORY.md,Documentation,,6740
+F-0003,.agents/memory/ai-orchestrator-gap-closure.md,Documentation,,3099
+F-0004,.agents/memory/ai-orchestrator-hardening.md,Documentation,,2098
+F-0005,.agents/memory/ai-orchestrator-layer.md,Documentation,,2177
+F-0006,.agents/memory/ai-tool-calling.md,Documentation,,1811
+F-0007,.agents/memory/audit-fixes.md,Documentation,,1459
+F-0008,.agents/memory/clerk-401-race-cookie-vs-bearer.md,Documentation,,2009
+F-0009,.agents/memory/clerk-auth-testing.md,Documentation,,2255
+F-0010,.agents/memory/completion-plan-stale-backlog.md,Documentation,,1331
+F-0011,.agents/memory/context-cache-invalidation-rule.md,Documentation,,2011
+F-0012,.agents/memory/dashboard-scoping-pr01.md,Documentation,,1554
+F-0013,.agents/memory/discovery-adapter-registry.md,Documentation,,1172
+F-0014,.agents/memory/discovery-feature.md,Documentation,,2496
+F-0015,.agents/memory/discovery-multi-source.md,Documentation,,2357
+F-0016,.agents/memory/drizzle-error-wrapping.md,Documentation,,1244
+F-0017,.agents/memory/engineeringos-completion-plan.md,Documentation,,1240
+F-0018,.agents/memory/fk-atomic-claim-ordering.md,Documentation,,2145
+F-0019,.agents/memory/gap-analysis-fixes-batch1.md,Documentation,,3460
+F-0020,.agents/memory/gap-analysis-fixes-batch2.md,Documentation,,2495
+F-0021,.agents/memory/git-ai-orchestrator-fixes.md,Documentation,,2113
+F-0022,.agents/memory/imported-project-clerk-secrets.md,Documentation,,1303
+F-0023,.agents/memory/imported-project-workflow-failures.md,Documentation,,1870
+F-0024,.agents/memory/knowledge-engine-bfs-depth.md,Documentation,,1592
+F-0025,.agents/memory/knowledge-engine.md,Documentation,,2299
+F-0026,.agents/memory/orval-openapi-codegen.md,Documentation,,1815
+F-0027,.agents/memory/pr-c-ai-autotrigger.md,Documentation,,1486
+F-0028,.agents/memory/pr-d-workflow-conditions.md,Documentation,,1923
+F-0029,.agents/memory/pr-h-i-completion.md,Documentation,,2498
+F-0030,.agents/memory/pr01-job-durability.md,Documentation,,1974
+F-0031,.agents/memory/pr02-provenance-layer.md,Documentation,,2806
+F-0032,.agents/memory/pr04-discovery-hardening.md,Documentation,,2530
+F-0033,.agents/memory/project-bootstrap.md,Documentation,,895
+F-0034,.agents/memory/project-ownership-scoping.md,Documentation,,2313
+F-0035,.agents/memory/scanner-ast-extraction.md,Documentation,,4047
+F-0036,.agents/memory/testing-drift-checks.md,Documentation,,1129
+F-0037,.agents/memory/trace-analysis.md,Documentation,,2813
+F-0038,.gitattributes,Configuration,,170
+F-0039,.gitignore,Configuration,,668
+F-0040,.npmrc,Configuration,,78
+F-0041,.replit,Configuration,,522
+F-0042,.replitignore,Configuration,,201
+F-0043,artifacts/api-server/.replit-artifact/artifact.toml,Configuration,artifacts/api-server,784
+F-0044,artifacts/api-server/build.mjs,Tooling/Script; Runtime Path,artifacts/api-server,3455
+F-0045,artifacts/api-server/package.json,Configuration,artifacts/api-server,1342
+F-0046,artifacts/api-server/src/app.ts,Source of Truth; Runtime Path,artifacts/api-server,5526
+F-0047,artifacts/api-server/src/config.ts,Source of Truth; Runtime Path,artifacts/api-server,2281
+F-0048,artifacts/api-server/src/index.ts,Source of Truth; Runtime Path,artifacts/api-server,1383
+F-0049,artifacts/api-server/src/lib/.gitkeep,Placeholder,artifacts/api-server,0
+F-0050,artifacts/api-server/src/lib/audit.ts,Source of Truth; Runtime Path,artifacts/api-server,2702
+F-0051,artifacts/api-server/src/lib/credentials-crypto.ts,Source of Truth; Runtime Path,artifacts/api-server,1824
+F-0052,artifacts/api-server/src/lib/discovery-adapters.test.ts,Test Path,artifacts/api-server,15585
+F-0053,artifacts/api-server/src/lib/discovery-adapters.ts,Source of Truth; Runtime Path,artifacts/api-server,13352
+F-0054,artifacts/api-server/src/lib/discovery-runner.ts,Source of Truth; Runtime Path,artifacts/api-server,18732
+F-0055,artifacts/api-server/src/lib/graph-provenance.ts,Source of Truth; Runtime Path,artifacts/api-server,2483
+F-0056,artifacts/api-server/src/lib/job-queue.test.ts,Test Path,artifacts/api-server,2954
+F-0057,artifacts/api-server/src/lib/job-queue.ts,Source of Truth; Runtime Path,artifacts/api-server,4501
+F-0058,artifacts/api-server/src/lib/job-reconciliation.test.ts,Test Path,artifacts/api-server,11006
+F-0059,artifacts/api-server/src/lib/job-reconciliation.ts,Source of Truth; Runtime Path,artifacts/api-server,8633
+F-0060,artifacts/api-server/src/lib/logger.ts,Source of Truth; Runtime Path,artifacts/api-server,426
+F-0061,artifacts/api-server/src/lib/path-validation.test.ts,Test Path,artifacts/api-server,11317
+F-0062,artifacts/api-server/src/lib/path-validation.ts,Source of Truth; Runtime Path,artifacts/api-server,5362
+F-0063,artifacts/api-server/src/lib/plugin-runtime.test.ts,Test Path,artifacts/api-server,11411
+F-0064,artifacts/api-server/src/lib/plugin-runtime.ts,Source of Truth; Runtime Path,artifacts/api-server,12993
+F-0065,artifacts/api-server/src/lib/project-error.test.ts,Test Path,artifacts/api-server,7926
+F-0066,artifacts/api-server/src/lib/scan-runner.ts,Source of Truth; Runtime Path,artifacts/api-server,18774
+F-0067,artifacts/api-server/src/lib/startup-migrations.ts,Source of Truth; Runtime Path,artifacts/api-server,2424
+F-0068,artifacts/api-server/src/middlewares/.gitkeep,Placeholder,artifacts/api-server,0
+F-0069,artifacts/api-server/src/middlewares/clerkProxyMiddleware.ts,Source of Truth; Runtime Path,artifacts/api-server,5931
+F-0070,artifacts/api-server/src/middlewares/requireAuth.test.ts,Test Path,artifacts/api-server,5662
+F-0071,artifacts/api-server/src/middlewares/requireAuth.ts,Source of Truth; Runtime Path,artifacts/api-server,2931
+F-0072,artifacts/api-server/src/middlewares/requireProjectAccess.ts,Source of Truth; Runtime Path,artifacts/api-server,4974
+F-0073,artifacts/api-server/src/routes/ai.test.ts,Test Path,artifacts/api-server,30227
+F-0074,artifacts/api-server/src/routes/ai.ts,Source of Truth; Runtime Path,artifacts/api-server,64587
+F-0075,artifacts/api-server/src/routes/dashboard.test.ts,Test Path,artifacts/api-server,14740
+F-0076,artifacts/api-server/src/routes/dashboard.ts,Source of Truth; Runtime Path,artifacts/api-server,5465
+F-0077,artifacts/api-server/src/routes/discovery.test.ts,Test Path,artifacts/api-server,30350
+F-0078,artifacts/api-server/src/routes/discovery.ts,Source of Truth; Runtime Path,artifacts/api-server,20200
+F-0079,artifacts/api-server/src/routes/events.test.ts,Test Path,artifacts/api-server,7869
+F-0080,artifacts/api-server/src/routes/events.ts,Source of Truth; Runtime Path,artifacts/api-server,2184
+F-0081,artifacts/api-server/src/routes/git.ts,Source of Truth; Runtime Path,artifacts/api-server,15044
+F-0082,artifacts/api-server/src/routes/graph.test.ts,Test Path,artifacts/api-server,32928
+F-0083,artifacts/api-server/src/routes/graph.ts,Source of Truth; Runtime Path,artifacts/api-server,16430
+F-0084,artifacts/api-server/src/routes/health.test.ts,Test Path,artifacts/api-server,751
+F-0085,artifacts/api-server/src/routes/health.ts,Source of Truth; Runtime Path,artifacts/api-server,384
+F-0086,artifacts/api-server/src/routes/index.ts,Source of Truth; Runtime Path,artifacts/api-server,1022
+F-0087,artifacts/api-server/src/routes/metrics.test.ts,Test Path,artifacts/api-server,4280
+F-0088,artifacts/api-server/src/routes/metrics.ts,Source of Truth; Runtime Path,artifacts/api-server,3095
+F-0089,artifacts/api-server/src/routes/plugins.test.ts,Test Path,artifacts/api-server,1205
+F-0090,artifacts/api-server/src/routes/plugins.ts,Source of Truth; Runtime Path,artifacts/api-server,4340
+F-0091,artifacts/api-server/src/routes/projects.test.ts,Test Path,artifacts/api-server,18499
+F-0092,artifacts/api-server/src/routes/projects.ts,Source of Truth; Runtime Path,artifacts/api-server,8780
+F-0093,artifacts/api-server/src/routes/rules.test.ts,Test Path,artifacts/api-server,12426
+F-0094,artifacts/api-server/src/routes/rules.ts,Source of Truth; Runtime Path,artifacts/api-server,7394
+F-0095,artifacts/api-server/src/routes/tasks.test.ts,Test Path,artifacts/api-server,12530
+F-0096,artifacts/api-server/src/routes/tasks.ts,Source of Truth; Runtime Path,artifacts/api-server,19374
+F-0097,artifacts/api-server/src/routes/workflows.test.ts,Test Path,artifacts/api-server,11527
+F-0098,artifacts/api-server/src/routes/workflows.ts,Source of Truth; Runtime Path,artifacts/api-server,23134
+F-0099,artifacts/api-server/src/scripts/seed-provenance.ts,Source of Truth; Runtime Path,artifacts/api-server,7490
+F-0100,artifacts/api-server/src/types/express.d.ts,Source of Truth; Runtime Path,artifacts/api-server,2080
+F-0101,artifacts/api-server/tsconfig.json,Configuration,artifacts/api-server,549
+F-0102,artifacts/api-server/vitest.config.ts,Configuration; Source of Truth; Runtime Path,artifacts/api-server,208
+F-0103,artifacts/dashboard/.replit-artifact/artifact.toml,Configuration,artifacts/dashboard,561
+F-0104,artifacts/dashboard/components.json,Configuration,artifacts/dashboard,434
+F-0105,artifacts/dashboard/index.html,Configuration,artifacts/dashboard,1352
+F-0106,artifacts/dashboard/package.json,Configuration,artifacts/dashboard,2853
+F-0107,artifacts/dashboard/public/favicon.svg,Configuration,artifacts/dashboard,163
+F-0108,artifacts/dashboard/public/logo.svg,Configuration,artifacts/dashboard,502
+F-0109,artifacts/dashboard/public/robots.txt,Documentation,artifacts/dashboard,23
+F-0110,artifacts/dashboard/src/App.tsx,Source of Truth; Runtime Path,artifacts/dashboard,5257
+F-0111,artifacts/dashboard/src/components/GitPanel.tsx,Source of Truth; Runtime Path,artifacts/dashboard,20761
+F-0112,artifacts/dashboard/src/components/layout/Shell.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1829
+F-0113,artifacts/dashboard/src/components/layout/Sidebar.tsx,Source of Truth; Runtime Path,artifacts/dashboard,3916
+F-0114,artifacts/dashboard/src/components/ui/accordion.tsx,Source of Truth; Runtime Path,artifacts/dashboard,2013
+F-0115,artifacts/dashboard/src/components/ui/alert-dialog.tsx,Source of Truth; Runtime Path,artifacts/dashboard,4447
+F-0116,artifacts/dashboard/src/components/ui/alert.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1609
+F-0117,artifacts/dashboard/src/components/ui/aspect-ratio.tsx,Source of Truth; Runtime Path,artifacts/dashboard,143
+F-0118,artifacts/dashboard/src/components/ui/avatar.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1431
+F-0119,artifacts/dashboard/src/components/ui/badge.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1528
+F-0120,artifacts/dashboard/src/components/ui/breadcrumb.tsx,Source of Truth; Runtime Path,artifacts/dashboard,2735
+F-0121,artifacts/dashboard/src/components/ui/button-group.tsx,Source of Truth; Runtime Path,artifacts/dashboard,2222
+F-0122,artifacts/dashboard/src/components/ui/button.tsx,Source of Truth; Runtime Path,artifacts/dashboard,2370
+F-0123,artifacts/dashboard/src/components/ui/calendar.tsx,Source of Truth; Runtime Path,artifacts/dashboard,7607
+F-0124,artifacts/dashboard/src/components/ui/card.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1856
+F-0125,artifacts/dashboard/src/components/ui/carousel.tsx,Source of Truth; Runtime Path,artifacts/dashboard,6288
+F-0126,artifacts/dashboard/src/components/ui/chart.tsx,Source of Truth; Runtime Path,artifacts/dashboard,10846
+F-0127,artifacts/dashboard/src/components/ui/checkbox.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1038
+F-0128,artifacts/dashboard/src/components/ui/collapsible.tsx,Source of Truth; Runtime Path,artifacts/dashboard,335
+F-0129,artifacts/dashboard/src/components/ui/command.tsx,Source of Truth; Runtime Path,artifacts/dashboard,4918
+F-0130,artifacts/dashboard/src/components/ui/context-menu.tsx,Source of Truth; Runtime Path,artifacts/dashboard,7446
+F-0131,artifacts/dashboard/src/components/ui/dialog.tsx,Source of Truth; Runtime Path,artifacts/dashboard,3889
+F-0132,artifacts/dashboard/src/components/ui/drawer.tsx,Source of Truth; Runtime Path,artifacts/dashboard,3029
+F-0133,artifacts/dashboard/src/components/ui/dropdown-menu.tsx,Source of Truth; Runtime Path,artifacts/dashboard,7646
+F-0134,artifacts/dashboard/src/components/ui/empty.tsx,Source of Truth; Runtime Path,artifacts/dashboard,2410
+F-0135,artifacts/dashboard/src/components/ui/field.tsx,Source of Truth; Runtime Path,artifacts/dashboard,6079
+F-0136,artifacts/dashboard/src/components/ui/form.tsx,Source of Truth; Runtime Path,artifacts/dashboard,4232
+F-0137,artifacts/dashboard/src/components/ui/hover-card.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1245
+F-0138,artifacts/dashboard/src/components/ui/input-group.tsx,Source of Truth; Runtime Path,artifacts/dashboard,4993
+F-0139,artifacts/dashboard/src/components/ui/input-otp.tsx,Source of Truth; Runtime Path,artifacts/dashboard,2160
+F-0140,artifacts/dashboard/src/components/ui/input.tsx,Source of Truth; Runtime Path,artifacts/dashboard,775
+F-0141,artifacts/dashboard/src/components/ui/item.tsx,Source of Truth; Runtime Path,artifacts/dashboard,4519
+F-0142,artifacts/dashboard/src/components/ui/kbd.tsx,Source of Truth; Runtime Path,artifacts/dashboard,867
+F-0143,artifacts/dashboard/src/components/ui/label.tsx,Source of Truth; Runtime Path,artifacts/dashboard,733
+F-0144,artifacts/dashboard/src/components/ui/menubar.tsx,Source of Truth; Runtime Path,artifacts/dashboard,8655
+F-0145,artifacts/dashboard/src/components/ui/navigation-menu.tsx,Source of Truth; Runtime Path,artifacts/dashboard,5150
+F-0146,artifacts/dashboard/src/components/ui/pagination.tsx,Source of Truth; Runtime Path,artifacts/dashboard,2772
+F-0147,artifacts/dashboard/src/components/ui/popover.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1351
+F-0148,artifacts/dashboard/src/components/ui/progress.tsx,Source of Truth; Runtime Path,artifacts/dashboard,799
+F-0149,artifacts/dashboard/src/components/ui/radio-group.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1421
+F-0150,artifacts/dashboard/src/components/ui/resizable.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1733
+F-0151,artifacts/dashboard/src/components/ui/scroll-area.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1650
+F-0152,artifacts/dashboard/src/components/ui/select.tsx,Source of Truth; Runtime Path,artifacts/dashboard,5773
+F-0153,artifacts/dashboard/src/components/ui/separator.tsx,Source of Truth; Runtime Path,artifacts/dashboard,764
+F-0154,artifacts/dashboard/src/components/ui/sheet.tsx,Source of Truth; Runtime Path,artifacts/dashboard,4307
+F-0155,artifacts/dashboard/src/components/ui/sidebar.tsx,Source of Truth; Runtime Path,artifacts/dashboard,21969
+F-0156,artifacts/dashboard/src/components/ui/skeleton.tsx,Source of Truth; Runtime Path,artifacts/dashboard,269
+F-0157,artifacts/dashboard/src/components/ui/slider.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1043
+F-0158,artifacts/dashboard/src/components/ui/sonner.tsx,Source of Truth; Runtime Path,artifacts/dashboard,902
+F-0159,artifacts/dashboard/src/components/ui/spinner.tsx,Source of Truth; Runtime Path,artifacts/dashboard,334
+F-0160,artifacts/dashboard/src/components/ui/switch.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1155
+F-0161,artifacts/dashboard/src/components/ui/table.tsx,Source of Truth; Runtime Path,artifacts/dashboard,2881
+F-0162,artifacts/dashboard/src/components/ui/tabs.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1890
+F-0163,artifacts/dashboard/src/components/ui/textarea.tsx,Source of Truth; Runtime Path,artifacts/dashboard,655
+F-0164,artifacts/dashboard/src/components/ui/toast.tsx,Source of Truth; Runtime Path,artifacts/dashboard,4871
+F-0165,artifacts/dashboard/src/components/ui/toaster.tsx,Source of Truth; Runtime Path,artifacts/dashboard,777
+F-0166,artifacts/dashboard/src/components/ui/toggle-group.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1767
+F-0167,artifacts/dashboard/src/components/ui/toggle.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1494
+F-0168,artifacts/dashboard/src/components/ui/tooltip.tsx,Source of Truth; Runtime Path,artifacts/dashboard,1277
+F-0169,artifacts/dashboard/src/hooks/use-mobile.tsx,Source of Truth; Runtime Path,artifacts/dashboard,576
+F-0170,artifacts/dashboard/src/hooks/use-toast.ts,Source of Truth; Runtime Path,artifacts/dashboard,3952
+F-0171,artifacts/dashboard/src/index.css,Configuration,artifacts/dashboard,7601
+F-0172,artifacts/dashboard/src/lib/clerk.ts,Source of Truth; Runtime Path,artifacts/dashboard,2416
+F-0173,artifacts/dashboard/src/lib/utils.ts,Source of Truth; Runtime Path,artifacts/dashboard,169
+F-0174,artifacts/dashboard/src/main.tsx,Source of Truth; Runtime Path,artifacts/dashboard,159
+F-0175,artifacts/dashboard/src/pages/AiChat.tsx,Source of Truth; Runtime Path,artifacts/dashboard,38759
+F-0176,artifacts/dashboard/src/pages/Dashboard.tsx,Source of Truth; Runtime Path,artifacts/dashboard,13902
+F-0177,artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx,Source of Truth; Runtime Path,artifacts/dashboard,47244
+F-0178,artifacts/dashboard/src/pages/Events.tsx,Source of Truth; Runtime Path,artifacts/dashboard,7383
+F-0179,artifacts/dashboard/src/pages/Graph.tsx,Source of Truth; Runtime Path,artifacts/dashboard,31302
+F-0180,artifacts/dashboard/src/pages/Landing.tsx,Source of Truth; Runtime Path,artifacts/dashboard,2965
+F-0181,artifacts/dashboard/src/pages/Metrics.tsx,Source of Truth; Runtime Path,artifacts/dashboard,10463
+F-0182,artifacts/dashboard/src/pages/ProjectDetail.tsx,Source of Truth; Runtime Path,artifacts/dashboard,17417
+F-0183,artifacts/dashboard/src/pages/Projects.tsx,Source of Truth; Runtime Path,artifacts/dashboard,9579
+F-0184,artifacts/dashboard/src/pages/Rules.tsx,Source of Truth; Runtime Path,artifacts/dashboard,21068
+F-0185,artifacts/dashboard/src/pages/SignIn.tsx,Source of Truth; Runtime Path,artifacts/dashboard,362
+F-0186,artifacts/dashboard/src/pages/SignUp.tsx,Source of Truth; Runtime Path,artifacts/dashboard,362
+F-0187,artifacts/dashboard/src/pages/Tasks.tsx,Source of Truth; Runtime Path,artifacts/dashboard,19713
+F-0188,artifacts/dashboard/src/pages/Workflows.tsx,Source of Truth; Runtime Path,artifacts/dashboard,25031
+F-0189,artifacts/dashboard/src/pages/not-found.tsx,Source of Truth; Runtime Path,artifacts/dashboard,971
+F-0190,artifacts/dashboard/tsconfig.json,Configuration,artifacts/dashboard,520
+F-0191,artifacts/dashboard/vite.config.ts,Configuration; Source of Truth; Runtime Path,artifacts/dashboard,1822
+F-0192,artifacts/mockup-sandbox/.replit-artifact/artifact.toml,Configuration,artifacts/mockup-sandbox,327
+F-0193,artifacts/mockup-sandbox/components.json,Configuration,artifacts/mockup-sandbox,426
+F-0194,artifacts/mockup-sandbox/index.html,Configuration,artifacts/mockup-sandbox,4325
+F-0195,artifacts/mockup-sandbox/mockupPreviewPlugin.ts,Source of Truth; Runtime Path,artifacts/mockup-sandbox,4639
+F-0196,artifacts/mockup-sandbox/package.json,Configuration,artifacts/mockup-sandbox,2515
+F-0197,artifacts/mockup-sandbox/src/.generated/mockup-components.ts,Generated,artifacts/mockup-sandbox,171
+F-0198,artifacts/mockup-sandbox/src/App.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,3654
+F-0199,artifacts/mockup-sandbox/src/components/ui/accordion.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,2001
+F-0200,artifacts/mockup-sandbox/src/components/ui/alert-dialog.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,4419
+F-0201,artifacts/mockup-sandbox/src/components/ui/alert.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1598
+F-0202,artifacts/mockup-sandbox/src/components/ui/aspect-ratio.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,140
+F-0203,artifacts/mockup-sandbox/src/components/ui/avatar.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1419
+F-0204,artifacts/mockup-sandbox/src/components/ui/badge.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1163
+F-0205,artifacts/mockup-sandbox/src/components/ui/breadcrumb.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,2712
+F-0206,artifacts/mockup-sandbox/src/components/ui/button-group.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,2209
+F-0207,artifacts/mockup-sandbox/src/components/ui/button.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1925
+F-0208,artifacts/mockup-sandbox/src/components/ui/calendar.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,7569
+F-0209,artifacts/mockup-sandbox/src/components/ui/card.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1828
+F-0210,artifacts/mockup-sandbox/src/components/ui/carousel.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,6210
+F-0211,artifacts/mockup-sandbox/src/components/ui/chart.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,10674
+F-0212,artifacts/mockup-sandbox/src/components/ui/checkbox.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1031
+F-0213,artifacts/mockup-sandbox/src/components/ui/collapsible.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,329
+F-0214,artifacts/mockup-sandbox/src/components/ui/command.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,4887
+F-0215,artifacts/mockup-sandbox/src/components/ui/context-menu.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,7406
+F-0216,artifacts/mockup-sandbox/src/components/ui/dialog.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,3835
+F-0217,artifacts/mockup-sandbox/src/components/ui/drawer.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,3007
+F-0218,artifacts/mockup-sandbox/src/components/ui/dropdown-menu.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,7606
+F-0219,artifacts/mockup-sandbox/src/components/ui/empty.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,2396
+F-0220,artifacts/mockup-sandbox/src/components/ui/field.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,6044
+F-0221,artifacts/mockup-sandbox/src/components/ui/form.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,4175
+F-0222,artifacts/mockup-sandbox/src/components/ui/hover-card.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1237
+F-0223,artifacts/mockup-sandbox/src/components/ui/input-group.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,4883
+F-0224,artifacts/mockup-sandbox/src/components/ui/input-otp.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,2143
+F-0225,artifacts/mockup-sandbox/src/components/ui/input.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,768
+F-0226,artifacts/mockup-sandbox/src/components/ui/item.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,4494
+F-0227,artifacts/mockup-sandbox/src/components/ui/kbd.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,862
+F-0228,artifacts/mockup-sandbox/src/components/ui/label.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,724
+F-0229,artifacts/mockup-sandbox/src/components/ui/menubar.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,8608
+F-0230,artifacts/mockup-sandbox/src/components/ui/navigation-menu.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,5124
+F-0231,artifacts/mockup-sandbox/src/components/ui/pagination.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,2751
+F-0232,artifacts/mockup-sandbox/src/components/ui/popover.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1342
+F-0233,artifacts/mockup-sandbox/src/components/ui/progress.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,792
+F-0234,artifacts/mockup-sandbox/src/components/ui/radio-group.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1410
+F-0235,artifacts/mockup-sandbox/src/components/ui/resizable.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1723
+F-0236,artifacts/mockup-sandbox/src/components/ui/scroll-area.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1642
+F-0237,artifacts/mockup-sandbox/src/components/ui/select.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,5745
+F-0238,artifacts/mockup-sandbox/src/components/ui/separator.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,756
+F-0239,artifacts/mockup-sandbox/src/components/ui/sheet.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,4280
+F-0240,artifacts/mockup-sandbox/src/components/ui/sidebar.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,21056
+F-0241,artifacts/mockup-sandbox/src/components/ui/skeleton.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,266
+F-0242,artifacts/mockup-sandbox/src/components/ui/slider.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1037
+F-0243,artifacts/mockup-sandbox/src/components/ui/sonner.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,894
+F-0244,artifacts/mockup-sandbox/src/components/ui/spinner.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,331
+F-0245,artifacts/mockup-sandbox/src/components/ui/switch.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1148
+F-0246,artifacts/mockup-sandbox/src/components/ui/table.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,2859
+F-0247,artifacts/mockup-sandbox/src/components/ui/tabs.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1877
+F-0248,artifacts/mockup-sandbox/src/components/ui/textarea.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,649
+F-0249,artifacts/mockup-sandbox/src/components/ui/toast.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,4845
+F-0250,artifacts/mockup-sandbox/src/components/ui/toaster.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,772
+F-0251,artifacts/mockup-sandbox/src/components/ui/toggle-group.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1753
+F-0252,artifacts/mockup-sandbox/src/components/ui/toggle.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1486
+F-0253,artifacts/mockup-sandbox/src/components/ui/tooltip.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,1267
+F-0254,artifacts/mockup-sandbox/src/hooks/use-mobile.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,565
+F-0255,artifacts/mockup-sandbox/src/hooks/use-toast.ts,Source of Truth; Runtime Path,artifacts/mockup-sandbox,3767
+F-0256,artifacts/mockup-sandbox/src/index.css,Configuration,artifacts/mockup-sandbox,5760
+F-0257,artifacts/mockup-sandbox/src/lib/utils.ts,Source of Truth; Runtime Path,artifacts/mockup-sandbox,166
+F-0258,artifacts/mockup-sandbox/src/main.tsx,Source of Truth; Runtime Path,artifacts/mockup-sandbox,157
+F-0259,artifacts/mockup-sandbox/tsconfig.json,Configuration,artifacts/mockup-sandbox,513
+F-0260,artifacts/mockup-sandbox/vite.config.ts,Configuration; Source of Truth; Runtime Path,artifacts/mockup-sandbox,1592
+F-0261,attached_assets/ENGINEERINGOS_EXECUTION_ALIGNMENT_REPORT_1784147505317.md,Documentation,,7277
+F-0262,attached_assets/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION(2)_(2)_1784143389784.md,Documentation,,17268
+F-0263,attached_assets/ENGINEERINGOS_PLACEHOLDER_REGISTER_1784147505353.md,Documentation,,12786
+F-0264,attached_assets/ENGINEERINGOS_RUNTIME_EXECUTION_MATRIX_1784147505400.md,Documentation,,3652
+F-0265,attached_assets/EngineeringOS_Audit_Report_1783641389270.md,Documentation,,14716
+F-0266,attached_assets/EngineeringOS_Audit_Report_Expanded_1783642792349.md,Documentation,,17381
+F-0267,attached_assets/EngineeringOS_Combined_Deep_Analysis_(1)_1783706911895.md,Documentation,,13363
+F-0268,attached_assets/EngineeringOS_Engineering_Truth_Verification_1784082430324.csv,Documentation,,151098
+F-0269,attached_assets/EngineeringOS_Engineering_Truth_Verification_1784082430371.md,Documentation,,9957
+F-0270,attached_assets/EngineeringOS_Execution_Plan_1783831261195.pdf,Documentation,,104811
+F-0271,attached_assets/EngineeringOS_Executive_Build_Directive_v1_1783912619169.md,Documentation,,11583
+F-0272,attached_assets/EngineeringOS_File_Inventory_Complete(1)_1783706911845.md,Documentation,,16789
+F-0273,attached_assets/EngineeringOS_File_by_File_Fact_Record_1783725698283.md,Documentation,,91708
+F-0274,attached_assets/EngineeringOS_Implementation_Document_1783726156016.md,Documentation,,24261
+F-0275,attached_assets/EngineeringOS_Master_Truth_Register_(1)_1784077194501.xlsx,Documentation,,56845
+F-0276,attached_assets/EngineeringOS_Plan_1783818095882.pdf,Documentation,,81293
+F-0277,attached_assets/EngineeringOS_Project_1783718452179.pdf,Documentation,,53834
+F-0278,attached_assets/EngineeringOS_Truth_Flow_Matrix.schema_1784143389669.ts,Documentation; Source of Truth; Runtime Path,,12609
+F-0279,attached_assets/EngineeringOS_Truth_Flow_Matrix_1784143389833.json,Documentation; Configuration,,4773
+F-0280,attached_assets/EngineeringOS_Truth_Flow_Matrix_1784143389882.ts,Documentation; Source of Truth; Runtime Path,,4243
+F-0281,attached_assets/EngineeringOS_Truth_Flow_PR_Checklist_1784143389929.md,Documentation,,3032
+F-0282,attached_assets/EngineeringOS_Truth_Register_Full_(1)_1784081699025.csv,Documentation,,166934
+F-0283,attached_assets/EngineeringOS_Truth_Register_Full_1784081611461.csv,Documentation,,166934
+F-0284,attached_assets/EngineeringOS_Truth_Register_and_PR_Roadmap_(1)_1784081698974.md,Documentation,,16652
+F-0285,attached_assets/EngineeringOS_Truth_Register_and_PR_Roadmap_1784081611536.md,Documentation,,16652
+F-0286,attached_assets/EngineeringOS_analysis_report(2)_(1)_1784047036210.md,Documentation,,40290
+F-0287,attached_assets/EngineeringOS_analysis_summary_1784485047967.json,Documentation; Configuration,,4274
+F-0288,attached_assets/EngineeringOS_analysis_summary_1784487574320.json,Documentation; Configuration,,4274
+F-0289,attached_assets/EngineeringOS_analysis_summary_1784488259980.json,Documentation; Configuration,,4274
+F-0290,attached_assets/EngineeringOS_analysis_summary_1784489456836.json,Documentation; Configuration,,4274
+F-0291,attached_assets/EngineeringOS_api_zod_index_export_diff_1784143389744.txt,Documentation,,162
+F-0292,attached_assets/EngineeringOS_architecture_analysis_report_1784040976647.md,Documentation,,10572
+F-0293,attached_assets/EngineeringOS_archive_entries_1784040976692.csv,Documentation,,62290
+F-0294,attached_assets/EngineeringOS_archive_entries_1784041152876.csv,Documentation,,62290
+F-0295,attached_assets/EngineeringOS_code_deep_analysis_1784052671648.md,Documentation,,14357
+F-0296,attached_assets/EngineeringOS_code_deep_analysis_1784052762652.md,Documentation,,14357
+F-0297,attached_assets/EngineeringOS_current_analysis_report_1784052671601.md,Documentation,,11212
+F-0298,attached_assets/EngineeringOS_current_analysis_report_1784052762572.md,Documentation,,11212
+F-0299,attached_assets/EngineeringOS_deep_analysis_report_1783800987828.md,Documentation,,14614
+F-0300,attached_assets/EngineeringOS_deep_dive_analysis_v2_1784152351310.md,Documentation,,13702
+F-0301,attached_assets/EngineeringOS_deepest_analysis_report(1)_(2)_1784154247108.md,Documentation,,8801
+F-0302,attached_assets/EngineeringOS_deepest_analysis_report_(1)_1784081611576.md,Documentation,,13206
+F-0303,attached_assets/EngineeringOS_deepest_analysis_report_(1)_1784081699061.md,Documentation,,13206
+F-0304,attached_assets/EngineeringOS_file_inventory_(1)_1783729892809.csv,Documentation,,38456
+F-0305,attached_assets/EngineeringOS_file_inventory_current_1784052671527.csv,Documentation,,79100
+F-0306,attached_assets/EngineeringOS_file_inventory_current_1784052762450.csv,Documentation,,79100
+F-0307,attached_assets/EngineeringOS_file_inventory_full(2)_1783988496247.csv,Documentation,,55061
+F-0308,attached_assets/EngineeringOS_file_inventory_full_1783800987783.csv,Documentation,,28551
+F-0309,attached_assets/EngineeringOS_file_inventory_v2_1784427571850.csv,Documentation,,95375
+F-0310,attached_assets/EngineeringOS_file_inventory_v2_1784427972718.csv,Documentation,,95375
+F-0311,attached_assets/EngineeringOS_forensic_engineering_report_v2_1784427571793.md,Documentation,,18265
+F-0312,attached_assets/EngineeringOS_forensic_engineering_report_v2_1784427972668.md,Documentation,,18265
+F-0313,attached_assets/EngineeringOS_forensic_report(1)_1784492362639.md,Documentation,,31674
+F-0314,attached_assets/EngineeringOS_forensic_report(1)_1784492400992.md,Documentation,,31674
+F-0315,attached_assets/EngineeringOS_forensic_report_full(1)_1784485047923.md,Documentation,,25450
+F-0316,attached_assets/EngineeringOS_forensic_report_full(1)_1784487574279.md,Documentation,,25450
+F-0317,attached_assets/EngineeringOS_forensic_report_full(1)_1784488259926.md,Documentation,,25450
+F-0318,attached_assets/EngineeringOS_forensic_report_full(1)_1784489456770.md,Documentation,,25450
+F-0319,attached_assets/EngineeringOS_full_analysis_report_1783988496190.md,Documentation,,8762
+F-0320,attached_assets/EngineeringOS_full_file_inventory(1)_1784040976594.csv,Documentation,,56563
+F-0321,attached_assets/EngineeringOS_full_file_inventory(1)_1784041152926.csv,Documentation,,56563
+F-0322,attached_assets/EngineeringOS_full_file_inventory_1784492401113.csv,Documentation,,83815
+F-0323,attached_assets/EngineeringOS_full_inventory(1)_1784485047848.csv,Documentation,,102931
+F-0324,attached_assets/EngineeringOS_full_inventory(1)_1784487574226.csv,Documentation,,102931
+F-0325,attached_assets/EngineeringOS_full_inventory(1)_1784488259874.csv,Documentation,,102931
+F-0326,attached_assets/EngineeringOS_full_inventory(1)_1784489456653.csv,Documentation,,102931
+F-0327,attached_assets/EngineeringOS_minimum_path_to_vision_(1)_1783830867380.md,Documentation,,15261
+F-0328,attached_assets/EngineeringOS_minimum_path_to_vision_1783830816710.md,Documentation,,15261
+F-0329,attached_assets/EngineeringOS_operational_status_record_1783912104506.md,Documentation,,5354
+F-0330,attached_assets/EngineeringOS_project_analysis_report(1)_1783729892769.md,Documentation,,13022
+F-0331,attached_assets/EngineeringOS_provenance_registry_linked_1783911530593.json,Documentation; Configuration,,422336
+F-0332,attached_assets/EngineeringOS_provenance_registry_seed_1783911530658.json,Documentation; Configuration,,248584
+F-0333,attached_assets/EngineeringOS_replit_execution_directive_1783800987701.json,Documentation; Configuration,,11716
+F-0334,attached_assets/EngineeringOS_replit_execution_directive_1783800987743.md,Documentation,,11867
+F-0335,attached_assets/EngineeringOS_runtime_trace_matrix_1784492401053.csv,Documentation,,958
+F-0336,attached_assets/EngineeringOS_series14_truth_matrix_1783966531635.md,Documentation,,13771
+F-0337,attached_assets/EngineeringOS_series15_deep_evidence_1783966531578.md,Documentation,,13524
+F-0338,attached_assets/EngineeringOS_series16_truth_matrix_(1)_1783966531512.md,Documentation,,12532
+F-0339,attached_assets/EngineeringOS_series17_deep_analysis_1783966531444.md,Documentation,,13745
+F-0340,attached_assets/EngineeringOS_series18_status_register_(1)_1783966531375.md,Documentation,,9763
+F-0341,attached_assets/EngineeringOS_series19_control_plane_evidence_1783966531303.md,Documentation,,14100
+F-0342,attached_assets/EngineeringOS_series20_status_register_1783966531239.md,Documentation,,13761
+F-0343,attached_assets/EngineeringOS_series21_deep_status_1783966531177.md,Documentation,,11759
+F-0344,attached_assets/EngineeringOS_series22_second_wave_analysis_1783966531113.md,Documentation,,7779
+F-0345,attached_assets/EngineeringOS_series23_self_verifying_architecture_1783966531049.md,Documentation,,10473
+F-0346,attached_assets/EngineeringOS_series24_deep_evidence_1783966530990.md,Documentation,,9605
+F-0347,attached_assets/EngineeringOS_series25_truth_register_1783966530939.md,Documentation,,11680
+F-0348,attached_assets/EngineeringOS_series26_boundary_analysis_1783966530884.md,Documentation,,12996
+F-0349,attached_assets/EngineeringOS_series27_failure_semantics_1783966530824.md,Documentation,,13504
+F-0350,attached_assets/EngineeringOS_series28_traceability_mesh_1783966530766.md,Documentation,,13996
+F-0351,attached_assets/EngineeringOS_series29_trust_boundary_register_1783966530702.md,Documentation,,9234
+F-0352,attached_assets/EngineeringOS_series30_release_handoff_audit_1783966530642.md,Documentation,,9762
+F-0353,attached_assets/EngineeringOS_series31_release_handoff_audit_1783966530586.md,Documentation,,17069
+F-0354,attached_assets/EngineeringOS_series32_phase_conformance_audit_1783966530537.md,Documentation,,13126
+F-0355,attached_assets/EngineeringOS_series33_provenance_authority_graph_1783966530470.md,Documentation,,9276
+F-0356,attached_assets/EngineeringOS_status_record_(1)_1783980758791.md,Documentation,,10832
+F-0357,attached_assets/EngineeringOS_status_register_(1)_1783818095824.md,Documentation,,47392
+F-0358,attached_assets/EngineeringOS_status_register_final_1783902107873.md,Documentation,,13170
+F-0359,attached_assets/EngineeringOS_task_backlog_1783800987875.json,Documentation; Configuration,,5563
+F-0360,attached_assets/EngineeringOS_truth_checklist_1784322972343.md,Documentation,,92884
+F-0361,attached_assets/EngineeringOS_truth_checklist_1784326108247.md,Documentation,,92884
+F-0362,attached_assets/EngineeringOS_truth_register_current_1783825680736.md,Documentation,,33405
+F-0363,attached_assets/Engineering_Os_Fact_Record_1783718570175.pdf,Documentation,,104719
+F-0364,attached_assets/Engineering_Os_Phased_Completion_Plan_(1)_1783718452123.pdf,Documentation,,77805
+F-0365,attached_assets/Engineering_Os_Phased_Completion_Plan_1783718452216.pdf,Documentation,,77807
+F-0366,attached_assets/PR_BACKLOG_1784470184510.md,Documentation,,16676
+F-0367,attached_assets/PR_BACKLOG_1784476473246.md,Documentation,,16859
+F-0368,attached_assets/Pasted---1783906604381_1783906604385.txt,Documentation,,15317
+F-0369,attached_assets/Pasted---1783956390496_1783956390501.txt,Documentation,,10819
+F-0370,attached_assets/Pasted---1784163447147_1784163447161.txt,Documentation,,6695
+F-0371,attached_assets/Pasted---1784163799356_1784163799366.txt,Documentation,,12487
+F-0372,attached_assets/Pasted---1784230995192_1784230995203.txt,Documentation,,23444
+F-0373,attached_assets/Pasted---1784231528183_1784231528198.txt,Documentation,,23444
+F-0374,attached_assets/Pasted---1784232069146_1784232069153.txt,Documentation,,11255
+F-0375,attached_assets/Pasted---1784348446604_1784348446608.txt,Documentation,,7498
+F-0376,attached_assets/Pasted---1784389595241_1784389595255.txt,Documentation,,5426
+F-0377,attached_assets/Pasted--1--1784078393552_1784078393558.txt,Documentation,,11565
+F-0378,attached_assets/Pasted--Backlog-Execution-Backlog-v1-0--1783975284276_1783975284279.txt,Documentation,,9560
+F-0379,attached_assets/Pasted--Code-Review-Plan-Groq-Scope-Save-API--1784175594438_1784175594440.txt,Documentation,,8108
+F-0380,attached_assets/Pasted--Discovery-Layer--1783988471815_1783988471818.txt,Documentation,,6388
+F-0381,attached_assets/Pasted--EngineeringOS--1784145653787_1784145653789.txt,Documentation,,11451
+F-0382,attached_assets/Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783565505918.txt,Documentation,,6622
+F-0383,attached_assets/Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783566150077.txt,Documentation,,6622
+F-0384,attached_assets/Pasted--EngineeringOS-PR-Backlog-File-by-File-backlog--1784168_1784168977036.txt,Documentation,,15043
+F-0385,attached_assets/Pasted--EngineeringOS-PR-Backlog-File-by-File-backlog--1784169_1784169315352.txt,Documentation,,15043
+F-0386,attached_assets/Pasted--EngineeringOS-PR-by-PR-Execution-Pack-for-Replit-AI-PR_1784154335102.txt,Documentation,,14305
+F-0387,attached_assets/Pasted--EngineeringOS-PR-by-PR-Execution-Pack-for-Replit-AI-PR_1784155079326.txt,Documentation,,14305
+F-0388,attached_assets/Pasted--GROQ-API-KEY-JavaScript-Groq--1784088277237_1784088277243.txt,Documentation,,7657
+F-0389,attached_assets/Pasted--Git-AI-Orchestrator-lib-ai-orchestrator-src-tools-git-_1784347517831.txt,Documentation,,6523
+F-0390,attached_assets/Pasted--Knowledge-Graph-2-0--1784165514922_1784165514926.txt,Documentation,,7420
+F-0391,attached_assets/Pasted--Knowledge-Graph-2-0-Checklist-File--1784165546932_1784165546935.txt,Documentation,,11773
+F-0392,attached_assets/Pasted--PR--1784040954263_1784040954267.txt,Documentation,,11758
+F-0393,attached_assets/Pasted--PR-01-Sync-OpenAPI-with-runtime-graph-surface-files-li_1784234215782.txt,Documentation,,5651
+F-0394,attached_assets/Pasted--PR-03-Micro-Backlog-Contract-Layer-Stabilization-1-3--_1784158287520.txt,Documentation,,7655
+F-0395,attached_assets/Pasted--PR-1-Hardening-Contract-Alignment-for-projects-ts-proj_1784052905584.txt,Documentation,,5241
+F-0396,attached_assets/Pasted--PR-Backlog-EngineeringOS-1-Scoping-ownership-integrity_1784154359481.txt,Documentation,,9635
+F-0397,attached_assets/Pasted--PR-Backlog-EngineeringOS-Execution-Alignment--17841474_1784147452495.txt,Documentation,,8780
+F-0398,attached_assets/Pasted--PR-Title-fix-ai-chat-surface-AI-request-failures-and-r_1784130154946.txt,Documentation,,5312
+F-0399,attached_assets/Pasted--PR-Title-fix-discovery-Classify-Project-Loading-Failur_1784086246178.txt,Documentation,,5333
+F-0400,attached_assets/Pasted--PR-app-ts--1784047027177_1784047027183.txt,Documentation,,19647
+F-0401,attached_assets/Pasted--PR-app-ts--1784047927706_1784047927710.txt,Documentation,,19647
+F-0402,attached_assets/Pasted--PR-discovery-ts-PR-1-Discovery--1783996178319_1783996178325.txt,Documentation,,10274
+F-0403,attached_assets/Pasted--PR-lib-ai-orchestrator-PR-1-Prompt-Templates--17839939_1783993953832.txt,Documentation,,4754
+F-0404,attached_assets/Pasted--PR-lib-ai-orchestrator-PR-1-Prompt-Templates--17839939_1783993967887.txt,Documentation,,4754
+F-0405,attached_assets/Pasted--PR-lib-ai-orchestrator-PR-1-Prompt-Templates--17839950_1783995013203.txt,Documentation,,4754
+F-0406,attached_assets/Pasted--PR-title-Harden-auth-context-and-prepare-project-scope_1784044908893.txt,Documentation,,3811
+F-0407,attached_assets/Pasted--PR-title-Hardening-discovery-ts-into-a-deterministic-o_1784053152915.txt,Documentation,,5750
+F-0408,attached_assets/Pasted--Plan-3-Sync-fact-record-architecture-docs-3-Sync-Fact-_1783733496072.txt,Documentation,,17691
+F-0409,attached_assets/Pasted--Plan-3-Sync-fact-record-architecture-docs-3-Sync-Fact-_1783790285219.txt,Documentation,,17691
+F-0410,attached_assets/Pasted--Today-5-05-AM-EngineeringOS-main-66-zip-Zip-Archive-Fo_1784430667443.txt,Documentation,,32657
+F-0411,attached_assets/Pasted--artifacts-api-server-src-routes-ai-ts-lib-ai-orchestra_1784388540189.txt,Documentation,,12843
+F-0412,attached_assets/Pasted--artifacts-api-server-src-routes-discovery-ts--17839967_1783996711676.txt,Documentation,,10600
+F-0413,attached_assets/Pasted--artifacts-api-server-src-routes-discovery-ts--17839967_1783997082105.txt,Documentation,,10600
+F-0414,attached_assets/Pasted--lib-ai-orchestrator--1783993997216_1783993997218.txt,Documentation,,8527
+F-0415,attached_assets/Pasted--lib-db-test-script--1784159470823_1784159470827.txt,Documentation,,11190
+F-0416,attached_assets/Pasted--onboarding-o-1783988399961_1783988399964.txt,Documentation,,4676
+F-0417,attached_assets/Pasted--src-context-builder-ts-src-schemas-context-schema-1784_1784305372706.txt,Documentation,,6056
+F-0418,attached_assets/Pasted--test--1784245726594_1784245726598.txt,Documentation,,11566
+F-0419,attached_assets/Pasted--test--1784245803493_1784245803497.txt,Documentation,,11560
+F-0420,attached_assets/Pasted-7-Upgrade-Dashboard-to-Operational-UI-What-Why-Current-_1783734748019.txt,Documentation,,2796
+F-0421,attached_assets/Pasted-7-Upgrade-Dashboard-to-Operational-UI-What-Why-Current-_1783798897613.txt,Documentation,,2795
+F-0422,attached_assets/Pasted-PR-Title-security-ai-Harden-User-Scoped-Groq-Credential_1784127290653.txt,Documentation,,5304
+F-0423,attached_assets/Pasted-Plan-6-Deepen-graph-scanner-discovery-6-Deepen-Graph-Sc_1783734658300.txt,Documentation,,2633
+F-0424,attached_assets/Screenshot_٢٠٢٦٠٧٠٩-٠٦١٦٢٥_1783567039006.png,Documentation; Configuration,,98945
+F-0425,attached_assets/Screenshot_٢٠٢٦٠٧٠٩-٠٦٢٠٣٨_1783610776566.png,Documentation; Configuration,,100944
+F-0426,attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٣٥٣١٨_1783904118069.png,Documentation; Configuration,,86583
+F-0427,attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٤٠٥١١_1783904724118.png,Documentation; Configuration,,135875
+F-0428,attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٤٤٤٢٨_1783907108840.png,Documentation; Configuration,,77223
+F-0429,attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٥٠١٣٨_1783908128704.png,Documentation; Configuration,,63973
+F-0430,attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٥١٤٥٤_1783908924873.png,Documentation; Configuration,,77952
+F-0431,attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٥١٩٤٨_1783909201747.png,Documentation; Configuration,,72233
+F-0432,attached_assets/Screenshot_٢٠٢٦٠٧١٦-٠٧٣٧٤٤_1784176683628.png,Documentation; Configuration,,162953
+F-0433,attached_assets/Screenshot_٢٠٢٦٠٧١٦-١٨٣٠٤١_1784216000977.png,Documentation; Configuration,,98245
+F-0434,attached_assets/Screenshot_٢٠٢٦٠٧١٦-١٨٣٠٤٦_1784216000942.png,Documentation; Configuration,,108546
+F-0435,attached_assets/Screenshot_٢٠٢٦٠٧١٨-٠١٠٨١٠_1784326132441.png,Documentation; Configuration,,113984
+F-0436,attached_assets/Screenshot_٢٠٢٦٠٧١٨-٠٦١٢٠٢_1784344398002.png,Documentation; Configuration,,111052
+F-0437,attached_assets/Screenshot_٢٠٢٦٠٧١٨-٠٦١٢٤٢_1784344397966.png,Documentation; Configuration,,105598
+F-0438,attached_assets/Screenshot_٢٠٢٦٠٧١٨-٠٦١٢٤٦_1784344397931.png,Documentation; Configuration,,111762
+F-0439,attached_assets/Screenshot_٢٠٢٦٠٧١٨-٠٦١٩١٠_1784344762476.png,Documentation; Configuration,,109406
+F-0440,attached_assets/Screenshot_٢٠٢٦٠٧١٩-٠٤٣٥١٧_1784424954601.png,Documentation; Configuration,,137147
+F-0441,attached_assets/Screenshot_٢٠٢٦٠٧١٩-٠٤٣٥٢١_1784424954559.png,Documentation; Configuration,,194701
+F-0442,attached_assets/Screenshot_٢٠٢٦٠٧٢٠-٠٢٠٢٥١_1784502211806.png,Documentation; Configuration,,33970
+F-0443,attached_assets/Screenshot_٢٠٢٦٠٧٢٠-٠٢٠٣٠٤_1784502211776.png,Documentation; Configuration,,118122
+F-0444,attached_assets/Screenshot_٢٠٢٦٠٧٢٠-٠٢٢٤٤٨_1784504071817.png,Documentation; Configuration,,181400
+F-0445,attached_assets/Screenshot_٢٠٢٦٠٧٢٠-٠٢٢٤٥١_1784504071787.png,Documentation; Configuration,,214574
+F-0446,attached_assets/Screenshot_٢٠٢٦٠٧٢٠-٠٢٢٤٥٥_1784504071737.png,Documentation; Configuration,,187658
+F-0447,attached_assets/Screenshot_٢٠٢٦٠٧٢٠-٠٣٢٣٤٤_1784507048475.png,Documentation; Configuration,,70961
+F-0448,attached_assets/agents_(1)_1783564013722.zip,Documentation,,256
+F-0449,attached_assets/ai_orchestrator_deep_dive_(1)_1783994021466.md,Documentation,,10648
+F-0450,attached_assets/artifacts_(7)_(1)_1783564013761.zip,Documentation,,1668739
+F-0451,attached_assets/engineeringos_forensic_analysis_1784431635464.md,Documentation,,108670
+F-0452,attached_assets/engineeringos_forensic_analysis_complete_1784431954519.md,Documentation,,189018
+F-0453,attached_assets/engineeringos_forensic_analysis_complete_1784476328406.md,Documentation,,189018
+F-0454,attached_assets/engineeringos_forensic_audit_report_1784498370433.md,Documentation,,10652
+F-0455,attached_assets/engineeringos_forensic_audit_report_1784499793978.md,Documentation,,10652
+F-0456,attached_assets/engineeringos_forensic_audit_report_1784500814802.md,Documentation,,10652
+F-0457,attached_assets/engineeringos_master_inventory_1784498370483.csv,Documentation,,77341
+F-0458,attached_assets/engineeringos_master_inventory_1784499794029.csv,Documentation,,77341
+F-0459,attached_assets/engineeringos_master_inventory_1784500814907.csv,Documentation,,77341
+F-0460,attached_assets/git_(2)_1783564013691.zip,Documentation,,134
+F-0461,attached_assets/gitattributes_1783564013915.txt,Documentation,,92
+F-0462,attached_assets/gitignore_(1)_1783564013965.txt,Documentation,,668
+F-0463,attached_assets/lib_(7)_(1)_1783564013810.zip,Documentation,,219450
+F-0464,attached_assets/node_modules_(2)_1783564014266.zip,Documentation,,22
+F-0465,attached_assets/npmrc_(2)_1783564014024.txt,Documentation,,56
+F-0466,attached_assets/package_(1)_(7)_1783564014328.json,Documentation; Configuration,,649
+F-0467,attached_assets/pnpm-lock.yaml_(3)_1783564014392.txt,Documentation,,210264
+F-0468,attached_assets/pnpm-workspace.yaml_(3)_1783564014449.txt,Documentation,,6579
+F-0469,attached_assets/pr-backlog-ai-orchestrator_1784306020062.md,Documentation,,15737
+F-0470,attached_assets/replit_(13)_1783564014085.md,Documentation,,1521
+F-0471,attached_assets/replit_(2)_1783564014509.txt,Documentation,,372
+F-0472,attached_assets/replitignore_1783564014569.txt,Documentation,,201
+F-0473,attached_assets/scripts_(8)_1783564013865.zip,Documentation,,11642
+F-0474,attached_assets/tsconfig.base_(2)_(1)_1783564014142.json,Documentation; Configuration,,692
+F-0475,attached_assets/tsconfig_(7)_1783564014202.json,Documentation; Configuration,,279
+F-0476,attached_assets/تحليل_EngineeringOS_1783804577785.docx,Documentation,,20978
+F-0477,attached_assets/خطة_العمل_التنفيذية_لمشروع_EngineeringOS_1783729892699.docx,Documentation,,18423
+F-0478,docs/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md,Documentation,,17268
+F-0479,docs/EXECUTION_ALIGNMENT_REPORT.md,Documentation,,7369
+F-0480,docs/PLACEHOLDER_REGISTER.md,Documentation,,8356
+F-0481,docs/PR_BACKLOG.md,Documentation,,17439
+F-0482,docs/RUNTIME_EXECUTION_MATRIX.md,Documentation,,3811
+F-0483,docs/ai-orchestrator-executive-table.md,Documentation,,16654
+F-0484,docs/ai-orchestrator-forensic-analysis.md,Documentation,,30657
+F-0485,docs/ai-orchestrator-gap-analysis.md,Documentation,,14463
+F-0486,docs/ai-orchestrator-trace-analysis.md,Documentation,,14464
+F-0487,docs/architecture.md,Documentation,,17530
+F-0488,docs/completion-plan.md,Documentation,,45244
+F-0489,docs/fact-record.md,Documentation,,153610
+F-0490,docs/pr-backlog-ai-orchestrator.md,Documentation,,15737
+F-0491,docs/truth-flow-pr-checklist.md,Documentation,,4636
+F-0492,docs/truth-flow-pr-review-plan.md,Documentation,,21128
+F-0493,lib/ai-orchestrator/package.json,Configuration,lib/ai-orchestrator,530
+F-0494,lib/ai-orchestrator/src/__tests__/chat-agent.test.ts,Test Path,lib/ai-orchestrator,6564
+F-0495,lib/ai-orchestrator/src/__tests__/file-tools.test.ts,Test Path,lib/ai-orchestrator,3400
+F-0496,lib/ai-orchestrator/src/__tests__/groq-client.test.ts,Test Path,lib/ai-orchestrator,8271
+F-0497,lib/ai-orchestrator/src/__tests__/parsing.test.ts,Test Path,lib/ai-orchestrator,4864
+F-0498,lib/ai-orchestrator/src/__tests__/schemas.test.ts,Test Path,lib/ai-orchestrator,10914
+F-0499,lib/ai-orchestrator/src/__tests__/workflow-orchestrator.test.ts,Test Path,lib/ai-orchestrator,22740
+F-0500,lib/ai-orchestrator/src/agents/chat-agent.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,22900
+F-0501,lib/ai-orchestrator/src/agents/code-reviewer.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,2804
+F-0502,lib/ai-orchestrator/src/agents/scan-analyst.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,2844
+F-0503,lib/ai-orchestrator/src/agents/task-agent.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,3374
+F-0504,lib/ai-orchestrator/src/agents/workflow-orchestrator.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,10906
+F-0505,lib/ai-orchestrator/src/context-builder.test.ts,Test Path,lib/ai-orchestrator,12800
+F-0506,lib/ai-orchestrator/src/context-builder.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,19591
+F-0507,lib/ai-orchestrator/src/deepseek-client.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,5260
+F-0508,lib/ai-orchestrator/src/errors.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,2081
+F-0509,lib/ai-orchestrator/src/groq-client.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,18093
+F-0510,lib/ai-orchestrator/src/index.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,1435
+F-0511,lib/ai-orchestrator/src/parsing.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,4200
+F-0512,lib/ai-orchestrator/src/prompts/chat.prompt.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,6704
+F-0513,lib/ai-orchestrator/src/prompts/index.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,424
+F-0514,lib/ai-orchestrator/src/prompts/review.prompt.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,3940
+F-0515,lib/ai-orchestrator/src/prompts/scan.prompt.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,3530
+F-0516,lib/ai-orchestrator/src/prompts/task.prompt.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,3220
+F-0517,lib/ai-orchestrator/src/prompts/workflow.prompt.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,4077
+F-0518,lib/ai-orchestrator/src/schemas/chat.schema.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,2461
+F-0519,lib/ai-orchestrator/src/schemas/code-review.schema.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,1118
+F-0520,lib/ai-orchestrator/src/schemas/context.schema.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,932
+F-0521,lib/ai-orchestrator/src/schemas/index.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,961
+F-0522,lib/ai-orchestrator/src/schemas/scan.schema.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,800
+F-0523,lib/ai-orchestrator/src/schemas/task.schema.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,398
+F-0524,lib/ai-orchestrator/src/schemas/workflow.schema.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,4236
+F-0525,lib/ai-orchestrator/src/tools/file-tools.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,18675
+F-0526,lib/ai-orchestrator/src/tools/git-tools.ts,Source of Truth; Runtime Path,lib/ai-orchestrator,4976
+F-0527,lib/ai-orchestrator/tsconfig.json,Configuration,lib/ai-orchestrator,298
+F-0528,lib/ai-orchestrator/vitest.config.ts,Configuration; Source of Truth; Runtime Path,lib/ai-orchestrator,304
+F-0529,lib/api-client-react/package.json,Configuration,lib/api-client-react,265
+F-0530,lib/api-client-react/src/custom-fetch.ts,Source of Truth; Runtime Path,lib/api-client-react,11892
+F-0531,lib/api-client-react/src/generated/api.schemas.ts,Generated,lib/api-client-react,30363
+F-0532,lib/api-client-react/src/generated/api.ts,Generated,lib/api-client-react,181990
+F-0533,lib/api-client-react/src/index.ts,Source of Truth; Runtime Path,lib/api-client-react,756
+F-0534,lib/api-client-react/src/project-error.ts,Source of Truth; Runtime Path,lib/api-client-react,5928
+F-0535,lib/api-client-react/src/use-ai-chat-stream.ts,Source of Truth; Runtime Path,lib/api-client-react,5791
+F-0536,lib/api-client-react/tsconfig.json,Configuration,lib/api-client-react,251
+F-0537,lib/api-spec/openapi.yaml,Configuration,lib/api-spec,99764
+F-0538,lib/api-spec/orval.config.ts,Configuration; Source of Truth; Runtime Path,lib/api-spec,1959
+F-0539,lib/api-spec/package.json,Configuration,lib/api-spec,307
+F-0540,lib/api-zod/package.json,Configuration,lib/api-zod,189
+F-0541,lib/api-zod/src/generated/api.ts,Generated,lib/api-zod,107980
+F-0542,lib/api-zod/src/generated/types/aiApplyChangesRequest.ts,Generated,lib/api-zod,368
+F-0543,lib/api-zod/src/generated/types/aiApplyChangesRequestChangesItem.ts,Generated,lib/api-zod,279
+F-0544,lib/api-zod/src/generated/types/aiApplyChangesResult.ts,Generated,lib/api-zod,343
+F-0545,lib/api-zod/src/generated/types/aiApplyChangesResultResultsItem.ts,Generated,lib/api-zod,265
+F-0546,lib/api-zod/src/generated/types/aiChatMessage.ts,Generated,lib/api-zod,389
+F-0547,lib/api-zod/src/generated/types/aiChatMessageRole.ts,Generated,lib/api-zod,366
+F-0548,lib/api-zod/src/generated/types/aiChatOutput.ts,Generated,lib/api-zod,498
+F-0549,lib/api-zod/src/generated/types/aiChatRequest.ts,Generated,lib/api-zod,262
+F-0550,lib/api-zod/src/generated/types/aiChatSession.ts,Generated,lib/api-zod,290
+F-0551,lib/api-zod/src/generated/types/aiCodeIssue.ts,Generated,lib/api-zod,466
+F-0552,lib/api-zod/src/generated/types/aiCodeIssueSeverity.ts,Generated,lib/api-zod,386
+F-0553,lib/api-zod/src/generated/types/aiCodeIssueType.ts,Generated,lib/api-zod,414
+F-0554,lib/api-zod/src/generated/types/aiCodeReview.ts,Generated,lib/api-zod,506
+F-0555,lib/api-zod/src/generated/types/aiCodeReviewVerdict.ts,Generated,lib/api-zod,402
+F-0556,lib/api-zod/src/generated/types/aiOrchestrateRequest.ts,Generated,lib/api-zod,237
+F-0557,lib/api-zod/src/generated/types/aiOrchestrationDecision.ts,Generated,lib/api-zod,436
+F-0558,lib/api-zod/src/generated/types/aiOrchestrationDecisionAction.ts,Generated,lib/api-zod,430
+F-0559,lib/api-zod/src/generated/types/aiPendingChange.ts,Generated,lib/api-zod,621
+F-0560,lib/api-zod/src/generated/types/aiReviewRequest.ts,Generated,lib/api-zod,330
+F-0561,lib/api-zod/src/generated/types/aiReviewRequestFileContents.ts,Generated,lib/api-zod,232
+F-0562,lib/api-zod/src/generated/types/aiScanAnalysis.ts,Generated,lib/api-zod,382
+F-0563,lib/api-zod/src/generated/types/aiScanInsight.ts,Generated,lib/api-zod,476
+F-0564,lib/api-zod/src/generated/types/aiScanInsightCategory.ts,Generated,lib/api-zod,474
+F-0565,lib/api-zod/src/generated/types/aiScanInsightSeverity.ts,Generated,lib/api-zod,394
+F-0566,lib/api-zod/src/generated/types/createProjectInput.ts,Generated,lib/api-zod,307
+F-0567,lib/api-zod/src/generated/types/createRuleInput.ts,Generated,lib/api-zod,432
+F-0568,lib/api-zod/src/generated/types/createTaskInput.ts,Generated,lib/api-zod,453
+F-0569,lib/api-zod/src/generated/types/createWorkflowInput.ts,Generated,lib/api-zod,348
+F-0570,lib/api-zod/src/generated/types/dashboardOverview.ts,Generated,lib/api-zod,820
+F-0571,lib/api-zod/src/generated/types/dashboardOverviewProjectScoresItem.ts,Generated,lib/api-zod,436
+F-0572,lib/api-zod/src/generated/types/dashboardOverviewProjectScoresItemTrend.ts,Generated,lib/api-zod,464
+F-0573,lib/api-zod/src/generated/types/dashboardOverviewTaskStatusBreakdown.ts,Generated,lib/api-zod,241
+F-0574,lib/api-zod/src/generated/types/dashboardOverviewTopRulesItem.ts,Generated,lib/api-zod,285
+F-0575,lib/api-zod/src/generated/types/deleteGroqKey200.ts,Generated,lib/api-zod,224
+F-0576,lib/api-zod/src/generated/types/discoveryGraphSummaryData.ts,Generated,lib/api-zod,598
+F-0577,lib/api-zod/src/generated/types/discoveryGraphSummaryDataEntitiesByType.ts,Generated,lib/api-zod,244
+F-0578,lib/api-zod/src/generated/types/discoveryGraphSummaryDataFilesByLanguage.ts,Generated,lib/api-zod,245
+F-0579,lib/api-zod/src/generated/types/discoveryOptions.ts,Generated,lib/api-zod,347
+F-0580,lib/api-zod/src/generated/types/discoveryReport.ts,Generated,lib/api-zod,1286
+F-0581,lib/api-zod/src/generated/types/discoveryRuleViolationItem.ts,Generated,lib/api-zod,283
+F-0582,lib/api-zod/src/generated/types/discoverySessionStatus.ts,Generated,lib/api-zod,676
+F-0583,lib/api-zod/src/generated/types/discoverySessionStatusStatus.ts,Generated,lib/api-zod,460
+F-0584,lib/api-zod/src/generated/types/discoverySourceCapability.ts,Generated,lib/api-zod,412
+F-0585,lib/api-zod/src/generated/types/discoverySourceConfig.ts,Generated,lib/api-zod,909
+F-0586,lib/api-zod/src/generated/types/discoverySourceConfigCredentials.ts,Generated,lib/api-zod,323
+F-0587,lib/api-zod/src/generated/types/discoveryStepItem.ts,Generated,lib/api-zod,378
+F-0588,lib/api-zod/src/generated/types/discoveryStepItemStatus.ts,Generated,lib/api-zod,406
+F-0589,lib/api-zod/src/generated/types/entityType.ts,Generated,lib/api-zod,418
+F-0590,lib/api-zod/src/generated/types/evaluateRuleRequest.ts,Generated,lib/api-zod,227
+F-0591,lib/api-zod/src/generated/types/event.ts,Generated,lib/api-zod,714
+F-0592,lib/api-zod/src/generated/types/eventPayload.ts,Generated,lib/api-zod,220
+F-0593,lib/api-zod/src/generated/types/eventSeverity.ts,Generated,lib/api-zod,366
+F-0594,lib/api-zod/src/generated/types/failWorkflowPhaseInput.ts,Generated,lib/api-zod,227
+F-0595,lib/api-zod/src/generated/types/getGraphEntityImpact404.ts,Generated,lib/api-zod,225
+F-0596,lib/api-zod/src/generated/types/getGraphEntityImpactParams.ts,Generated,lib/api-zod,284
+F-0597,lib/api-zod/src/generated/types/getGraphEntityNeighbors200.ts,Generated,lib/api-zod,440
+F-0598,lib/api-zod/src/generated/types/getGraphEntityNeighbors404.ts,Generated,lib/api-zod,228
+F-0599,lib/api-zod/src/generated/types/getGraphEvidence403.ts,Generated,lib/api-zod,221
+F-0600,lib/api-zod/src/generated/types/getGraphEvidence404.ts,Generated,lib/api-zod,221
+F-0601,lib/api-zod/src/generated/types/getGraphPathParams.ts,Generated,lib/api-zod,288
+F-0602,lib/api-zod/src/generated/types/getGraphRuntimeSubgraph403.ts,Generated,lib/api-zod,228
+F-0603,lib/api-zod/src/generated/types/getGraphRuntimeSubgraph404.ts,Generated,lib/api-zod,228
+F-0604,lib/api-zod/src/generated/types/getGraphSemanticNeighborhood400.ts,Generated,lib/api-zod,233
+F-0605,lib/api-zod/src/generated/types/getGraphSemanticNeighborhood403.ts,Generated,lib/api-zod,233
+F-0606,lib/api-zod/src/generated/types/getGraphSemanticNeighborhood404.ts,Generated,lib/api-zod,233
+F-0607,lib/api-zod/src/generated/types/getGraphSemanticNeighborhoodParams.ts,Generated,lib/api-zod,414
+F-0608,lib/api-zod/src/generated/types/getGraphSubgraph400.ts,Generated,lib/api-zod,221
+F-0609,lib/api-zod/src/generated/types/getGraphSubgraph403.ts,Generated,lib/api-zod,221
+F-0610,lib/api-zod/src/generated/types/getGraphSubgraph404.ts,Generated,lib/api-zod,221
+F-0611,lib/api-zod/src/generated/types/getGraphSubgraphParams.ts,Generated,lib/api-zod,365
+F-0612,lib/api-zod/src/generated/types/getLatestMetricsParams.ts,Generated,lib/api-zod,227
+F-0613,lib/api-zod/src/generated/types/gitCommitEntry.ts,Generated,lib/api-zod,466
+F-0614,lib/api-zod/src/generated/types/gitCommitInput.ts,Generated,lib/api-zod,337
+F-0615,lib/api-zod/src/generated/types/gitConfig.ts,Generated,lib/api-zod,371
+F-0616,lib/api-zod/src/generated/types/gitHubTokenStatus.ts,Generated,lib/api-zod,358
+F-0617,lib/api-zod/src/generated/types/gitLog.ts,Generated,lib/api-zod,278
+F-0618,lib/api-zod/src/generated/types/gitOperationResult.ts,Generated,lib/api-zod,319
+F-0619,lib/api-zod/src/generated/types/gitPushResult.ts,Generated,lib/api-zod,369
+F-0620,lib/api-zod/src/generated/types/gitStatus.ts,Generated,lib/api-zod,346
+F-0621,lib/api-zod/src/generated/types/gitStatusFile.ts,Generated,lib/api-zod,355
+F-0622,lib/api-zod/src/generated/types/graphCentralityScore.ts,Generated,lib/api-zod,335
+F-0623,lib/api-zod/src/generated/types/graphEdgeType.ts,Generated,lib/api-zod,551
+F-0624,lib/api-zod/src/generated/types/graphEntity.ts,Generated,lib/api-zod,1474
+F-0625,lib/api-zod/src/generated/types/graphEntityMetadata.ts,Generated,lib/api-zod,227
+F-0626,lib/api-zod/src/generated/types/graphEvidence.ts,Generated,lib/api-zod,499
+F-0627,lib/api-zod/src/generated/types/graphEvidenceBundle.ts,Generated,lib/api-zod,386
+F-0628,lib/api-zod/src/generated/types/graphEvidenceKind.ts,Generated,lib/api-zod,510
+F-0629,lib/api-zod/src/generated/types/graphEvidenceResponse.ts,Generated,lib/api-zod,382
+F-0630,lib/api-zod/src/generated/types/graphImpactHop.ts,Generated,lib/api-zod,435
+F-0631,lib/api-zod/src/generated/types/graphImpactResult.ts,Generated,lib/api-zod,388
+F-0632,lib/api-zod/src/generated/types/graphLayerCounts.ts,Generated,lib/api-zod,255
+F-0633,lib/api-zod/src/generated/types/graphPathResult.ts,Generated,lib/api-zod,319
+F-0634,lib/api-zod/src/generated/types/graphPathStep.ts,Generated,lib/api-zod,371
+F-0635,lib/api-zod/src/generated/types/graphProvenance.ts,Generated,lib/api-zod,437
+F-0636,lib/api-zod/src/generated/types/graphRelationship.ts,Generated,lib/api-zod,1903
+F-0637,lib/api-zod/src/generated/types/graphRelationshipMetadata.ts,Generated,lib/api-zod,233
+F-0638,lib/api-zod/src/generated/types/graphRuntimeSubgraph.ts,Generated,lib/api-zod,384
+F-0639,lib/api-zod/src/generated/types/graphSemanticNeighborhood.ts,Generated,lib/api-zod,410
+F-0640,lib/api-zod/src/generated/types/graphSubgraph.ts,Generated,lib/api-zod,579
+F-0641,lib/api-zod/src/generated/types/graphSubgraphFilters.ts,Generated,lib/api-zod,413
+F-0642,lib/api-zod/src/generated/types/graphSubgraphLayered.ts,Generated,lib/api-zod,357
+F-0643,lib/api-zod/src/generated/types/graphSummary.ts,Generated,lib/api-zod,706
+F-0644,lib/api-zod/src/generated/types/graphSummaryEntitiesByType.ts,Generated,lib/api-zod,231
+F-0645,lib/api-zod/src/generated/types/graphSummaryRelationsByType.ts,Generated,lib/api-zod,232
+F-0646,lib/api-zod/src/generated/types/groqKeyStatus.ts,Generated,lib/api-zod,400
+F-0647,lib/api-zod/src/generated/types/healthStatus.ts,Generated,lib/api-zod,375
+F-0648,lib/api-zod/src/generated/types/healthStatusStatus.ts,Generated,lib/api-zod,320
+F-0649,lib/api-zod/src/generated/types/importProjectInput.ts,Generated,lib/api-zod,353
+F-0650,lib/api-zod/src/generated/types/importProjectInputOverrides.ts,Generated,lib/api-zod,296
+F-0651,lib/api-zod/src/generated/types/index.ts,Generated,lib/api-zod,6147
+F-0652,lib/api-zod/src/generated/types/jobQueueStats.ts,Generated,lib/api-zod,698
+F-0653,lib/api-zod/src/generated/types/listAiChatSessionsParams.ts,Generated,lib/api-zod,228
+F-0654,lib/api-zod/src/generated/types/listEventsParams.ts,Generated,lib/api-zod,342
+F-0655,lib/api-zod/src/generated/types/listGraphEntitiesParams.ts,Generated,lib/api-zod,295
+F-0656,lib/api-zod/src/generated/types/listGraphRelationshipsParams.ts,Generated,lib/api-zod,252
+F-0657,lib/api-zod/src/generated/types/listMetricsParams.ts,Generated,lib/api-zod,245
+F-0658,lib/api-zod/src/generated/types/listRulesParams.ts,Generated,lib/api-zod,297
+F-0659,lib/api-zod/src/generated/types/listTasksParams.ts,Generated,lib/api-zod,366
+F-0660,lib/api-zod/src/generated/types/listWorkflowsParams.ts,Generated,lib/api-zod,224
+F-0661,lib/api-zod/src/generated/types/metricRecord.ts,Generated,lib/api-zod,660
+F-0662,lib/api-zod/src/generated/types/metricRecordBuildStatus.ts,Generated,lib/api-zod,394
+F-0663,lib/api-zod/src/generated/types/plugin.ts,Generated,lib/api-zod,433
+F-0664,lib/api-zod/src/generated/types/pluginCapabilitiesItem.ts,Generated,lib/api-zod,436
+F-0665,lib/api-zod/src/generated/types/pluginProjectRequest.ts,Generated,lib/api-zod,228
+F-0666,lib/api-zod/src/generated/types/project.ts,Generated,lib/api-zod,584
+F-0667,lib/api-zod/src/generated/types/projectStatus.ts,Generated,lib/api-zod,376
+F-0668,lib/api-zod/src/generated/types/projectSummary.ts,Generated,lib/api-zod,508
+F-0669,lib/api-zod/src/generated/types/projectSummaryTaskCounts.ts,Generated,lib/api-zod,303
+F-0670,lib/api-zod/src/generated/types/rule.ts,Generated,lib/api-zod,514
+F-0671,lib/api-zod/src/generated/types/ruleEvaluationResult.ts,Generated,lib/api-zod,424
+F-0672,lib/api-zod/src/generated/types/ruleEvaluationResultMatchesItem.ts,Generated,lib/api-zod,267
+F-0673,lib/api-zod/src/generated/types/ruleSeverity.ts,Generated,lib/api-zod,374
+F-0674,lib/api-zod/src/generated/types/saveGitHubTokenInput.ts,Generated,lib/api-zod,327
+F-0675,lib/api-zod/src/generated/types/saveGroqKeyInput.ts,Generated,lib/api-zod,321
+F-0676,lib/api-zod/src/generated/types/scanJob.ts,Generated,lib/api-zod,739
+F-0677,lib/api-zod/src/generated/types/scanJobStatus.ts,Generated,lib/api-zod,376
+F-0678,lib/api-zod/src/generated/types/scanResult.ts,Generated,lib/api-zod,329
+F-0679,lib/api-zod/src/generated/types/sourceType.ts,Generated,lib/api-zod,498
+F-0680,lib/api-zod/src/generated/types/startDiscoveryInput.ts,Generated,lib/api-zod,479
+F-0681,lib/api-zod/src/generated/types/task.ts,Generated,lib/api-zod,784
+F-0682,lib/api-zod/src/generated/types/taskLog.ts,Generated,lib/api-zod,427
+F-0683,lib/api-zod/src/generated/types/taskLogLevel.ts,Generated,lib/api-zod,352
+F-0684,lib/api-zod/src/generated/types/taskLogMetadata.ts,Generated,lib/api-zod,223
+F-0685,lib/api-zod/src/generated/types/taskPriority.ts,Generated,lib/api-zod,332
+F-0686,lib/api-zod/src/generated/types/taskStatus.ts,Generated,lib/api-zod,438
+F-0687,lib/api-zod/src/generated/types/updateGitConfigInput.ts,Generated,lib/api-zod,370
+F-0688,lib/api-zod/src/generated/types/updateProjectInput.ts,Generated,lib/api-zod,359
+F-0689,lib/api-zod/src/generated/types/updateProjectInputStatus.ts,Generated,lib/api-zod,420
+F-0690,lib/api-zod/src/generated/types/updateRuleInput.ts,Generated,lib/api-zod,391
+F-0691,lib/api-zod/src/generated/types/updateTaskInput.ts,Generated,lib/api-zod,394
+F-0692,lib/api-zod/src/generated/types/verificationResult.ts,Generated,lib/api-zod,346
+F-0693,lib/api-zod/src/generated/types/verificationResultStepsItem.ts,Generated,lib/api-zod,266
+F-0694,lib/api-zod/src/generated/types/workflow.ts,Generated,lib/api-zod,548
+F-0695,lib/api-zod/src/generated/types/workflowExecution.ts,Generated,lib/api-zod,443
+F-0696,lib/api-zod/src/generated/types/workflowPhase.ts,Generated,lib/api-zod,257
+F-0697,lib/api-zod/src/generated/types/workflowStatus.ts,Generated,lib/api-zod,398
+F-0698,lib/api-zod/src/index.ts,Source of Truth; Runtime Path,lib/api-zod,112
+F-0699,lib/api-zod/src/truth-flow-matrix.schema.ts,Source of Truth; Runtime Path,lib/api-zod,14969
+F-0700,lib/api-zod/tsconfig.json,Configuration,lib/api-zod,221
+F-0701,lib/db/drizzle.config.ts,Configuration; Source of Truth; Runtime Path,lib/db,352
+F-0702,lib/db/package.json,Configuration,lib/db,578
+F-0703,lib/db/src/index.ts,Source of Truth; Runtime Path,lib/db,434
+F-0704,lib/db/src/schema/ai_chats.ts,Source of Truth; Runtime Path,lib/db,1362
+F-0705,lib/db/src/schema/ai_provider_credentials.ts,Source of Truth; Runtime Path,lib/db,1284
+F-0706,lib/db/src/schema/audit_logs.ts,Source of Truth; Runtime Path,lib/db,2420
+F-0707,lib/db/src/schema/discovery.ts,Source of Truth; Runtime Path,lib/db,4647
+F-0708,lib/db/src/schema/events.ts,Source of Truth; Runtime Path,lib/db,1610
+F-0709,lib/db/src/schema/graph.ts,Source of Truth; Runtime Path,lib/db,9134
+F-0710,lib/db/src/schema/index.ts,Source of Truth; Runtime Path,lib/db,442
+F-0711,lib/db/src/schema/metrics.ts,Source of Truth; Runtime Path,lib/db,1488
+F-0712,lib/db/src/schema/plugins.ts,Source of Truth; Runtime Path,lib/db,785
+F-0713,lib/db/src/schema/projects.ts,Source of Truth; Runtime Path,lib/db,1604
+F-0714,lib/db/src/schema/rules.ts,Source of Truth; Runtime Path,lib/db,1273
+F-0715,lib/db/src/schema/scan_jobs.ts,Source of Truth; Runtime Path,lib/db,1512
+F-0716,lib/db/src/schema/task_logs.ts,Source of Truth; Runtime Path,lib/db,862
+F-0717,lib/db/src/schema/tasks.ts,Source of Truth; Runtime Path,lib/db,2245
+F-0718,lib/db/src/schema/workflows.ts,Source of Truth; Runtime Path,lib/db,1762
+F-0719,lib/db/tsconfig.json,Configuration,lib/db,244
+F-0720,lib/knowledge-engine/package.json,Configuration,lib/knowledge-engine,436
+F-0721,lib/knowledge-engine/src/__tests__/inference.test.ts,Test Path,lib/knowledge-engine,5906
+F-0722,lib/knowledge-engine/src/__tests__/queries.test.ts,Test Path,lib/knowledge-engine,14435
+F-0723,lib/knowledge-engine/src/index.ts,Source of Truth; Runtime Path,lib/knowledge-engine,1406
+F-0724,lib/knowledge-engine/src/inference.ts,Source of Truth; Runtime Path,lib/knowledge-engine,11444
+F-0725,lib/knowledge-engine/src/queries.ts,Source of Truth; Runtime Path,lib/knowledge-engine,23879
+F-0726,lib/knowledge-engine/src/types.ts,Source of Truth; Runtime Path,lib/knowledge-engine,8752
+F-0727,lib/knowledge-engine/tsconfig.json,Configuration,lib/knowledge-engine,298
+F-0728,lib/scanner/package.json,Configuration,lib/scanner,434
+F-0729,lib/scanner/src/__tests__/file-walker.test.ts,Test Path,lib/scanner,4868
+F-0730,lib/scanner/src/__tests__/graph-extractor.test.ts,Test Path,lib/scanner,22056
+F-0731,lib/scanner/src/__tests__/metrics-calc.test.ts,Test Path,lib/scanner,4652
+F-0732,lib/scanner/src/__tests__/rule-matcher.test.ts,Test Path,lib/scanner,3493
+F-0733,lib/scanner/src/file-walker.ts,Source of Truth; Runtime Path,lib/scanner,5033
+F-0734,lib/scanner/src/graph-extractor.ts,Source of Truth; Runtime Path,lib/scanner,43283
+F-0735,lib/scanner/src/index.ts,Source of Truth; Runtime Path,lib/scanner,667
+F-0736,lib/scanner/src/metrics-calc.ts,Source of Truth; Runtime Path,lib/scanner,7053
+F-0737,lib/scanner/src/python-ast-script.py,Other,lib/scanner,4993
+F-0738,lib/scanner/src/python-ast-script.ts,Source of Truth; Runtime Path,lib/scanner,5935
+F-0739,lib/scanner/src/python-extractor.ts,Source of Truth; Runtime Path,lib/scanner,3567
+F-0740,lib/scanner/src/rule-matcher.ts,Source of Truth; Runtime Path,lib/scanner,3971
+F-0741,lib/scanner/tsconfig.json,Configuration,lib/scanner,244
+F-0742,lib/scanner/vitest.config.ts,Configuration; Source of Truth; Runtime Path,lib/scanner,304
+F-0743,package.json,Configuration,,941
+F-0744,pnpm-lock.yaml,Configuration,,263157
+F-0745,pnpm-workspace.yaml,Configuration,,6579
+F-0746,replit.md,Documentation,,9169
+F-0747,scripts/check-codegen-drift.ts,Tooling/Script; Runtime Path,scripts,2934
+F-0748,scripts/package.json,Tooling/Script; Runtime Path; Configuration,scripts,464
+F-0749,scripts/post-merge.sh,Tooling/Script; Runtime Path,scripts,712
+F-0750,scripts/src/hello.ts,Tooling/Script; Runtime Path,scripts,46
+F-0751,scripts/trigger-scan.mts,Tooling/Script; Runtime Path,scripts,6016
+F-0752,scripts/tsconfig.json,Tooling/Script; Runtime Path; Configuration,scripts,143
+F-0753,scripts/validate-truth-flow.ts,Tooling/Script; Runtime Path,scripts,4820
+F-0754,scripts/verify-setup.sh,Tooling/Script; Runtime Path,scripts,2691
+F-0755,tsconfig.base.json,Configuration,,691
+F-0756,tsconfig.base.json.bak,Legacy/Dead; Documentation,,692
+F-0757,tsconfig.json,Configuration,,382
