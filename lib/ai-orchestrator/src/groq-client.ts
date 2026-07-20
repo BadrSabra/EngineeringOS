@@ -76,22 +76,16 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * DeepSeek-R1 distilled on Llama-70B — a reasoning model that thinks before
- * it responds. Significantly stronger than llama-3.3-70b-versatile on code
- * analysis, structured JSON output, and multi-step reasoning. Available on
- * Groq with the same API key — no provider change needed.
+ * llama-3.3-70b-versatile — confirmed working on Groq free tier.
  *
- * The model emits <think>...</think> tokens before its final answer.
- * These are stripped in readRawResponse() below so agents always receive
- * clean content, and conversation history stays compact.
+ * DeepSeek-R1 (deepseek-r1-distill-llama-70b) returns AUTH_ERROR (403) on
+ * free-tier Groq keys — it requires a paid Groq plan. Reverted to Llama
+ * until the user upgrades Groq or switches to DeepSeek's own API directly
+ * (api.deepseek.com), which has a generous free tier.
  */
-export const MODEL_POWERFUL = "deepseek-r1-distill-llama-70b";
-/**
- * Same model as MODEL_POWERFUL — both point to DeepSeek-R1.
- * The distinction is kept for forward compatibility: if a faster/cheaper
- * model becomes available for the iterative chat loop, update MODEL_FAST only.
- */
-export const MODEL_FAST = "deepseek-r1-distill-llama-70b";
+export const MODEL_POWERFUL = "llama-3.3-70b-versatile";
+/** Same as MODEL_POWERFUL — both confirmed on free Groq tier. */
+export const MODEL_FAST = "llama-3.3-70b-versatile";
 
 // Singleton for the env-var key; per-key cache for user-provided keys.
 let _envClient: Groq | null = null;
