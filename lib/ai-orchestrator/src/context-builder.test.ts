@@ -7,7 +7,7 @@
  * agent silently receives corrupt context. These tests prove the builder output
  * always satisfies the schema contract, including edge-case DB states.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ── vi.hoisted: initialise shared state before vi.mock hoisting ───────────────
 // vi.mock factories are hoisted to the very top of the file by vitest.
@@ -104,7 +104,12 @@ import {
   workflowsTable,
   scanJobsTable,
 } from "@workspace/db";
-import { buildProjectContext, invalidateContextCache } from "./context-builder.js";
+import {
+  buildProjectContext,
+  invalidateContextCache,
+  setInvalidationNotifier,
+  startContextInvalidationChannel,
+} from "./context-builder.js";
 import { AgentContextSchema } from "./schemas/context.schema.js";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -306,5 +311,241 @@ describe("buildProjectContext → AgentContextSchema", () => {
     invalidateContextCache(PROJECT_B);
 
     void ctxA; // suppress unused warning
+  });
+});
+
+// ── setInvalidationNotifier ───────────────────────────────────────────────────
+
+describe("setInvalidationNotifier — cross-process hook", () => {
+  afterEach(() => {
+    // Reset to a no-op so the notifier does not bleed into other test suites.
+    setInvalidationNotifier(() => {});
+  });
+
+  it("calls the registered notifier when invalidateContextCache fires", () => {
+    const notifier = vi.fn();
+    setInvalidationNotifier(notifier);
+    invalidateContextCache(PROJECT_ID);
+    expect(notifier).toHaveBeenCalledOnce();
+    expect(notifier).toHaveBeenCalledWith(PROJECT_ID);
+  });
+
+  it("does not throw when the notifier throws — errors are swallowed", () => {
+    setInvalidationNotifier(() => { throw new Error("pg_notify failed"); });
+    expect(() => invalidateContextCache(PROJECT_ID)).not.toThrow();
+  });
+
+  it("still evicts the local cache entry even when the notifier throws", async () => {
+    // Populate the cache first.
+    await buildProjectContext(PROJECT_ID);
+
+    setInvalidationNotifier(() => { throw new Error("pg_notify failed"); });
+    // Even with a broken notifier, invalidation must clear the local entry.
+    expect(() => invalidateContextCache(PROJECT_ID)).not.toThrow();
+
+    // After the failed-notifier invalidation, the next build must hit the DB.
+    _tableData.set(projectsTable as object, [makeProject({ name: "PostFailedNotify" })]);
+    const fresh = await buildProjectContext(PROJECT_ID);
+    expect(fresh.project).toContain("PostFailedNotify");
+  });
+
+  it("replacing the notifier changes which function is called", () => {
+    const first  = vi.fn();
+    const second = vi.fn();
+    setInvalidationNotifier(first);
+    invalidateContextCache(PROJECT_ID);
+    expect(first).toHaveBeenCalledOnce();
+    expect(second).not.toHaveBeenCalled();
+
+    setInvalidationNotifier(second);
+    invalidateContextCache(PROJECT_ID);
+    expect(second).toHaveBeenCalledOnce();
+    // first should still only have been called once total.
+    expect(first).toHaveBeenCalledOnce();
+  });
+});
+
+// ── startContextInvalidationChannel ──────────────────────────────────────────
+
+describe("startContextInvalidationChannel — LISTEN channel", () => {
+  /** Build a mock pool/client that lets us fire simulated PG notifications. */
+  function makeMockPool() {
+    let notificationListener:
+      | ((msg: { channel: string; payload?: string }) => void)
+      | null = null;
+
+    const mockClient = {
+      query: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === "notification") {
+          notificationListener = listener as (msg: { channel: string; payload?: string }) => void;
+        }
+        return mockClient;
+      }),
+      release:             vi.fn(),
+      removeAllListeners:  vi.fn().mockReturnThis(),
+    };
+
+    const mockPool = {
+      connect: vi.fn().mockResolvedValue(mockClient),
+    };
+
+    /** Fire a simulated pg NOTIFY from another process. */
+    function fireNotify(payload: string) {
+      notificationListener?.({ channel: "ctx_invalid", payload });
+    }
+
+    return { mockPool, mockClient, fireNotify };
+  }
+
+  // Drain the microtask queue so the async connect() settles.
+  function flushPromises() {
+    return new Promise<void>((r) => setTimeout(r, 0));
+  }
+
+  afterEach(() => {
+    // Ensure the notifier is reset between sub-tests.
+    setInvalidationNotifier(() => {});
+  });
+
+  it("issues LISTEN ctx_invalid on connect", async () => {
+    const { mockPool, mockClient } = makeMockPool();
+    const channel = startContextInvalidationChannel(mockPool);
+    await flushPromises();
+
+    expect(mockPool.connect).toHaveBeenCalledOnce();
+    expect(mockClient.query).toHaveBeenCalledWith("LISTEN ctx_invalid");
+
+    channel.stop();
+  });
+
+  it("evicts the local cache entry when a NOTIFY payload arrives", async () => {
+    // Seed the cache.
+    await buildProjectContext(PROJECT_ID);
+
+    const { mockPool, fireNotify } = makeMockPool();
+    const channel = startContextInvalidationChannel(mockPool);
+    await flushPromises();
+
+    // Mutate the DB mock, then simulate a remote process firing NOTIFY.
+    _tableData.set(projectsTable as object, [makeProject({ name: "CrossProcessUpdate" })]);
+    fireNotify(PROJECT_ID);
+
+    // Cache entry was evicted — next build must hit DB and reflect the mutation.
+    const fresh = await buildProjectContext(PROJECT_ID);
+    expect(fresh.project).toContain("CrossProcessUpdate");
+
+    channel.stop();
+  });
+
+  it("ignores notifications on a different channel", async () => {
+    // Seed the cache.
+    const first = await buildProjectContext(PROJECT_ID);
+
+    const { mockPool, mockClient } = makeMockPool();
+    const channel = startContextInvalidationChannel(mockPool);
+    await flushPromises();
+
+    // Retrieve the registered listener and fire it with a different channel.
+    const onCall = vi.mocked(mockClient.on).mock.calls.find(([e]) => e === "notification");
+    const listener = onCall?.[1] as ((msg: { channel: string; payload?: string }) => void) | undefined;
+    listener?.({ channel: "other_channel", payload: PROJECT_ID });
+
+    // Cache must still be intact — no eviction should have happened.
+    _tableData.set(projectsTable as object, [makeProject({ name: "ShouldNotAppear" })]);
+    const second = await buildProjectContext(PROJECT_ID);
+    expect(second.project).toBe(first.project);
+    expect(second.project).not.toContain("ShouldNotAppear");
+
+    channel.stop();
+    invalidateContextCache(PROJECT_ID); // cleanup
+  });
+
+  it("stop() releases the dedicated client", async () => {
+    const { mockPool, mockClient } = makeMockPool();
+    const channel = startContextInvalidationChannel(mockPool);
+    await flushPromises();
+
+    channel.stop();
+
+    expect(mockClient.removeAllListeners).toHaveBeenCalledOnce();
+    expect(mockClient.release).toHaveBeenCalledOnce();
+  });
+
+  it("schedules a reconnect when the connection errors", async () => {
+    const { mockPool, mockClient } = makeMockPool();
+    // Start channel with REAL timers so the initial async connect() resolves.
+    const channel = startContextInvalidationChannel(mockPool);
+    await flushPromises();
+
+    expect(mockPool.connect).toHaveBeenCalledTimes(1);
+
+    // Switch to fake timers AFTER the initial connection is established.
+    vi.useFakeTimers();
+
+    // Simulate the error event on the client — this triggers releaseClient()
+    // and schedules a 5-second reconnect using the now-fake setTimeout.
+    const errorCall = vi.mocked(mockClient.on).mock.calls.find(([e]) => e === "error");
+    const errorListener = errorCall?.[1] as ((err: Error) => void) | undefined;
+    errorListener?.(new Error("connection reset"));
+
+    // Advance fake time past the 5 s reconnect delay. advanceTimersByTimeAsync
+    // flushes micro-tasks (including the async connect() body) so the second
+    // pool.connect() call resolves before we assert.
+    await vi.advanceTimersByTimeAsync(6_000);
+
+    // connect() should have been called a second time by the reconnect.
+    expect(mockPool.connect).toHaveBeenCalledTimes(2);
+
+    channel.stop();
+    vi.useRealTimers();
+  });
+
+  it("error + end double-fire causes exactly ONE reconnect, not two", async () => {
+    const { mockPool, mockClient } = makeMockPool();
+    const channel = startContextInvalidationChannel(mockPool);
+    await flushPromises();
+
+    vi.useFakeTimers();
+
+    // Retrieve both the error and end listeners.
+    const errorCall = vi.mocked(mockClient.on).mock.calls.find(([e]) => e === "error");
+    const endCall   = vi.mocked(mockClient.on).mock.calls.find(([e]) => e === "end");
+    const errorListener = errorCall?.[1] as ((err: Error) => void) | undefined;
+    const endListener   = endCall?.[1]   as (() => void) | undefined;
+
+    // Fire both in quick succession — simulates pg client emitting error then end.
+    errorListener?.(new Error("connection reset"));
+    endListener?.();
+
+    // Advance time — only ONE reconnect should have been queued.
+    await vi.advanceTimersByTimeAsync(6_000);
+
+    // pool.connect has been called once at startup + once for the single reconnect.
+    expect(mockPool.connect).toHaveBeenCalledTimes(2);
+
+    channel.stop();
+    vi.useRealTimers();
+  });
+
+  it("failed LISTEN releases the acquired client — no pool connection leak", async () => {
+    // The mock client will fail on the LISTEN query.
+    const leakyClient = {
+      query: vi.fn().mockRejectedValue(new Error("permission denied for LISTEN")),
+      on: vi.fn().mockReturnThis(),
+      release: vi.fn(),
+      removeAllListeners: vi.fn().mockReturnThis(),
+    };
+    const pool = { connect: vi.fn().mockResolvedValue(leakyClient) };
+
+    const channel = startContextInvalidationChannel(pool);
+    await flushPromises();
+
+    // connect() must have acquired the client…
+    expect(pool.connect).toHaveBeenCalledOnce();
+    // …and released it before scheduling the reconnect, so the pool is clean.
+    expect(leakyClient.release).toHaveBeenCalledOnce();
+
+    channel.stop();
   });
 });

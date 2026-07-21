@@ -34,6 +34,178 @@ const PRIORITY_RANK: Record<string, number> = { p0: 0, p1: 1, p2: 2, p3: 3 };
 const CONTEXT_CACHE_TTL_MS = 30_000;
 const contextCache = new Map<string, { data: ProjectContext; expiresAt: number }>();
 
+// ── Cross-process invalidation hook ──────────────────────────────────────────
+// Registered once at server startup via setInvalidationNotifier().
+// Defaults to a no-op so library-only consumers (tests, other services) work
+// without a live DB connection.
+let _invalidationNotifier: ((projectId: string) => void) | null = null;
+
+/**
+ * Register a cross-process cache invalidation notifier.
+ *
+ * The provided `fn` is called fire-and-forget after every local cache eviction.
+ * It should issue a `SELECT pg_notify('ctx_invalid', projectId)` on the shared
+ * pool so all listening server processes immediately evict their local copies.
+ *
+ * Errors thrown by `fn` are swallowed — a broken NOTIFY path must never
+ * propagate into the synchronous `invalidateContextCache` callers.
+ *
+ * Call once at server startup, after the DB pool is ready.
+ */
+export function setInvalidationNotifier(fn: (projectId: string) => void): void {
+  _invalidationNotifier = fn;
+}
+
+// ── Minimal pool interface for startContextInvalidationChannel ────────────────
+// Uses a structural interface so callers can pass a pg.Pool without this
+// library needing a direct `pg` dependency.
+
+interface NotifyPoolClient {
+  query(sql: string, params?: unknown[]): Promise<unknown>;
+  on(event: "notification", listener: (msg: { channel: string; payload?: string }) => void): this;
+  on(event: "error", listener: (err: Error) => void): this;
+  on(event: "end", listener: () => void): this;
+  release(): void;
+  removeAllListeners(): this;
+}
+
+interface NotifyPool {
+  connect(): Promise<NotifyPoolClient>;
+}
+
+/**
+ * Start a dedicated PostgreSQL LISTEN connection for cross-process cache
+ * invalidation. When any server process calls
+ * `SELECT pg_notify('ctx_invalid', projectId)`, every process with an active
+ * channel immediately evicts that project from its local in-process cache.
+ *
+ * The function acquires ONE dedicated client from the pool (held outside the
+ * pool's rotation) so LISTEN semantics are not disrupted by pool reuse.
+ *
+ * If the connection drops (DB restart, network blip), it logs a warning and
+ * schedules a reconnect after 5 seconds. During the gap, the 30-second TTL
+ * acts as the last-resort safety net — no data loss, just a brief staleness
+ * window.
+ *
+ * Returns a `stop()` handle to release the client on graceful shutdown.
+ */
+export function startContextInvalidationChannel(pool: NotifyPool): { stop: () => void } {
+  let client: NotifyPoolClient | null = null;
+  let stopped = false;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function connect(): Promise<void> {
+    if (stopped) return;
+    // Clear any pending reconnect timer — we are now connecting.
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    let acquired: NotifyPoolClient | null = null;
+    try {
+      acquired = await pool.connect();
+      // If LISTEN fails (e.g. DB permission error), we must release the
+      // acquired client before scheduling a reconnect — not doing so leaks
+      // a pool connection per failed setup attempt.
+      await acquired.query("LISTEN ctx_invalid");
+
+      // LISTEN succeeded — commit the client reference and attach listeners.
+      client = acquired;
+      acquired = null; // ownership transferred to `client`
+
+      client.on("notification", (msg) => {
+        if (msg.channel === "ctx_invalid" && msg.payload) {
+          // Evict locally only — do NOT call invalidateContextCache() to avoid
+          // re-triggering the notifier and creating a cross-process loop.
+          contextCache.delete(msg.payload);
+        }
+      });
+
+      // Both "error" and "end" can fire for the same disconnect event.
+      // Each calls disconnect() which is idempotent, and scheduleReconnect()
+      // which guards against duplicate timers — only one reconnect is queued.
+      client.on("error", (err) => {
+        console.warn(
+          JSON.stringify({
+            scope: "ctx-cache-channel",
+            code: "LISTEN_ERROR",
+            error: String(err),
+          }),
+        );
+        disconnect();
+      });
+
+      client.on("end", () => {
+        if (!stopped) {
+          console.warn(
+            JSON.stringify({ scope: "ctx-cache-channel", code: "LISTEN_ENDED" }),
+          );
+          disconnect();
+        }
+      });
+
+      console.info(
+        JSON.stringify({
+          scope: "ctx-cache-channel",
+          code: "LISTEN_READY",
+          channel: "ctx_invalid",
+        }),
+      );
+    } catch (err) {
+      // Release any client that was acquired but not yet committed to `client`.
+      if (acquired) {
+        try { acquired.removeAllListeners(); } catch { /* ignore */ }
+        try { acquired.release(); } catch { /* ignore */ }
+        acquired = null;
+      }
+      console.warn(
+        JSON.stringify({
+          scope: "ctx-cache-channel",
+          code: "CONNECT_FAILED",
+          error: String(err),
+        }),
+      );
+      scheduleReconnect();
+    }
+  }
+
+  /** Release the active client and schedule a reconnect. Idempotent. */
+  function disconnect(): void {
+    releaseClient();
+    scheduleReconnect();
+  }
+
+  function releaseClient(): void {
+    if (client) {
+      client.removeAllListeners();
+      client.release();
+      client = null;
+    }
+  }
+
+  function scheduleReconnect(): void {
+    if (stopped) return;
+    // Guard: if a timer is already pending, do not queue another one.
+    // This prevents the "error" + "end" double-fire from creating two
+    // concurrent reconnect attempts that each acquire a dedicated client.
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      void connect();
+    }, 5_000);
+  }
+
+  void connect();
+
+  return {
+    stop(): void {
+      stopped = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      releaseClient();
+    },
+  };
+}
+
 /**
  * Invalidate the cached context for a project immediately.
  * Call after any write that changes context-relevant data — e.g. applying AI
@@ -41,6 +213,11 @@ const contextCache = new Map<string, { data: ProjectContext; expiresAt: number }
  */
 export function invalidateContextCache(projectId: string): void {
   contextCache.delete(projectId);
+  // Fire-and-forget cross-process NOTIFY — errors are swallowed so a broken
+  // NOTIFY path never propagates to the (synchronous) call site.
+  if (_invalidationNotifier) {
+    try { _invalidationNotifier(projectId); } catch { /* swallowed — degrades to TTL */ }
+  }
 }
 
 export async function buildProjectContext(projectId: string): Promise<ProjectContext> {

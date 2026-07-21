@@ -4,8 +4,41 @@ import { getPort } from "./config";
 import { reconcileStuckJobs, startStaleJobSweep } from "./lib/job-reconciliation";
 import { fixDeadRootPaths } from "./lib/startup-migrations";
 import { heavyJobQueue } from "./lib/job-queue";
+import { pool } from "@workspace/db";
+import {
+  setInvalidationNotifier,
+  startContextInvalidationChannel,
+} from "@workspace/ai-orchestrator";
 
 const port = getPort();
+
+// ── PR-D3: Cross-process AI context cache invalidation ────────────────────────
+// Wire a pg_notify call into every invalidateContextCache() invocation so
+// sibling processes immediately evict their in-process copy instead of
+// waiting up to 30 s for the TTL to expire.
+setInvalidationNotifier((projectId: string) => {
+  pool
+    .query("SELECT pg_notify('ctx_invalid', $1)", [projectId])
+    .catch((err: unknown) =>
+      logger.warn(
+        { err, projectId },
+        "ctx-cache: pg_notify failed — degrading to TTL-only invalidation",
+      ),
+    );
+});
+
+// Start the dedicated LISTEN client that evicts local cache entries whenever
+// another process fires pg_notify('ctx_invalid', projectId).
+const { stop: stopCacheChannel } = startContextInvalidationChannel(pool);
+
+// Graceful shutdown: release the LISTEN client so the PG connection is closed
+// cleanly and the pool does not hang.
+process.once("SIGTERM", () => {
+  stopCacheChannel();
+});
+process.once("SIGINT", () => {
+  stopCacheChannel();
+});
 
 // Reconcile any scan/discovery jobs orphaned by a previous process (crash,
 // deploy, kill) before accepting traffic — see job-reconciliation.ts. This
