@@ -236,6 +236,17 @@ PR-F  ────────────────────────�
 
 ---
 
+## Second forensic batch — 2026-07-21
+
+| ID | What | Status |
+|----|------|--------|
+| Session PR-01 | AI task reconciliation on startup — `reconcileAiTasks()` in `job-reconciliation.ts` resets running→verifying or marks failed; 3 new tests | ✅ Closed |
+| Session PR-02 | OpenAPI contract fidelity — added `POST /api/upload/archive` + `ArchiveUploadInput`/`ArchiveUploadOutput`/`ApiError` schemas; codegen regenerated; drift check clean | ✅ Closed |
+| Session PR-03 | Remove committed encryption key from `.replit` — `AI_CREDENTIALS_ENCRYPTION_KEY` moved out of version control; must be provisioned as a Replit Secret via `openssl rand -hex 32` | ✅ Closed (secret provisioning is a user step) |
+| Session PR-04 | Split `routes/ai.ts` (1699 lines) into 6 subroutes + shared helpers — `lib/ai-route-helpers.ts`, `routes/ai/{providers,chat,analysis,workflows,tasks,index}.ts`; barrel `routes/ai.ts` preserves all existing imports; all 363 tests pass; parity test updated | ✅ Closed |
+
+---
+
 ## Closed (archived)
 
 | ID | What | Closed |

@@ -7,27 +7,46 @@
  * Run as part of CI (`pnpm test`) to catch drift at merge time.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../../../../");
 
-// ── Extract routes from ai.ts source ─────────────────────────────────────────
+// ── Extract routes from ai.ts and routes/ai/* subroutes ──────────────────────
 
 function extractCodeRoutes(): Set<string> {
-  const src = readFileSync(resolve(__dirname, "ai.ts"), "utf-8");
   const routes = new Set<string>();
-  // Match: router.METHOD("/ai/path", ...)
   const re = /router\.(get|post|put|patch|delete)\("(\/ai\/[^"]+)"/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(src)) !== null) {
-    const method = m[1].toUpperCase();
-    // Normalise Express param syntax (:id → {id}) for comparison with OpenAPI
-    const path = "/api" + m[2].replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, "{$1}");
-    routes.add(`${method} ${path}`);
+
+  function scanSource(src: string): void {
+    let m: RegExpExecArray | null;
+    const localRe = new RegExp(re.source, "g");
+    while ((m = localRe.exec(src)) !== null) {
+      const method = m[1].toUpperCase();
+      // Normalise Express param syntax (:id → {id}) for comparison with OpenAPI
+      const routePath = "/api" + m[2].replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, "{$1}");
+      routes.add(`${method} ${routePath}`);
+    }
   }
+
+  // Scan the barrel file itself (kept for any routes defined directly there)
+  scanSource(readFileSync(resolve(__dirname, "ai.ts"), "utf-8"));
+
+  // Scan the subroute directory (routes/ai/*.ts)
+  const subdir = resolve(__dirname, "ai");
+  try {
+    const entries = readdirSync(subdir);
+    for (const entry of entries) {
+      if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) {
+        scanSource(readFileSync(resolve(subdir, entry), "utf-8"));
+      }
+    }
+  } catch {
+    // Subroute directory does not exist — monolithic ai.ts still in use.
+  }
+
   return routes;
 }
 
