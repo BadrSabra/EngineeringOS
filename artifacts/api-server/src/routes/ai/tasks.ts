@@ -201,7 +201,10 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
  * heavyJobQueue so it never blocks the caller's HTTP response.
  */
 export function scheduleAiTaskExecution(taskId: string, userId: string): void {
-  heavyJobQueue.enqueue(async () => {
+  // PR-D1: use enqueueWithId so concurrent calls for the same task (e.g.
+  // from auto-trigger and a manual retry at the same moment) don't stack up
+  // two closures and execute the AI agent twice for the same task ID.
+  heavyJobQueue.enqueueWithId(taskId, async () => {
     try {
       const [task] = await db
         .select()

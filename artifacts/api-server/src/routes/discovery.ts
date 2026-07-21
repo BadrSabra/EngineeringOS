@@ -208,7 +208,11 @@ router.post("/projects/discover", async (req, res) => {
   // temp directory created by the resolver (e.g. a GIT_REPOSITORY clone) is
   // always deleted after the job finishes — success or failure. Without this,
   // git clone dirs would accumulate in /tmp on every successful discovery.
-  heavyJobQueue.enqueue(async () => {
+  // PR-D1: enqueueWithId deduplicates on the session ID so that a concurrent
+  // reconciliation pass or stale-pending sweep cannot enqueue the same session
+  // twice. The discovery runner transitions status on its own, so a duplicate
+  // would race on the "discovering" status update — this prevents that entirely.
+  heavyJobQueue.enqueueWithId(id, async () => {
     try {
       await runDiscovery(id, normalizedPath);
     } catch (err) {

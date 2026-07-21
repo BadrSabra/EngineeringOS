@@ -350,7 +350,9 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
           message: "Automatic scan queued after push",
           correlationId: jobId,
         });
-        heavyJobQueue.enqueue(() => runScanJob(jobId, project.id));
+        // PR-D1: enqueueWithId prevents duplicate execution if the stale-pending
+        // sweep re-fires before this closure has had a chance to start.
+        heavyJobQueue.enqueueWithId(jobId, () => runScanJob(jobId, project.id));
       } catch (scanErr) {
         // Non-fatal — log but never surface to the user; the push itself succeeded.
         console.error(JSON.stringify({ scope: "git-push", code: "POST_PUSH_SCAN_FAILED", error: String(scanErr) }));

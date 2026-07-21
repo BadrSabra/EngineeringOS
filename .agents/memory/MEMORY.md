@@ -35,3 +35,4 @@
 - [PR-H and PR-I completion](pr-h-i-completion.md) — H-1 observability (getStats/healthz/startup log); SSE chat stream endpoint + useAiChatStream hook; TS7030 SSE handler gotcha.
 - [Forensic audit PR-01–08](forensic-audit-batch.md) — advisory locks, real doc extraction, route parity test, OpenAPI sync, codegen; all 8 closed 2026-07-20.
 - [Forensic audit PR-01–06 batch-2](forensic-audit-pr01-06.md) — safe evaluator, stale-job sweep, service extraction, structuralTestEstimate rename, rootpath helper, CI gate.
+- [PR-D1 Job Queue Durability](pr-d1-job-queue-durability.md) — enqueueWithId deduplication + stale-pending sweep; all DB-backed jobs must use enqueueWithId, not plain enqueue.

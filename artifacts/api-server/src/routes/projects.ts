@@ -218,7 +218,9 @@ router.post("/projects/:projectId/scan", requireProjectWriteAccess, async (req, 
   // itself, only once it actually starts. runScanJob handles its own errors
   // (see scan-runner.ts) and always records the outcome on the job row, so
   // we intentionally don't await it here.
-  heavyJobQueue.enqueue(() => runScanJob(jobId, projectId));
+  // PR-D1: use enqueueWithId so the stale-pending sweep can skip this job
+  // if it re-fires before the closure has had a chance to execute.
+  heavyJobQueue.enqueueWithId(jobId, () => runScanJob(jobId, projectId));
 
   return res.status(202).json(job);
 });

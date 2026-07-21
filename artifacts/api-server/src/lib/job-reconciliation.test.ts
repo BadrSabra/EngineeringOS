@@ -2,15 +2,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { db, projectsTable, scanJobsTable, discoverySessionsTable, tasksTable, taskLogsTable } from "@workspace/db";
-import { reconcileStuckJobs } from "./job-reconciliation.js";
+import { reconcileStuckJobs, requeueStalePendingJobs, STALE_PENDING_TIMEOUT_MS } from "./job-reconciliation.js";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
+// PR-D1: mock includes enqueueWithId and has alongside the original enqueue.
 // Prevent the in-memory job queue from actually executing enqueued closures
 // during reconciliation tests. Without this mock, re-enqueued scan/discovery
 // jobs would run against nonexistent test paths and race with the assertions.
 vi.mock("./job-queue.js", () => ({
-  heavyJobQueue: { enqueue: vi.fn() },
+  heavyJobQueue: {
+    enqueue: vi.fn(),
+    enqueueWithId: vi.fn().mockReturnValue(true), // default: returns true (newly added)
+    has: vi.fn().mockReturnValue(false),           // default: job not already in queue
+  },
 }));
 import { heavyJobQueue } from "./job-queue.js";
 
@@ -48,6 +53,8 @@ describe("reconcileStuckJobs", () => {
 
   afterEach(async () => {
     vi.mocked(heavyJobQueue.enqueue).mockClear();
+    vi.mocked(heavyJobQueue.enqueueWithId).mockClear();
+    vi.mocked(heavyJobQueue.has).mockClear();
     while (projectCleanup.length > 0) {
       const id = projectCleanup.pop();
       if (id) {
@@ -118,7 +125,7 @@ describe("reconcileStuckJobs", () => {
     const result = await reconcileStuckJobs();
     expect(result.scanJobs).toBeGreaterThanOrEqual(1);
 
-    // The job should still be "queued" in the DB (enqueue is mocked, so
+    // The job should still be "queued" in the DB (enqueueWithId is mocked, so
     // runScanJob never runs and never updates the row).
     const job = await db
       .select()
@@ -136,8 +143,11 @@ describe("reconcileStuckJobs", () => {
       .limit(1);
     expect(project[0]?.status).toBe("scanning");
 
-    // The heavy job queue should have been asked to enqueue exactly one job.
-    expect(vi.mocked(heavyJobQueue.enqueue)).toHaveBeenCalledTimes(1);
+    // PR-D1: reconciliation must use enqueueWithId (not the plain enqueue).
+    expect(vi.mocked(heavyJobQueue.enqueueWithId)).toHaveBeenCalledWith(
+      queuedJobId,
+      expect.any(Function),
+    );
   });
 
   // ── Scan jobs: completed → untouched ───────────────────────────────────────
@@ -228,8 +238,11 @@ describe("reconcileStuckJobs", () => {
     expect(session[0]?.status).toBe("pending");
     expect(session[0]?.error).toBeNull();
 
-    // The heavy job queue must have been asked to enqueue a runner for this session.
-    expect(vi.mocked(heavyJobQueue.enqueue)).toHaveBeenCalled();
+    // PR-D1: reconciliation must use enqueueWithId for deduplication.
+    expect(vi.mocked(heavyJobQueue.enqueueWithId)).toHaveBeenCalledWith(
+      sessionId,
+      expect.any(Function),
+    );
   });
 
   // ── Cache invalidation ─────────────────────────────────────────────────────
@@ -433,5 +446,128 @@ describe("reconcileStuckJobs", () => {
 
     // Cleanup
     await db.delete(tasksTable).where(eq(tasksTable.projectId, projectId));
+  });
+});
+
+// ── PR-D1: requeueStalePendingJobs ────────────────────────────────────────────
+
+describe("requeueStalePendingJobs", () => {
+  const projectCleanup: string[] = [];
+
+  afterEach(async () => {
+    vi.mocked(heavyJobQueue.enqueueWithId).mockClear();
+    vi.mocked(heavyJobQueue.has).mockClear();
+    while (projectCleanup.length > 0) {
+      const id = projectCleanup.pop();
+      if (id) {
+        await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, id));
+        await db.delete(projectsTable).where(eq(projectsTable.id, id));
+      }
+    }
+  });
+
+  it("re-enqueues scan jobs stuck in queued state beyond the timeout", async () => {
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+
+    // Create a job whose createdAt is well before the stale-pending cutoff.
+    const staleJobId = randomUUID();
+    const staleTime = new Date(Date.now() - STALE_PENDING_TIMEOUT_MS - 5 * 60 * 1000);
+    await db.insert(scanJobsTable).values({
+      id: staleJobId,
+      projectId,
+      status: "queued",
+      createdAt: staleTime,
+    });
+
+    // Default mock: has() returns false — job is NOT already in the in-memory queue
+    vi.mocked(heavyJobQueue.has).mockReturnValue(false);
+    vi.mocked(heavyJobQueue.enqueueWithId).mockReturnValue(true);
+
+    const requeued = await requeueStalePendingJobs();
+    expect(requeued).toBeGreaterThanOrEqual(1);
+
+    expect(vi.mocked(heavyJobQueue.enqueueWithId)).toHaveBeenCalledWith(
+      staleJobId,
+      expect.any(Function),
+    );
+  });
+
+  it("does not re-enqueue fresh queued jobs that are within the timeout", async () => {
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+
+    // Fresh job — just created
+    const freshJobId = randomUUID();
+    await db.insert(scanJobsTable).values({
+      id: freshJobId,
+      projectId,
+      status: "queued",
+      createdAt: new Date(), // just now — well within the timeout
+    });
+
+    const requeued = await requeueStalePendingJobs();
+    expect(requeued).toBe(0);
+
+    // enqueueWithId should NOT have been called for this fresh job
+    const calls = vi.mocked(heavyJobQueue.enqueueWithId).mock.calls;
+    const calledIds = calls.map((c) => c[0]);
+    expect(calledIds).not.toContain(freshJobId);
+  });
+
+  it("skips jobs already present in the in-memory queue (enqueueWithId returns false)", async () => {
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+
+    const jobId = randomUUID();
+    const staleTime = new Date(Date.now() - STALE_PENDING_TIMEOUT_MS - 60_000);
+    await db.insert(scanJobsTable).values({
+      id: jobId,
+      projectId,
+      status: "queued",
+      createdAt: staleTime,
+    });
+
+    // Simulate enqueueWithId returning false (job already in memory queue)
+    vi.mocked(heavyJobQueue.enqueueWithId).mockReturnValue(false);
+
+    const requeued = await requeueStalePendingJobs();
+    // Returns 0 because enqueueWithId signalled the job was already tracked
+    expect(requeued).toBe(0);
+  });
+
+  it("does not touch scan jobs in non-queued states", async () => {
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+
+    const now = new Date();
+    const staleTime = new Date(Date.now() - STALE_PENDING_TIMEOUT_MS - 60_000);
+
+    // "running" job older than the timeout — should NOT be re-enqueued
+    await db.insert(scanJobsTable).values({
+      id: randomUUID(),
+      projectId,
+      status: "running",
+      createdAt: staleTime,
+      startedAt: staleTime,
+    });
+
+    // "completed" job — should NOT be touched
+    await db.insert(scanJobsTable).values({
+      id: randomUUID(),
+      projectId,
+      status: "completed",
+      createdAt: staleTime,
+      startedAt: staleTime,
+      finishedAt: now,
+    });
+
+    const requeued = await requeueStalePendingJobs();
+    expect(requeued).toBe(0);
+    expect(vi.mocked(heavyJobQueue.enqueueWithId)).not.toHaveBeenCalled();
+  });
+
+  it("returns 0 and does not throw when there are no stale jobs", async () => {
+    await expect(requeueStalePendingJobs()).resolves.toBe(0);
   });
 });

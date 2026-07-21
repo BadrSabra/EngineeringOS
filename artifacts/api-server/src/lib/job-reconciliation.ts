@@ -34,6 +34,16 @@
  * resume an AI agent call from an unknown midpoint, so we never re-execute
  * automatically here — we only restore the task to a state where re-execution
  * is safe to initiate.
+ *
+ * PR-D1 (Durability hardening):
+ *   - All re-enqueue calls use `enqueueWithId` (ID-based deduplication) to
+ *     prevent duplicate execution when a job is re-enqueued at startup while
+ *     still present in a hot-reload or overlapping process queue.
+ *   - Added `requeueStalePendingJobs`: a periodic sweep that finds scan_jobs
+ *     stuck in "queued" state beyond STALE_PENDING_TIMEOUT_MS and re-enqueues
+ *     them. Handles the rare case where an in-memory closure was lost without
+ *     a clean restart (hot-reload, signal race, etc.). The advisory lock inside
+ *     runScanJob provides a second safety net against any double-execution.
  */
 import { randomUUID } from "node:crypto";
 import { db, scanJobsTable, discoverySessionsTable, projectsTable, tasksTable, taskLogsTable } from "@workspace/db";
@@ -93,7 +103,9 @@ async function reconcileScanJobs(): Promise<number> {
         })
         .where(eq(scanJobsTable.id, job.id));
 
-      heavyJobQueue.enqueue(() => runScanJob(job.id, job.projectId));
+      // PR-D1: use enqueueWithId to prevent double-execution if another
+      // process or a concurrent reconciliation path already enqueued this job.
+      heavyJobQueue.enqueueWithId(job.id, () => runScanJob(job.id, job.projectId));
       retriedCount++;
     } else {
       // Exceeded maxRetries — mark permanently failed and reset project status.
@@ -150,7 +162,9 @@ async function reconcileScanJobs(): Promise<number> {
     .where(eq(scanJobsTable.status, "queued"));
 
   for (const job of queued) {
-    heavyJobQueue.enqueue(() => runScanJob(job.id, job.projectId));
+    // PR-D1: enqueueWithId deduplicates — skips jobs already added by the
+    // running→re-queued path above (retryCount < maxRetries branch).
+    heavyJobQueue.enqueueWithId(job.id, () => runScanJob(job.id, job.projectId));
   }
 
   if (queued.length > 0) {
@@ -211,7 +225,9 @@ async function reconcileDiscoverySessions(): Promise<number> {
 
   for (const session of pending) {
     const { id: sessionId, rootPath } = session;
-    heavyJobQueue.enqueue(async () => {
+    // PR-D1: use enqueueWithId so a concurrent route handler or a second
+    // reconciliation pass cannot enqueue the same session twice.
+    heavyJobQueue.enqueueWithId(sessionId, async () => {
       try {
         await runDiscovery(sessionId, rootPath);
       } catch (err) {
@@ -253,6 +269,17 @@ async function reconcileDiscoverySessions(): Promise<number> {
 export const STALE_JOB_TIMEOUT_MS = Number(
   process.env.STALE_JOB_TIMEOUT_MS ?? 2 * 60 * 60 * 1000, // 2 hours
 );
+
+/**
+ * PR-D1: Timeout for scan_jobs stuck in "queued" state without transitioning
+ * to "running". This catches the rare case where the in-memory closure was
+ * dropped without a clean restart (hot-reload, signal race, dev watch mode).
+ * Default: 15 minutes. Set STALE_PENDING_TIMEOUT_MS env var to override.
+ */
+export const STALE_PENDING_TIMEOUT_MS = Number(
+  process.env.STALE_PENDING_TIMEOUT_MS ?? 15 * 60 * 1000, // 15 minutes
+);
+
 const STALE_JOB_SWEEP_INTERVAL_MS = Number(
   process.env.STALE_JOB_SWEEP_INTERVAL_MS ?? 30 * 60 * 1000, // 30 minutes
 );
@@ -311,18 +338,93 @@ export async function failStaleRunningJobs(): Promise<number> {
 }
 
 /**
+ * PR-D1: Re-enqueue scan jobs that have been stuck in "queued" state for
+ * longer than `STALE_PENDING_TIMEOUT_MS` without progressing to "running".
+ *
+ * This is a safety net for the rare case where an in-memory closure was
+ * dropped without a clean server restart — for example during a hot-reload
+ * in development, a signal race, or a bug in the queue drain logic. Under
+ * normal operation (clean restarts) startup reconciliation already handles
+ * all "queued" rows, so this sweep should find nothing.
+ *
+ * Uses `enqueueWithId` so jobs already present in the in-memory queue are
+ * skipped — no double-execution risk. The advisory lock inside `runScanJob`
+ * provides a second safety net if two closures for the same job do race.
+ *
+ * Returns the number of jobs re-enqueued.
+ */
+export async function requeueStalePendingJobs(): Promise<number> {
+  const cutoff = new Date(Date.now() - STALE_PENDING_TIMEOUT_MS);
+  let requeued = 0;
+
+  try {
+    const staleQueued = await db
+      .select({ id: scanJobsTable.id, projectId: scanJobsTable.projectId })
+      .from(scanJobsTable)
+      .where(
+        and(
+          eq(scanJobsTable.status, "queued"),
+          lt(scanJobsTable.createdAt, cutoff),
+        ),
+      );
+
+    if (staleQueued.length === 0) return 0;
+
+    for (const job of staleQueued) {
+      // enqueueWithId returns false if the job is already in the in-memory
+      // queue — in that case we skip it silently (it will run shortly).
+      const added = heavyJobQueue.enqueueWithId(
+        job.id,
+        () => runScanJob(job.id, job.projectId),
+      );
+      if (added) {
+        requeued++;
+        logger.warn(
+          {
+            scope: "job-reconciliation",
+            code: "STALE_PENDING_REQUEUE",
+            jobId: job.id,
+            projectId: job.projectId,
+            cutoff: cutoff.toISOString(),
+            timeoutMs: STALE_PENDING_TIMEOUT_MS,
+          },
+          "scan job stuck in queued — re-enqueued by stale-pending sweep",
+        );
+      }
+    }
+  } catch (err) {
+    logger.error({ err, scope: "job-reconciliation" }, "requeueStalePendingJobs failed");
+  }
+
+  return requeued;
+}
+
+/**
  * Start the periodic stale-job sweep. Returns the interval handle so the
  * caller can clear it on graceful shutdown if needed.
+ *
+ * PR-D1: Now runs both `failStaleRunningJobs` (hung running jobs) and
+ * `requeueStalePendingJobs` (lost queued closures) on each tick.
  */
 export function startStaleJobSweep(): NodeJS.Timeout {
   logger.info(
-    { intervalMs: STALE_JOB_SWEEP_INTERVAL_MS, timeoutMs: STALE_JOB_TIMEOUT_MS },
+    {
+      intervalMs: STALE_JOB_SWEEP_INTERVAL_MS,
+      timeoutMs: STALE_JOB_TIMEOUT_MS,
+      pendingTimeoutMs: STALE_PENDING_TIMEOUT_MS,
+    },
     "stale-job sweep scheduled",
   );
   return setInterval(async () => {
-    const failed = await failStaleRunningJobs();
+    const [failed, requeued] = await Promise.all([
+      failStaleRunningJobs(),
+      requeueStalePendingJobs(),
+    ]);
     if (failed > 0) {
-      logger.warn({ failed }, "stale-job sweep: timed out scan jobs marked failed");
+      logger.warn({ failed }, "stale-job sweep: timed out running scan jobs marked failed");
+    }
+    if (requeued > 0) {
+      logger.warn({ requeued }, "stale-job sweep: stale pending scan jobs re-enqueued");
     }
   }, STALE_JOB_SWEEP_INTERVAL_MS);
 }
