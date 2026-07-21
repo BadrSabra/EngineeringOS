@@ -13,3 +13,4 @@ export * from "./scan_jobs.js";
 export * from "./ai_chats.js";
 export * from "./ai_provider_credentials.js";
 export * from "./rate_limits.js";
+export * from "./uploads.js";

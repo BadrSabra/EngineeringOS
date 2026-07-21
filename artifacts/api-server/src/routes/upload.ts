@@ -74,7 +74,9 @@ router.post("/upload/archive", requireAuth, upload.single("archive"), async (req
       }
     }
 
-    registerUpload(uploadId, extractDir, originalname);
+    // PR-D2: registerUpload is now async (DB-backed). Pass the authenticated
+    // userId so the row can be owner-scoped for future access-control checks.
+    await registerUpload(uploadId, extractDir, originalname, req.userId!);
 
     logger.info({ uploadId, originalname, extractDir, format: isZip ? "zip" : "tar.gz" },
       "archive uploaded and extracted");
