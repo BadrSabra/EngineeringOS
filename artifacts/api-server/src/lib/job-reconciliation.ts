@@ -53,6 +53,7 @@ import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
 import { runScanJob } from "./scan-runner.js";
 import { runDiscovery } from "./discovery-runner.js";
+import { sweepExpiredUploads } from "./upload-store.js";
 
 const ORPHANED_RUNNING_MESSAGE =
   "Job was in progress when the server restarted and could not be resumed.";
@@ -416,15 +417,19 @@ export function startStaleJobSweep(): NodeJS.Timeout {
     "stale-job sweep scheduled",
   );
   return setInterval(async () => {
-    const [failed, requeued] = await Promise.all([
+    const [failed, requeued, expiredUploads] = await Promise.all([
       failStaleRunningJobs(),
       requeueStalePendingJobs(),
+      sweepExpiredUploads(),
     ]);
     if (failed > 0) {
       logger.warn({ failed }, "stale-job sweep: timed out running scan jobs marked failed");
     }
     if (requeued > 0) {
       logger.warn({ requeued }, "stale-job sweep: stale pending scan jobs re-enqueued");
+    }
+    if (expiredUploads > 0) {
+      logger.info({ expiredUploads }, "stale-job sweep: expired upload entries removed");
     }
   }, STALE_JOB_SWEEP_INTERVAL_MS);
 }
@@ -535,16 +540,21 @@ export async function reconcileStuckJobs(): Promise<{
   scanJobs: number;
   discoverySessions: number;
   aiTasks: number;
+  expiredUploads: number;
 }> {
   try {
-    const [scanJobs, discoverySessions, aiTasks] = await Promise.all([
+    const [scanJobs, discoverySessions, aiTasks, expiredUploads] = await Promise.all([
       reconcileScanJobs(),
       reconcileDiscoverySessions(),
       reconcileAiTasks(),
+      sweepExpiredUploads(),
     ]);
-    return { scanJobs, discoverySessions, aiTasks };
+    if (expiredUploads > 0) {
+      logger.info({ expiredUploads }, "startup reconciliation: expired upload entries swept");
+    }
+    return { scanJobs, discoverySessions, aiTasks, expiredUploads };
   } catch (err) {
     logger.error({ err }, "startup job reconciliation failed");
-    return { scanJobs: 0, discoverySessions: 0, aiTasks: 0 };
+    return { scanJobs: 0, discoverySessions: 0, aiTasks: 0, expiredUploads: 0 };
   }
 }

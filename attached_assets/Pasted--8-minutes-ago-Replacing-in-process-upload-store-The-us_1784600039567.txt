@@ -1,0 +1,85 @@
+
+8 minutes ago
+Replacing in-process upload store
+The user wants me to continue with PR-D2. Let me look at the forensic audit to understand what PR-D2 entails:
+From the audit: PR-D2: Replace in-process upload store | upload-store.ts, discovery upload routes | Addresses R-002 | archive discovery tests
+R-002: Temporary uploads can vanish across restart or scale-out | in-process upload store | archive discovery can fail after restart / multi-instance | Medium | N/A | Medium | upload-store.ts:1-13, 28-76 So PR-D2 is about replacing the in-memory upload store with a durable solution. Since this is Replit, I should use Replit Object Storage. I need to examine the current in-memory store implementation, the upload routes, and the discovery route that depends on it, then check how to integrate object storage.
+PR-D2 يستهدف upload-store.ts — استبدال التخزين المؤقت في الذاكرة بتخزين دائم. أبدأ بقراءة الملفات المعنية بالتوازي:
+Loaded skill object-storage
+Understanding object storage
+Let me read the rest of the object-storage skill and also check the discovery adapters to understand how the ARCHIVE_UPLOAD adapter uses the upload store, so I can plan PR-D2 properly.
+لأكمل الصورة، أقرأ باقي مهارة Object Storage واستخدام ARCHIVE_UPLOAD adapter بالتوازي:
+Loaded skill object-storage
+Analyzing archive upload
+Let me look at the ARCHIVE_UPLOAD adapter in more detail to understand the full picture, and also look at what tests exist for the discovery adapters that test the ARCHIVE_UPLOAD path. Then I'll design PR-D2.
+The current flow:
+Client: POST /api/upload/archive → server extracts archive to /tmp/eos-upload-{uploadId} → registers in in-memory store → returns {uploadId}
+Client: POST /api/projects/discover with sourceType: "ARCHIVE_UPLOAD" and sourceConfig.uploadId → adapter looks up the extracted dir from in-memory store → uses it as rootPath → cleanup hook calls removeUpload after discovery
+The core issue is that if the server restarts between these steps, the in-memory store is lost and discovery fails. In multi-instance setups, the upload might exist on a different instance entirely.
+For the Replit approach (single-instance but with restart risk), I need to persist upload metadata to the database instead of relying on in-memory storage, while keeping the extracted files in /tmp since they're still ephemeral within a process lifecycle. The real challenge is that /tmp itself gets cleared on restart, so I need to rethink where to store the extracted files or how to handle that scenario.
+Actually, on closer inspection, /tmp on Replit persists across process restarts—it's only wiped on a full host reboot. So the extracted directories should survive a server restart. This means I can simplify the solution: store upload metadata in the database with an expiry TTL, keep extracted files in /tmp, and on startup sweep for expired entries and clean up their directories. This eliminates the need for an in-memory store entirely and is much simpler than implementing full object storage with GCS and presigned URLs.
+Now I need to look at the discovery-adapters.ts file around the ARCHIVE_UPLOAD section to understand the full contract and check if there are existing tests.
+Designing DB upload store
+Let me look at the DB schema to understand what tables exist, and also check the existing upload-store test if any. Then I can design the DB-backed upload store for PR-D2.
+The approach for PR-D2:
+Add a new uploads table to the DB schema with columns: id, owner_id, extracted_dir, original_name, created_at, expires_at
+Replace the in-memory upload-store.ts with a DB-backed version that:
+registerUpload: inserts into DB
+lookupUpload: SELECT from DB, check expiry
+removeUpload: DELETE from DB and clean up the directory
+periodic sweep: DELETE expired rows and remove their directories
+Add startup reconciliation to clean up any expired entries on boot, then check the existing schema and tests to see what I'm working with.
+Finding schema location
+Let me find the DB schema location and understand the structure.
+Locating schema definition
+Let me find the DB package structure to understand where the schema is defined.
+Finding package structure
+Let me find the DB package structure properly.
+Finding DB package
+Let me find the DB package properly and look at the schema.
+Analyzing DB package structure
+Let me look at the DB package structure to understand the schema and how to add a new table.
+Schema analysis and planning
+Let me look at the DB schema to understand the structure and then plan PR-D2.
+Analyzing schema for planning
+Let me look at the schema files I need to understand the DB structure, and then plan PR-D2. I'll read the discovery schema and schema index in parallel.
+Persisting upload entries
+Now I have a clear picture. Let me design PR-D2:
+Current problem: Upload entries are stored in a Map<string, UploadEntry> in memory. If the server restarts between the upload and the discovery request, the entry is gone.
+Solution for PR-D2:
+Add a uploads table to the DB schema with: id, owner_id, extracted_dir, original_name, created_at, expires_at
+Replace upload-store.ts with a DB-backed version that keeps the same API (registerUpload, lookupUpload, removeUpload)
+The extracted files stay in /tmp which persists across process restarts on Replit, so I just need the metadata to survive in the database
+On startup and periodically during the stale job sweep, clean up expired entries and directories that no longer exist
+This is simpler than full Replit Object Storage since the files are already extracted
+Now I need to implement the schema, update the upload store to use the database, add the cleanup logic to job reconciliation, and write tests. I'm realizing the discovery adapter's resolve() method currently calls lookupUpload() synchronously, which will need to change once it's database-backed. So registerUpload is also synchronous and needs to become async with await calls at the callsites. I'm mapping out the full scope: update the database schema with an uploads table, convert all three store functions to async and database-backed, then thread the await calls through the routes, adapters, and job reconciliation code. I should also add a startup function to sweep expired uploads periodically and write tests to cover the new behavior, including the 404 case for archive uploads.
+Now I'm defining the uploads table schema with an id as the primary key, an ownerId field, and other necessary columns to track upload metadata.
+I should also add a cleanup function to the job reconciliation logic that sweeps expired uploads based on their expiration timestamp, removing both the database records and their associated temporary directories. This can run during startup and as part of the periodic stale job sweep.
+Writing schema and implementation files...
+الصورة واضحة. PR-D2 يتطلب:
+جدول uploads جديد في DB
+استبدال upload-store.ts (in-memory → DB-backed، نفس الـ API، كل الدوال تصبح async)
+إضافة تنظيف عند الإقلاع والـ sweep الدوري
+تحديث كل مستدعي الـ API
+أكتب كل شيء بالتوازي:
+Implementing upload feature
+Let me continue with PR-D2 by doing all the remaining file changes in parallel:
+Update lib/db/src/schema/index.ts to export the new uploads table
+Write the new DB-backed upload-store.ts
+Update routes/upload.ts to await registerUpload
+Update discovery-adapters.ts to await lookupUpload
+Write upload-store.test.ts
+Then push schema and update job-reconciliation.ts to add sweepExpiredUploads.
+Parallelizing upload tasks
+Let me continue with PR-D2. I need to:
+Update routes/upload.ts to pass ownerId and await registerUpload
+Update discovery-adapters.ts to await lookupUpload
+Update job-reconciliation.ts to add sweepExpiredUploads to startup and periodic sweep
+Write upload-store.test.ts
+Push the DB schema
+Let me do all these in parallel.
+الآن أحدّث جميع المستدعين وأضيف الـ sweep للـ reconciliation وأكتب الاختبارات — كل شيء بالتوازي:
+You've reached your daily free quota limit. It will reset at 12:00 AM UTC.
+Agent has questions for you
+
+

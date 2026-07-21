@@ -271,7 +271,7 @@ const archiveUploadAdapter: SupportedAdapter = {
   },
 
   async resolve(config) {
-    const entry = lookupUpload(config.uploadId!);
+    const entry = await lookupUpload(config.uploadId!);
     if (!entry) {
       return {
         error:
