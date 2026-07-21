@@ -50,15 +50,14 @@ export interface ScanJobResult {
  * "scanning" forever or crash the process that enqueued it.
  */
 export async function runScanJob(jobId: string, projectId: string): Promise<void> {
-  // PR-3: Acquire a PostgreSQL advisory lock keyed on this jobId before
-  // starting execution. In a multi-instance deployment two processes can
-  // dequeue the same job from reconciliation; the advisory lock ensures only
-  // one actually runs it. The other instance detects the busy lock, logs a
-  // warning, and returns without touching the job row — the first instance
-  // owns the job and will update it on completion or failure.
+  // SR-002: Acquire a PostgreSQL advisory lock keyed on projectId, not jobId.
+  // The project is the real resource being mutated — locking on jobId allowed
+  // two different jobs targeting the same project to run concurrently and
+  // produce conflicting graph/metrics writes. Locking on projectId ensures
+  // only one scan of a given project runs at a time across all instances.
   let lock;
   try {
-    lock = await tryAdvisoryLock(LockNamespace.SCAN_JOB, jobId);
+    lock = await tryAdvisoryLock(LockNamespace.SCAN_JOB, projectId);
   } catch (lockErr) {
     // Pool connection failure — fail open rather than silently dropping the job.
     logger.error({ lockErr, jobId, projectId }, "scan-runner: advisory lock acquisition failed; proceeding without lock");
@@ -68,8 +67,29 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
   if (lock && !lock.acquired) {
     logger.warn(
       { jobId, projectId },
-      "scan-runner: advisory lock busy — another instance is already running this job; skipping",
+      "scan-runner: advisory lock busy — another scan is already running for this project; marking job failed",
     );
+    // Mark this job failed so it doesn't sit in `queued` indefinitely.
+    // The concurrent job that holds the lock owns this project's scan;
+    // a new scan can be triggered once it completes.
+    const skippedAt = new Date();
+    // Only mark the *skipped* job as failed — do NOT touch the project row.
+    // The lock-owning scan is still running and controls project status
+    // through its own completion/failure path. Resetting project status here
+    // would flip it to "active" while the active scan still expects "scanning",
+    // breaking its `WHERE status = 'scanning'` guard on the final update.
+    try {
+      await db
+        .update(scanJobsTable)
+        .set({
+          status: "failed",
+          error: "Skipped: another scan is already running for this project. Trigger a new scan once it completes.",
+          finishedAt: skippedAt,
+        })
+        .where(eq(scanJobsTable.id, jobId));
+    } catch (skipErr) {
+      logger.error({ skipErr, jobId, projectId }, "scan-runner: failed to record skipped-scan state");
+    }
     return;
   }
 
@@ -182,7 +202,22 @@ async function performScan(projectId: string): Promise<ScanJobResult> {
   // ── 3. Compute quality metrics ──────────────────────────────────────────
   const metrics = computeMetrics(files, ruleResults);
 
-  // ── 4-8. Persist everything derived from this scan atomically ───────────
+  // ── 4. Extract knowledge graph (outside transaction) ─────────────────────
+  // SR-003: extractGraph is pure CPU work with no DB dependency. Running it
+  // inside the transaction held a connection (and its associated locks) for
+  // the full duration of the AST parse + graph build — often seconds — even
+  // though no DB writes were happening. Moving it here shortens the critical
+  // section to inserts/updates only, reducing lock contention and connection
+  // pool pressure.
+  const graph = await extractGraph(files);
+  const capturedEntities: ExtractedEntity[] = graph.entities.map((e) => ({
+    type: e.type,
+    name: e.name,
+    path: e.path,
+    isDocumented: e.isDocumented,
+  }));
+
+  // ── 5-9. Persist everything derived from this scan atomically ───────────
   // Tasks, rule hit counts, graph entities/relationships, the metrics row,
   // the project status/score update, the audit record, and the scan event
   // are all effects of the *same* scan. If any one of them fails partway
@@ -192,10 +227,6 @@ async function performScan(projectId: string): Promise<ScanJobResult> {
   // the whole block in one transaction makes the scan atomic: either all of
   // it lands, or none of it does, and the outer catch in runScanJob marks
   // the job failed with a clean, fully-rolled-back DB state.
-
-  // Captured after the graph is extracted inside the transaction so plugins
-  // can inspect the entity list without re-querying the DB.
-  let capturedEntities: ExtractedEntity[] = [];
 
   return await db.transaction(async (tx) => {
     const existingRuleTasks = await tx
@@ -245,16 +276,9 @@ async function performScan(projectId: string): Promise<ScanJobResult> {
         .where(eq(rulesTable.id, rule.id));
     }
 
-    // ── 5. Extract and persist knowledge graph ────────────────────────────
-    const graph = await extractGraph(files);
-    // Capture for plugin dispatch outside the transaction (plugin-runtime.ts).
-    capturedEntities = graph.entities.map((e) => ({
-      type: e.type,
-      name: e.name,
-      path: e.path,
-      isDocumented: e.isDocumented,
-    }));
-
+    // ── 5. Persist knowledge graph ────────────────────────────────────────
+    // `graph` was extracted outside the transaction (SR-003); here we only
+    // do the DB work: dedup against existing entities and insert new rows.
     const existingEntities = await tx
       .select({
         name: graphEntitiesTable.name,
@@ -386,7 +410,7 @@ async function performScan(projectId: string): Promise<ScanJobResult> {
       maintainabilityScore: metrics.maintainabilityScore,
       reliabilityScore: metrics.reliabilityScore,
       performanceScore: metrics.performanceScore,
-      testCoverage: metrics.structuralTestEstimate,
+      structuralTestEstimate: metrics.structuralTestEstimate,
       technicalDebt: metrics.technicalDebt,
       lintIssues: metrics.lintIssues,
       correlationId,
@@ -452,7 +476,7 @@ async function performScan(projectId: string): Promise<ScanJobResult> {
       action: "scanned",
       projectId,
       stateBefore: { qualityScore: _priorQualityScore },
-      stateAfter: { qualityScore: scanResult.issuesDetected >= 0 ? metrics.overallScore : null },
+      stateAfter: { qualityScore: metrics.overallScore },
       changedFields: {
         filesFound: scanResult.filesFound,
         tasksCreated: scanResult.tasksCreated,
