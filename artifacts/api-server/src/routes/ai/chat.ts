@@ -268,6 +268,21 @@ router.post("/ai/chat/stream", async (req, res) => {
 
   sse({ type: "stage", stage: "calling-model" });
 
+  // Collect deltas as they arrive and forward each one as a real-time SSE
+  // delta event. The accumulated string is used below for DB persistence.
+  let streamedContent = "";
+  let streamingActive = false;
+  function onDelta(delta: string): void {
+    if (!streamingActive) {
+      // First token — signal the client to switch from "stage" indicator to
+      // the live streaming bubble.
+      sse({ type: "stage", stage: "streaming" });
+      streamingActive = true;
+    }
+    streamedContent += delta;
+    sse({ type: "delta", delta });
+  }
+
   let result: Awaited<ReturnType<typeof chat>>;
   try {
     const chatOut = await chatWithFallback(
@@ -282,6 +297,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         rootPath: validRootPath,
       },
       { provider, apiKey },
+      onDelta,
     );
     result = chatOut.result;
   } catch (err) {

@@ -17,6 +17,7 @@ export type {
   AiChatStreamCallbacks,
   AiStreamEvent,
   AiStreamStageEvent,
+  AiStreamDeltaEvent,
   AiStreamDoneEvent,
   AiStreamErrorEvent,
 } from "./use-ai-chat-stream";

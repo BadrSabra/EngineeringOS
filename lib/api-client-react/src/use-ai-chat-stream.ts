@@ -20,8 +20,14 @@ import { useState, useCallback } from 'react';
 
 export type AiStreamStageEvent = {
   type: 'stage';
-  /** Server-defined stage identifier, e.g. "building-context" | "calling-model" */
+  /** Server-defined stage identifier, e.g. "building-context" | "calling-model" | "streaming" */
   stage: string;
+};
+
+export type AiStreamDeltaEvent = {
+  type: 'delta';
+  /** Incremental text fragment from the model's streaming response. */
+  delta: string;
 };
 
 export type AiStreamDoneEvent = {
@@ -53,7 +59,7 @@ export type AiStreamErrorEvent = {
   parseCode?: string;
 };
 
-export type AiStreamEvent = AiStreamStageEvent | AiStreamDoneEvent | AiStreamErrorEvent;
+export type AiStreamEvent = AiStreamStageEvent | AiStreamDeltaEvent | AiStreamDoneEvent | AiStreamErrorEvent;
 
 // ── Hook params ───────────────────────────────────────────────────────────────
 
@@ -65,6 +71,8 @@ export type AiChatStreamParams = {
 
 export type AiChatStreamCallbacks = {
   onStage?: (stage: string) => void;
+  /** Called for each incremental text token from the model's streaming response. */
+  onDelta?: (delta: string) => void;
   onDone?: (data: AiStreamDoneEvent) => void;
   onError?: (err: AiStreamErrorEvent) => void;
 };
@@ -145,6 +153,9 @@ export function useAiChatStream() {
           switch (event.type) {
             case 'stage':
               callbacks.onStage?.(event.stage);
+              break;
+            case 'delta':
+              callbacks.onDelta?.(event.delta);
               break;
             case 'done':
               callbacks.onDone?.(event);

@@ -111,6 +111,12 @@ export async function resolveFallbackProvider(
 
 /**
  * Call `chat()` with automatic provider fallback on RATE_LIMITED.
+ *
+ * @param onDelta  Optional streaming callback. When provided (and provider is
+ *                 Groq), the final synthesis step uses Groq token streaming and
+ *                 each delta is forwarded to this callback in real time.
+ *                 Not forwarded to the fallback provider if Groq is rate-limited
+ *                 and DeepSeek takes over — DeepSeek falls back to non-streaming.
  */
 export async function chatWithFallback(
   userId: string,
@@ -121,12 +127,14 @@ export async function chatWithFallback(
     rootPath: string | undefined;
   },
   initialProvider: { provider: "groq" | "deepseek"; apiKey: string },
+  onDelta?: (delta: string) => void,
 ): Promise<{ result: Awaited<ReturnType<typeof chat>>; effectiveProvider: "groq" | "deepseek" }> {
   try {
     const result = await chat({
       ...baseParams,
       apiKey: initialProvider.apiKey,
       provider: initialProvider.provider,
+      onDelta: initialProvider.provider === "groq" ? onDelta : undefined,
     });
     return { result, effectiveProvider: initialProvider.provider };
   } catch (err) {
@@ -137,6 +145,7 @@ export async function chatWithFallback(
           { primary: initialProvider.provider, fallback: fallback.provider },
           "primary provider rate-limited; retrying with fallback provider",
         );
+        // Fallback runs without streaming (DeepSeek doesn't support it here).
         const result = await chat({
           ...baseParams,
           apiKey: fallback.apiKey,

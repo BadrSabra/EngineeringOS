@@ -40,7 +40,7 @@
  *   is returned in ChatOutput and must be approved by the user through the
  *   dashboard UI before anything is written.
  */
-import { completeRaw, MODEL_POWERFUL, MODEL_FAST } from "../groq-client.js";
+import { completeRaw, completeStream, MODEL_POWERFUL, MODEL_FAST } from "../groq-client.js";
 import { deepseekCompleteRaw, DEEPSEEK_MODEL_FAST, DEEPSEEK_MODEL_POWERFUL } from "../deepseek-client.js";
 import { GroqClientError } from "../errors.js";
 import type { AgentErrorCode } from "../errors.js";
@@ -170,8 +170,15 @@ export async function chat(opts: {
   apiKey?: string;
   /** AI provider to use. Defaults to "groq". */
   provider?: "groq" | "deepseek";
+  /**
+   * When provided, the final synthesis call uses Groq streaming and each
+   * content delta is yielded to this callback in real time.
+   * Only Groq supports streaming via this path (DeepSeek falls back to
+   * non-streaming). Pending-changes from tool calls are still returned normally.
+   */
+  onDelta?: (delta: string) => void;
 }): Promise<ChatResult> {
-  const { message, history, projectContext, rootPath, apiKey, provider = "groq" } = opts;
+  const { message, history, projectContext, rootPath, apiKey, provider = "groq", onDelta } = opts;
 
   // Route to the correct client + model constants based on provider.
   const callRaw     = provider === "deepseek" ? deepseekCompleteRaw : completeRaw;
@@ -373,6 +380,56 @@ export async function chat(opts: {
     }
 
     // No tool calls — this is the final response.
+
+    // ── Streaming path ────────────────────────────────────────────────────────
+    // When the caller provided an onDelta callback AND we're using Groq (not
+    // DeepSeek), use completeStream for this final synthesis call so tokens
+    // arrive at the client in real time. We swap to a plain-text system prompt
+    // (no JSON wrapper) and reconstruct the ChatOutput directly from the
+    // accumulated text, skipping JSON parsing entirely for this path.
+    if (onDelta && provider === "groq") {
+      // Replace the system message with a streaming-mode variant that asks
+      // for plain markdown (no JSON wrapper). All other messages stay as-is.
+      const streamMessages = messages.map((m, i) =>
+        i === 0 && m.role === "system"
+          ? {
+              ...m,
+              content: buildChatSystemPrompt(projectContext, !!rootPath, /* streamingMode= */ true),
+            }
+          : m,
+      );
+
+      let accumulated = "";
+      try {
+        for await (const delta of completeStream(streamMessages, { model, apiKey })) {
+          accumulated += delta;
+          onDelta(delta);
+        }
+      } catch (streamErr) {
+        // If streaming fails, fall through to the non-streaming path below.
+        // The tool-loop result.content is still available as a fallback.
+        console.warn(
+          JSON.stringify({ scope: "chat-agent", code: "STREAM_FALLBACK", reason: String(streamErr) }),
+        );
+        accumulated = "";
+      }
+
+      if (accumulated) {
+        // Streaming succeeded — construct ChatOutput from plain text.
+        const mergedSources =
+          toolSources.length > 0
+            ? toolSources
+            : ["project context"];
+        return {
+          response: accumulated.trim(),
+          sources: mergedSources,
+          pendingChanges,
+        };
+      }
+      // Streaming failed — fall through to non-streaming path below.
+    }
+    // ── End streaming path ────────────────────────────────────────────────────
+
     let content = result.content ?? "";
     let parsed = parseAgentResponse(content, ChatResponseSchema, fallbackChatOutput);
 

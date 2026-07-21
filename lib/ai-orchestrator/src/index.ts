@@ -1,4 +1,4 @@
-export { complete, completeRaw, MODEL_POWERFUL, MODEL_FAST } from "./groq-client.js";
+export { complete, completeRaw, completeStream, MODEL_POWERFUL, MODEL_FAST } from "./groq-client.js";
 export type { Message, GroqResponse, CompleteOptions, RawMessage, ToolCall, ToolDefinition, RawGroqResponse } from "./groq-client.js";
 
 export type { PendingChange } from "./tools/file-tools.js";

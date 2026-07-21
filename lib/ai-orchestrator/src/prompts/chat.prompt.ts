@@ -7,7 +7,7 @@ import type { ProjectContext } from "../context-builder.js";
  * When false the model is told explicitly it has NO file access so it cannot
  * hallucinate tool calls or invent file contents.
  */
-export function buildChatSystemPrompt(context: ProjectContext, hasTools = false): string {
+export function buildChatSystemPrompt(context: ProjectContext, hasTools = false, streamingMode = false): string {
   const toolSection = hasTools
     ? `**Tools available in this session:**
 File tools: read_file · list_directory · search_code · write_file
@@ -82,6 +82,8 @@ ${toolSection}
 
 **Source discipline**: In the sources array, list only the specific entity names, metric labels (e.g. "Perf: 99.0"), or file paths you actually cited in the response. If you have no specific citations, use an empty array — never include a generic fallback string like "no project data available" as a source.
 
-Your reply MUST be valid JSON with exactly this shape — no text before or after the JSON object:
-{"response":"<your answer in markdown prose>","sources":["<entity name, metric label, or file path>"]}`;
+${streamingMode
+  ? "Your reply MUST be plain markdown prose — do NOT wrap it in JSON. Just answer directly."
+  : `Your reply MUST be valid JSON with exactly this shape — no text before or after the JSON object:\n{"response":"<your answer in markdown prose>","sources":["<entity name, metric label, or file path>"]}`
+}`;
 }

@@ -443,6 +443,71 @@ function logOutcome(meta: {
   }
 }
 
+/**
+ * Streaming variant — yields raw content delta strings as the model generates them.
+ *
+ * Designed for the final synthesis step (no tool calls). Do NOT pass `tools` here;
+ * the Groq API rejects stream + tools together in most configurations. Circuit-breaker
+ * and per-user key caching reuse the same infrastructure as `completeRaw`.
+ *
+ * The caller is responsible for accumulating the yielded strings into the full response.
+ */
+export async function* completeStream(
+  messages: RawMessage[],
+  opts: Omit<CompleteOptions, "maxRetries" | "responseFormat"> = {},
+): AsyncGenerator<string> {
+  const { model = MODEL_POWERFUL, temperature = 0.2, maxTokens = 4096, apiKey } = opts;
+
+  const circuitKey = apiKey ?? "env";
+  if (circuitCheck(circuitKey) === "reject") {
+    const remaining = Math.max(
+      0,
+      Math.ceil((getCircuit(circuitKey).openedAt + CIRCUIT_RESET_MS - Date.now()) / 1_000),
+    );
+    throw new GroqClientError(
+      "SERVER_ERROR",
+      `Groq circuit breaker open — service appears unavailable. Retry in ~${remaining}s.`,
+    );
+  }
+
+  const client = getClient(apiKey);
+
+  // The Groq SDK overloads `create`: passing `stream: true` narrows the
+  // return type to `Stream<ChatCompletionChunk>`.  Use `as any` at the call
+  // site to avoid re-declaring all overload signatures here.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stream: AsyncIterable<any> = await (client.chat.completions.create as any)({
+    messages,
+    model,
+    temperature,
+    max_tokens: maxTokens,
+    stream: true,
+  });
+
+  let hadContent = false;
+  try {
+    for await (const chunk of stream) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      const delta: string | undefined = chunk.choices?.[0]?.delta?.content;
+      if (delta) {
+        hadContent = true;
+        yield delta;
+      }
+    }
+    if (!hadContent) {
+      throw new GroqClientError("EMPTY_RESPONSE", "Groq stream returned no content");
+    }
+    circuitRecord(circuitKey, true);
+  } catch (err) {
+    if (err instanceof GroqClientError) {
+      circuitRecord(circuitKey, false);
+      throw err;
+    }
+    circuitRecord(circuitKey, false);
+    throw classifySdkError(err, false);
+  }
+}
+
 export async function complete(messages: Message[], opts: CompleteOptions = {}): Promise<GroqResponse> {
   const {
     model = MODEL_POWERFUL,
