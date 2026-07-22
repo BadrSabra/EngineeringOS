@@ -483,6 +483,9 @@ export default function AiChat() {
   // PR-I: agentStage is now driven by real SSE stage events from the server
   // rather than a client-side timer that rotated through fake labels.
   const [agentStage, setAgentStage] = useState<string | null>(null);
+  // Streaming: accumulates raw text deltas while Groq is streaming a response.
+  // Cleared to '' once the `done` event arrives and the full message is added.
+  const [streamingContent, setStreamingContent] = useState('');
   const { send: streamSend, isPending: isSending } = useAiChatStream();
 
   const { data: activeProvider } = useQuery<ActiveProvider>({
@@ -594,6 +597,7 @@ export default function AiChat() {
   const STAGE_LABELS: Record<string, string> = {
     'building-context': 'Building context…',
     'calling-model':    'Calling AI model…',
+    'streaming':        'Writing response…',
   };
 
   /** Translate an AiStreamErrorEvent to a user-facing error description. */
@@ -667,6 +671,7 @@ export default function AiChat() {
     };
     setLocalMessages((prev) => [...prev, optimistic]);
     setAgentStage('Connecting…');
+    setStreamingContent('');
 
     void streamSend(
       { projectId: selectedProjectId, message: msg, sessionId },
@@ -674,8 +679,12 @@ export default function AiChat() {
         onStage: (stage) => {
           setAgentStage(STAGE_LABELS[stage] ?? stage);
         },
+        onDelta: (delta) => {
+          setStreamingContent((prev) => prev + delta);
+        },
         onDone: (data) => {
           setAgentStage(null);
+          setStreamingContent('');
           setSessionId(data.sessionId);
           setLocalMessages((prev) => {
             const withoutOpt = prev.filter((m) => !m.id.startsWith('opt-'));
@@ -686,6 +695,7 @@ export default function AiChat() {
         },
         onError: (err) => {
           setAgentStage(null);
+          setStreamingContent('');
           setLocalMessages((prev) => prev.filter((m) => !m.id.startsWith('opt-')));
           toast({ title: 'Failed to send message', description: describeStreamError(err), variant: 'destructive' });
         },
@@ -835,7 +845,35 @@ export default function AiChat() {
               {messages.map((msg) => (
                 <MessageBubble key={msg.id} msg={msg} />
               ))}
-              {isSending && (
+              {isSending && streamingContent ? (
+                /* Streaming bubble — shows live token deltas as they arrive */
+                <div className="flex gap-3 mb-4">
+                  <div className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center shrink-0">
+                    <Bot className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="bg-secondary border border-border rounded-xl rounded-tl-sm px-4 py-3 max-w-[75%] prose prose-sm prose-invert">
+                    <ReactMarkdown
+                      components={{
+                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                        ul: ({ children }) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
+                        ol: ({ children }) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
+                        li: ({ children }) => <li className="mb-0.5">{children}</li>,
+                        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                        code: ({ children }) => <code className="bg-black/20 rounded px-1 py-0.5 text-xs font-mono">{children}</code>,
+                        pre: ({ children }) => <pre className="bg-black/20 rounded p-2 overflow-x-auto text-xs font-mono mb-2">{children}</pre>,
+                        h1: ({ children }) => <h1 className="text-base font-bold mb-1">{children}</h1>,
+                        h2: ({ children }) => <h2 className="text-sm font-bold mb-1">{children}</h2>,
+                        h3: ({ children }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
+                      }}
+                    >
+                      {streamingContent}
+                    </ReactMarkdown>
+                    {/* Blinking cursor to signal live streaming */}
+                    <span className="inline-block w-0.5 h-3.5 bg-primary align-middle ml-0.5 animate-pulse" />
+                  </div>
+                </div>
+              ) : isSending ? (
+                /* Stage indicator — shown before first token arrives */
                 <div className="flex gap-3 mb-4">
                   <div className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center shrink-0">
                     <Bot className="w-4 h-4 text-primary" />
@@ -847,7 +885,7 @@ export default function AiChat() {
                     </span>
                   </div>
                 </div>
-              )}
+              ) : null}
               {pendingChanges.length > 0 && (
                 <PendingChangesCard
                   changes={pendingChanges}
