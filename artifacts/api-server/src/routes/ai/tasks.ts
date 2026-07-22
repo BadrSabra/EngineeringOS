@@ -246,6 +246,18 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
 
       const correlationId = randomUUID();
 
+      // Claim the task first — write the event only after the claim succeeds to
+      // avoid a phantom "triggered" log entry when a concurrent state change wins.
+      const [claimed] = await db
+        .update(tasksTable)
+        .set({ status: "running", updatedAt: new Date() })
+        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "verifying")))
+        .returning();
+      if (!claimed) {
+        logger.info({ taskId }, "AI auto-trigger: concurrent state change won the claim — skipping");
+        return;
+      }
+
       await db.insert(eventsTable).values({
         id: randomUUID(),
         type: "TaskAutoTriggered",
@@ -256,16 +268,6 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
         correlationId,
         payload: { trigger: "verifying_state", before: { status: "verifying" }, after: { status: "running" } },
       });
-
-      const [claimed] = await db
-        .update(tasksTable)
-        .set({ status: "running", updatedAt: new Date() })
-        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "verifying")))
-        .returning();
-      if (!claimed) {
-        logger.info({ taskId }, "AI auto-trigger: concurrent state change won the claim — skipping");
-        return;
-      }
 
       await db.insert(taskLogsTable).values({
         id: randomUUID(),

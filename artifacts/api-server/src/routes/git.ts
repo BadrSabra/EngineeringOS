@@ -28,6 +28,7 @@ import { heavyJobQueue } from "../lib/job-queue.js";
 import { requireProjectAccess, requireProjectWriteAccess } from "../middlewares/requireProjectAccess.js";
 import { encryptApiKey, decryptApiKey } from "../lib/credentials-crypto.js";
 import { recordAudit } from "../lib/audit.js";
+import { logger } from "../lib/logger.js";
 
 const router = Router();
 const execFileAsync = promisify(execFile);
@@ -354,8 +355,17 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
         // sweep re-fires before this closure has had a chance to start.
         heavyJobQueue.enqueueWithId(jobId, () => runScanJob(jobId, project.id));
       } catch (scanErr) {
-        // Non-fatal — log but never surface to the user; the push itself succeeded.
-        console.error(JSON.stringify({ scope: "git-push", code: "POST_PUSH_SCAN_FAILED", error: String(scanErr) }));
+        // Non-fatal — log and emit a warning event so the failure is visible in
+        // the dashboard activity feed; the push itself succeeded.
+        logger.error({ err: scanErr, projectId: project.id, scope: "git-push" }, "post-push scan failed");
+        await db.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "ProjectScanFailed",
+          projectId: project.id,
+          severity: "warning",
+          message: "Post-push automatic scan failed — trigger a manual scan to refresh the knowledge graph.",
+          payload: { error: String(scanErr) },
+        }).catch(() => {});
       }
     });
 

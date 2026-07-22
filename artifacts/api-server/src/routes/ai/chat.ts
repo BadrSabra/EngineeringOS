@@ -76,6 +76,11 @@ router.post("/ai/chat", async (req, res) => {
       .from(aiChatSessionsTable)
       .where(eq(aiChatSessionsTable.id, sessionId))
       .limit(1);
+    // Prevent cross-project session leakage: reject sessions that belong to a
+    // different project even if the UUID is known to the caller.
+    if (found && found.projectId !== projectId) {
+      return res.status(403).json({ error: "Session does not belong to this project" });
+    }
     existingSession = found;
   }
 
@@ -160,15 +165,17 @@ router.post("/ai/chat", async (req, res) => {
     session = created;
   }
 
-  const [, [assistantMsg]] = await Promise.all([
-    db.insert(aiChatMessagesTable).values({
+  // Atomic: user message + assistant message + session timestamp update in one
+  // transaction — prevents a half-saved conversation if one insert fails.
+  const assistantMsg = await db.transaction(async (tx) => {
+    await tx.insert(aiChatMessagesTable).values({
       id: randomUUID(),
       sessionId: session.id,
       role: "user",
       content: message,
       createdAt: now,
-    }),
-    db
+    });
+    const [msg] = await tx
       .insert(aiChatMessagesTable)
       .values({
         id: randomUUID(),
@@ -178,13 +185,13 @@ router.post("/ai/chat", async (req, res) => {
         sources: JSON.stringify(result.sources),
         createdAt: msgNow,
       })
-      .returning(),
-  ]);
-
-  await db
-    .update(aiChatSessionsTable)
-    .set({ updatedAt: msgNow })
-    .where(eq(aiChatSessionsTable.id, session.id));
+      .returning();
+    await tx
+      .update(aiChatSessionsTable)
+      .set({ updatedAt: msgNow })
+      .where(eq(aiChatSessionsTable.id, session.id));
+    return msg;
+  });
 
   return res.json({
     sessionId: session.id,
@@ -248,6 +255,13 @@ router.post("/ai/chat/stream", async (req, res) => {
       .from(aiChatSessionsTable)
       .where(eq(aiChatSessionsTable.id, sessionId))
       .limit(1);
+    // Prevent cross-project session leakage: reject sessions that belong to a
+    // different project even if the UUID is known to the caller.
+    if (found && found.projectId !== projectId) {
+      sse({ type: "error", code: "forbidden", message: "Session does not belong to this project" });
+      res.end();
+      return;
+    }
     existingSession = found;
   }
 
@@ -362,15 +376,17 @@ router.post("/ai/chat/stream", async (req, res) => {
     session = created;
   }
 
-  const [, [assistantMsg]] = await Promise.all([
-    db.insert(aiChatMessagesTable).values({
+  // Atomic: user message + assistant message + session timestamp update in one
+  // transaction — prevents a half-saved conversation if one insert fails.
+  const assistantMsg = await db.transaction(async (tx) => {
+    await tx.insert(aiChatMessagesTable).values({
       id: randomUUID(),
       sessionId: session.id,
       role: "user",
       content: message,
       createdAt: now,
-    }),
-    db
+    });
+    const [msg] = await tx
       .insert(aiChatMessagesTable)
       .values({
         id: randomUUID(),
@@ -380,13 +396,13 @@ router.post("/ai/chat/stream", async (req, res) => {
         sources: JSON.stringify(result.sources),
         createdAt: msgNow,
       })
-      .returning(),
-  ]);
-
-  await db
-    .update(aiChatSessionsTable)
-    .set({ updatedAt: msgNow })
-    .where(eq(aiChatSessionsTable.id, session.id));
+      .returning();
+    await tx
+      .update(aiChatSessionsTable)
+      .set({ updatedAt: msgNow })
+      .where(eq(aiChatSessionsTable.id, session.id));
+    return msg;
+  });
 
   sse({
     type: "done",
@@ -495,7 +511,9 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
     for (const change of changes) {
       const BLOCKED_WRITE_EXTENSIONS =
         /(?:^|[/\\])\.env(?:\.|$)|\.(sh|bash|zsh|fish|ps1|bat|cmd|pem|key|pfx|p12|crt|cer|der|pub|rsa|dsa|htpasswd)$/i;
-      if (BLOCKED_WRITE_EXTENSIONS.test(change.path)) {
+      // Check BOTH the client-supplied path and absolutePath — a mismatch between
+      // the two fields can bypass a check on path alone.
+      if (BLOCKED_WRITE_EXTENSIONS.test(change.path) || BLOCKED_WRITE_EXTENSIONS.test(change.absolutePath)) {
         results.push({
           path: change.path,
           ok: false,
@@ -510,8 +528,17 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
         continue;
       }
       try {
-        await fs.mkdir(path.dirname(resolved), { recursive: true });
-        await fs.writeFile(resolved, change.newContent, "utf-8");
+        // Create parent dirs then realpath them to detect symlink escape — path.resolve()
+        // is purely lexical and does not follow symlinks.
+        const parentDir = path.dirname(resolved);
+        await fs.mkdir(parentDir, { recursive: true });
+        const realParent = await fs.realpath(parentDir);
+        const realResolved = path.join(realParent, path.basename(resolved));
+        if (realResolved !== resolvedRoot && !realResolved.startsWith(resolvedRoot + path.sep)) {
+          results.push({ path: change.path, ok: false, error: "Path is outside the project root" });
+          continue;
+        }
+        await fs.writeFile(realResolved, change.newContent, "utf-8");
         results.push({ path: change.path, ok: true });
       } catch (e) {
         results.push({ path: change.path, ok: false, error: e instanceof Error ? e.message : String(e) });

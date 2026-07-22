@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { metricsTable, projectsTable } from "@workspace/db";
 import { ListMetricsQueryParams } from "@workspace/api-zod";
-import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { eq, and, gte, lte, desc, inArray } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 
@@ -73,19 +73,22 @@ router.get("/metrics/latest", async (req, res) => {
   if (ownedProjects.length === 0) return res.json([]);
 
   const projectIds = ownedProjects.map((p: { id: string }) => p.id);
-  const latestPerProject = await Promise.all(
-    projectIds.map(async (pid: string) => {
-      const rows = await db
-        .select()
-        .from(metricsTable)
-        .where(eq(metricsTable.projectId, pid))
-        .orderBy(desc(metricsTable.timestamp))
-        .limit(1);
-      return rows[0] ?? null;
-    }),
-  );
+  // Single query instead of N+1: fetch all metrics rows for owned projects ordered
+  // newest-first, then pick the first (most recent) row per project in JS.
+  const allRows = await db
+    .select()
+    .from(metricsTable)
+    .where(inArray(metricsTable.projectId, projectIds))
+    .orderBy(desc(metricsTable.timestamp));
 
-  return res.json(latestPerProject.filter(Boolean));
+  const seen = new Set<string>();
+  const latestPerProject = allRows.filter((row) => {
+    if (seen.has(row.projectId)) return false;
+    seen.add(row.projectId);
+    return true;
+  });
+
+  return res.json(latestPerProject);
 });
 
 export default router;

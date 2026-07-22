@@ -62,12 +62,30 @@ router.post("/upload/archive", requireAuth, upload.single("archive"), async (req
     if (isZip) {
       // AdmZip operates synchronously on the in-memory buffer — no temp file needed.
       const zip = new AdmZip(buffer);
+      // Guard against zip-slip: reject any entry with path traversal or absolute paths
+      // before extracting — don't rely solely on library behaviour.
+      const dangerousZipEntry = zip.getEntries().find((e) => {
+        const p = e.entryName.replace(/\\/g, "/");
+        return p.startsWith("/") || p.split("/").includes("..");
+      });
+      if (dangerousZipEntry) {
+        throw new Error(`Archive contains a dangerous path: "${dangerousZipEntry.entryName}"`);
+      }
       zip.extractAllTo(extractDir, /* overwrite */ true);
     } else {
       // Write buffer to a temp file then delegate to system tar (always available).
       const tarPath = `/tmp/eos-archive-${uploadId}.tar.gz`;
+      await fs.writeFile(tarPath, buffer);
       try {
-        await fs.writeFile(tarPath, buffer);
+        // Dry-run: list all entries and reject any with path traversal or absolute paths
+        // before extracting — don't rely solely on tar's own handling.
+        const { stdout: listing } = await execFileAsync("tar", ["-tzf", tarPath], { timeout: 30_000 });
+        const dangerousTarEntry = listing.split("\n").filter(Boolean).find(
+          (e) => e.startsWith("/") || e.split("/").includes(".."),
+        );
+        if (dangerousTarEntry) {
+          throw new Error(`Archive contains a dangerous path: "${dangerousTarEntry}"`);
+        }
         await execFileAsync("tar", ["-xzf", tarPath, "-C", extractDir], { timeout: 60_000 });
       } finally {
         await fs.unlink(tarPath).catch(() => {});
