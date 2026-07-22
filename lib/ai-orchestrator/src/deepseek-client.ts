@@ -66,6 +66,118 @@ function classifyStatus(status: number, body: string): GroqClientError {
 }
 
 /**
+ * Stream a chat-completion from DeepSeek using Server-Sent Events.
+ * Yields content deltas in the same way as groq-client's `completeStream`
+ * so chat-agent.ts can drive either provider through the same async-generator
+ * interface.
+ *
+ * DeepSeek's API is OpenAI-compatible and fully supports `stream: true` on
+ * deepseek-chat. Tool calls are not supported in streaming mode — only use
+ * this for the final synthesis step (no tools in the request body).
+ */
+export async function* deepseekCompleteStream(
+  messages: RawMessage[],
+  opts: Omit<DeepSeekCompleteOptions, "tools" | "responseFormat">,
+): AsyncGenerator<string> {
+  const {
+    model     = DEEPSEEK_MODEL_FAST,
+    temperature = 0.2,
+    maxTokens = 4096,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    apiKey,
+  } = opts;
+
+  const body: Record<string, unknown> = {
+    model,
+    messages,
+    temperature,
+    max_tokens: maxTokens,
+    stream: true,
+  };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
+      method:  "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body:   JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (controller.signal.aborted) {
+      throw new GroqClientError("TIMEOUT", "DeepSeek streaming request timed out", { cause: err });
+    }
+    throw new GroqClientError(
+      "NETWORK_ERROR",
+      err instanceof Error ? err.message : "Network error contacting DeepSeek",
+      { cause: err },
+    );
+  }
+
+  if (!response.ok) {
+    clearTimeout(timer);
+    const text = await response.text().catch(() => "");
+    throw classifyStatus(response.status, text);
+  }
+
+  // Parse the SSE stream line by line.
+  const reader = response.body?.getReader();
+  if (!reader) {
+    clearTimeout(timer);
+    throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek stream has no body");
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let hadContent = false;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      // Keep the last (possibly incomplete) line in the buffer.
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed === "data: [DONE]") continue;
+        if (!trimmed.startsWith("data: ")) continue;
+
+        try {
+          const json = JSON.parse(trimmed.slice(6)) as {
+            choices?: Array<{ delta?: { content?: string | null } }>;
+          };
+          const delta = json.choices?.[0]?.delta?.content;
+          if (delta) {
+            hadContent = true;
+            yield delta;
+          }
+        } catch {
+          // Ignore malformed SSE frames.
+        }
+      }
+    }
+  } finally {
+    clearTimeout(timer);
+    reader.releaseLock();
+  }
+
+  if (!hadContent) {
+    throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek stream returned no content");
+  }
+}
+
+/**
  * Send a chat-completion request to DeepSeek and return a RawGroqResponse.
  * The returned shape is identical to completeRaw() so chat-agent.ts can
  * call either function through the same code path.

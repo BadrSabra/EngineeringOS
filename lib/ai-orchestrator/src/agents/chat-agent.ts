@@ -41,7 +41,7 @@
  *   dashboard UI before anything is written.
  */
 import { completeRaw, completeStream, MODEL_POWERFUL, MODEL_FAST } from "../groq-client.js";
-import { deepseekCompleteRaw, DEEPSEEK_MODEL_FAST, DEEPSEEK_MODEL_POWERFUL } from "../deepseek-client.js";
+import { deepseekCompleteRaw, deepseekCompleteStream, DEEPSEEK_MODEL_FAST, DEEPSEEK_MODEL_POWERFUL } from "../deepseek-client.js";
 import { GroqClientError } from "../errors.js";
 import type { AgentErrorCode } from "../errors.js";
 import type { RawMessage } from "../groq-client.js";
@@ -382,12 +382,12 @@ export async function chat(opts: {
     // No tool calls — this is the final response.
 
     // ── Streaming path ────────────────────────────────────────────────────────
-    // When the caller provided an onDelta callback AND we're using Groq (not
-    // DeepSeek), use completeStream for this final synthesis call so tokens
-    // arrive at the client in real time. We swap to a plain-text system prompt
-    // (no JSON wrapper) and reconstruct the ChatOutput directly from the
-    // accumulated text, skipping JSON parsing entirely for this path.
-    if (onDelta && provider === "groq") {
+    // When the caller provided an onDelta callback, use streaming for the
+    // final synthesis call so tokens arrive at the client in real time.
+    // Both Groq and DeepSeek support SSE streaming; we pick the right
+    // generator based on the active provider. We swap to a plain-text system
+    // prompt (no JSON wrapper) and reconstruct ChatOutput from accumulated text.
+    if (onDelta) {
       // Replace the system message with a streaming-mode variant that asks
       // for plain markdown (no JSON wrapper). All other messages stay as-is.
       const streamMessages = messages.map((m, i) =>
@@ -401,7 +401,11 @@ export async function chat(opts: {
 
       let accumulated = "";
       try {
-        for await (const delta of completeStream(streamMessages, { model, apiKey })) {
+        const streamGen =
+          provider === "deepseek"
+            ? deepseekCompleteStream(streamMessages, { model, apiKey: apiKey! })
+            : completeStream(streamMessages, { model, apiKey });
+        for await (const delta of streamGen) {
           accumulated += delta;
           onDelta(delta);
         }
@@ -409,7 +413,7 @@ export async function chat(opts: {
         // If streaming fails, fall through to the non-streaming path below.
         // The tool-loop result.content is still available as a fallback.
         console.warn(
-          JSON.stringify({ scope: "chat-agent", code: "STREAM_FALLBACK", reason: String(streamErr) }),
+          JSON.stringify({ scope: "chat-agent", code: "STREAM_FALLBACK", provider, reason: String(streamErr) }),
         );
         accumulated = "";
       }

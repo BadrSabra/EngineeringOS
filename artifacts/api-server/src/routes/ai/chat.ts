@@ -127,7 +127,7 @@ router.post("/ai/chat", async (req, res) => {
     );
     result = chatOut.result;
   } catch (err) {
-    if (handleOrchestratorError(err, res, { projectId, operation: "chat" })) return;
+    if (handleOrchestratorError(err, res, { projectId, operation: "chat", provider })) return;
     throw err;
   }
 
