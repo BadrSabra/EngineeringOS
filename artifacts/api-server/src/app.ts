@@ -80,6 +80,18 @@ app.use(cors({ credentials: true, origin: true }));
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
+// Health checks must be registered BEFORE Clerk middleware — the deployment
+// platform's health probe and uptime monitors don't carry a Clerk session, and
+// clerkMiddleware will throw "Missing Clerk Secret Key" if it intercepts any
+// request when CLERK_SECRET_KEY is not set (e.g. in a new deployment that has
+// not yet been provisioned with Clerk secrets). The healthz route must always
+// respond 200 regardless of auth/Clerk configuration state.
+app.use("/api", (_req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  next();
+});
+app.use("/api", healthRouter);
+
 // Resolve the publishable key from the incoming request host so the same
 // server can serve multiple Clerk custom domains. Falls back to
 // CLERK_PUBLISHABLE_KEY when the host doesn't map to a custom domain.
@@ -100,20 +112,6 @@ if (config.nodeEnv !== "test") {
     })),
   );
 }
-
-// API responses are dynamic, per-user, and change frequently — never let a
-// browser or intermediate proxy cache them. Without this, a stale response
-// (e.g. an empty project list fetched before a project existed) can get
-// served from the browser's HTTP cache indefinitely, with no further
-// request ever reaching this server, making the UI look permanently broken.
-app.use("/api", (_req, res, next) => {
-  res.set("Cache-Control", "no-store");
-  next();
-});
-
-// Health checks stay unauthenticated — uptime monitors and the deployment
-// platform's health probe don't carry a Clerk session.
-app.use("/api", healthRouter);
 
 // Every other route under /api requires a signed-in user (requireAuth =
 // authentication: "who is this"). Per-project ownership authorization
