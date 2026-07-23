@@ -161,6 +161,84 @@ type PartialResult = { entities: ExtractedEntity[]; relationships: ExtractedRela
 
 // ─── Path utilities ───────────────────────────────────────────────────────────
 
+/**
+ * Build a map of workspace package names → their directory paths from the
+ * package.json files present in the scanned file list.
+ *
+ * Example output:
+ *   "@workspace/db"               → "lib/db"
+ *   "@workspace/ai-orchestrator"  → "lib/ai-orchestrator"
+ *   "@workspace/api-server"       → "artifacts/api-server"
+ *
+ * The map is used by resolvePackageImport() to turn bare package-name import
+ * specifiers into file-system paths that matchImportToEntity() can look up.
+ */
+function buildWorkspaceAliasMap(files: ScannedFile[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const file of files) {
+    if (
+      (file.path === "package.json" || file.path.endsWith("/package.json")) &&
+      !file.path.includes("node_modules") &&
+      file.content
+    ) {
+      try {
+        const pkg = JSON.parse(file.content) as { name?: string };
+        if (pkg.name && typeof pkg.name === "string") {
+          const dir =
+            file.path === "package.json"
+              ? ""
+              : file.path.slice(0, file.path.lastIndexOf("/"));
+          map.set(pkg.name, dir);
+        }
+      } catch {
+        // malformed package.json — skip
+      }
+    }
+  }
+  return map;
+}
+
+/**
+ * Resolve a bare package-name import specifier to a file path using the
+ * workspace alias map.
+ *
+ * Handles two forms:
+ *  1. Exact name:   `@workspace/db`            → resolves the package root entry point
+ *  2. Subpath:      `@workspace/db/src/schema` → resolves pkgDir + "/src/schema"
+ *
+ * Returns null when the specifier does not match any known workspace package.
+ */
+function resolvePackageImport(
+  specifier: string,
+  aliasMap: Map<string, string>,
+  knownPaths: Set<string>,
+): string | null {
+  // 1. Exact package name  e.g. `@workspace/db`
+  if (aliasMap.has(specifier)) {
+    const pkgDir = aliasMap.get(specifier)!;
+    // Try src/index, then bare index, to match the common monorepo layout.
+    const candidates = pkgDir
+      ? [`${pkgDir}/src/index`, `${pkgDir}/index`]
+      : ["src/index", "index"];
+    for (const base of candidates) {
+      const hit = matchImportToEntity(base, knownPaths);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  // 2. Subpath import  e.g. `@workspace/db/src/schema`
+  for (const [pkgName, pkgDir] of aliasMap) {
+    if (specifier.startsWith(pkgName + "/")) {
+      const subpath = specifier.slice(pkgName.length + 1); // "src/schema"
+      const base = pkgDir ? `${pkgDir}/${subpath}` : subpath;
+      return matchImportToEntity(base, knownPaths);
+    }
+  }
+
+  return null;
+}
+
 function resolveRelativeImport(importSpecifier: string, fromFilePath: string): string | null {
   if (!importSpecifier.startsWith(".")) return null;
 
@@ -475,7 +553,11 @@ function collectObjectAssignExports(call: ts.CallExpression, path: string, entit
  * or multi-declarator `const` statements — none of which the regex version
  * could see.
  */
-function extractFromTsJs(file: ScannedFile, knownPaths: Set<string>): PartialResult {
+function extractFromTsJs(
+  file: ScannedFile,
+  knownPaths: Set<string>,
+  aliasMap: Map<string, string>,
+): PartialResult {
   const entities: ExtractedEntity[] = [];
   const relationships: ExtractedRelationship[] = [];
   const { content, path } = file;
@@ -618,6 +700,13 @@ function extractFromTsJs(file: ScannedFile, knownPaths: Set<string>): PartialRes
             relationships.push({ sourceName: path, targetName, relation: "imports" });
           }
         }
+      } else {
+        // Non-relative (package-name) import — resolve via workspace alias map.
+        // e.g. `import { db } from "@workspace/db"` → lib/db/src/index.ts
+        const targetName = resolvePackageImport(specifier, aliasMap, knownPaths);
+        if (targetName) {
+          relationships.push({ sourceName: path, targetName, relation: "imports" });
+        }
       }
     }
 
@@ -640,6 +729,12 @@ function extractFromTsJs(file: ScannedFile, knownPaths: Set<string>): PartialRes
           if (targetName) {
             relationships.push({ sourceName: path, targetName, relation: "imports" });
           }
+        }
+      } else {
+        // Non-relative require — resolve via workspace alias map.
+        const targetName = resolvePackageImport(specifier, aliasMap, knownPaths);
+        if (targetName) {
+          relationships.push({ sourceName: path, targetName, relation: "imports" });
         }
       }
     }
@@ -967,6 +1062,7 @@ async function extractPythonEntities(pythonFiles: ScannedFile[], knownPaths: Set
  */
 export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractionResult> {
   const knownPaths = new Set(files.map((f) => f.path));
+  const aliasMap = buildWorkspaceAliasMap(files);
 
   const allEntities: ExtractedEntity[] = [];
   const allRelationships: ExtractedRelationship[] = [];
@@ -1045,7 +1141,7 @@ export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractio
     }
 
     if (file.language === "typescript" || file.language === "javascript") {
-      mergeResult(extractFromTsJs(file, knownPaths));
+      mergeResult(extractFromTsJs(file, knownPaths, aliasMap));
     } else if (file.language === "python") {
       // Batched below, once, after this loop finishes collecting them.
       pythonFiles.push(file);

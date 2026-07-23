@@ -459,6 +459,107 @@ describe("extractGraph", () => {
   // matchImportToEntity, which tried `./routes/index.js.ts` and gave up.
   // The fix strips the spurious extension before the lookup.
 
+  // ─── Workspace package alias resolution (@workspace/*) ─────────────────────
+  // These tests guard the feature that resolves monorepo package-name imports
+  // (e.g. `import { db } from "@workspace/db"`) into real file-system edges.
+  // Without this, every cross-package dependency is silently dropped and the
+  // graph shows only intra-package relationships.
+
+  describe("workspace package alias resolution", () => {
+    it("creates an edge for an exact @workspace/* package name import", async () => {
+      const files = [
+        makeFile("artifacts/api-server/src/app.ts", 'import { db } from "@workspace/db";'),
+        makeFile("lib/db/package.json", '{"name":"@workspace/db"}', "json"),
+        makeFile("lib/db/src/index.ts", "export const db = {};"),
+      ];
+
+      const result = await extractGraph(files);
+
+      const importRels = result.relationships.filter((r) => r.relation === "imports");
+      expect(
+        importRels.some(
+          (r) =>
+            r.sourceName === "artifacts/api-server/src/app.ts" &&
+            r.targetName === "lib/db/src/index.ts",
+        ),
+      ).toBe(true);
+    });
+
+    it("creates an edge for a subpath @workspace/* import", async () => {
+      const files = [
+        makeFile("artifacts/api-server/src/routes.ts", 'import { schema } from "@workspace/db/src/schema";'),
+        makeFile("lib/db/package.json", '{"name":"@workspace/db"}', "json"),
+        makeFile("lib/db/src/schema.ts", "export const schema = {};"),
+      ];
+
+      const result = await extractGraph(files);
+
+      const importRels = result.relationships.filter((r) => r.relation === "imports");
+      expect(
+        importRels.some(
+          (r) =>
+            r.sourceName === "artifacts/api-server/src/routes.ts" &&
+            r.targetName === "lib/db/src/schema.ts",
+        ),
+      ).toBe(true);
+    });
+
+    it("resolves an index.ts entry point when there is no src/ subdirectory", async () => {
+      const files = [
+        makeFile("artifacts/api-server/src/app.ts", 'import { helper } from "@workspace/utils";'),
+        makeFile("lib/utils/package.json", '{"name":"@workspace/utils"}', "json"),
+        makeFile("lib/utils/index.ts", "export function helper() {}"),
+      ];
+
+      const result = await extractGraph(files);
+
+      const importRels = result.relationships.filter((r) => r.relation === "imports");
+      expect(
+        importRels.some(
+          (r) =>
+            r.sourceName === "artifacts/api-server/src/app.ts" &&
+            r.targetName === "lib/utils/index.ts",
+        ),
+      ).toBe(true);
+    });
+
+    it("does not create an edge for a third-party package not in the alias map", async () => {
+      const files = [
+        makeFile("src/app.ts", 'import express from "express";'),
+      ];
+
+      const result = await extractGraph(files);
+
+      const importRels = result.relationships.filter((r) => r.relation === "imports");
+      expect(importRels).toHaveLength(0);
+    });
+
+    it("handles multiple workspace packages in one file, each producing its own edge", async () => {
+      const files = [
+        makeFile(
+          "artifacts/api-server/src/app.ts",
+          'import { db } from "@workspace/db";\nimport { graph } from "@workspace/knowledge-engine";',
+        ),
+        makeFile("lib/db/package.json", '{"name":"@workspace/db"}', "json"),
+        makeFile("lib/db/src/index.ts", "export const db = {};"),
+        makeFile("lib/knowledge-engine/package.json", '{"name":"@workspace/knowledge-engine"}', "json"),
+        makeFile("lib/knowledge-engine/src/index.ts", "export const graph = {};"),
+      ];
+
+      const result = await extractGraph(files);
+
+      const importRels = result.relationships.filter(
+        (r) => r.sourceName === "artifacts/api-server/src/app.ts" && r.relation === "imports",
+      );
+      expect(
+        importRels.some((r) => r.targetName === "lib/db/src/index.ts"),
+      ).toBe(true);
+      expect(
+        importRels.some((r) => r.targetName === "lib/knowledge-engine/src/index.ts"),
+      ).toBe(true);
+    });
+  });
+
   describe("ESM-in-TS .js specifier resolution", () => {
     it("resolves ./utils.js to utils.ts when only utils.ts exists in the scan", async () => {
       const files = [
