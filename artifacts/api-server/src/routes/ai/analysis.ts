@@ -19,7 +19,7 @@ import { recordAudit } from "../../lib/audit.js";
 import { logger } from "../../lib/logger.js";
 import { requireProjectAccess } from "../../middlewares/requireProjectAccess.js";
 import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
-import { requireGroqApiKey, handleOrchestratorError } from "../../lib/ai-route-helpers.js";
+import { requireProvider, handleOrchestratorError } from "../../lib/ai-route-helpers.js";
 
 const router = Router();
 
@@ -30,8 +30,9 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
 
   logger.info({ projectId }, "AI scan analysis requested");
 
-  const apiKey = await requireGroqApiKey(req.userId, res);
-  if (apiKey === null) return;
+  const providerResolved = await requireProvider(req.userId, res);
+  if (!providerResolved) return;
+  const { provider, apiKey } = providerResolved;
 
   const projectContext = await buildProjectContext(projectId);
 
@@ -44,9 +45,9 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
 
   let result: Awaited<ReturnType<typeof analyzeScan>>;
   try {
-    result = await analyzeScan(projectContext, { apiKey });
+    result = await analyzeScan(projectContext, { apiKey, provider });
   } catch (err) {
-    if (handleOrchestratorError(err, res, { projectId, operation: "scan-analysis" })) return;
+    if (handleOrchestratorError(err, res, { projectId, operation: "scan-analysis", provider })) return;
     throw err;
   }
 
@@ -116,15 +117,16 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
     });
   }
 
-  const apiKey = await requireGroqApiKey(req.userId, res);
-  if (apiKey === null) return;
+  const providerResolved = await requireProvider(req.userId, res);
+  if (!providerResolved) return;
+  const { provider, apiKey } = providerResolved;
 
   const projectContext = await buildProjectContext(projectId);
   let result: Awaited<ReturnType<typeof reviewCode>>;
   try {
-    result = await reviewCode(projectContext, fileContents, { apiKey });
+    result = await reviewCode(projectContext, fileContents, { apiKey, provider });
   } catch (err) {
-    if (handleOrchestratorError(err, res, { projectId, operation: "code-review" })) return;
+    if (handleOrchestratorError(err, res, { projectId, operation: "code-review", provider })) return;
     throw err;
   }
 

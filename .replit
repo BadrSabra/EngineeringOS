@@ -26,3 +26,15 @@ channel = "stable-25_05"
 
 [userenv.shared]
 AI_CREDENTIALS_ENCRYPTION_KEY = "64cf9fb27c8e994ac689944f2792827d4dfec601c4bf81c88998ea269c7ff684"
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
+
+[[ports]]
+localPort = 23183
+externalPort = 80

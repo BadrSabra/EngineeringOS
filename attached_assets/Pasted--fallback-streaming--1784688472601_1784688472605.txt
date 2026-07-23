@@ -1,0 +1,45 @@
+وجدت أسبابًا إضافية داخل الكود غير سبب الـ fallback والـ streaming. هذه هي الأهم، مرتبة من الأكثر احتمالًا إلى الأقل:
+
+1. الـ key يُحفظ بلا اختبار فعلي لصلاحيته
+في artifacts/api-server/src/routes/ai/providers.ts الحفظ يكتفي بأن الطول ≥ 10.
+هذا يعني أن أي مفتاح غير صالح، أو منسوخ خطأ، أو غير مفعّل فعلًا، سيتم قبوله ثم يوجّه النظام إلى DeepSeek مباشرة.
+
+
+2. لا يوجد fallback من DeepSeek إلى Groq إلا عند rate limit فقط
+في artifacts/api-server/src/lib/ai-route-helpers.ts التحويل الاحتياطي يحصل فقط لو الخطأ RATE_LIMITED.
+أما AUTH_ERROR أو NETWORK_ERROR أو NON_200 أو EMPTY_RESPONSE فلا يوجد لها إنقاذ تلقائي.
+هذا وحده يفسر لماذا ينهار الطلب بدل أن ينتقل لمزوّد آخر.
+
+
+3. DeepSeek يَفوز على Groq بمجرد وجوده في DB، حتى لو كان سيئًا
+resolveProvider() يختار DeepSeek أولًا إذا وُجد key محفوظ، ولا يهتم إن كان Groq متاحًا ومستقرًا.
+لذلك مفتاح DeepSeek الفاسد يمكن أن “يحجب” Groq بدل أن يكون مجرد خيار إضافي.
+
+
+4. DeepSeek لا يملك env fallback مثل Groq
+resolveDeepSeekApiKey() يعتمد على DB فقط.
+إذا حصلت مشكلة في التشفير/فك التشفير أو تغيّر مفتاح التشفير، فلن يجد النظام بديلًا من البيئة.
+Groq عنده process.env.GROQ_API_KEY، أما DeepSeek فلا.
+
+
+5. التشفير نفسه قد يكون سبب الفشل
+في artifacts/api-server/src/lib/credentials-crypto.ts إذا AI_CREDENTIALS_ENCRYPTION_KEY غير موجود أو ليس 64 hex chars، فالحفظ يفشل.
+وإذا كان موجودًا عند الحفظ لكنه غير موجود/تغيّر عند القراءة، ففك التشفير يفشل أيضًا، وبالتالي يظهر كأن المفتاح “غير موجود”.
+
+
+6. مسار الـ streaming DeepSeek غير مفعّل
+في lib/ai-orchestrator/src/agents/chat-agent.ts البث الحي يعمل فقط مع Groq.
+مع DeepSeek يتم الرجوع إلى non-streaming، لذلك في الواجهة قد يبدو وكأن الشات علّق أو لم يبدأ، رغم أن الرد قد يصل لاحقًا.
+
+
+7. بعض مسارات AI أصلًا ما زالت Groq-only
+analysis.ts وtasks.ts وworkflows.ts تستخدم requireGroqApiKey() مباشرة.
+يعني DeepSeek المحفوظ لا يضمن أن كل خصائص الـ AI في المنصة ستعمل به؛ بعض الوظائف ستفشل أو تتطلب Groq أصلًا.
+
+
+8. رسائل الخطأ مضلِّلة
+handleOrchestratorError() ما زالت تصيغ كثيرًا من الرسائل على أنها Groq errors حتى عندما يكون المصدر DeepSeek.
+هذا لا يسبب العطل، لكنه يجعل التشخيص يبدو كأنه مشكلة Groq أو مشكلة عامة، بينما السبب الحقيقي DeepSeek.
+
+
+

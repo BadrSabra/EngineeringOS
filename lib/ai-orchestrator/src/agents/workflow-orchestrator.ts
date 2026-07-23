@@ -10,9 +10,10 @@
  *                        no caller can bypass the guard by calling this
  *                        function directly with an unvalidated decision
  */
-import { complete, MODEL_POWERFUL, type Message } from "../groq-client.js";
 import type { AgentErrorCode } from "../errors.js";
+import type { Message } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
+import { agentComplete } from "../agent-complete.js";
 import { buildWorkflowSystemPrompt, buildWorkflowUserPrompt } from "../prompts/workflow.prompt.js";
 import { WorkflowDecisionSchema, type WorkflowDecision, type WorkflowPhase } from "../schemas/workflow.schema.js";
 import { parseAgentResponse } from "../parsing.js";
@@ -59,15 +60,17 @@ export async function decide(opts: {
   completedPhases: string[];
   projectContext: ProjectContext;
   additionalContext?: string;
-  /** Optional per-user Groq API key. Falls back to process.env.GROQ_API_KEY. */
+  /** Optional per-user API key. Falls back to GROQ_API_KEY env for Groq; required for DeepSeek. */
   apiKey?: string;
+  /** AI provider to use. Defaults to "groq". */
+  provider?: "groq" | "deepseek";
 }): Promise<WorkflowDecisionResult> {
   const messages: Message[] = [
     { role: "system", content: buildWorkflowSystemPrompt() },
     { role: "user", content: buildWorkflowUserPrompt(opts) },
   ];
 
-  const response = await complete(messages, { model: MODEL_POWERFUL, apiKey: opts.apiKey });
+  const response = await agentComplete(messages, { apiKey: opts.apiKey, provider: opts.provider });
   const parsed = parseAgentResponse(response.content, WorkflowDecisionSchema, fallbackDecision);
   if (!parsed.ok) {
     console.warn(JSON.stringify({ scope: "workflow-orchestrator", stage: "decide", code: parsed.code, message: parsed.message }));
@@ -205,8 +208,10 @@ export async function orchestrateWorkflow(opts: {
   completedPhases: string[];
   projectContext: ProjectContext;
   additionalContext?: string;
-  /** Optional per-user Groq API key. Falls back to process.env.GROQ_API_KEY. */
+  /** Optional per-user API key. Falls back to GROQ_API_KEY env for Groq; required for DeepSeek. */
   apiKey?: string;
+  /** AI provider to use. Defaults to "groq". */
+  provider?: "groq" | "deepseek";
 }): Promise<WorkflowDecisionResult> {
   const proposed = await decide(opts);
   // PR-E: save parse error before any gate/validation that strips the extended field.

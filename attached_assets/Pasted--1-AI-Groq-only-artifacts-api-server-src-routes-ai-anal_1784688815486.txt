@@ -1,0 +1,46 @@
+:
+
+1. مسارات AI كثيرة ما زالت Groq-only
+في artifacts/api-server/src/routes/ai/analysis.ts وtasks.ts وworkflows.ts ما زال النظام يستدعي requireGroqApiKey() مباشرة.
+هذا يعني أن حفظ DeepSeek key لا يفعّل هذه الوظائف أصلًا، فيبدو للمستخدم أن “DeepSeek لا يعمل” بينما المشكلة أن هذه المسارات لا تدعمه.
+
+
+2. DeepSeek لا يملك retry / circuit breaker مثل Groq
+في lib/ai-orchestrator/src/deepseek-client.ts الطلب يُرسل مرة واحدة ثم يفشل مباشرة عند TIMEOUT / NETWORK_ERROR / NON_200 / AUTH_ERROR.
+بينما Groq عنده طبقة تعافٍ أقوى. لذلك أي تقطع مؤقت أو 5xx من DeepSeek يضرب الطلب فورًا.
+
+
+3. الـ fallback الداخلي للنموذج لا يفيد DeepSeek فعليًا
+في lib/ai-orchestrator/src/agents/chat-agent.ts: DEEPSEEK_MODEL_FAST = "deepseek-chat"
+DEEPSEEK_MODEL_POWERFUL = "deepseek-chat"
+يعني fallback من fast إلى powerful لا يغيّر النموذج مع DeepSeek أصلًا، فلا ينقذك من بعض أخطاء NON_200.
+
+
+4. تفعيل DeepSeek يتم بمجرد وجود key محفوظ، لا بمجرد أنه صالح تشغيليًا
+في artifacts/api-server/src/routes/ai/providers.ts الحفظ يعتمد فقط على طول المفتاح.
+لا يوجد live validation حقيقي. وبالتالي key خاطئ أو منسوخ بشكل غير صحيح يظل يُحفظ ويُختار تلقائيًا.
+
+
+5. DeepSeek ليس لديه env fallback مثل Groq
+في artifacts/api-server/src/lib/ai-route-helpers.ts، resolveDeepSeekApiKey() يعتمد على DB فقط.
+إذا فشل التشفير أو فك التشفير، أو كان المفتاح غير محفوظ، لا يوجد بديل من البيئة كما في Groq.
+
+
+6. وجود DeepSeek key قد يحجب Groq بدل أن يكون احتياطيًا
+resolveProvider() يعطي DeepSeek الأولوية أولًا إذا وُجد key محفوظ، حتى لو كان هذا المفتاح فاسدًا.
+هذا يجعل النظام ينهار على DeepSeek بدل أن ينتقل تلقائيًا إلى Groq.
+
+
+7. رسائل الخطأ ما زالت Groq-centric
+handleOrchestratorError() في ai-route-helpers.ts يطبع رسائل مثل “Groq API key…” حتى عندما يكون الخطأ من DeepSeek.
+هذا لا يسبب العطل نفسه، لكنه يجعل السبب الحقيقي يبدو غلطًا أثناء التشخيص.
+
+
+8. الـ streaming الحقيقي متاح فقط في Groq path
+في chat-agent.ts وuse-ai-chat-stream.ts، DeepSeek لا يدخل مسار deltas الحيّة مثل Groq.
+إذا كانت الواجهة تتوقع tokens متدفقة، سيبدو الأمر كأنه توقف أو تعليق، حتى لو وصلت إجابة non-streaming لاحقًا.
+
+
+
+
+

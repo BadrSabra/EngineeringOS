@@ -24,7 +24,7 @@ import { logger } from "../../lib/logger.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { tryAdvisoryLock, LockNamespace } from "../../lib/advisory-lock.js";
 import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
-import { requireGroqApiKey, handleOrchestratorError } from "../../lib/ai-route-helpers.js";
+import { requireProvider, handleOrchestratorError } from "../../lib/ai-route-helpers.js";
 
 const router = Router();
 
@@ -63,8 +63,9 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
     .orderBy(desc(workflowExecutionsTable.startedAt))
     .limit(1);
 
-  const apiKey = await requireGroqApiKey(req.userId, res);
-  if (apiKey === null) return;
+  const providerResolved = await requireProvider(req.userId, res);
+  if (!providerResolved) return;
+  const { provider, apiKey } = providerResolved;
 
   const projectContext = await buildProjectContext(workflow.projectId);
 
@@ -100,9 +101,10 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
       projectContext,
       additionalContext,
       apiKey,
+      provider,
     });
   } catch (err) {
-    if (handleOrchestratorError(err, res, { projectId: workflow.projectId, operation: "workflow-orchestration" })) return;
+    if (handleOrchestratorError(err, res, { projectId: workflow.projectId, operation: "workflow-orchestration", provider })) return;
     throw err;
   } finally {
     await orchLock.release();

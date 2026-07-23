@@ -24,8 +24,8 @@ import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.j
 import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
 import { heavyJobQueue } from "../../lib/job-queue.js";
 import {
-  requireGroqApiKey,
-  resolveGroqApiKey,
+  requireProvider,
+  resolveProvider,
   handleOrchestratorError,
 } from "../../lib/ai-route-helpers.js";
 
@@ -52,8 +52,9 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       .json({ error: `Cannot AI-execute task with status "${task.status}"` });
   }
 
-  const apiKey = await requireGroqApiKey(req.userId, res);
-  if (apiKey === null) return;
+  const providerResolved = await requireProvider(req.userId, res);
+  if (!providerResolved) return;
+  const { provider, apiKey } = providerResolved;
 
   const rlExecute = await checkProjectRateLimitDb(task.projectId);
   if (!rlExecute.allowed) {
@@ -98,6 +99,7 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       relatedFiles: (task.relatedFiles as string[]) ?? [],
       projectContext,
       apiKey,
+      provider,
     });
   } catch (err) {
     await db
@@ -112,7 +114,7 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       metadata: { error: String(err), correlationId },
       correlationId,
     });
-    if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution" })) return;
+    if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution", provider })) return;
     throw err;
   }
 
@@ -220,20 +222,21 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
         return;
       }
 
-      const apiKey = await resolveGroqApiKey(userId);
-      if (!apiKey) {
-        logger.warn({ taskId }, "AI auto-trigger: no Groq API key configured — task stays in verifying");
+      const resolved = await resolveProvider(userId);
+      if (!resolved) {
+        logger.warn({ taskId }, "AI auto-trigger: no AI provider configured — task stays in verifying");
         await db.insert(eventsTable).values({
           id: randomUUID(),
           type: "TaskAutoTriggered",
           projectId: task.projectId,
           taskId,
           severity: "warning",
-          message: `AI auto-trigger skipped for "${task.title}": no Groq API key configured`,
+          message: `AI auto-trigger skipped for "${task.title}": no AI provider configured`,
           payload: { skipped: true, reason: "no_api_key" },
         });
         return;
       }
+      const { provider, apiKey } = resolved;
 
       const rl = await checkProjectRateLimitDb(task.projectId);
       if (!rl.allowed) {
@@ -289,6 +292,7 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
           relatedFiles: (task.relatedFiles as string[]) ?? [],
           projectContext,
           apiKey,
+          provider,
         });
       } catch (execErr) {
         await db

@@ -1,4 +1,6 @@
 export { complete, completeRaw, completeStream, MODEL_POWERFUL, MODEL_FAST } from "./groq-client.js";
+export { agentComplete, validateProviderKey } from "./agent-complete.js";
+export type { AgentCompleteOpts } from "./agent-complete.js";
 export type { Message, GroqResponse, CompleteOptions, RawMessage, ToolCall, ToolDefinition, RawGroqResponse } from "./groq-client.js";
 
 export type { PendingChange } from "./tools/file-tools.js";

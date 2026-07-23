@@ -1,0 +1,49 @@
+ بعد تتبّع الكود، وجدت أسبابًا أخرى مستقلة عن سبب الـ fallback/streaming السابق، وبعضها قد يجعل DeepSeek يفشل حتى لو كان الـ key صحيحًا.
+
+1) DeepSeek لا يملك retry/circuit breaker مثل Groq
+في lib/ai-orchestrator/src/deepseek-client.ts الطلب يُرسل مرة واحدة فقط عبر fetch ثم يُفشل مباشرة عند TIMEOUT / NETWORK_ERROR / NON_200 / AUTH_ERROR.
+أما Groq في groq-client.ts لديه retry داخلي + circuit breaker + backoff.
+النتيجة: أي تقطع مؤقت أو 5xx من DeepSeek يضرب الطلب فورًا بدل أن يتعافى.
+
+2) “النموذج الأقوى” لا يوفّر fallback حقيقي مع DeepSeek
+في lib/ai-orchestrator/src/agents/chat-agent.ts يوجد fallback من MODEL_FAST إلى MODEL_POWERFUL عند NON_200، لكن مع DeepSeek:
+
+DEEPSEEK_MODEL_FAST = deepseek-chat
+
+DEEPSEEK_MODEL_POWERFUL = deepseek-chat
+يعني fallback الداخلي لا يغيّر شيئًا فعليًا.
+Groq فقط يستفيد من هذا المسار، بينما DeepSeek يبقى على نفس النموذج ونفس الفشل.
+
+
+3) بعض مسارات AI أصلًا Groq-only
+في:
+
+artifacts/api-server/src/routes/ai/analysis.ts
+
+artifacts/api-server/src/routes/ai/tasks.ts
+
+artifacts/api-server/src/routes/ai/workflows.ts
+يتم استدعاء requireGroqApiKey() مباشرة.
+هذا يعني أن وجود DeepSeek key لا يفيد هذه العمليات أصلًا. لو المستخدم يتوقع أن “تفعيل DeepSeek” يفعّل كل الذكاء الاصطناعي، فهذه المسارات ستفشل أو تتصرف كأن DeepSeek غير موجود.
+
+
+4) اختيار DeepSeek يتم بمجرد وجود key محفوظ، بدون صحة تشغيلية
+resolveProvider() في artifacts/api-server/src/lib/ai-route-helpers.ts يختار DeepSeek أولًا إذا وُجد في DB، ثم لا يجرّب Groq إلا بعد فشل محدود جدًا.
+هذا يعني أن مفتاح DeepSeek غير الجاهز قد يحجب Groq بدل أن يكون مجرد خيار إضافي.
+
+5) DeepSeek لا يملك env fallback
+resolveDeepSeekApiKey() يعتمد على قاعدة البيانات فقط، بينما Groq عنده fallback إلى process.env.GROQ_API_KEY.
+إذًا أي مشكلة في حفظ/تشفير/فك تشفير DeepSeek key تجعل النظام أضعف من Groq مباشرة.
+
+6) رسالة الخطأ مضللة وقد توهمك أن Groq هو السبب
+handleOrchestratorError() ما زالت ترجع نصوصًا Groq-centric حتى عندما يكون الخطأ من DeepSeek.
+هذا لا يكسر التنفيذ، لكنه يصعّب الوصول للسبب الحقيقي داخل السجلات والواجهة.
+
+7) DeepSeek stream غير مستخدم في المسار الحي
+في chat-agent.ts البث الفوري onDelta يعمل فقط مع Groq، بينما DeepSeek يعود non-streaming.
+النتيجة: قد يبدو الشات كأنه معلّق أو بطيء جدًا، خصوصًا إذا كانت الواجهة تتوقع tokens حيّة.
+
+8) التحقق من صلاحية DeepSeek key ضعيف جدًا
+في artifacts/api-server/src/routes/ai/providers.ts الحفظ يعتمد على طول المفتاح فقط، لا على اختبار فعلي.
+إذًا يمكن تخزين key غير صالح ثم اختياره تلقائيًا لاحقًا.
+

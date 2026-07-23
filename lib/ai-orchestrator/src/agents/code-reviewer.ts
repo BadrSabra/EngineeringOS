@@ -2,12 +2,13 @@
  * Code Reviewer — reviews code quality based on project context and metrics,
  * produces a structured quality report.
  */
-import { complete, MODEL_POWERFUL, type Message } from "../groq-client.js";
 import { GroqClientError, type AgentErrorCode } from "../errors.js";
+import type { Message } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildCodeReviewSystemPrompt, buildCodeReviewUserPrompt } from "../prompts/review.prompt.js";
 import { CodeReviewResultSchema, type CodeReviewOutput, type CodeIssue } from "../schemas/code-review.schema.js";
 import { parseAgentResponse } from "../parsing.js";
+import { agentComplete, type AgentCompleteOpts } from "../agent-complete.js";
 
 export type { CodeIssue, CodeReviewOutput };
 
@@ -35,23 +36,21 @@ function fallbackCodeReview(): CodeReviewOutput {
 export async function reviewCode(
   projectContext: ProjectContext,
   fileContents?: Record<string, string>,
-  opts?: { apiKey?: string },
+  opts?: AgentCompleteOpts,
 ): Promise<CodeReviewResult> {
   const messages: Message[] = [
     { role: "system", content: buildCodeReviewSystemPrompt() },
     { role: "user", content: buildCodeReviewUserPrompt(projectContext, fileContents) },
   ];
 
-  // G-18: single retry on transient Groq failures.
-  let response: Awaited<ReturnType<typeof complete>>;
+  // G-18: single retry on transient NON_200 failures.
+  let response: { content: string };
   try {
-    response = await complete(messages, { model: MODEL_POWERFUL, apiKey: opts?.apiKey });
+    response = await agentComplete(messages, opts ?? {});
   } catch (err) {
-    // Retry only NON_200 — TIMEOUT/NETWORK_ERROR/RATE_LIMITED/SERVER_ERROR
-    // are already retried 3× by the base completeRaw() client.
     if (err instanceof GroqClientError && err.code === "NON_200") {
       console.warn(JSON.stringify({ scope: "code-reviewer", code: "MODEL_RETRY", originalError: err.code }));
-      response = await complete(messages, { model: MODEL_POWERFUL, apiKey: opts?.apiKey });
+      response = await agentComplete(messages, opts ?? {});
     } else {
       throw err;
     }

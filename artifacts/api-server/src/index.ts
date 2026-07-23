@@ -2,7 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { getPort } from "./config";
 import { reconcileStuckJobs, startStaleJobSweep } from "./lib/job-reconciliation";
-import { fixDeadRootPaths } from "./lib/startup-migrations";
+import { fixDeadRootPaths, ensureEncryptionKey } from "./lib/startup-migrations";
 import { heavyJobQueue } from "./lib/job-queue";
 import { pool } from "@workspace/db";
 import {
@@ -39,6 +39,10 @@ process.once("SIGTERM", () => {
 process.once("SIGINT", () => {
   stopCacheChannel();
 });
+
+// Ensure the AI credential encryption key is available before accepting traffic.
+// Auto-generates and persists one if AI_CREDENTIALS_ENCRYPTION_KEY is not set.
+await ensureEncryptionKey();
 
 // Reconcile any scan/discovery jobs orphaned by a previous process (crash,
 // deploy, kill) before accepting traffic — see job-reconciliation.ts. This

@@ -13,6 +13,7 @@ import { eq, and } from "drizzle-orm";
 import { encryptApiKey } from "../../lib/credentials-crypto.js";
 import { logger } from "../../lib/logger.js";
 import { resolveProvider } from "../../lib/ai-route-helpers.js";
+import { validateProviderKey } from "@workspace/ai-orchestrator";
 
 const router = Router();
 
@@ -39,6 +40,17 @@ router.put("/ai/deepseek-key", async (req, res) => {
     return res.status(400).json({ error: "apiKey must be at least 10 characters" });
   }
   const trimmed = apiKey.trim();
+
+  // Validate the key with a minimal ping before persisting it.
+  const validation = await validateProviderKey("deepseek", trimmed);
+  if (!validation.valid) {
+    return res.status(422).json({
+      error: "DeepSeek API key is invalid or unauthorized",
+      hint: "Check your key at platform.deepseek.com — it was rejected by the DeepSeek API.",
+      detail: validation.reason,
+    });
+  }
+
   const last4 = trimmed.slice(-4);
   let encryptedApiKey: string;
   try {
@@ -109,6 +121,17 @@ router.put("/ai/groq-key", async (req, res) => {
   }
 
   const trimmed = apiKey.trim();
+
+  // Validate the key with a minimal ping before persisting it.
+  const validation = await validateProviderKey("groq", trimmed);
+  if (!validation.valid) {
+    return res.status(422).json({
+      error: "Groq API key is invalid or unauthorized",
+      hint: "Check your key at console.groq.com — it was rejected by the Groq API.",
+      detail: validation.reason,
+    });
+  }
+
   const last4 = trimmed.slice(-4);
   let encryptedApiKey: string;
 

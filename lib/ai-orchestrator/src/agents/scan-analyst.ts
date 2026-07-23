@@ -2,12 +2,13 @@
  * Scan Analyst — analyzes scan results, metrics, and graph data to produce
  * actionable engineering improvement suggestions.
  */
-import { complete, MODEL_POWERFUL, type Message } from "../groq-client.js";
 import { GroqClientError, type AgentErrorCode } from "../errors.js";
+import type { Message } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildScanAnalystSystemPrompt, buildScanAnalystUserPrompt } from "../prompts/scan.prompt.js";
 import { ScanSummarySchema, type ScanAnalysisOutput, type ScanInsight } from "../schemas/scan.schema.js";
 import { parseAgentResponse } from "../parsing.js";
+import { agentComplete, type AgentCompleteOpts } from "../agent-complete.js";
 
 export type { ScanInsight, ScanAnalysisOutput };
 
@@ -32,23 +33,21 @@ function fallbackScanAnalysis(raw: string): ScanAnalysisOutput {
 
 export async function analyzeScan(
   projectContext: ProjectContext,
-  opts?: { apiKey?: string },
+  opts?: AgentCompleteOpts,
 ): Promise<ScanAnalysisResult> {
   const messages: Message[] = [
     { role: "system", content: buildScanAnalystSystemPrompt() },
     { role: "user", content: buildScanAnalystUserPrompt(projectContext) },
   ];
 
-  // G-18: single retry on transient Groq failures.
-  let response: Awaited<ReturnType<typeof complete>>;
+  // G-18: single retry on transient NON_200 failures.
+  let response: { content: string };
   try {
-    response = await complete(messages, { model: MODEL_POWERFUL, apiKey: opts?.apiKey });
+    response = await agentComplete(messages, opts ?? {});
   } catch (err) {
-    // Retry only NON_200 — TIMEOUT/NETWORK_ERROR/RATE_LIMITED/SERVER_ERROR
-    // are already retried 3× by the base completeRaw() client.
     if (err instanceof GroqClientError && err.code === "NON_200") {
       console.warn(JSON.stringify({ scope: "scan-analyst", code: "MODEL_RETRY", originalError: err.code }));
-      response = await complete(messages, { model: MODEL_POWERFUL, apiKey: opts?.apiKey });
+      response = await agentComplete(messages, opts ?? {});
     } else {
       throw err;
     }
