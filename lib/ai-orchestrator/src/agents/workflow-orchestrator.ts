@@ -63,7 +63,7 @@ export async function decide(opts: {
   /** Optional per-user API key. Falls back to GROQ_API_KEY env for Groq; required for DeepSeek. */
   apiKey?: string;
   /** AI provider to use. Defaults to "groq". */
-  provider?: "groq" | "deepseek";
+  provider?: "groq" | "deepseek" | "openrouter";
 }): Promise<WorkflowDecisionResult> {
   const messages: Message[] = [
     { role: "system", content: buildWorkflowSystemPrompt() },
@@ -208,10 +208,10 @@ export async function orchestrateWorkflow(opts: {
   completedPhases: string[];
   projectContext: ProjectContext;
   additionalContext?: string;
-  /** Optional per-user API key. Falls back to GROQ_API_KEY env for Groq; required for DeepSeek. */
+  /** Optional per-user API key. Falls back to GROQ_API_KEY env for Groq; required for DeepSeek/OpenRouter. */
   apiKey?: string;
   /** AI provider to use. Defaults to "groq". */
-  provider?: "groq" | "deepseek";
+  provider?: "groq" | "deepseek" | "openrouter";
 }): Promise<WorkflowDecisionResult> {
   const proposed = await decide(opts);
   // PR-E: save parse error before any gate/validation that strips the extended field.

@@ -1722,6 +1722,144 @@ paths:
         "401":
           description: Not authenticated
 
+  /api/ai/openrouter-key:
+    get:
+      operationId: getOpenRouterKeyStatus
+      summary: Get OpenRouter API key configuration status (alias for /providers/openrouter/key)
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      responses:
+        "200":
+          description: Key status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenRouterKeyStatus"
+        "401":
+          description: Not authenticated
+    put:
+      operationId: saveOpenRouterKey
+      summary: Save or update the authenticated user's OpenRouter API key
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveOpenRouterKeyInput"
+      responses:
+        "200":
+          description: Key saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenRouterKeyStatus"
+        "400":
+          description: Invalid key (too short or missing)
+        "401":
+          description: Not authenticated
+        "422":
+          description: Key rejected by OpenRouter API
+        "500":
+          description: Encryption not configured
+    delete:
+      operationId: deleteOpenRouterKey
+      summary: Remove the authenticated user's saved OpenRouter API key
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      responses:
+        "200":
+          description: Key removed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [configured]
+                properties:
+                  configured:
+                    type: boolean
+        "401":
+          description: Not authenticated
+
+  /api/ai/providers/{provider}/key:
+    parameters:
+      - in: path
+        name: provider
+        required: true
+        schema:
+          type: string
+          enum: [groq, deepseek, openrouter]
+        description: AI provider identifier
+    get:
+      operationId: getProviderKeyStatus
+      summary: Get API key status for any provider (canonical generic endpoint)
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      responses:
+        "200":
+          description: Key status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderKeyStatus"
+        "400":
+          description: Unknown provider
+        "401":
+          description: Not authenticated
+    put:
+      operationId: saveProviderKey
+      summary: Save or update an API key for any provider
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveGroqKeyInput"
+      responses:
+        "200":
+          description: Key saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderKeyStatus"
+        "400":
+          description: Unknown provider or invalid key
+        "401":
+          description: Not authenticated
+        "422":
+          description: Key rejected by the provider's API
+        "500":
+          description: Encryption not configured
+    delete:
+      operationId: deleteProviderKey
+      summary: Remove a saved API key for any provider
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      responses:
+        "200":
+          description: Key removed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [configured]
+                properties:
+                  configured:
+                    type: boolean
+        "400":
+          description: Unknown provider
+        "401":
+          description: Not authenticated
+
   /api/ai/active-provider:
     get:
       operationId: getActiveProvider
@@ -2142,13 +2280,49 @@ components:
           minLength: 10
           description: The DeepSeek API key to save. Must not be logged or returned.
 
+    OpenRouterKeyStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured:
+          type: boolean
+        last4:
+          type: ["string", "null"]
+          description: Last 4 characters of the saved key — shown in UI for confirmation
+        updatedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    SaveOpenRouterKeyInput:
+      type: object
+      required: [apiKey]
+      properties:
+        apiKey:
+          type: string
+          minLength: 10
+          description: The OpenRouter API key to save. Must not be logged or returned.
+
+    ProviderKeyStatus:
+      type: object
+      required: [configured]
+      description: Generic key status response for any AI provider.
+      properties:
+        configured:
+          type: boolean
+        last4:
+          type: ["string", "null"]
+          description: Last 4 characters of the saved key
+        updatedAt:
+          type: ["string", "null"]
+          format: date-time
+
     ActiveProviderStatus:
       type: object
       required: [configured]
       properties:
         provider:
           type: ["string", "null"]
-          enum: [groq, deepseek, "null"]
+          enum: [groq, deepseek, openrouter, "null"]
           description: The AI provider that will be used, or null if none is configured
         configured:
           type: boolean

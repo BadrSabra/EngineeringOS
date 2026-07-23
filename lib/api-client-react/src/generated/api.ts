@@ -43,6 +43,8 @@ import type {
   DeepSeekKeyStatus,
   DeleteDeepSeekKey200,
   DeleteGroqKey200,
+  DeleteOpenRouterKey200,
+  DeleteProviderKey200,
   DiscoveryReport,
   DiscoverySessionStatus,
   DiscoverySourceCapability,
@@ -95,15 +97,18 @@ import type {
   ListTasksParams,
   ListWorkflowsParams,
   MetricRecord,
+  OpenRouterKeyStatus,
   Plugin,
   PluginProjectRequest,
   Project,
   ProjectSummary,
+  ProviderKeyStatus,
   Rule,
   RuleEvaluationResult,
   SaveDeepSeekKeyInput,
   SaveGitHubTokenInput,
   SaveGroqKeyInput,
+  SaveOpenRouterKeyInput,
   ScanJob,
   StartDiscoveryInput,
   Task,
@@ -5578,6 +5583,445 @@ export const useDeleteDeepSeekKey = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteDeepSeekKeyMutationOptions(options));
+    }
+
+export const getGetOpenRouterKeyStatusUrl = () => {
+
+
+
+
+  return `/api/ai/openrouter-key`
+}
+
+/**
+ * @summary Get OpenRouter API key configuration status (alias for /providers/openrouter/key)
+ */
+export const getOpenRouterKeyStatus = async ( options?: RequestInit): Promise<OpenRouterKeyStatus> => {
+
+  return customFetch<OpenRouterKeyStatus>(getGetOpenRouterKeyStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOpenRouterKeyStatusQueryKey = () => {
+    return [
+    `/api/ai/openrouter-key`
+    ] as const;
+    }
+
+
+export const getGetOpenRouterKeyStatusQueryOptions = <TData = Awaited<ReturnType<typeof getOpenRouterKeyStatus>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOpenRouterKeyStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOpenRouterKeyStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOpenRouterKeyStatus>>> = ({ signal }) => getOpenRouterKeyStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOpenRouterKeyStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOpenRouterKeyStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getOpenRouterKeyStatus>>>
+export type GetOpenRouterKeyStatusQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get OpenRouter API key configuration status (alias for /providers/openrouter/key)
+ */
+
+export function useGetOpenRouterKeyStatus<TData = Awaited<ReturnType<typeof getOpenRouterKeyStatus>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOpenRouterKeyStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOpenRouterKeyStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSaveOpenRouterKeyUrl = () => {
+
+
+
+
+  return `/api/ai/openrouter-key`
+}
+
+/**
+ * @summary Save or update the authenticated user's OpenRouter API key
+ */
+export const saveOpenRouterKey = async (saveOpenRouterKeyInput: SaveOpenRouterKeyInput, options?: RequestInit): Promise<OpenRouterKeyStatus> => {
+
+  return customFetch<OpenRouterKeyStatus>(getSaveOpenRouterKeyUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(saveOpenRouterKeyInput)
+  }
+);}
+
+
+
+
+
+export const getSaveOpenRouterKeyMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveOpenRouterKey>>, TError,{data: BodyType<SaveOpenRouterKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveOpenRouterKey>>, TError,{data: BodyType<SaveOpenRouterKeyInput>}, TContext> => {
+
+const mutationKey = ['saveOpenRouterKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveOpenRouterKey>>, {data: BodyType<SaveOpenRouterKeyInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveOpenRouterKey(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveOpenRouterKeyMutationResult = NonNullable<Awaited<ReturnType<typeof saveOpenRouterKey>>>
+    export type SaveOpenRouterKeyMutationBody = BodyType<SaveOpenRouterKeyInput>
+    export type SaveOpenRouterKeyMutationError = ErrorType<void>
+
+    /**
+ * @summary Save or update the authenticated user's OpenRouter API key
+ */
+export const useSaveOpenRouterKey = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveOpenRouterKey>>, TError,{data: BodyType<SaveOpenRouterKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof saveOpenRouterKey>>,
+        TError,
+        {data: BodyType<SaveOpenRouterKeyInput>},
+        TContext
+      > => {
+      return useMutation(getSaveOpenRouterKeyMutationOptions(options));
+    }
+
+export const getDeleteOpenRouterKeyUrl = () => {
+
+
+
+
+  return `/api/ai/openrouter-key`
+}
+
+/**
+ * @summary Remove the authenticated user's saved OpenRouter API key
+ */
+export const deleteOpenRouterKey = async ( options?: RequestInit): Promise<DeleteOpenRouterKey200> => {
+
+  return customFetch<DeleteOpenRouterKey200>(getDeleteOpenRouterKeyUrl(),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteOpenRouterKeyMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteOpenRouterKey>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteOpenRouterKey>>, TError,void, TContext> => {
+
+const mutationKey = ['deleteOpenRouterKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteOpenRouterKey>>, void> = () => {
+
+
+          return  deleteOpenRouterKey(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteOpenRouterKeyMutationResult = NonNullable<Awaited<ReturnType<typeof deleteOpenRouterKey>>>
+
+    export type DeleteOpenRouterKeyMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove the authenticated user's saved OpenRouter API key
+ */
+export const useDeleteOpenRouterKey = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteOpenRouterKey>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteOpenRouterKey>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getDeleteOpenRouterKeyMutationOptions(options));
+    }
+
+export const getGetProviderKeyStatusUrl = (provider: 'groq' | 'deepseek' | 'openrouter',) => {
+
+
+
+
+  return `/api/ai/providers/${provider}/key`
+}
+
+/**
+ * @summary Get API key status for any provider (canonical generic endpoint)
+ */
+export const getProviderKeyStatus = async (provider: 'groq' | 'deepseek' | 'openrouter', options?: RequestInit): Promise<ProviderKeyStatus> => {
+
+  return customFetch<ProviderKeyStatus>(getGetProviderKeyStatusUrl(provider),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProviderKeyStatusQueryKey = (provider: 'groq' | 'deepseek' | 'openrouter',) => {
+    return [
+    `/api/ai/providers/${provider}/key`
+    ] as const;
+    }
+
+
+export const getGetProviderKeyStatusQueryOptions = <TData = Awaited<ReturnType<typeof getProviderKeyStatus>>, TError = ErrorType<void>>(provider: 'groq' | 'deepseek' | 'openrouter', options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProviderKeyStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProviderKeyStatusQueryKey(provider);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProviderKeyStatus>>> = ({ signal }) => getProviderKeyStatus(provider, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: provider !== null && provider !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProviderKeyStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetProviderKeyStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getProviderKeyStatus>>>
+export type GetProviderKeyStatusQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get API key status for any provider (canonical generic endpoint)
+ */
+
+export function useGetProviderKeyStatus<TData = Awaited<ReturnType<typeof getProviderKeyStatus>>, TError = ErrorType<void>>(
+ provider: 'groq' | 'deepseek' | 'openrouter', options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProviderKeyStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetProviderKeyStatusQueryOptions(provider,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getSaveProviderKeyUrl = (provider: 'groq' | 'deepseek' | 'openrouter',) => {
+
+
+
+
+  return `/api/ai/providers/${provider}/key`
+}
+
+/**
+ * @summary Save or update an API key for any provider
+ */
+export const saveProviderKey = async (provider: 'groq' | 'deepseek' | 'openrouter',
+    saveGroqKeyInput: SaveGroqKeyInput, options?: RequestInit): Promise<ProviderKeyStatus> => {
+
+  return customFetch<ProviderKeyStatus>(getSaveProviderKeyUrl(provider),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(saveGroqKeyInput)
+  }
+);}
+
+
+
+
+
+export const getSaveProviderKeyMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter';data: BodyType<SaveGroqKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof saveProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter';data: BodyType<SaveGroqKeyInput>}, TContext> => {
+
+const mutationKey = ['saveProviderKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveProviderKey>>, {provider: 'groq' | 'deepseek' | 'openrouter';data: BodyType<SaveGroqKeyInput>}> = (props) => {
+          const {provider,data} = props ?? {};
+
+          return  saveProviderKey(provider,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveProviderKeyMutationResult = NonNullable<Awaited<ReturnType<typeof saveProviderKey>>>
+    export type SaveProviderKeyMutationBody = BodyType<SaveGroqKeyInput>
+    export type SaveProviderKeyMutationError = ErrorType<void>
+
+    /**
+ * @summary Save or update an API key for any provider
+ */
+export const useSaveProviderKey = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter';data: BodyType<SaveGroqKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof saveProviderKey>>,
+        TError,
+        {provider: 'groq' | 'deepseek' | 'openrouter';data: BodyType<SaveGroqKeyInput>},
+        TContext
+      > => {
+      return useMutation(getSaveProviderKeyMutationOptions(options));
+    }
+
+export const getDeleteProviderKeyUrl = (provider: 'groq' | 'deepseek' | 'openrouter',) => {
+
+
+
+
+  return `/api/ai/providers/${provider}/key`
+}
+
+/**
+ * @summary Remove a saved API key for any provider
+ */
+export const deleteProviderKey = async (provider: 'groq' | 'deepseek' | 'openrouter', options?: RequestInit): Promise<DeleteProviderKey200> => {
+
+  return customFetch<DeleteProviderKey200>(getDeleteProviderKeyUrl(provider),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteProviderKeyMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter'}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter'}, TContext> => {
+
+const mutationKey = ['deleteProviderKey'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteProviderKey>>, {provider: 'groq' | 'deepseek' | 'openrouter'}> = (props) => {
+          const {provider} = props ?? {};
+
+          return  deleteProviderKey(provider,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteProviderKeyMutationResult = NonNullable<Awaited<ReturnType<typeof deleteProviderKey>>>
+
+    export type DeleteProviderKeyMutationError = ErrorType<void>
+
+    /**
+ * @summary Remove a saved API key for any provider
+ */
+export const useDeleteProviderKey = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter'}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteProviderKey>>,
+        TError,
+        {provider: 'groq' | 'deepseek' | 'openrouter'},
+        TContext
+      > => {
+      return useMutation(getDeleteProviderKeyMutationOptions(options));
     }
 
 export const getGetActiveProviderUrl = () => {

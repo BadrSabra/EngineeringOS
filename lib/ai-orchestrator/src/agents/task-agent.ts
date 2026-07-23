@@ -20,7 +20,7 @@ export type TaskAgentInput = {
   /** Optional per-user API key. Falls back to GROQ_API_KEY env for Groq; required for DeepSeek. */
   apiKey?: string;
   /** AI provider to use. Defaults to "groq". */
-  provider?: "groq" | "deepseek";
+  provider?: "groq" | "deepseek" | "openrouter";
 };
 
 export type { TaskAgentOutput };

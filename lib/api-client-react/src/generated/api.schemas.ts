@@ -94,6 +94,39 @@ export interface SaveDeepSeekKeyInput {
   apiKey: string;
 }
 
+export interface OpenRouterKeyStatus {
+  configured: boolean;
+  /**
+     * Last 4 characters of the saved key — shown in UI for confirmation
+     * @nullable
+     */
+  last4?: string | null;
+  /** @nullable */
+  updatedAt?: string | null;
+}
+
+export interface SaveOpenRouterKeyInput {
+  /**
+     * The OpenRouter API key to save. Must not be logged or returned.
+     * @minLength 10
+     */
+  apiKey: string;
+}
+
+/**
+ * Generic key status response for any AI provider.
+ */
+export interface ProviderKeyStatus {
+  configured: boolean;
+  /**
+     * Last 4 characters of the saved key
+     * @nullable
+     */
+  last4?: string | null;
+  /** @nullable */
+  updatedAt?: string | null;
+}
+
 /**
  * The AI provider that will be used, or null if none is configured
  * @nullable
@@ -104,6 +137,7 @@ export type ActiveProviderStatusProvider = typeof ActiveProviderStatusProvider[k
 export const ActiveProviderStatusProvider = {
   groq: 'groq',
   deepseek: 'deepseek',
+  openrouter: 'openrouter',
   null: 'null',
 } as const;
 
@@ -1386,6 +1420,14 @@ export type DeleteGroqKey200 = {
 };
 
 export type DeleteDeepSeekKey200 = {
+  configured: boolean;
+};
+
+export type DeleteOpenRouterKey200 = {
+  configured: boolean;
+};
+
+export type DeleteProviderKey200 = {
   configured: boolean;
 };
 

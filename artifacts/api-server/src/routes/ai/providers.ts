@@ -1,9 +1,15 @@
 /**
  * AI provider key management routes.
  *
- * GET/PUT/DELETE /api/ai/deepseek-key
- * GET/PUT/DELETE /api/ai/groq-key
- * GET            /api/ai/active-provider
+ * Canonical generic endpoint:
+ *   GET/PUT/DELETE /api/ai/providers/:provider/key
+ *
+ * Backward-compatible aliases (delegate to the generic handler):
+ *   GET/PUT/DELETE /api/ai/groq-key
+ *   GET/PUT/DELETE /api/ai/deepseek-key
+ *   GET/PUT/DELETE /api/ai/openrouter-key
+ *
+ *   GET /api/ai/active-provider
  */
 import { Router } from "express";
 import { randomUUID } from "crypto";
@@ -13,85 +19,22 @@ import { eq, and } from "drizzle-orm";
 import { encryptApiKey } from "../../lib/credentials-crypto.js";
 import { logger } from "../../lib/logger.js";
 import { resolveProvider } from "../../lib/ai-route-helpers.js";
-import { validateProviderKey } from "@workspace/ai-orchestrator";
+import { validateProviderKey, PROVIDER_REGISTRY } from "@workspace/ai-orchestrator";
+import type { ProviderId } from "@workspace/ai-orchestrator";
+import type { Request, Response } from "express";
 
 const router = Router();
 
-// ── DeepSeek key management ──────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** GET /api/ai/deepseek-key — return DeepSeek key status (never the key itself) */
-router.get("/ai/deepseek-key", async (req, res) => {
-  const [row] = await db
-    .select({ last4: aiProviderCredentialsTable.last4, updatedAt: aiProviderCredentialsTable.updatedAt })
-    .from(aiProviderCredentialsTable)
-    .where(and(
-      eq(aiProviderCredentialsTable.ownerId, req.userId),
-      eq(aiProviderCredentialsTable.provider, "deepseek"),
-    ))
-    .limit(1);
-  if (!row) return res.json({ configured: false, last4: null, updatedAt: null });
-  return res.json({ configured: true, last4: row.last4, updatedAt: row.updatedAt });
-});
+const VALID_PROVIDERS = new Set<string>(Object.keys(PROVIDER_REGISTRY));
 
-/** PUT /api/ai/deepseek-key — save or update the user's DeepSeek API key */
-router.put("/ai/deepseek-key", async (req, res) => {
-  const { apiKey } = req.body as { apiKey?: string };
-  if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length < 10) {
-    return res.status(400).json({ error: "apiKey must be at least 10 characters" });
-  }
-  const trimmed = apiKey.trim();
+function isValidProvider(p: string): p is ProviderId {
+  return VALID_PROVIDERS.has(p);
+}
 
-  // Validate the key with a minimal ping before persisting it.
-  const validation = await validateProviderKey("deepseek", trimmed);
-  if (!validation.valid) {
-    return res.status(422).json({
-      error: "DeepSeek API key is invalid or unauthorized",
-      hint: "Check your key at platform.deepseek.com — it was rejected by the DeepSeek API.",
-      detail: validation.reason,
-    });
-  }
-
-  const last4 = trimmed.slice(-4);
-  let encryptedApiKey: string;
-  try {
-    encryptedApiKey = encryptApiKey(trimmed);
-  } catch (err) {
-    logger.error({ err }, "DeepSeek key encryption failed");
-    return res.status(500).json({ error: "Key storage unavailable — encryption not configured" });
-  }
-  const now = new Date();
-  await db
-    .insert(aiProviderCredentialsTable)
-    .values({ id: randomUUID(), ownerId: req.userId, provider: "deepseek", encryptedApiKey, last4, createdAt: now, updatedAt: now })
-    .onConflictDoUpdate({
-      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
-      set: { encryptedApiKey, last4, updatedAt: now },
-    });
-  return res.json({ configured: true, last4, updatedAt: now });
-});
-
-/** DELETE /api/ai/deepseek-key — remove the user's saved DeepSeek API key */
-router.delete("/ai/deepseek-key", async (req, res) => {
-  await db
-    .delete(aiProviderCredentialsTable)
-    .where(and(
-      eq(aiProviderCredentialsTable.ownerId, req.userId),
-      eq(aiProviderCredentialsTable.provider, "deepseek"),
-    ));
-  return res.json({ configured: false });
-});
-
-/** GET /api/ai/active-provider — which provider will be used for this user */
-router.get("/ai/active-provider", async (req, res) => {
-  const resolved = await resolveProvider(req.userId);
-  if (!resolved) return res.json({ provider: null, configured: false });
-  return res.json({ provider: resolved.provider, configured: true });
-});
-
-// ── Groq key management ──────────────────────────────────────────────────────
-
-/** GET /api/ai/groq-key — return key status (never the key itself) */
-router.get("/ai/groq-key", async (req, res) => {
+/** Shared GET handler — return key status (never the key itself). */
+async function handleGetKey(req: Request, res: Response, provider: ProviderId) {
   const [row] = await db
     .select({
       last4: aiProviderCredentialsTable.last4,
@@ -101,55 +44,52 @@ router.get("/ai/groq-key", async (req, res) => {
     .where(
       and(
         eq(aiProviderCredentialsTable.ownerId, req.userId),
-        eq(aiProviderCredentialsTable.provider, "groq"),
+        eq(aiProviderCredentialsTable.provider, provider),
       ),
     )
     .limit(1);
 
-  if (!row) {
-    return res.json({ configured: false, last4: null, updatedAt: null });
-  }
+  if (!row) return res.json({ configured: false, last4: null, updatedAt: null });
   return res.json({ configured: true, last4: row.last4, updatedAt: row.updatedAt });
-});
+}
 
-/** PUT /api/ai/groq-key — save or update the user's Groq API key */
-router.put("/ai/groq-key", async (req, res) => {
+/** Shared PUT handler — validate and persist the API key. */
+async function handlePutKey(req: Request, res: Response, provider: ProviderId) {
   const { apiKey } = req.body as { apiKey?: string };
-
   if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length < 10) {
     return res.status(400).json({ error: "apiKey must be at least 10 characters" });
   }
-
   const trimmed = apiKey.trim();
 
-  // Validate the key with a minimal ping before persisting it.
-  const validation = await validateProviderKey("groq", trimmed);
+  const config = PROVIDER_REGISTRY[provider];
+  const label = config?.label ?? provider;
+  const consoleUrl = config?.consoleUrl ?? "your provider's dashboard";
+
+  const validation = await validateProviderKey(provider, trimmed);
   if (!validation.valid) {
     return res.status(422).json({
-      error: "Groq API key is invalid or unauthorized",
-      hint: "Check your key at console.groq.com — it was rejected by the Groq API.",
+      error: `${label} API key is invalid or unauthorized`,
+      hint: `Check your key at ${consoleUrl} — it was rejected by the ${label} API.`,
       detail: validation.reason,
     });
   }
 
   const last4 = trimmed.slice(-4);
   let encryptedApiKey: string;
-
   try {
     encryptedApiKey = encryptApiKey(trimmed);
   } catch (err) {
-    logger.error({ err }, "Groq key encryption failed");
+    logger.error({ err, provider }, "Key encryption failed");
     return res.status(500).json({ error: "Key storage unavailable — encryption not configured" });
   }
 
   const now = new Date();
-
   await db
     .insert(aiProviderCredentialsTable)
     .values({
       id: randomUUID(),
       ownerId: req.userId,
-      provider: "groq",
+      provider,
       encryptedApiKey,
       last4,
       createdAt: now,
@@ -161,20 +101,75 @@ router.put("/ai/groq-key", async (req, res) => {
     });
 
   return res.json({ configured: true, last4, updatedAt: now });
-});
+}
 
-/** DELETE /api/ai/groq-key — remove the user's saved Groq API key */
-router.delete("/ai/groq-key", async (req, res) => {
+/** Shared DELETE handler — remove the saved key. */
+async function handleDeleteKey(req: Request, res: Response, provider: ProviderId) {
   await db
     .delete(aiProviderCredentialsTable)
     .where(
       and(
         eq(aiProviderCredentialsTable.ownerId, req.userId),
-        eq(aiProviderCredentialsTable.provider, "groq"),
+        eq(aiProviderCredentialsTable.provider, provider),
       ),
     );
-
   return res.json({ configured: false });
+}
+
+// ── Generic routes (:provider param) ─────────────────────────────────────────
+
+router.get("/ai/providers/:provider/key", async (req, res) => {
+  const { provider } = req.params;
+  if (!isValidProvider(provider)) {
+    return res.status(400).json({
+      error: `Unknown provider "${provider}". Valid values: ${[...VALID_PROVIDERS].join(", ")}`,
+    });
+  }
+  return handleGetKey(req, res, provider);
 });
+
+router.put("/ai/providers/:provider/key", async (req, res) => {
+  const { provider } = req.params;
+  if (!isValidProvider(provider)) {
+    return res.status(400).json({
+      error: `Unknown provider "${provider}". Valid values: ${[...VALID_PROVIDERS].join(", ")}`,
+    });
+  }
+  return handlePutKey(req, res, provider);
+});
+
+router.delete("/ai/providers/:provider/key", async (req, res) => {
+  const { provider } = req.params;
+  if (!isValidProvider(provider)) {
+    return res.status(400).json({
+      error: `Unknown provider "${provider}". Valid values: ${[...VALID_PROVIDERS].join(", ")}`,
+    });
+  }
+  return handleDeleteKey(req, res, provider);
+});
+
+// ── Active provider ───────────────────────────────────────────────────────────
+
+/** GET /api/ai/active-provider — which provider will be used for this user */
+router.get("/ai/active-provider", async (req, res) => {
+  const resolved = await resolveProvider(req.userId);
+  if (!resolved) return res.json({ provider: null, configured: false });
+  return res.json({ provider: resolved.provider, configured: true });
+});
+
+// ── Backward-compat aliases ───────────────────────────────────────────────────
+// Delegates to the generic handlers — preserves existing clients without change.
+
+router.get("/ai/groq-key",        (req, res) => handleGetKey(req, res, "groq"));
+router.put("/ai/groq-key",        (req, res) => handlePutKey(req, res, "groq"));
+router.delete("/ai/groq-key",     (req, res) => handleDeleteKey(req, res, "groq"));
+
+router.get("/ai/deepseek-key",    (req, res) => handleGetKey(req, res, "deepseek"));
+router.put("/ai/deepseek-key",    (req, res) => handlePutKey(req, res, "deepseek"));
+router.delete("/ai/deepseek-key", (req, res) => handleDeleteKey(req, res, "deepseek"));
+
+router.get("/ai/openrouter-key",    (req, res) => handleGetKey(req, res, "openrouter"));
+router.put("/ai/openrouter-key",    (req, res) => handlePutKey(req, res, "openrouter"));
+router.delete("/ai/openrouter-key", (req, res) => handleDeleteKey(req, res, "openrouter"));
 
 export default router;

@@ -16,5 +16,6 @@ export type ActiveProviderStatusProvider = typeof ActiveProviderStatusProvider[k
 export const ActiveProviderStatusProvider = {
   groq: 'groq',
   deepseek: 'deepseek',
+  openrouter: 'openrouter',
   null: 'null',
 } as const;

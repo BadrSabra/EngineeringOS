@@ -25,9 +25,11 @@ import { ApiError, apiFetch, apiPost, apiGet, apiPut, apiDelete } from '@/lib/ap
 type Project = { id: string; name: string; language: string };
 type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string; sources?: string; createdAt: string };
 type Session = { id: string; title: string; updatedAt: string };
-type GroqKeyStatus    = { configured: boolean; last4: string | null; updatedAt: string | null };
-type DeepSeekKeyStatus = { configured: boolean; last4: string | null; updatedAt: string | null };
-type ActiveProvider   = { provider: 'groq' | 'deepseek' | null; configured: boolean };
+type ProviderKeyStatus  = { configured: boolean; last4: string | null; updatedAt: string | null };
+type GroqKeyStatus      = ProviderKeyStatus;
+type DeepSeekKeyStatus  = ProviderKeyStatus;
+type OpenRouterKeyStatus = ProviderKeyStatus;
+type ActiveProvider     = { provider: 'groq' | 'deepseek' | 'openrouter' | null; configured: boolean };
 type PendingChange = {
   path: string;
   absolutePath: string;
@@ -48,19 +50,16 @@ function describeAiError(err: unknown): string {
   if (err instanceof AiApiError) {
     switch (err.status) {
       case 400: return err.errorMessage;
-      // إصلاح #1: AUTH_ERROR يُعاد كـ401 — نوجّه المستخدم مباشرة لإصلاح المفتاح.
-      case 401: return err.hint ?? 'Groq API key is invalid — delete it and save a valid key from console.groq.com.';
+      case 401: return err.hint ?? 'AI API key is invalid — delete it and save a valid key from your provider\'s dashboard.';
       case 403: return 'Access denied — you may not have permission on this project.';
-      // إصلاح #4: RATE_LIMITED يُعاد كـ429 — رسالة واضحة بدل "provider error".
-      case 429: return err.hint ?? 'Groq rate limit reached — wait 30–60 seconds before retrying.';
-      // PR-E: distinguish model parse failure from config errors on the same 422 status.
+      case 429: return err.hint ?? 'AI rate limit reached — wait 30–60 seconds before retrying.';
       case 422:
         if (err.code === 'model_output_invalid') {
           return 'The AI returned an unexpected response format — try rephrasing your message.';
         }
-        return err.hint ?? 'AI provider configuration is invalid. Re-save your Groq key.';
-      case 428: return err.hint ?? 'No AI key configured — save a Groq API key first.';
-      case 502: return err.hint ?? 'AI provider returned an error. Check your Groq key or try again.';
+        return err.hint ?? 'AI provider configuration is invalid. Re-save your API key.';
+      case 428: return err.hint ?? 'No AI key configured — save an OpenRouter, DeepSeek, or Groq API key first.';
+      case 502: return err.hint ?? 'AI provider returned an error. Check your API key or try again.';
       case 503: return 'AI provider is temporarily unreachable — try again in a moment.';
       default:  return err.errorMessage || `Request failed (${err.status}).`;
     }
@@ -461,6 +460,112 @@ function GroqKeyCard() {
   );
 }
 
+function OpenRouterKeyCard() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [keyInput, setKeyInput] = useState('');
+  const [showInput, setShowInput] = useState(false);
+
+  const { data: status, isLoading } = useQuery<OpenRouterKeyStatus>({
+    queryKey: ['openrouter-key-status'],
+    queryFn: () => apiGet<OpenRouterKeyStatus>('/api/ai/openrouter-key'),
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: (apiKey: string) => apiPut<OpenRouterKeyStatus>('/api/ai/openrouter-key', { apiKey }),
+    onSuccess: (data) => {
+      void qc.setQueryData(['openrouter-key-status'], data);
+      void qc.invalidateQueries({ queryKey: ['active-provider'] });
+      setKeyInput('');
+      setShowInput(false);
+      toast({ title: 'OpenRouter key saved', description: `Ends in ···${data.last4}` });
+    },
+    onError: (err) => {
+      toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: () => apiDelete<{ configured: boolean }>('/api/ai/openrouter-key'),
+    onSuccess: () => {
+      void qc.setQueryData(['openrouter-key-status'], { configured: false, last4: null, updatedAt: null });
+      void qc.invalidateQueries({ queryKey: ['active-provider'] });
+      toast({ title: 'OpenRouter key removed' });
+    },
+    onError: (err) => {
+      toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+    },
+  });
+
+  function handleSave() {
+    const trimmed = keyInput.trim();
+    if (trimmed.length < 10) {
+      toast({ title: 'Key too short', description: 'Enter a valid OpenRouter API key.', variant: 'destructive' });
+      return;
+    }
+    saveMutation.mutate(trimmed);
+  }
+
+  return (
+    <div className="mx-2 mb-2 rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+      <div className="flex items-center gap-1.5 mb-2">
+        <Key className="w-3 h-3 text-muted-foreground" />
+        <span className="font-mono text-muted-foreground uppercase tracking-wider">OpenRouter API Key</span>
+        <span className="ml-auto text-[10px] text-muted-foreground">Priority</span>
+      </div>
+
+      {isLoading ? (
+        <p className="text-muted-foreground">Loading…</p>
+      ) : status?.configured ? (
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-green-500">
+            <Check className="w-3 h-3" />
+            <span>···{status.last4}</span>
+          </div>
+          <div className="flex gap-1">
+            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs" onClick={() => setShowInput((v) => !v)}>
+              Change
+            </Button>
+            <Button
+              size="sm" variant="ghost"
+              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive"
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-muted-foreground mb-2">
+          Get a free key at <span className="font-mono">openrouter.ai/keys</span> — routes to 300+ models, used first when configured.
+        </p>
+      )}
+
+      {(showInput || !status?.configured) && (
+        <div className="flex gap-1 mt-2">
+          <Input
+            type="password"
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            placeholder="sk-or-…"
+            className="h-7 text-xs font-mono bg-background border-border flex-1"
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
+            autoComplete="new-password"
+          />
+          <Button
+            size="sm" className="h-7 px-2 text-xs"
+            onClick={handleSave}
+            disabled={saveMutation.isPending || !keyInput.trim()}
+          >
+            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const AI_ACTIONS = [
   { id: 'analyze', label: 'Analyze Scan', icon: Search, prompt: 'Analyze the latest scan results and suggest the top 3 improvements.' },
   { id: 'review', label: 'Code Review', icon: Code2, prompt: 'Review the codebase and identify the most critical quality issues.' },
@@ -795,8 +900,9 @@ export default function AiChat() {
           </div>
         </ScrollArea>
 
-        {/* Provider key cards — bottom of sidebar */}
+        {/* Provider key cards — bottom of sidebar (priority order: OpenRouter → DeepSeek → Groq) */}
         <div className="border-t border-border pt-2">
+          <OpenRouterKeyCard />
           <DeepSeekKeyCard />
           <GroqKeyCard />
         </div>
@@ -809,7 +915,11 @@ export default function AiChat() {
           <Bot className="w-4 h-4 text-primary" />
           <span className="text-sm font-medium">EngineeringOS AI</span>
           <Badge variant="outline" className="text-xs font-mono ml-auto">
-            {activeProvider?.provider === 'deepseek' ? 'DeepSeek V3' : 'Llama 3.3 · Groq'}
+            {activeProvider?.provider === 'deepseek'
+              ? 'DeepSeek V3'
+              : activeProvider?.provider === 'openrouter'
+                ? 'Llama 3.3 · OpenRouter'
+                : 'Llama 3.3 · Groq'}
           </Badge>
         </div>
 

@@ -42,6 +42,8 @@
  */
 import { completeRaw, completeStream, MODEL_POWERFUL, MODEL_FAST } from "../groq-client.js";
 import { deepseekCompleteRaw, deepseekCompleteStream, DEEPSEEK_MODEL_FAST, DEEPSEEK_MODEL_POWERFUL } from "../deepseek-client.js";
+import { openrouterCompleteRaw, openrouterCompleteStream } from "../openai-compatible-client.js";
+import { PROVIDER_REGISTRY } from "../provider-registry.js";
 import { GroqClientError } from "../errors.js";
 import type { AgentErrorCode } from "../errors.js";
 import type { RawMessage } from "../groq-client.js";
@@ -169,21 +171,36 @@ export async function chat(opts: {
   /** Optional per-user API key for the selected provider. */
   apiKey?: string;
   /** AI provider to use. Defaults to "groq". */
-  provider?: "groq" | "deepseek";
+  provider?: "groq" | "deepseek" | "openrouter";
   /**
-   * When provided, the final synthesis call uses Groq streaming and each
-   * content delta is yielded to this callback in real time.
-   * Only Groq supports streaming via this path (DeepSeek falls back to
-   * non-streaming). Pending-changes from tool calls are still returned normally.
+   * When provided, the final synthesis call uses streaming and each content
+   * delta is yielded to this callback in real time.
+   * Groq, DeepSeek, and OpenRouter all support SSE streaming via this path.
+   * Pending-changes from tool calls are still returned normally.
    */
   onDelta?: (delta: string) => void;
 }): Promise<ChatResult> {
   const { message, history, projectContext, rootPath, apiKey, provider = "groq", onDelta } = opts;
 
   // Route to the correct client + model constants based on provider.
-  const callRaw     = provider === "deepseek" ? deepseekCompleteRaw : completeRaw;
-  const fastModel   = provider === "deepseek" ? DEEPSEEK_MODEL_FAST    : MODEL_FAST;
-  const powerModel  = provider === "deepseek" ? DEEPSEEK_MODEL_POWERFUL : MODEL_POWERFUL;
+  const callRaw =
+    provider === "deepseek"
+      ? deepseekCompleteRaw
+      : provider === "openrouter"
+        ? openrouterCompleteRaw
+        : completeRaw;
+  const fastModel =
+    provider === "deepseek"
+      ? DEEPSEEK_MODEL_FAST
+      : provider === "openrouter"
+        ? PROVIDER_REGISTRY.openrouter.defaultModels.fast
+        : MODEL_FAST;
+  const powerModel =
+    provider === "deepseek"
+      ? DEEPSEEK_MODEL_POWERFUL
+      : provider === "openrouter"
+        ? PROVIDER_REGISTRY.openrouter.defaultModels.powerful
+        : MODEL_POWERFUL;
 
   const pendingChanges: PendingChange[] = [];
 
@@ -404,7 +421,9 @@ export async function chat(opts: {
         const streamGen =
           provider === "deepseek"
             ? deepseekCompleteStream(streamMessages, { model, apiKey: apiKey! })
-            : completeStream(streamMessages, { model, apiKey });
+            : provider === "openrouter"
+              ? openrouterCompleteStream(streamMessages, { model, apiKey: apiKey! })
+              : completeStream(streamMessages, { model, apiKey });
         for await (const delta of streamGen) {
           accumulated += delta;
           onDelta(delta);

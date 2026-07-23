@@ -1,27 +1,31 @@
 /**
  * Provider-agnostic completion helper for single-shot agents.
  *
- * Wraps groq-client's `complete()` and deepseek-client's `deepseekCompleteRaw()`
- * behind a single interface so scan-analyst, code-reviewer, task-agent, and
- * workflow-orchestrator can support both providers without duplicating provider
- * selection logic in every agent file.
+ * Wraps groq-client's `complete()`, deepseek-client's `deepseekCompleteRaw()`,
+ * and openai-compatible-client's `openrouterCompleteRaw()` behind a single
+ * interface so scan-analyst, code-reviewer, task-agent, and workflow-orchestrator
+ * can support all providers without duplicating provider selection logic.
  *
- * Groq path:     uses the high-level `complete()` client — circuit-breaker,
- *                exponential-backoff retries, and structured Message types
- *                all included.
- * DeepSeek path: uses `deepseekCompleteRaw()` — same GroqClientError union
- *                so callers handle errors identically regardless of provider.
+ * Groq path:      uses the high-level `complete()` client — circuit-breaker,
+ *                 exponential-backoff retries, and structured Message types included.
+ * DeepSeek path:  uses `deepseekCompleteRaw()` — same GroqClientError union.
+ * OpenRouter path: uses `openrouterCompleteRaw()` — OpenAI-compatible, same error union.
  */
 import { complete, completeRaw, MODEL_POWERFUL } from "./groq-client.js";
 import { deepseekCompleteRaw, DEEPSEEK_MODEL_POWERFUL } from "./deepseek-client.js";
+import { openrouterCompleteRaw } from "./openai-compatible-client.js";
+import { PROVIDER_REGISTRY } from "./provider-registry.js";
 import { GroqClientError } from "./errors.js";
 import type { Message } from "./groq-client.js";
+import type { ProviderId } from "./provider-registry.js";
+
+export type { ProviderId };
 
 export type AgentCompleteOpts = {
-  /** Per-user API key. Required for DeepSeek; falls back to GROQ_API_KEY env for Groq. */
+  /** Per-user API key. Required for DeepSeek and OpenRouter; falls back to GROQ_API_KEY env for Groq. */
   apiKey?: string;
   /** Which AI provider to use. Defaults to "groq". */
-  provider?: "groq" | "deepseek";
+  provider?: ProviderId;
 };
 
 /**
@@ -35,14 +39,17 @@ export type AgentCompleteOpts = {
  * key that might be perfectly valid.
  */
 export async function validateProviderKey(
-  provider: "groq" | "deepseek",
+  provider: ProviderId,
   apiKey: string,
 ): Promise<{ valid: boolean; reason?: string }> {
   const testMessages: Message[] = [{ role: "user", content: "hi" }];
   try {
     if (provider === "deepseek") {
       await deepseekCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
+    } else if (provider === "openrouter") {
+      await openrouterCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
     } else {
+      // groq — uses high-level client with 10s timeout for the probe
       await completeRaw(testMessages, { apiKey, maxTokens: 1, timeoutMs: 10_000 });
     }
     return { valid: true };
@@ -59,9 +66,8 @@ export async function validateProviderKey(
  * Send a single-shot chat completion to the configured provider.
  *
  * Always returns `{ content: string }` — content is guaranteed non-empty.
- * Throws `GroqClientError` on any provider error (AUTH_ERROR, RATE_LIMITED,
- * NETWORK_ERROR, TIMEOUT, NON_200, EMPTY_RESPONSE, SERVER_ERROR) so callers
- * can handle the same error union regardless of which provider is active.
+ * Throws `GroqClientError` on any provider error so callers handle the same
+ * error union regardless of which provider is active.
  */
 export async function agentComplete(
   messages: Message[],
@@ -83,15 +89,32 @@ export async function agentComplete(
     });
     const content = result.content;
     if (!content) {
-      throw new GroqClientError(
-        "EMPTY_RESPONSE",
-        "DeepSeek returned no content for this request",
-      );
+      throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek returned no content for this request");
     }
     return { content };
   }
 
-  // Groq path — full-featured client with circuit-breaker and retry.
+  if (provider === "openrouter") {
+    const apiKey = opts.apiKey;
+    if (!apiKey) {
+      throw new GroqClientError(
+        "INVALID_CONFIG",
+        "OpenRouter API key is required but was not provided",
+      );
+    }
+    const config = PROVIDER_REGISTRY.openrouter;
+    const result = await openrouterCompleteRaw(messages, {
+      model: config.defaultModels.powerful,
+      apiKey,
+    });
+    const content = result.content;
+    if (!content) {
+      throw new GroqClientError("EMPTY_RESPONSE", "OpenRouter returned no content for this request");
+    }
+    return { content };
+  }
+
+  // groq — full-featured client with circuit-breaker and retry.
   const result = await complete(messages, { model: MODEL_POWERFUL, apiKey: opts.apiKey });
   return { content: result.content };
 }

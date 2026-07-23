@@ -2435,10 +2435,94 @@ export const DeleteDeepSeekKeyResponse = zod.object({
 
 
 /**
+ * @summary Get OpenRouter API key configuration status (alias for /providers/openrouter/key)
+ */
+export const GetOpenRouterKeyStatusResponse = zod.object({
+  "configured": zod.boolean(),
+  "last4": zod.string().nullish().describe('Last 4 characters of the saved key — shown in UI for confirmation'),
+  "updatedAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Save or update the authenticated user's OpenRouter API key
+ */
+export const saveOpenRouterKeyBodyApiKeyMin = 10;
+
+
+
+export const SaveOpenRouterKeyBody = zod.object({
+  "apiKey": zod.string().min(saveOpenRouterKeyBodyApiKeyMin).describe('The OpenRouter API key to save. Must not be logged or returned.')
+})
+
+export const SaveOpenRouterKeyResponse = zod.object({
+  "configured": zod.boolean(),
+  "last4": zod.string().nullish().describe('Last 4 characters of the saved key — shown in UI for confirmation'),
+  "updatedAt": zod.coerce.date().nullish()
+})
+
+
+/**
+ * @summary Remove the authenticated user's saved OpenRouter API key
+ */
+export const DeleteOpenRouterKeyResponse = zod.object({
+  "configured": zod.boolean()
+})
+
+
+/**
+ * @summary Get API key status for any provider (canonical generic endpoint)
+ */
+export const GetProviderKeyStatusParams = zod.object({
+  "provider": zod.enum(['groq', 'deepseek', 'openrouter']).describe('AI provider identifier')
+})
+
+export const GetProviderKeyStatusResponse = zod.object({
+  "configured": zod.boolean(),
+  "last4": zod.string().nullish().describe('Last 4 characters of the saved key'),
+  "updatedAt": zod.coerce.date().nullish()
+}).describe('Generic key status response for any AI provider.')
+
+
+/**
+ * @summary Save or update an API key for any provider
+ */
+export const SaveProviderKeyParams = zod.object({
+  "provider": zod.enum(['groq', 'deepseek', 'openrouter']).describe('AI provider identifier')
+})
+
+export const saveProviderKeyBodyApiKeyMin = 10;
+
+
+
+export const SaveProviderKeyBody = zod.object({
+  "apiKey": zod.string().min(saveProviderKeyBodyApiKeyMin).describe('The Groq API key to save. Must not be logged or returned.')
+})
+
+export const SaveProviderKeyResponse = zod.object({
+  "configured": zod.boolean(),
+  "last4": zod.string().nullish().describe('Last 4 characters of the saved key'),
+  "updatedAt": zod.coerce.date().nullish()
+}).describe('Generic key status response for any AI provider.')
+
+
+/**
+ * @summary Remove a saved API key for any provider
+ */
+export const DeleteProviderKeyParams = zod.object({
+  "provider": zod.enum(['groq', 'deepseek', 'openrouter']).describe('AI provider identifier')
+})
+
+export const DeleteProviderKeyResponse = zod.object({
+  "configured": zod.boolean()
+})
+
+
+/**
  * @summary Get which AI provider will be used for the authenticated user
  */
 export const GetActiveProviderResponse = zod.object({
-  "provider": zod.enum(['groq', 'deepseek', 'null']).nullish().describe('The AI provider that will be used, or null if none is configured'),
+  "provider": zod.enum(['groq', 'deepseek', 'openrouter', 'null']).nullish().describe('The AI provider that will be used, or null if none is configured'),
   "configured": zod.boolean().describe('True if at least one provider key is available (personal or server-wide)')
 })
 

@@ -3,6 +3,9 @@
  *
  * Extracted from routes/ai.ts to keep each subroute module small and testable.
  * Import from here rather than from the route file.
+ *
+ * Provider resolution uses PROVIDER_PRIORITY from the registry so the fallback
+ * chain is driven by a single array — no if/else sprawl when adding providers.
  */
 import { randomUUID } from "crypto";
 import { db } from "@workspace/db";
@@ -12,100 +15,102 @@ import {
   chat,
   buildProjectContext,
   GroqClientError,
+  PROVIDER_PRIORITY,
+  PROVIDER_REGISTRY,
 } from "@workspace/ai-orchestrator";
+import type { ProviderId } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { decryptApiKey } from "./credentials-crypto.js";
 
-// ── Provider resolution ───────────────────────────────────────────────────────
+export type { ProviderId };
+
+// ── Per-provider key resolution ───────────────────────────────────────────────
 
 /**
- * Resolve the Groq API key to use for a given user.
+ * Generic: resolve the saved API key for any provider.
  *
  * Resolution order:
  *   1. User's own saved key (decrypted from DB).
- *   2. Server-wide fallback: process.env.GROQ_API_KEY.
+ *   2. Server-wide env fallback: process.env.GROQ_API_KEY (groq only).
  *   3. undefined — caller MUST return 428 to the client.
  */
-export async function resolveGroqApiKey(userId: string): Promise<string | undefined> {
-  const [row] = await db
-    .select()
-    .from(aiProviderCredentialsTable)
-    .where(
-      and(
-        eq(aiProviderCredentialsTable.ownerId, userId),
-        eq(aiProviderCredentialsTable.provider, "groq"),
-      ),
-    )
-    .limit(1);
-
-  if (row) {
-    try {
-      return decryptApiKey(row.encryptedApiKey);
-    } catch (err) {
-      logger.error({ err, ownerId: userId }, "Failed to decrypt stored Groq API key — falling back to env");
-    }
-  }
-
-  return process.env.GROQ_API_KEY || undefined;
-}
-
-/**
- * Resolve the DeepSeek API key for a given user.
- * Priority: DB-stored key → process.env.DEEPSEEK_API_KEY.
- */
-export async function resolveDeepSeekApiKey(userId: string): Promise<string | undefined> {
-  const [row] = await db
-    .select()
-    .from(aiProviderCredentialsTable)
-    .where(
-      and(
-        eq(aiProviderCredentialsTable.ownerId, userId),
-        eq(aiProviderCredentialsTable.provider, "deepseek"),
-      ),
-    )
-    .limit(1);
-
-  if (row) {
-    try {
-      return decryptApiKey(row.encryptedApiKey);
-    } catch (err) {
-      logger.error({ err, ownerId: userId }, "Failed to decrypt stored DeepSeek API key — falling back to env");
-    }
-  }
-
-  return process.env.DEEPSEEK_API_KEY || undefined;
-}
-
-/**
- * Resolve which AI provider to use for a request.
- *
- * Priority: DeepSeek (if key saved) → Groq (key or env fallback) → undefined.
- */
-export async function resolveProvider(
+export async function resolveProviderKey(
   userId: string,
-): Promise<{ provider: "groq" | "deepseek"; apiKey: string } | undefined> {
-  const deepseekKey = await resolveDeepSeekApiKey(userId);
-  if (deepseekKey) return { provider: "deepseek", apiKey: deepseekKey };
+  provider: ProviderId,
+): Promise<string | undefined> {
+  const [row] = await db
+    .select()
+    .from(aiProviderCredentialsTable)
+    .where(
+      and(
+        eq(aiProviderCredentialsTable.ownerId, userId),
+        eq(aiProviderCredentialsTable.provider, provider),
+      ),
+    )
+    .limit(1);
 
-  const groqKey = await resolveGroqApiKey(userId);
-  if (groqKey) return { provider: "groq", apiKey: groqKey };
+  if (row) {
+    try {
+      return decryptApiKey(row.encryptedApiKey);
+    } catch (err) {
+      const label = PROVIDER_REGISTRY[provider]?.label ?? provider;
+      logger.error(
+        { err, ownerId: userId, provider },
+        `Failed to decrypt stored ${label} API key — falling back to env`,
+      );
+    }
+  }
+
+  // Server-wide env fallback — only supported for Groq.
+  if (provider === "groq") {
+    return process.env.GROQ_API_KEY || undefined;
+  }
 
   return undefined;
 }
 
+// Backward-compat named wrappers (used by parity tests and older callers).
+export async function resolveGroqApiKey(userId: string): Promise<string | undefined> {
+  return resolveProviderKey(userId, "groq");
+}
+export async function resolveDeepSeekApiKey(userId: string): Promise<string | undefined> {
+  return resolveProviderKey(userId, "deepseek");
+}
+export async function resolveOpenRouterApiKey(userId: string): Promise<string | undefined> {
+  return resolveProviderKey(userId, "openrouter");
+}
+
+// ── Provider resolution (priority-ordered) ────────────────────────────────────
+
 /**
- * Resolve a fallback AI provider when the primary is rate-limited.
+ * Resolve which AI provider to use for a request.
+ *
+ * Iterates PROVIDER_PRIORITY ([openrouter, deepseek, groq]) and returns the
+ * first provider whose key is available. This is the single place that controls
+ * which provider wins — edit PROVIDER_PRIORITY in provider-registry.ts to reorder.
+ */
+export async function resolveProvider(
+  userId: string,
+): Promise<{ provider: ProviderId; apiKey: string } | undefined> {
+  for (const provider of PROVIDER_PRIORITY) {
+    const key = await resolveProviderKey(userId, provider);
+    if (key) return { provider, apiKey: key };
+  }
+  return undefined;
+}
+
+/**
+ * Resolve a fallback AI provider when the primary is experiencing errors.
+ * Skips the current provider and returns the next available one in PROVIDER_PRIORITY order.
  */
 export async function resolveFallbackProvider(
   userId: string,
-  currentProvider: "groq" | "deepseek",
-): Promise<{ provider: "groq" | "deepseek"; apiKey: string } | undefined> {
-  if (currentProvider === "groq") {
-    const key = await resolveDeepSeekApiKey(userId);
-    if (key) return { provider: "deepseek", apiKey: key };
-  } else {
-    const key = await resolveGroqApiKey(userId);
-    if (key) return { provider: "groq", apiKey: key };
+  currentProvider: ProviderId,
+): Promise<{ provider: ProviderId; apiKey: string } | undefined> {
+  for (const provider of PROVIDER_PRIORITY) {
+    if (provider === currentProvider) continue;
+    const key = await resolveProviderKey(userId, provider);
+    if (key) return { provider, apiKey: key };
   }
   return undefined;
 }
@@ -113,18 +118,6 @@ export async function resolveFallbackProvider(
 /**
  * Error codes that should trigger a provider fallback rather than surfacing
  * the error directly to the caller.
- *
- * RATE_LIMITED   — obvious: the provider is throttling us.
- * AUTH_ERROR     — an invalid/expired key should cause us to try the other
- *                  provider instead of failing immediately; the user can fix
- *                  the bad key in parallel.
- * NETWORK_ERROR  — transient connectivity issue; the fallback provider may be
- *                  reachable on a different path.
- * TIMEOUT        — request timed out; worth a single retry on the other provider.
- * NON_200        — unexpected non-200 from the primary (e.g. MODEL_FAST 503
- *                  under heavy load); fallback may succeed.
- * EMPTY_RESPONSE — provider returned nothing actionable; fallback is worth trying.
- * SERVER_ERROR   — 5xx from the primary; try the other provider.
  */
 const FALLBACK_TRIGGER_CODES = new Set<string>([
   "RATE_LIMITED",
@@ -139,15 +132,8 @@ const FALLBACK_TRIGGER_CODES = new Set<string>([
 /**
  * Call `chat()` with automatic provider fallback on recoverable errors.
  *
- * Fallback is attempted for any error code in FALLBACK_TRIGGER_CODES —
- * not just RATE_LIMITED. This covers invalid/expired keys, transient network
- * issues, timeouts, unexpected non-200 responses, empty responses, and
- * server-side errors from the primary provider.
- *
- * @param onDelta  Optional streaming callback. When provided, the final
- *                 synthesis step uses real-time token streaming. Both Groq and
- *                 DeepSeek support streaming. If the primary falls back to the
- *                 other provider, streaming is attempted on that provider too.
+ * Fallback is attempted for any error code in FALLBACK_TRIGGER_CODES.
+ * Both primary and fallback providers support streaming via `onDelta`.
  */
 export async function chatWithFallback(
   userId: string,
@@ -157,9 +143,9 @@ export async function chatWithFallback(
     projectContext: Awaited<ReturnType<typeof buildProjectContext>>;
     rootPath: string | undefined;
   },
-  initialProvider: { provider: "groq" | "deepseek"; apiKey: string },
+  initialProvider: { provider: ProviderId; apiKey: string },
   onDelta?: (delta: string) => void,
-): Promise<{ result: Awaited<ReturnType<typeof chat>>; effectiveProvider: "groq" | "deepseek" }> {
+): Promise<{ result: Awaited<ReturnType<typeof chat>>; effectiveProvider: ProviderId }> {
   try {
     const result = await chat({
       ...baseParams,
@@ -196,12 +182,12 @@ export async function chatWithFallback(
 export async function requireProvider(
   userId: string,
   res: import("express").Response,
-): Promise<{ provider: "groq" | "deepseek"; apiKey: string } | null> {
+): Promise<{ provider: ProviderId; apiKey: string } | null> {
   const resolved = await resolveProvider(userId);
   if (!resolved) {
     res.status(428).json({
       error: "AI provider not configured",
-      hint: "Save a DeepSeek API key via PUT /api/ai/deepseek-key or a Groq API key via PUT /api/ai/groq-key.",
+      hint: "Save an API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, or groq).",
     });
     return null;
   }
@@ -220,7 +206,7 @@ export async function requireGroqApiKey(
   if (!key) {
     res.status(428).json({
       error: "AI provider not configured",
-      hint: "Save a Groq API key via PUT /api/ai/groq-key or ask your administrator to set GROQ_API_KEY on the server.",
+      hint: "Save a Groq API key via PUT /api/ai/providers/groq/key or ask your administrator to set GROQ_API_KEY on the server.",
     });
     return null;
   }
@@ -231,20 +217,15 @@ export async function requireGroqApiKey(
 
 /**
  * Maps GroqClientError codes to typed HTTP responses so callers receive a
- * structured error body instead of a generic 500. Returns true when a response
- * was sent; false when the error is not a known provider error (caller should
- * rethrow to the central error handler).
+ * structured error body instead of a generic 500.
  *
- * @param ctx.provider  The provider that actually produced the error (e.g.
- *                      "deepseek" or "groq"). When omitted the error message
- *                      refers to the AI provider generically. Passing the real
- *                      provider avoids misleading the user (e.g. a DeepSeek
- *                      AUTH_ERROR message that mentions Groq).
+ * @param ctx.provider  The provider that actually produced the error.
+ *                      Uses the registry to build provider-accurate labels and URLs.
  */
 export function handleOrchestratorError(
   err: unknown,
   res: import("express").Response,
-  ctx?: { projectId?: string; operation?: string; provider?: "groq" | "deepseek" },
+  ctx?: { projectId?: string; operation?: string; provider?: ProviderId },
 ): boolean {
   if (!(err instanceof GroqClientError)) return false;
 
@@ -261,15 +242,15 @@ export function handleOrchestratorError(
       .catch(() => {});
   }
 
-  // Build provider-specific labels and console links for error messages.
-  const provider = ctx?.provider ?? "groq";
-  const providerLabel = provider === "deepseek" ? "DeepSeek" : "Groq";
-  const providerConsole =
-    provider === "deepseek" ? "platform.deepseek.com" : "console.groq.com";
-  const providerStatus =
-    provider === "deepseek" ? "platform.deepseek.com" : "status.groq.com";
+  // Build provider-specific labels and URLs from the registry.
+  const providerId: ProviderId = ctx?.provider ?? "groq";
+  const config = PROVIDER_REGISTRY[providerId];
+  const providerLabel = config?.label ?? "AI provider";
+  const providerConsole = config?.consoleUrl ?? "your provider's dashboard";
+  const providerStatus = config?.statusUrl ?? "your provider's status page";
 
-  const base = { code: err.code, provider };
+  const base = { code: err.code, provider: providerId };
+
   switch (err.code) {
     case "TIMEOUT":
     case "NETWORK_ERROR":
