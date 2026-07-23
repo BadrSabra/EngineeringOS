@@ -15,6 +15,7 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
+import { stat as fsStat } from "node:fs/promises";
 import { db } from "@workspace/db";
 import {
   projectsTable,
@@ -49,6 +50,21 @@ async function runGit(
     env: { ...process.env, ...(opts?.env ?? {}) },
   });
   return { stdout: stdout.trim(), stderr: stderr.trim() };
+}
+
+/**
+ * Verify that a project's working-tree directory still exists on disk.
+ * Temporary checkouts under /tmp are cleaned up on server restart; when
+ * that happens git returns a raw "cannot change to '/tmp/eos-git-...'"
+ * fatal that confuses users. This check surfaces a clear recovery hint.
+ */
+async function assertRootPathExists(rootPath: string): Promise<void> {
+  try {
+    const s = await fsStat(rootPath);
+    if (!s.isDirectory()) throw new Error("not_a_directory");
+  } catch {
+    throw Object.assign(new Error("rootpath_missing"), { rootPath });
+  }
 }
 
 /** Inject PAT into an HTTPS GitHub URL. Never logs the result. */
@@ -175,6 +191,7 @@ router.patch("/projects/:projectId/git/config", requireProjectWriteAccess, async
 router.get("/projects/:projectId/git/status", requireProjectAccess, async (req, res) => {
   const { rootPath } = req.project!;
   try {
+    await assertRootPathExists(rootPath);
     const { stdout } = await runGit(["status", "--short", "-u"], rootPath);
     const files = stdout
       .split("\n")
@@ -188,6 +205,12 @@ router.get("/projects/:projectId/git/status", requireProjectAccess, async (req, 
     const e = err as { stderr?: string; message?: string };
     const raw = e.stderr?.trim() || e.message || "git status failed";
     // "not a git repository" is an expected state, not a server bug
+    if ((err as { message?: string }).message === "rootpath_missing") {
+      return res.status(409).json({
+        error: "rootpath_missing",
+        hint: "The project's working directory no longer exists (temporary checkouts are cleaned up on server restart). Re-trigger a scan to restore it.",
+      });
+    }
     if (raw.includes("not a git repository")) {
       return res.status(400).json({
         error: "not_a_git_repo",
@@ -202,6 +225,7 @@ router.get("/projects/:projectId/git/status", requireProjectAccess, async (req, 
 router.get("/projects/:projectId/git/log", requireProjectAccess, async (req, res) => {
   const { rootPath } = req.project!;
   try {
+    await assertRootPathExists(rootPath);
     const { stdout } = await runGit(
       ["log", "--format=%H\x1f%h\x1f%ad\x1f%an\x1f%s", "--date=short", "-20"],
       rootPath,
@@ -217,6 +241,12 @@ router.get("/projects/:projectId/git/log", requireProjectAccess, async (req, res
   } catch (err) {
     const e = err as { stderr?: string; message?: string };
     const raw = e.stderr?.trim() || e.message || "git log failed";
+    if ((err as { message?: string }).message === "rootpath_missing") {
+      return res.status(409).json({
+        error: "rootpath_missing",
+        hint: "The project's working directory no longer exists. Re-trigger a scan to restore it.",
+      });
+    }
     if (raw.includes("not a git repository")) {
       return res.status(400).json({
         error: "not_a_git_repo",
@@ -237,6 +267,7 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
   const { rootPath, id: projectId } = req.project!;
 
   try {
+    await assertRootPathExists(rootPath);
     // Stage everything
     await runGit(["add", "-A"], rootPath);
 

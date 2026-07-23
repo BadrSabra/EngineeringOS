@@ -94,6 +94,30 @@ function parsePkgJson(files: ScannedFile[]): ParsedPackageJson | null {
   }
 }
 
+/**
+ * Merge dependencies from ALL package.json files in the scanned tree
+ * (excluding node_modules). In a monorepo the root package.json rarely
+ * declares runtime deps — those live in individual workspace members.
+ */
+function mergeAllPkgJsonDeps(files: ScannedFile[]): Record<string, string> {
+  const merged: Record<string, string> = {};
+  const pkgFiles = files.filter(
+    (f) =>
+      (f.path === "package.json" || f.path.endsWith("/package.json")) &&
+      !f.path.includes("node_modules"),
+  );
+  for (const f of pkgFiles) {
+    if (!f.content) continue;
+    try {
+      const pkg = JSON.parse(f.content) as ParsedPackageJson;
+      Object.assign(merged, pkg.dependencies ?? {}, pkg.devDependencies ?? {});
+    } catch {
+      // malformed — skip
+    }
+  }
+  return merged;
+}
+
 function countBy<T>(items: T[], keyFn: (item: T) => string): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const item of items) {
@@ -214,7 +238,9 @@ function detectDb(allDeps: Record<string, string>, files: ScannedFile[]): { db: 
   else if (allDeps["sequelize"]) orm = "Sequelize";
   else if (allDeps["mongoose"]) orm = "Mongoose";
   // Python ORMs
-  if (files.some((f) => f.content?.includes("from sqlalchemy"))) orm = "SQLAlchemy";
+  // Scope to Python files only — TS files embedding Python strings (e.g. ast_extractor.py
+  // materialized as a TS template literal) would otherwise produce a false positive.
+  if (files.some((f) => f.language === "python" && f.content?.includes("from sqlalchemy"))) orm = "SQLAlchemy";
   return { db: detectedDb, orm };
 }
 
@@ -348,7 +374,9 @@ export async function runDiscovery(sessionId: string, rootPath: string): Promise
     const walkResult = await walkProject(rootPath);
     const { files } = walkResult;
     const pkg = parsePkgJson(files);
-    const allDeps = { ...(pkg?.dependencies ?? {}), ...(pkg?.devDependencies ?? {}) };
+    // Merge deps from ALL workspace package.json files so monorepo members
+    // (express, vitest, esbuild, vite…) are visible to the detectors.
+    const allDeps = mergeAllPkgJsonDeps(files);
     await setStep(1, "done", Date.now() - t1);
 
     // Step 2 — Detecting languages

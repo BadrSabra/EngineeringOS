@@ -164,10 +164,16 @@ type PartialResult = { entities: ExtractedEntity[]; relationships: ExtractedRela
 function resolveRelativeImport(importSpecifier: string, fromFilePath: string): string | null {
   if (!importSpecifier.startsWith(".")) return null;
 
+  // Strip ESM-in-TS ".js" / ".jsx" / ".mjs" / ".cjs" / ".mts" suffixes that
+  // TypeScript source uses in import specifiers but the actual file is .ts/.tsx.
+  // e.g.  "./routes/index.js"  →  "./routes/index"
+  //       "./lib/logger.js"    →  "./lib/logger"
+  const strippedSpecifier = importSpecifier.replace(/\.(js|jsx|mjs|cjs|mts)$/, "");
+
   const lastSlash = fromFilePath.lastIndexOf("/");
   const fromDir = lastSlash >= 0 ? fromFilePath.slice(0, lastSlash) : "";
 
-  const raw = (fromDir ? fromDir + "/" : "") + importSpecifier;
+  const raw = (fromDir ? fromDir + "/" : "") + strippedSpecifier;
   const parts = raw.split("/");
   const resolved: string[] = [];
   for (const part of parts) {

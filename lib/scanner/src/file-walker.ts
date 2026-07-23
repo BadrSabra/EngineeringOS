@@ -152,7 +152,8 @@ async function walkDir(
       if (state.aborted) return; // respect abort in concurrent branches
 
       if (entry.isDirectory()) {
-        if (IGNORE_DIRS.has(entry.name) || entry.name.startsWith(".")) return;
+        // Skip dot-directories but allow .github (CI/CD workflows live there).
+        if (IGNORE_DIRS.has(entry.name) || (entry.name.startsWith(".") && entry.name !== ".github")) return;
         await walkDir(join(dir, entry.name), rootPath, files, state, depth + 1);
       } else if (entry.isFile()) {
         if (state.aborted || files.length >= MAX_FILES) {

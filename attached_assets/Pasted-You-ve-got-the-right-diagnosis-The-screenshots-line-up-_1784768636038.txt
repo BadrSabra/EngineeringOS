@@ -1,0 +1,104 @@
+You’ve got the right diagnosis. The screenshots line up with three real code-path problems, plus one extra scanner blind spot that explains the CI miss.
+
+## 1) Knowledge Graph: 30 entities, 0 relations
+
+The graph extractor is building entities, but it is not resolving most internal imports into edges.
+
+In `lib/scanner/src/graph-extractor.ts`, the TS/JS relationship logic only emits an edge when the import specifier starts with `.`:
+
+```ts
+if (specifier.startsWith(".")) { ... relationships.push(...) }
+```
+
+That means anything imported as a package name or alias is ignored. More importantly, the resolver is not normalizing common ESM-in-TS specifiers like `./foo.js` back to the source file `foo.ts` / `foo.tsx`. In this repo, many imports are written exactly that way, for example:
+
+* `artifacts/api-server/src/app.ts` imports `./routes/index.js`
+* `artifacts/api-server/src/app.ts` imports `./lib/logger.js`
+
+`matchImportToEntity()` only tries `resolvedBase + ".ts"`, `".tsx"`, etc. So `./routes/index.js` becomes a dead end instead of matching `routes/index.ts`. That produces exactly the “all nodes isolated” symptom.
+
+So the root cause is not just “relationship extraction is broken”; it is “relationship resolution does not understand `.js` import specifiers in a TypeScript source tree.”
+
+## 2) Git panel: `/tmp/eos-git-...` no such file or directory
+
+This is a stale working-tree path problem.
+
+In `artifacts/api-server/src/routes/git.ts`, the routes call:
+
+```ts
+runGit(["status", "--short", "-u"], rootPath)
+```
+
+There is no pre-check that `rootPath` still exists before invoking Git. If the project root is a temporary checkout under `/tmp/eos-git-...` and that directory has been cleaned up, Git returns the raw fatal error.
+
+So the bug is:
+
+* the stored project path is ephemeral
+* the git routes assume it is still valid
+* missing directory errors are not normalized into a recoverable app state
+
+The fix is to check `rootPath` exists before any git command and return a controlled “repository missing / re-scan required” response instead of the raw Git failure.
+
+## 3) Discovery report: wrong ORM/framework/tool detections
+
+This is mostly a metadata aggregation problem.
+
+### a) `parsePkgJson()` only reads one package.json
+
+In `artifacts/api-server/src/lib/discovery-runner.ts`, `parsePkgJson()` picks a single “root” package.json and ignores the rest of the workspace:
+
+```ts
+const target = rootLevel[0] ?? root;
+```
+
+That means dependencies declared in workspace packages are missed. In this repo, the important ones live in subpackages such as:
+
+* `artifacts/api-server/package.json` → `express`, `vitest`, `esbuild`
+* `artifacts/dashboard/package.json` → `vite`
+* `artifacts/mockup-sandbox/package.json` → `vite`
+
+If only the repo root package is scanned, the discovery report will miss Express, Vitest, Vite, and esbuild.
+
+### b) The SQLAlchemy detection is too broad
+
+`detectDb()` does this:
+
+```ts
+if (files.some((f) => f.content?.includes("from sqlalchemy"))) orm = "SQLAlchemy";
+```
+
+That is a raw substring scan over all files, not just Python files. It can be triggered by embedded text, docs, generated artifacts, or scripts that contain Python code as text. The repo uses Drizzle, so SQLAlchemy is a false positive here.
+
+### c) CI/CD is being missed because `.github` is excluded from scanning
+
+The CI detector checks:
+
+```ts
+files.some((f) => f.path.startsWith(".github/workflows"))
+```
+
+But the file walker in `lib/scanner/src/file-walker.ts` skips any directory whose name starts with `.`. That means `.github` is never scanned at all, so the workflow file never reaches discovery. This is why GitHub Actions is not detected even though `.github/workflows/ci.yml` exists.
+
+So the discovery bugs come from three separate places:
+
+* one-package-only dependency parsing
+* overly broad ORM text matching
+* hidden dot-directories not being scanned
+
+## What this means in plain terms
+
+The screenshots are not showing one vague “AI failed” issue. They show:
+
+* graph edges are being dropped because the import resolver does not handle real-world TS ESM specifiers like `./file.js`
+* git integration is pointing at a deleted temp checkout
+* discovery is looking at the wrong dependency scope and missing `.github`
+
+## Priority order to fix
+
+1. Fix graph import resolution for `.js` specifiers in TS source, because that is what causes the 0-relations graph.
+2. Fix workspace package dependency aggregation, because that restores Express / Vitest / Vite / esbuild detection.
+3. Fix `.github` scanning, because that restores CI/CD detection.
+4. Add a root-path existence guard in git routes, because that removes the temp-directory fatal error.
+5. Narrow SQLAlchemy detection to Python files only, to eliminate the false ORM report.
+
+The quality score of 91/100 should not be treated as proof that the analysis is correct; it is clearly missing real signals that the codebase does contain.
