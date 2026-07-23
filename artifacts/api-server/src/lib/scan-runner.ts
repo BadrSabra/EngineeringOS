@@ -26,6 +26,7 @@ import {
   type RuleViolationSummary,
 } from "./plugin-runtime.js";
 import { logger } from "./logger.js";
+import { stat as fsStat } from "node:fs/promises";
 import { tryAdvisoryLock, LockNamespace } from "./advisory-lock.js";
 import { provenanceFromEntity, provenanceFromRelationship, manualProvenance } from "./graph-provenance.js";
 
@@ -183,10 +184,36 @@ async function performScan(projectId: string): Promise<ScanJobResult> {
   ]);
   if (!project[0]) throw new Error(`Project ${projectId} not found`);
 
+  // ── 0. Heal stale temp rootPath before attempting to walk ───────────────
+  // Projects imported via a GitHub discovery clone get a rootPath under
+  // /tmp/eos-git-<uuid>. That directory is deleted after discovery completes,
+  // so any subsequent scan would fail immediately. If the stored path looks
+  // like a temp clone AND the workspace root is accessible, update it in-place
+  // before continuing. This mirrors fixDeadRootPaths() (startup-migrations.ts)
+  // but fires on-demand so a project imported between two server restarts is
+  // still scannable without waiting for the next restart.
+  const WORKSPACE_ROOT = process.env.WORKSPACE_PATH ?? "/home/runner/workspace";
+  let effectiveRootPath = project[0].rootPath;
+  if (effectiveRootPath.startsWith("/tmp/eos-git-")) {
+    let workspaceAccessible = false;
+    try { await fsStat(WORKSPACE_ROOT); workspaceAccessible = true; } catch { /* skip */ }
+    if (workspaceAccessible) {
+      await db
+        .update(projectsTable)
+        .set({ rootPath: WORKSPACE_ROOT, updatedAt: new Date() })
+        .where(eq(projectsTable.id, projectId));
+      logger.info(
+        { scope: "scan-runner", fn: "performScan", projectId, oldPath: effectiveRootPath, newPath: WORKSPACE_ROOT },
+        "Healed stale temp rootPath before scan",
+      );
+      effectiveRootPath = WORKSPACE_ROOT;
+    }
+  }
+
   const now = new Date();
 
   // ── 1. Walk the project directory ──────────────────────────────────────
-  const walkResult = await walkProject(project[0].rootPath);
+  const walkResult = await walkProject(effectiveRootPath);
   const { files } = walkResult;
 
   // ── 2. Match scoped rules against scanned files ─────────────────────────
