@@ -50,7 +50,8 @@ export async function resolveGroqApiKey(userId: string): Promise<string | undefi
 }
 
 /**
- * Resolve the DeepSeek API key for a given user (DB only, no env fallback).
+ * Resolve the DeepSeek API key for a given user.
+ * Priority: DB-stored key → process.env.DEEPSEEK_API_KEY.
  */
 export async function resolveDeepSeekApiKey(userId: string): Promise<string | undefined> {
   const [row] = await db
@@ -68,11 +69,11 @@ export async function resolveDeepSeekApiKey(userId: string): Promise<string | un
     try {
       return decryptApiKey(row.encryptedApiKey);
     } catch (err) {
-      logger.error({ err, ownerId: userId }, "Failed to decrypt stored DeepSeek API key");
+      logger.error({ err, ownerId: userId }, "Failed to decrypt stored DeepSeek API key — falling back to env");
     }
   }
 
-  return undefined;
+  return process.env.DEEPSEEK_API_KEY || undefined;
 }
 
 /**
