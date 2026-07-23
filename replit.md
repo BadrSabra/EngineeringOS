@@ -62,11 +62,11 @@ cd lib/db && pnpm run push
 3. Provision Clerk via Replit Auth pane (or `setupClerkWhitelabelAuth()` in agent)
 4. Add `GROQ_API_KEY` secret for AI orchestration features
 
-### Setup status (2026-07-21)
+### Setup status (2026-07-23)
 
 | Step | Status |
 |---|---|
-| `pnpm install` | ✅ Done — 659 packages resolved |
+| `pnpm install` | ✅ Done |
 | DB schema push (`drizzle-kit push`) | ✅ Done — schema applied to managed PostgreSQL |
 | Clerk auth provisioned | ✅ Done — `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `VITE_CLERK_PUBLISHABLE_KEY` set |
 | `GROQ_API_KEY` | ⚠️ Still needed — add to Replit Secrets to enable AI features |
