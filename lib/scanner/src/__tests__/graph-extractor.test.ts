@@ -452,6 +452,122 @@ describe("extractGraph", () => {
     });
   });
 
+  // ─── ESM-in-TS import specifier normalisation (.js → .ts) ─────────────────
+  // These tests guard against the regression where imports written as
+  // `./routes/index.js` (a valid TS-ESM pattern) were silently dropped
+  // because resolveRelativeImport passed the full specifier to
+  // matchImportToEntity, which tried `./routes/index.js.ts` and gave up.
+  // The fix strips the spurious extension before the lookup.
+
+  describe("ESM-in-TS .js specifier resolution", () => {
+    it("resolves ./utils.js to utils.ts when only utils.ts exists in the scan", async () => {
+      const files = [
+        makeFile("src/app.ts", 'import { helper } from "./utils.js";'),
+        makeFile("src/utils.ts", "export function helper() {}"),
+      ];
+
+      const result = await extractGraph(files);
+
+      const importRels = result.relationships.filter((r) => r.relation === "imports");
+      expect(
+        importRels.some(
+          (r) => r.sourceName === "src/app.ts" && r.targetName === "src/utils.ts",
+        ),
+      ).toBe(true);
+    });
+
+    it("resolves ./routes/index.js to routes/index.ts — the exact pattern that caused 0 relations", async () => {
+      const files = [
+        makeFile("src/app.ts", 'import router from "./routes/index.js";'),
+        makeFile("src/routes/index.ts", "export default {}"),
+      ];
+
+      const result = await extractGraph(files);
+
+      const importRels = result.relationships.filter((r) => r.relation === "imports");
+      expect(
+        importRels.some(
+          (r) => r.sourceName === "src/app.ts" && r.targetName === "src/routes/index.ts",
+        ),
+      ).toBe(true);
+    });
+
+    it("resolves a .mjs specifier to the corresponding .ts source file", async () => {
+      const files = [
+        makeFile("src/index.ts", 'import { log } from "./lib/logger.mjs";'),
+        makeFile("src/lib/logger.ts", "export function log() {}"),
+      ];
+
+      const result = await extractGraph(files);
+
+      const importRels = result.relationships.filter((r) => r.relation === "imports");
+      expect(
+        importRels.some(
+          (r) => r.sourceName === "src/index.ts" && r.targetName === "src/lib/logger.ts",
+        ),
+      ).toBe(true);
+    });
+
+    it("resolves a .cjs specifier to the corresponding .ts source file", async () => {
+      const files = [
+        makeFile("src/index.ts", 'import worker from "./worker.cjs";'),
+        makeFile("src/worker.ts", "export default {}"),
+      ];
+
+      const result = await extractGraph(files);
+
+      const importRels = result.relationships.filter((r) => r.relation === "imports");
+      expect(
+        importRels.some(
+          (r) => r.sourceName === "src/index.ts" && r.targetName === "src/worker.ts",
+        ),
+      ).toBe(true);
+    });
+
+    it("does not create an edge when the target file does not exist in the scan", async () => {
+      const files = [
+        makeFile("src/app.ts", 'import { x } from "./missing.js";'),
+      ];
+
+      const result = await extractGraph(files);
+
+      const importRels = result.relationships.filter((r) => r.relation === "imports");
+      expect(importRels).toHaveLength(0);
+    });
+
+    it("still resolves bare specifiers (no extension) without regressions", async () => {
+      const files = [
+        makeFile("src/app.ts", 'import { x } from "./utils";'),
+        makeFile("src/utils.ts", "export const x = 1;"),
+      ];
+
+      const result = await extractGraph(files);
+
+      const importRels = result.relationships.filter((r) => r.relation === "imports");
+      expect(
+        importRels.some(
+          (r) => r.sourceName === "src/app.ts" && r.targetName === "src/utils.ts",
+        ),
+      ).toBe(true);
+    });
+
+    it("records the edge provenance with sourceType=typescript-ast for a .js-specifier import", async () => {
+      const files = [
+        makeFile("src/app.ts", 'import { helper } from "./utils.js";'),
+        makeFile("src/utils.ts", "export function helper() {}"),
+      ];
+
+      const result = await extractGraph(files);
+
+      const rel = result.relationships.find(
+        (r) => r.sourceName === "src/app.ts" && r.targetName === "src/utils.ts",
+      );
+      expect(rel).toBeDefined();
+      expect(rel!.provenance?.sourceType).toBe("typescript-ast");
+      expect(rel!.provenance?.evidence[0]?.kind).toBe("import-statement");
+    });
+  });
+
   describe("Python extraction (real ast module via subprocess)", () => {
     const makePyFile = (path: string, content: string): ScannedFile => ({
       path,

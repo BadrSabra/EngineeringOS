@@ -224,7 +224,8 @@ function detectPackageManager(files: ScannedFile[]): string | null {
   return null;
 }
 
-function detectDb(allDeps: Record<string, string>, files: ScannedFile[]): { db: string | null; orm: string | null } {
+/** @internal exported for unit testing only */
+export function detectDb(allDeps: Record<string, string>, files: ScannedFile[]): { db: string | null; orm: string | null } {
   let detectedDb: string | null = null;
   let orm: string | null = null;
   if (allDeps["pg"] || allDeps["postgres"]) detectedDb = "PostgreSQL";
