@@ -28,6 +28,27 @@ import {
 // behaviour override individual functions via vi.mocked(...).mockResolvedValue.
 
 vi.mock("@workspace/ai-orchestrator", () => ({
+  // ── Provider registry ──────────────────────────────────────────────────────
+  // providers.ts imports PROVIDER_REGISTRY and validateProviderKey at module
+  // load time to build VALID_PROVIDERS. Without these the mock throws
+  // "No PROVIDER_REGISTRY export defined" before any test runs.
+  PROVIDER_REGISTRY: {
+    groq: { providerId: "groq", label: "Groq", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "console.groq.com", statusUrl: "status.groq.com", defaultModels: { fast: "llama-3.1-8b-instant", powerful: "llama-3.3-70b-versatile" } },
+    deepseek: { providerId: "deepseek", label: "DeepSeek", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "platform.deepseek.com", statusUrl: "platform.deepseek.com", defaultModels: { fast: "deepseek-chat", powerful: "deepseek-chat" } },
+    openrouter: { providerId: "openrouter", label: "OpenRouter", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "openrouter.ai/keys", statusUrl: "openrouter.ai", defaultModels: { fast: "google/gemma-4-31b-it:free", powerful: "nvidia/nemotron-3-ultra-550b-a55b:free" } },
+  },
+  PROVIDER_PRIORITY: ["openrouter", "deepseek", "groq"],
+  getProvider: vi.fn((id: string) => {
+    const registry: Record<string, { providerId: string; label: string }> = {
+      groq: { providerId: "groq", label: "Groq" },
+      deepseek: { providerId: "deepseek", label: "DeepSeek" },
+      openrouter: { providerId: "openrouter", label: "OpenRouter" },
+    };
+    if (!registry[id]) throw new Error(`Unknown provider: ${id}`);
+    return registry[id];
+  }),
+  validateProviderKey: vi.fn(async () => ({ valid: true })),
+  // ── Context + cache ────────────────────────────────────────────────────────
   buildProjectContext: vi.fn(async () => "mocked project context string"),
   // invalidateContextCache is a synchronous cache-bust helper called after
   // every mutating AI operation (Gap-2 fix). Must be in the mock so routes
