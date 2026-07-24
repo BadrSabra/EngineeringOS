@@ -44,8 +44,8 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
     supportsTools: true,
     supportsJsonMode: true,
     defaultModels: {
-      fast: "meta-llama/llama-3.3-70b-instruct",
-      powerful: "meta-llama/llama-3.3-70b-instruct",
+      fast: "deepseek/deepseek-v4-flash:free",
+      powerful: "deepseek/deepseek-r1:free",
     },
   },
   deepseek: {

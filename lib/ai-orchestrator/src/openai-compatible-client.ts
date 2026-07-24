@@ -77,7 +77,7 @@ export async function oacCompleteRaw(
   opts: OpenAICompatibleOptions,
 ): Promise<RawGroqResponse> {
   const {
-    model = "meta-llama/llama-3.3-70b-instruct",
+    model = "deepseek/deepseek-v4-flash:free",
     temperature = 0.2,
     maxTokens = 4096,
     timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -179,7 +179,7 @@ export async function* oacCompleteStream(
   opts: OpenAICompatibleStreamOptions,
 ): AsyncGenerator<string> {
   const {
-    model = "meta-llama/llama-3.3-70b-instruct",
+    model = "deepseek/deepseek-v4-flash:free",
     temperature = 0.2,
     maxTokens = 4096,
     timeoutMs = DEFAULT_TIMEOUT_MS,
