@@ -77,7 +77,7 @@ export async function oacCompleteRaw(
   opts: OpenAICompatibleOptions,
 ): Promise<RawGroqResponse> {
   const {
-    model = "deepseek/deepseek-chat:free",
+    model = "google/gemma-4-31b-it:free",
     temperature = 0.2,
     maxTokens = 4096,
     timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -179,7 +179,7 @@ export async function* oacCompleteStream(
   opts: OpenAICompatibleStreamOptions,
 ): AsyncGenerator<string> {
   const {
-    model = "deepseek/deepseek-chat:free",
+    model = "google/gemma-4-31b-it:free",
     temperature = 0.2,
     maxTokens = 4096,
     timeoutMs = DEFAULT_TIMEOUT_MS,

@@ -44,8 +44,8 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
     supportsTools: true,
     supportsJsonMode: true,
     defaultModels: {
-      fast: "deepseek/deepseek-chat:free",
-      powerful: "deepseek/deepseek-chat:free",
+      fast: "google/gemma-4-31b-it:free",
+      powerful: "nvidia/nemotron-3-ultra-550b-a55b:free",
     },
   },
   deepseek: {
