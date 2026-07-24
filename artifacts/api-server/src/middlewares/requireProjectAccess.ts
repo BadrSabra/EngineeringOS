@@ -40,18 +40,15 @@ export async function requireProjectAccess(
 }
 
 /**
- * Same ownership check as `requireProjectAccess`, exposed as a distinct
- * export for routes that mutate a project (create/update/delete a child
- * resource, run a scan, advance a workflow, etc.) rather than merely read
- * it.
+ * Ownership check for routes that mutate a project (create/update/delete a
+ * child resource, run a scan, advance a workflow, etc.).
  *
- * Today the single-owner model means read and write access are the same
- * check — there is no notion of a read-only collaborator yet — so this is
- * intentionally a thin alias rather than duplicated logic. The point of
- * having two names now, before they diverge, is so the *call site* already
- * says what it needs: swapping in real read/write-scoped access later
- * (e.g. shared projects with a viewer role) only requires changing what
- * each function checks, not auditing every route to reclassify it first.
+ * Extends `requireProjectAccess` with a write-gate: archived projects are
+ * read-only. Any mutation attempted on an archived project is rejected with
+ * 403 before reaching the route handler. This is the first real divergence
+ * between read and write access — previously the two middlewares were
+ * identical aliases. Future expansions (e.g. collaborator roles with
+ * viewer-only access) only need to change this function.
  */
 export async function requireProjectWriteAccess(
   req: Request,
@@ -60,6 +57,14 @@ export async function requireProjectWriteAccess(
 ): Promise<void> {
   const project = await loadOwnedProject(req, res);
   if (!project) return;
+
+  if (project.status === "archived") {
+    res.status(403).json({
+      error: "This project is archived and cannot be modified. Restore it before making changes.",
+    });
+    return;
+  }
+
   req.project = project;
   next();
 }

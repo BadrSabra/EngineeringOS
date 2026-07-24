@@ -38,3 +38,4 @@
 - [PR-D1 Job Queue Durability](pr-d1-job-queue-durability.md) — enqueueWithId deduplication + stale-pending sweep; all DB-backed jobs must use enqueueWithId, not plain enqueue.
 - [Health route must precede Clerk middleware](healthz-before-clerk.md) — healthRouter registered before clerkMiddleware in app.ts; Clerk crashes /api/healthz with 500 when CLERK_SECRET_KEY absent.
 - [Provider Registry & OpenRouter](provider-registry-openrouter.md) — PROVIDER_PRIORITY array drives all fallback ordering; openai-compatible-client.ts is the generic transport for deepseek+openrouter.
+- [RBAC archived write gate](rbac-archived-gate.md) — requireProjectWriteAccess now rejects archived projects (403); read access still allowed via requireProjectAccess.
