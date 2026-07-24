@@ -68,6 +68,68 @@ function classifyStatus(
   );
 }
 
+// ── XML tool-call helpers ─────────────────────────────────────────────────────
+// Some free models (e.g. InclusionAI Ling) output tool calls as XML text in
+// their content field instead of (or in addition to) the standard OpenAI
+// `tool_calls` JSON array.  These helpers normalise both cases so the rest of
+// the codebase never sees raw XML.
+
+/** Strip all <tool_call>…</tool_call> blocks from a content string. */
+function stripXmlToolCalls(text: string): string {
+  return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "").trim();
+}
+
+/**
+ * Attempt to parse XML-style tool calls from content.
+ * Handles two common formats:
+ *   1. JSON inside tags:  <tool_call>{"name":"fn","arguments":{…}}</tool_call>
+ *   2. Attribute syntax:  <tool_call> <function=fn> <parameter=k>v</parameter> </function> </tool_call>
+ * Returns null when the content contains no recognisable tool-call XML.
+ */
+function parseXmlToolCalls(content: string): ToolCall[] | null {
+  const blocks = [...content.matchAll(/<tool_call>([\s\S]*?)<\/tool_call>/g)];
+  if (blocks.length === 0) return null;
+
+  const calls: ToolCall[] = [];
+  for (const [, inner] of blocks) {
+    const trimmed = inner.trim();
+
+    // Format 1 — JSON inside <tool_call>
+    if (trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed) as { name?: string; arguments?: unknown };
+        if (parsed.name) {
+          calls.push({
+            id: `xml_${Math.random().toString(36).slice(2, 9)}`,
+            type: "function",
+            function: {
+              name: parsed.name,
+              arguments: JSON.stringify(parsed.arguments ?? {}),
+            },
+          });
+        }
+      } catch { /* ignore malformed JSON */ }
+      continue;
+    }
+
+    // Format 2 — attribute syntax  <function=NAME> <parameter=KEY>VALUE</parameter>
+    const fnMatch = trimmed.match(/<function=([^\s>]+)/);
+    if (!fnMatch) continue;
+    const fnName = fnMatch[1];
+
+    const args: Record<string, string> = {};
+    for (const [, key, val] of trimmed.matchAll(/<parameter=([^\s>]+)>([\s\S]*?)<\/parameter>/g)) {
+      args[key] = val.trim();
+    }
+    calls.push({
+      id: `xml_${Math.random().toString(36).slice(2, 9)}`,
+      type: "function",
+      function: { name: fnName, arguments: JSON.stringify(args) },
+    });
+  }
+  return calls.length > 0 ? calls : null;
+}
+
 /**
  * Non-streaming chat completion against any OpenAI-compatible endpoint.
  * Returns the same `RawGroqResponse` shape as groq-client's `completeRaw()`.
@@ -77,7 +139,7 @@ export async function oacCompleteRaw(
   opts: OpenAICompatibleOptions,
 ): Promise<RawGroqResponse> {
   const {
-    model = "inclusionai/ling-3.0-flash:free",
+    model = "google/gemma-4-31b-it:free",
     temperature = 0.2,
     maxTokens = 4096,
     timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -149,8 +211,25 @@ export async function oacCompleteRaw(
     throw new GroqClientError("EMPTY_RESPONSE", `${providerName} returned an empty response`);
   }
 
-  const content = msg.content ?? null;
-  const hasCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+  let content = msg.content ?? null;
+  let hasCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+  let toolCalls: ToolCall[] | null = hasCalls ? (msg.tool_calls as ToolCall[]) : null;
+
+  // Some free models (e.g. Ling-3.0-flash) embed tool calls as XML text in
+  // content instead of using the standard tool_calls JSON field.
+  // Detect and normalise both cases:
+  if (content && content.includes("<tool_call>")) {
+    if (!hasCalls) {
+      // Model only produced XML — parse it into proper ToolCall objects.
+      const xmlCalls = parseXmlToolCalls(content);
+      if (xmlCalls) {
+        toolCalls = xmlCalls;
+        hasCalls = true;
+      }
+    }
+    // Strip the XML blocks from content regardless (avoid leaking raw XML to UI).
+    content = stripXmlToolCalls(content) || null;
+  }
 
   if (!content && !hasCalls) {
     throw new GroqClientError(
@@ -161,7 +240,7 @@ export async function oacCompleteRaw(
 
   return {
     content,
-    toolCalls: hasCalls ? (msg.tool_calls as ToolCall[]) : null,
+    toolCalls,
     model: data.model,
     usage: {
       promptTokens: data.usage?.prompt_tokens ?? 0,
@@ -179,7 +258,7 @@ export async function* oacCompleteStream(
   opts: OpenAICompatibleStreamOptions,
 ): AsyncGenerator<string> {
   const {
-    model = "inclusionai/ling-3.0-flash:free",
+    model = "google/gemma-4-31b-it:free",
     temperature = 0.2,
     maxTokens = 4096,
     timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -239,6 +318,7 @@ export async function* oacCompleteStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let hadContent = false;
+  let xmlStreamBuf = ""; // accumulates content for XML tool-call filtering
 
   try {
     while (true) {
@@ -261,16 +341,42 @@ export async function* oacCompleteStream(
           const delta = json.choices?.[0]?.delta?.content;
           if (delta) {
             hadContent = true;
-            yield delta;
+            xmlStreamBuf += delta;
           }
         } catch {
           // Ignore malformed SSE frames.
         }
       }
+
+      // Flush safe prefix — everything before any open <tool_call> tag.
+      // If we're mid-tag we wait for more chunks before flushing.
+      const openIdx = xmlStreamBuf.indexOf("<tool_call>");
+      const closeIdx = xmlStreamBuf.indexOf("</tool_call>");
+      if (openIdx === -1) {
+        // No XML in buffer — yield everything.
+        if (xmlStreamBuf) { yield xmlStreamBuf; xmlStreamBuf = ""; }
+      } else if (closeIdx !== -1 && closeIdx > openIdx) {
+        // Have a complete <tool_call>…</tool_call> block — strip it and yield rest.
+        const before = xmlStreamBuf.slice(0, openIdx);
+        const after  = xmlStreamBuf.slice(closeIdx + "</tool_call>".length);
+        xmlStreamBuf = after;
+        if (before) yield before;
+      } else {
+        // Open tag present but no close tag yet — yield prefix before the tag.
+        const before = xmlStreamBuf.slice(0, openIdx);
+        xmlStreamBuf = xmlStreamBuf.slice(openIdx);
+        if (before) yield before;
+      }
     }
   } finally {
     clearTimeout(timer);
     reader.releaseLock();
+  }
+
+  // Flush any remaining buffer (strip residual XML blocks then yield).
+  if (xmlStreamBuf) {
+    const clean = stripXmlToolCalls(xmlStreamBuf);
+    if (clean) yield clean;
   }
 
   if (!hadContent) {
