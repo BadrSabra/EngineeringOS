@@ -399,20 +399,36 @@ export async function chat(opts: {
     // No tool calls — this is the final response.
 
     // ── Streaming path ────────────────────────────────────────────────────────
-    // When the caller provided an onDelta callback, use streaming for the
-    // final synthesis call so tokens arrive at the client in real time.
-    // Both Groq and DeepSeek support SSE streaming; we pick the right
-    // generator based on the active provider. We swap to a plain-text system
-    // prompt (no JSON wrapper) and reconstruct ChatOutput from accumulated text.
+    // When the caller provided an onDelta callback, stream the final response
+    // so tokens arrive at the client in real time.
+    //
+    // Strategy:
+    //   1. If the tool-loop callRaw already produced plain text content (common
+    //      with OpenRouter free models that don't separate tool-use from the
+    //      final synthesis), emit it via onDelta word-by-word and return early.
+    //      This avoids a second network call which is slow, unreliable on free
+    //      tiers, and rejected by many models when the history contains
+    //      tool_calls messages but no `tools` parameter.
+    //   2. Otherwise make a fresh streaming call (Groq / DeepSeek native SSE).
     if (onDelta) {
-      // Replace the system message with a streaming-mode variant that asks
-      // for plain markdown (no JSON wrapper). All other messages stay as-is.
+      // Strategy 1 — reuse the non-streaming result already in hand.
+      // openrouter always uses this path; native providers fall through to SSE.
+      const directContent = result.content;
+      if (directContent && (provider === "openrouter" || !["groq", "deepseek"].includes(provider))) {
+        // Emit word-by-word so the UI shows progressive rendering.
+        const words = directContent.split(/(\s+)/);
+        for (const chunk of words) {
+          if (chunk) onDelta(chunk);
+        }
+        const mergedSources = toolSources.length > 0 ? toolSources : ["project context"];
+        return { response: directContent.trim(), sources: mergedSources, pendingChanges };
+      }
+
+      // Strategy 2 — native SSE streaming (Groq / DeepSeek).
+      // Replace system message with streaming-mode plain-markdown variant.
       const streamMessages = messages.map((m, i) =>
         i === 0 && m.role === "system"
-          ? {
-              ...m,
-              content: buildChatSystemPrompt(projectContext, !!rootPath, /* streamingMode= */ true),
-            }
+          ? { ...m, content: buildChatSystemPrompt(projectContext, !!rootPath, /* streamingMode= */ true) }
           : m,
       );
 
@@ -421,16 +437,13 @@ export async function chat(opts: {
         const streamGen =
           provider === "deepseek"
             ? deepseekCompleteStream(streamMessages, { model, apiKey: apiKey! })
-            : provider === "openrouter"
-              ? openrouterCompleteStream(streamMessages, { model, apiKey: apiKey! })
-              : completeStream(streamMessages, { model, apiKey });
+            : completeStream(streamMessages, { model, apiKey });
         for await (const delta of streamGen) {
           accumulated += delta;
           onDelta(delta);
         }
       } catch (streamErr) {
-        // If streaming fails, fall through to the non-streaming path below.
-        // The tool-loop result.content is still available as a fallback.
+        // Streaming failed — fall through to the non-streaming parse below.
         console.warn(
           JSON.stringify({ scope: "chat-agent", code: "STREAM_FALLBACK", provider, reason: String(streamErr) }),
         );
@@ -438,16 +451,8 @@ export async function chat(opts: {
       }
 
       if (accumulated) {
-        // Streaming succeeded — construct ChatOutput from plain text.
-        const mergedSources =
-          toolSources.length > 0
-            ? toolSources
-            : ["project context"];
-        return {
-          response: accumulated.trim(),
-          sources: mergedSources,
-          pendingChanges,
-        };
+        const mergedSources = toolSources.length > 0 ? toolSources : ["project context"];
+        return { response: accumulated.trim(), sources: mergedSources, pendingChanges };
       }
       // Streaming failed — fall through to non-streaming path below.
     }
