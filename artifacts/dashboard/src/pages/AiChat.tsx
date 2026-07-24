@@ -918,7 +918,7 @@ export default function AiChat() {
             {activeProvider?.provider === 'deepseek'
               ? 'DeepSeek V3'
               : activeProvider?.provider === 'openrouter'
-                ? 'DeepSeek R1 · OpenRouter'
+                ? 'DeepSeek Chat · OpenRouter'
                 : 'Llama 3.3 · Groq'}
           </Badge>
         </div>

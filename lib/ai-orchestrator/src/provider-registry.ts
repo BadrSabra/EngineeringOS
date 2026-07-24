@@ -44,8 +44,8 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
     supportsTools: true,
     supportsJsonMode: true,
     defaultModels: {
-      fast: "deepseek/deepseek-v4-flash:free",
-      powerful: "deepseek/deepseek-r1:free",
+      fast: "deepseek/deepseek-chat:free",
+      powerful: "deepseek/deepseek-chat:free",
     },
   },
   deepseek: {
