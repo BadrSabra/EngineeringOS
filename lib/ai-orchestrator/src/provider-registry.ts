@@ -44,7 +44,7 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
     supportsTools: true,
     supportsJsonMode: true,
     defaultModels: {
-      fast: "google/gemma-4-31b-it:free",
+      fast: "inclusionai/ling-3.0-flash:free",
       powerful: "nvidia/nemotron-3-ultra-550b-a55b:free",
     },
   },
