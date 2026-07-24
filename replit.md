@@ -62,7 +62,7 @@ cd lib/db && pnpm run push
 3. Provision Clerk via Replit Auth pane (or `setupClerkWhitelabelAuth()` in agent)
 4. Add `GROQ_API_KEY` secret for AI orchestration features
 
-### Setup status (2026-07-23)
+### Setup status (2026-07-24)
 
 | Step | Status |
 |---|---|

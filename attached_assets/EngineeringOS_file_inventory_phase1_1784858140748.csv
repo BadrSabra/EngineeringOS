@@ -1,0 +1,856 @@
+path,name,ext,category,purpose,analyzable,kind,size
+.agents/agent_assets_metadata.toml,agent_assets_metadata.toml,.toml,آخر,ملف إعداد/جذر,True,text,414
+.agents/memory/MEMORY.md,MEMORY.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,7665
+.agents/memory/ai-orchestrator-gap-closure.md,ai-orchestrator-gap-closure.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,3099
+.agents/memory/ai-orchestrator-hardening.md,ai-orchestrator-hardening.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2098
+.agents/memory/ai-orchestrator-layer.md,ai-orchestrator-layer.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2177
+.agents/memory/ai-tool-calling.md,ai-tool-calling.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1811
+.agents/memory/audit-fixes.md,audit-fixes.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1459
+.agents/memory/clerk-401-race-cookie-vs-bearer.md,clerk-401-race-cookie-vs-bearer.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2009
+.agents/memory/clerk-auth-testing.md,clerk-auth-testing.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2255
+.agents/memory/completion-plan-stale-backlog.md,completion-plan-stale-backlog.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1331
+.agents/memory/context-cache-invalidation-rule.md,context-cache-invalidation-rule.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2011
+.agents/memory/dashboard-scoping-pr01.md,dashboard-scoping-pr01.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1554
+.agents/memory/discovery-adapter-registry.md,discovery-adapter-registry.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1172
+.agents/memory/discovery-feature.md,discovery-feature.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2496
+.agents/memory/discovery-multi-source.md,discovery-multi-source.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2357
+.agents/memory/drizzle-error-wrapping.md,drizzle-error-wrapping.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1244
+.agents/memory/engineeringos-completion-plan.md,engineeringos-completion-plan.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1240
+.agents/memory/fk-atomic-claim-ordering.md,fk-atomic-claim-ordering.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2145
+.agents/memory/forensic-audit-batch.md,forensic-audit-batch.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,3793
+.agents/memory/forensic-audit-pr01-06.md,forensic-audit-pr01-06.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2364
+.agents/memory/gap-analysis-fixes-batch1.md,gap-analysis-fixes-batch1.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,3460
+.agents/memory/gap-analysis-fixes-batch2.md,gap-analysis-fixes-batch2.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2495
+.agents/memory/git-ai-orchestrator-fixes.md,git-ai-orchestrator-fixes.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2113
+.agents/memory/healthz-before-clerk.md,healthz-before-clerk.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1440
+.agents/memory/imported-project-clerk-secrets.md,imported-project-clerk-secrets.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1303
+.agents/memory/imported-project-workflow-failures.md,imported-project-workflow-failures.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1870
+.agents/memory/knowledge-engine-bfs-depth.md,knowledge-engine-bfs-depth.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1592
+.agents/memory/knowledge-engine.md,knowledge-engine.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2299
+.agents/memory/orval-openapi-codegen.md,orval-openapi-codegen.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1815
+.agents/memory/pr-c-ai-autotrigger.md,pr-c-ai-autotrigger.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1486
+.agents/memory/pr-d-workflow-conditions.md,pr-d-workflow-conditions.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1923
+.agents/memory/pr-d1-job-queue-durability.md,pr-d1-job-queue-durability.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1866
+.agents/memory/pr-h-i-completion.md,pr-h-i-completion.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2498
+.agents/memory/pr01-job-durability.md,pr01-job-durability.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1974
+.agents/memory/pr02-provenance-layer.md,pr02-provenance-layer.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2806
+.agents/memory/pr04-discovery-hardening.md,pr04-discovery-hardening.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2530
+.agents/memory/project-bootstrap.md,project-bootstrap.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,895
+.agents/memory/project-ownership-scoping.md,project-ownership-scoping.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2313
+.agents/memory/provider-registry-openrouter.md,provider-registry-openrouter.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1867
+.agents/memory/scanner-ast-extraction.md,scanner-ast-extraction.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,4047
+.agents/memory/testing-drift-checks.md,testing-drift-checks.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,1129
+.agents/memory/trace-analysis.md,trace-analysis.md,.md,وثائق ذاكرة/قرار,ذاكرة قرارات وتحليلات,True,text,2813
+.gitattributes,.gitattributes,[no_ext],إعدادات,ملف إعداد/جذر,False,binary,170
+.github/workflows/ci.yml,ci.yml,.yml,CI/CD,ملف إعداد/جذر,True,text,2490
+.gitignore,.gitignore,[no_ext],إعدادات,ملف إعداد/جذر,False,binary,824
+.npmrc,.npmrc,[no_ext],إعدادات,ملف إعداد/جذر,False,binary,78
+.replit,.replit,[no_ext],إعدادات,ملف إعداد/جذر,False,binary,648
+.replitignore,.replitignore,[no_ext],إعدادات,ملف إعداد/جذر,False,binary,201
+artifacts/api-server/.replit-artifact/artifact.toml,artifact.toml,.toml,إعدادات/أصول تشغيل,خادم API وتشغيل الأعمال,True,text,784
+artifacts/api-server/build.mjs,build.mjs,.mjs,كود,خادم API وتشغيل الأعمال,True,text,3455
+artifacts/api-server/package.json,package.json,.json,إعدادات/أصول تشغيل,خادم API وتشغيل الأعمال,True,text,1454
+artifacts/api-server/src/app.ts,app.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,5474
+artifacts/api-server/src/config.ts,config.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,2281
+artifacts/api-server/src/index.ts,index.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,3075
+artifacts/api-server/src/lib/.gitkeep,.gitkeep,[no_ext],إعدادات/أصول تشغيل,خادم API وتشغيل الأعمال,False,binary,0
+artifacts/api-server/src/lib/advisory-lock.ts,advisory-lock.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,3916
+artifacts/api-server/src/lib/ai-route-helpers.ts,ai-route-helpers.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,10560
+artifacts/api-server/src/lib/audit.ts,audit.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,2953
+artifacts/api-server/src/lib/condition-evaluator.ts,condition-evaluator.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,12091
+artifacts/api-server/src/lib/credentials-crypto.ts,credentials-crypto.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,1824
+artifacts/api-server/src/lib/db-rate-limiter.ts,db-rate-limiter.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,4297
+artifacts/api-server/src/lib/discovery-adapters.test.ts,discovery-adapters.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,15696
+artifacts/api-server/src/lib/discovery-adapters.ts,discovery-adapters.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,14542
+artifacts/api-server/src/lib/discovery-runner.test.ts,discovery-runner.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,5256
+artifacts/api-server/src/lib/discovery-runner.ts,discovery-runner.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,21164
+artifacts/api-server/src/lib/graph-provenance.ts,graph-provenance.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,2483
+artifacts/api-server/src/lib/job-queue.test.ts,job-queue.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,7899
+artifacts/api-server/src/lib/job-queue.ts,job-queue.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,7564
+artifacts/api-server/src/lib/job-reconciliation.test.ts,job-reconciliation.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,20539
+artifacts/api-server/src/lib/job-reconciliation.ts,job-reconciliation.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,21584
+artifacts/api-server/src/lib/logger.ts,logger.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,426
+artifacts/api-server/src/lib/operational-counters.ts,operational-counters.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,1585
+artifacts/api-server/src/lib/path-validation.test.ts,path-validation.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,11317
+artifacts/api-server/src/lib/path-validation.ts,path-validation.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,5362
+artifacts/api-server/src/lib/plugin-runtime.test.ts,plugin-runtime.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,11411
+artifacts/api-server/src/lib/plugin-runtime.ts,plugin-runtime.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,13751
+artifacts/api-server/src/lib/project-error.test.ts,project-error.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,7926
+artifacts/api-server/src/lib/rootpath-validator.ts,rootpath-validator.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,4000
+artifacts/api-server/src/lib/scan-runner.ts,scan-runner.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,23089
+artifacts/api-server/src/lib/startup-migrations.ts,startup-migrations.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,4943
+artifacts/api-server/src/lib/upload-store.test.ts,upload-store.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,8456
+artifacts/api-server/src/lib/upload-store.ts,upload-store.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,6714
+artifacts/api-server/src/middlewares/.gitkeep,.gitkeep,[no_ext],إعدادات/أصول تشغيل,خادم API وتشغيل الأعمال,False,binary,0
+artifacts/api-server/src/middlewares/clerkProxyMiddleware.ts,clerkProxyMiddleware.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,5931
+artifacts/api-server/src/middlewares/requireAuth.test.ts,requireAuth.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,5662
+artifacts/api-server/src/middlewares/requireAuth.ts,requireAuth.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,2931
+artifacts/api-server/src/middlewares/requireProjectAccess.ts,requireProjectAccess.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,4974
+artifacts/api-server/src/routes/ai-route-parity.test.ts,ai-route-parity.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,5968
+artifacts/api-server/src/routes/ai.test.ts,ai.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,31287
+artifacts/api-server/src/routes/ai.ts,ai.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,349
+artifacts/api-server/src/routes/ai/analysis.ts,analysis.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,5715
+artifacts/api-server/src/routes/ai/chat.ts,chat.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,20728
+artifacts/api-server/src/routes/ai/index.ts,index.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,872
+artifacts/api-server/src/routes/ai/providers.ts,providers.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,6873
+artifacts/api-server/src/routes/ai/tasks.ts,tasks.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,12420
+artifacts/api-server/src/routes/ai/workflows.ts,workflows.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,5021
+artifacts/api-server/src/routes/dashboard.test.ts,dashboard.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,14740
+artifacts/api-server/src/routes/dashboard.ts,dashboard.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,5465
+artifacts/api-server/src/routes/discovery.test.ts,discovery.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,30603
+artifacts/api-server/src/routes/discovery.ts,discovery.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,20505
+artifacts/api-server/src/routes/events.test.ts,events.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,7869
+artifacts/api-server/src/routes/events.ts,events.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,2184
+artifacts/api-server/src/routes/git.ts,git.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,16986
+artifacts/api-server/src/routes/graph.test.ts,graph.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,32928
+artifacts/api-server/src/routes/graph.ts,graph.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,16430
+artifacts/api-server/src/routes/health.test.ts,health.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,751
+artifacts/api-server/src/routes/health.ts,health.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,655
+artifacts/api-server/src/routes/index.ts,index.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,1088
+artifacts/api-server/src/routes/metrics.test.ts,metrics.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,4280
+artifacts/api-server/src/routes/metrics.ts,metrics.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,3279
+artifacts/api-server/src/routes/plugins.test.ts,plugins.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,1205
+artifacts/api-server/src/routes/plugins.ts,plugins.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,4340
+artifacts/api-server/src/routes/projects.test.ts,projects.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,18499
+artifacts/api-server/src/routes/projects.ts,projects.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,8936
+artifacts/api-server/src/routes/rules.test.ts,rules.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,12426
+artifacts/api-server/src/routes/rules.ts,rules.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,7394
+artifacts/api-server/src/routes/tasks.test.ts,tasks.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,12530
+artifacts/api-server/src/routes/tasks.ts,tasks.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,16999
+artifacts/api-server/src/routes/upload.ts,upload.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,4453
+artifacts/api-server/src/routes/workflows.test.ts,workflows.test.ts,.ts,اختبار,خادم API وتشغيل الأعمال,True,text,11527
+artifacts/api-server/src/routes/workflows.ts,workflows.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,22607
+artifacts/api-server/src/scripts/seed-provenance.ts,seed-provenance.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,7490
+artifacts/api-server/src/services/task-service.ts,task-service.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,6043
+artifacts/api-server/src/services/workflow-service.ts,workflow-service.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,3504
+artifacts/api-server/src/types/express.d.ts,express.d.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,2080
+artifacts/api-server/tsconfig.json,tsconfig.json,.json,إعدادات/أصول تشغيل,خادم API وتشغيل الأعمال,True,text,549
+artifacts/api-server/vitest.config.ts,vitest.config.ts,.ts,كود,خادم API وتشغيل الأعمال,True,text,208
+artifacts/dashboard/.replit-artifact/artifact.toml,artifact.toml,.toml,إعدادات/أصول تشغيل,واجهة المستخدم,True,text,561
+artifacts/dashboard/components.json,components.json,.json,إعدادات/أصول تشغيل,واجهة المستخدم,True,text,434
+artifacts/dashboard/index.html,index.html,.html,كود,واجهة المستخدم,True,text,1352
+artifacts/dashboard/package.json,package.json,.json,إعدادات/أصول تشغيل,واجهة المستخدم,True,text,2853
+artifacts/dashboard/public/favicon.svg,favicon.svg,.svg,إعدادات/أصول تشغيل,واجهة المستخدم,True,text,163
+artifacts/dashboard/public/logo.svg,logo.svg,.svg,إعدادات/أصول تشغيل,واجهة المستخدم,True,text,502
+artifacts/dashboard/public/robots.txt,robots.txt,.txt,إعدادات/أصول تشغيل,واجهة المستخدم,True,text,23
+artifacts/dashboard/src/App.tsx,App.tsx,.tsx,كود,واجهة المستخدم,True,text,5257
+artifacts/dashboard/src/components/GitPanel.tsx,GitPanel.tsx,.tsx,كود,واجهة المستخدم,True,text,20377
+artifacts/dashboard/src/components/layout/Shell.tsx,Shell.tsx,.tsx,كود,واجهة المستخدم,True,text,1829
+artifacts/dashboard/src/components/layout/Sidebar.tsx,Sidebar.tsx,.tsx,كود,واجهة المستخدم,True,text,3916
+artifacts/dashboard/src/components/ui/accordion.tsx,accordion.tsx,.tsx,كود,واجهة المستخدم,True,text,2013
+artifacts/dashboard/src/components/ui/alert-dialog.tsx,alert-dialog.tsx,.tsx,كود,واجهة المستخدم,True,text,4447
+artifacts/dashboard/src/components/ui/alert.tsx,alert.tsx,.tsx,كود,واجهة المستخدم,True,text,1609
+artifacts/dashboard/src/components/ui/aspect-ratio.tsx,aspect-ratio.tsx,.tsx,كود,واجهة المستخدم,True,text,143
+artifacts/dashboard/src/components/ui/avatar.tsx,avatar.tsx,.tsx,كود,واجهة المستخدم,True,text,1431
+artifacts/dashboard/src/components/ui/badge.tsx,badge.tsx,.tsx,كود,واجهة المستخدم,True,text,1528
+artifacts/dashboard/src/components/ui/breadcrumb.tsx,breadcrumb.tsx,.tsx,كود,واجهة المستخدم,True,text,2735
+artifacts/dashboard/src/components/ui/button-group.tsx,button-group.tsx,.tsx,كود,واجهة المستخدم,True,text,2222
+artifacts/dashboard/src/components/ui/button.tsx,button.tsx,.tsx,كود,واجهة المستخدم,True,text,2370
+artifacts/dashboard/src/components/ui/calendar.tsx,calendar.tsx,.tsx,كود,واجهة المستخدم,True,text,7607
+artifacts/dashboard/src/components/ui/card.tsx,card.tsx,.tsx,كود,واجهة المستخدم,True,text,1856
+artifacts/dashboard/src/components/ui/carousel.tsx,carousel.tsx,.tsx,كود,واجهة المستخدم,True,text,6288
+artifacts/dashboard/src/components/ui/chart.tsx,chart.tsx,.tsx,كود,واجهة المستخدم,True,text,10846
+artifacts/dashboard/src/components/ui/checkbox.tsx,checkbox.tsx,.tsx,كود,واجهة المستخدم,True,text,1038
+artifacts/dashboard/src/components/ui/collapsible.tsx,collapsible.tsx,.tsx,كود,واجهة المستخدم,True,text,335
+artifacts/dashboard/src/components/ui/command.tsx,command.tsx,.tsx,كود,واجهة المستخدم,True,text,4918
+artifacts/dashboard/src/components/ui/context-menu.tsx,context-menu.tsx,.tsx,كود,واجهة المستخدم,True,text,7446
+artifacts/dashboard/src/components/ui/dialog.tsx,dialog.tsx,.tsx,كود,واجهة المستخدم,True,text,3889
+artifacts/dashboard/src/components/ui/drawer.tsx,drawer.tsx,.tsx,كود,واجهة المستخدم,True,text,3029
+artifacts/dashboard/src/components/ui/dropdown-menu.tsx,dropdown-menu.tsx,.tsx,كود,واجهة المستخدم,True,text,7646
+artifacts/dashboard/src/components/ui/empty.tsx,empty.tsx,.tsx,كود,واجهة المستخدم,True,text,2410
+artifacts/dashboard/src/components/ui/field.tsx,field.tsx,.tsx,كود,واجهة المستخدم,True,text,6079
+artifacts/dashboard/src/components/ui/form.tsx,form.tsx,.tsx,كود,واجهة المستخدم,True,text,4232
+artifacts/dashboard/src/components/ui/hover-card.tsx,hover-card.tsx,.tsx,كود,واجهة المستخدم,True,text,1245
+artifacts/dashboard/src/components/ui/input-group.tsx,input-group.tsx,.tsx,كود,واجهة المستخدم,True,text,4993
+artifacts/dashboard/src/components/ui/input-otp.tsx,input-otp.tsx,.tsx,كود,واجهة المستخدم,True,text,2160
+artifacts/dashboard/src/components/ui/input.tsx,input.tsx,.tsx,كود,واجهة المستخدم,True,text,775
+artifacts/dashboard/src/components/ui/item.tsx,item.tsx,.tsx,كود,واجهة المستخدم,True,text,4519
+artifacts/dashboard/src/components/ui/kbd.tsx,kbd.tsx,.tsx,كود,واجهة المستخدم,True,text,867
+artifacts/dashboard/src/components/ui/label.tsx,label.tsx,.tsx,كود,واجهة المستخدم,True,text,733
+artifacts/dashboard/src/components/ui/menubar.tsx,menubar.tsx,.tsx,كود,واجهة المستخدم,True,text,8655
+artifacts/dashboard/src/components/ui/navigation-menu.tsx,navigation-menu.tsx,.tsx,كود,واجهة المستخدم,True,text,5150
+artifacts/dashboard/src/components/ui/pagination.tsx,pagination.tsx,.tsx,كود,واجهة المستخدم,True,text,2772
+artifacts/dashboard/src/components/ui/popover.tsx,popover.tsx,.tsx,كود,واجهة المستخدم,True,text,1351
+artifacts/dashboard/src/components/ui/progress.tsx,progress.tsx,.tsx,كود,واجهة المستخدم,True,text,799
+artifacts/dashboard/src/components/ui/radio-group.tsx,radio-group.tsx,.tsx,كود,واجهة المستخدم,True,text,1421
+artifacts/dashboard/src/components/ui/resizable.tsx,resizable.tsx,.tsx,كود,واجهة المستخدم,True,text,1733
+artifacts/dashboard/src/components/ui/scroll-area.tsx,scroll-area.tsx,.tsx,كود,واجهة المستخدم,True,text,1650
+artifacts/dashboard/src/components/ui/select.tsx,select.tsx,.tsx,كود,واجهة المستخدم,True,text,5773
+artifacts/dashboard/src/components/ui/separator.tsx,separator.tsx,.tsx,كود,واجهة المستخدم,True,text,764
+artifacts/dashboard/src/components/ui/sheet.tsx,sheet.tsx,.tsx,كود,واجهة المستخدم,True,text,4307
+artifacts/dashboard/src/components/ui/sidebar.tsx,sidebar.tsx,.tsx,كود,واجهة المستخدم,True,text,21969
+artifacts/dashboard/src/components/ui/skeleton.tsx,skeleton.tsx,.tsx,كود,واجهة المستخدم,True,text,269
+artifacts/dashboard/src/components/ui/slider.tsx,slider.tsx,.tsx,كود,واجهة المستخدم,True,text,1043
+artifacts/dashboard/src/components/ui/sonner.tsx,sonner.tsx,.tsx,كود,واجهة المستخدم,True,text,902
+artifacts/dashboard/src/components/ui/spinner.tsx,spinner.tsx,.tsx,كود,واجهة المستخدم,True,text,334
+artifacts/dashboard/src/components/ui/switch.tsx,switch.tsx,.tsx,كود,واجهة المستخدم,True,text,1155
+artifacts/dashboard/src/components/ui/table.tsx,table.tsx,.tsx,كود,واجهة المستخدم,True,text,2881
+artifacts/dashboard/src/components/ui/tabs.tsx,tabs.tsx,.tsx,كود,واجهة المستخدم,True,text,1890
+artifacts/dashboard/src/components/ui/textarea.tsx,textarea.tsx,.tsx,كود,واجهة المستخدم,True,text,655
+artifacts/dashboard/src/components/ui/toast.tsx,toast.tsx,.tsx,كود,واجهة المستخدم,True,text,4871
+artifacts/dashboard/src/components/ui/toaster.tsx,toaster.tsx,.tsx,كود,واجهة المستخدم,True,text,777
+artifacts/dashboard/src/components/ui/toggle-group.tsx,toggle-group.tsx,.tsx,كود,واجهة المستخدم,True,text,1767
+artifacts/dashboard/src/components/ui/toggle.tsx,toggle.tsx,.tsx,كود,واجهة المستخدم,True,text,1494
+artifacts/dashboard/src/components/ui/tooltip.tsx,tooltip.tsx,.tsx,كود,واجهة المستخدم,True,text,1277
+artifacts/dashboard/src/hooks/use-mobile.tsx,use-mobile.tsx,.tsx,كود,واجهة المستخدم,True,text,576
+artifacts/dashboard/src/hooks/use-toast.ts,use-toast.ts,.ts,كود,واجهة المستخدم,True,text,3952
+artifacts/dashboard/src/index.css,index.css,.css,كود,واجهة المستخدم,True,text,7601
+artifacts/dashboard/src/lib/api-fetch.ts,api-fetch.ts,.ts,كود,واجهة المستخدم,True,text,2160
+artifacts/dashboard/src/lib/clerk.ts,clerk.ts,.ts,كود,واجهة المستخدم,True,text,2416
+artifacts/dashboard/src/lib/utils.ts,utils.ts,.ts,كود,واجهة المستخدم,True,text,169
+artifacts/dashboard/src/main.tsx,main.tsx,.tsx,كود,واجهة المستخدم,True,text,159
+artifacts/dashboard/src/pages/AiChat.tsx,AiChat.tsx,.tsx,كود,واجهة المستخدم,True,text,44197
+artifacts/dashboard/src/pages/Dashboard.tsx,Dashboard.tsx,.tsx,كود,واجهة المستخدم,True,text,13902
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx,DiscoverProjectWizard.tsx,.tsx,كود,واجهة المستخدم,True,text,47244
+artifacts/dashboard/src/pages/Events.tsx,Events.tsx,.tsx,كود,واجهة المستخدم,True,text,7383
+artifacts/dashboard/src/pages/Graph.tsx,Graph.tsx,.tsx,كود,واجهة المستخدم,True,text,31302
+artifacts/dashboard/src/pages/Landing.tsx,Landing.tsx,.tsx,كود,واجهة المستخدم,True,text,2965
+artifacts/dashboard/src/pages/Metrics.tsx,Metrics.tsx,.tsx,كود,واجهة المستخدم,True,text,10491
+artifacts/dashboard/src/pages/ProjectDetail.tsx,ProjectDetail.tsx,.tsx,كود,واجهة المستخدم,True,text,17417
+artifacts/dashboard/src/pages/Projects.tsx,Projects.tsx,.tsx,كود,واجهة المستخدم,True,text,9579
+artifacts/dashboard/src/pages/Rules.tsx,Rules.tsx,.tsx,كود,واجهة المستخدم,True,text,21068
+artifacts/dashboard/src/pages/SignIn.tsx,SignIn.tsx,.tsx,كود,واجهة المستخدم,True,text,362
+artifacts/dashboard/src/pages/SignUp.tsx,SignUp.tsx,.tsx,كود,واجهة المستخدم,True,text,362
+artifacts/dashboard/src/pages/Tasks.tsx,Tasks.tsx,.tsx,كود,واجهة المستخدم,True,text,19713
+artifacts/dashboard/src/pages/Workflows.tsx,Workflows.tsx,.tsx,كود,واجهة المستخدم,True,text,25031
+artifacts/dashboard/src/pages/not-found.tsx,not-found.tsx,.tsx,كود,واجهة المستخدم,True,text,971
+artifacts/dashboard/tsconfig.json,tsconfig.json,.json,إعدادات/أصول تشغيل,واجهة المستخدم,True,text,520
+artifacts/dashboard/vite.config.ts,vite.config.ts,.ts,كود,واجهة المستخدم,True,text,1822
+artifacts/mockup-sandbox/.replit-artifact/artifact.toml,artifact.toml,.toml,إعدادات/أصول تشغيل,ملعب/تصميم واجهة,True,text,327
+artifacts/mockup-sandbox/components.json,components.json,.json,إعدادات/أصول تشغيل,ملعب/تصميم واجهة,True,text,426
+artifacts/mockup-sandbox/index.html,index.html,.html,كود,ملعب/تصميم واجهة,True,text,4325
+artifacts/mockup-sandbox/mockupPreviewPlugin.ts,mockupPreviewPlugin.ts,.ts,كود,ملعب/تصميم واجهة,True,text,4639
+artifacts/mockup-sandbox/package.json,package.json,.json,إعدادات/أصول تشغيل,ملعب/تصميم واجهة,True,text,2515
+artifacts/mockup-sandbox/src/.generated/mockup-components.ts,mockup-components.ts,.ts,كود,ملعب/تصميم واجهة,True,text,171
+artifacts/mockup-sandbox/src/App.tsx,App.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,3654
+artifacts/mockup-sandbox/src/components/ui/accordion.tsx,accordion.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,2001
+artifacts/mockup-sandbox/src/components/ui/alert-dialog.tsx,alert-dialog.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,4419
+artifacts/mockup-sandbox/src/components/ui/alert.tsx,alert.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1598
+artifacts/mockup-sandbox/src/components/ui/aspect-ratio.tsx,aspect-ratio.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,140
+artifacts/mockup-sandbox/src/components/ui/avatar.tsx,avatar.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1419
+artifacts/mockup-sandbox/src/components/ui/badge.tsx,badge.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1163
+artifacts/mockup-sandbox/src/components/ui/breadcrumb.tsx,breadcrumb.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,2712
+artifacts/mockup-sandbox/src/components/ui/button-group.tsx,button-group.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,2209
+artifacts/mockup-sandbox/src/components/ui/button.tsx,button.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1925
+artifacts/mockup-sandbox/src/components/ui/calendar.tsx,calendar.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,7569
+artifacts/mockup-sandbox/src/components/ui/card.tsx,card.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1828
+artifacts/mockup-sandbox/src/components/ui/carousel.tsx,carousel.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,6210
+artifacts/mockup-sandbox/src/components/ui/chart.tsx,chart.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,10674
+artifacts/mockup-sandbox/src/components/ui/checkbox.tsx,checkbox.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1031
+artifacts/mockup-sandbox/src/components/ui/collapsible.tsx,collapsible.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,329
+artifacts/mockup-sandbox/src/components/ui/command.tsx,command.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,4887
+artifacts/mockup-sandbox/src/components/ui/context-menu.tsx,context-menu.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,7406
+artifacts/mockup-sandbox/src/components/ui/dialog.tsx,dialog.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,3835
+artifacts/mockup-sandbox/src/components/ui/drawer.tsx,drawer.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,3007
+artifacts/mockup-sandbox/src/components/ui/dropdown-menu.tsx,dropdown-menu.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,7606
+artifacts/mockup-sandbox/src/components/ui/empty.tsx,empty.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,2396
+artifacts/mockup-sandbox/src/components/ui/field.tsx,field.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,6044
+artifacts/mockup-sandbox/src/components/ui/form.tsx,form.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,4175
+artifacts/mockup-sandbox/src/components/ui/hover-card.tsx,hover-card.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1237
+artifacts/mockup-sandbox/src/components/ui/input-group.tsx,input-group.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,4883
+artifacts/mockup-sandbox/src/components/ui/input-otp.tsx,input-otp.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,2143
+artifacts/mockup-sandbox/src/components/ui/input.tsx,input.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,768
+artifacts/mockup-sandbox/src/components/ui/item.tsx,item.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,4494
+artifacts/mockup-sandbox/src/components/ui/kbd.tsx,kbd.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,862
+artifacts/mockup-sandbox/src/components/ui/label.tsx,label.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,724
+artifacts/mockup-sandbox/src/components/ui/menubar.tsx,menubar.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,8608
+artifacts/mockup-sandbox/src/components/ui/navigation-menu.tsx,navigation-menu.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,5124
+artifacts/mockup-sandbox/src/components/ui/pagination.tsx,pagination.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,2751
+artifacts/mockup-sandbox/src/components/ui/popover.tsx,popover.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1342
+artifacts/mockup-sandbox/src/components/ui/progress.tsx,progress.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,792
+artifacts/mockup-sandbox/src/components/ui/radio-group.tsx,radio-group.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1410
+artifacts/mockup-sandbox/src/components/ui/resizable.tsx,resizable.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1723
+artifacts/mockup-sandbox/src/components/ui/scroll-area.tsx,scroll-area.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1642
+artifacts/mockup-sandbox/src/components/ui/select.tsx,select.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,5745
+artifacts/mockup-sandbox/src/components/ui/separator.tsx,separator.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,756
+artifacts/mockup-sandbox/src/components/ui/sheet.tsx,sheet.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,4280
+artifacts/mockup-sandbox/src/components/ui/sidebar.tsx,sidebar.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,21056
+artifacts/mockup-sandbox/src/components/ui/skeleton.tsx,skeleton.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,266
+artifacts/mockup-sandbox/src/components/ui/slider.tsx,slider.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1037
+artifacts/mockup-sandbox/src/components/ui/sonner.tsx,sonner.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,894
+artifacts/mockup-sandbox/src/components/ui/spinner.tsx,spinner.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,331
+artifacts/mockup-sandbox/src/components/ui/switch.tsx,switch.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1148
+artifacts/mockup-sandbox/src/components/ui/table.tsx,table.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,2859
+artifacts/mockup-sandbox/src/components/ui/tabs.tsx,tabs.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1877
+artifacts/mockup-sandbox/src/components/ui/textarea.tsx,textarea.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,649
+artifacts/mockup-sandbox/src/components/ui/toast.tsx,toast.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,4845
+artifacts/mockup-sandbox/src/components/ui/toaster.tsx,toaster.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,772
+artifacts/mockup-sandbox/src/components/ui/toggle-group.tsx,toggle-group.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1753
+artifacts/mockup-sandbox/src/components/ui/toggle.tsx,toggle.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1486
+artifacts/mockup-sandbox/src/components/ui/tooltip.tsx,tooltip.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,1267
+artifacts/mockup-sandbox/src/hooks/use-mobile.tsx,use-mobile.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,565
+artifacts/mockup-sandbox/src/hooks/use-toast.ts,use-toast.ts,.ts,كود,ملعب/تصميم واجهة,True,text,3767
+artifacts/mockup-sandbox/src/index.css,index.css,.css,كود,ملعب/تصميم واجهة,True,text,5760
+artifacts/mockup-sandbox/src/lib/utils.ts,utils.ts,.ts,كود,ملعب/تصميم واجهة,True,text,166
+artifacts/mockup-sandbox/src/main.tsx,main.tsx,.tsx,كود,ملعب/تصميم واجهة,True,text,157
+artifacts/mockup-sandbox/tsconfig.json,tsconfig.json,.json,إعدادات/أصول تشغيل,ملعب/تصميم واجهة,True,text,513
+artifacts/mockup-sandbox/vite.config.ts,vite.config.ts,.ts,كود,ملعب/تصميم واجهة,True,text,1592
+attached_assets/ENGINEERINGOS_EXECUTION_ALIGNMENT_REPORT_1784147505317.md,ENGINEERINGOS_EXECUTION_ALIGNMENT_REPORT_1784147505317.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,7277
+attached_assets/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION(2)_(2)_1784143389784.md,ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION(2)_(2)_1784143389784.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,17268
+attached_assets/ENGINEERINGOS_PLACEHOLDER_REGISTER_1784147505353.md,ENGINEERINGOS_PLACEHOLDER_REGISTER_1784147505353.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,12786
+attached_assets/ENGINEERINGOS_RUNTIME_EXECUTION_MATRIX_1784147505400.md,ENGINEERINGOS_RUNTIME_EXECUTION_MATRIX_1784147505400.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,3652
+attached_assets/EngineeringOS_Analysis_Report(1)_(1)_1784764281623.md,EngineeringOS_Analysis_Report(1)_(1)_1784764281623.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,187712
+attached_assets/EngineeringOS_Analysis_Report(1)_(2)_1784764519295.md,EngineeringOS_Analysis_Report(1)_(2)_1784764519295.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,187712
+attached_assets/EngineeringOS_Analysis_Report(2)_(2)_1784765036803.md,EngineeringOS_Analysis_Report(2)_(2)_1784765036803.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,121109
+attached_assets/EngineeringOS_Analysis_Report_(1)_1784763386842.md,EngineeringOS_Analysis_Report_(1)_1784763386842.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,185386
+attached_assets/EngineeringOS_Audit_Report_1783641389270.md,EngineeringOS_Audit_Report_1783641389270.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,14716
+attached_assets/EngineeringOS_Audit_Report_Expanded_1783642792349.md,EngineeringOS_Audit_Report_Expanded_1783642792349.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,17381
+attached_assets/EngineeringOS_Combined_Deep_Analysis_(1)_1783706911895.md,EngineeringOS_Combined_Deep_Analysis_(1)_1783706911895.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,13363
+attached_assets/EngineeringOS_Engineering_Truth_Verification_1784082430324.csv,EngineeringOS_Engineering_Truth_Verification_1784082430324.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,151098
+attached_assets/EngineeringOS_Engineering_Truth_Verification_1784082430371.md,EngineeringOS_Engineering_Truth_Verification_1784082430371.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,9957
+attached_assets/EngineeringOS_Execution_Plan_1783831261195.pdf,EngineeringOS_Execution_Plan_1783831261195.pdf,.pdf,PDF,مرفقات تحليلية وأثرية,True,binary,104811
+attached_assets/EngineeringOS_Executive_Build_Directive_v1_1783912619169.md,EngineeringOS_Executive_Build_Directive_v1_1783912619169.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,11583
+attached_assets/EngineeringOS_File_Inventory_(3)_1784765036888.csv,EngineeringOS_File_Inventory_(3)_1784765036888.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,114381
+attached_assets/EngineeringOS_File_Inventory_Complete(1)_1783706911845.md,EngineeringOS_File_Inventory_Complete(1)_1783706911845.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,16789
+attached_assets/EngineeringOS_File_by_File_Fact_Record_1783725698283.md,EngineeringOS_File_by_File_Fact_Record_1783725698283.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,91708
+attached_assets/EngineeringOS_Implementation_Document_1783726156016.md,EngineeringOS_Implementation_Document_1783726156016.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,24261
+attached_assets/EngineeringOS_Master_Truth_Register_(1)_1784077194501.xlsx,EngineeringOS_Master_Truth_Register_(1)_1784077194501.xlsx,.xlsx,XLSX,مرفقات تحليلية وأثرية,True,binary,56845
+attached_assets/EngineeringOS_Plan_1783818095882.pdf,EngineeringOS_Plan_1783818095882.pdf,.pdf,PDF,مرفقات تحليلية وأثرية,True,binary,81293
+attached_assets/EngineeringOS_Project_1783718452179.pdf,EngineeringOS_Project_1783718452179.pdf,.pdf,PDF,مرفقات تحليلية وأثرية,True,binary,53834
+attached_assets/EngineeringOS_Project_Analysis_Report_(3)_1784675241263.md,EngineeringOS_Project_Analysis_Report_(3)_1784675241263.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,134734
+attached_assets/EngineeringOS_Truth_Flow_Matrix.schema_1784143389669.ts,EngineeringOS_Truth_Flow_Matrix.schema_1784143389669.ts,.ts,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,12609
+attached_assets/EngineeringOS_Truth_Flow_Matrix_1784143389833.json,EngineeringOS_Truth_Flow_Matrix_1784143389833.json,.json,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,4773
+attached_assets/EngineeringOS_Truth_Flow_Matrix_1784143389882.ts,EngineeringOS_Truth_Flow_Matrix_1784143389882.ts,.ts,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,4243
+attached_assets/EngineeringOS_Truth_Flow_PR_Checklist_1784143389929.md,EngineeringOS_Truth_Flow_PR_Checklist_1784143389929.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,3032
+attached_assets/EngineeringOS_Truth_Register_Full_(1)_1784081699025.csv,EngineeringOS_Truth_Register_Full_(1)_1784081699025.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,166934
+attached_assets/EngineeringOS_Truth_Register_Full_1784081611461.csv,EngineeringOS_Truth_Register_Full_1784081611461.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,166934
+attached_assets/EngineeringOS_Truth_Register_and_PR_Roadmap_(1)_1784081698974.md,EngineeringOS_Truth_Register_and_PR_Roadmap_(1)_1784081698974.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,16652
+attached_assets/EngineeringOS_Truth_Register_and_PR_Roadmap_1784081611536.md,EngineeringOS_Truth_Register_and_PR_Roadmap_1784081611536.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,16652
+attached_assets/EngineeringOS_analysis_report(2)_(1)_1784047036210.md,EngineeringOS_analysis_report(2)_(1)_1784047036210.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,40290
+attached_assets/EngineeringOS_analysis_summary_1784485047967.json,EngineeringOS_analysis_summary_1784485047967.json,.json,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,4274
+attached_assets/EngineeringOS_analysis_summary_1784487574320.json,EngineeringOS_analysis_summary_1784487574320.json,.json,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,4274
+attached_assets/EngineeringOS_analysis_summary_1784488259980.json,EngineeringOS_analysis_summary_1784488259980.json,.json,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,4274
+attached_assets/EngineeringOS_analysis_summary_1784489456836.json,EngineeringOS_analysis_summary_1784489456836.json,.json,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,4274
+attached_assets/EngineeringOS_api_zod_index_export_diff_1784143389744.txt,EngineeringOS_api_zod_index_export_diff_1784143389744.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,162
+attached_assets/EngineeringOS_architecture_analysis_report_1784040976647.md,EngineeringOS_architecture_analysis_report_1784040976647.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,10572
+attached_assets/EngineeringOS_archive_entries_1784040976692.csv,EngineeringOS_archive_entries_1784040976692.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,62290
+attached_assets/EngineeringOS_archive_entries_1784041152876.csv,EngineeringOS_archive_entries_1784041152876.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,62290
+attached_assets/EngineeringOS_code_deep_analysis_1784052671648.md,EngineeringOS_code_deep_analysis_1784052671648.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,14357
+attached_assets/EngineeringOS_code_deep_analysis_1784052762652.md,EngineeringOS_code_deep_analysis_1784052762652.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,14357
+attached_assets/EngineeringOS_current_analysis_report_1784052671601.md,EngineeringOS_current_analysis_report_1784052671601.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,11212
+attached_assets/EngineeringOS_current_analysis_report_1784052762572.md,EngineeringOS_current_analysis_report_1784052762572.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,11212
+attached_assets/EngineeringOS_deep_analysis_report_1783800987828.md,EngineeringOS_deep_analysis_report_1783800987828.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,14614
+attached_assets/EngineeringOS_deep_dive_analysis_v2_1784152351310.md,EngineeringOS_deep_dive_analysis_v2_1784152351310.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,13702
+attached_assets/EngineeringOS_deepest_analysis_report(1)_(2)_1784154247108.md,EngineeringOS_deepest_analysis_report(1)_(2)_1784154247108.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,8801
+attached_assets/EngineeringOS_deepest_analysis_report_(1)_1784081611576.md,EngineeringOS_deepest_analysis_report_(1)_1784081611576.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,13206
+attached_assets/EngineeringOS_deepest_analysis_report_(1)_1784081699061.md,EngineeringOS_deepest_analysis_report_(1)_1784081699061.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,13206
+attached_assets/EngineeringOS_file_inventory(1)_(1)_1784847012891.csv,EngineeringOS_file_inventory(1)_(1)_1784847012891.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,126825
+attached_assets/EngineeringOS_file_inventory_(1)_1783729892809.csv,EngineeringOS_file_inventory_(1)_1783729892809.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,38456
+attached_assets/EngineeringOS_file_inventory_current_1784052671527.csv,EngineeringOS_file_inventory_current_1784052671527.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,79100
+attached_assets/EngineeringOS_file_inventory_current_1784052762450.csv,EngineeringOS_file_inventory_current_1784052762450.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,79100
+attached_assets/EngineeringOS_file_inventory_full(2)_1783988496247.csv,EngineeringOS_file_inventory_full(2)_1783988496247.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,55061
+attached_assets/EngineeringOS_file_inventory_full_1783800987783.csv,EngineeringOS_file_inventory_full_1783800987783.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,28551
+attached_assets/EngineeringOS_file_inventory_v2_1784427571850.csv,EngineeringOS_file_inventory_v2_1784427571850.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,95375
+attached_assets/EngineeringOS_file_inventory_v2_1784427972718.csv,EngineeringOS_file_inventory_v2_1784427972718.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,95375
+attached_assets/EngineeringOS_forensic_audit_report(1)_(1)_1784509785486.md,EngineeringOS_forensic_audit_report(1)_(1)_1784509785486.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,15995
+attached_assets/EngineeringOS_forensic_audit_report_(1)_1784570354611.md,EngineeringOS_forensic_audit_report_(1)_1784570354611.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,12254
+attached_assets/EngineeringOS_forensic_engineering_report_v2_1784427571793.md,EngineeringOS_forensic_engineering_report_v2_1784427571793.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,18265
+attached_assets/EngineeringOS_forensic_engineering_report_v2_1784427972668.md,EngineeringOS_forensic_engineering_report_v2_1784427972668.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,18265
+attached_assets/EngineeringOS_forensic_report(1)_1784492362639.md,EngineeringOS_forensic_report(1)_1784492362639.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,31674
+attached_assets/EngineeringOS_forensic_report(1)_1784492400992.md,EngineeringOS_forensic_report(1)_1784492400992.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,31674
+attached_assets/EngineeringOS_forensic_report_full(1)_1784485047923.md,EngineeringOS_forensic_report_full(1)_1784485047923.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,25450
+attached_assets/EngineeringOS_forensic_report_full(1)_1784487574279.md,EngineeringOS_forensic_report_full(1)_1784487574279.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,25450
+attached_assets/EngineeringOS_forensic_report_full(1)_1784488259926.md,EngineeringOS_forensic_report_full(1)_1784488259926.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,25450
+attached_assets/EngineeringOS_forensic_report_full(1)_1784489456770.md,EngineeringOS_forensic_report_full(1)_1784489456770.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,25450
+attached_assets/EngineeringOS_full_analysis_report_1783988496190.md,EngineeringOS_full_analysis_report_1783988496190.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,8762
+attached_assets/EngineeringOS_full_file_inventory(1)_1784040976594.csv,EngineeringOS_full_file_inventory(1)_1784040976594.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,56563
+attached_assets/EngineeringOS_full_file_inventory(1)_1784041152926.csv,EngineeringOS_full_file_inventory(1)_1784041152926.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,56563
+attached_assets/EngineeringOS_full_file_inventory_1784492401113.csv,EngineeringOS_full_file_inventory_1784492401113.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,83815
+attached_assets/EngineeringOS_full_inventory(1)_1784485047848.csv,EngineeringOS_full_inventory(1)_1784485047848.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,102931
+attached_assets/EngineeringOS_full_inventory(1)_1784487574226.csv,EngineeringOS_full_inventory(1)_1784487574226.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,102931
+attached_assets/EngineeringOS_full_inventory(1)_1784488259874.csv,EngineeringOS_full_inventory(1)_1784488259874.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,102931
+attached_assets/EngineeringOS_full_inventory(1)_1784489456653.csv,EngineeringOS_full_inventory(1)_1784489456653.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,102931
+attached_assets/EngineeringOS_inventory_(1)_1784570354569.csv,EngineeringOS_inventory_(1)_1784570354569.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,70369
+attached_assets/EngineeringOS_master_analysis_report_1784847012960.md,EngineeringOS_master_analysis_report_1784847012960.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,25766
+attached_assets/EngineeringOS_master_inventory(1)_(1)_1784509785451.csv,EngineeringOS_master_inventory(1)_(1)_1784509785451.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,73687
+attached_assets/EngineeringOS_minimum_path_to_vision_(1)_1783830867380.md,EngineeringOS_minimum_path_to_vision_(1)_1783830867380.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,15261
+attached_assets/EngineeringOS_minimum_path_to_vision_1783830816710.md,EngineeringOS_minimum_path_to_vision_1783830816710.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,15261
+attached_assets/EngineeringOS_operational_status_record_1783912104506.md,EngineeringOS_operational_status_record_1783912104506.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,5354
+attached_assets/EngineeringOS_project_analysis_report(1)_1783729892769.md,EngineeringOS_project_analysis_report(1)_1783729892769.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,13022
+attached_assets/EngineeringOS_provenance_registry_linked_1783911530593.json,EngineeringOS_provenance_registry_linked_1783911530593.json,.json,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,422336
+attached_assets/EngineeringOS_provenance_registry_seed_1783911530658.json,EngineeringOS_provenance_registry_seed_1783911530658.json,.json,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,248584
+attached_assets/EngineeringOS_replit_execution_directive_1783800987701.json,EngineeringOS_replit_execution_directive_1783800987701.json,.json,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,11716
+attached_assets/EngineeringOS_replit_execution_directive_1783800987743.md,EngineeringOS_replit_execution_directive_1783800987743.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,11867
+attached_assets/EngineeringOS_runtime_trace_matrix_1784492401053.csv,EngineeringOS_runtime_trace_matrix_1784492401053.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,958
+attached_assets/EngineeringOS_series14_truth_matrix_1783966531635.md,EngineeringOS_series14_truth_matrix_1783966531635.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,13771
+attached_assets/EngineeringOS_series15_deep_evidence_1783966531578.md,EngineeringOS_series15_deep_evidence_1783966531578.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,13524
+attached_assets/EngineeringOS_series16_truth_matrix_(1)_1783966531512.md,EngineeringOS_series16_truth_matrix_(1)_1783966531512.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,12532
+attached_assets/EngineeringOS_series17_deep_analysis_1783966531444.md,EngineeringOS_series17_deep_analysis_1783966531444.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,13745
+attached_assets/EngineeringOS_series18_status_register_(1)_1783966531375.md,EngineeringOS_series18_status_register_(1)_1783966531375.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,9763
+attached_assets/EngineeringOS_series19_control_plane_evidence_1783966531303.md,EngineeringOS_series19_control_plane_evidence_1783966531303.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,14100
+attached_assets/EngineeringOS_series20_status_register_1783966531239.md,EngineeringOS_series20_status_register_1783966531239.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,13761
+attached_assets/EngineeringOS_series21_deep_status_1783966531177.md,EngineeringOS_series21_deep_status_1783966531177.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,11759
+attached_assets/EngineeringOS_series22_second_wave_analysis_1783966531113.md,EngineeringOS_series22_second_wave_analysis_1783966531113.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,7779
+attached_assets/EngineeringOS_series23_self_verifying_architecture_1783966531049.md,EngineeringOS_series23_self_verifying_architecture_1783966531049.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,10473
+attached_assets/EngineeringOS_series24_deep_evidence_1783966530990.md,EngineeringOS_series24_deep_evidence_1783966530990.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,9605
+attached_assets/EngineeringOS_series25_truth_register_1783966530939.md,EngineeringOS_series25_truth_register_1783966530939.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,11680
+attached_assets/EngineeringOS_series26_boundary_analysis_1783966530884.md,EngineeringOS_series26_boundary_analysis_1783966530884.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,12996
+attached_assets/EngineeringOS_series27_failure_semantics_1783966530824.md,EngineeringOS_series27_failure_semantics_1783966530824.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,13504
+attached_assets/EngineeringOS_series28_traceability_mesh_1783966530766.md,EngineeringOS_series28_traceability_mesh_1783966530766.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,13996
+attached_assets/EngineeringOS_series29_trust_boundary_register_1783966530702.md,EngineeringOS_series29_trust_boundary_register_1783966530702.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,9234
+attached_assets/EngineeringOS_series30_release_handoff_audit_1783966530642.md,EngineeringOS_series30_release_handoff_audit_1783966530642.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,9762
+attached_assets/EngineeringOS_series31_release_handoff_audit_1783966530586.md,EngineeringOS_series31_release_handoff_audit_1783966530586.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,17069
+attached_assets/EngineeringOS_series32_phase_conformance_audit_1783966530537.md,EngineeringOS_series32_phase_conformance_audit_1783966530537.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,13126
+attached_assets/EngineeringOS_series33_provenance_authority_graph_1783966530470.md,EngineeringOS_series33_provenance_authority_graph_1783966530470.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,9276
+attached_assets/EngineeringOS_status_record_(1)_1783980758791.md,EngineeringOS_status_record_(1)_1783980758791.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,10832
+attached_assets/EngineeringOS_status_register_(1)_1783818095824.md,EngineeringOS_status_register_(1)_1783818095824.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,47392
+attached_assets/EngineeringOS_status_register_final_1783902107873.md,EngineeringOS_status_register_final_1783902107873.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,13170
+attached_assets/EngineeringOS_task_backlog_1783800987875.json,EngineeringOS_task_backlog_1783800987875.json,.json,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,5563
+attached_assets/EngineeringOS_truth_checklist_1784322972343.md,EngineeringOS_truth_checklist_1784322972343.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,92884
+attached_assets/EngineeringOS_truth_checklist_1784326108247.md,EngineeringOS_truth_checklist_1784326108247.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,92884
+attached_assets/EngineeringOS_truth_register_current_1783825680736.md,EngineeringOS_truth_register_current_1783825680736.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,33405
+attached_assets/Engineering_Os_Fact_Record_1783718570175.pdf,Engineering_Os_Fact_Record_1783718570175.pdf,.pdf,PDF,مرفقات تحليلية وأثرية,True,binary,104719
+attached_assets/Engineering_Os_Phased_Completion_Plan_(1)_1783718452123.pdf,Engineering_Os_Phased_Completion_Plan_(1)_1783718452123.pdf,.pdf,PDF,مرفقات تحليلية وأثرية,True,binary,77805
+attached_assets/Engineering_Os_Phased_Completion_Plan_1783718452216.pdf,Engineering_Os_Phased_Completion_Plan_1783718452216.pdf,.pdf,PDF,مرفقات تحليلية وأثرية,True,binary,77807
+attached_assets/PR_BACKLOG_1784470184510.md,PR_BACKLOG_1784470184510.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,16676
+attached_assets/PR_BACKLOG_1784476473246.md,PR_BACKLOG_1784476473246.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,16859
+attached_assets/Pasted---1783906604381_1783906604385.txt,Pasted---1783906604381_1783906604385.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,15317
+attached_assets/Pasted---1783956390496_1783956390501.txt,Pasted---1783956390496_1783956390501.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,10819
+attached_assets/Pasted---1784163447147_1784163447161.txt,Pasted---1784163447147_1784163447161.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,6695
+attached_assets/Pasted---1784163799356_1784163799366.txt,Pasted---1784163799356_1784163799366.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,12487
+attached_assets/Pasted---1784230995192_1784230995203.txt,Pasted---1784230995192_1784230995203.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,23444
+attached_assets/Pasted---1784231528183_1784231528198.txt,Pasted---1784231528183_1784231528198.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,23444
+attached_assets/Pasted---1784232069146_1784232069153.txt,Pasted---1784232069146_1784232069153.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,11255
+attached_assets/Pasted---1784348446604_1784348446608.txt,Pasted---1784348446604_1784348446608.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,7498
+attached_assets/Pasted---1784389595241_1784389595255.txt,Pasted---1784389595241_1784389595255.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,5426
+attached_assets/Pasted---1784688081989_1784688081999.txt,Pasted---1784688081989_1784688081999.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,3189
+attached_assets/Pasted--1--1784078393552_1784078393558.txt,Pasted--1--1784078393552_1784078393558.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,11565
+attached_assets/Pasted--1-AI--1784682577942_1784682577946.txt,Pasted--1-AI--1784682577942_1784682577946.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,3996
+attached_assets/Pasted--1-AI-Groq-only-artifacts-api-server-src-routes-ai-anal_1784688815486.txt,Pasted--1-AI-Groq-only-artifacts-api-server-src-routes-ai-anal_1784688815486.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,2952
+attached_assets/Pasted--1-Executive-Summary-I-scanned-the-whole-extracted-tree_1784520091488.txt,Pasted--1-Executive-Summary-I-scanned-the-whole-extracted-tree_1784520091488.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,41285
+attached_assets/Pasted--1-Executive-Summary-I-scanned-the-whole-extracted-tree_1784520380555.txt,Pasted--1-Executive-Summary-I-scanned-the-whole-extracted-tree_1784520380555.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,41285
+attached_assets/Pasted--1-Executive-Summary-I-scanned-the-whole-extracted-tree_1784565784400.txt,Pasted--1-Executive-Summary-I-scanned-the-whole-extracted-tree_1784565784400.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,41285
+attached_assets/Pasted--1-Executive-Summary-ID-Path-Scope--1784588898200_1784588898209.txt,Pasted--1-Executive-Summary-ID-Path-Scope--1784588898200_1784588898209.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,57269
+attached_assets/Pasted--1-Executive-Summary-ID-Path-Scope--1784588976178_1784588976181.txt,Pasted--1-Executive-Summary-ID-Path-Scope--1784588976178_1784588976181.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,57269
+attached_assets/Pasted--1-Set-up-the-imported-project-What-Why-The-user-just-i_1784600640416.txt,Pasted--1-Set-up-the-imported-project-What-Why-The-user-just-i_1784600640416.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,2666
+attached_assets/Pasted--8-minutes-ago-Replacing-in-process-upload-store-The-us_1784600039567.txt,Pasted--8-minutes-ago-Replacing-in-process-upload-store-The-us_1784600039567.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,8311
+attached_assets/Pasted--Backlog-Execution-Backlog-v1-0--1783975284276_1783975284279.txt,Pasted--Backlog-Execution-Backlog-v1-0--1783975284276_1783975284279.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,9560
+attached_assets/Pasted--Code-Review-Plan-Groq-Scope-Save-API--1784175594438_1784175594440.txt,Pasted--Code-Review-Plan-Groq-Scope-Save-API--1784175594438_1784175594440.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,8108
+attached_assets/Pasted--Discovery-Layer--1783988471815_1783988471818.txt,Pasted--Discovery-Layer--1783988471815_1783988471818.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,6388
+attached_assets/Pasted--EngineeringOS--1784145653787_1784145653789.txt,Pasted--EngineeringOS--1784145653787_1784145653789.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,11451
+attached_assets/Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783565505918.txt,Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783565505918.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,6622
+attached_assets/Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783566150077.txt,Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783566150077.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,6622
+attached_assets/Pasted--EngineeringOS-PR-Backlog-File-by-File-backlog--1784168_1784168977036.txt,Pasted--EngineeringOS-PR-Backlog-File-by-File-backlog--1784168_1784168977036.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,15043
+attached_assets/Pasted--EngineeringOS-PR-Backlog-File-by-File-backlog--1784169_1784169315352.txt,Pasted--EngineeringOS-PR-Backlog-File-by-File-backlog--1784169_1784169315352.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,15043
+attached_assets/Pasted--EngineeringOS-PR-by-PR-Execution-Pack-for-Replit-AI-PR_1784154335102.txt,Pasted--EngineeringOS-PR-by-PR-Execution-Pack-for-Replit-AI-PR_1784154335102.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,14305
+attached_assets/Pasted--EngineeringOS-PR-by-PR-Execution-Pack-for-Replit-AI-PR_1784155079326.txt,Pasted--EngineeringOS-PR-by-PR-Execution-Pack-for-Replit-AI-PR_1784155079326.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,14305
+attached_assets/Pasted--Forensic-Software-Engineering-Audit-1-Executive-Summar_1784515285022.txt,Pasted--Forensic-Software-Engineering-Audit-1-Executive-Summar_1784515285022.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,35697
+attached_assets/Pasted--Forensic-Software-Engineering-Audit-1-Executive-Summar_1784515636472.txt,Pasted--Forensic-Software-Engineering-Audit-1-Executive-Summar_1784515636472.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,35697
+attached_assets/Pasted--GROQ-API-KEY-JavaScript-Groq--1784088277237_1784088277243.txt,Pasted--GROQ-API-KEY-JavaScript-Groq--1784088277237_1784088277243.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,7657
+attached_assets/Pasted--Git-AI-Orchestrator-lib-ai-orchestrator-src-tools-git-_1784347517831.txt,Pasted--Git-AI-Orchestrator-lib-ai-orchestrator-src-tools-git-_1784347517831.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,6523
+attached_assets/Pasted--Knowledge-Graph-2-0--1784165514922_1784165514926.txt,Pasted--Knowledge-Graph-2-0--1784165514922_1784165514926.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,7420
+attached_assets/Pasted--Knowledge-Graph-2-0-Checklist-File--1784165546932_1784165546935.txt,Pasted--Knowledge-Graph-2-0-Checklist-File--1784165546932_1784165546935.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,11773
+attached_assets/Pasted--PR--1784040954263_1784040954267.txt,Pasted--PR--1784040954263_1784040954267.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,11758
+attached_assets/Pasted--PR-01-Sync-OpenAPI-with-runtime-graph-surface-files-li_1784234215782.txt,Pasted--PR-01-Sync-OpenAPI-with-runtime-graph-surface-files-li_1784234215782.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,5651
+attached_assets/Pasted--PR-03-Micro-Backlog-Contract-Layer-Stabilization-1-3--_1784158287520.txt,Pasted--PR-03-Micro-Backlog-Contract-Layer-Stabilization-1-3--_1784158287520.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,7655
+attached_assets/Pasted--PR-1-Hardening-Contract-Alignment-for-projects-ts-proj_1784052905584.txt,Pasted--PR-1-Hardening-Contract-Alignment-for-projects-ts-proj_1784052905584.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,5241
+attached_assets/Pasted--PR-Backlog-EngineeringOS-1-Scoping-ownership-integrity_1784154359481.txt,Pasted--PR-Backlog-EngineeringOS-1-Scoping-ownership-integrity_1784154359481.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,9635
+attached_assets/Pasted--PR-Backlog-EngineeringOS-Execution-Alignment--17841474_1784147452495.txt,Pasted--PR-Backlog-EngineeringOS-Execution-Alignment--17841474_1784147452495.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,8780
+attached_assets/Pasted--PR-Title-fix-ai-chat-surface-AI-request-failures-and-r_1784130154946.txt,Pasted--PR-Title-fix-ai-chat-surface-AI-request-failures-and-r_1784130154946.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,5312
+attached_assets/Pasted--PR-Title-fix-discovery-Classify-Project-Loading-Failur_1784086246178.txt,Pasted--PR-Title-fix-discovery-Classify-Project-Loading-Failur_1784086246178.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,5333
+attached_assets/Pasted--PR-app-ts--1784047027177_1784047027183.txt,Pasted--PR-app-ts--1784047027177_1784047027183.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,19647
+attached_assets/Pasted--PR-app-ts--1784047927706_1784047927710.txt,Pasted--PR-app-ts--1784047927706_1784047927710.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,19647
+attached_assets/Pasted--PR-backlog-PR--1784509953092_1784509953095.txt,Pasted--PR-backlog-PR--1784509953092_1784509953095.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,10777
+attached_assets/Pasted--PR-discovery-ts-PR-1-Discovery--1783996178319_1783996178325.txt,Pasted--PR-discovery-ts-PR-1-Discovery--1783996178319_1783996178325.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,10274
+attached_assets/Pasted--PR-lib-ai-orchestrator-PR-1-Prompt-Templates--17839939_1783993953832.txt,Pasted--PR-lib-ai-orchestrator-PR-1-Prompt-Templates--17839939_1783993953832.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,4754
+attached_assets/Pasted--PR-lib-ai-orchestrator-PR-1-Prompt-Templates--17839939_1783993967887.txt,Pasted--PR-lib-ai-orchestrator-PR-1-Prompt-Templates--17839939_1783993967887.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,4754
+attached_assets/Pasted--PR-lib-ai-orchestrator-PR-1-Prompt-Templates--17839950_1783995013203.txt,Pasted--PR-lib-ai-orchestrator-PR-1-Prompt-Templates--17839950_1783995013203.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,4754
+attached_assets/Pasted--PR-title-Harden-auth-context-and-prepare-project-scope_1784044908893.txt,Pasted--PR-title-Harden-auth-context-and-prepare-project-scope_1784044908893.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,3811
+attached_assets/Pasted--PR-title-Hardening-discovery-ts-into-a-deterministic-o_1784053152915.txt,Pasted--PR-title-Hardening-discovery-ts-into-a-deterministic-o_1784053152915.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,5750
+attached_assets/Pasted--Plan-3-Sync-fact-record-architecture-docs-3-Sync-Fact-_1783733496072.txt,Pasted--Plan-3-Sync-fact-record-architecture-docs-3-Sync-Fact-_1783733496072.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,17691
+attached_assets/Pasted--Plan-3-Sync-fact-record-architecture-docs-3-Sync-Fact-_1783790285219.txt,Pasted--Plan-3-Sync-fact-record-architecture-docs-3-Sync-Fact-_1783790285219.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,17691
+attached_assets/Pasted--Today-5-05-AM-EngineeringOS-main-66-zip-Zip-Archive-Fo_1784430667443.txt,Pasted--Today-5-05-AM-EngineeringOS-main-66-zip-Zip-Archive-Fo_1784430667443.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,32657
+attached_assets/Pasted--artifacts-api-server-src-lib-scan-runner-ts--178460388_1784603885654.txt,Pasted--artifacts-api-server-src-lib-scan-runner-ts--178460388_1784603885654.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,6060
+attached_assets/Pasted--artifacts-api-server-src-routes-ai-ts-lib-ai-orchestra_1784388540189.txt,Pasted--artifacts-api-server-src-routes-ai-ts-lib-ai-orchestra_1784388540189.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,12843
+attached_assets/Pasted--artifacts-api-server-src-routes-discovery-ts--17839967_1783996711676.txt,Pasted--artifacts-api-server-src-routes-discovery-ts--17839967_1783996711676.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,10600
+attached_assets/Pasted--artifacts-api-server-src-routes-discovery-ts--17839967_1783997082105.txt,Pasted--artifacts-api-server-src-routes-discovery-ts--17839967_1783997082105.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,10600
+attached_assets/Pasted--chat-app-AI--1784849629023_1784849629026.txt,Pasted--chat-app-AI--1784849629023_1784849629026.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,12370
+attached_assets/Pasted--fallback-streaming--1784688472601_1784688472605.txt,Pasted--fallback-streaming--1784688472601_1784688472605.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,3226
+attached_assets/Pasted--fallback-streaming-Deep-1784688627727_1784688627733.txt,Pasted--fallback-streaming-Deep-1784688627727_1784688627733.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,3500
+attached_assets/Pasted--lib-ai-orchestrator--1783993997216_1783993997218.txt,Pasted--lib-ai-orchestrator--1783993997216_1783993997218.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,8527
+attached_assets/Pasted--lib-db-test-script--1784159470823_1784159470827.txt,Pasted--lib-db-test-script--1784159470823_1784159470827.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,11190
+attached_assets/Pasted--onboarding-o-1783988399961_1783988399964.txt,Pasted--onboarding-o-1783988399961_1783988399964.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,4676
+attached_assets/Pasted--src-context-builder-ts-src-schemas-context-schema-1784_1784305372706.txt,Pasted--src-context-builder-ts-src-schemas-context-schema-1784_1784305372706.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,6056
+attached_assets/Pasted--test--1784245726594_1784245726598.txt,Pasted--test--1784245726594_1784245726598.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,11566
+attached_assets/Pasted--test--1784245803493_1784245803497.txt,Pasted--test--1784245803493_1784245803497.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,11560
+attached_assets/Pasted-7-Upgrade-Dashboard-to-Operational-UI-What-Why-Current-_1783734748019.txt,Pasted-7-Upgrade-Dashboard-to-Operational-UI-What-Why-Current-_1783734748019.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,2796
+attached_assets/Pasted-7-Upgrade-Dashboard-to-Operational-UI-What-Why-Current-_1783798897613.txt,Pasted-7-Upgrade-Dashboard-to-Operational-UI-What-Why-Current-_1783798897613.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,2795
+attached_assets/Pasted-Continuing-with-the-appendices-and-the-remaining-large-_1784588937982.txt,Pasted-Continuing-with-the-appendices-and-the-remaining-large-_1784588937982.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,15179
+attached_assets/Pasted-Continuing-with-the-appendices-and-the-remaining-large-_1784588957924.txt,Pasted-Continuing-with-the-appendices-and-the-remaining-large-_1784588957924.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,15179
+attached_assets/Pasted-PR-Title-security-ai-Harden-User-Scoped-Groq-Credential_1784127290653.txt,Pasted-PR-Title-security-ai-Harden-User-Scoped-Groq-Credential_1784127290653.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,5304
+attached_assets/Pasted-Plan-6-Deepen-graph-scanner-discovery-6-Deepen-Graph-Sc_1783734658300.txt,Pasted-Plan-6-Deepen-graph-scanner-discovery-6-Deepen-Graph-Sc_1783734658300.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,2633
+attached_assets/Pasted-Skip-to-content-Library-Tasks-Agent-Set-up-the-imported_1784769142428.txt,Pasted-Skip-to-content-Library-Tasks-Agent-Set-up-the-imported_1784769142428.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,4910
+attached_assets/Pasted-The-user-uploaded-two-screenshots-showing-issues-with-t_1784768627183.txt,Pasted-The-user-uploaded-two-screenshots-showing-issues-with-t_1784768627183.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,16797
+attached_assets/Pasted-We-are-CONTINUING-an-interrupted-implementation-session_1784565760215.txt,Pasted-We-are-CONTINUING-an-interrupted-implementation-session_1784565760215.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,2964
+attached_assets/Pasted-We-are-CONTINUING-an-interrupted-implementation-session_1784565840455.txt,Pasted-We-are-CONTINUING-an-interrupted-implementation-session_1784565840455.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,2964
+attached_assets/Pasted-You-ve-got-the-right-diagnosis-The-screenshots-line-up-_1784768636038.txt,Pasted-You-ve-got-the-right-diagnosis-The-screenshots-line-up-_1784768636038.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,4951
+attached_assets/Screenshot_٢٠٢٦٠٧٠٩-٠٦١٦٢٥_1783567039006.png,Screenshot_٢٠٢٦٠٧٠٩-٠٦١٦٢٥_1783567039006.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,98945
+attached_assets/Screenshot_٢٠٢٦٠٧٠٩-٠٦٢٠٣٨_1783610776566.png,Screenshot_٢٠٢٦٠٧٠٩-٠٦٢٠٣٨_1783610776566.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,100944
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٣٥٣١٨_1783904118069.png,Screenshot_٢٠٢٦٠٧١٣-٠٣٥٣١٨_1783904118069.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,86583
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٤٠٥١١_1783904724118.png,Screenshot_٢٠٢٦٠٧١٣-٠٤٠٥١١_1783904724118.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,135875
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٤٤٤٢٨_1783907108840.png,Screenshot_٢٠٢٦٠٧١٣-٠٤٤٤٢٨_1783907108840.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,77223
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٥٠١٣٨_1783908128704.png,Screenshot_٢٠٢٦٠٧١٣-٠٥٠١٣٨_1783908128704.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,63973
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٥١٤٥٤_1783908924873.png,Screenshot_٢٠٢٦٠٧١٣-٠٥١٤٥٤_1783908924873.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,77952
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٥١٩٤٨_1783909201747.png,Screenshot_٢٠٢٦٠٧١٣-٠٥١٩٤٨_1783909201747.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,72233
+attached_assets/Screenshot_٢٠٢٦٠٧١٦-٠٧٣٧٤٤_1784176683628.png,Screenshot_٢٠٢٦٠٧١٦-٠٧٣٧٤٤_1784176683628.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,162953
+attached_assets/Screenshot_٢٠٢٦٠٧١٦-١٨٣٠٤١_1784216000977.png,Screenshot_٢٠٢٦٠٧١٦-١٨٣٠٤١_1784216000977.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,98245
+attached_assets/Screenshot_٢٠٢٦٠٧١٦-١٨٣٠٤٦_1784216000942.png,Screenshot_٢٠٢٦٠٧١٦-١٨٣٠٤٦_1784216000942.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,108546
+attached_assets/Screenshot_٢٠٢٦٠٧١٨-٠١٠٨١٠_1784326132441.png,Screenshot_٢٠٢٦٠٧١٨-٠١٠٨١٠_1784326132441.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,113984
+attached_assets/Screenshot_٢٠٢٦٠٧١٨-٠٦١٢٠٢_1784344398002.png,Screenshot_٢٠٢٦٠٧١٨-٠٦١٢٠٢_1784344398002.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,111052
+attached_assets/Screenshot_٢٠٢٦٠٧١٨-٠٦١٢٤٢_1784344397966.png,Screenshot_٢٠٢٦٠٧١٨-٠٦١٢٤٢_1784344397966.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,105598
+attached_assets/Screenshot_٢٠٢٦٠٧١٨-٠٦١٢٤٦_1784344397931.png,Screenshot_٢٠٢٦٠٧١٨-٠٦١٢٤٦_1784344397931.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,111762
+attached_assets/Screenshot_٢٠٢٦٠٧١٨-٠٦١٩١٠_1784344762476.png,Screenshot_٢٠٢٦٠٧١٨-٠٦١٩١٠_1784344762476.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,109406
+attached_assets/Screenshot_٢٠٢٦٠٧١٩-٠٤٣٥١٧_1784424954601.png,Screenshot_٢٠٢٦٠٧١٩-٠٤٣٥١٧_1784424954601.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,137147
+attached_assets/Screenshot_٢٠٢٦٠٧١٩-٠٤٣٥٢١_1784424954559.png,Screenshot_٢٠٢٦٠٧١٩-٠٤٣٥٢١_1784424954559.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,194701
+attached_assets/Screenshot_٢٠٢٦٠٧٢٠-٠٢٠٢٥١_1784502211806.png,Screenshot_٢٠٢٦٠٧٢٠-٠٢٠٢٥١_1784502211806.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,33970
+attached_assets/Screenshot_٢٠٢٦٠٧٢٠-٠٢٠٣٠٤_1784502211776.png,Screenshot_٢٠٢٦٠٧٢٠-٠٢٠٣٠٤_1784502211776.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,118122
+attached_assets/Screenshot_٢٠٢٦٠٧٢٠-٠٢٢٤٤٨_1784504071817.png,Screenshot_٢٠٢٦٠٧٢٠-٠٢٢٤٤٨_1784504071817.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,181400
+attached_assets/Screenshot_٢٠٢٦٠٧٢٠-٠٢٢٤٥١_1784504071787.png,Screenshot_٢٠٢٦٠٧٢٠-٠٢٢٤٥١_1784504071787.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,214574
+attached_assets/Screenshot_٢٠٢٦٠٧٢٠-٠٢٢٤٥٥_1784504071737.png,Screenshot_٢٠٢٦٠٧٢٠-٠٢٢٤٥٥_1784504071737.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,187658
+attached_assets/Screenshot_٢٠٢٦٠٧٢٠-٠٣٢٣٤٤_1784507048475.png,Screenshot_٢٠٢٦٠٧٢٠-٠٣٢٣٤٤_1784507048475.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,70961
+attached_assets/Screenshot_٢٠٢٦٠٧٢٠-٠٤٤٥٣٥_1784512160900.png,Screenshot_٢٠٢٦٠٧٢٠-٠٤٤٥٣٥_1784512160900.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,73741
+attached_assets/Screenshot_٢٠٢٦٠٧٢٠-٠٦١٠٤٦_1784517131306.png,Screenshot_٢٠٢٦٠٧٢٠-٠٦١٠٤٦_1784517131306.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,87608
+attached_assets/Screenshot_٢٠٢٦٠٧٢٠-٠٦١٠٥٢_1784517131269.png,Screenshot_٢٠٢٦٠٧٢٠-٠٦١٠٥٢_1784517131269.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,100312
+attached_assets/Screenshot_٢٠٢٦٠٧٢١-١٨٠٩٠٦_1784646632784.png,Screenshot_٢٠٢٦٠٧٢١-١٨٠٩٠٦_1784646632784.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,82021
+attached_assets/Screenshot_٢٠٢٦٠٧٢٢-٠٣١٠٢٣_1784679051607.png,Screenshot_٢٠٢٦٠٧٢٢-٠٣١٠٢٣_1784679051607.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,59840
+attached_assets/Screenshot_٢٠٢٦٠٧٢٢-٠٤١٩٠٩_1784683176768.png,Screenshot_٢٠٢٦٠٧٢٢-٠٤١٩٠٩_1784683176768.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,35377
+attached_assets/Screenshot_٢٠٢٦٠٧٢٣-٠٤٣٠٠٢_1784770228979.png,Screenshot_٢٠٢٦٠٧٢٣-٠٤٣٠٠٢_1784770228979.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,101390
+attached_assets/Screenshot_٢٠٢٦٠٧٢٣-٠٤٣٥٠٨_1784770553876.png,Screenshot_٢٠٢٦٠٧٢٣-٠٤٣٥٠٨_1784770553876.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,106105
+attached_assets/Screenshot_٢٠٢٦٠٧٢٣-٠٤٣٥٢٤_1784770553834.png,Screenshot_٢٠٢٦٠٧٢٣-٠٤٣٥٢٤_1784770553834.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,103824
+attached_assets/Screenshot_٢٠٢٦٠٧٢٤-٠٢٥٨٣٣_1784851144113.png,Screenshot_٢٠٢٦٠٧٢٤-٠٢٥٨٣٣_1784851144113.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,98994
+attached_assets/Screenshot_٢٠٢٦٠٧٢٤-٠٣٢٤٤٥_1784852704570.png,Screenshot_٢٠٢٦٠٧٢٤-٠٣٢٤٤٥_1784852704570.png,.png,صورة,مرفقات تحليلية وأثرية,False,binary,165543
+attached_assets/agents_(1)_1783564013722.zip,agents_(1)_1783564013722.zip,.zip,أرشيف,مرفقات تحليلية وأثرية,False,binary,256
+attached_assets/ai_orchestrator_deep_dive_(1)_1783994021466.md,ai_orchestrator_deep_dive_(1)_1783994021466.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,10648
+attached_assets/artifacts_(7)_(1)_1783564013761.zip,artifacts_(7)_(1)_1783564013761.zip,.zip,أرشيف,مرفقات تحليلية وأثرية,False,binary,1668739
+attached_assets/engineeringos_forensic_analysis_1784431635464.md,engineeringos_forensic_analysis_1784431635464.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,108670
+attached_assets/engineeringos_forensic_analysis_complete_1784431954519.md,engineeringos_forensic_analysis_complete_1784431954519.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,189018
+attached_assets/engineeringos_forensic_analysis_complete_1784476328406.md,engineeringos_forensic_analysis_complete_1784476328406.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,189018
+attached_assets/engineeringos_forensic_audit_report_(2)_1784594296592_1784597203240.md,engineeringos_forensic_audit_report_(2)_1784594296592_1784597203240.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,22678
+attached_assets/engineeringos_forensic_audit_report_(2)_1784594296592_1784600036061.md,engineeringos_forensic_audit_report_(2)_1784594296592_1784600036061.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,22678
+attached_assets/engineeringos_forensic_audit_report_(2)_1784594296592_1784601251287.md,engineeringos_forensic_audit_report_(2)_1784594296592_1784601251287.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,22678
+attached_assets/engineeringos_forensic_audit_report_1784498370433.md,engineeringos_forensic_audit_report_1784498370433.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,10652
+attached_assets/engineeringos_forensic_audit_report_1784499793978.md,engineeringos_forensic_audit_report_1784499793978.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,10652
+attached_assets/engineeringos_forensic_audit_report_1784500814802.md,engineeringos_forensic_audit_report_1784500814802.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,10652
+attached_assets/engineeringos_master_inventory_(3)_1784597203313.csv,engineeringos_master_inventory_(3)_1784597203313.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,69240
+attached_assets/engineeringos_master_inventory_(3)_1784600036116.csv,engineeringos_master_inventory_(3)_1784600036116.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,69240
+attached_assets/engineeringos_master_inventory_(3)_1784601251241.csv,engineeringos_master_inventory_(3)_1784601251241.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,69240
+attached_assets/engineeringos_master_inventory_1784498370483.csv,engineeringos_master_inventory_1784498370483.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,77341
+attached_assets/engineeringos_master_inventory_1784499794029.csv,engineeringos_master_inventory_1784499794029.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,77341
+attached_assets/engineeringos_master_inventory_1784500814907.csv,engineeringos_master_inventory_1784500814907.csv,.csv,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,77341
+attached_assets/git_(2)_1783564013691.zip,git_(2)_1783564013691.zip,.zip,أرشيف,مرفقات تحليلية وأثرية,False,binary,134
+attached_assets/gitattributes_1783564013915.txt,gitattributes_1783564013915.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,92
+attached_assets/gitignore_(1)_1783564013965.txt,gitignore_(1)_1783564013965.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,668
+attached_assets/lib_(7)_(1)_1783564013810.zip,lib_(7)_(1)_1783564013810.zip,.zip,أرشيف,مرفقات تحليلية وأثرية,False,binary,219450
+attached_assets/node_modules_(2)_1783564014266.zip,node_modules_(2)_1783564014266.zip,.zip,أرشيف,مرفقات تحليلية وأثرية,False,binary,22
+attached_assets/npmrc_(2)_1783564014024.txt,npmrc_(2)_1783564014024.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,56
+attached_assets/package_(1)_(7)_1783564014328.json,package_(1)_(7)_1783564014328.json,.json,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,649
+attached_assets/pnpm-lock.yaml_(3)_1783564014392.txt,pnpm-lock.yaml_(3)_1783564014392.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,210264
+attached_assets/pnpm-workspace.yaml_(3)_1783564014449.txt,pnpm-workspace.yaml_(3)_1783564014449.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,6579
+attached_assets/pr-backlog-ai-orchestrator_1784306020062.md,pr-backlog-ai-orchestrator_1784306020062.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,15737
+attached_assets/replit_(13)_1783564014085.md,replit_(13)_1783564014085.md,.md,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,1521
+attached_assets/replit_(2)_1783564014509.txt,replit_(2)_1783564014509.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,372
+attached_assets/replitignore_1783564014569.txt,replitignore_1783564014569.txt,.txt,أصل,مرفقات تحليلية وأثرية,True,text,201
+attached_assets/scripts_(8)_1783564013865.zip,scripts_(8)_1783564013865.zip,.zip,أرشيف,مرفقات تحليلية وأثرية,False,binary,11642
+attached_assets/tsconfig.base_(2)_(1)_1783564014142.json,tsconfig.base_(2)_(1)_1783564014142.json,.json,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,692
+attached_assets/tsconfig_(7)_1783564014202.json,tsconfig_(7)_1783564014202.json,.json,بيانات/توثيق,مرفقات تحليلية وأثرية,True,text,279
+attached_assets/تحليل_EngineeringOS_1783804577785.docx,تحليل_EngineeringOS_1783804577785.docx,.docx,DOCX,مرفقات تحليلية وأثرية,True,binary,20978
+attached_assets/خطة_العمل_التنفيذية_لمشروع_EngineeringOS_1783729892699.docx,خطة_العمل_التنفيذية_لمشروع_EngineeringOS_1783729892699.docx,.docx,DOCX,مرفقات تحليلية وأثرية,True,binary,18423
+docs/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md,ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md,.md,توثيق,توثيق هندسي,True,text,17268
+docs/EXECUTION_ALIGNMENT_REPORT.md,EXECUTION_ALIGNMENT_REPORT.md,.md,توثيق,توثيق هندسي,True,text,7369
+docs/PLACEHOLDER_REGISTER.md,PLACEHOLDER_REGISTER.md,.md,توثيق,توثيق هندسي,True,text,8356
+docs/PR_BACKLOG.md,PR_BACKLOG.md,.md,توثيق,توثيق هندسي,True,text,19725
+docs/RUNTIME_EXECUTION_MATRIX.md,RUNTIME_EXECUTION_MATRIX.md,.md,توثيق,توثيق هندسي,True,text,3811
+docs/ai-orchestrator-executive-table.md,ai-orchestrator-executive-table.md,.md,توثيق,توثيق هندسي,True,text,16654
+docs/ai-orchestrator-forensic-analysis.md,ai-orchestrator-forensic-analysis.md,.md,توثيق,توثيق هندسي,True,text,30657
+docs/ai-orchestrator-gap-analysis.md,ai-orchestrator-gap-analysis.md,.md,توثيق,توثيق هندسي,True,text,14463
+docs/ai-orchestrator-trace-analysis.md,ai-orchestrator-trace-analysis.md,.md,توثيق,توثيق هندسي,True,text,14464
+docs/architecture.md,architecture.md,.md,توثيق,توثيق هندسي,True,text,18360
+docs/completion-plan.md,completion-plan.md,.md,توثيق,توثيق هندسي,True,text,45244
+docs/fact-record.md,fact-record.md,.md,توثيق,توثيق هندسي,True,text,153610
+docs/pr-backlog-ai-orchestrator.md,pr-backlog-ai-orchestrator.md,.md,توثيق,توثيق هندسي,True,text,15737
+docs/truth-flow-pr-checklist.md,truth-flow-pr-checklist.md,.md,توثيق,توثيق هندسي,True,text,4636
+docs/truth-flow-pr-review-plan.md,truth-flow-pr-review-plan.md,.md,توثيق,توثيق هندسي,True,text,21128
+lib/ai-orchestrator/package.json,package.json,.json,كود,تنسيق AI متعدد الوكلاء,True,text,530
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts,chat-agent.test.ts,.ts,اختبار,تنسيق AI متعدد الوكلاء,True,text,6564
+lib/ai-orchestrator/src/__tests__/file-tools.test.ts,file-tools.test.ts,.ts,اختبار,تنسيق AI متعدد الوكلاء,True,text,3400
+lib/ai-orchestrator/src/__tests__/groq-client.test.ts,groq-client.test.ts,.ts,اختبار,تنسيق AI متعدد الوكلاء,True,text,8271
+lib/ai-orchestrator/src/__tests__/parsing.test.ts,parsing.test.ts,.ts,اختبار,تنسيق AI متعدد الوكلاء,True,text,4864
+lib/ai-orchestrator/src/__tests__/schemas.test.ts,schemas.test.ts,.ts,اختبار,تنسيق AI متعدد الوكلاء,True,text,10914
+lib/ai-orchestrator/src/__tests__/workflow-orchestrator.test.ts,workflow-orchestrator.test.ts,.ts,اختبار,تنسيق AI متعدد الوكلاء,True,text,22740
+lib/ai-orchestrator/src/agent-complete.ts,agent-complete.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,4602
+lib/ai-orchestrator/src/agents/chat-agent.ts,chat-agent.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,27030
+lib/ai-orchestrator/src/agents/code-reviewer.ts,code-reviewer.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,2633
+lib/ai-orchestrator/src/agents/scan-analyst.ts,scan-analyst.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,2673
+lib/ai-orchestrator/src/agents/task-agent.ts,task-agent.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,3043
+lib/ai-orchestrator/src/agents/workflow-orchestrator.ts,workflow-orchestrator.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,11186
+lib/ai-orchestrator/src/context-builder.test.ts,context-builder.test.ts,.ts,اختبار,تنسيق AI متعدد الوكلاء,True,text,22543
+lib/ai-orchestrator/src/context-builder.ts,context-builder.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,25954
+lib/ai-orchestrator/src/deepseek-client.ts,deepseek-client.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,8905
+lib/ai-orchestrator/src/errors.ts,errors.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,2081
+lib/ai-orchestrator/src/groq-client.ts,groq-client.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,20327
+lib/ai-orchestrator/src/index.ts,index.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,1820
+lib/ai-orchestrator/src/openai-compatible-client.ts,openai-compatible-client.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,13602
+lib/ai-orchestrator/src/parsing.ts,parsing.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,4200
+lib/ai-orchestrator/src/prompts/chat.prompt.ts,chat.prompt.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,6848
+lib/ai-orchestrator/src/prompts/index.ts,index.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,424
+lib/ai-orchestrator/src/prompts/review.prompt.ts,review.prompt.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,3940
+lib/ai-orchestrator/src/prompts/scan.prompt.ts,scan.prompt.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,3530
+lib/ai-orchestrator/src/prompts/task.prompt.ts,task.prompt.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,3220
+lib/ai-orchestrator/src/prompts/workflow.prompt.ts,workflow.prompt.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,4077
+lib/ai-orchestrator/src/provider-registry.ts,provider-registry.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,2566
+lib/ai-orchestrator/src/schemas/chat.schema.ts,chat.schema.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,2461
+lib/ai-orchestrator/src/schemas/code-review.schema.ts,code-review.schema.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,1118
+lib/ai-orchestrator/src/schemas/context.schema.ts,context.schema.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,932
+lib/ai-orchestrator/src/schemas/index.ts,index.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,961
+lib/ai-orchestrator/src/schemas/scan.schema.ts,scan.schema.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,800
+lib/ai-orchestrator/src/schemas/task.schema.ts,task.schema.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,398
+lib/ai-orchestrator/src/schemas/workflow.schema.ts,workflow.schema.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,4236
+lib/ai-orchestrator/src/tools/file-tools.ts,file-tools.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,18675
+lib/ai-orchestrator/src/tools/git-tools.ts,git-tools.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,4976
+lib/ai-orchestrator/tsconfig.json,tsconfig.json,.json,كود,تنسيق AI متعدد الوكلاء,True,text,298
+lib/ai-orchestrator/vitest.config.ts,vitest.config.ts,.ts,كود,تنسيق AI متعدد الوكلاء,True,text,304
+lib/api-client-react/package.json,package.json,.json,كود,عميل React Query مولد,True,text,265
+lib/api-client-react/src/custom-fetch.ts,custom-fetch.ts,.ts,كود,عميل React Query مولد,True,text,11892
+lib/api-client-react/src/generated/api.schemas.ts,api.schemas.ts,.ts,كود مولد,عميل React Query مولد,True,text,33395
+lib/api-client-react/src/generated/api.ts,api.ts,.ts,كود مولد,عميل React Query مولد,True,text,207746
+lib/api-client-react/src/index.ts,index.ts,.ts,كود,عميل React Query مولد,True,text,778
+lib/api-client-react/src/project-error.ts,project-error.ts,.ts,كود,عميل React Query مولد,True,text,5928
+lib/api-client-react/src/use-ai-chat-stream.ts,use-ai-chat-stream.ts,.ts,كود,عميل React Query مولد,True,text,6188
+lib/api-client-react/tsconfig.json,tsconfig.json,.json,كود,عميل React Query مولد,True,text,251
+lib/api-spec/openapi.yaml,openapi.yaml,.yaml,كود,OpenAPI ومصدر العقود,True,text,110894
+lib/api-spec/orval.config.ts,orval.config.ts,.ts,كود,OpenAPI ومصدر العقود,True,text,1959
+lib/api-spec/package.json,package.json,.json,كود,OpenAPI ومصدر العقود,True,text,307
+lib/api-zod/package.json,package.json,.json,كود,أنواع/مخططات Zod مولدة من العقود,True,text,189
+lib/api-zod/src/generated/api.ts,api.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,113269
+lib/api-zod/src/generated/types/activeProviderStatus.ts,activeProviderStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,542
+lib/api-zod/src/generated/types/activeProviderStatusProvider.ts,activeProviderStatusProvider.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,528
+lib/api-zod/src/generated/types/aiApplyChangesRequest.ts,aiApplyChangesRequest.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,368
+lib/api-zod/src/generated/types/aiApplyChangesRequestChangesItem.ts,aiApplyChangesRequestChangesItem.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,279
+lib/api-zod/src/generated/types/aiApplyChangesResult.ts,aiApplyChangesResult.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,343
+lib/api-zod/src/generated/types/aiApplyChangesResultResultsItem.ts,aiApplyChangesResultResultsItem.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,265
+lib/api-zod/src/generated/types/aiChatMessage.ts,aiChatMessage.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,389
+lib/api-zod/src/generated/types/aiChatMessageRole.ts,aiChatMessageRole.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,366
+lib/api-zod/src/generated/types/aiChatOutput.ts,aiChatOutput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,498
+lib/api-zod/src/generated/types/aiChatRequest.ts,aiChatRequest.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,262
+lib/api-zod/src/generated/types/aiChatSession.ts,aiChatSession.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,290
+lib/api-zod/src/generated/types/aiCodeIssue.ts,aiCodeIssue.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,466
+lib/api-zod/src/generated/types/aiCodeIssueSeverity.ts,aiCodeIssueSeverity.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,386
+lib/api-zod/src/generated/types/aiCodeIssueType.ts,aiCodeIssueType.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,414
+lib/api-zod/src/generated/types/aiCodeReview.ts,aiCodeReview.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,506
+lib/api-zod/src/generated/types/aiCodeReviewVerdict.ts,aiCodeReviewVerdict.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,402
+lib/api-zod/src/generated/types/aiOrchestrateRequest.ts,aiOrchestrateRequest.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,237
+lib/api-zod/src/generated/types/aiOrchestrationDecision.ts,aiOrchestrationDecision.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,436
+lib/api-zod/src/generated/types/aiOrchestrationDecisionAction.ts,aiOrchestrationDecisionAction.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,430
+lib/api-zod/src/generated/types/aiPendingChange.ts,aiPendingChange.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,621
+lib/api-zod/src/generated/types/aiReviewRequest.ts,aiReviewRequest.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,330
+lib/api-zod/src/generated/types/aiReviewRequestFileContents.ts,aiReviewRequestFileContents.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,232
+lib/api-zod/src/generated/types/aiScanAnalysis.ts,aiScanAnalysis.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,382
+lib/api-zod/src/generated/types/aiScanInsight.ts,aiScanInsight.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,476
+lib/api-zod/src/generated/types/aiScanInsightCategory.ts,aiScanInsightCategory.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,474
+lib/api-zod/src/generated/types/aiScanInsightSeverity.ts,aiScanInsightSeverity.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,394
+lib/api-zod/src/generated/types/apiError.ts,apiError.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,212
+lib/api-zod/src/generated/types/archiveUploadInput.ts,archiveUploadInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,273
+lib/api-zod/src/generated/types/archiveUploadOutput.ts,archiveUploadOutput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,446
+lib/api-zod/src/generated/types/createProjectInput.ts,createProjectInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,307
+lib/api-zod/src/generated/types/createRuleInput.ts,createRuleInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,432
+lib/api-zod/src/generated/types/createTaskInput.ts,createTaskInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,453
+lib/api-zod/src/generated/types/createWorkflowInput.ts,createWorkflowInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,348
+lib/api-zod/src/generated/types/dashboardOverview.ts,dashboardOverview.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,820
+lib/api-zod/src/generated/types/dashboardOverviewProjectScoresItem.ts,dashboardOverviewProjectScoresItem.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,436
+lib/api-zod/src/generated/types/dashboardOverviewProjectScoresItemTrend.ts,dashboardOverviewProjectScoresItemTrend.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,464
+lib/api-zod/src/generated/types/dashboardOverviewTaskStatusBreakdown.ts,dashboardOverviewTaskStatusBreakdown.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,241
+lib/api-zod/src/generated/types/dashboardOverviewTopRulesItem.ts,dashboardOverviewTopRulesItem.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,285
+lib/api-zod/src/generated/types/deepSeekKeyStatus.ts,deepSeekKeyStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,404
+lib/api-zod/src/generated/types/deleteDeepSeekKey200.ts,deleteDeepSeekKey200.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,228
+lib/api-zod/src/generated/types/deleteGroqKey200.ts,deleteGroqKey200.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,224
+lib/api-zod/src/generated/types/deleteOpenRouterKey200.ts,deleteOpenRouterKey200.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,230
+lib/api-zod/src/generated/types/deleteProviderKey200.ts,deleteProviderKey200.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,228
+lib/api-zod/src/generated/types/discoveryGraphSummaryData.ts,discoveryGraphSummaryData.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,598
+lib/api-zod/src/generated/types/discoveryGraphSummaryDataEntitiesByType.ts,discoveryGraphSummaryDataEntitiesByType.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,244
+lib/api-zod/src/generated/types/discoveryGraphSummaryDataFilesByLanguage.ts,discoveryGraphSummaryDataFilesByLanguage.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,245
+lib/api-zod/src/generated/types/discoveryOptions.ts,discoveryOptions.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,347
+lib/api-zod/src/generated/types/discoveryReport.ts,discoveryReport.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,1286
+lib/api-zod/src/generated/types/discoveryRuleViolationItem.ts,discoveryRuleViolationItem.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,283
+lib/api-zod/src/generated/types/discoverySessionStatus.ts,discoverySessionStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,676
+lib/api-zod/src/generated/types/discoverySessionStatusStatus.ts,discoverySessionStatusStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,460
+lib/api-zod/src/generated/types/discoverySourceCapability.ts,discoverySourceCapability.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,412
+lib/api-zod/src/generated/types/discoverySourceConfig.ts,discoverySourceConfig.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,909
+lib/api-zod/src/generated/types/discoverySourceConfigCredentials.ts,discoverySourceConfigCredentials.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,323
+lib/api-zod/src/generated/types/discoveryStepItem.ts,discoveryStepItem.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,378
+lib/api-zod/src/generated/types/discoveryStepItemStatus.ts,discoveryStepItemStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,406
+lib/api-zod/src/generated/types/entityType.ts,entityType.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,418
+lib/api-zod/src/generated/types/evaluateRuleRequest.ts,evaluateRuleRequest.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,227
+lib/api-zod/src/generated/types/event.ts,event.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,714
+lib/api-zod/src/generated/types/eventPayload.ts,eventPayload.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,220
+lib/api-zod/src/generated/types/eventSeverity.ts,eventSeverity.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,366
+lib/api-zod/src/generated/types/failWorkflowPhaseInput.ts,failWorkflowPhaseInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,227
+lib/api-zod/src/generated/types/getGraphEntityImpact404.ts,getGraphEntityImpact404.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,225
+lib/api-zod/src/generated/types/getGraphEntityImpactParams.ts,getGraphEntityImpactParams.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,284
+lib/api-zod/src/generated/types/getGraphEntityNeighbors200.ts,getGraphEntityNeighbors200.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,440
+lib/api-zod/src/generated/types/getGraphEntityNeighbors404.ts,getGraphEntityNeighbors404.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,228
+lib/api-zod/src/generated/types/getGraphEvidence403.ts,getGraphEvidence403.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,221
+lib/api-zod/src/generated/types/getGraphEvidence404.ts,getGraphEvidence404.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,221
+lib/api-zod/src/generated/types/getGraphPathParams.ts,getGraphPathParams.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,288
+lib/api-zod/src/generated/types/getGraphRuntimeSubgraph403.ts,getGraphRuntimeSubgraph403.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,228
+lib/api-zod/src/generated/types/getGraphRuntimeSubgraph404.ts,getGraphRuntimeSubgraph404.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,228
+lib/api-zod/src/generated/types/getGraphSemanticNeighborhood400.ts,getGraphSemanticNeighborhood400.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,233
+lib/api-zod/src/generated/types/getGraphSemanticNeighborhood403.ts,getGraphSemanticNeighborhood403.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,233
+lib/api-zod/src/generated/types/getGraphSemanticNeighborhood404.ts,getGraphSemanticNeighborhood404.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,233
+lib/api-zod/src/generated/types/getGraphSemanticNeighborhoodParams.ts,getGraphSemanticNeighborhoodParams.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,414
+lib/api-zod/src/generated/types/getGraphSubgraph400.ts,getGraphSubgraph400.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,221
+lib/api-zod/src/generated/types/getGraphSubgraph403.ts,getGraphSubgraph403.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,221
+lib/api-zod/src/generated/types/getGraphSubgraph404.ts,getGraphSubgraph404.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,221
+lib/api-zod/src/generated/types/getGraphSubgraphParams.ts,getGraphSubgraphParams.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,365
+lib/api-zod/src/generated/types/getLatestMetricsParams.ts,getLatestMetricsParams.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,227
+lib/api-zod/src/generated/types/gitCommitEntry.ts,gitCommitEntry.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,466
+lib/api-zod/src/generated/types/gitCommitInput.ts,gitCommitInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,337
+lib/api-zod/src/generated/types/gitConfig.ts,gitConfig.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,371
+lib/api-zod/src/generated/types/gitHubTokenStatus.ts,gitHubTokenStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,358
+lib/api-zod/src/generated/types/gitLog.ts,gitLog.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,278
+lib/api-zod/src/generated/types/gitOperationResult.ts,gitOperationResult.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,319
+lib/api-zod/src/generated/types/gitPushResult.ts,gitPushResult.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,369
+lib/api-zod/src/generated/types/gitStatus.ts,gitStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,346
+lib/api-zod/src/generated/types/gitStatusFile.ts,gitStatusFile.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,355
+lib/api-zod/src/generated/types/graphCentralityScore.ts,graphCentralityScore.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,335
+lib/api-zod/src/generated/types/graphEdgeType.ts,graphEdgeType.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,551
+lib/api-zod/src/generated/types/graphEntity.ts,graphEntity.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,1474
+lib/api-zod/src/generated/types/graphEntityMetadata.ts,graphEntityMetadata.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,227
+lib/api-zod/src/generated/types/graphEvidence.ts,graphEvidence.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,499
+lib/api-zod/src/generated/types/graphEvidenceBundle.ts,graphEvidenceBundle.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,386
+lib/api-zod/src/generated/types/graphEvidenceKind.ts,graphEvidenceKind.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,510
+lib/api-zod/src/generated/types/graphEvidenceResponse.ts,graphEvidenceResponse.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,382
+lib/api-zod/src/generated/types/graphImpactHop.ts,graphImpactHop.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,435
+lib/api-zod/src/generated/types/graphImpactResult.ts,graphImpactResult.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,388
+lib/api-zod/src/generated/types/graphLayerCounts.ts,graphLayerCounts.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,255
+lib/api-zod/src/generated/types/graphPathResult.ts,graphPathResult.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,319
+lib/api-zod/src/generated/types/graphPathStep.ts,graphPathStep.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,371
+lib/api-zod/src/generated/types/graphProvenance.ts,graphProvenance.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,437
+lib/api-zod/src/generated/types/graphRelationship.ts,graphRelationship.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,1903
+lib/api-zod/src/generated/types/graphRelationshipMetadata.ts,graphRelationshipMetadata.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,233
+lib/api-zod/src/generated/types/graphRuntimeSubgraph.ts,graphRuntimeSubgraph.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,384
+lib/api-zod/src/generated/types/graphSemanticNeighborhood.ts,graphSemanticNeighborhood.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,410
+lib/api-zod/src/generated/types/graphSubgraph.ts,graphSubgraph.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,579
+lib/api-zod/src/generated/types/graphSubgraphFilters.ts,graphSubgraphFilters.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,413
+lib/api-zod/src/generated/types/graphSubgraphLayered.ts,graphSubgraphLayered.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,357
+lib/api-zod/src/generated/types/graphSummary.ts,graphSummary.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,706
+lib/api-zod/src/generated/types/graphSummaryEntitiesByType.ts,graphSummaryEntitiesByType.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,231
+lib/api-zod/src/generated/types/graphSummaryRelationsByType.ts,graphSummaryRelationsByType.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,232
+lib/api-zod/src/generated/types/groqKeyStatus.ts,groqKeyStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,400
+lib/api-zod/src/generated/types/healthStatus.ts,healthStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,486
+lib/api-zod/src/generated/types/healthStatusStatus.ts,healthStatusStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,320
+lib/api-zod/src/generated/types/importProjectInput.ts,importProjectInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,353
+lib/api-zod/src/generated/types/importProjectInputOverrides.ts,importProjectInputOverrides.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,296
+lib/api-zod/src/generated/types/index.ts,index.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,6696
+lib/api-zod/src/generated/types/jobQueueStats.ts,jobQueueStats.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,698
+lib/api-zod/src/generated/types/listAiChatSessionsParams.ts,listAiChatSessionsParams.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,228
+lib/api-zod/src/generated/types/listEventsParams.ts,listEventsParams.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,342
+lib/api-zod/src/generated/types/listGraphEntitiesParams.ts,listGraphEntitiesParams.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,295
+lib/api-zod/src/generated/types/listGraphRelationshipsParams.ts,listGraphRelationshipsParams.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,252
+lib/api-zod/src/generated/types/listMetricsParams.ts,listMetricsParams.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,245
+lib/api-zod/src/generated/types/listRulesParams.ts,listRulesParams.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,297
+lib/api-zod/src/generated/types/listTasksParams.ts,listTasksParams.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,366
+lib/api-zod/src/generated/types/listWorkflowsParams.ts,listWorkflowsParams.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,224
+lib/api-zod/src/generated/types/metricRecord.ts,metricRecord.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,660
+lib/api-zod/src/generated/types/metricRecordBuildStatus.ts,metricRecordBuildStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,394
+lib/api-zod/src/generated/types/openRouterKeyStatus.ts,openRouterKeyStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,406
+lib/api-zod/src/generated/types/operationalCounters.ts,operationalCounters.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,771
+lib/api-zod/src/generated/types/plugin.ts,plugin.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,433
+lib/api-zod/src/generated/types/pluginCapabilitiesItem.ts,pluginCapabilitiesItem.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,436
+lib/api-zod/src/generated/types/pluginProjectRequest.ts,pluginProjectRequest.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,228
+lib/api-zod/src/generated/types/project.ts,project.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,584
+lib/api-zod/src/generated/types/projectStatus.ts,projectStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,376
+lib/api-zod/src/generated/types/projectSummary.ts,projectSummary.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,508
+lib/api-zod/src/generated/types/projectSummaryTaskCounts.ts,projectSummaryTaskCounts.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,303
+lib/api-zod/src/generated/types/providerKeyStatus.ts,providerKeyStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,431
+lib/api-zod/src/generated/types/rule.ts,rule.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,514
+lib/api-zod/src/generated/types/ruleEvaluationResult.ts,ruleEvaluationResult.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,424
+lib/api-zod/src/generated/types/ruleEvaluationResultMatchesItem.ts,ruleEvaluationResultMatchesItem.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,267
+lib/api-zod/src/generated/types/ruleSeverity.ts,ruleSeverity.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,374
+lib/api-zod/src/generated/types/saveDeepSeekKeyInput.ts,saveDeepSeekKeyInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,329
+lib/api-zod/src/generated/types/saveGitHubTokenInput.ts,saveGitHubTokenInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,327
+lib/api-zod/src/generated/types/saveGroqKeyInput.ts,saveGroqKeyInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,321
+lib/api-zod/src/generated/types/saveOpenRouterKeyInput.ts,saveOpenRouterKeyInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,333
+lib/api-zod/src/generated/types/scanJob.ts,scanJob.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,739
+lib/api-zod/src/generated/types/scanJobStatus.ts,scanJobStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,376
+lib/api-zod/src/generated/types/scanResult.ts,scanResult.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,329
+lib/api-zod/src/generated/types/sourceType.ts,sourceType.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,498
+lib/api-zod/src/generated/types/startDiscoveryInput.ts,startDiscoveryInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,479
+lib/api-zod/src/generated/types/task.ts,task.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,784
+lib/api-zod/src/generated/types/taskLog.ts,taskLog.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,427
+lib/api-zod/src/generated/types/taskLogLevel.ts,taskLogLevel.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,352
+lib/api-zod/src/generated/types/taskLogMetadata.ts,taskLogMetadata.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,223
+lib/api-zod/src/generated/types/taskPriority.ts,taskPriority.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,332
+lib/api-zod/src/generated/types/taskStatus.ts,taskStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,438
+lib/api-zod/src/generated/types/updateGitConfigInput.ts,updateGitConfigInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,370
+lib/api-zod/src/generated/types/updateProjectInput.ts,updateProjectInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,359
+lib/api-zod/src/generated/types/updateProjectInputStatus.ts,updateProjectInputStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,420
+lib/api-zod/src/generated/types/updateRuleInput.ts,updateRuleInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,391
+lib/api-zod/src/generated/types/updateTaskInput.ts,updateTaskInput.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,394
+lib/api-zod/src/generated/types/verificationResult.ts,verificationResult.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,346
+lib/api-zod/src/generated/types/verificationResultStepsItem.ts,verificationResultStepsItem.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,266
+lib/api-zod/src/generated/types/workflow.ts,workflow.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,548
+lib/api-zod/src/generated/types/workflowExecution.ts,workflowExecution.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,443
+lib/api-zod/src/generated/types/workflowPhase.ts,workflowPhase.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,257
+lib/api-zod/src/generated/types/workflowStatus.ts,workflowStatus.ts,.ts,كود مولد,أنواع/مخططات Zod مولدة من العقود,True,text,398
+lib/api-zod/src/index.ts,index.ts,.ts,كود,أنواع/مخططات Zod مولدة من العقود,True,text,112
+lib/api-zod/src/truth-flow-matrix.schema.ts,truth-flow-matrix.schema.ts,.ts,كود,أنواع/مخططات Zod مولدة من العقود,True,text,14969
+lib/api-zod/tsconfig.json,tsconfig.json,.json,كود,أنواع/مخططات Zod مولدة من العقود,True,text,251
+lib/db/drizzle.config.ts,drizzle.config.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,352
+lib/db/package.json,package.json,.json,كود,مخطط DB وطبقة Drizzle,True,text,578
+lib/db/src/index.ts,index.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,434
+lib/db/src/schema/ai_chats.ts,ai_chats.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,1362
+lib/db/src/schema/ai_provider_credentials.ts,ai_provider_credentials.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,1284
+lib/db/src/schema/audit_logs.ts,audit_logs.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,2420
+lib/db/src/schema/discovery.ts,discovery.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,4647
+lib/db/src/schema/events.ts,events.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,1610
+lib/db/src/schema/graph.ts,graph.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,9134
+lib/db/src/schema/index.ts,index.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,506
+lib/db/src/schema/metrics.ts,metrics.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,1588
+lib/db/src/schema/plugins.ts,plugins.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,785
+lib/db/src/schema/projects.ts,projects.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,1604
+lib/db/src/schema/rate_limits.ts,rate_limits.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,1686
+lib/db/src/schema/rules.ts,rules.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,1273
+lib/db/src/schema/scan_jobs.ts,scan_jobs.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,2176
+lib/db/src/schema/task_logs.ts,task_logs.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,862
+lib/db/src/schema/tasks.ts,tasks.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,2245
+lib/db/src/schema/uploads.ts,uploads.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,2139
+lib/db/src/schema/workflows.ts,workflows.ts,.ts,كود,مخطط DB وطبقة Drizzle,True,text,1762
+lib/db/tsconfig.json,tsconfig.json,.json,كود,مخطط DB وطبقة Drizzle,True,text,244
+lib/knowledge-engine/package.json,package.json,.json,كود,استعلامات واستدلال على graph,True,text,436
+lib/knowledge-engine/src/__tests__/inference.test.ts,inference.test.ts,.ts,اختبار,استعلامات واستدلال على graph,True,text,5906
+lib/knowledge-engine/src/__tests__/queries.test.ts,queries.test.ts,.ts,اختبار,استعلامات واستدلال على graph,True,text,14435
+lib/knowledge-engine/src/index.ts,index.ts,.ts,كود,استعلامات واستدلال على graph,True,text,1406
+lib/knowledge-engine/src/inference.ts,inference.ts,.ts,كود,استعلامات واستدلال على graph,True,text,11444
+lib/knowledge-engine/src/queries.ts,queries.ts,.ts,كود,استعلامات واستدلال على graph,True,text,23879
+lib/knowledge-engine/src/types.ts,types.ts,.ts,كود,استعلامات واستدلال على graph,True,text,8752
+lib/knowledge-engine/tsconfig.json,tsconfig.json,.json,كود,استعلامات واستدلال على graph,True,text,298
+lib/scanner/package.json,package.json,.json,كود,استخراج graph/metrics من الكود,True,text,434
+lib/scanner/src/__tests__/file-walker.test.ts,file-walker.test.ts,.ts,اختبار,استخراج graph/metrics من الكود,True,text,4868
+lib/scanner/src/__tests__/graph-extractor.test.ts,graph-extractor.test.ts,.ts,اختبار,استخراج graph/metrics من الكود,True,text,30512
+lib/scanner/src/__tests__/metrics-calc.test.ts,metrics-calc.test.ts,.ts,اختبار,استخراج graph/metrics من الكود,True,text,4692
+lib/scanner/src/__tests__/rule-matcher.test.ts,rule-matcher.test.ts,.ts,اختبار,استخراج graph/metrics من الكود,True,text,3493
+lib/scanner/src/file-walker.ts,file-walker.ts,.ts,كود,استخراج graph/metrics من الكود,True,text,7104
+lib/scanner/src/graph-extractor.ts,graph-extractor.ts,.ts,كود,استخراج graph/metrics من الكود,True,text,46968
+lib/scanner/src/index.ts,index.ts,.ts,كود,استخراج graph/metrics من الكود,True,text,667
+lib/scanner/src/metrics-calc.ts,metrics-calc.ts,.ts,كود,استخراج graph/metrics من الكود,True,text,7231
+lib/scanner/src/python-ast-script.py,python-ast-script.py,.py,كود,استخراج graph/metrics من الكود,True,text,4993
+lib/scanner/src/python-ast-script.ts,python-ast-script.ts,.ts,كود,استخراج graph/metrics من الكود,True,text,5935
+lib/scanner/src/python-extractor.ts,python-extractor.ts,.ts,كود,استخراج graph/metrics من الكود,True,text,3567
+lib/scanner/src/rule-matcher.ts,rule-matcher.ts,.ts,كود,استخراج graph/metrics من الكود,True,text,3971
+lib/scanner/tsconfig.json,tsconfig.json,.json,كود,استخراج graph/metrics من الكود,True,text,244
+lib/scanner/vitest.config.ts,vitest.config.ts,.ts,كود,استخراج graph/metrics من الكود,True,text,304
+package.json,package.json,.json,إعدادات,ملف إعداد/جذر,True,text,1005
+pnpm-lock.yaml,pnpm-lock.yaml,.yaml,آخر,ملف إعداد/جذر,True,text,266814
+pnpm-workspace.yaml,pnpm-workspace.yaml,.yaml,آخر,ملف إعداد/جذر,True,text,6579
+replit.md,replit.md,.md,آخر,ملف إعداد/جذر,True,text,3666
+scripts/check-codegen-drift.ts,check-codegen-drift.ts,.ts,سكربت,أدوات تشغيل/تحقق,True,text,2934
+scripts/package.json,package.json,.json,سكربت,أدوات تشغيل/تحقق,True,text,464
+scripts/post-merge.sh,post-merge.sh,.sh,سكربت,أدوات تشغيل/تحقق,True,text,712
+scripts/src/hello.ts,hello.ts,.ts,سكربت,أدوات تشغيل/تحقق,True,text,46
+scripts/trigger-scan.mts,trigger-scan.mts,.mts,سكربت,أدوات تشغيل/تحقق,True,text,6016
+scripts/tsconfig.json,tsconfig.json,.json,سكربت,أدوات تشغيل/تحقق,True,text,143
+scripts/validate-truth-flow.ts,validate-truth-flow.ts,.ts,سكربت,أدوات تشغيل/تحقق,True,text,4820
+scripts/verify-setup.sh,verify-setup.sh,.sh,سكربت,أدوات تشغيل/تحقق,True,text,2691
+tsconfig.base.json,tsconfig.base.json,.json,إعدادات,ملف إعداد/جذر,True,text,691
+tsconfig.base.json.bak,tsconfig.base.json.bak,.bak,إعدادات,ملف إعداد/جذر,True,text,692
+tsconfig.json,tsconfig.json,.json,إعدادات,ملف إعداد/جذر,True,text,382
