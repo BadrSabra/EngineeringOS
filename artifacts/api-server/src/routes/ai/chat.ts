@@ -16,6 +16,7 @@ import { db } from "@workspace/db";
 import {
   aiChatSessionsTable,
   aiChatMessagesTable,
+  auditLogsTable,
   eventsTable,
 } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
@@ -25,7 +26,6 @@ import {
   chat,
   GroqClientError,
 } from "@workspace/ai-orchestrator";
-import { recordAudit } from "../../lib/audit.js";
 import { logger } from "../../lib/logger.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
 import { tryAdvisoryLock, LockNamespace } from "../../lib/advisory-lock.js";
@@ -636,15 +636,6 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
     const appliedPaths = results.filter((r) => r.ok).map((r) => r.path);
     const failedPaths  = results.filter((r) => !r.ok).map((r) => r.path);
     const applyCorrelationId = randomUUID();
-    await recordAudit({
-      entityType: "project",
-      entityId: projectId,
-      action: "ai_executed",
-      projectId,
-      stateBefore: {},
-      stateAfter: { filesWritten: appliedPaths, failedFiles: failedPaths },
-      correlationId: applyCorrelationId,
-    });
 
     if (appliedPaths.length > 0) {
       invalidateContextCache(projectId);
@@ -653,16 +644,29 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
     const preview = appliedPaths.length > 0
       ? appliedPaths.slice(0, 3).join(", ") + (appliedPaths.length > 3 ? ` +${appliedPaths.length - 3} more` : "")
       : failedPaths.slice(0, 3).join(", ") + (failedPaths.length > 3 ? ` +${failedPaths.length - 3} more` : "");
-    await db.insert(eventsTable).values({
-      id: randomUUID(),
-      type: "AiChangesApplied",
-      projectId,
-      severity: appliedPaths.length > 0 ? (failedPaths.length > 0 ? "warning" : "success") : "warning",
-      message: appliedPaths.length > 0
-        ? `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`
-        : `AI apply made no writable changes: ${preview || "none"}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
-      correlationId: applyCorrelationId,
-      payload: { appliedFiles: appliedPaths, failedFiles: failedPaths },
+    await db.transaction(async (tx) => {
+      await tx.insert(auditLogsTable).values({
+        id: applyCorrelationId,
+        entityType: "project",
+        entityId: projectId,
+        action: "ai_executed",
+        projectId,
+        actor: req.userId,
+        stateBefore: {},
+        stateAfter: { filesWritten: appliedPaths, failedFiles: failedPaths },
+        correlationId: applyCorrelationId,
+      });
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "AiChangesApplied",
+        projectId,
+        severity: appliedPaths.length > 0 ? (failedPaths.length > 0 ? "warning" : "success") : "warning",
+        message: appliedPaths.length > 0
+          ? `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`
+          : `AI apply made no writable changes: ${preview || "none"}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
+        correlationId: applyCorrelationId,
+        payload: { appliedFiles: appliedPaths, failedFiles: failedPaths },
+      });
     });
 
     const allOk = results.every((r) => r.ok);

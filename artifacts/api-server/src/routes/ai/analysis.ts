@@ -8,14 +8,13 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import path from "node:path";
 import { db } from "@workspace/db";
-import { eventsTable } from "@workspace/db";
+import { auditLogsTable, eventsTable } from "@workspace/db";
 import {
   buildProjectContext,
   invalidateContextCache,
   analyzeScan,
   reviewCode,
 } from "@workspace/ai-orchestrator";
-import { recordAudit } from "../../lib/audit.js";
 import { logger } from "../../lib/logger.js";
 import { requireProjectAccess } from "../../middlewares/requireProjectAccess.js";
 import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
@@ -73,23 +72,25 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
 
   invalidateContextCache(projectId);
 
-  await Promise.all([
-    recordAudit({
+  await db.transaction(async (tx) => {
+    await tx.insert(auditLogsTable).values({
+      id: randomUUID(),
       entityType: "project",
       entityId: projectId,
       action: "ai_analyzed",
       projectId,
+      actor: req.userId,
       stateBefore: {},
       stateAfter: { summary: result.summary, overallAssessment: result.overallAssessment },
-    }),
-    db.insert(eventsTable).values({
+    });
+    await tx.insert(eventsTable).values({
       id: randomUUID(),
       type: "AiScanAnalysisCompleted",
       projectId,
       severity: "info",
       message: `AI scan analysis completed: ${result.summary}`,
-    }),
-  ]);
+    });
+  });
 
   return res.json(result);
 });
@@ -162,23 +163,25 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
 
   invalidateContextCache(projectId);
 
-  await Promise.all([
-    recordAudit({
+  await db.transaction(async (tx) => {
+    await tx.insert(auditLogsTable).values({
+      id: randomUUID(),
       entityType: "project",
       entityId: projectId,
       action: "ai_reviewed",
       projectId,
+      actor: req.userId,
       stateBefore: {},
       stateAfter: { verdict: result.verdict, overallScore: result.overallScore },
-    }),
-    db.insert(eventsTable).values({
+    });
+    await tx.insert(eventsTable).values({
       id: randomUUID(),
       type: "AiCodeReviewCompleted",
       projectId,
       severity: result.verdict === "approved" ? "success" : "warning",
       message: `AI code review: ${result.verdict} (score: ${result.overallScore}/100)`,
-    }),
-  ]);
+    });
+  });
 
   return res.json(result);
 });

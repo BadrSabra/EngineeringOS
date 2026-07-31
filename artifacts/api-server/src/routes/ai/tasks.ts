@@ -396,9 +396,8 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
       }
 
       let agentResult: Awaited<ReturnType<typeof executeTask>>;
-      let effectiveAutoProvider = provider;
       try {
-        ({ result: agentResult, effectiveProvider: effectiveAutoProvider } = await runAgentWithFallback(
+        ({ result: agentResult } = await runAgentWithFallback(
           userId,
           { provider, apiKey },
           (opts) => executeTask({

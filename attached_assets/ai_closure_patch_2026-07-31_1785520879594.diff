@@ -1,0 +1,335 @@
+diff -ruN /tmp/engos-src/EngineeringOS-main/artifacts/api-server/src/routes/ai/analysis.ts /tmp/engos-mod/EngineeringOS-main/artifacts/api-server/src/routes/ai/analysis.ts
+--- /tmp/engos-src/EngineeringOS-main/artifacts/api-server/src/routes/ai/analysis.ts	2026-07-31 03:43:11.000000000 +0000
++++ /tmp/engos-mod/EngineeringOS-main/artifacts/api-server/src/routes/ai/analysis.ts	2026-07-31 17:51:15.188815480 +0000
+@@ -8,14 +8,13 @@
+ import { randomUUID } from "crypto";
+ import path from "node:path";
+ import { db } from "@workspace/db";
+-import { eventsTable } from "@workspace/db";
++import { auditLogsTable, eventsTable } from "@workspace/db";
+ import {
+   buildProjectContext,
+   invalidateContextCache,
+   analyzeScan,
+   reviewCode,
+ } from "@workspace/ai-orchestrator";
+-import { recordAudit } from "../../lib/audit.js";
+ import { logger } from "../../lib/logger.js";
+ import { requireProjectAccess } from "../../middlewares/requireProjectAccess.js";
+ import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
+@@ -73,23 +72,25 @@
+ 
+   invalidateContextCache(projectId);
+ 
+-  await Promise.all([
+-    recordAudit({
++  await db.transaction(async (tx) => {
++    await tx.insert(auditLogsTable).values({
++      id: randomUUID(),
+       entityType: "project",
+       entityId: projectId,
+       action: "ai_analyzed",
+       projectId,
++      actor: req.userId,
+       stateBefore: {},
+       stateAfter: { summary: result.summary, overallAssessment: result.overallAssessment },
+-    }),
+-    db.insert(eventsTable).values({
++    });
++    await tx.insert(eventsTable).values({
+       id: randomUUID(),
+       type: "AiScanAnalysisCompleted",
+       projectId,
+       severity: "info",
+       message: `AI scan analysis completed: ${result.summary}`,
+-    }),
+-  ]);
++    });
++  });
+ 
+   return res.json(result);
+ });
+@@ -162,23 +163,25 @@
+ 
+   invalidateContextCache(projectId);
+ 
+-  await Promise.all([
+-    recordAudit({
++  await db.transaction(async (tx) => {
++    await tx.insert(auditLogsTable).values({
++      id: randomUUID(),
+       entityType: "project",
+       entityId: projectId,
+       action: "ai_reviewed",
+       projectId,
++      actor: req.userId,
+       stateBefore: {},
+       stateAfter: { verdict: result.verdict, overallScore: result.overallScore },
+-    }),
+-    db.insert(eventsTable).values({
++    });
++    await tx.insert(eventsTable).values({
+       id: randomUUID(),
+       type: "AiCodeReviewCompleted",
+       projectId,
+       severity: result.verdict === "approved" ? "success" : "warning",
+       message: `AI code review: ${result.verdict} (score: ${result.overallScore}/100)`,
+-    }),
+-  ]);
++    });
++  });
+ 
+   return res.json(result);
+ });
+diff -ruN /tmp/engos-src/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts /tmp/engos-mod/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts
+--- /tmp/engos-src/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts	2026-07-31 03:43:11.000000000 +0000
++++ /tmp/engos-mod/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts	2026-07-31 17:51:15.188815480 +0000
+@@ -16,6 +16,7 @@
+ import {
+   aiChatSessionsTable,
+   aiChatMessagesTable,
++  auditLogsTable,
+   eventsTable,
+ } from "@workspace/db";
+ import { eq, desc } from "drizzle-orm";
+@@ -25,7 +26,6 @@
+   chat,
+   GroqClientError,
+ } from "@workspace/ai-orchestrator";
+-import { recordAudit } from "../../lib/audit.js";
+ import { logger } from "../../lib/logger.js";
+ import { resolveRootPath } from "../../lib/rootpath-validator.js";
+ import { tryAdvisoryLock, LockNamespace } from "../../lib/advisory-lock.js";
+@@ -636,15 +636,6 @@
+     const appliedPaths = results.filter((r) => r.ok).map((r) => r.path);
+     const failedPaths  = results.filter((r) => !r.ok).map((r) => r.path);
+     const applyCorrelationId = randomUUID();
+-    await recordAudit({
+-      entityType: "project",
+-      entityId: projectId,
+-      action: "ai_executed",
+-      projectId,
+-      stateBefore: {},
+-      stateAfter: { filesWritten: appliedPaths, failedFiles: failedPaths },
+-      correlationId: applyCorrelationId,
+-    });
+ 
+     if (appliedPaths.length > 0) {
+       invalidateContextCache(projectId);
+@@ -653,16 +644,29 @@
+     const preview = appliedPaths.length > 0
+       ? appliedPaths.slice(0, 3).join(", ") + (appliedPaths.length > 3 ? ` +${appliedPaths.length - 3} more` : "")
+       : failedPaths.slice(0, 3).join(", ") + (failedPaths.length > 3 ? ` +${failedPaths.length - 3} more` : "");
+-    await db.insert(eventsTable).values({
+-      id: randomUUID(),
+-      type: "AiChangesApplied",
+-      projectId,
+-      severity: appliedPaths.length > 0 ? (failedPaths.length > 0 ? "warning" : "success") : "warning",
+-      message: appliedPaths.length > 0
+-        ? `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`
+-        : `AI apply made no writable changes: ${preview || "none"}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
+-      correlationId: applyCorrelationId,
+-      payload: { appliedFiles: appliedPaths, failedFiles: failedPaths },
++    await db.transaction(async (tx) => {
++      await tx.insert(auditLogsTable).values({
++        id: applyCorrelationId,
++        entityType: "project",
++        entityId: projectId,
++        action: "ai_executed",
++        projectId,
++        actor: req.userId,
++        stateBefore: {},
++        stateAfter: { filesWritten: appliedPaths, failedFiles: failedPaths },
++        correlationId: applyCorrelationId,
++      });
++      await tx.insert(eventsTable).values({
++        id: randomUUID(),
++        type: "AiChangesApplied",
++        projectId,
++        severity: appliedPaths.length > 0 ? (failedPaths.length > 0 ? "warning" : "success") : "warning",
++        message: appliedPaths.length > 0
++          ? `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`
++          : `AI apply made no writable changes: ${preview || "none"}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
++        correlationId: applyCorrelationId,
++        payload: { appliedFiles: appliedPaths, failedFiles: failedPaths },
++      });
+     });
+ 
+     const allOk = results.every((r) => r.ok);
+diff -ruN /tmp/engos-src/EngineeringOS-main/artifacts/api-server/src/routes/workflows.ts /tmp/engos-mod/EngineeringOS-main/artifacts/api-server/src/routes/workflows.ts
+--- /tmp/engos-src/EngineeringOS-main/artifacts/api-server/src/routes/workflows.ts	2026-07-31 03:43:11.000000000 +0000
++++ /tmp/engos-mod/EngineeringOS-main/artifacts/api-server/src/routes/workflows.ts	2026-07-31 17:51:15.188815480 +0000
+@@ -413,9 +413,23 @@
+   }
+ 
+   const phases = (workflow[0].phases as PhaseShape[]) ?? [];
++  if (!execution.currentPhase) {
++    return res.status(409).json({
++      error: "current_phase_missing",
++      hint: "A running workflow execution must always have a currentPhase before it can advance",
++    });
++  }
++  const currentPhaseObj = phases.find((p) => p.name === execution.currentPhase);
++  if (!currentPhaseObj) {
++    return res.status(409).json({
++      error: "current_phase_not_found",
++      phase: execution.currentPhase,
++      hint: "The execution points to a phase name that does not exist in the workflow definition",
++    });
++  }
+   const { nextPhase, completedPhases, isLastPhase } = computePhaseAdvancement(
+     phases,
+-    execution.currentPhase ?? "",
++    execution.currentPhase,
+     (execution.completedPhases as string[] | null) ?? [],
+   );
+   const now = new Date();
+diff -ruN /tmp/engos-src/EngineeringOS-main/lib/ai-orchestrator/src/context-loader.ts /tmp/engos-mod/EngineeringOS-main/lib/ai-orchestrator/src/context-loader.ts
+--- /tmp/engos-src/EngineeringOS-main/lib/ai-orchestrator/src/context-loader.ts	2026-07-31 03:43:11.000000000 +0000
++++ /tmp/engos-mod/EngineeringOS-main/lib/ai-orchestrator/src/context-loader.ts	2026-07-31 17:51:15.188815480 +0000
+@@ -58,73 +58,78 @@
+   const wants = (section: ContextLoadSection): boolean => requestedSections.has(section);
+ 
+   // PR-04 / G-12: wrap all reads in a single REPEATABLE READ transaction so
+-  // every query sees the same committed DB snapshot.
+-  const queryEntries: Array<{ key: string; promise: Promise<unknown> }> = [];
+-  queryEntries.push({
+-    key: "project",
+-    promise: db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
+-  });
+-
+-  if (wants("tasks")) {
+-    queryEntries.push({
+-      key: "tasks",
+-      promise: db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)).orderBy(asc(tasksTable.priority), desc(tasksTable.updatedAt)).limit(10),
+-    });
+-  }
+-
+-  if (wants("metrics")) {
+-    queryEntries.push({
+-      key: "metrics",
+-      promise: db.select().from(metricsTable).where(eq(metricsTable.projectId, projectId)).orderBy(desc(metricsTable.timestamp)).limit(1),
+-    });
+-  }
+-
+-  if (wants("graphEntities")) {
+-    queryEntries.push({
+-      key: "graphEntities",
+-      promise: db.select().from(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, projectId)).orderBy(desc(graphEntitiesTable.confidence)).limit(60),
+-    });
+-  }
+-
+-  if (wants("events")) {
+-    queryEntries.push({
+-      key: "events",
+-      promise: db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId)).orderBy(desc(eventsTable.timestamp)).limit(10),
+-    });
+-  }
+-
+-  if (wants("workflows")) {
+-    queryEntries.push({
+-      key: "workflows",
+-      promise: db.select().from(workflowsTable).where(eq(workflowsTable.projectId, projectId)).orderBy(desc(workflowsTable.updatedAt)).limit(20),
+-    });
+-  }
+-
+-  queryEntries.push({
+-    key: "scanJobs",
+-    promise: db.select({ status: scanJobsTable.status, error: scanJobsTable.error, finishedAt: scanJobsTable.finishedAt })
+-      .from(scanJobsTable).where(eq(scanJobsTable.projectId, projectId)).orderBy(desc(scanJobsTable.createdAt)).limit(1),
+-  });
+-
+-  if (wants("graphRelationships")) {
+-    queryEntries.push({
+-      key: "graphRelationships",
+-      promise: db.select({
+-        id: graphRelationshipsTable.id,
+-        sourceId: graphRelationshipsTable.sourceId,
+-        targetId: graphRelationshipsTable.targetId,
+-        relation: graphRelationshipsTable.relation,
+-        relationType: graphRelationshipsTable.relationType,
+-        confidence: graphRelationshipsTable.confidence,
+-        isHeuristic: graphRelationshipsTable.isHeuristic,
+-      }).from(graphRelationshipsTable)
+-        .where(eq(graphRelationshipsTable.projectId, projectId))
+-        .orderBy(desc(graphRelationshipsTable.confidence))
+-        .limit(40),
+-    });
+-  }
+-
+-  const settledResults = await db.transaction(async () => Promise.allSettled(queryEntries.map((entry) => entry.promise)), { isolationLevel: "repeatable read" });
++  // every query sees the same committed DB snapshot. Build the query builders
++  // inside the transaction so they are executed by the tx handle, not the
++  // global db handle.
++  const { queryEntries, settledResults } = await db.transaction(async (tx) => {
++    const entries: Array<{ key: string; promise: Promise<unknown> }> = [];
++    entries.push({
++      key: "project",
++      promise: tx.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
++    });
++
++    if (wants("tasks")) {
++      entries.push({
++        key: "tasks",
++        promise: tx.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)).orderBy(asc(tasksTable.priority), desc(tasksTable.updatedAt)).limit(10),
++      });
++    }
++
++    if (wants("metrics")) {
++      entries.push({
++        key: "metrics",
++        promise: tx.select().from(metricsTable).where(eq(metricsTable.projectId, projectId)).orderBy(desc(metricsTable.timestamp)).limit(1),
++      });
++    }
++
++    if (wants("graphEntities")) {
++      entries.push({
++        key: "graphEntities",
++        promise: tx.select().from(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, projectId)).orderBy(desc(graphEntitiesTable.confidence)).limit(60),
++      });
++    }
++
++    if (wants("events")) {
++      entries.push({
++        key: "events",
++        promise: tx.select().from(eventsTable).where(eq(eventsTable.projectId, projectId)).orderBy(desc(eventsTable.timestamp)).limit(10),
++      });
++    }
++
++    if (wants("workflows")) {
++      entries.push({
++        key: "workflows",
++        promise: tx.select().from(workflowsTable).where(eq(workflowsTable.projectId, projectId)).orderBy(desc(workflowsTable.updatedAt)).limit(20),
++      });
++    }
++
++    entries.push({
++      key: "scanJobs",
++      promise: tx.select({ status: scanJobsTable.status, error: scanJobsTable.error, finishedAt: scanJobsTable.finishedAt })
++        .from(scanJobsTable).where(eq(scanJobsTable.projectId, projectId)).orderBy(desc(scanJobsTable.createdAt)).limit(1),
++    });
++
++    if (wants("graphRelationships")) {
++      entries.push({
++        key: "graphRelationships",
++        promise: tx.select({
++          id: graphRelationshipsTable.id,
++          sourceId: graphRelationshipsTable.sourceId,
++          targetId: graphRelationshipsTable.targetId,
++          relation: graphRelationshipsTable.relation,
++          relationType: graphRelationshipsTable.relationType,
++          confidence: graphRelationshipsTable.confidence,
++          isHeuristic: graphRelationshipsTable.isHeuristic,
++        }).from(graphRelationshipsTable)
++          .where(eq(graphRelationshipsTable.projectId, projectId))
++          .orderBy(desc(graphRelationshipsTable.confidence))
++          .limit(40),
++      });
++    }
++
++    const results = await Promise.allSettled(entries.map((entry) => entry.promise));
++    return { queryEntries: entries, settledResults: results };
++  }, { isolationLevel: "repeatable read" });
+ 
+   const resultByKey = new Map<string, PromiseSettledResult<unknown>>();
+   queryEntries.forEach((entry, index) => {

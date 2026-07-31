@@ -58,73 +58,78 @@ export async function loadProjectContext(
   const wants = (section: ContextLoadSection): boolean => requestedSections.has(section);
 
   // PR-04 / G-12: wrap all reads in a single REPEATABLE READ transaction so
-  // every query sees the same committed DB snapshot.
-  const queryEntries: Array<{ key: string; promise: Promise<unknown> }> = [];
-  queryEntries.push({
-    key: "project",
-    promise: db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
-  });
-
-  if (wants("tasks")) {
-    queryEntries.push({
-      key: "tasks",
-      promise: db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)).orderBy(asc(tasksTable.priority), desc(tasksTable.updatedAt)).limit(10),
+  // every query sees the same committed DB snapshot. Build the query builders
+  // inside the transaction so they are executed by the tx handle, not the
+  // global db handle.
+  const { queryEntries, settledResults } = await db.transaction(async (tx) => {
+    const entries: Array<{ key: string; promise: Promise<unknown> }> = [];
+    entries.push({
+      key: "project",
+      promise: tx.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
     });
-  }
 
-  if (wants("metrics")) {
-    queryEntries.push({
-      key: "metrics",
-      promise: db.select().from(metricsTable).where(eq(metricsTable.projectId, projectId)).orderBy(desc(metricsTable.timestamp)).limit(1),
+    if (wants("tasks")) {
+      entries.push({
+        key: "tasks",
+        promise: tx.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)).orderBy(asc(tasksTable.priority), desc(tasksTable.updatedAt)).limit(10),
+      });
+    }
+
+    if (wants("metrics")) {
+      entries.push({
+        key: "metrics",
+        promise: tx.select().from(metricsTable).where(eq(metricsTable.projectId, projectId)).orderBy(desc(metricsTable.timestamp)).limit(1),
+      });
+    }
+
+    if (wants("graphEntities")) {
+      entries.push({
+        key: "graphEntities",
+        promise: tx.select().from(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, projectId)).orderBy(desc(graphEntitiesTable.confidence)).limit(60),
+      });
+    }
+
+    if (wants("events")) {
+      entries.push({
+        key: "events",
+        promise: tx.select().from(eventsTable).where(eq(eventsTable.projectId, projectId)).orderBy(desc(eventsTable.timestamp)).limit(10),
+      });
+    }
+
+    if (wants("workflows")) {
+      entries.push({
+        key: "workflows",
+        promise: tx.select().from(workflowsTable).where(eq(workflowsTable.projectId, projectId)).orderBy(desc(workflowsTable.updatedAt)).limit(20),
+      });
+    }
+
+    entries.push({
+      key: "scanJobs",
+      promise: tx.select({ status: scanJobsTable.status, error: scanJobsTable.error, finishedAt: scanJobsTable.finishedAt })
+        .from(scanJobsTable).where(eq(scanJobsTable.projectId, projectId)).orderBy(desc(scanJobsTable.createdAt)).limit(1),
     });
-  }
 
-  if (wants("graphEntities")) {
-    queryEntries.push({
-      key: "graphEntities",
-      promise: db.select().from(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, projectId)).orderBy(desc(graphEntitiesTable.confidence)).limit(60),
-    });
-  }
+    if (wants("graphRelationships")) {
+      entries.push({
+        key: "graphRelationships",
+        promise: tx.select({
+          id: graphRelationshipsTable.id,
+          sourceId: graphRelationshipsTable.sourceId,
+          targetId: graphRelationshipsTable.targetId,
+          relation: graphRelationshipsTable.relation,
+          relationType: graphRelationshipsTable.relationType,
+          confidence: graphRelationshipsTable.confidence,
+          isHeuristic: graphRelationshipsTable.isHeuristic,
+        }).from(graphRelationshipsTable)
+          .where(eq(graphRelationshipsTable.projectId, projectId))
+          .orderBy(desc(graphRelationshipsTable.confidence))
+          .limit(40),
+      });
+    }
 
-  if (wants("events")) {
-    queryEntries.push({
-      key: "events",
-      promise: db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId)).orderBy(desc(eventsTable.timestamp)).limit(10),
-    });
-  }
-
-  if (wants("workflows")) {
-    queryEntries.push({
-      key: "workflows",
-      promise: db.select().from(workflowsTable).where(eq(workflowsTable.projectId, projectId)).orderBy(desc(workflowsTable.updatedAt)).limit(20),
-    });
-  }
-
-  queryEntries.push({
-    key: "scanJobs",
-    promise: db.select({ status: scanJobsTable.status, error: scanJobsTable.error, finishedAt: scanJobsTable.finishedAt })
-      .from(scanJobsTable).where(eq(scanJobsTable.projectId, projectId)).orderBy(desc(scanJobsTable.createdAt)).limit(1),
-  });
-
-  if (wants("graphRelationships")) {
-    queryEntries.push({
-      key: "graphRelationships",
-      promise: db.select({
-        id: graphRelationshipsTable.id,
-        sourceId: graphRelationshipsTable.sourceId,
-        targetId: graphRelationshipsTable.targetId,
-        relation: graphRelationshipsTable.relation,
-        relationType: graphRelationshipsTable.relationType,
-        confidence: graphRelationshipsTable.confidence,
-        isHeuristic: graphRelationshipsTable.isHeuristic,
-      }).from(graphRelationshipsTable)
-        .where(eq(graphRelationshipsTable.projectId, projectId))
-        .orderBy(desc(graphRelationshipsTable.confidence))
-        .limit(40),
-    });
-  }
-
-  const settledResults = await db.transaction(async () => Promise.allSettled(queryEntries.map((entry) => entry.promise)), { isolationLevel: "repeatable read" });
+    const results = await Promise.allSettled(entries.map((entry) => entry.promise));
+    return { queryEntries: entries, settledResults: results };
+  }, { isolationLevel: "repeatable read" });
 
   const resultByKey = new Map<string, PromiseSettledResult<unknown>>();
   queryEntries.forEach((entry, index) => {

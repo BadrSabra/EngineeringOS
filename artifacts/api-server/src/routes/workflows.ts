@@ -412,10 +412,22 @@ router.post("/workflows/:workflowId/advance", async (req, res) => {
     });
   }
 
-  const phases = (workflow[0].phases as PhaseShape[]) ?? [];
+  if (!execution.currentPhase) {
+    return res.status(409).json({
+      error: "current_phase_missing",
+      hint: "A running workflow execution must always have a currentPhase before it can advance",
+    });
+  }
+  if (!currentPhaseObj) {
+    return res.status(409).json({
+      error: "current_phase_not_found",
+      phase: execution.currentPhase,
+      hint: "The execution points to a phase name that does not exist in the workflow definition",
+    });
+  }
   const { nextPhase, completedPhases, isLastPhase } = computePhaseAdvancement(
-    phases,
-    execution.currentPhase ?? "",
+    allPhases,
+    execution.currentPhase,
     (execution.completedPhases as string[] | null) ?? [],
   );
   const now = new Date();
