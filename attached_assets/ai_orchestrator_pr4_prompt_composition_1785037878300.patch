@@ -1,0 +1,507 @@
+diff -ruN EngineeringOS-main/lib/ai-orchestrator/src/prompts/chat.prompt.ts EngineeringOS-main/lib/ai-orchestrator/src/prompts/chat.prompt.ts
+--- EngineeringOS-main/lib/ai-orchestrator/src/prompts/chat.prompt.ts	2026-07-26 03:25:55.247675984 +0000
++++ EngineeringOS-main/lib/ai-orchestrator/src/prompts/chat.prompt.ts	2026-07-26 03:49:32.095660032 +0000
+@@ -1,4 +1,5 @@
+ import type { ProjectContext } from "../context-builder.js";
++import { composePrompt, promptContextOverview, promptSection } from "./prompt-composer.js";
+ 
+ /**
+  * System prompt for the conversational chat agent.
+@@ -7,10 +8,22 @@
+  * When false the model is told explicitly it has NO file access so it cannot
+  * hallucinate tool calls or invent file contents.
+  */
+-export function buildChatSystemPrompt(context: ProjectContext, hasTools = false, streamingMode = false): string {
+-  const toolSection = hasTools
+-    ? `**Tools available in this session:**
+-File tools: read_file · list_directory · search_code · write_file
++function buildChatToolSection(hasTools: boolean): string {
++  if (!hasTools) {
++    return `**File-system tools: NOT active in this session.**
++You have zero access to the project's files on disk.
++STRICTLY FORBIDDEN:
++- Claiming you can read, list, search, or write files.
++- Inventing file contents, directory trees, or code snippets that you did not receive in the context above.
++- Pretending to execute a tool call.
++- Saying "I read file X" or "the file contains Y" unless that text appears verbatim in the context above.
++If a question requires file-level detail that is absent from the context, state precisely what is missing and why you cannot answer — do not guess or fabricate.`;
++  }
++
++  return composePrompt(
++    promptSection(
++      "Tools available in this session",
++      `File tools: read_file · list_directory · search_code · write_file
+ Git tools: git_status · git_diff · git_log
+ Use them to:
+ - Read specific file content not captured in entity descriptions.
+@@ -21,41 +34,14 @@
+ 1. Call a tool BEFORE claiming information is unavailable. If the graph is empty or silent on a topic, use list_directory then read_file to gather the answer directly from source.
+ 2. write_file — ONLY call it when the user has stated BOTH the exact file path AND the exact change they want. If the request is vague (e.g. "I want to edit a file", "change something"), ask which file and what change before calling write_file. Never call write_file speculatively.
+ 3. NEVER propose changes to auto-generated files. Generated files are identified by paths containing: /generated/, /dist/, /build/, .generated.ts, .generated.js, or files with a header comment containing "DO NOT EDIT" or "auto-generated". Editing them is pointless — they are overwritten on the next code-generation run. Explain this to the user and point them to the source instead.
+-4. Git read tools (git_status, git_diff, git_log) ARE available in this session — use them to inspect the working tree, uncommitted changes, and commit history. However, NEVER claim the ability to commit, push, or perform any write VCS operation. Those actions are handled by the Git panel in the dashboard. If the user asks to commit or push, direct them to the GitHub Integration panel.`
+-    : `**File-system tools: NOT active in this session.**
+-You have zero access to the project's files on disk.
+-STRICTLY FORBIDDEN:
+-- Claiming you can read, list, search, or write files.
+-- Inventing file contents, directory trees, or code snippets that you did not receive in the context above.
+-- Pretending to execute a tool call.
+-- Saying "I read file X" or "the file contains Y" unless that text appears verbatim in the context above.
+-If a question requires file-level detail that is absent from the context, state precisely what is missing and why you cannot answer — do not guess or fabricate.`;
+-
+-  return `You are EngineeringOS AI — an engineering assistant embedded in the platform.
+-
+-**Project context:**
+-${context.project}
+-
+-**Quality metrics:** ${context.latestMetrics}
+-
+-**Knowledge graph:**
+-${context.graphSummary}
+-
+-**Workflows:**
+-${context.workflows}
+-
+-**Recent tasks:**
+-${context.recentTasks}
+-
+-**Recent events:**
+-${context.recentEvents}
+-
+-**How project access works:**
+-The knowledge graph above is a pre-extracted index of code entities (functions, classes, APIs, modules). It covers the highest-confidence entities found during the last scan — it is not guaranteed to be exhaustive.
+-
+-${toolSection}
++4. Git read tools (git_status, git_diff, git_log) ARE available in this session — use them to inspect the working tree, uncommitted changes, and commit history. However, NEVER claim the ability to commit, push, or perform any write VCS operation. Those actions are handled by the Git panel in the dashboard. If the user asks to commit or push, direct them to the GitHub Integration panel.`,
++    ),
++  );
++}
+ 
+-**Rules — follow ALL of them without exception:**
++function buildChatRulesBlock(streamingMode: boolean): string {
++  return composePrompt(
++    `**Rules — follow ALL of them without exception:**
+ 
+ 1. **Language**: Answer in the same language the user writes in (Arabic or English). Switch instantly when they switch. Never mix languages within a single sentence.
+ 
+@@ -78,12 +64,20 @@
+ 
+ 7. **Acknowledge limits precisely**: State exactly what data is missing and why the question cannot be fully answered. One sentence is enough — do not expand the limitation into a paragraph.
+ 
+-8. **Empty-state guidance**: When tasks, workflows, or events are empty ("No tasks yet", "No workflows defined yet") and the user asked about them, do NOT stop at reporting the empty state. Follow it immediately with one concrete, actionable suggestion the user can take right now inside EngineeringOS (e.g. "You can create a task from the Tasks page" or "Add a workflow from the Workflows page to start tracking progress").
+-
+-**Source discipline**: In the sources array, list only the specific entity names, metric labels (e.g. "Perf: 99.0"), or file paths you actually cited in the response. If you have no specific citations, use an empty array — never include a generic fallback string like "no project data available" as a source.
++8. **Empty-state guidance**: When tasks, workflows, or events are empty ("No tasks yet", "No workflows defined yet") and the user asked about them, do NOT stop at reporting the empty state. Follow it immediately with one concrete, actionable suggestion the user can take right now inside EngineeringOS (e.g. "You can create a task from the Tasks page" or "Add a workflow from the Workflows page to start tracking progress").`,
++    `**Source discipline**: In the sources array, list only the specific entity names, metric labels (e.g. "Perf: 99.0"), or file paths you actually cited in the response. If you have no specific citations, use an empty array — never include a generic fallback string like "no project data available" as a source.`,
++    streamingMode
++      ? "Your reply MUST be plain markdown prose — do NOT wrap it in JSON. Just answer directly."
++      : `Your reply MUST be valid JSON with exactly this shape — no text before or after the JSON object:\n{"response":"<your answer in markdown prose>","sources":["<entity name, metric label, or file path>"]}`,
++  );
++}
+ 
+-${streamingMode
+-  ? "Your reply MUST be plain markdown prose — do NOT wrap it in JSON. Just answer directly."
+-  : `Your reply MUST be valid JSON with exactly this shape — no text before or after the JSON object:\n{"response":"<your answer in markdown prose>","sources":["<entity name, metric label, or file path>"]}`
+-}`;
++export function buildChatSystemPrompt(context: ProjectContext, hasTools = false, streamingMode = false): string {
++  return composePrompt(
++    "You are EngineeringOS AI — an engineering assistant embedded in the platform.",
++    promptContextOverview(context),
++    "How project access works:\nThe knowledge graph above is a pre-extracted index of code entities (functions, classes, APIs, modules). It covers the highest-confidence entities found during the last scan — it is not guaranteed to be exhaustive.",
++    buildChatToolSection(hasTools),
++    buildChatRulesBlock(streamingMode),
++  );
+ }
+diff -ruN EngineeringOS-main/lib/ai-orchestrator/src/prompts/index.ts EngineeringOS-main/lib/ai-orchestrator/src/prompts/index.ts
+--- EngineeringOS-main/lib/ai-orchestrator/src/prompts/index.ts	2026-07-26 03:25:55.247675984 +0000
++++ EngineeringOS-main/lib/ai-orchestrator/src/prompts/index.ts	2026-07-26 03:49:32.099660032 +0000
+@@ -1,3 +1,4 @@
++export { composePrompt, promptCodeBlock, promptContextOverview, promptList, promptSection } from "./prompt-composer.js";
+ export { buildChatSystemPrompt } from "./chat.prompt.js";
+ export { buildCodeReviewSystemPrompt, buildCodeReviewUserPrompt } from "./review.prompt.js";
+ export { buildScanAnalystSystemPrompt, buildScanAnalystUserPrompt } from "./scan.prompt.js";
+diff -ruN EngineeringOS-main/lib/ai-orchestrator/src/prompts/prompt-composer.ts EngineeringOS-main/lib/ai-orchestrator/src/prompts/prompt-composer.ts
+--- EngineeringOS-main/lib/ai-orchestrator/src/prompts/prompt-composer.ts	1970-01-01 00:00:00.000000000 +0000
++++ EngineeringOS-main/lib/ai-orchestrator/src/prompts/prompt-composer.ts	2026-07-26 03:49:32.095660032 +0000
+@@ -0,0 +1,30 @@
++import type { ProjectContext } from "../context-builder.js";
++
++export function composePrompt(...parts: Array<string | null | undefined | false>): string {
++  return parts
++    .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
++    .join("\n\n");
++}
++
++export function promptSection(title: string, body: string): string {
++  return `**${title}:**\n${body}`;
++}
++
++export function promptCodeBlock(content: string, language = "text"): string {
++  return `\`\`\`${language}\n${content}\n\`\`\``;
++}
++
++export function promptList(items: string[], indent = ""): string {
++  return items.map((item) => `${indent}- ${item}`).join("\n");
++}
++
++export function promptContextOverview(context: ProjectContext): string {
++  return composePrompt(
++    promptSection("Project", context.project),
++    promptSection("Quality Metrics", context.latestMetrics),
++    promptSection("Knowledge Graph", context.graphSummary),
++    promptSection("Workflows", context.workflows),
++    promptSection("Recent Tasks", context.recentTasks),
++    promptSection("Recent Events", context.recentEvents),
++  );
++}
+diff -ruN EngineeringOS-main/lib/ai-orchestrator/src/prompts/review.prompt.ts EngineeringOS-main/lib/ai-orchestrator/src/prompts/review.prompt.ts
+--- EngineeringOS-main/lib/ai-orchestrator/src/prompts/review.prompt.ts	2026-07-26 03:25:55.247675984 +0000
++++ EngineeringOS-main/lib/ai-orchestrator/src/prompts/review.prompt.ts	2026-07-26 03:49:32.095660032 +0000
+@@ -1,63 +1,36 @@
+ import type { ProjectContext } from "../context-builder.js";
++import { composePrompt, promptCodeBlock, promptContextOverview, promptList } from "./prompt-composer.js";
+ 
+ export function buildCodeReviewSystemPrompt(): string {
+-  return `You are a senior software engineer performing a code review for EngineeringOS.
+-You have access to the project's knowledge graph (entity names, types, file paths, confidence scores),
+-quality metrics, recent tasks, and recent events. Every finding must be grounded in that data.
+-
+-You must respond with valid JSON matching this schema:
+-{
+-  "summary": "One sentence naming the highest-severity finding and citing the overall quality score. Do not describe what a code review is.",
+-  "overallScore": 0-100,
+-  "strengths": [
+-    "Each strength must name a specific entity, file, pattern, or metric value from the knowledge graph or metrics — e.g. 'AuthMiddleware (auth.ts) enforces JWT validation on every route, consistent with the 94% security score'. Generic praise such as 'good test coverage' without a citation is not allowed."
+-  ],
+-  "issues": [
+-    {
+-      "type": "bug" | "security" | "performance" | "style" | "architecture",
+-      "severity": "critical" | "high" | "medium" | "low",
+-      "file": "file path from the knowledge graph, or omit if no entity is associated",
+-      "title": "short title naming the specific entity or pattern affected",
+-      "description": "What the code does wrong, citing the specific entity name or file path from the knowledge graph that reveals the problem. Do not restate the type or severity.",
+-      "suggestion": "The specific change to make: which function, class, or file to modify, and what the new behaviour should be. Must be actionable by a developer without additional research."
+-    }
+-  ],
+-  "refactoringOpportunities": [
+-    "Each opportunity must name the entity or file to refactor and the target outcome — e.g. 'Extract DB connection logic from UserService (user.service.ts) into a dedicated repository class to isolate persistence concerns'. Vague suggestions such as 'consider better separation of concerns' are not allowed."
+-  ],
+-  "securityConcerns": [
+-    "Each concern must name the vulnerable entity or file and the attack vector — e.g. 'parseQueryParams (api/search.ts) passes unsanitised input directly to a SQL template string, enabling injection'. Generic statements such as 'inputs should be validated' are not allowed."
+-  ],
+-  "verdict": "approved" | "needs_changes" | "major_rework"
+-}
+-
+-Rules:
+-1. Every issue must be traceable to a named entity in the knowledge graph, a file path, or a specific metric value. Do not produce a finding you cannot cite.
+-2. If the knowledge graph is empty, set overallScore to 0, leave issues/strengths/refactoringOpportunities/securityConcerns as empty arrays, and state in summary that no entities were available for analysis.
+-3. Do not duplicate findings across issues and securityConcerns — a security issue belongs in exactly one place.
+-4. Set verdict to "major_rework" when any critical issue is present. Set "needs_changes" when any high issue is present and no critical issue exists.
+-5. Populate at least one entry in strengths if the overallScore is above 50 — a blank strengths array at high scores signals a missed observation.`;
++  return composePrompt(
++    "You are a senior software engineer performing a code review for EngineeringOS.",
++    "You have access to the project's knowledge graph (entity names, types, file paths, confidence scores), quality metrics, recent tasks, and recent events. Every finding must be grounded in that data.",
++    `You must respond with valid JSON matching this schema:\n${promptCodeBlock(`{\n  "summary": "One sentence naming the highest-severity finding and citing the overall quality score. Do not describe what a code review is.",\n  "overallScore": 0-100,\n  "strengths": [\n    "Each strength must name a specific entity, file, pattern, or metric value from the knowledge graph or metrics — e.g. 'AuthMiddleware (auth.ts) enforces JWT validation on every route, consistent with the 94% security score'. Generic praise such as 'good test coverage' without a citation is not allowed."\n  ],\n  "issues": [\n    {\n      "type": "bug" | "security" | "performance" | "style" | "architecture",\n      "severity": "critical" | "high" | "medium" | "low",\n      "file": "file path from the knowledge graph, or omit if no entity is associated",\n      "title": "short title naming the specific entity or pattern affected",\n      "description": "What the code does wrong, citing the specific entity name or file path from the knowledge graph that reveals the problem. Do not restate the type or severity.",\n      "suggestion": "The specific change to make: which function, class, or file to modify, and what the new behaviour should be. Must be actionable by a developer without additional research."\n    }\n  ],\n  "refactoringOpportunities": [\n    "Each opportunity must name the entity or file to refactor and the target outcome — e.g. 'Extract DB connection logic from UserService (user.service.ts) into a dedicated repository class to isolate persistence concerns'. Vague suggestions such as 'consider better separation of concerns' are not allowed."\n  ],\n  "securityConcerns": [\n    "Each concern must name the vulnerable entity or file and the attack vector — e.g. 'parseQueryParams (api/search.ts) passes unsanitised input directly to a SQL template string, enabling injection'. Generic statements such as 'inputs should be validated' are not allowed."\n  ],\n  "verdict": "approved" | "needs_changes" | "major_rework"\n}`, "json")}`,
++    promptList([
++      "Every issue must be traceable to a named entity in the knowledge graph, a file path, or a specific metric value. Do not produce a finding you cannot cite.",
++      "If the knowledge graph is empty, set overallScore to 0, leave issues/strengths/refactoringOpportunities/securityConcerns as empty arrays, and state in summary that no entities were available for analysis.",
++      "Do not duplicate findings across issues and securityConcerns — a security issue belongs in exactly one place.",
++      "Set verdict to \"major_rework\" when any critical issue is present. Set \"needs_changes\" when any high issue is present and no critical issue exists.",
++      "Populate at least one entry in strengths if the overallScore is above 50 — a blank strengths array at high scores signals a missed observation.",
++    ]),
++  );
+ }
+ 
+ export function buildCodeReviewUserPrompt(context: ProjectContext, fileContents?: Record<string, string>): string {
+   const fileSection =
+     fileContents && Object.keys(fileContents).length > 0
+-      ? `\n**Selected file contents:**\n${Object.entries(fileContents)
+-          .slice(0, 5)
+-          .map(([path, content]) => `\`${path}\`:\n\`\`\`\n${content.slice(0, 1500)}\n\`\`\``)
+-          .join("\n\n")}`
++      ? composePrompt(
++          "**Selected file contents:**",
++          Object.entries(fileContents)
++            .slice(0, 5)
++            .map(([path, content]) => `\`${path}\`:\n${promptCodeBlock(content.slice(0, 1500))}`)
++            .join("\n\n"),
++        )
+       : "";
+ 
+-  return `Review this project. Cite specific entity names, file paths, and metric values in every finding.
+-
+-**Project:** ${context.project}
+-**Quality Metrics:** ${context.latestMetrics}
+-**Knowledge Graph:** ${context.graphSummary}
+-
+-**Recent Tasks:**
+-${context.recentTasks}
+-
+-**Recent Events:**
+-${context.recentEvents}
+-${fileSection}`;
++  return composePrompt(
++    "Review this project. Cite specific entity names, file paths, and metric values in every finding.",
++    promptContextOverview(context),
++    fileSection,
++  );
+ }
+diff -ruN EngineeringOS-main/lib/ai-orchestrator/src/prompts/scan.prompt.ts EngineeringOS-main/lib/ai-orchestrator/src/prompts/scan.prompt.ts
+--- EngineeringOS-main/lib/ai-orchestrator/src/prompts/scan.prompt.ts	2026-07-26 03:25:55.247675984 +0000
++++ EngineeringOS-main/lib/ai-orchestrator/src/prompts/scan.prompt.ts	2026-07-26 03:49:32.095660032 +0000
+@@ -1,47 +1,24 @@
+ import type { ProjectContext } from "../context-builder.js";
++import { composePrompt, promptCodeBlock, promptContextOverview, promptList } from "./prompt-composer.js";
+ 
+ export function buildScanAnalystSystemPrompt(): string {
+-  return `You are an expert engineering quality analyst for EngineeringOS.
+-You have access to the project's quality metrics, knowledge graph (entity names, types, file paths,
+-confidence scores, domains), recent tasks, and recent events. Every insight must be grounded in that data.
+-
+-You must respond with valid JSON matching this schema:
+-{
+-  "summary": "One sentence that states the overall score, the most critical finding category, and one specific entity or metric value that exemplifies it. Do not describe what was analysed.",
+-  "overallAssessment": "Two to four sentences covering the project's actual state. Each sentence must reference a specific metric dimension, entity name, or event. Do not use phrases like 'the project shows room for improvement' without naming what room and where.",
+-  "insights": [
+-    {
+-      "category": "architecture" | "security" | "performance" | "reliability" | "maintainability",
+-      "severity": "critical" | "high" | "medium" | "low",
+-      "title": "Short title naming the specific entity, file, or metric affected.",
+-      "description": "What the data shows is wrong. Must cite the metric value, entity name, or event that reveals the problem. Do not restate the category.",
+-      "recommendation": "A concrete action: name the entity or file to change, the change to make, and the expected outcome. 'Improve error handling' is not acceptable — 'Add try/catch around the DB call in UserRepository.findById (user.repository.ts) to prevent unhandled rejections from crashing the process' is."
+-    }
+-  ],
+-  "topPriority": "The specific entity name, file path, or metric dimension to address first — not a category. Example: 'securityScore (currently 41.0) driven by unsanitised input in parseQueryParams (api/search.ts)'. A bare category name such as 'security' is not acceptable.",
+-  "estimatedImpact": "Name the metric dimension(s) that would improve, the mechanism by which fixing topPriority achieves that, and a rough magnitude — e.g. 'Fixing the injection vector in parseQueryParams should lift securityScore by eliminating the highest-weighted critical finding in that dimension'."
+-}
+-
+-Rules:
+-1. Order insights by severity descending (critical → high → medium → low). Within the same severity, place quick-win fixes (single entity, clear action) before systemic issues.
+-2. Every insight must be traceable to a named entity in the knowledge graph, a specific metric value, or a timestamped event. Do not produce an insight you cannot cite.
+-3. If a metric dimension shows "N/A", do not produce an insight for that dimension — note its absence in overallAssessment instead.
+-4. If the knowledge graph is empty, limit insights to what the metrics alone can support; set topPriority to the lowest-scoring metric dimension and explain the graph gap in overallAssessment.
+-5. Do not repeat the same root cause across multiple insights — if two symptoms share a cause, produce one insight naming both symptoms and the shared root.`;
++  return composePrompt(
++    "You are an engineering project analyst.",
++    "You have access to the project's knowledge graph, quality metrics, recent tasks, and recent events. Analyze the project state and identify concrete strengths, weaknesses, and risks grounded in the provided data.",
++    `You must respond with valid JSON matching this schema:\n${promptCodeBlock(`{\n  "overallAssessment": "A concise summary of the project's current state. Mention a specific metric value, entity name, or event. Do not use phrases like 'the project shows room for improvement' without naming what room and where.",\n  "insights": [\n    {\n      "category": "architecture" | "security" | "performance" | "reliability" | "maintainability",\n      "severity": "critical" | "high" | "medium" | "low",\n      "title": "Short title naming the specific entity, file, or metric affected.",\n      "description": "What the data shows is wrong. Must cite the metric value, entity name, or event that reveals the problem. Do not restate the category.",\n      "recommendation": "A concrete action: name the entity or file to change, the change to make, and the expected outcome. 'Improve error handling' is not acceptable — 'Add try/catch around the DB call in UserRepository.findById (user.repository.ts) to prevent unhandled rejections from crashing the process' is."\n    }\n  ],\n  "topPriority": "The specific entity name, file path, or metric dimension to address first — not a category. Example: 'securityScore (currently 41.0) driven by unsanitised input in parseQueryParams (api/search.ts)'. A bare category name such as 'security' is not acceptable.",\n  "estimatedImpact": "Name the metric dimension(s) that would improve, the mechanism by which fixing topPriority achieves that, and a rough magnitude — e.g. 'Fixing the injection vector in parseQueryParams should lift securityScore by eliminating the highest-weighted critical finding in that dimension'."\n}`, "json")}`,
++    promptList([
++      "Order insights by severity descending (critical → high → medium → low). Within the same severity, place quick-win fixes (single entity, clear action) before systemic issues.",
++      "Every insight must be traceable to a named entity in the knowledge graph, a specific metric value, or a timestamped event. Do not produce an insight you cannot cite.",
++      "If a metric dimension shows \"N/A\", do not produce an insight for that dimension — note its absence in overallAssessment instead.",
++      "If the knowledge graph is empty, limit insights to what the metrics alone can support; set topPriority to the lowest-scoring metric dimension and explain the graph gap in overallAssessment.",
++      "Do not repeat the same root cause across multiple insights — if two symptoms share a cause, produce one insight naming both symptoms and the shared root.",
++    ]),
++  );
+ }
+ 
+ export function buildScanAnalystUserPrompt(context: ProjectContext): string {
+-  return `Analyse this engineering project. Cite specific metric values, entity names, and event timestamps in every insight.
+-
+-**Project:** ${context.project}
+-
+-**Quality Metrics:** ${context.latestMetrics}
+-
+-**Knowledge Graph:** ${context.graphSummary}
+-
+-**Recent Tasks:**
+-${context.recentTasks}
+-
+-**Recent Events:**
+-${context.recentEvents}`;
++  return composePrompt(
++    "Analyse this engineering project. Cite specific metric values, entity names, and event timestamps in every insight.",
++    promptContextOverview(context),
++  );
+ }
+diff -ruN EngineeringOS-main/lib/ai-orchestrator/src/prompts/task.prompt.ts EngineeringOS-main/lib/ai-orchestrator/src/prompts/task.prompt.ts
+--- EngineeringOS-main/lib/ai-orchestrator/src/prompts/task.prompt.ts	2026-07-26 03:25:55.247675984 +0000
++++ EngineeringOS-main/lib/ai-orchestrator/src/prompts/task.prompt.ts	2026-07-26 03:49:32.099660032 +0000
+@@ -1,31 +1,19 @@
+ import type { ProjectContext } from "../context-builder.js";
++import { composePrompt, promptCodeBlock, promptContextOverview, promptList } from "./prompt-composer.js";
+ 
+ export function buildTaskAgentSystemPrompt(context: ProjectContext): string {
+-  return `You are an autonomous engineering task executor for EngineeringOS.
+-You have access to the project's knowledge graph (entity names, types, file paths, confidence scores),
+-quality metrics, recent tasks, and recent events. Use them to ground every step and finding.
+-
+-Project context:
+-- ${context.project}
+-- Quality metrics: ${context.latestMetrics}
+-- Knowledge graph: ${context.graphSummary}
+-
+-You must respond with valid JSON matching this schema:
+-{
+-  "summary": "One sentence stating what was determined or found — not what was attempted. Must name at least one entity, file, or metric value from the context.",
+-  "steps": [
+-    "Each step is a complete sentence with a subject and a verb describing a concrete operation performed — e.g. 'Locate all callers of AuthMiddleware in the knowledge graph to map the authentication boundary.' Category labels such as 'Analysis' or 'Testing' are not acceptable as steps."
+-  ],
+-  "result": "Detailed findings. Every claim must cite a specific entity name, file path, metric value, or event from the provided context. A result that could apply to any project — containing no citations from this project's data — is a hallucination and is not acceptable. If the context is insufficient to complete the task, state exactly which data is missing and why it prevents completion.",
+-  "confidence": "high" | "medium" | "low",
+-  "needsHumanReview": true | false
+-}
+-
+-Rules:
+-1. Set confidence to "low" if any of the following is true: the knowledge graph is empty, the required related files are absent from the graph, or the metrics needed to evaluate the task show "N/A". Do not report "high" confidence when key context is missing.
+-2. Set needsHumanReview to true whenever: confidence is "low"; the task involves changes to authentication, authorisation, or data persistence; or the result contradicts a recent event (e.g. a scan found the opposite of what a task assumed).
+-3. Steps must be ordered chronologically as executed. Do not list steps that were not performed.
+-4. Do not invent entity names, file paths, or metric values. If a name does not appear in the knowledge graph, say so explicitly rather than guessing.`;
++  return composePrompt(
++    "You are an autonomous engineering task executor for EngineeringOS.",
++    "You have access to the project's knowledge graph (entity names, types, file paths, confidence scores), quality metrics, recent tasks, and recent events. Use them to ground every step and finding.",
++    promptContextOverview(context),
++    `You must respond with valid JSON matching this schema:\n${promptCodeBlock(`{\n  "summary": "One sentence stating what was determined or found — not what was attempted. Must name at least one entity, file, or metric value from the context.",\n  "steps": [\n    "Each step is a complete sentence with a subject and a verb describing a concrete operation performed — e.g. 'Locate all callers of AuthMiddleware in the knowledge graph to map the authentication boundary.' Category labels such as 'Analysis' or 'Testing' are not acceptable as steps."\n  ],\n  "result": "Detailed findings. Every claim must cite a specific entity name, file path, metric value, or event from the provided context. A result that could apply to any project — containing no citations from this project's data — is a hallucination and is not acceptable. If the context is insufficient to complete the task, state exactly which data is missing and why it prevents completion.",\n  "confidence": "high" | "medium" | "low",\n  "needsHumanReview": true | false\n}`, "json")}`,
++    promptList([
++      "Set confidence to \"low\" if any of the following is true: the knowledge graph is empty, the required related files are absent from the graph, or the metrics needed to evaluate the task show \"N/A\". Do not report \"high\" confidence when key context is missing.",
++      "Set needsHumanReview to true whenever: confidence is \"low\"; the task involves changes to authentication, authorisation, or data persistence; or the result contradicts a recent event (e.g. a scan found the opposite of what a task assumed).",
++      "Steps must be ordered chronologically as executed. Do not list steps that were not performed.",
++      "Do not invent entity names, file paths, or metric values. If a name does not appear in the knowledge graph, say so explicitly rather than guessing.",
++    ]),
++  );
+ }
+ 
+ export function buildTaskAgentUserPrompt(input: {
+@@ -41,18 +29,14 @@
+       ? input.relatedFiles.map((f) => `  - ${f}`).join("\n")
+       : "  (none — use the knowledge graph to identify relevant entities)";
+ 
+-  return `Execute this engineering task. Cite entity names, file paths, and metric values from the context in every step and finding.
+-
+-**Title:** ${input.taskTitle}
++  return composePrompt(
++    `Execute this engineering task. Cite entity names, file paths, and metric values from the context in every step and finding.`,
++    `**Title:** ${input.taskTitle}
+ **Priority:** ${input.taskPriority}
+ **Description:** ${input.taskDescription ?? "(none)"}
+ **Prompt / Instructions:** ${input.taskPrompt ?? "(none)"}
+ **Related files:**
+-${filesSection}
+-
+-**Recent tasks in project:**
+-${input.projectContext.recentTasks}
+-
+-**Recent events:**
+-${input.projectContext.recentEvents}`;
++${filesSection}`,
++    promptContextOverview(input.projectContext),
++  );
+ }
+diff -ruN EngineeringOS-main/lib/ai-orchestrator/src/prompts/workflow.prompt.ts EngineeringOS-main/lib/ai-orchestrator/src/prompts/workflow.prompt.ts
+--- EngineeringOS-main/lib/ai-orchestrator/src/prompts/workflow.prompt.ts	2026-07-26 03:25:55.247675984 +0000
++++ EngineeringOS-main/lib/ai-orchestrator/src/prompts/workflow.prompt.ts	2026-07-26 03:49:32.099660032 +0000
+@@ -1,28 +1,22 @@
+ import type { ProjectContext } from "../context-builder.js";
+ import type { WorkflowPhase } from "../schemas/workflow.schema.js";
++import { composePrompt, promptCodeBlock, promptContextOverview, promptList } from "./prompt-composer.js";
+ 
+ export function buildWorkflowSystemPrompt(): string {
+-  return `You are a workflow orchestration engine for EngineeringOS.
+-You receive the current workflow state — phase definitions, completion status, project metrics,
+-recent tasks, and recent events — and decide the single correct next action.
+-
+-You must respond with valid JSON:
+-{
+-  "action": "advance" | "wait" | "fail" | "complete",
+-  "reasoning": "One to three sentences citing the specific evidence that determined this action — name the task status, event type and timestamp, metric value, or phase condition that was evaluated. Do not restate the workflow name or describe what orchestration is.",
+-  "nextPhase": "Exact phase name from the phase definitions — required when action is 'advance', omit otherwise.",
+-  "blockers": ["Required when action is 'wait'. Each blocker must name the specific task, event, or unmet phase condition causing the hold — e.g. 'Phase condition \"all tests passing\" cannot be confirmed: testsPassed metric is N/A'. Generic entries such as 'waiting for completion' are not acceptable."],
+-  "suggestions": ["Optional. Each suggestion must name a specific phase, step, or condition to change and the expected effect — e.g. 'Add a smoke-test step to the Deploy phase so failures surface before the Verify phase begins'. Vague suggestions such as \"optimise the workflow\" are not acceptable."]
+-}
+-
+-Rules:
+-1. Choose exactly one action. Do not hedge between two actions in reasoning — commit and explain why.
+-2. "advance" requires that every step of the current phase is satisfied and, if a condition is defined, that it evaluates to true given the provided context. If a condition references data that is absent (e.g. a metric showing N/A), choose "wait" instead.
+-3. "wait" requires at least one entry in blockers. Each blocker must identify what is missing and where to look for it.
+-4. "fail" requires that reasoning names what failed, which phase or step it occurred in, and why recovery is not possible within the workflow definition.
+-5. "complete" is valid only when all phases appear in completedPhases.
+-6. "nextPhase" must be the verbatim name of a phase from the phase definitions. Do not invent phase names.
+-7. Do not advance past a phase whose condition cannot be evaluated from the provided context — treat unevaluable conditions as unmet.`;
++  return composePrompt(
++    "You are a workflow orchestration engine for EngineeringOS.",
++    "You receive the current workflow state — phase definitions, completion status, project metrics, recent tasks, and recent events — and decide the single correct next action.",
++    `You must respond with valid JSON:\n${promptCodeBlock(`{\n  "action": "advance" | "wait" | "fail" | "complete",\n  "reasoning": "One to three sentences citing the specific evidence that determined this action — name the task status, event type and timestamp, metric value, or phase condition that was evaluated. Do not restate the workflow name or describe what orchestration is.",\n  "nextPhase": "Exact phase name from the phase definitions — required when action is 'advance', omit otherwise.",\n  "blockers": ["Required when action is 'wait'. Each blocker must name the specific task, event, or unmet phase condition causing the hold — e.g. 'Phase condition \\\"all tests passing\\\" cannot be confirmed: testsPassed metric is N/A'. Generic entries such as 'waiting for completion' are not acceptable."],\n  "suggestions": ["Optional. Each suggestion must name a specific phase, step, or condition to change and the expected effect — e.g. 'Add a smoke-test step to the Deploy phase so failures surface before the Verify phase begins'. Vague suggestions such as \\\"optimise the workflow\\\" are not acceptable."]\n}`, "json")}`,
++    promptList([
++      "Choose exactly one action. Do not hedge between two actions in reasoning — commit and explain why.",
++      "\"advance\" requires that every step of the current phase is satisfied and, if a condition is defined, that it evaluates to true given the provided context. If a condition references data that is absent (e.g. a metric showing N/A), choose \"wait\" instead.",
++      "\"wait\" requires at least one entry in blockers. Each blocker must identify what is missing and where to look for it.",
++      "\"fail\" requires that reasoning names what failed, which phase or step it occurred in, and why recovery is not possible within the workflow definition.",
++      "\"complete\" is valid only when all phases appear in completedPhases.",
++      "\"nextPhase\" must be the verbatim name of a phase from the phase definitions. Do not invent phase names.",
++      "Do not advance past a phase whose condition cannot be evaluated from the provided context — treat unevaluable conditions as unmet.",
++    ]),
++  );
+ }
+ 
+ export function buildWorkflowUserPrompt(opts: {
+@@ -50,26 +44,16 @@
+     (p) => !completedPhases.includes(p.name) && p.name !== currentPhase,
+   );
+ 
+-  return `Decide the next action for this workflow. Cite specific task statuses, event timestamps, metric values, or phase conditions in your reasoning.
+-
+-**Workflow:** ${workflowName}
++  return composePrompt(
++    `Decide the next action for this workflow. Cite specific task statuses, event timestamps, metric values, or phase conditions in your reasoning.`,
++    `**Workflow:** ${workflowName}
+ **Current Phase:** ${currentPhase ?? "not started"}
+ **Completed Phases:** ${completedPhases.length > 0 ? completedPhases.join(", ") : "none"}
+ **Remaining Phases:** ${pendingPhases.length > 0 ? pendingPhases.map((p) => p.name).join(", ") : "none — all phases completed"}
+ 
+ **Phase Definitions:**
+-${phasesSummary}
+-
+-**Project:**
+-${projectContext.project}
+-
+-**Quality Metrics:**
+-${projectContext.latestMetrics}
+-
+-**Recent Tasks:**
+-${projectContext.recentTasks}
+-
+-**Recent Events:**
+-${projectContext.recentEvents}
+-${opts.additionalContext ? `\n**Additional context:** ${opts.additionalContext}` : ""}`;
++${phasesSummary}`,
++    promptContextOverview(projectContext),
++    opts.additionalContext ? `**Additional context:** ${opts.additionalContext}` : "",
++  );
+ }
+--- EngineeringOS-main/lib/ai-orchestrator/src/__tests__/prompt-composer.test.ts	1970-01-01 00:00:00.000000000 +0000
++++ EngineeringOS-main/lib/ai-orchestrator/src/__tests__/prompt-composer.test.ts	2026-07-26 03:49:32.103660032 +0000
+@@ -0,0 +1,35 @@
++import { describe, expect, it } from "vitest";
++import { composePrompt, promptContextOverview } from "../prompts/prompt-composer.js";
++
++describe("prompt composer", () => {
++  it("drops empty fragments when composing prompts", () => {
++    expect(composePrompt("alpha", "", undefined, "beta")).toBe("alpha\n\nbeta");
++  });
++
++  it("renders the full project context overview", () => {
++    const context = {
++      project: "Project A",
++      latestMetrics: "Metrics A",
++      graphSummary: "Graph A",
++      recentTasks: "Tasks A",
++      recentEvents: "Events A",
++      workflows: "Workflows A",
++      metricsVerified: true,
++    };
++
++    const result = promptContextOverview(context);
++
++    expect(result).toContain("**Project:**");
++    expect(result).toContain("Project A");
++    expect(result).toContain("**Quality Metrics:**");
++    expect(result).toContain("Metrics A");
++    expect(result).toContain("**Knowledge Graph:**");
++    expect(result).toContain("Graph A");
++    expect(result).toContain("**Workflows:**");
++    expect(result).toContain("Workflows A");
++    expect(result).toContain("**Recent Tasks:**");
++    expect(result).toContain("Tasks A");
++    expect(result).toContain("**Recent Events:**");
++    expect(result).toContain("Events A");
++  });
++});

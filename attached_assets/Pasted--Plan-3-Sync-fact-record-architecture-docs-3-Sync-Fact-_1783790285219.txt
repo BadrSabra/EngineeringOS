@@ -1,0 +1,260 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Plan #3 - Sync fact record & architecture docs
+#3 - Sync Fact Record & Architecture Docs
+What & Why
+The analysis found 14 files present in the repo that are not mentioned in docs/fact-record.md, making it an unreliable reference. Before building on the current foundation, the single source of truth for "what exists and why" must match reality. This unblocks every subsequent task by giving executors a trustworthy starting point.
+
+Done looks like
+docs/fact-record.md accurately reflects all files in the repo (no undocumented files, no phantom entries)
+An architecture layer map is added to docs describing each layer (Contract → Data → Scanner → Execution → Presentation → Sandbox) with its boundaries and responsibilities
+A dependency map documents the inter-package relationships in the pnpm workspace
+docs/completion-plan.md is updated to reflect the current 9-track execution plan from the uploaded planning documents
+Out of scope
+Making any code changes — this task is documentation only
+Adding new files to the codebase
+Steps
+Audit and update fact-record.md — Diff the current file list against docs/fact-record.md and add entries for all 14+ undocumented files with their role, package, and status
+Add architecture layer map — Add a new section documenting the 6 layers (Contract, Data, Scanner, Execution, Presentation, Sandbox), their responsibilities, and which files/packages belong to each
+Add inter-package dependency map — Document the directed dependency graph between workspace packages (e.g. api-server depends on db and scanner; dashboard depends on api-client-react; etc.)
+Update completion-plan.md — Rewrite to reflect the 9-track phased plan with timelines, acceptance criteria per track, and current status of each
+Relevant files
+docs/fact-record.md
+docs/completion-plan.md
+pnpm-workspace.yaml
+.agents/memory/engineeringos-completion-plan.md
+attached_assets/EngineeringOS_project_analysis_report(1)_1783729892769.md
+attached_assets/EngineeringOS_file_inventory_(1)_1783729892809.csv
+
+
+
+Plan #4 - Stabilize technical foundation
+#4 - Stabilize Technical Foundation
+What & Why
+The current codebase has DB constraints living in application logic rather than the schema, inconsistent error/response shapes across routes, and naming conventions that vary between layers. Hardening the foundation before adding features prevents compounding technical debt and makes every subsequent layer more reliable.
+
+Done looks like
+DB schema constraints (nullability, uniqueness, check constraints) are tightened so the database enforces invariants, not just application code
+All API routes return a consistent response envelope (success shape, error shape, HTTP codes) — no one-off deviations
+Naming conventions are unified across routes, schema columns, and TypeScript types (snake_case columns, camelCase TS, consistent plural/singular for route segments)
+Environment configuration is centralized: a single validated config module is the only place process.env is read
+Dead code and genuinely unused files are removed
+Out of scope
+New features or new API endpoints
+UI changes
+OpenAPI spec changes (those flow through codegen and are a separate concern)
+Steps
+Tighten DB schema constraints — Audit each Drizzle table for columns that should be notNull, add missing unique constraints, and replace any "enforced in code" rules with proper DB-level defaults or check constraints
+Unify API response shape — Define a shared response wrapper type and apply it consistently across all route handlers; standardize HTTP status codes for common error conditions (404, 400, 409, 500)
+Centralize config/env — Create a validated config module (using Zod) that reads all process.env values at startup and fails fast with a clear message on missing required vars
+Normalize naming conventions — Audit column names, route path segments, and TypeScript type names for inconsistencies; apply a single consistent convention throughout
+Remove dead files and empty stubs — Delete .gitkeep files in non-empty dirs, remove any unreferenced utility files identified in the file inventory
+Relevant files
+lib/db/src/schema
+artifacts/api-server/src/routes
+artifacts/api-server/src/app.ts
+artifacts/api-server/src/index.ts
+lib/api-spec/openapi.yaml
+Dependencies
+Plan #4 - Stabilize technical foundation
+
+
+
+
+Plan #5 - Complete workflow & rule engines
+#5 - Complete Workflow & Rule Engines
+What & Why
+Workflows and rules exist as data entities and have basic CRUD, but the execution logic is shallow: workflows lack phase-transition enforcement, retry/fail semantics, and branching; the rule engine evaluates patterns but doesn't feed results into triage or execution decisions. Completing these engines turns them from stored records into real operational machinery.
+
+Done looks like
+Workflows support a full phase lifecycle: advance, fail, retry, and rollback transitions are all handled with clear state-machine semantics
+A workflow cannot transition to an invalid state (e.g. can't advance past final phase, can't retry a succeeded workflow)
+Failed phases record a structured reason and timestamp, not just a status flag
+Rule evaluations produce results that are stored and surfaced — rules are not just checked but their violations are tracked over time per project
+The rule engine can be triggered as part of the scan pipeline and its results linked to scan jobs
+All workflow and rule mutations go through transaction boundaries and emit audit log entries
+Out of scope
+UI for workflow visualization (covered in the Dashboard task)
+AI-driven rule suggestions
+Plugin-contributed rules (covered in the Plugins task)
+Steps
+Implement workflow state machine — Define the valid phase transitions as a typed state machine; enforce them in the route handlers so invalid transitions return a clear 409 error
+Add retry and rollback logic — Implement retryWorkflowPhase and rollbackWorkflow operations with appropriate DB updates and audit entries
+Structured failure recording — Update the workflow_executions table and route to store a structured failure reason (message, timestamp, actor) when a phase fails
+Connect rule evaluation to scan pipeline — After a scan job completes, run matching rules against the scan results and persist violations to a rule_results table (add to schema if absent)
+Rule violation history — Expose an endpoint to retrieve rule violation history per project so the dashboard can show trend data
+Audit completeness — Audit every workflow and rule mutation handler to ensure recordAudit is called consistently
+Relevant files
+artifacts/api-server/src/routes/workflows.ts
+artifacts/api-server/src/routes/rules.ts
+artifacts/api-server/src/lib/scan-runner.ts
+artifacts/api-server/src/lib/audit.ts
+lib/db/src/schema
+lib/api-spec/openapi.yaml
+Dependencies
+Plan #5 - Complete workflow & rule engines
+
+
+
+
+#
+Plan #6 - Deepen graph, scanner & discovery
+
+
+#6 - Deepen Graph, Scanner & Discovery
+What & Why
+The graph extractor uses the TS compiler API for TS/JS but falls back to regex for Python. CommonJS require() calls and export= patterns are not captured. Class methods are not represented as graph nodes. These gaps mean the knowledge graph is incomplete for real-world projects. Richer graph semantics (call relationships, class membership, cross-file type dependencies) turn the graph from a file-import map into a genuine knowledge tool.
+
+Done looks like
+Python files are parsed with a proper AST approach (or a structured regex approach that correctly handles function/class definitions and imports) rather than ad-hoc regex
+CommonJS require() calls and module.exports/export= patterns are captured as graph relationships
+Class methods appear as child entities linked to their parent class entity in the graph
+The discovery pipeline hard-fails with a clear error when rootPath is invalid (no silent fallback to cwd)
+walkProject() documents its fallback behavior and callers outside discovery are audited to ensure they pass a validated path
+Graph entities include a kind field that distinguishes files, functions, classes, methods, and modules
+Out of scope
+Graph visualization UI (covered in the Dashboard task)
+AI-based semantic understanding of relationships
+Support for languages beyond TS/JS and Python in this task
+Steps
+Python structured extraction — Replace ad-hoc regex in graph-extractor.ts for Python files with a structured approach that correctly identifies def, class, and import statements
+CommonJS support — Add extraction of require() calls and module.exports assignments as graph relationships in the TS/JS extractor path
+Class method nodes — Emit child graph entities for each method in a class, linked to the parent class entity with a memberOf relationship type
+rootPath hard-fail audit — Grep all callers of walkProject() and ensure every call site validates the path before calling; add a runtime guard inside walkProject() that throws (not falls back) on a missing directory
+Entity kind field — Ensure every emitted graph entity carries a kind discriminator (file, function, class, method, module) and that the OpenAPI schema and DB schema reflect this field
+Relevant files
+lib/scanner/src/graph-extractor.ts
+lib/scanner/src/file-walker.ts
+lib/scanner/src/rule-matcher.ts
+lib/scanner/src/metrics-calc.ts
+artifacts/api-server/src/routes/discovery.ts
+artifacts/api-server/src/lib/scan-runner.ts
+lib/db/src/schema
+.agents/memory/scanner-ast-extraction.md
+.agents/memory/discovery-feature.md
+Dependencies
+
+
+
+
+
+
+
+
+
+#7 - Upgrade Dashboard to Operational UI
+What & Why
+Current dashboard pages display data but don't let users act on it. The graph page shows nodes and edges but offers no way to navigate relationships. The workflows page shows status but not phase history. The metrics page shows numbers but no trend. Turning the dashboard into an operational tool means users can understand the health of a project, take action, and track outcomes — without opening the codebase.
+
+Done looks like
+The main Dashboard page shows a meaningful project health summary: active scan jobs, recent rule violations, workflow status, and a top-level quality score
+The Workflows page displays the full phase history for a workflow, including failure reasons and timestamps; users can trigger advance/retry/fail from the UI
+The Graph page lets users click a node to see its neighbors, relationships, and linked tasks or rules
+The Metrics page shows trend charts (not just current values) for key quality metrics over time
+The Tasks page supports creating, updating status, and viewing task logs inline
+All pages handle loading, error, and empty states with clear messaging (no blank pages or silent failures)
+The sidebar navigation reflects the real structure of the platform (no placeholder links)
+Out of scope
+AI-powered suggestions or automation
+Plugin management UI (deferred to plugin task)
+Real-time websocket updates (polling is acceptable)
+Steps
+Dashboard summary page — Wire up the dashboard overview endpoint to display project health cards, recent events, active jobs, and rule violation counts with real data
+Workflow phase history UI — Add a phase timeline component to the Workflows detail view; expose advance/retry/fail actions as buttons with confirmation dialogs
+Graph node explorer — Add click-to-expand neighbor navigation in the Graph page; show a side panel with entity details, linked rules, and linked tasks
+Metrics trend charts — Replace point-in-time metric display with sparkline/line charts showing the last N scans worth of data per metric
+Tasks inline logs — Add an expandable log section to each task row that fetches and displays task_logs entries
+Empty/error/loading states — Audit every page for missing states and add appropriate UI for each (skeleton loaders, error banners with retry, empty-state illustrations)
+Relevant files
+artifacts/dashboard/src/pages/Dashboard.tsx
+artifacts/dashboard/src/pages/Workflows.tsx
+artifacts/dashboard/src/pages/Graph.tsx
+artifacts/dashboard/src/pages/Metrics.tsx
+artifacts/dashboard/src/pages/Tasks.tsx
+artifacts/dashboard/src/pages/Projects.tsx
+artifacts/dashboard/src/pages/ProjectDetail.tsx
+lib/api-client-react/src/generated/api.ts
+artifacts/api-server/src/routes/dashboard.ts
+Dependencies
+Plan #7 - Upgrade dashboard to operational UI
+
+
+#8 - Expand Test Coverage & Observability
+What & Why
+The project has good unit tests on the scanner and basic route tests, but failure-path coverage is thin, there are no integration tests that exercise the full request→DB→response cycle, and observability has a known gap: no correlation ID links a single operation across pino logs, audit entries, and emitted events. Expanding coverage and adding a correlation ID makes the system both safer to change and easier to debug in production.
+
+Done looks like
+Every API route has at least one test covering the happy path and at least one covering a relevant failure path (invalid input, not found, conflict)
+The scan pipeline has integration tests that run a real scan against a fixture project and assert on the stored graph, metrics, and scan job status
+OpenAPI contract drift is caught by a test (the codegen:check script passes in CI and is registered as a named validation step)
+A correlation ID (x-correlation-id header, or generated per-request) is propagated through: pino log entries, audit log rows, and emitted events — so a single operation can be traced end-to-end from logs
+The pino logger emits structured JSON in production mode and pretty-prints in development; log level is controlled by an env var
+Scanner tests cover: Python file extraction, CommonJS require extraction, class method nodes, and the rootPath hard-fail guard
+Out of scope
+External monitoring dashboards or alerting infrastructure
+Performance/load testing
+UI behavior tests
+Steps
+Failure-path route tests — For each route file that has a test, add failure-path cases: 404 for missing resources, 400 for invalid payloads, 409 for conflicts (e.g. duplicate project names, invalid workflow transitions)
+Scan pipeline integration test — Write an integration test that seeds a fixture project directory, runs discovery + scan through the API, and asserts on resulting graph entities, metric records, and scan job state
+Register codegen drift check — Register pnpm run codegen:check as a named validation step so drift is caught automatically
+Correlation ID middleware — Add Express middleware that reads x-correlation-id from the request header (or generates a UUID), attaches it to the pino child logger, includes it in all audit log writes, and returns it in the response header
+Scanner unit tests for new extractor features — Add tests for Python AST extraction, CommonJS require, class method nodes, and rootPath guard (coordinate with the Graph/Scanner task)
+Relevant files
+artifacts/api-server/src/routes/*.test.ts
+artifacts/api-server/src/lib/scan-runner.ts
+artifacts/api-server/src/lib/audit.ts
+artifacts/api-server/src/lib/logger.ts
+artifacts/api-server/src/app.ts
+artifacts/api-server/vitest.config.ts
+lib/scanner/src/__tests__
+lib/scanner/vitest.config.ts
+lib/api-spec/orval.config.ts
+Dependencies
+Plan #8 - Expand test coverage & observability
+
+
+
+
+#9 - Complete Plugin Framework
+What & Why
+Plugins exist as a data entity with CRUD routes, but there is no defined contract for what a plugin can do, no lifecycle (load/enable/disable/unload), and no extension points in the core engines. Without a clear boundary between core logic and plugin logic, any future extension will require touching core files. A complete plugin framework lets new capabilities be added without modifying the platform's foundation.
+Done looks like
+A plugin contract (TypeScript interface) is defined and documented: what hooks a plugin can register (e.g. onScanComplete, onRuleViolation, onWorkflowPhaseChange)
+Plugins can be enabled and disabled without restarting the server; their state is persisted in the plugins table
+The core engines call plugin hooks at defined extension points, passing structured context objects
+Plugin errors are isolated — a failing plugin hook logs the error and continues; it cannot crash the core operation
+A minimal example plugin is included in the codebase to document the extension pattern
+Plugin hook invocations appear in the audit log
+Out of scope
+Remote/npm-installable plugins (local plugins only in this task)
+Plugin marketplace or discovery UI
+Plugin-contributed UI components
+Steps
+Define plugin contract — Create a PluginHook TypeScript interface with typed hook signatures for onScanComplete, onRuleEvaluated, and onWorkflowPhaseChanged; document the context object shape for each hook
+Plugin registry — Implement an in-process plugin registry that loads enabled plugins at startup, registers their hooks, and exposes enable/disable operations that update the DB and reload the registry
+Wire hooks into core engines — Call the appropriate hooks in scan-runner.ts (after scan), in the rule evaluation path, and in the workflow state-machine transitions; wrap each call in try/catch so plugin errors are isolated
+Enable/disable API — Add endpoints (or extend existing plugin routes) to enable and disable a plugin at runtime, reflected immediately in the registry
+Example plugin — Add a plugins/example/ directory with a minimal plugin that logs a message on each hook invocation, serving as the reference implementation
+Relevant files
+artifacts/api-server/src/routes/plugins.ts
+artifacts/api-server/src/lib/scan-runner.ts
+artifacts/api-server/src/routes/workflows.ts
+artifacts/api-server/src/routes/rules.ts
+lib/db/src/schema
+lib/api-spec/openapi.yaml
+Dependencies
+Plan #9 - Complete plugin framework

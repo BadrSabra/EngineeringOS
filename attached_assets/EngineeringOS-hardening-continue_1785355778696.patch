@@ -1,0 +1,75 @@
+--- /dev/fd/63	2026-07-29 19:24:57.395259283 +0000
++++ /tmp/engos/EngineeringOS-main/artifacts/api-server/src/lib/discovery-adapters.ts	2026-07-29 19:24:03.291259283 +0000
+@@ -22,6 +22,7 @@
+ import { db } from "@workspace/db";
+ import { projectsTable } from "@workspace/db";
+ import { eq } from "drizzle-orm";
++import { logger } from "./logger.js";
+ 
+ /**
+  * Redacts any embedded `user:password@` credentials from a URL string.
+@@ -168,13 +169,14 @@
+       } catch (parseErr) {
+         // URL parse failed — log a warning so operators can diagnose mis-configured
+         // credentials, then fall through to the raw URL and let git surface the error.
+-        console.warn(
+-          JSON.stringify({
++        logger.warn(
++          {
+             scope: "git-adapter",
+             code: "URL_PARSE_FAILED",
+             error: parseErr instanceof Error ? parseErr.message : String(parseErr),
+             hint: "Credential injection skipped; clone will proceed without authentication.",
+-          }),
++          },
++          "git adapter: failed to parse credential-injected URL; cloning with the raw URL",
+         );
+       }
+     }
+--- /dev/fd/63	2026-07-29 19:24:57.415259283 +0000
++++ /tmp/engos/EngineeringOS-main/artifacts/api-server/src/lib/discovery-adapters.test.ts	2026-07-29 19:24:50.035259283 +0000
+@@ -7,7 +7,7 @@
+  * integration tests in discovery.test.ts.
+  */
+ 
+-import { describe, expect, it } from "vitest";
++import { describe, expect, it, vi } from "vitest";
+ import { eq } from "drizzle-orm";
+ import {
+   ADAPTERS,
+@@ -15,6 +15,7 @@
+   cleanupResolveResult,
+   isResolveError,
+ } from "./discovery-adapters.js";
++import { logger } from "./logger.js";
+ 
+ // ─── isResolveError type guard ────────────────────────────────────────────────
+ 
+@@ -194,6 +195,27 @@
+ 
+ // PR-04: Credential redaction in git clone errors
+ describe("GIT_REPOSITORY adapter — credential redaction", () => {
++  it("logs a structured warning when credential URL parsing fails", async () => {
++    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
++    try {
++      const result = await resolveSource(
++        "GIT_REPOSITORY",
++        { url: "https://%", credentials: { username: "alice", token: "secret" } },
++        TEST_USER,
++      );
++      expect(isResolveError(result)).toBe(true);
++      expect(warnSpy).toHaveBeenCalledWith(
++        expect.objectContaining({
++          scope: "git-adapter",
++          code: "URL_PARSE_FAILED",
++        }),
++        expect.stringContaining("failed to parse credential-injected URL"),
++      );
++    } finally {
++      warnSpy.mockRestore();
++    }
++  });
++
+   it("resolveSource returns 400 for GIT_REPOSITORY with a file:// URL before any clone attempt", async () => {
+     // The scheme check is in validate(), which runs before resolve(), so a
+     // file:// URL is rejected with 400 before git is ever invoked.

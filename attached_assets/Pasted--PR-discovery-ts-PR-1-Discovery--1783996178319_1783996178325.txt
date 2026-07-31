@@ -1,0 +1,315 @@
+
+
+## سلسلة PR متسلسلة منطقية تبدأ بـ `discovery.ts`
+
+### PR 1 — تثبيت عقد الـ Discovery ومساراته الأساسية
+
+**الهدف:** جعل discovery layer دقيقة، واضحة، ومحصنة قبل أي توسيع.
+
+**الملفات:**
+
+* `artifacts/api-server/src/routes/discovery.ts`
+* `artifacts/api-server/src/routes/discovery.test.ts`
+* `lib/api-zod` المتعلق بـ `StartDiscoveryBody`, `ImportProjectBody`, `GetDiscoverySessionParams`, `GetDiscoverySummaryParams`
+* `lib/db` للحقول المرتبطة بـ `discovery_sessions`
+
+**ما يتغير:**
+
+* فصل `resolveSource` و`validateRootPath` و`toSessionResponse` بشكل أوضح إذا بقيت متشابكة.
+* تثبيت سلوك `WORKSPACE_PROJECT` بدل بقائه “available: false” فقط كقيمة نظرية.
+* جعل الـ source capabilities مصدرًا واحدًا للحقيقة بين الـ API والواجهة.
+* مراجعة رسائل الخطأ لتكون deterministically قابلة للاختبار.
+* تقوية اختبارات:
+
+  * session creation
+  * invalid root paths
+  * source capability listing
+  * summary before ready
+  * import after ready
+
+**معيار النجاح:**
+
+* كل source type له سلوك واضح: supported / unsupported / coming soon.
+* لا يوجد سلوك غامض في route discovery.
+* الاختبارات تغطي الحالات الأساسية والحالات الفاشلة.
+
+---
+
+### PR 2 — تحويل discovery إلى architecture حقيقية متعددة المصادر
+
+**الهدف:** تحويل discovery من “local + git” إلى adapter architecture فعلية.
+
+**الملفات:**
+
+* `artifacts/api-server/src/routes/discovery.ts`
+* أي adapters جديدة إن أردت فصلها لاحقًا مثل:
+
+  * `artifacts/api-server/src/lib/discovery-source-resolvers.ts`
+  * أو `artifacts/api-server/src/lib/discovery-adapters/*`
+* `artifacts/api-server/src/routes/discovery.test.ts`
+
+**ما يتغير:**
+
+* فصل `LOCAL_FOLDER` و`GIT_REPOSITORY` و`WORKSPACE_PROJECT` إلى adapters مستقلة.
+* توحيد contract لكل adapter:
+
+  * resolve
+  * validate
+  * cleanup
+  * unsupported response
+* تحديد ماذا يعني “coming soon” بشكل صريح داخل الـ schema والـ UI.
+
+**معيار النجاح:**
+
+* إضافة source جديد لا تتطلب تعديلًا واسعًا في route نفسه.
+* كل adapter معزول وقابل للاختبار.
+
+---
+
+### PR 3 — تثبيت import transaction وatomic claim
+
+**الهدف:** ضمان أن import لا يخلق تناقضات بين session وproject وmetrics وgraph.
+
+**الملفات:**
+
+* `artifacts/api-server/src/routes/discovery.ts`
+* `artifacts/api-server/src/routes/discovery.test.ts`
+* `lib/db` schema الخاص بـ:
+
+  * `projectsTable`
+  * `discoverySessionsTable`
+  * `metricsTable`
+  * `graphEntitiesTable`
+  * `graphRelationshipsTable`
+  * `tasksTable`
+  * `eventsTable`
+
+**ما يتغير:**
+
+* مراجعة transaction flow في `/projects/import`.
+* تثبيت atomic claim من `ready` إلى `imported`.
+* التأكد أن أي فشل أثناء insert يرجع كل شيء rollback.
+* تضييق أي مجال لسباق import مزدوج أو partial writes.
+
+**معيار النجاح:**
+
+* لا يمكن إنشاء مشروعين من session واحدة.
+* أي failure في منتصف العملية لا يترك آثارًا جزئية.
+
+---
+
+### PR 4 — فصل scan runner إلى وحدة تشغيل صارمة
+
+**الهدف:** جعل scan pipeline أوضح وأقل تشابكًا من route discovery.
+
+**الملفات:**
+
+* `artifacts/api-server/src/lib/scan-runner.ts`
+* `artifacts/api-server/src/routes/projects.ts`
+* `artifacts/api-server/src/routes/projects.test.ts`
+* `artifacts/api-server/src/lib/job-queue.ts`
+* `artifacts/api-server/src/lib/job-reconciliation.ts`
+
+**ما يتغير:**
+
+* جعل scan runner هو نقطة الحقيقة الوحيدة لعملية scan.
+* تقليل المنطق المختلط بين route وjob execution.
+* مراجعة حالات:
+
+  * queue
+  * running
+  * failed
+  * completed
+  * reconciliation after restart
+
+**معيار النجاح:**
+
+* scan job لا يعلق على `scanning`.
+* failure path يعيد المشروع إلى `active`.
+* route يبقى thin ويستدعي orchestration فقط.
+
+---
+
+### PR 5 — تقوية scanner نفسه بدل الاكتفاء بالـ heuristics
+
+**الهدف:** تحسين جودة extraction وmatching وmetrics.
+
+**الملفات:**
+
+* `lib/scanner/src/file-walker.ts`
+* `lib/scanner/src/rule-matcher.ts`
+* `lib/scanner/src/graph-extractor.ts`
+* `lib/scanner/src/metrics-calc.ts`
+* `lib/scanner/src/index.ts`
+* tests الخاصة بالـ scanner
+
+**ما يتغير:**
+
+* تقليل fallback غير المقصود في file walking.
+* جعل pattern matching أكثر صرامة ضد regex complexity.
+* تقوية AST extraction خاصة لـ TS/JS/Python.
+* تحسين graph linking بحيث يقل الاعتماد على الاسم فقط.
+* جعل quality metrics أكثر تفسيرًا وثباتًا.
+
+**معيار النجاح:**
+
+* نتائج scanner أكثر قابلية للتنبؤ.
+* false positives وfalse links أقل.
+* الاختبارات تغطي الملفات المعقدة والحالات الحدية.
+
+---
+
+### PR 6 — تحويل knowledge-engine إلى طبقة استدلال فعلية
+
+**الهدف:** نقل الطبقة من “queries على graph” إلى “فهم معرفي” أعلى.
+
+**الملفات:**
+
+* `lib/knowledge-engine/src/queries.ts`
+* `lib/knowledge-engine/src/inference.ts`
+* `lib/knowledge-engine/src/types.ts`
+* `lib/knowledge-engine/src/index.ts`
+* tests الخاصة بها
+
+**ما يتغير:**
+
+* إضافة سياقات مثل:
+
+  * impact paths
+  * dependency neighborhoods
+  * clusters
+  * critical chains
+* تقوية inference بحيث يكون مبنيًا على graph semantics لا على counts فقط.
+* ربط المخرجات مباشرة بما يحتاجه AI layer وواجهة المشروع.
+
+**معيار النجاح:**
+
+* knowledge-engine يعطي قرارات/استنتاجات مفهومة، لا مجرد بيانات خام.
+
+---
+
+### PR 7 — تعميق AI orchestrator: parsing, validation, fallback
+
+**الهدف:** جعل AI layer قابلة للاعتماد لا مجرد “تشغيل نموذج”.
+
+**الملفات:**
+
+* `lib/ai-orchestrator/src/parsing.ts`
+* `lib/ai-orchestrator/src/workflow-orchestrator.ts`
+* `lib/ai-orchestrator/src/groq-client.ts`
+* `lib/ai-orchestrator/src/context-builder.ts`
+* `lib/ai-orchestrator/src/schemas/*`
+* `lib/ai-orchestrator/src/agents/*`
+* tests:
+
+  * `__tests__/parsing.test.ts`
+  * `__tests__/workflow-orchestrator.test.ts`
+  * `__tests__/schemas.test.ts`
+
+**ما يتغير:**
+
+* runtime schema validation أوضح.
+* parsing resilience أقوى للمخرجات غير النظيفة.
+* fallback paths موثقة ومحددة.
+* كل agent له contract صارم.
+* منع silent success عندما يكون output ناقصًا.
+
+**معيار النجاح:**
+
+* مخرجات AI إما valid أو fail واضح مع سبب.
+* no silent corruption في parsing.
+
+---
+
+### PR 8 — مراجعة `artifacts/api-server/src/routes/ai.ts`
+
+**الهدف:** ربط AI orchestration بالـ API بطريقة محكومة.
+
+**الملفات:**
+
+* `artifacts/api-server/src/routes/ai.ts`
+* tests الخاصة به
+* أي schemas على مستوى `api-zod`
+
+**ما يتغير:**
+
+* فصل chat / analyze / review / execute / workflow endpoints.
+* توحيد validation قبل استدعاء orchestrator.
+* جعل verification حقيقيًا أو على الأقل صريح الحدود، بدل افتراض النجاح.
+* تسجيل events/audit لكل action مهم.
+
+**معيار النجاح:**
+
+* endpoint behavior واضح.
+* لا توجد “نجاحات وهمية” في verification.
+
+---
+
+### PR 9 — ربط الواجهة بحقيقة discovery الجديدة
+
+**الهدف:** أن تعكس الواجهة العملية الفعلية للمنصة، لا مجرد شكل.
+
+**الملفات:**
+
+* `artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx`
+* `artifacts/dashboard/src/pages/Projects.tsx`
+* `artifacts/dashboard/src/pages/ProjectDetail.tsx`
+* `artifacts/dashboard/src/pages/Dashboard.tsx`
+* `artifacts/dashboard/src/pages/Graph.tsx`
+* `artifacts/dashboard/src/pages/Metrics.tsx`
+
+**ما يتغير:**
+
+* wizard يعرض source capabilities الحقيقية.
+* حالة discovery/session/import تظهر بوضوح.
+* المستخدم يرى لماذا source غير مدعوم أو what’s next.
+* dashboard يعكس scan/import/graph/AI state الفعلي.
+
+**معيار النجاح:**
+
+* المستخدم ينتقل من discovery إلى import إلى scan بدون فجوات مفهومية.
+
+---
+
+### PR 10 — توحيد الاختبارات والـ drift checks
+
+**الهدف:** إغلاق الفجوات بين العقود والكود والسلوك.
+
+**الملفات:**
+
+* جميع اختبارات routes
+* جميع اختبارات ai-orchestrator
+* جميع اختبارات scanner والknowledge-engine
+* أي drift or snapshot checks
+* `package.json` scripts إن لزم
+
+**ما يتغير:**
+
+* إضافة tests للحالات الفاشلة قبل الناجحة.
+* ضمان أن أي تعديل في discovery أو scan أو AI لا يكسر العقد.
+* جعل الاختبارات مرآة للمنصة لا مجرد checkboxes.
+
+**معيار النجاح:**
+
+* التغيرات في العقود أو السلوك تُكتشف مبكرًا.
+
+## الترتيب التنفيذي المختصر
+
+إذا أردت ترتيبًا صارمًا جدًا، فالسلسلة تكون هكذا:
+
+1. `discovery.ts` + tests
+2. adapters/source resolution
+3. import transaction integrity
+4. `scan-runner.ts`
+5. `scanner/*`
+6. `knowledge-engine/*`
+7. `ai-orchestrator/*`
+8. `routes/ai.ts`
+9. dashboard integration
+10. full regression/drift suite
+
+## المبدأ الذي يحكم الخطة
+
+لا نوسّع المنصة قبل أن نُحكم هذه السلسلة:
+
+**Source → Discovery → Import → Scan → Graph → Knowledge → AI → UI → Audit**

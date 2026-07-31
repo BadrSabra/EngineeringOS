@@ -1,0 +1,269 @@
+--- /tmp/engos/EngineeringOS-main/lib/ai-orchestrator/src/provider-registry.ts	2026-07-26 00:49:17.000000000 +0000
++++ /tmp/engos_patch/EngineeringOS-main/lib/ai-orchestrator/src/provider-registry.ts	2026-07-26 01:50:27.228210900 +0000
+@@ -67,7 +67,9 @@
+     consoleUrl: "aistudio.google.com/apikey",
+     statusUrl: "status.cloud.google.com",
+     supportsStreaming: true,
+-    supportsTools: true,
++    // Gemini is kept in the fallback chain for text-only requests, but its
++    // OpenAI-compatible endpoint is not reliable for tool payloads here.
++    supportsTools: false,
+     supportsJsonMode: true,
+     defaultModels: {
+       fast: "gemini-2.0-flash",
+
+--- /tmp/engos/EngineeringOS-main/artifacts/api-server/src/lib/ai-route-helpers.ts	2026-07-26 00:49:17.000000000 +0000
++++ /tmp/engos_patch/EngineeringOS-main/artifacts/api-server/src/lib/ai-route-helpers.ts	2026-07-26 01:50:51.372209973 +0000
+@@ -24,6 +24,18 @@
+ 
+ export type { ProviderId };
+ 
++type ProviderSelectionOptions = {
++  /** When true, skip providers that cannot handle the request's tool payloads. */
++  requireTools?: boolean;
++};
++
++function providerCanHandleRequest(provider: ProviderId, options?: ProviderSelectionOptions): boolean {
++  const config = PROVIDER_REGISTRY[provider];
++  if (!config) return false;
++  if (options?.requireTools && !config.supportsTools) return false;
++  return true;
++}
++
+ // ── Per-provider key resolution ───────────────────────────────────────────────
+ 
+ /**
+@@ -87,16 +99,26 @@
+ /**
+  * Resolve which AI provider to use for a request.
+  *
+- * Iterates PROVIDER_PRIORITY ([openrouter, deepseek, groq]) and returns the
+- * first provider whose key is available. This is the single place that controls
+- * which provider wins — edit PROVIDER_PRIORITY in provider-registry.ts to reorder.
++ * Iterates PROVIDER_PRIORITY ([openrouter, gemini, deepseek, groq]) and returns
++ * the first provider whose key is available. This is the single place that
++ * controls which provider wins — edit PROVIDER_PRIORITY in provider-registry.ts
++ * to reorder.
+  */
+ export async function resolveProvider(
+   userId: string,
++  options?: ProviderSelectionOptions,
+ ): Promise<{ provider: ProviderId; apiKey: string } | undefined> {
+   for (const provider of PROVIDER_PRIORITY) {
+     const key = await resolveProviderKey(userId, provider);
+-    if (key) return { provider, apiKey: key };
++    if (!key) continue;
++    if (!providerCanHandleRequest(provider, options)) {
++      logger.info(
++        { provider, requireTools: !!options?.requireTools },
++        "Skipping provider that cannot satisfy the current request",
++      );
++      continue;
++    }
++    return { provider, apiKey: key };
+   }
+   return undefined;
+ }
+@@ -108,11 +130,14 @@
+ export async function resolveFallbackProvider(
+   userId: string,
+   currentProvider: ProviderId,
++  options?: ProviderSelectionOptions,
+ ): Promise<{ provider: ProviderId; apiKey: string } | undefined> {
+   for (const provider of PROVIDER_PRIORITY) {
+     if (provider === currentProvider) continue;
+     const key = await resolveProviderKey(userId, provider);
+-    if (key) return { provider, apiKey: key };
++    if (!key) continue;
++    if (!providerCanHandleRequest(provider, options)) continue;
++    return { provider, apiKey: key };
+   }
+   return undefined;
+ }
+@@ -148,13 +173,25 @@
+   },
+   initialProvider: { provider: ProviderId; apiKey: string },
+   onDelta?: (delta: string) => void,
++  options?: ProviderSelectionOptions,
+ ): Promise<{ result: Awaited<ReturnType<typeof chat>>; effectiveProvider: ProviderId }> {
+-  // Build an ordered list: initial provider first, then remaining in PROVIDER_PRIORITY order.
+-  const orderedProviders: Array<{ provider: ProviderId; apiKey: string }> = [initialProvider];
++  // Build an ordered list: initial provider first when it can satisfy the
++  // current request, then remaining providers in PROVIDER_PRIORITY order.
++  const orderedProviders: Array<{ provider: ProviderId; apiKey: string }> = [];
++  if (providerCanHandleRequest(initialProvider.provider, options)) {
++    orderedProviders.push(initialProvider);
++  } else {
++    logger.info(
++      { provider: initialProvider.provider, requireTools: !!options?.requireTools },
++      "Skipping initial provider that cannot satisfy the current request",
++    );
++  }
+   for (const provider of PROVIDER_PRIORITY) {
+     if (provider === initialProvider.provider) continue;
+     const key = await resolveProviderKey(userId, provider);
+-    if (key) orderedProviders.push({ provider, apiKey: key });
++    if (!key) continue;
++    if (!providerCanHandleRequest(provider, options)) continue;
++    orderedProviders.push({ provider, apiKey: key });
+   }
+ 
+   let lastErr: GroqClientError | undefined;
+@@ -199,12 +236,16 @@
+ export async function requireProvider(
+   userId: string,
+   res: import("express").Response,
++  options?: ProviderSelectionOptions,
+ ): Promise<{ provider: ProviderId; apiKey: string } | null> {
+-  const resolved = await resolveProvider(userId);
++  const resolved = await resolveProvider(userId, options);
+   if (!resolved) {
++    const hint = options?.requireTools
++      ? "Save a tool-capable API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, or groq). Gemini is available for text-only requests."
++      : "Save an API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, groq, or gemini).";
+     res.status(428).json({
+       error: "AI provider not configured",
+-      hint: "Save an API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, or groq).",
++      hint,
+     });
+     return null;
+   }
+
+--- /tmp/engos/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts	2026-07-26 00:49:17.000000000 +0000
++++ /tmp/engos_patch/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts	2026-07-26 01:51:09.788209267 +0000
+@@ -122,13 +122,10 @@
+         .limit(10)
+     : [];
+ 
+-  const providerResolved = await requireProvider(req.userId, res);
++  const providerResolved = await requireProvider(req.userId, res, { requireTools: !!validRootPath });
+   if (!providerResolved) return;
+   const { provider, apiKey } = providerResolved;
+ 
+-  const { validRootPath, fallbackUsed: rootFallbackUsed, originalPath: rootOriginalPath } =
+-    await resolveRootPath(project.rootPath, projectId);
+-
+   const applyProbe = await tryAdvisoryLock(LockNamespace.APPLY, projectId);
+   if (!applyProbe.acquired) {
+     return res.status(409).json({
+@@ -153,6 +150,8 @@
+         rootPath: validRootPath,
+       },
+       { provider, apiKey },
++      undefined,
++      { requireTools: !!validRootPath },
+     );
+     result = chatOut.result;
+   } catch (err) {
+@@ -176,6 +175,8 @@
+     );
+   }
+ 
++  invalidateContextCache(projectId);
++
+   const msgNow = new Date();
+   let session: typeof aiChatSessionsTable.$inferSelect;
+   if (existingSession) {
+@@ -261,7 +262,7 @@
+     });
+   }
+ 
+-  const providerResolved = await requireProvider(req.userId, res);
++  const providerResolved = await requireProvider(req.userId, res, { requireTools: !!validRootPath });
+   if (!providerResolved) return;
+   const { provider, apiKey } = providerResolved;
+ 
+@@ -341,6 +342,7 @@
+       },
+       { provider, apiKey },
+       onDelta,
++      { requireTools: !!validRootPath },
+     );
+     result = chatOut.result;
+   } catch (err) {
+
+--- /tmp/engos/EngineeringOS-main/lib/ai-orchestrator/src/tools/git-tools.ts	2026-07-26 00:49:17.000000000 +0000
++++ /tmp/engos_patch/EngineeringOS-main/lib/ai-orchestrator/src/tools/git-tools.ts	2026-07-26 01:50:41.508210352 +0000
+@@ -37,7 +37,7 @@
+       description:
+         "Show the working-tree status: which files are modified, added, deleted, or untracked. " +
+         "Run this before proposing a commit message or reviewing pending changes.",
+-      parameters: { type: "object", properties: {}, required: [] },
++      parameters: { type: "object", properties: {} },
+     },
+   },
+   {
+@@ -56,7 +56,6 @@
+               "Optional: project-relative path to a specific file. Omit to show all changes.",
+           },
+         },
+-        required: [],
+       },
+     },
+   },
+@@ -67,7 +66,7 @@
+       description:
+         "Show the last 15 commits as one-line summaries (hash · date · message). " +
+         "Use this to understand recent history or pick a base for a new commit message.",
+-      parameters: { type: "object", properties: {}, required: [] },
++      parameters: { type: "object", properties: {} },
+     },
+   },
+ ];
+
+--- /tmp/engos/EngineeringOS-main/artifacts/api-server/src/routes/ai.test.ts	2026-07-26 00:49:17.000000000 +0000
++++ /tmp/engos_patch/EngineeringOS-main/artifacts/api-server/src/routes/ai.test.ts	2026-07-26 01:50:27.232210900 +0000
+@@ -35,13 +35,15 @@
+   PROVIDER_REGISTRY: {
+     groq: { providerId: "groq", label: "Groq", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "console.groq.com", statusUrl: "status.groq.com", defaultModels: { fast: "llama-3.1-8b-instant", powerful: "llama-3.3-70b-versatile" } },
+     deepseek: { providerId: "deepseek", label: "DeepSeek", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "platform.deepseek.com", statusUrl: "platform.deepseek.com", defaultModels: { fast: "deepseek-chat", powerful: "deepseek-chat" } },
++    gemini: { providerId: "gemini", label: "Gemini", supportsStreaming: true, supportsTools: false, supportsJsonMode: true, consoleUrl: "aistudio.google.com/apikey", statusUrl: "status.cloud.google.com", defaultModels: { fast: "gemini-2.0-flash", powerful: "gemini-2.0-flash" } },
+     openrouter: { providerId: "openrouter", label: "OpenRouter", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "openrouter.ai/keys", statusUrl: "openrouter.ai", defaultModels: { fast: "google/gemma-4-31b-it:free", powerful: "nvidia/nemotron-3-ultra-550b-a55b:free" } },
+   },
+-  PROVIDER_PRIORITY: ["openrouter", "deepseek", "groq"],
++  PROVIDER_PRIORITY: ["openrouter", "gemini", "deepseek", "groq"],
+   getProvider: vi.fn((id: string) => {
+     const registry: Record<string, { providerId: string; label: string }> = {
+       groq: { providerId: "groq", label: "Groq" },
+       deepseek: { providerId: "deepseek", label: "DeepSeek" },
++      gemini: { providerId: "gemini", label: "Gemini" },
+       openrouter: { providerId: "openrouter", label: "OpenRouter" },
+     };
+     if (!registry[id]) throw new Error(`Unknown provider: ${id}`);
+@@ -827,3 +829,36 @@
+     }
+   });
+ });
++
++
++describe("resolveProvider tool-capability filtering", () => {
++  it("skips Gemini when a request requires tools", async () => {
++    const savedGroq = process.env.GROQ_API_KEY;
++    const savedOpenRouter = process.env.OPENROUTER_API_KEY;
++    const savedDeepSeek = process.env.DEEPSEEK_API_KEY;
++    const savedGemini = process.env.GEMINI_API_KEY;
++
++    delete process.env.GROQ_API_KEY;
++    delete process.env.OPENROUTER_API_KEY;
++    delete process.env.DEEPSEEK_API_KEY;
++    process.env.GEMINI_API_KEY = "test-gemini-key";
++
++    try {
++      const { resolveProvider } = await import("../lib/ai-route-helpers.js");
++      const resolved = await resolveProvider("test-user", { requireTools: true });
++      expect(resolved).toBeUndefined();
++    } finally {
++      if (savedGroq !== undefined) process.env.GROQ_API_KEY = savedGroq;
++      else delete process.env.GROQ_API_KEY;
++
++      if (savedOpenRouter !== undefined) process.env.OPENROUTER_API_KEY = savedOpenRouter;
++      else delete process.env.OPENROUTER_API_KEY;
++
++      if (savedDeepSeek !== undefined) process.env.DEEPSEEK_API_KEY = savedDeepSeek;
++      else delete process.env.DEEPSEEK_API_KEY;
++
++      if (savedGemini !== undefined) process.env.GEMINI_API_KEY = savedGemini;
++      else delete process.env.GEMINI_API_KEY;
++    }
++  });
++});

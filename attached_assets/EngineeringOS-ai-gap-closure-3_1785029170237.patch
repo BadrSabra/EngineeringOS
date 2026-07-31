@@ -1,0 +1,316 @@
+diff -ruN EngineeringOS-orig/EngineeringOS-main/artifacts/api-server/src/lib/ai-route-helpers.test.ts /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/artifacts/api-server/src/lib/ai-route-helpers.test.ts
+--- EngineeringOS-orig/EngineeringOS-main/artifacts/api-server/src/lib/ai-route-helpers.test.ts	1970-01-01 00:00:00.000000000 +0000
++++ /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/artifacts/api-server/src/lib/ai-route-helpers.test.ts	2026-07-26 01:25:13.233044603 +0000
+@@ -0,0 +1,17 @@
++/**
++ * Focused tests for chat-provider routing helpers.
++ */
++import { describe, expect, it } from "vitest";
++import { requestLooksToolBound } from "./ai-route-helpers.js";
++
++describe("requestLooksToolBound", () => {
++  it("flags code-analysis style messages as tool-bound", () => {
++    expect(requestLooksToolBound("Please analyze the codebase and inspect the file tree")).toBe(true);
++    expect(requestLooksToolBound("قم بتحليل الكود وافحص الملفات")).toBe(true);
++  });
++
++  it("does not over-trigger on simple greetings", () => {
++    expect(requestLooksToolBound("hello there")).toBe(false);
++    expect(requestLooksToolBound("شكراً جزيلاً")).toBe(false);
++  });
++});
+diff -ruN EngineeringOS-orig/EngineeringOS-main/artifacts/api-server/src/lib/ai-route-helpers.ts /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/artifacts/api-server/src/lib/ai-route-helpers.ts
+--- EngineeringOS-orig/EngineeringOS-main/artifacts/api-server/src/lib/ai-route-helpers.ts	2026-07-26 01:25:23.741044982 +0000
++++ /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/artifacts/api-server/src/lib/ai-route-helpers.ts	2026-07-26 01:25:13.233044603 +0000
+@@ -117,6 +117,15 @@
+   return undefined;
+ }
+ 
++const TOOL_REQUEST_PATTERNS = [
++  /\b(analy[sz]e|inspect|review|debug|test|run|scan|read|list|search|find|open|show|trace|explain|compare|fix|patch|implement|modify|change)\b/i,
++  /\b(فحص|تحليل|راجع|اعرض|افتح|شغّل|شغل|نفّذ|نفذ|اختبر|ابحث|استخرج|قارن|صلّح|عدّل|غيّر)\b/i,
++];
++
++export function requestLooksToolBound(message: string): boolean {
++  return TOOL_REQUEST_PATTERNS.some((pattern) => pattern.test(message));
++}
++
+ /**
+  * Error codes that should trigger a provider fallback rather than surfacing
+  * the error directly to the caller.
+@@ -145,18 +154,36 @@
+     history: { role: "user" | "assistant"; content: string }[];
+     projectContext: Awaited<ReturnType<typeof buildProjectContext>>;
+     rootPath: string | undefined;
++    requireToolSupport?: boolean;
+   },
+   initialProvider: { provider: ProviderId; apiKey: string },
+   onDelta?: (delta: string) => void,
+ ): Promise<{ result: Awaited<ReturnType<typeof chat>>; effectiveProvider: ProviderId }> {
++  const requireToolSupport = baseParams.requireToolSupport === true;
++
+   // Build an ordered list: initial provider first, then remaining in PROVIDER_PRIORITY order.
+-  const orderedProviders: Array<{ provider: ProviderId; apiKey: string }> = [initialProvider];
++  const orderedProviders: Array<{ provider: ProviderId; apiKey: string }> = [];
++  const initialCfg = PROVIDER_REGISTRY[initialProvider.provider];
++  if (!requireToolSupport || initialCfg.supportsTools) {
++    orderedProviders.push(initialProvider);
++  }
+   for (const provider of PROVIDER_PRIORITY) {
+     if (provider === initialProvider.provider) continue;
++    const cfg = PROVIDER_REGISTRY[provider];
++    if (requireToolSupport && !cfg.supportsTools) continue;
+     const key = await resolveProviderKey(userId, provider);
+     if (key) orderedProviders.push({ provider, apiKey: key });
+   }
+ 
++  if (orderedProviders.length === 0) {
++    throw new GroqClientError(
++      "INVALID_CONFIG",
++      requireToolSupport
++        ? "No tool-capable AI provider is configured"
++        : "No AI provider returned a response",
++    );
++  }
++
+   let lastErr: GroqClientError | undefined;
+ 
+   for (const providerEntry of orderedProviders) {
+diff -ruN EngineeringOS-orig/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts
+--- EngineeringOS-orig/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts	2026-07-26 01:25:23.741044982 +0000
++++ /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts	2026-07-26 01:25:13.233044603 +0000
+@@ -35,6 +35,7 @@
+   requireProvider,
+   chatWithFallback,
+   handleOrchestratorError,
++  requestLooksToolBound,
+ } from "../../lib/ai-route-helpers.js";
+ 
+ // ── AI-02: Last-resort response sanitizer ────────────────────────────────────
+@@ -129,6 +130,8 @@
+   const { validRootPath, fallbackUsed: rootFallbackUsed, originalPath: rootOriginalPath } =
+     await resolveRootPath(project.rootPath, projectId);
+ 
++  const requireToolSupport = Boolean(validRootPath) && requestLooksToolBound(message);
++
+   const applyProbe = await tryAdvisoryLock(LockNamespace.APPLY, projectId);
+   if (!applyProbe.acquired) {
+     return res.status(409).json({
+@@ -151,6 +154,7 @@
+           .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+         projectContext,
+         rootPath: validRootPath,
++        requireToolSupport,
+       },
+       { provider, apiKey },
+     );
+@@ -306,6 +310,8 @@
+   const { validRootPath, fallbackUsed: rootFallbackUsed, originalPath: rootOriginalPath } =
+     await resolveRootPath(project.rootPath, projectId);
+ 
++  const requireToolSupport = Boolean(validRootPath) && requestLooksToolBound(message);
++
+   sse({ type: "stage", stage: "building-context" });
+   const projectContext = await buildProjectContext(projectId);
+ 
+@@ -338,6 +344,7 @@
+           .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+         projectContext,
+         rootPath: validRootPath,
++        requireToolSupport,
+       },
+       { provider, apiKey },
+       onDelta,
+diff -ruN EngineeringOS-orig/EngineeringOS-main/lib/ai-orchestrator/src/__tests__/chat-agent.test.ts /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/lib/ai-orchestrator/src/__tests__/chat-agent.test.ts
+--- EngineeringOS-orig/EngineeringOS-main/lib/ai-orchestrator/src/__tests__/chat-agent.test.ts	2026-07-26 01:25:23.849044986 +0000
++++ /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/lib/ai-orchestrator/src/__tests__/chat-agent.test.ts	2026-07-26 01:20:03.929033418 +0000
+@@ -325,4 +325,55 @@
+     // The response must not contain a raw envelope.
+     expect(result.response).not.toMatch(/^\{/);
+   });
++
++  it("disables tool payloads for Gemini and still returns a response from context", async () => {
++    vi.resetModules();
++    process.env.GROQ_API_KEY = "test-key";
++
++    let capturedTools: unknown = "unset";
++    const mockGemini = vi.fn(async (_messages: unknown, opts: { tools?: unknown[] }) => {
++      capturedTools = opts.tools;
++      return {
++        content: "Gemini context-only answer",
++        toolCalls: [],
++      };
++    });
++
++    vi.doMock("../openai-compatible-client.js", () => ({
++      geminiCompleteRaw: mockGemini,
++      geminiCompleteStream: vi.fn(),
++      openrouterCompleteRaw: vi.fn(),
++      openrouterCompleteStream: vi.fn(),
++    }));
++
++    const { chat } = await import("../agents/chat-agent.js");
++    const result = await chat({
++      message: "Please analyze this project and explain the architecture.",
++      history: [],
++      projectContext: makeContext(),
++      rootPath: "/home/project",
++      provider: "gemini",
++      apiKey: "test-gemini-key",
++    });
++
++    expect(capturedTools).toBeUndefined();
++    expect(result.response).toContain("Gemini context-only answer");
++  });
++
++  it("keeps git tool schemas non-empty so stricter providers can accept them", async () => {
++    const { GIT_TOOL_DEFINITIONS } = await import("../tools/git-tools.js");
++    const statusTool = GIT_TOOL_DEFINITIONS.find((tool) => tool.function.name === "git_status");
++    const logTool = GIT_TOOL_DEFINITIONS.find((tool) => tool.function.name === "git_log");
++
++    expect(statusTool?.function.parameters).toMatchObject({
++      type: "object",
++      properties: { note: expect.any(Object) },
++    });
++    expect(logTool?.function.parameters).toMatchObject({
++      type: "object",
++      properties: { note: expect.any(Object) },
++    });
++    expect(statusTool?.function.parameters).not.toHaveProperty("required");
++    expect(logTool?.function.parameters).not.toHaveProperty("required");
++  });
+ });
+diff -ruN EngineeringOS-orig/EngineeringOS-main/lib/ai-orchestrator/src/agents/chat-agent.ts /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/lib/ai-orchestrator/src/agents/chat-agent.ts
+--- EngineeringOS-orig/EngineeringOS-main/lib/ai-orchestrator/src/agents/chat-agent.ts	2026-07-26 01:25:23.849044986 +0000
++++ /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/lib/ai-orchestrator/src/agents/chat-agent.ts	2026-07-26 01:02:29.300995282 +0000
+@@ -86,6 +86,31 @@
+ function requiresToolExecution(message: string): boolean {
+   return TOOL_EXECUTION_PATTERNS.some((p) => p.test(message));
+ }
++
++/**
++ * Build the tool list for the active provider.
++ *
++ * Gemini's OpenAI-compatible shim currently returns 404 when tool payloads are
++ * included, so we keep it in text-only mode and let it answer from context.
++ * Other providers receive the full file + git tool suite.
++ */
++function buildProviderTools(provider: keyof typeof PROVIDER_REGISTRY, rootPath: string | undefined) {
++  if (!rootPath) return undefined;
++  const cfg = PROVIDER_REGISTRY[provider];
++  if (!cfg.supportsTools) {
++    console.warn(
++      JSON.stringify({
++        scope: "chat-agent",
++        code: "TOOLS_DISABLED_FOR_PROVIDER",
++        provider,
++        reason: "provider registry marks this endpoint as text-only",
++      }),
++    );
++    return undefined;
++  }
++  return [...FILE_TOOL_DEFINITIONS, ...GIT_TOOL_DEFINITIONS];
++}
++
+ /**
+  * Hard cap on total tool executions per request (across all iterations).
+  * Prevents a single model response from requesting unbounded tool calls.
+@@ -227,7 +252,7 @@
+   /** Running count of tool executions that hit the real filesystem/grep. */
+   let totalToolCalls = 0;
+ 
+-  const tools = rootPath ? [...FILE_TOOL_DEFINITIONS, ...GIT_TOOL_DEFINITIONS] : undefined;
++  const tools = buildProviderTools(provider, rootPath);
+ 
+   // PR-02: build explicit name Sets from the authoritative definition arrays.
+   // Replaces the startsWith("git_") prefix heuristic so any future tool whose
+diff -ruN EngineeringOS-orig/EngineeringOS-main/lib/ai-orchestrator/src/openai-compatible-client.ts /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/lib/ai-orchestrator/src/openai-compatible-client.ts
+--- EngineeringOS-orig/EngineeringOS-main/lib/ai-orchestrator/src/openai-compatible-client.ts	2026-07-26 01:25:23.849044986 +0000
++++ /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/lib/ai-orchestrator/src/openai-compatible-client.ts	2026-07-26 01:03:54.824998375 +0000
+@@ -434,8 +434,9 @@
+   messages: RawMessage[],
+   opts: Omit<OpenAICompatibleOptions, "baseUrl" | "providerName" | "extraHeaders">,
+ ): Promise<RawGroqResponse> {
++  const { tools: _tools, responseFormat: _responseFormat, ...safeOpts } = opts;
+   return oacCompleteRaw(messages, {
+-    ...opts,
++    ...safeOpts,
+     baseUrl: GEMINI_BASE_URL,
+     providerName: "Gemini",
+   });
+@@ -448,8 +449,10 @@
+   messages: RawMessage[],
+   opts: Omit<OpenAICompatibleStreamOptions, "baseUrl" | "providerName" | "extraHeaders">,
+ ): AsyncGenerator<string> {
++  const { tools: _tools, responseFormat: _responseFormat, ...safeOpts } =
++    opts as OpenAICompatibleOptions & { tools?: unknown; responseFormat?: unknown };
+   return oacCompleteStream(messages, {
+-    ...opts,
++    ...safeOpts,
+     baseUrl: GEMINI_BASE_URL,
+     providerName: "Gemini",
+   });
+diff -ruN EngineeringOS-orig/EngineeringOS-main/lib/ai-orchestrator/src/provider-registry.ts /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/lib/ai-orchestrator/src/provider-registry.ts
+--- EngineeringOS-orig/EngineeringOS-main/lib/ai-orchestrator/src/provider-registry.ts	2026-07-26 01:25:23.849044986 +0000
++++ /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/lib/ai-orchestrator/src/provider-registry.ts	2026-07-26 01:02:36.768995552 +0000
+@@ -24,7 +24,7 @@
+ };
+ 
+ /**
+- * Fallback priority order: openrouter → deepseek → groq.
++ * Fallback priority order: openrouter → gemini → deepseek → groq.
+  *
+  * resolveProvider() returns the first provider in this list whose key is
+  * available. resolveFallbackProvider() skips the current provider and returns
+@@ -67,7 +67,7 @@
+     consoleUrl: "aistudio.google.com/apikey",
+     statusUrl: "status.cloud.google.com",
+     supportsStreaming: true,
+-    supportsTools: true,
++    supportsTools: false,
+     supportsJsonMode: true,
+     defaultModels: {
+       fast: "gemini-2.0-flash",
+diff -ruN EngineeringOS-orig/EngineeringOS-main/lib/ai-orchestrator/src/tools/git-tools.ts /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/lib/ai-orchestrator/src/tools/git-tools.ts
+--- EngineeringOS-orig/EngineeringOS-main/lib/ai-orchestrator/src/tools/git-tools.ts	2026-07-26 01:25:23.853044987 +0000
++++ /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/lib/ai-orchestrator/src/tools/git-tools.ts	2026-07-26 01:19:59.285033250 +0000
+@@ -29,6 +29,13 @@
+   };
+ };
+ 
++const GIT_TOOL_NOTE_FIELD = {
++  note: {
++    type: "string",
++    description: "Optional context for the model. Ignored by the handler.",
++  },
++} as const;
++
+ export const GIT_TOOL_DEFINITIONS: GitToolDefinition[] = [
+   {
+     type: "function",
+@@ -37,7 +44,7 @@
+       description:
+         "Show the working-tree status: which files are modified, added, deleted, or untracked. " +
+         "Run this before proposing a commit message or reviewing pending changes.",
+-      parameters: { type: "object", properties: {}, required: [] },
++      parameters: { type: "object", properties: { ...GIT_TOOL_NOTE_FIELD } },
+     },
+   },
+   {
+@@ -56,7 +63,6 @@
+               "Optional: project-relative path to a specific file. Omit to show all changes.",
+           },
+         },
+-        required: [],
+       },
+     },
+   },
+@@ -67,7 +73,7 @@
+       description:
+         "Show the last 15 commits as one-line summaries (hash · date · message). " +
+         "Use this to understand recent history or pick a base for a new commit message.",
+-      parameters: { type: "object", properties: {}, required: [] },
++      parameters: { type: "object", properties: { ...GIT_TOOL_NOTE_FIELD } },
+     },
+   },
+ ];

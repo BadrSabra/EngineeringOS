@@ -1,0 +1,443 @@
+# حزمة التنفيذ التفصيلية لتعديل Scanner / KG / AI Orchestrator
+
+## 1) نقاط ثابتة من الملفات الحالية
+
+هذه هي الحقائق التي يجب أن ينطلق منها أي تنفيذ:
+
+| الملف                                                     | السلوك الحالي                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/scanner/src/metrics-calc.ts`                         | يحسب `technicalDebt` حاليًا كـ `Math.round((lintIssues * 30) / 60)`، أي نصف ساعة لكل issue بغض النظر عن severity.                                                                                                                                                                                                |
+| `lib/db/src/schema/metrics.ts`                            | جدول `metrics` لا يحتوي على `avgFileSizeKb` أو `codeToTestRatio` حاليًا. الموجود فقط: `overallScore`, `architectureScore`, `securityScore`, `performanceScore`, `reliabilityScore`, `maintainabilityScore`, `structuralTestEstimate`, `lintIssues`, `testsPassed`, `testsTotal`, `technicalDebt`, `buildStatus`. |
+| `artifacts/api-server/src/lib/scan-runner.ts`             | يكتب صف metrics جديدًا في `metricsTable` مباشرة، لذلك أي حقل جديد في المقاييس يحتاج أن يمر هنا أيضًا.                                                                                                                                                                                                            |
+| `lib/ai-orchestrator/src/schemas/context.schema.ts`       | `AgentContextSchema` لا يزال all-strings فقط و`.strict()`.                                                                                                                                                                                                                                                       |
+| `lib/ai-orchestrator/src/context-builder.ts`              | يستنتج `scanVerified` من `latestScanJob?.status === "completed"`، ويضيف warning نصي داخل `latestMetrics` عند عدم وجود scan ناجح.                                                                                                                                                                                 |
+| `lib/ai-orchestrator/src/agents/workflow-orchestrator.ts` | يمنع `advance` و`complete` عند `latestMetrics.includes("⚠ WARNING:")`.                                                                                                                                                                                                                                           |
+| `lib/db/src/schema/graph.ts`                              | `graph_entities` يحتوي أصلًا على `sourceType`, `confidence`, و`provenance`، لذلك provenance summary يمكن بناؤه من البيانات الموجودة بدون إضافة أعمدة جديدة.                                                                                                                                                      |
+| `lib/scanner/src/__tests__/metrics-calc.test.ts`          | الاختبارات الحالية تفترض أن `technicalDebt` محسوب بطريقة 30 دقيقة لكل issue.                                                                                                                                                                                                                                     |
+| `lib/ai-orchestrator/src/context-builder.test.ts`         | توجد حلقة تفحص كل `Object.entries(ctx)` على أنها strings؛ هذه ستنكسر بمجرد إضافة `metricsVerified: boolean`.                                                                                                                                                                                                     |
+
+---
+
+## 2) ترتيب التنفيذ الصحيح
+
+### المرحلة 1 — تغييرات البيانات والمقاييس
+
+1. تحديث `metrics-calc.ts`.
+2. توسيع `metricsTable` في `lib/db/src/schema/metrics.ts`.
+3. تمرير الحقول الجديدة من `scan-runner.ts`.
+4. تحديث codegen المولَّد في `lib/api-zod` و`lib/api-client-react` إن لزم.
+
+### المرحلة 2 — سياق AI
+
+5. إضافة `metricsVerified` إلى `AgentContextSchema`.
+6. تمرير `metricsVerified` من `context-builder.ts`.
+7. إضافة provenance header في `graphSummary`.
+
+### المرحلة 3 — منطق workflow
+
+8. استبدال فحص النص في `workflow-orchestrator.ts` بفحص بنيوي يعتمد على `metricsVerified`.
+
+### المرحلة 4 — الاختبارات
+
+9. تحديث اختبارات scanner.
+10. تحديث اختبارات context builder.
+11. إضافة اختبارات workflow gate.
+
+---
+
+# 3) التذاكر التفصيلية
+
+## SCN-001 — إعادة تصميم حساب Technical Debt
+
+**الأولوية:** P0
+**المخرج:** قيمة `technicalDebt` تعكس severity بدل العدد الخام فقط.
+
+### المطلوب بدقة
+
+* الإبقاء على `SEVERITY_PENALTY` الحالي لأنه خاص بتأثير المخالفات على score، وليس debt.
+* إضافة mapping منفصل لـ technical debt.
+* حساب `technicalDebt` من `ruleResults` وليس من `lintIssues` فقط.
+* إبقاء القيمة رقمية real/float، وليس integer فقط، لأن الوزن سيحتاج كسورًا.
+
+### قرار التنفيذ المقترح
+
+استخدم أوزانًا ثابتة ومفسّرة:
+
+* `critical = 4.0h`
+* `high = 2.0h`
+* `medium = 0.5h`
+* `low = 0.25h`
+* `info = 0h`
+
+### ملفات التعديل
+
+* `lib/scanner/src/metrics-calc.ts`
+* `lib/scanner/src/__tests__/metrics-calc.test.ts`
+
+### ما يجب فعله داخل الكود
+
+* أضف ثابتًا مثل `TECHNICAL_DEBT_HOURS_BY_SEVERITY`.
+* احسب debt كجمع:
+  `sum(matchCount * severityHours)`
+* لا تغيّر منطق `securityScore` / `maintainabilityScore` / `performanceScore`.
+* لا تعيد استخدام `lintIssues` كبديل للحساب الجديد.
+
+### اختبارات مطلوبة
+
+* low فقط: 4 مخالفات = `1.0h`.
+* medium فقط: 2 مخالفات = `1.0h`.
+* high فقط: 1 مخالفة = `2.0h`.
+* critical فقط: 1 مخالفة = `4.0h`.
+* خليط severities.
+* حالة لا توجد فيها violations = `0`.
+
+### معيار القبول
+
+* القيم تطابق الأوزان السابقة.
+* لا يحدث كسر في بقية مؤشرات الجودة.
+* الاختبارات الحالية التي تفترض 30 دقيقة لكل issue يتم تعديلها.
+
+---
+
+## SCN-002 — توسيع metrics لتشمل avgFileSizeKb و codeToTestRatio
+
+**الأولوية:** P1
+**المخرج:** المقاييس الجديدة تُحسب، تُخزّن، وتصل إلى AI context وواجهة metrics إن لزم.
+
+### نقطة مهمة
+
+إذا أضفت الحقول فقط داخل `ComputedMetrics` فلن تصل إلى `context-builder`؛ لأن `context-builder` يقرأ من `metricsTable` في قاعدة البيانات.
+لذلك يلزم **توسيع schema + insertion + generated types**.
+
+### ملفات التعديل
+
+* `lib/scanner/src/metrics-calc.ts`
+* `lib/db/src/schema/metrics.ts`
+* `artifacts/api-server/src/lib/scan-runner.ts`
+* `lib/api-zod/src/generated/...` عبر codegen
+* `lib/api-client-react/src/generated/...` عبر codegen
+* اختياري: `artifacts/dashboard/src/pages/Metrics.tsx` إذا أردت عرضًا بصريًا مباشرًا
+
+### تعريف الحقول
+
+* `avgFileSizeKb`: متوسط حجم الملفات البرمجية بالكيلوبايت، محسوب من نفس مجموعة `sourceFiles` المستخدمة في باقي المقاييس.
+* `codeToTestRatio`: نسبة code إلى test files.
+  القرار المقترح لتفادي Infinity:
+
+  * `codeToTestRatio = nonTestSourceFiles.length / Math.max(testFiles.length, 1)`
+
+### المطلوب في schema
+
+أضف إلى `metricsTable`:
+
+* `avgFileSizeKb: real("avg_file_size_kb")`
+* `codeToTestRatio: real("code_to_test_ratio")`
+
+### المطلوب في scan-runner
+
+أضف القيم الجديدة عند insert إلى `metricsTable`:
+
+* `avgFileSizeKb: metrics.avgFileSizeKb`
+* `codeToTestRatio: metrics.codeToTestRatio`
+
+### المطلوب في generated code
+
+بعد تعديل schema:
+
+* شغّل `pnpm --filter @workspace/db run push`
+* ثم `pnpm run codegen`
+* لا تعدّل الملفات المولَّدة يدويًا إلا إذا كان المشروع يعتمد هذا الأسلوب صراحةً
+
+### معيار القبول
+
+* القيم الجديدة موجودة في DB row.
+* API `/metrics` و`/metrics/latest` يعيدانها تلقائيًا لأن `select()` يلتقط كل الأعمدة.
+* لا يكسر أي consumer حالي للـ metrics.
+
+---
+
+## AI-001 — إضافة metricsVerified إلى Schema وسياق AI
+
+**الأولوية:** P0
+**المخرج:** `ProjectContext` يحمل علمًا بنيويًا بدل الاعتماد على warning string.
+
+### الملفات
+
+* `lib/ai-orchestrator/src/schemas/context.schema.ts`
+* `lib/ai-orchestrator/src/context-builder.ts`
+* `lib/ai-orchestrator/src/context-builder.test.ts`
+
+### التعديل المطلوب
+
+أضف إلى schema:
+
+* `metricsVerified: z.boolean()`
+
+### ماذا يجب أن يحدث في context-builder
+
+* استخدم نفس المصدر الحالي:
+  `const scanVerified = latestScanJob?.status === "completed";`
+* مرّر:
+  `metricsVerified: scanVerified`
+* اترك warning النصي داخل `latestMetrics` كما هو إن أردت backward compatibility، لكن لا تعتمد عليه في منطق القرار.
+
+### ملاحظة مهمة حول prompt visibility
+
+إذا أردت أن يرى النموذج نفسه قيمة العلم صراحةً، أضف سطرًا في النص النهائي، مثل:
+
+* `Metrics verified: yes/no`
+
+هذا **اختياري**، لكنه مفيد إذا كان الهدف أن يقرأ النموذج حالة التحقق مباشرة، لا عبر warning فقط.
+
+### تعديل الاختبارات
+
+الاختبار الحالي يمر على `Object.entries(ctx)` ويتوقع `.length` لكل قيمة. هذا سينكسر بعد إضافة boolean.
+
+ينبغي:
+
+* فصل تحقق strings عن تحقق boolean.
+* الإبقاء على `AgentContextSchema.parse(ctx)` كتحقق أساسي.
+* إضافة assertion صريح:
+  `expect(typeof ctx.metricsVerified).toBe("boolean")`
+
+### معيار القبول
+
+* `buildProjectContext()` يرجع حقل `metricsVerified`.
+* `AgentContextSchema.parse()` ينجح.
+* لا توجد افتراضات أن كل حقول السياق strings.
+
+---
+
+## AI-002 — إضافة Provenance Header داخل graphSummary
+
+**الأولوية:** P1
+**المخرج:** `graphSummary` يبدأ بملخص صغير يشرح جودة الاستخراج.
+
+### الملفات
+
+* `lib/ai-orchestrator/src/context-builder.ts`
+* `lib/ai-orchestrator/src/context-builder.test.ts`
+
+### المعطيات المتاحة أصلًا
+
+`graph_entities` يحتوي:
+
+* `sourceType`
+* `confidence`
+* `provenance`
+* `kind`
+* `description`
+* `domain`
+
+لذلك لا تحتاج schema جديدة في DB.
+
+### المطلوب
+
+أضف في بداية `graphSummary` سطرًا أو سطرين يوضحان:
+
+* توزيع المصادر حسب `sourceType`
+* نسبة AST مقابل fallback/manual
+* متوسط أو توزيع confidence
+
+### صيغة مقترحة
+
+مثال تنفيذي مختصر:
+
+* `Provenance: typescript-ast 18 | python-ast 9 | regex-fallback 4 | manual 2`
+* `Confidence: high 21 | medium 8 | low 4`
+
+### قواعد مهمة
+
+* احسب provenance من **البيانات fetched أصلًا** قبل truncation النهائي.
+* لا تبنِ الملخص على القائمة المعروضة فقط إذا كانت مختصرة.
+* اجعل السطر قصيرًا حتى لا يزاحم entity list وrelations.
+* لا تغيّر ترتيب grouping الحالي by type/confidence.
+
+### معيار القبول
+
+* يظهر provenance header في `graphSummary`.
+* يبقى نص graphSummary قابلًا للقراءة.
+* يظل الحد الحالي entities/relations كما هو.
+
+---
+
+## AI-003 — استبدال فحص النص في workflow-orchestrator
+
+**الأولوية:** P0
+**المخرج:** gate بنيوي مباشر بدل string matching.
+
+### الملف
+
+* `lib/ai-orchestrator/src/agents/workflow-orchestrator.ts`
+
+### السلوك الحالي
+
+المنطق الحالي هو:
+
+* `metricsUnverified = opts.projectContext.latestMetrics.includes("⚠ WARNING:")`
+* إذا كانت metrics غير موثوقة ثم اقترح النموذج `advance` أو `complete`، يتم تحويل النتيجة إلى `wait`.
+
+### السلوك المطلوب
+
+استبدل الفحص النصي بـ:
+
+* `!opts.projectContext.metricsVerified`
+
+### ما يجب الحفاظ عليه
+
+* منع `advance` و`complete` فقط عندما metrics غير verified.
+* السماح لـ `wait` و`fail` بالبقاء كما هي.
+* الإبقاء على `validateDecision()` كما هو، لأن هذا gate منفصل عنه.
+
+### اختبار الوحدة المقترح
+
+أضف اختبارات على `orchestrateWorkflow` نفسه، لا على `validateDecision` فقط.
+
+أفضل طريقة:
+
+* استعمل `vi.spyOn` على `decide` لأنه exported.
+* mock `decide` ليعيد:
+
+  * `advance` مع `metricsVerified=false` → المتوقع `wait`
+  * `complete` مع `metricsVerified=false` → المتوقع `wait`
+  * `advance` مع `metricsVerified=true` → يمر
+* أضف حالة `wait` للتأكد أنها لا تُحجب.
+
+### معيار القبول
+
+* لا يوجد أي `.includes("⚠ WARNING:")` في منطق القرار.
+* gate يعمل فقط على boolean.
+* الاختبارات تغطي حالات block/allow.
+
+---
+
+# 4) تذاكر الاختبارات
+
+## TEST-001 — تحديث اختبارات metrics-calc
+
+**الملف**
+
+* `lib/scanner/src/__tests__/metrics-calc.test.ts`
+
+### ما يجب إضافته
+
+* update لقيمة `technicalDebt` وفق الأوزان الجديدة.
+* اختبار mixed severities.
+* اختبار جديد لـ `avgFileSizeKb`.
+* اختبار جديد لـ `codeToTestRatio`.
+* اختبار coverage السلوكي لـ `computeTestCoverage` مع config bonus.
+
+### حالات يجب أن تغطيها
+
+* مشروع بدون test files.
+* مشروع فيه test files فقط.
+* مشروع فيه `vitest.config.ts` أو `jest.config.*` مع test files.
+* مشروع فيه ملفات `__tests__`.
+* مشروع Python فقط إن أردت توثيق حدود regex الحالية.
+
+### نقطة مهمة
+
+`computeTestCoverage` الحالي يتعرف على:
+
+* `.test`
+* `.spec`
+* `_test`
+* `__tests__/`
+
+إذا أردت احتساب test names الخاصة ببايثون مثل `test_*.py`، فهذا **تغيير سلوكي إضافي** يجب أن يُذكر صراحةً ولا يُفترض أنه موجود.
+
+---
+
+## TEST-002 — تحديث context-builder.test
+
+**الملف**
+
+* `lib/ai-orchestrator/src/context-builder.test.ts`
+
+### ما يجب تعديله
+
+* إضافة assertion على `metricsVerified`.
+* تعديل loop الذي يفرض `.length` على كل field.
+* إضافة test لحالة scan غير verified.
+* إضافة test لـ provenance header.
+* إضافة test للتأكد أن schema parse لا يفشل بعد إضافة boolean.
+
+### ما يجب الانتباه له
+
+* fixtures الحالية في `makeMetric()` تحتوي حقولًا زائدة عن schema؛ هذا مقبول في mock، لكن لا تعتمد عليها كعقد نهائي.
+* عند إضافة `avgFileSizeKb` و`codeToTestRatio`، أضفهما إلى fixture إذا أردت أن تظهر في النص النهائي.
+
+---
+
+## TEST-003 — إضافة اختبارات workflow gate
+
+**الملف**
+
+* `lib/ai-orchestrator/src/__tests__/workflow-orchestrator.test.ts`
+
+### ما يجب تغطيته
+
+* unverified metrics + advance → wait
+* unverified metrics + complete → wait
+* verified metrics + advance → pass through
+* verified metrics + complete → pass through عندما يكون المنطق يسمح به
+
+### طريقة التنفيذ
+
+* mock `decide`
+* لا تعدّل `validateDecision` كي لا تختلط مسؤولية gate بمسؤولية phase validation
+* أعد `spy` / `mockRestore` بعد كل test
+
+---
+
+# 5) ملف التغييرات المساندة
+
+## DB / Codegen
+
+بما أن `metricsTable` سيتغير:
+
+* نفّذ `pnpm --filter @workspace/db run push`
+* ثم `pnpm run codegen`
+* ثم راجع:
+
+  * `lib/api-zod/src/generated/...`
+  * `lib/api-client-react/src/generated/...`
+
+## لماذا هذا مهم
+
+لأن:
+
+* `artifacts/api-server/src/routes/metrics.ts` يعيد كل الأعمدة عبر `select()`
+* `artifacts/dashboard/src/pages/Metrics.tsx` يستهلك البيانات المولدة من API client
+* أي تغيير في schema يجب أن ينعكس في الأنواع المولدة حتى لا تظهر فجوات type-level
+
+---
+
+# 6) قالب تنفيذ مختصر جدًا لوكيل الذكاء الاصطناعي
+
+إذا أردت تسليم هذا كنواة تنفيذ مباشرة، فالتسلسل العملي هو:
+
+1. أضف أعمدة `avgFileSizeKb` و`codeToTestRatio` إلى `metricsTable`.
+2. حدّث `computeMetrics()` ليحسبهما ويحسب `technicalDebt` بأوزان severity.
+3. عدّل `scan-runner.ts` ليخزن الحقول الجديدة.
+4. شغّل DB push ثم codegen.
+5. أضف `metricsVerified` إلى `AgentContextSchema`.
+6. مرّر `metricsVerified` من `context-builder.ts`.
+7. أضف provenance header قصيرًا إلى `graphSummary`.
+8. استبدل gate النصي في `workflow-orchestrator.ts` بـ boolean.
+9. حدّث اختبارات scanner/context-builder/workflow.
+10. شغّل اختبارات الحزم الثلاث ثم typecheck.
+
+---
+
+# 7) معايير النجاح النهائية
+
+يُعتبر التنفيذ ناجحًا فقط إذا تحققت هذه النقاط معًا:
+
+* `technicalDebt` أصبح severity-aware.
+* المقاييس الجديدة أصبحت موجودة في DB وتصل إلى API.
+* `metricsVerified` موجودة في schema والسياق.
+* workflow gating لم يعد يعتمد على string matching.
+* `graphSummary` يحتوي provenance header قصيرًا وواضحًا.
+* اختبارات `scanner` و`ai-orchestrator` و`api-server` تمر.
+* لا توجد تغييرات غير مقصودة في العقود الحالية أو الإخراجات التي تعتمد عليها بقية المنظومة.

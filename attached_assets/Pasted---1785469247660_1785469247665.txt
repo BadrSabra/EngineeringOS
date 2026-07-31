@@ -1,0 +1,156 @@
+.
+
+> **ملاحظة:** بعض البنود هي استنتاجات معمارية مبنية على التحليل الذي ناقشناه، وليست جميعها مثبتة بنفس الدرجة من خلال تنفيذ الكود سطرًا بسطر. لذا قسمت درجة الثقة ضمنيًا إلى: عالية (ظهرت مباشرة من المسار البرمجي الذي ناقشناه)، ومتوسطة (تحتاج تأكيدًا نهائيًا أثناء مراجعة الملف).
+
+---
+
+# Root Cause Table
+
+| الملف                                       | الفجوة                             | السبب الجذري                                      | الأثر                                                 | اتجاه الإصلاح                              |
+| ------------------------------------------- | ---------------------------------- | ------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------ |
+| `lib/ai-orchestrator/src/context-loader.ts` | فقدان Atomic Snapshot              | الاستعلامات لا تُبنى داخل Snapshot واحد فعليًا    | AI يقرأ حالة مختلطة من قاعدة البيانات                 | تنفيذ جميع Queries داخل Transaction حقيقية |
+| `context-loader.ts`                         | فشل القراءة يتحول إلى بيانات فارغة | استخدام `Promise.allSettled` مع fallback إلى `[]` | قرارات AI تبنى على "لا توجد بيانات" بدل "فشل القراءة" | تمييز DataUnavailable عن Empty             |
+| `context-loader.ts`                         | Context مقصوص                      | حدود ثابتة للـ entities والـrelationships         | إخفاء أجزاء من الـGraph                               | Context paging أو ranking ديناميكي         |
+| `context-loader.ts`                         | metrics لا ترتبط بنفس Scan         | latestMetric و latestScan مستقلان                 | اعتماد بيانات قديمة                                   | ربط Metrics بالـScan ID                    |
+| `context-loader.ts`                         | عدم تمييز Stale Context            | لا يوجد Version أو Revision                       | AI يستخدم Snapshot قديم                               | Context Revision Number                    |
+
+---
+
+| الملف                      | الفجوة                         | السبب               | الأثر         | الإصلاح                             |
+| -------------------------- | ------------------------------ | ------------------- | ------------- | ----------------------------------- |
+| `context-cache-manager.ts` | Cache Invalidation Best Effort | swallow للأخطاء     | Context قديم  | Invalidation إلزامي + Version Check |
+| `context-cache-manager.ts` | الاعتماد على TTL               | انتهاء الصلاحية فقط | قرارات متأخرة | Event Driven Cache                  |
+
+---
+
+| الملف                   | الفجوة           | السبب                 | الأثر         | الإصلاح               |
+| ----------------------- | ---------------- | --------------------- | ------------- | --------------------- |
+| `context-compressor.ts` | التحذير فقط      | Warn بدون Compression | Prompt ضخم    | Adaptive Compression  |
+| `context-serializer.ts` | فقدان Provenance | تلخيص شديد            | ضعف الاستدلال | تضمين Source Metadata |
+
+---
+
+| الملف           | الفجوة                   | السبب                       | الأثر                   | الإصلاح                |
+| --------------- | ------------------------ | --------------------------- | ----------------------- | ---------------------- |
+| `chat-agent.ts` | Prompt Injection Surface | إدخال الرسائل الخام         | تغيير سلوك النموذج      | Prompt Isolation       |
+| `chat-agent.ts` | Tool Cache قديم          | Cache حسب Arguments فقط     | نتائج قديمة             | Cache Versioning       |
+| `chat-agent.ts` | فقدان Tool History       | حذف رسائل tool              | إعادة تنفيذ نفس الأدوات | الاحتفاظ Tool Messages |
+| `chat-agent.ts` | Graph Focus Regex ضعيف   | Regex لا يدعم العربية جيدًا | اختيار Context خاطئ     | Parser حقيقي للكيانات  |
+| `chat-agent.ts` | Streaming غير ذري        | fallback بعد بث جزئي        | ردود متضاربة            | Stream Transaction     |
+
+---
+
+| الملف              | الفجوة           | السبب         | الأثر         | الإصلاح            |
+| ------------------ | ---------------- | ------------- | ------------- | ------------------ |
+| `code-reviewer.ts` | مراجعة جزئية     | قص الملفات    | Bugs مخفية    | مراجعة Incremental |
+| `review.prompt.ts` | أول 5 ملفات فقط  | حدود ثابتة    | تغطية ناقصة   | File Ranking       |
+| `review.prompt.ts` | أول 1500 حرف فقط | Prompt Budget | فقدان معلومات | Chunking           |
+
+---
+
+| الملف           | الفجوة                   | السبب             | الأثر                    | الإصلاح                   |
+| --------------- | ------------------------ | ----------------- | ------------------------ | ------------------------- |
+| `task-agent.ts` | Verification صوري        | يعتمد على رأي LLM | نجاح وهمي                | Verification Engine مستقل |
+| `tasks.ts`      | Task قد تعلق Running     | Catch واسع        | مهام معلقة               | Recovery Transaction      |
+| `tasks.ts`      | Rate Limit يوقف التنفيذ  | لا يوجد Retry     | Stall                    | Retry Queue               |
+| `tasks.ts`      | Auto Trigger غير Durable | Queue بالذاكرة    | فقدان المهام بعد Restart | Durable Queue             |
+
+---
+
+| الملف                      | الفجوة                | السبب             | الأثر            | الإصلاح                 |
+| -------------------------- | --------------------- | ----------------- | ---------------- | ----------------------- |
+| `workflow-orchestrator.ts` | Gate داخل AI فقط      | عدم توحيد القاعدة | تجاوز القاعدة    | نقل Gate لمحرك Workflow |
+| `workflow.prompt.ts`       | AdditionalContext خام | بدون Sanitization | Prompt Injection | Context Sanitizer       |
+
+---
+
+| الملف                 | الفجوة                   | السبب              | الأثر              | الإصلاح                |
+| --------------------- | ------------------------ | ------------------ | ------------------ | ---------------------- |
+| `workflow-service.ts` | Phase مجهولة = Completed | منطق Compute خاطئ  | إنهاء Workflow خطأ | رفض Phase غير المعروفة |
+| `workflow-service.ts` | CurrentPhase غير محقق    | لا يوجد Validation | State Corruption   | State Validator        |
+
+---
+
+| الملف                 | الفجوة             | السبب                 | الأثر         | الإصلاح            |
+| --------------------- | ------------------ | --------------------- | ------------- | ------------------ |
+| `routes/workflows.ts` | تجاوز Metrics Gate | Route مستقل           | تقدم غير صحيح | Central Validation |
+| `routes/workflows.ts` | Claim غير صارم     | currentPhase nullable | Race          | Atomic Claim       |
+
+---
+
+| الملف         | الفجوة                        | السبب                         | الأثر        | الإصلاح              |
+| ------------- | ----------------------------- | ----------------------------- | ------------ | -------------------- |
+| `analysis.ts` | Review يعتمد على Client Files | لا توجد إعادة قراءة من المصدر | مراجعة مضللة | Server-side Snapshot |
+| `analysis.ts` | Audit/Event غير ذري           | Promise.all                   | Trace ناقص   | Transaction          |
+
+---
+
+| الملف     | الفجوة                       | السبب               | الأثر           | الإصلاح                |
+| --------- | ---------------------------- | ------------------- | --------------- | ---------------------- |
+| `chat.ts` | Apply Changes غير ذري        | كتابة تدريجية       | Partial Apply   | File Transaction       |
+| `chat.ts` | Path Resolution غير موحد     | Resolve مختلف       | كتابة بمسار آخر | RootPath Resolver موحد |
+| `chat.ts` | لا يوجد Provenance للتغييرات | يقبل Changes مباشرة | تزوير Apply     | PendingChange Token    |
+| `chat.ts` | History تقص Tool Messages    | اختصار المحادثة     | فقدان السياق    | حفظ كامل History       |
+
+---
+
+| الملف           | الفجوة                            | السبب         | الأثر             | الإصلاح            |
+| --------------- | --------------------------------- | ------------- | ----------------- | ------------------ |
+| `file-tools.ts` | حماية الملفات بالـRegex           | Blocklist فقط | تعديل ملفات حساسة | Policy Engine      |
+| `file-tools.ts` | Generated Files غير محمية بالكامل | توافق ناقص    | تعديل ملفات مولدة | Metadata Detection |
+
+---
+
+| الملف                 | الفجوة                 | السبب          | الأثر                | الإصلاح                   |
+| --------------------- | ---------------------- | -------------- | -------------------- | ------------------------- |
+| `ai-route-helpers.ts` | Provider Fallback صامت | الرجوع لـENV   | تبديل المزود         | Explicit Failure          |
+| `ai-route-helpers.ts` | RootPath Fallback      | Workspace بديل | تنفيذ على مشروع خاطئ | Mandatory Root Validation |
+
+---
+
+| الملف                  | الفجوة                     | السبب              | الأثر             | الإصلاح             |
+| ---------------------- | -------------------------- | ------------------ | ----------------- | ------------------- |
+| `agent-complete.ts`    | قبول مفاتيح غير صالحة      | AUTH فقط يرفض      | Provider غير صالح | Full Validation     |
+| `provider-registry.ts` | اختلاف السلوك بين المزودين | Tool Support مختلف | نتائج غير متسقة   | Capability Contract |
+
+---
+
+| الملف        | الفجوة             | السبب                  | الأثر      | الإصلاح               |
+| ------------ | ------------------ | ---------------------- | ---------- | --------------------- |
+| `parsing.ts` | JSON Extraction هش | البحث عن أول/آخر Brace | Parse خاطئ | Streaming JSON Parser |
+
+---
+
+# ملخص حسب الفئة
+
+| الفئة           | عدد الفجوات |
+| --------------- | ----------: |
+| Context / Cache |           8 |
+| Chat Agent      |           5 |
+| Review          |           3 |
+| Task Execution  |           4 |
+| Workflow        |           5 |
+| Chat Routes     |           4 |
+| Analysis Routes |           2 |
+| File Tools      |           2 |
+| Provider Layer  |           3 |
+| Parsing         |           1 |
+
+**الإجمالي:** نحو **37 فجوة** (بعد إزالة التكرارات).
+
+## الأولويات الحرجة (Tier 1)
+
+إذا أردنا ترتيبها حسب تأثيرها على سلامة النظام بالكامل، فهذه هي الأعلى أولوية:
+
+1. عدم اتساق بناء `projectContext` (Snapshot / Context Loader).
+2. Cache invalidation غير الموثوق.
+3. `apply-changes` غير الذري.
+4. مراجعة الكود المعتمدة على بيانات العميل.
+5. غياب Provenance لتغييرات الـAI.
+6. تجاوز قواعد الـWorkflow خارج طبقة الـAI.
+7. Verification الصوري في تنفيذ المهام.
+8. Prompt Injection عبر الرسائل والسياق الخام.
+9. معالجة `currentPhase` غير المعروفة كحالة إكمال.
+10. التبديل الصامت بين مزودي الذكاء الاصطناعي.
+
+هذه القائمة تمثل التجميع الكامل لما ناقشناه خلال الجلسة، وهي مناسبة لتكون الأساس لمرحلة لاحقة من المراجعة والتنفيذ.

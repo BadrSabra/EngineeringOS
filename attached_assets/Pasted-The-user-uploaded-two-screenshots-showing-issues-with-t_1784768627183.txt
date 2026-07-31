@@ -1,0 +1,188 @@
+The user uploaded two screenshots showing issues with the deployed app:
+
+Screenshot 1 (project detail page):
+Knowledge Graph shows 30 Entities, 0 Relations, 30 Clusters, 30 Isolated nodes — this indicates all entities are isolated (no edges were extracted)
+GitHub Integration shows "Not configured" and an error: fatal: cannot change to '/tmp/eos-git-6f7e57da-092e-4b00-ab6f-e9382215af0a': No such file or directory — the git working tree directory doesn't exist
+Quality Score: 91/100
+Screenshot 2 (Discovery Report) reveals multiple detection failures: the system incorrectly identified SQLAlchemy as the ORM when the project actually uses Drizzle, and it failed to detect Express as the framework, Vitest as the test framework, esbuild/vite as the build tool, and the CI/CD pipeline. It also flagged three risks including missing test framework, missing CI/CD, and potential hardcoded environment variables.
+Now I'm pinpointing the root causes of these bugs.
+
+The knowledge graph is extracting 30 entities but showing zero relationships between them, suggesting the relationship extraction logic is broken. There's also a git panel error where it's trying to access a temporary directory that no longer exists, likely because the project's root path points to a cleaned-up temp location. The ORM detection is misidentifying TypeScript-based Drizzle as Python's SQLAlchemy, and the framework/tool detection is completely missing Express, Vitest, and esbuild.
+
+Two screenshots — three distinct bugs visible. Let me investigate all of them in parallel:
+
+Knowledge Graph: 0 Relations (all 30 entities isolated — edges not extracted)
+Git panel error: fatal: cannot change to '/tmp/eos-git-...' No such file or directory
+Discovery report wrong detections: SQLAlchemy instead of Drizzle, Vitest/esbuild/CI not detected
+Task
+$ rg "extractFromPythonRegex" lib/scanner/src/graph-extractor.ts
+Working
+Result
+Graph Relationship Extraction Analysis
+Relationship/edge extraction in the EngineeringOS codebase is primarily managed within the lib/scanner package, specifically in lib/scanner/src/graph-extractor.ts.
+
+1. Scanner Package Implementation
+The core logic resides in lib/scanner/src/graph-extractor.ts. The primary entry point is the extractGraph function (lines 962–1060). It orchestrates extraction by:
+
+Iterating through scanned files.
+Using extractFromTsJs for TypeScript/JavaScript files (lines 472–806).
+Using extractPythonEntities for Python files (lines 929–951), which invokes a batched subprocess.
+Aggregating results via mergeResult (lines 986–1026), which handles deduplication and adds KG 2.0 metadata like provenance and confidence scores.
+2. graph-extractor.ts & Python AST Subprocess
+TS/JS Extraction: Uses the TypeScript Compiler API to parse ASTs and identify imports, extends, and calls (lines 601–640 for imports).
+Python Extraction: Managed via lib/scanner/src/python-extractor.ts, which spawns a python3 subprocess running ast_extractor.py (materialized from lib/scanner/src/python-ast-script.ts).
+Relationship Mapping: Raw Python imports are mapped back to project-relative paths using pythonImportCandidates (lines 220–250) and matchPythonImportToEntity (lines 252–257).
+3. Why Relations Might Be 0 While Entities are 30
+There are several code paths where entities are produced but relationships are skipped:
+
+Import Resolution Failure: In both TS (line 611) and Python (line 907), an edge is only created if the target file/entity exists in the knownPaths set (the files currently being scanned). If the target is an external package or a file not in the current scan scope, the relationship is silently dropped.
+Oversized/Missing Content: Files that are too large or have no content result in a "file" entity but an empty relationship list (lines 1032–1037).
+Unsupported Languages: Non-TS/JS/Python files generate a "file" entity but skip relationship extraction (lines 1047–1050).
+Regex Fallback (Python): If the AST subprocess fails, the extractFromPythonRegex fallback (lines 836–877) only captures relative from . import style imports, missing absolute imports and all other relationship types.
+4. Database Schema
+Defined in lib/db/src/schema/graph.ts:
+
+Nodes (graph_entities table, lines 78–132): Includes id, projectId, type (enum), name, path, and KG 2.0 fields like kind, sourceType, isDocumented, confidence, and provenance (JSONB).
+Edges (graph_relationships table, lines 136–219): Includes sourceId, targetId, relation (raw string), relationType (typed category), isHeuristic, and evidenceJson (detailed traceability).
+Exact File Paths and Line Ranges for Extraction Logic:
+TS/JS Relationship Extraction: lib/scanner/src/graph-extractor.ts:601-640
+Python Relationship Mapping: lib/scanner/src/graph-extractor.ts:905-918
+Relationship Enrichment/Merging: lib/scanner/src/graph-extractor.ts:1006-1025
+Python AST Subprocess Bridge: lib/scanner/src/python-extractor.ts:59-108
+Diagnosing and fixing bugs
+Now I have clear diagnostics on all three bugs. Let me read the specific files to make the fixes:
+
+Bug 1: 0 Relations - The issue is likely that knownPaths doesn't properly resolve paths, or that when scanning the workspace itself (which is what this project is — scanning its own codebase), the import resolution fails. Let me read the relevant sections.
+
+Bug 2: Git rootPath stale - The /tmp/eos-git-* directory gets deleted on server restart, but the project's rootPath still points to it. The git commands fail.
+
+For the fix, I should detect when the git directory no longer exists and show a helpful error message instead of the raw git error—something like "Repository directory has been cleaned up — re-trigger a scan to restore."
+
+Bug 3: Discovery detection bugs - The SQLAlchemy check might be triggering on the materialized Python temp file, so I need to ensure the drizzle check runs before the SQLAlchemy content check. For Vitest, the detection is probably failing in monorepo setups.
+
+The issue is that parsePkgJson only reads the root package.json, not the workspace member files, so it misses dependencies like Vitest that might be declared in individual workspace packages. The same problem applies to esbuild and Vite detection. CI/CD detection is also failing because the project doesn't have the expected .github/workflows directory structure.
+
+Let me look at the discovery runner code to understand how it's currently working.
+
+Clear root causes. Now reading the specific files to make the fixes:
+
+Analyzing bug scope
+Now I have a clear picture of all three bugs. Let me fix them:
+
+Bug 1: Discovery detection issues
+
+Looking at discovery-runner.ts:
+
+SQLAlchemy false positive (line 217): The code checks files.some((f) => f.content?.includes("from sqlalchemy")) WITHOUT restricting to Python files. The python-ast-script.ts file contains a Python script embedded as a TypeScript string, which includes from sqlalchemy... wait, actually let me think. The python-ast-script.ts materializes a Python script as a TS string - when the scanner scans it, it will be classified as a typescript file (it's a .ts file), but its content includes Python code text including potentially from sqlalchemy.
+The detectDb function at line 217 needs to filter for Python files only before checking for SQLAlchemy imports.
+
+Vitest not detected: parsePkgJson only returns ONE package.json — it picks rootLevel[0] ?? root, which is the top-level package.json. In a monorepo, the root package.json might not have vitest listed. The allDeps only merges from the root package.json. I need to merge deps from ALL workspace package.json files instead.
+
+**
+
+esbuild/vite and framework detection**: These tools are scattered across workspace package.json files like artifacts/dashboard/package.json and artifacts/api-server/package.json, not the root. The fix is to change parsePkgJson to merge allDeps from ALL non-node_modules package.json files in the project.
+
+Git rootPath doesn't exist: The git status handler catches errors but returns a generic 500 with raw git error text. When the git error says "cannot change to '/tmp/eos-git-...': No such file or directory", it should detect this case and return a meaningful error instead.
+
+Knowledge Graph showing 0 Relations: The subagent correctly avoids creating edges to external packages by checking if targets exist in knownPaths, but the workspace being scanned is actually the codebase itself cloned to /tmp/eos-git-*. Looking at the screenshot, I see 30 Entities, 0 Relations, 30 Clusters, 30 Isolated nodes — which suggests the graph isn't finding any internal dependencies.
+
+This could mean either the import resolution is failing because imports point to node_modules or relative paths that don't resolve within the scan, or the edges are being extracted but not persisted correctly to the database. I need to check the discovery runner to see how graph results get written.
+
+Now I have everything I need. Let me read the rest of the discovery runner to see how graph results get persisted, and also look at parsePkgJson more carefully — then I'll fix all three bugs in parallel:
+
+Merging dependency data
+Now I have a clear picture of all three bugs. Let me fix them:
+
+Bug 1: Discovery detection issues
+
+Looking at discovery-runner.ts lines 80-95 and 351:
+
+parsePkgJson only reads ONE package.json — in a monorepo, the root package.json is the workspace root which typically doesn't have vitest, express, drizzle-orm, etc. — those are in workspace member package.json files. Fix: merge deps from ALL package.json files.
+
+SQLAlchemy false positive (line 217): The check files.some((f) => f.content?.includes("from sqlalchemy")) doesn't scope to Python files.
+
+The Python AST script file is a TypeScript file with embedded Python content, so this check will trigger false positives on non-Python files. I need to scope this to only check files where f.language === "python".
+
+allDeps only from root package.json: I need to fix parsePkgJson or change how allDeps is constructed to merge dependencies from ALL workspace package.json files, not just the root.
+Bug 2: Git rootPath doesn't exist
+
+The git status handler catches errors but doesn't specifically handle the "No such file or directory" case. I should check if rootPath exists using fs.stat() before running git commands and return a specific rootpath_missing error with a helpful message.
+
+Bug 3: Knowledge Graph 0 Relations
+
+The discovery runner extracts graph entities and relationships at line 390, and the summary shows the relationship count, but there's no code actually saving these to the database. The discovery runner only saves a summary JSON to the discovery_sessions table. The actual graph persistence must happen in the scan job instead.
+
+Looking at the project detail page showing "Knowledge Graph: 30 Entities, 0 Relations" — the project has been scanned (30 entities from a scan job), but that scan job didn't create any relationships. The issue is in the graph extractor: edges are only created if the target file or entity exists in the knownPaths set, so missing references result in zero relationships.
+
+In a TypeScript monorepo, imports use @workspace/... package names that resolve to other workspace packages. These are treated as external packages since they're imported by name rather than relative path, so they won't match anything in knownPaths unless the graph extractor resolves workspace package imports. The fix needs to handle these workspace package imports so they can create relationships between entities.
+
+I also need to address the discovery runner, which currently only parses the first root-level package.json. For a monorepo, I should merge dependencies from all workspace package.json files instead of just picking one.
+
+The SQLAlchemy false positive fix is straightforward — I'll scope the detection to Python files only.
+
+For the git routes issue, I need to add a check for whether the rootPath exists and return a specific error when it doesn't.
+
+The workspace package import resolution in the graph extractor is trickier since I need to resolve @workspace/* imports to actual file paths without breaking existing functionality. Let me focus on the discovery detection bugs first since they're the most impactful and clearly fixable.
+
+Looking at the screenshot more carefully — "30 Entities, 0 Relations, 30 Clusters, 30 Isolated nodes" means no edges were created between any of the files. This suggests the files in the workspace package either don't import each other or the imports aren't being detected at all.
+
+The issue is likely that the workspace is a git clone with members in subdirectories, and imports like @workspace/db are being treated as external dependencies rather than internal workspace references. I need to check the graph extractor to see how it resolves these workspace package imports and build a proper package map from the workspace configuration.
+
+Now I have the full picture. Three bugs to fix:
+
+Discovery allDeps monorepo-blind — only reads root package.json, misses all workspace member deps (Express, Drizzle, Vitest, esbuild, etc.)
+SQLAlchemy false positive — content scan not scoped to Python files
+Git missing-rootPath — fatal: cannot change to '/tmp/...' leaks raw error; need to detect & explain gracefully
+0 Relations — workspace @workspace/* imports not resolved to file paths
+Let me read the graph extractor's import resolution section and fix everything in parallel:
+
+Analyzing import resolution
+Now I have everything I need. Let me look at the graph extractor's import resolution for @workspace/* imports to understand the fix needed there, and also read the key sections of graph-extractor.ts to understand how to add workspace package resolution.
+
+Let me read the import resolution section of the graph extractor and the extractGraph entry point to understand how to add workspace package alias resolution:
+
+Implementing bug fixes
+Now I have everything I need to fix all the bugs. Let me implement the fixes:
+
+Fix 1: Discovery runner — merge all package.json deps + fix SQLAlchemy false positive
+
+In discovery-runner.ts:
+
+Change parsePkgJson to a function that returns ALL package.json deps merged
+Fix SQLAlchemy false positive (scope to Python files only)
+Fix 2: Git routes — handle missing rootPath
+
+In routes/git.ts:
+
+Add a helper checkRootPath(rootPath) that returns a specific error when the directory doesn't exist
+Apply it to git/status, git/log, git/commit, git/push
+Fix 3: Graph extractor — workspace package alias resolution
+
+In lib/scanner/src/graph-extractor.ts, I need to build a workspace package alias map by scanning subdirectories for their package.json files to map package names to their directory paths, then pass this map through extractGraph to matchImportToEntity so aliased imports can be properly resolved. Looking at the relative import check around line 607, I see that only relative imports are currently being resolved, so I'll need to extend that logic.
+
+For non-relative imports like @workspace/db, I'll add a branch that checks the alias map. The implementation involves finding all package.json files in the scanned files, extracting the name field from each, and mapping those names to their corresponding package directories.
+
+Implementing the alias map construction... I need to resolve workspace package imports by building a map of package names to their directories, then checking for index files in those locations. My plan is to add a function that scans for all package.json files outside node_modules, extracts their names and paths, then modify the import handler to use this alias map when resolving non-relative imports.
+
+Now I have everything needed. Implementing all four fixes in parallel:
+
+Implementing parallel fixes
+Now I have everything I need to implement all four fixes. Let me do them all in parallel:
+
+Fix discovery runner (discovery-runner.ts):
+
+Merge all package.json deps (not just root)
+Fix SQLAlchemy false positive (scope to Python files only)
+Fix git routes (routes/git.ts):
+
+Add missing rootPath detection for status, log, commit, push
+Fix graph extractor (graph-extractor.ts):
+
+Build workspace alias map from package.json files
+Resolve @workspace/* imports to their package directories
+For the discovery runner, I'll replace the single package.json parser with logic that collects all workspace package.json files, parses each one, and merges their dependencies together. For the git routes, I'll add a helper to check if the root path exists before running git operations. For the graph extractor, I'm building a map of workspace aliases and modifying the TypeScript/JavaScript extraction to resolve those imports correctly.
+
+Implementing all three fixes now.
+
+Now I have everything. Implementing all four fixes simultaneously:
+

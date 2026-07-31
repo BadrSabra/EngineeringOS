@@ -1,0 +1,87 @@
+--- a/artifacts/api-server/src/lib/job-reconciliation.ts
++++ b/artifacts/api-server/src/lib/job-reconciliation.ts
+@@ -478,14 +478,30 @@
+     if (task.retryCount < task.maxRetries) {
+       // Reset to verifying so the task can be re-triggered. The AI call was
+       // interrupted mid-flight — we can't resume, but we can let it run again.
+-      await db
++      const [resetTask] = await db
+         .update(tasksTable)
+         .set({
+           status: "verifying",
+           retryCount: task.retryCount + 1,
+           updatedAt: now,
+         })
+-        .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running")));
++        .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running")))
++        .returning({ id: tasksTable.id });
++
++      if (!resetTask) {
++        logger.warn(
++          {
++            scope: "job-reconciliation",
++            code: "AI_TASK_RESET_CONFLICT",
++            taskId: task.id,
++            projectId: task.projectId,
++            correlationId,
++          },
++          "running AI task changed concurrently during reconciliation; reset skipped",
++        );
++      }
++
++      invalidateContextCache(task.projectId);
+ 
+       await db.insert(taskLogsTable).values({
+         id: randomUUID(),
+@@ -497,14 +513,28 @@
+       resetCount++;
+     } else {
+       // Exceeded maxRetries — mark permanently failed.
+-      await db
++      const [failedTask] = await db
+         .update(tasksTable)
+         .set({
+           status: "failed",
+           updatedAt: now,
+           completedAt: now,
+         })
+-        .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running")));
++        .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running")))
++        .returning({ id: tasksTable.id });
++
++      if (!failedTask) {
++        logger.warn(
++          {
++            scope: "job-reconciliation",
++            code: "AI_TASK_FAIL_CONFLICT",
++            taskId: task.id,
++            projectId: task.projectId,
++            correlationId,
++          },
++          "running AI task changed concurrently during reconciliation; failure write skipped",
++        );
++      }
+ 
+       await db.insert(taskLogsTable).values({
+         id: randomUUID(),
+
+--- a/artifacts/api-server/src/lib/job-reconciliation.test.ts
++++ b/artifacts/api-server/src/lib/job-reconciliation.test.ts
+@@ -326,6 +326,8 @@
+   // ── AI tasks: running → verifying (retryable) ─────────────────────────────
+ 
+   it("resets running AI tasks to verifying when retryCount < maxRetries", async () => {
++    vi.mocked(invalidateContextCache).mockClear();
++
+     const projectId = await insertProject("active");
+     projectCleanup.push(projectId);
+ 
+@@ -353,6 +355,8 @@
+     expect(task[0]?.status).toBe("verifying");
+     // retryCount must be incremented so we eventually give up
+     expect(task[0]?.retryCount).toBe(2);
++
++    expect(vi.mocked(invalidateContextCache)).toHaveBeenCalledWith(projectId);
+ 
+     // A task_log entry must have been written
+     const logs = await db

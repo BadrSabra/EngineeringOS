@@ -1,0 +1,363 @@
+## 1. Executive Summary
+
+I scanned the whole extracted tree (`779` files) and traced the high-impact runtime paths. The codebase is organized around one central HTTP API server, a file scanner, a knowledge-graph/query layer, and an AI orchestration surface; the dashboard consumes that API, but it also contains a small amount of handwritten fetch logic that sits outside the generated client surface (`artifacts/dashboard/src/pages/AiChat.tsx:82-106`, `artifacts/dashboard/src/components/GitPanel.tsx:33-49`, `lib/api-client-react/src/use-ai-chat-stream.ts:2-7, 74-170`).
+
+The strongest confirmed runtime truth is the boot-and-recovery chain: server startup runs `reconcileStuckJobs()`, then `fixDeadRootPaths()`, then starts listening, and only then schedules stale-job sweeping (`artifacts/api-server/src/index.ts:10-37`, `artifacts/api-server/src/lib/job-reconciliation.ts:283-294`, `artifacts/api-server/src/lib/startup-migrations.ts:29-60`). That means the server is explicitly designed to repair interrupted scans/discovery sessions before accepting traffic.
+
+The most important state-changing flows are complete and well-instrumented: project discovery (`routes/discovery.ts:134-223, 284-380`), project scan (`routes/projects.ts:184-223`, `lib/scan-runner.ts:51-468`), AI chat/apply changes (`routes/ai.ts:486-670, 945-1060`), AI task execution (`routes/ai.ts:1352-1515`), and workflow orchestration (`routes/ai.ts:1222-1347`). These flows all write events/audit records and invalidate context cache where needed.
+
+The largest confirmed gaps are operational rather than structural: scan/discovery jobs are backed by an in-process bounded queue (`lib/job-queue.ts:1-114`) and per-project LLM rate limiting is also in-memory (`routes/ai.ts:48-83`), so both degrade across restarts or multi-instance deployments. The root-path fallback logic also deliberately broadens AI file access to a workspace fallback when a stored project root disappears (`lib/rootpath-validator.ts:39-103`), which is safe only if that behavior is intended.
+
+Documentation is mostly aligned with code, but not perfectly. The strongest mismatch is that `artifacts/api-server/src/services/task-service.ts` claims to contain “pure verification logic” while it actually reads from the database (`task-service.ts:1-69`). Another gap is the dashboard/client story: docs emphasize generated hooks, but the UI also uses direct `fetch()` for AI and Git operations (`AiChat.tsx:82-106`, `GitPanel.tsx:33-49`). I also verified that the source dependency boundary is respected in code: no `lib/*` source file imports `artifacts/*` runtime code.
+
+---
+
+## 2. Repository Scope and Master Inventory
+
+### Inventory summary
+
+| Item                                                      | Count | Evidence                                        |
+| --------------------------------------------------------- | ----: | ----------------------------------------------- |
+| Total files in extracted repo                             |   779 | filesystem scan                                 |
+| Excluded asset files (binary/docs/media archives by rule) |    42 | filesystem scan                                 |
+| Test files                                                |    33 | `**/*.test.*`, `**/*.spec.*`, `**/__tests__/**` |
+| Unique API route paths in code                            |    64 | route literal scan                              |
+| OpenAPI paths                                             |    64 | `lib/api-spec/openapi.yaml`                     |
+| Source imports from `artifacts/*` into `lib/*`            |     0 | repo grep over source files                     |
+
+### Top-level file groups
+
+| Top-level group    | Files |
+| ------------------ | ----: |
+| `lib/`             |   255 |
+| `artifacts/`       |   224 |
+| `attached_assets/` |   225 |
+| `.agents/`         |    39 |
+| `docs/`            |    15 |
+| `scripts/`         |     8 |
+| root config files  |    13 |
+
+### Critical file IDs
+
+| ID    | Path                                                           | Primary role                   |
+| ----- | -------------------------------------------------------------- | ------------------------------ |
+| F-001 | `artifacts/api-server/src/index.ts`                            | boot entry point               |
+| F-002 | `artifacts/api-server/src/app.ts`                              | HTTP app composition           |
+| F-003 | `artifacts/api-server/src/routes/index.ts`                     | route mount order              |
+| F-004 | `artifacts/api-server/src/routes/discovery.ts`                 | discovery API                  |
+| F-005 | `artifacts/api-server/src/routes/projects.ts`                  | project CRUD/scan              |
+| F-006 | `artifacts/api-server/src/routes/tasks.ts`                     | task CRUD/execution            |
+| F-007 | `artifacts/api-server/src/routes/workflows.ts`                 | workflow lifecycle             |
+| F-008 | `artifacts/api-server/src/routes/graph.ts`                     | knowledge-graph API            |
+| F-009 | `artifacts/api-server/src/routes/ai.ts`                        | AI orchestration surface       |
+| F-010 | `artifacts/api-server/src/lib/job-reconciliation.ts`           | crash recovery                 |
+| F-011 | `artifacts/api-server/src/lib/job-queue.ts`                    | bounded queue                  |
+| F-012 | `artifacts/api-server/src/lib/rootpath-validator.ts`           | root-path fallback             |
+| F-013 | `artifacts/api-server/src/lib/advisory-lock.ts`                | distributed lock               |
+| F-014 | `artifacts/api-server/src/lib/scan-runner.ts`                  | scan pipeline                  |
+| F-015 | `artifacts/api-server/src/lib/discovery-runner.ts`             | discovery pipeline             |
+| F-016 | `artifacts/api-server/src/lib/condition-evaluator.ts`          | safe workflow conditions       |
+| F-017 | `artifacts/api-server/src/services/task-service.ts`            | task verification logic        |
+| F-018 | `artifacts/api-server/src/services/workflow-service.ts`        | workflow transition logic      |
+| F-019 | `lib/scanner/src/file-walker.ts`                               | project traversal              |
+| F-020 | `lib/scanner/src/graph-extractor.ts`                           | entity/relationship extraction |
+| F-021 | `lib/scanner/src/rule-matcher.ts`                              | rule matching                  |
+| F-022 | `lib/scanner/src/metrics-calc.ts`                              | scan metrics                   |
+| F-023 | `lib/knowledge-engine/src/index.ts`                            | graph query/inference exports  |
+| F-024 | `lib/db/src/index.ts`                                          | database bootstrap             |
+| F-025 | `lib/api-client-react/src/use-ai-chat-stream.ts`               | handwritten SSE hook           |
+| F-026 | `artifacts/dashboard/src/pages/AiChat.tsx`                     | AI chat UI                     |
+| F-027 | `artifacts/dashboard/src/components/GitPanel.tsx`              | Git UI                         |
+| F-028 | `artifacts/api-server/src/middlewares/requireAuth.ts`          | auth gate                      |
+| F-029 | `artifacts/api-server/src/middlewares/requireProjectAccess.ts` | ownership gate                 |
+| F-030 | `artifacts/api-server/src/lib/credentials-crypto.ts`           | API key encryption             |
+
+### Phase checklist
+
+* Inventoried files: `779`
+* Excluded files: `42` assets/binaries/archives
+* Primary entry points identified: `artifacts/api-server/src/index.ts`, route mount graph from `routes/index.ts`, and dashboard entry surfaces in `artifacts/dashboard/src/*`
+* Central state files identified: `lib/db/src/index.ts`, `lib/db/src/schema/*`, `artifacts/api-server/src/lib/job-queue.ts`, `artifacts/api-server/src/lib/job-reconciliation.ts`
+
+---
+
+## 3. System Architecture (Actual) & Layer Map
+
+| Layer ID | Layer                  | Status     | Representative files                                                                                             | Actual responsibility                                              |
+| -------- | ---------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| L-001    | Presentation           | Core       | `artifacts/dashboard/src/pages/AiChat.tsx`, `artifacts/dashboard/src/components/GitPanel.tsx`                    | UI rendering, user input, direct API consumption                   |
+| L-002    | HTTP/API Transport     | Core       | `artifacts/api-server/src/app.ts`, `routes/*.ts`, `middlewares/*.ts`                                             | auth, validation, routing, request/response shaping                |
+| L-003    | Orchestration          | Core       | `routes/ai.ts`, `lib/scan-runner.ts`, `lib/discovery-runner.ts`, `lib/job-queue.ts`, `lib/job-reconciliation.ts` | job control, AI calls, retries, recovery, event/audit coordination |
+| L-004    | Domain/Verification    | Core       | `services/task-service.ts`, `services/workflow-service.ts`, `lib/condition-evaluator.ts`                         | task verification and workflow advancement logic                   |
+| L-005    | Domain/Query           | Core       | `lib/knowledge-engine/src/*`                                                                                     | graph traversal, inference, summary calculations                   |
+| L-006    | Scan/Extraction        | Core       | `lib/scanner/src/*`                                                                                              | file walking, rule matching, graph extraction, metrics             |
+| L-007    | Persistence            | Core       | `lib/db/src/index.ts`, `lib/db/src/schema/*`                                                                     | Drizzle/PG bootstrap and schema                                    |
+| L-008    | Contract Generation    | Supporting | `lib/api-spec/*`, `lib/api-client-react/*`, `lib/api-zod/*`                                                      | generated client/schema surfaces                                   |
+| L-009    | Boot/Infra             | Supporting | `index.ts`, `config.ts`, `startup-migrations.ts`, `clerkProxyMiddleware.ts`                                      | startup order, proxying, environment checks                        |
+| L-010    | Documentation/Evidence | Derivative | `docs/*`, `attached_assets/*`, `.agents/*`                                                                       | support material, historical truth logs, non-runtime evidence      |
+
+### Boundary facts
+
+* `artifacts/*` runtime code does **not** import `lib/*` source in reverse; I found zero `lib/*` source imports from `artifacts/*`.
+* `app.ts` mounts `healthRouter` before auth and then `requireAuth` for the rest (`app.ts:114-124`).
+* `routes/index.ts` mounts discovery before projects to avoid route shadowing (`routes/index.ts:17-30`).
+
+---
+
+## 4. Detailed Layer-by-Layer Analysis
+
+### Presentation
+
+The dashboard is not purely generated-client driven. It uses `@workspace/api-client-react` for many queries and the SSE hook, but it also has direct same-origin `fetch()` helpers for AI and Git endpoints (`AiChat.tsx:82-106`, `GitPanel.tsx:33-49`). That means the generated client is important but not exclusive.
+
+### HTTP/API Transport
+
+`app.ts` hardens the API surface with `etag` disabled, helmet, rate limiting, JSON/body size caps, CORS with credentials, and a centralized error handler (`app.ts:21-138`). Route-level auth is layered via `requireAuth` and `requireProjectAccess` (`requireAuth.ts:22-45`, `requireProjectAccess.ts:31-135`).
+
+### Orchestration
+
+The strongest orchestration code lives in `routes/ai.ts`, `scan-runner.ts`, `discovery-runner.ts`, and `job-reconciliation.ts`. These are the places where state mutates, jobs are queued, failures are recovered, and events/audits are emitted. The queue is process-local and bounded at 2 concurrent jobs (`job-queue.ts:110-114`).
+
+### Domain/Verification
+
+`workflow-service.ts` is genuinely pure: it only evaluates conditions and computes phase transitions (`workflow-service.ts:34-93`). `task-service.ts` is not pure despite the header comment; it reads `rulesTable` from the DB before deciding verification outcomes (`task-service.ts:1-69`).
+
+### Scan/Extraction
+
+`lib/scanner` is a real extraction pipeline, not a stub. It walks filesystem trees with file and size caps (`file-walker.ts:4-15, 151-190`), matches rules, extracts graph nodes/edges, and computes metrics (`lib/scanner/src/index.ts:1-21`).
+
+### Persistence
+
+`lib/db/src/index.ts` throws immediately if `DATABASE_URL` is absent and instantiates the shared `Pool` and `drizzle()` client (`lib/db/src/index.ts:1-16`). That makes DB availability a bootstrap dependency rather than a lazy runtime dependency.
+
+### Contract Generation
+
+`lib/api-spec/openapi.yaml` has 64 paths, and the route code exposes 64 unique path literals. That parity is confirmed by code inspection of route literals and the OpenAPI file.
+
+---
+
+## 5. Critical File-by-File Analysis
+
+| ID    | Path                                                           | Type | Role (Documented vs Actual)                | Evidence                                                                                     | Status    |
+| ----- | -------------------------------------------------------------- | ---- | ------------------------------------------ | -------------------------------------------------------------------------------------------- | --------- |
+| F-001 | `artifacts/api-server/src/index.ts`                            | File | startup entry point / boot ordering        | `index.ts:10-37` calls reconcile, fix paths, listen, then sweep                              | Confirmed |
+| F-002 | `artifacts/api-server/src/app.ts`                              | File | transport/security layer                   | `app.ts:21-138` hardening, auth mount order, error mapping                                   | Confirmed |
+| F-004 | `artifacts/api-server/src/routes/discovery.ts`                 | File | discovery API + importer                   | `discovery.ts:134-223, 284-380` creates session, enqueues discovery, imports transactionally | Confirmed |
+| F-005 | `artifacts/api-server/src/routes/projects.ts`                  | File | CRUD + scan trigger                        | `projects.ts:35-223, 244-260` project list/create/update/delete/scan/summary                 | Confirmed |
+| F-006 | `artifacts/api-server/src/routes/tasks.ts`                     | File | task CRUD + execution                      | `tasks.ts:37-120`, plus AI execution path via `scheduleAiTaskExecution`                      | Confirmed |
+| F-007 | `artifacts/api-server/src/routes/workflows.ts`                 | File | workflow lifecycle                         | `workflows.ts:33-214` uses `checkAdvanceCondition` and `computePhaseAdvancement`             | Confirmed |
+| F-008 | `artifacts/api-server/src/routes/graph.ts`                     | File | graph query API                            | `graph.ts:11-26, 78-112, 116+` uses knowledge-engine exports                                 | Confirmed |
+| F-009 | `artifacts/api-server/src/routes/ai.ts`                        | File | AI chat/review/analyze/orchestrate/execute | `ai.ts:48-160, 486-670, 686-760, 945-1060, 1071-1217, 1222-1347, 1352-1515`                  | Confirmed |
+| F-010 | `artifacts/api-server/src/lib/job-reconciliation.ts`           | File | crash-recovery and stale-job sweeps        | `job-reconciliation.ts:1-27, 48-187, 216-294`                                                | Confirmed |
+| F-011 | `artifacts/api-server/src/lib/job-queue.ts`                    | File | in-process bounded queue                   | `job-queue.ts:1-16, 21-114`                                                                  | Confirmed |
+| F-012 | `artifacts/api-server/src/lib/rootpath-validator.ts`           | File | request-scoped fallback root resolution    | `rootpath-validator.ts:39-103`                                                               | Confirmed |
+| F-013 | `artifacts/api-server/src/lib/advisory-lock.ts`                | File | distributed mutual exclusion               | `advisory-lock.ts:1-109`                                                                     | Confirmed |
+| F-014 | `artifacts/api-server/src/lib/scan-runner.ts`                  | File | scan atomicity and event emission          | `scan-runner.ts:51-468`                                                                      | Confirmed |
+| F-015 | `artifacts/api-server/src/lib/discovery-runner.ts`             | File | discovery pipeline                         | `discovery-runner.ts:36-46, 292-467`                                                         | Confirmed |
+| F-016 | `artifacts/api-server/src/lib/condition-evaluator.ts`          | File | safe condition parser/evaluator            | `condition-evaluator.ts:1-18, 44-129, 137-341`                                               | Confirmed |
+| F-017 | `artifacts/api-server/src/services/task-service.ts`            | File | task verification                          | `task-service.ts:1-69, 71-158`                                                               | Confirmed |
+| F-018 | `artifacts/api-server/src/services/workflow-service.ts`        | File | workflow phase logic                       | `workflow-service.ts:1-93`                                                                   | Confirmed |
+| F-019 | `lib/scanner/src/file-walker.ts`                               | File | traversal with caps                        | `file-walker.ts:4-15, 16-33, 151-190`                                                        | Confirmed |
+| F-020 | `lib/scanner/src/graph-extractor.ts`                           | File | entity/relationship extraction             | imported by scanner + used in scan/discovery pipelines                                       | Confirmed |
+| F-021 | `lib/scanner/src/rule-matcher.ts`                              | File | rule matching                              | imported by scanner + used in scan/discovery pipelines                                       | Confirmed |
+| F-022 | `lib/scanner/src/metrics-calc.ts`                              | File | scan metrics                               | imported by scanner + used in scan/discovery pipelines                                       | Confirmed |
+| F-023 | `lib/knowledge-engine/src/index.ts`                            | File | query/inference API                        | `knowledge-engine/src/index.ts:1-63`                                                         | Confirmed |
+| F-024 | `lib/db/src/index.ts`                                          | File | DB bootstrap                               | `db/src/index.ts:1-16`                                                                       | Confirmed |
+| F-025 | `lib/api-client-react/src/use-ai-chat-stream.ts`               | File | handwritten SSE client                     | `use-ai-chat-stream.ts:2-7, 74-170`                                                          | Confirmed |
+| F-026 | `artifacts/dashboard/src/pages/AiChat.tsx`                     | File | chat UI and direct API calls               | `AiChat.tsx:12-20, 82-106, 544-670`                                                          | Confirmed |
+| F-027 | `artifacts/dashboard/src/components/GitPanel.tsx`              | File | Git UI and direct API calls                | `GitPanel.tsx:33-49, 115-184, 216-220`                                                       | Confirmed |
+| F-028 | `artifacts/api-server/src/middlewares/requireAuth.ts`          | File | auth gate                                  | `requireAuth.ts:13-45`                                                                       | Confirmed |
+| F-029 | `artifacts/api-server/src/middlewares/requireProjectAccess.ts` | File | ownership gate                             | `requireProjectAccess.ts:31-135`                                                             | Confirmed |
+| F-030 | `artifacts/api-server/src/lib/credentials-crypto.ts`           | File | encrypted credential storage               | `credentials-crypto.ts:13-44`                                                                | Confirmed |
+
+---
+
+## 6. End-to-End Execution Flow Analysis
+
+| Capability                  | Start point                                            | Intermediaries                                                                                                          | End point                                          | State effect                                | Status   |
+| --------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------- | -------- |
+| Startup / recovery          | `index.ts:13-37`                                       | `job-reconciliation.ts:283-294`, `startup-migrations.ts:29-60`, `job-queue.ts:110-114`                                  | server listens + stale-job sweep starts            | coordinates and mutates job state           | Complete |
+| Project discovery           | `routes/discovery.ts:134-223`                          | `discovery-adapters.ts`, `path-validation.ts`, `heavyJobQueue`, `runDiscovery()`                                        | discovery session moves to `ready` or `error`      | mutates DB and session state                | Complete |
+| Project import              | `routes/discovery.ts:284-380`                          | transactional insert of project, session claim, metrics, graph stubs                                                    | project row + imported session                     | mutates DB atomically                       | Complete |
+| Project scan                | `routes/projects.ts:184-223`                           | `runScanJob()`, `file-walker.ts`, `rule-matcher.ts`, `graph-extractor.ts`, `metrics-calc.ts`                            | job row completed/failed; project status reset     | mutates DB, emits events, invalidates cache | Complete |
+| AI chat                     | `routes/ai.ts:486-670`                                 | `loadProjectByIdForUser`, rate limit, `resolveRootPath`, advisory lock probe, `buildProjectContext`, `chatWithFallback` | session + message rows, response payload           | reads + mutates DB                          | Complete |
+| AI chat stream              | `routes/ai.ts:686-760`, `use-ai-chat-stream.ts:74-170` | SSE stages, same auth/rate/rootPath checks                                                                              | streamed `stage/done/error` events                 | read/coordinate                             | Complete |
+| Apply proposed file changes | `routes/ai.ts:945-1060`                                | advisory lock, path validation, blocked extensions, file writes, audit/event writes                                     | filesystem updated, event emitted                  | mutates filesystem + DB                     | Complete |
+| AI task execution           | `routes/ai.ts:1352-1515`                               | ownership, API-key check before claim, rate limit before claim, atomic task claim, rollback on failure/parse failure    | task becomes `completed` or `verifying` or reverts | mutates DB, logs, events                    | Complete |
+| Workflow orchestration      | `routes/ai.ts:1222-1347`                               | `parseWorkflowPhases`, advisory lock, `orchestrateWorkflow`, cache invalidation, audit/event writes                     | orchestration decision persisted/returned          | mutates DB and emits events                 | Complete |
+| Knowledge-graph query       | `routes/graph.ts:11-26, 78-112, 116+`                  | `knowledge-engine` query/inference functions                                                                            | filtered graph responses                           | read-only                                   | Complete |
+| Dashboard summary           | `routes/dashboard.ts:32-156`                           | project ownership, tasks/events/rules/metrics aggregation                                                               | summary payload                                    | read-only                                   | Complete |
+
+### Failure paths observed
+
+* Discovery fail-fast on invalid or inaccessible roots is explicit (`discovery.ts:148-170`, `discovery-runner.ts:310-319`).
+* Scan failure path always updates job status to failed, restores project status when appropriate, emits `ProjectScanFailed`, and invalidates cache (`scan-runner.ts:72-110`).
+* AI errors from provider are translated into typed HTTP responses by `handleOrchestratorError()` (`ai.ts:92-160`).
+* Parse failures return `422` rather than silently degrading to `200` in chat/review/orchestrate/task execution (`ai.ts:592-670, 1185-1217, 1311-1347, 1444-1466`).
+
+---
+
+## 7. Documentation Gap Analysis
+
+| ID    | Document claim                                                    | Code truth                                                                                         | Classification               | Evidence                                  |
+| ----- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------- | ----------------------------------------- |
+| D-001 | `docs/architecture.md` says no `lib/*` imports from `artifacts/*` | Source grep found zero such imports in runtime source files                                        | Match                        | docs/architecture.md:40-67 + repo grep    |
+| D-002 | Docs describe dashboard as generated-hook driven                  | Dashboard also uses handwritten `fetch()` in AI and Git surfaces                                   | Exceeds Doc / Implicit Only  | `AiChat.tsx:82-106`, `GitPanel.tsx:33-49` |
+| D-003 | `task-service.ts` comment says “pure verification logic”          | It reads the DB to resolve rule patterns                                                           | Conflicting                  | `task-service.ts:1-69`                    |
+| D-004 | Docs describe SSE chat as a handoff from the generated client     | Generated client cannot do SSE, so a handwritten hook exists                                       | Implemented but Undocumented | `use-ai-chat-stream.ts:2-7, 74-170`       |
+| D-005 | `docs/EXECUTION_ALIGNMENT_REPORT.md` implies a 595-file archive   | Current extracted repo has 779 files                                                               | Obsolete                     | filesystem scan vs doc banner             |
+| D-006 | `docs/architecture.md` states auth bypass on `NODE_ENV=test`      | `requireAuth` injects synthetic `test-user`, and `app.ts` skips `clerkMiddleware` in test          | Match                        | `requireAuth.ts:13-45`, `app.ts:87-102`   |
+| D-007 | Discovery docs mention only available source types                | `discovery.ts` explicitly marks `ARCHIVE_UPLOAD`, `REMOTE_FILESYSTEM`, `DOCKER_VOLUME` unavailable | Match/Explicit Limitation    | `discovery.ts:68-124`                     |
+
+Core promised features that are visibly not started or are explicitly unavailable in code:
+
+* Archive upload discovery (`ARCHIVE_UPLOAD`) is unavailable.
+* Remote filesystem discovery (`REMOTE_FILESYSTEM`) is unavailable.
+* Docker volume discovery (`DOCKER_VOLUME`) is unavailable.
+
+---
+
+## 8. Code Quality & Structural Assessment
+
+| ID    | Weakness                                                                           | Severity   | Evidence                                                           | Impact                                                              |
+| ----- | ---------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| W-001 | Process-local job queue loses in-flight work on restart                            | High       | `job-queue.ts:1-16, 110-114`; `job-reconciliation.ts:4-27, 48-114` | running/queued jobs are not durable across process death            |
+| W-002 | Process-local per-project LLM rate limiter does not coordinate across instances    | High       | `ai.ts:48-83`                                                      | multi-instance deployments can bypass throttling                    |
+| W-003 | `task-service.ts` contract mismatch: “pure” but DB-backed                          | Medium     | `task-service.ts:1-69`                                             | misleading testability and hidden dependency                        |
+| W-004 | Root-path fallback can broaden file access silently for a request                  | Medium     | `rootpath-validator.ts:39-103`                                     | AI may read workspace fallback instead of the intended project root |
+| W-005 | File walker has hard caps (depth 12, 5000 files, 512 KB/file)                      | Medium     | `file-walker.ts:4-15, 94-145`                                      | large/deep repos can be incompletely scanned                        |
+| W-006 | Dashboard uses raw fetch alongside generated client                                | Low/Medium | `AiChat.tsx:82-106`, `GitPanel.tsx:33-49`                          | split client behavior, more duplicated error handling               |
+| W-007 | Some defensive comments promise strict behavior, but code still has fallback paths | Low        | `rootpath-validator.ts:39-103`, `discovery.ts:148-170`             | callers must handle degraded states carefully                       |
+
+---
+
+## 9. Technical Debt Report
+
+The debt is concentrated in coordination and completeness, not in basic CRUD plumbing.
+
+1. Durable async work is not externalized. Both scans and discovery are queued in-process (`job-queue.ts:1-114`), then repaired at startup via DB reconciliation (`job-reconciliation.ts:1-294`). That is honest and workable, but it is still a crash-sensitive design.
+
+2. Several safety features are per-process. Rate limiting is in-memory (`ai.ts:48-83`) and therefore only reliable on a single instance.
+
+3. Discovery and scanning are bounded by hard caps rather than adaptive backpressure. That prevents OOM, but it also means the system can under-report very large or deeply nested repositories (`file-walker.ts:4-15, 94-145`).
+
+4. The AI surface is operationally strong, but fragmented: generated clients, raw fetch, SSE hook, advisory locks, and cache invalidation all coexist. It works, but it raises maintenance complexity (`AiChat.tsx:82-106`, `GitPanel.tsx:33-49`, `use-ai-chat-stream.ts:2-7, 74-170`).
+
+---
+
+## 10. Completion Assessment Matrix
+
+| Component           | Implementation complete | Test complete | Documentation complete | Integration complete | Operational complete | Overall | Confidence |
+| ------------------- | ----------------------: | ------------: | ---------------------: | -------------------: | -------------------: | ------: | ---------- |
+| API server core     |                     95% |           70% |                    80% |                  90% |                  85% |     88% | Likely     |
+| Discovery pipeline  |                     90% |           65% |                    80% |                  85% |                  75% |     83% | Likely     |
+| Scan pipeline       |                     92% |           70% |                    78% |                  88% |                  80% |     86% | Likely     |
+| AI orchestration    |                     90% |           65% |                    75% |                  85% |                  78% |     84% | Likely     |
+| Knowledge engine    |                     88% |           70% |                    70% |                  85% |                  78% |     82% | Likely     |
+| Dashboard client    |                     82% |           60% |                    65% |                  75% |                  70% |     74% | Likely     |
+| DB/schema/bootstrap |                     95% |           75% |                    80% |                  90% |                  88% |     89% | Confirmed  |
+
+Completion plans are needed for anything below 80%:
+
+* Dashboard client: normalize all API access paths through one client layer or one documented fetch abstraction.
+* Test completeness: I did not execute the tests, so the “Test complete” numbers are inferred from file presence, not runtime verification.
+
+---
+
+## 11. Risk Register
+
+| ID    | Root cause                                          | Impact                                                          | Likelihood  | Exploitability         | Dependencies                               | How to test                                            | How to fix                                                      | Severity |
+| ----- | --------------------------------------------------- | --------------------------------------------------------------- | ----------- | ---------------------- | ------------------------------------------ | ------------------------------------------------------ | --------------------------------------------------------------- | -------- |
+| R-001 | In-process queue stores pending jobs only in memory | Lost or orphaned scan/discovery work on restart                 | Medium-High | N/A                    | discovery, scan, recovery logic            | start a job, kill process, inspect DB states           | move queue to durable job store or add resume tokens            | High     |
+| R-002 | In-memory per-project LLM rate limit                | Throttling bypass across multiple instances                     | Medium      | Medium (authenticated) | ai chat/analyze/review/orchestrate/execute | run two app instances and burst requests               | use shared store (Redis/Postgres) for limiter                   | High     |
+| R-003 | Root-path fallback to workspace                     | AI may read fallback workspace instead of intended project root | Medium      | Medium (authenticated) | chat/stream context building               | make stored root inaccessible and observe fallback log | require explicit operator opt-in or disable fallback by default | Medium   |
+| R-004 | Scanner hard caps (depth/files/content size)        | Incomplete discovery/scan on large repos                        | Medium      | N/A                    | scan, discovery, graph, metrics            | scan a deep/large tree and compare omitted files       | surface truncation in API results and tune limits adaptively    | Medium   |
+| R-005 | Task-service contract mismatch                      | Misleading maintainability and unit-test assumptions            | High        | N/A                    | task execution, verification               | unit-test service expecting no DB reads                | rename/comment accurately or inject dependency explicitly       | Medium   |
+
+Top 5 risks threatening completion/stability:
+
+1. R-001
+2. R-002
+3. R-004
+4. R-003
+5. R-005
+
+---
+
+## 12. Missing Components List
+
+* Durable external job queue for scans/discovery.
+* Shared cross-instance rate limiter.
+* Discovery support for `ARCHIVE_UPLOAD`.
+* Discovery support for `REMOTE_FILESYSTEM`.
+* Discovery support for `DOCKER_VOLUME`.
+* A single consistent client strategy for dashboard API access.
+* Runtime proof of tests passing; test files exist, but I did not execute them.
+
+---
+
+## 13. Development Roadmap
+
+### Epic A — Durability and coordination
+
+* Feature: replace in-process queue with durable execution state.
+* Feature: replace in-memory AI rate limiting with a shared limiter.
+
+### Epic B — Repository fidelity
+
+* Feature: expose truncation/omission details in discovery and scan responses.
+* Feature: adapt file-walker caps to repo size and depth.
+
+### Epic C — AI surface hardening
+
+* Feature: unify AI client paths and preserve typed error behavior.
+* Feature: make root-path fallback explicit in API responses and metrics.
+
+### Epic D — Discovery expansion
+
+* Feature: implement archive upload discovery.
+* Feature: implement remote filesystem discovery.
+* Feature: implement Docker volume discovery.
+
+### Epic E — Contract governance
+
+* Feature: align docs with task-service reality.
+* Feature: align dashboard docs with mixed client usage.
+* Feature: formalize and enforce route/OpenAPI parity checks in CI.
+
+---
+
+## 14. PR Backlog
+
+| Order | PR ID | Type          | Linked risk(s)      | Target files                                                                                        | Objective                                         | Dependencies   | Required tests                                              |
+| ----- | ----- | ------------- | ------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------- | -------------- | ----------------------------------------------------------- |
+| 1     | PR-01 | Fix           | R-001               | `job-queue.ts`, `job-reconciliation.ts`, `routes/discovery.ts`, `routes/projects.ts`                | make heavy jobs durable or resumable              | none           | crash-restart recovery test, queued/running job replay test |
+| 2     | PR-02 | Fix           | R-002               | `routes/ai.ts`                                                                                      | move project LLM rate limiting to shared storage  | PR-01 optional | multi-instance limiter test, burst test                     |
+| 3     | PR-03 | Fix           | R-003               | `rootpath-validator.ts`, `routes/ai.ts`, dashboard error handling                                   | make fallback explicit and observable             | none           | inaccessible-root test, fallback-response test              |
+| 4     | PR-04 | Structural    | R-004               | `file-walker.ts`, `discovery-runner.ts`, `scan-runner.ts`, API schemas                              | report truncation and cap-related omissions       | PR-01 optional | large repo scan test, deep-tree discovery test              |
+| 5     | PR-05 | Structural    | R-005               | `services/task-service.ts`, docs pointing to it                                                     | align contract with implementation                | none           | service unit test with DB mock/injection                    |
+| 6     | PR-06 | Structural    | R-005, W-006        | `dashboard/src/pages/AiChat.tsx`, `dashboard/src/components/GitPanel.tsx`, `lib/api-client-react/*` | normalize client access patterns                  | PR-05          | dashboard integration tests, error mapping tests            |
+| 7     | PR-07 | Documentation | D-003, D-004, D-005 | `docs/*`, `task-service.ts`, `use-ai-chat-stream.ts`                                                | align docs with reality                           | none           | doc lint / truth-check script                               |
+| 8     | PR-08 | Test          | R-001-R-004         | all critical runtime paths                                                                          | add restart, queue, fallback, truncation coverage | PR-01-04       | full integration suite                                      |
+
+PRs 1–4 should be sequenced because they stabilize the runtime foundations. PRs 5–8 can proceed in parallel once the coordination model is stable.
+
+---
+
+## 15. Meta-Verification
+
+I re-verified five items against the code before finalizing:
+
+1. Server boot order: `index.ts:13-37` + `job-reconciliation.ts:283-294`.
+2. Discovery enqueue and cleanup: `discovery.ts:134-223` + `discovery-runner.ts:292-467`.
+3. AI chat flow: `ai.ts:486-670` + `rootpath-validator.ts:48-103` + `advisory-lock.ts:67-109`.
+4. Task execution rollback path: `ai.ts:1352-1515`.
+5. Dashboard raw fetch paths: `AiChat.tsx:82-106` + `GitPanel.tsx:33-49`.
+
+Self-confidence score for this report: `0.84`. The remaining uncertainty is mostly about unexecuted tests and the internal implementation details of modules I did not fully line-trace beyond their exported surfaces.
+
+---
+
+## 16. Final Engineering Verdict
+
+This repository is not a sketch; it contains a substantial, working runtime with explicit boot recovery, ownership checks, scan/discovery orchestration, AI tooling, and a real knowledge-graph query layer. The highest-risk weaknesses are operational durability and cross-instance coordination, not missing core features. The main work remaining is to harden job durability, externalize process-local coordination, and align the documentation and client surface with the implementation that already exists.

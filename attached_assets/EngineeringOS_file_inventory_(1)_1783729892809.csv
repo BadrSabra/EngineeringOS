@@ -1,0 +1,356 @@
+path,size_bytes,package,role,is_test,is_generated,is_empty
+.agents/memory/MEMORY.md,1302,project-memory,decision/memory note,false,false,false
+.agents/memory/audit-fixes.md,1459,project-memory,decision/memory note,false,false,false
+.agents/memory/discovery-feature.md,2496,project-memory,decision/memory note,false,false,false
+.agents/memory/engineeringos-completion-plan.md,1240,project-memory,decision/memory note,false,false,false
+.agents/memory/fk-atomic-claim-ordering.md,1428,project-memory,decision/memory note,false,false,false
+.agents/memory/orval-openapi-codegen.md,1158,project-memory,decision/memory note,false,false,false
+.agents/memory/scanner-ast-extraction.md,1094,project-memory,decision/memory note,false,false,false
+.agents/memory/testing-drift-checks.md,1129,project-memory,decision/memory note,false,false,false
+.gitattributes,170,root-config,workspace/config,false,false,false
+.gitignore,668,root-config,workspace/config,false,false,false
+.npmrc,56,root-config,workspace/config,false,false,false
+.replit,372,root-config,workspace/config,false,false,false
+.replitignore,201,root-config,workspace/config,false,false,false
+artifacts/api-server/.replit-artifact/artifact.toml,784,api-server,backend API server,false,false,false
+artifacts/api-server/build.mjs,3455,api-server,backend API server,false,false,false
+artifacts/api-server/package.json,1093,api-server,workspace/config,false,false,false
+artifacts/api-server/src/app.ts,2461,api-server,backend API server,false,false,false
+artifacts/api-server/src/index.ts,511,api-server,backend API server,false,false,false
+artifacts/api-server/src/lib/.gitkeep,0,api-server,backend API server,false,false,true
+artifacts/api-server/src/lib/audit.ts,2098,api-server,backend API server,false,false,false
+artifacts/api-server/src/lib/logger.ts,421,api-server,backend API server,false,false,false
+artifacts/api-server/src/lib/scan-runner.ts,13233,api-server,backend API server,false,false,false
+artifacts/api-server/src/middlewares/.gitkeep,0,api-server,backend API server,false,false,true
+artifacts/api-server/src/routes/dashboard.ts,2667,api-server,backend API server,false,false,false
+artifacts/api-server/src/routes/discovery.test.ts,4759,api-server,backend API server,true,false,false
+artifacts/api-server/src/routes/discovery.ts,27203,api-server,backend API server,false,false,false
+artifacts/api-server/src/routes/events.ts,984,api-server,backend API server,false,false,false
+artifacts/api-server/src/routes/graph.test.ts,3858,api-server,backend API server,true,false,false
+artifacts/api-server/src/routes/graph.ts,3577,api-server,backend API server,false,false,false
+artifacts/api-server/src/routes/health.ts,284,api-server,backend API server,false,false,false
+artifacts/api-server/src/routes/index.ts,977,api-server,backend API server,false,false,false
+artifacts/api-server/src/routes/metrics.test.ts,2712,api-server,backend API server,true,false,false
+artifacts/api-server/src/routes/metrics.ts,1584,api-server,backend API server,false,false,false
+artifacts/api-server/src/routes/plugins.test.ts,1205,api-server,backend API server,true,false,false
+artifacts/api-server/src/routes/plugins.ts,4340,api-server,backend API server,false,false,false
+artifacts/api-server/src/routes/projects.test.ts,6988,api-server,backend API server,true,false,false
+artifacts/api-server/src/routes/projects.ts,6990,api-server,backend API server,false,false,false
+artifacts/api-server/src/routes/rules.ts,5598,api-server,backend API server,false,false,false
+artifacts/api-server/src/routes/tasks.test.ts,4536,api-server,backend API server,true,false,false
+artifacts/api-server/src/routes/tasks.ts,15132,api-server,backend API server,false,false,false
+artifacts/api-server/src/routes/workflows.test.ts,5421,api-server,backend API server,true,false,false
+artifacts/api-server/src/routes/workflows.ts,18339,api-server,backend API server,false,false,false
+artifacts/api-server/tsconfig.json,382,api-server,workspace/config,false,false,false
+artifacts/api-server/vitest.config.ts,208,api-server,backend API server,false,false,false
+artifacts/dashboard/.replit-artifact/artifact.toml,561,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/components.json,434,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/index.html,1352,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/package.json,2733,dashboard-app,workspace/config,false,false,false
+artifacts/dashboard/public/favicon.svg,163,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/public/robots.txt,23,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/App.tsx,1768,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/layout/Shell.tsx,1829,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/layout/Sidebar.tsx,2907,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/accordion.tsx,2013,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/alert-dialog.tsx,4447,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/alert.tsx,1609,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/aspect-ratio.tsx,143,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/avatar.tsx,1431,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/badge.tsx,1528,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/breadcrumb.tsx,2735,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/button-group.tsx,2222,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/button.tsx,2370,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/calendar.tsx,7607,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/card.tsx,1856,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/carousel.tsx,6288,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/chart.tsx,10846,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/checkbox.tsx,1038,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/collapsible.tsx,335,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/command.tsx,4918,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/context-menu.tsx,7446,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/dialog.tsx,3889,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/drawer.tsx,3029,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/dropdown-menu.tsx,7646,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/empty.tsx,2410,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/field.tsx,6079,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/form.tsx,4232,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/hover-card.tsx,1245,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/input-group.tsx,4993,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/input-otp.tsx,2160,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/input.tsx,775,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/item.tsx,4519,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/kbd.tsx,867,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/label.tsx,733,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/menubar.tsx,8655,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/navigation-menu.tsx,5150,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/pagination.tsx,2772,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/popover.tsx,1351,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/progress.tsx,799,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/radio-group.tsx,1421,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/resizable.tsx,1733,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/scroll-area.tsx,1650,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/select.tsx,5773,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/separator.tsx,764,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/sheet.tsx,4307,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/sidebar.tsx,21969,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/skeleton.tsx,269,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/slider.tsx,1043,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/sonner.tsx,902,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/spinner.tsx,334,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/switch.tsx,1155,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/table.tsx,2881,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/tabs.tsx,1890,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/textarea.tsx,655,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/toast.tsx,4871,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/toaster.tsx,777,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/toggle-group.tsx,1767,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/toggle.tsx,1494,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/components/ui/tooltip.tsx,1277,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/hooks/use-mobile.tsx,576,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/hooks/use-toast.ts,3952,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/index.css,7551,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/lib/utils.ts,169,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/main.tsx,159,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/pages/Dashboard.tsx,13416,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx,32392,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/pages/Events.tsx,7448,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/pages/Graph.tsx,13646,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/pages/Metrics.tsx,9174,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/pages/ProjectDetail.tsx,12508,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/pages/Projects.tsx,8101,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/pages/Rules.tsx,10190,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/pages/Tasks.tsx,13202,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/pages/Workflows.tsx,20806,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/src/pages/not-found.tsx,971,dashboard-app,primary web dashboard,false,false,false
+artifacts/dashboard/tsconfig.json,520,dashboard-app,workspace/config,false,false,false
+artifacts/dashboard/vite.config.ts,1803,dashboard-app,primary web dashboard,false,false,false
+artifacts/mockup-sandbox/.replit-artifact/artifact.toml,327,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/components.json,426,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/index.html,4325,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/mockupPreviewPlugin.ts,4639,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/package.json,2515,mockup-sandbox,workspace/config,false,false,false
+artifacts/mockup-sandbox/src/.generated/mockup-components.ts,171,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/App.tsx,3654,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/accordion.tsx,2001,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/alert-dialog.tsx,4419,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/alert.tsx,1598,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/aspect-ratio.tsx,140,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/avatar.tsx,1419,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/badge.tsx,1163,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/breadcrumb.tsx,2712,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/button-group.tsx,2209,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/button.tsx,1925,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/calendar.tsx,7569,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/card.tsx,1828,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/carousel.tsx,6210,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/chart.tsx,10674,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/checkbox.tsx,1031,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/collapsible.tsx,329,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/command.tsx,4887,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/context-menu.tsx,7406,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/dialog.tsx,3835,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/drawer.tsx,3007,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/dropdown-menu.tsx,7606,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/empty.tsx,2396,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/field.tsx,6044,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/form.tsx,4175,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/hover-card.tsx,1237,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/input-group.tsx,4883,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/input-otp.tsx,2143,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/input.tsx,768,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/item.tsx,4494,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/kbd.tsx,862,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/label.tsx,724,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/menubar.tsx,8608,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/navigation-menu.tsx,5124,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/pagination.tsx,2751,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/popover.tsx,1342,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/progress.tsx,792,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/radio-group.tsx,1410,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/resizable.tsx,1723,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/scroll-area.tsx,1642,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/select.tsx,5745,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/separator.tsx,756,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/sheet.tsx,4280,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/sidebar.tsx,21056,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/skeleton.tsx,266,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/slider.tsx,1037,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/sonner.tsx,894,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/spinner.tsx,331,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/switch.tsx,1148,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/table.tsx,2859,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/tabs.tsx,1877,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/textarea.tsx,649,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/toast.tsx,4845,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/toaster.tsx,772,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/toggle-group.tsx,1753,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/toggle.tsx,1486,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/components/ui/tooltip.tsx,1267,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/hooks/use-mobile.tsx,565,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/hooks/use-toast.ts,3767,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/index.css,5760,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/lib/utils.ts,166,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/src/main.tsx,157,mockup-sandbox,component preview sandbox,false,false,false
+artifacts/mockup-sandbox/tsconfig.json,513,mockup-sandbox,workspace/config,false,false,false
+artifacts/mockup-sandbox/vite.config.ts,1592,mockup-sandbox,component preview sandbox,false,false,false
+attached_assets/EngineeringOS_Audit_Report_1783641389270.md,14716,attached-asset,analysis document snapshot,false,false,false
+attached_assets/EngineeringOS_Audit_Report_Expanded_1783642792349.md,17381,attached-asset,analysis document snapshot,false,false,false
+attached_assets/EngineeringOS_Combined_Deep_Analysis_(1)_1783706911895.md,13363,attached-asset,analysis document snapshot,false,false,false
+attached_assets/EngineeringOS_File_Inventory_Complete(1)_1783706911845.md,16789,attached-asset,analysis document snapshot,false,false,false
+attached_assets/EngineeringOS_File_by_File_Fact_Record_1783725698283.md,91708,attached-asset,analysis document snapshot,false,false,false
+attached_assets/EngineeringOS_Implementation_Document_1783726156016.md,24261,attached-asset,analysis document snapshot,false,false,false
+attached_assets/EngineeringOS_Project_1783718452179.pdf,53834,attached-asset,reference PDF snapshot,false,false,false
+attached_assets/Engineering_Os_Fact_Record_1783718570175.pdf,104719,attached-asset,reference PDF snapshot,false,false,false
+attached_assets/Engineering_Os_Phased_Completion_Plan_(1)_1783718452123.pdf,77805,attached-asset,reference PDF snapshot,false,false,false
+attached_assets/Engineering_Os_Phased_Completion_Plan_1783718452216.pdf,77807,attached-asset,reference PDF snapshot,false,false,false
+attached_assets/Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783565505918.txt,6622,attached-asset,pasted prompt/context snapshot,false,false,false
+attached_assets/Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783566150077.txt,6622,attached-asset,pasted prompt/context snapshot,false,false,false
+attached_assets/Screenshot_٢٠٢٦٠٧٠٩-٠٦١٦٢٥_1783567039006.png,98945,attached-asset,screenshot reference,false,false,false
+attached_assets/Screenshot_٢٠٢٦٠٧٠٩-٠٦٢٠٣٨_1783610776566.png,100944,attached-asset,screenshot reference,false,false,false
+attached_assets/agents_(1)_1783564013722.zip,256,attached-asset,archived source snapshot,false,false,false
+attached_assets/artifacts_(7)_(1)_1783564013761.zip,1668739,attached-asset,archived source snapshot,false,false,false
+attached_assets/git_(2)_1783564013691.zip,134,attached-asset,archived source snapshot,false,false,false
+attached_assets/gitattributes_1783564013915.txt,92,attached-asset,pasted prompt/context snapshot,false,false,false
+attached_assets/gitignore_(1)_1783564013965.txt,668,attached-asset,pasted prompt/context snapshot,false,false,false
+attached_assets/lib_(7)_(1)_1783564013810.zip,219450,attached-asset,archived source snapshot,false,false,false
+attached_assets/node_modules_(2)_1783564014266.zip,22,attached-asset,archived source snapshot,false,false,false
+attached_assets/npmrc_(2)_1783564014024.txt,56,attached-asset,pasted prompt/context snapshot,false,false,false
+attached_assets/package_(1)_(7)_1783564014328.json,649,attached-asset,snapshot config,false,false,false
+attached_assets/pnpm-lock.yaml_(3)_1783564014392.txt,210264,attached-asset,pasted prompt/context snapshot,false,false,false
+attached_assets/pnpm-workspace.yaml_(3)_1783564014449.txt,6579,attached-asset,pasted prompt/context snapshot,false,false,false
+attached_assets/replit_(13)_1783564014085.md,1521,attached-asset,analysis document snapshot,false,false,false
+attached_assets/replit_(2)_1783564014509.txt,372,attached-asset,pasted prompt/context snapshot,false,false,false
+attached_assets/replitignore_1783564014569.txt,201,attached-asset,pasted prompt/context snapshot,false,false,false
+attached_assets/scripts_(8)_1783564013865.zip,11642,attached-asset,archived source snapshot,false,false,false
+attached_assets/tsconfig.base_(2)_(1)_1783564014142.json,692,attached-asset,snapshot config,false,false,false
+attached_assets/tsconfig_(7)_1783564014202.json,279,attached-asset,snapshot config,false,false,false
+docs/completion-plan.md,15170,documentation,planning/analysis doc,false,false,false
+docs/fact-record.md,92894,documentation,planning/analysis doc,false,false,false
+lib/api-client-react/package.json,265,generated-react-client,workspace/config,false,false,false
+lib/api-client-react/src/custom-fetch.ts,11377,generated-react-client,generated React Query client,false,false,false
+lib/api-client-react/src/generated/api.schemas.ts,13732,generated-react-client,generated React Query client,false,true,false
+lib/api-client-react/src/generated/api.ts,109853,generated-react-client,generated React Query client,false,true,false
+lib/api-client-react/src/index.ts,268,generated-react-client,generated React Query client,false,false,false
+lib/api-client-react/tsconfig.json,251,generated-react-client,workspace/config,false,false,false
+lib/api-spec/openapi.yaml,50360,openapi-contract,OpenAPI source of truth,false,false,false
+lib/api-spec/orval.config.ts,1959,openapi-contract,OpenAPI source of truth,false,false,false
+lib/api-spec/package.json,307,openapi-contract,workspace/config,false,false,false
+lib/api-zod/package.json,189,generated-zod,workspace/config,false,false,false
+lib/api-zod/src/generated/api.ts,38306,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/createProjectInput.ts,307,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/createRuleInput.ts,432,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/createTaskInput.ts,453,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/createWorkflowInput.ts,348,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/dashboardOverview.ts,820,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/dashboardOverviewProjectScoresItem.ts,436,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/dashboardOverviewProjectScoresItemTrend.ts,464,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/dashboardOverviewTaskStatusBreakdown.ts,241,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/dashboardOverviewTopRulesItem.ts,285,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/discoveryGraphSummaryData.ts,264,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/discoveryReport.ts,1286,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/discoveryRuleViolationItem.ts,283,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/discoverySessionStatus.ts,676,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/discoverySessionStatusStatus.ts,438,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/discoveryStepItem.ts,378,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/discoveryStepItemStatus.ts,406,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/entityType.ts,418,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/evaluateRuleRequest.ts,227,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/event.ts,484,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/eventPayload.ts,220,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/eventSeverity.ts,366,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/failWorkflowPhaseInput.ts,227,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/getGraphEntityNeighbors200.ts,440,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/getGraphEntityNeighbors404.ts,228,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/getLatestMetricsParams.ts,227,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/graphEntity.ts,453,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/graphEntityMetadata.ts,227,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/graphRelationship.ts,415,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/graphRelationshipMetadata.ts,233,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/healthStatus.ts,293,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/healthStatusStatus.ts,320,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/importProjectInput.ts,353,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/importProjectInputOverrides.ts,296,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/index.ts,2969,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/listEventsParams.ts,252,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/listGraphEntitiesParams.ts,295,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/listGraphRelationshipsParams.ts,252,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/listMetricsParams.ts,245,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/listRulesParams.ts,297,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/listTasksParams.ts,366,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/listWorkflowsParams.ts,224,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/metricRecord.ts,660,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/metricRecordBuildStatus.ts,394,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/plugin.ts,433,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/pluginCapabilitiesItem.ts,436,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/pluginProjectRequest.ts,228,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/project.ts,473,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/projectStatus.ts,376,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/projectSummary.ts,508,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/projectSummaryTaskCounts.ts,303,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/rule.ts,514,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/ruleEvaluationResult.ts,424,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/ruleEvaluationResultMatchesItem.ts,267,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/ruleSeverity.ts,374,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/scanJob.ts,739,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/scanJobStatus.ts,376,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/scanResult.ts,329,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/startDiscoveryInput.ts,341,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/startDiscoveryInputSource.ts,380,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/task.ts,784,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/taskLog.ts,427,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/taskLogLevel.ts,352,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/taskLogMetadata.ts,223,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/taskPriority.ts,332,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/taskStatus.ts,438,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/updateProjectInput.ts,359,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/updateProjectInputStatus.ts,420,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/updateRuleInput.ts,391,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/updateTaskInput.ts,394,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/verificationResult.ts,346,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/verificationResultStepsItem.ts,266,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/workflow.ts,548,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/workflowExecution.ts,443,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/workflowPhase.ts,257,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/generated/types/workflowStatus.ts,398,generated-zod,generated validation contracts,false,true,false
+lib/api-zod/src/index.ts,136,generated-zod,generated validation contracts,false,false,false
+lib/api-zod/tsconfig.json,221,generated-zod,workspace/config,false,false,false
+lib/db/drizzle.config.ts,352,database-schema,Drizzle schema and DB access,false,false,false
+lib/db/package.json,578,database-schema,workspace/config,false,false,false
+lib/db/src/index.ts,434,database-schema,Drizzle schema and DB access,false,false,false
+lib/db/src/schema/audit_logs.ts,1745,database-schema,Drizzle schema and DB access,false,false,false
+lib/db/src/schema/discovery.ts,2111,database-schema,Drizzle schema and DB access,false,false,false
+lib/db/src/schema/events.ts,1070,database-schema,Drizzle schema and DB access,false,false,false
+lib/db/src/schema/graph.ts,1510,database-schema,Drizzle schema and DB access,false,false,false
+lib/db/src/schema/index.ts,365,database-schema,Drizzle schema and DB access,false,false,false
+lib/db/src/schema/metrics.ts,1190,database-schema,Drizzle schema and DB access,false,false,false
+lib/db/src/schema/plugins.ts,776,database-schema,Drizzle schema and DB access,false,false,false
+lib/db/src/schema/projects.ts,853,database-schema,Drizzle schema and DB access,false,false,false
+lib/db/src/schema/rules.ts,1113,database-schema,Drizzle schema and DB access,false,false,false
+lib/db/src/schema/scan_jobs.ts,1394,database-schema,Drizzle schema and DB access,false,false,false
+lib/db/src/schema/task_logs.ts,750,database-schema,Drizzle schema and DB access,false,false,false
+lib/db/src/schema/tasks.ts,1838,database-schema,Drizzle schema and DB access,false,false,false
+lib/db/src/schema/workflows.ts,1762,database-schema,Drizzle schema and DB access,false,false,false
+lib/db/tsconfig.json,244,database-schema,workspace/config,false,false,false
+lib/scanner/package.json,434,scanner,workspace/config,false,false,false
+lib/scanner/src/__tests__/file-walker.test.ts,4764,scanner,project analysis library,true,false,false
+lib/scanner/src/__tests__/graph-extractor.test.ts,7378,scanner,project analysis library,true,false,false
+lib/scanner/src/__tests__/metrics-calc.test.ts,4652,scanner,project analysis library,true,false,false
+lib/scanner/src/__tests__/rule-matcher.test.ts,3493,scanner,project analysis library,true,false,false
+lib/scanner/src/file-walker.ts,4034,scanner,project analysis library,false,false,false
+lib/scanner/src/graph-extractor.ts,14219,scanner,project analysis library,false,false,false
+lib/scanner/src/index.ts,558,scanner,project analysis library,false,false,false
+lib/scanner/src/metrics-calc.ts,5505,scanner,project analysis library,false,false,false
+lib/scanner/src/rule-matcher.ts,3971,scanner,project analysis library,false,false,false
+lib/scanner/tsconfig.json,244,scanner,workspace/config,false,false,false
+lib/scanner/vitest.config.ts,304,scanner,project analysis library,false,false,false
+package.json,1198,other,workspace/config,false,false,false
+pnpm-lock.yaml,228783,other,workspace/config,false,false,false
+pnpm-workspace.yaml,6579,other,workspace/config,false,false,false
+replit.md,4075,other,workspace/config,false,false,false
+scripts/package.json,281,workspace-script,workspace/config,false,false,false
+scripts/post-merge.sh,72,workspace-script,workspace automation script,false,false,false
+scripts/src/hello.ts,46,workspace-script,workspace automation script,false,false,false
+scripts/tsconfig.json,157,workspace-script,workspace/config,false,false,false
+tsconfig.base.json,692,other,workspace/config,false,false,false
+tsconfig.json,279,other,workspace/config,false,false,false

@@ -1,0 +1,202 @@
+{
+  "total_files": 722,
+  "extensions": {
+    ".toml": 4,
+    ".md": 117,
+    "[none]": 7,
+    ".mjs": 1,
+    ".json": 34,
+    ".ts": 299,
+    ".html": 2,
+    ".svg": 2,
+    ".txt": 65,
+    ".tsx": 134,
+    ".css": 2,
+    ".docx": 2,
+    ".csv": 14,
+    ".pdf": 6,
+    ".xlsx": 1,
+    ".png": 18,
+    ".zip": 6,
+    ".yaml": 3,
+    ".py": 1,
+    ".sh": 2,
+    ".mts": 1,
+    ".bak": 1
+  },
+  "top_level": {
+    ".agents": 35,
+    ".gitattributes": 1,
+    ".gitignore": 1,
+    ".npmrc": 1,
+    ".replit": 1,
+    ".replitignore": 1,
+    "artifacts": 217,
+    "attached_assets": 189,
+    "docs": 14,
+    "lib": 247,
+    "package.json": 1,
+    "pnpm-lock.yaml": 1,
+    "pnpm-workspace.yaml": 1,
+    "replit.md": 1,
+    "scripts": 8,
+    "tsconfig.base.json": 1,
+    "tsconfig.base.json.bak": 1,
+    "tsconfig.json": 1
+  },
+  "categories": {
+    "memory": 35,
+    "repo-config": 9,
+    "api-server-build": 5,
+    "runtime-api-server": 54,
+    "dashboard-build": 8,
+    "runtime-dashboard": 81,
+    "mockup-build": 6,
+    "runtime-mockup": 63,
+    "assets": 189,
+    "docs": 14,
+    "ai-orchestrator": 35,
+    "client-lib": 5,
+    "generated": 158,
+    "contract": 3,
+    "schema-lib": 4,
+    "data-layer": 19,
+    "knowledge-engine": 8,
+    "scanner": 15,
+    "config/doc": 2,
+    "scripts": 8,
+    "other": 1
+  },
+  "route_count": 77,
+  "route_unique_normalized": 61,
+  "openapi_paths": 61,
+  "route_spec_exact_match_after_normalization": true,
+  "db_tables": [
+    {
+      "file": "lib/db/src/schema/ai_chats.ts",
+      "const": "aiChatSessionsTable",
+      "table": "ai_chat_sessions"
+    },
+    {
+      "file": "lib/db/src/schema/ai_chats.ts",
+      "const": "aiChatMessagesTable",
+      "table": "ai_chat_messages"
+    },
+    {
+      "file": "lib/db/src/schema/audit_logs.ts",
+      "const": "auditLogsTable",
+      "table": "audit_logs"
+    },
+    {
+      "file": "lib/db/src/schema/discovery.ts",
+      "const": "discoverySessionsTable",
+      "table": "discovery_sessions"
+    },
+    {
+      "file": "lib/db/src/schema/events.ts",
+      "const": "eventsTable",
+      "table": "events"
+    },
+    {
+      "file": "lib/db/src/schema/metrics.ts",
+      "const": "metricsTable",
+      "table": "metrics"
+    },
+    {
+      "file": "lib/db/src/schema/plugins.ts",
+      "const": "pluginsTable",
+      "table": "plugins"
+    },
+    {
+      "file": "lib/db/src/schema/projects.ts",
+      "const": "projectsTable",
+      "table": "projects"
+    },
+    {
+      "file": "lib/db/src/schema/rules.ts",
+      "const": "rulesTable",
+      "table": "rules"
+    },
+    {
+      "file": "lib/db/src/schema/scan_jobs.ts",
+      "const": "scanJobsTable",
+      "table": "scan_jobs"
+    },
+    {
+      "file": "lib/db/src/schema/task_logs.ts",
+      "const": "taskLogsTable",
+      "table": "task_logs"
+    },
+    {
+      "file": "lib/db/src/schema/tasks.ts",
+      "const": "tasksTable",
+      "table": "tasks"
+    },
+    {
+      "file": "lib/db/src/schema/workflows.ts",
+      "const": "workflowsTable",
+      "table": "workflows"
+    },
+    {
+      "file": "lib/db/src/schema/workflows.ts",
+      "const": "workflowExecutionsTable",
+      "table": "workflow_executions"
+    },
+    {
+      "file": "lib/db/src/schema/graph.ts",
+      "const": "graphEntitiesTable",
+      "table": "graph_entities"
+    },
+    {
+      "file": "lib/db/src/schema/graph.ts",
+      "const": "graphRelationshipsTable",
+      "table": "graph_relationships"
+    }
+  ],
+  "dashboard_pages": [
+    "AiChat",
+    "Dashboard",
+    "DiscoverProjectWizard",
+    "Events",
+    "Graph",
+    "Landing",
+    "Metrics",
+    "ProjectDetail",
+    "Projects",
+    "Rules",
+    "SignIn",
+    "SignUp",
+    "Tasks",
+    "Workflows",
+    "not-found"
+  ],
+  "ai_agents": [
+    "chat-agent.ts",
+    "code-reviewer.ts",
+    "scan-analyst.ts",
+    "task-agent.ts",
+    "workflow-orchestrator.ts"
+  ],
+  "ai_schemas": [
+    "chat.schema.ts",
+    "code-review.schema.ts",
+    "context.schema.ts",
+    "index.ts",
+    "scan.schema.ts",
+    "task.schema.ts",
+    "workflow.schema.ts"
+  ],
+  "ai_tools": [
+    "file-tools.ts",
+    "git-tools.ts"
+  ],
+  "scanner_files": [
+    "file-walker.ts",
+    "graph-extractor.ts",
+    "index.ts",
+    "metrics-calc.ts",
+    "python-ast-script.ts",
+    "python-extractor.ts",
+    "rule-matcher.ts"
+  ]
+}

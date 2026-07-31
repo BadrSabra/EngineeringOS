@@ -1,0 +1,264 @@
+**:
+
+---
+
+## KG-01 — توحيد تطبيق فلاتر KG عبر كل استعلامات Knowledge Engine
+
+**الأولوية:** P0
+
+### المشكلة
+
+`GraphQueryFilters` في `lib/knowledge-engine/src/types.ts` يعرّف فلاتر كاملة تشمل:
+
+* `edgeTypes`
+* `minConfidence`
+* `sourceTypes`
+* `semanticTags`
+* `observedOnly`
+* `heuristicOnly`
+
+لكن التنفيذ الحالي لا يطبّقها بشكل موحّد:
+
+* `getEdgesByType()` يطبّق `edgeTypes` و`minConfidence` و`sourceTypes` و`observedOnly` و`heuristicOnly`، لكنه **لا يطبّق `semanticTags`**.
+* `getSemanticNeighborhood()` يطبّق `edgeTypes` و`minConfidence` و`observedOnly` و`heuristicOnly`، لكنه **يتجاهل `sourceTypes` و`semanticTags`**.
+* `getLayeredGraphView()` يطبّق `edgeTypes` و`minConfidence` فقط، ويتجاهل **`sourceTypes` و`semanticTags` و`observedOnly` و`heuristicOnly`**.
+
+### الملفات المرتبطة
+
+* `lib/knowledge-engine/src/types.ts`
+* `lib/knowledge-engine/src/queries.ts`
+* `artifacts/api-server/src/routes/graph.ts`
+
+### المطلوب
+
+* جعل جميع الاستعلامات KG تفسّر نفس مجموعة الفلاتر بنفس semantics.
+* إما:
+
+  * تطبيق `sourceTypes` و`semanticTags` و`observedOnly` و`heuristicOnly` في كل الاستعلامات المناسبة،
+  * أو تضييق العقد المعلنة إذا كان بعضها غير مدعوم فعلًا.
+* منع فقدان الفلاتر بصمت أثناء المرور من route إلى query engine.
+
+### معيار القبول
+
+* لا يوجد فلتر معرّف في `GraphQueryFilters` يتم تجاهله بصمت داخل query function يفترض أنه يدعمه.
+* `/graph/subgraph` و`/graph/semantic-neighborhood` يعيدان نتائج مطابقة للفلاتر المرسلة.
+
+---
+
+## KG-02 — مواءمة عقدة `GraphProvenance` بين DB/runtime وapi-zod
+
+**الأولوية:** P0
+
+### المشكلة
+
+يوجد عدم تطابق واضح بين شكل provenance في الكود الفعلي وشكلها في generated API type:
+
+* في `lib/db/src/schema/graph.ts` و`artifacts/api-server/src/lib/graph-provenance.ts`، الشكل الفعلي هو:
+
+  * `sourceType`
+  * `method`
+  * `extractedAt`
+  * `evidence?`
+* بينما `lib/api-zod/src/generated/types/graphProvenance.ts` ما زال يعرّف:
+
+  * `extractor`
+  * `method`
+  * `extractedAt`
+  * **بدون evidence**
+
+### الملفات المرتبطة
+
+* `lib/db/src/schema/graph.ts`
+* `artifacts/api-server/src/lib/graph-provenance.ts`
+* `lib/api-zod/src/generated/types/graphProvenance.ts`
+* `lib/api-zod/src/generated/types/graphEntity.ts`
+* `lib/api-zod/src/generated/types/graphRelationship.ts`
+
+### المطلوب
+
+* تحديث OpenAPI / generated types لتطابق الشكل الفعلي المخزن والمستخدم في السيرفر.
+* توحيد اسم الحقل على `sourceType` بدل `extractor`.
+* إضافة `evidence` إلى contract إن كان هذا هو الشكل النهائي المعتمد.
+
+### معيار القبول
+
+* لا يوجد أي consumer generated type يقرأ provenance باسم مختلف عن الشكل المخزن فعلًا.
+* `GraphEntity` و`GraphRelationship` وAPI responses كلها متوافقة مع نفس contract.
+
+---
+
+## KG-03 — مواءمة `GraphSummary` في الـ API مع الرد الفعلي من route
+
+**الأولوية:** P0
+
+### المشكلة
+
+`GET /graph/summary/:projectId` في `artifacts/api-server/src/routes/graph.ts` يرجع:
+
+* `summary`
+* بالإضافة إلى `layered`
+
+لكن `lib/api-zod/src/generated/types/graphSummary.ts` لا يتضمن `layered` أصلًا.
+
+### الملفات المرتبطة
+
+* `artifacts/api-server/src/routes/graph.ts`
+* `lib/knowledge-engine/src/inference.ts`
+* `lib/api-zod/src/generated/types/graphSummary.ts`
+
+### المطلوب
+
+* إما تحديث `GraphSummary` ليشمل `layered` إذا كان هذا هو الشكل النهائي المقصود،
+* أو تعديل route بحيث لا يرجع حقلًا غير ممثل في العقد.
+
+### معيار القبول
+
+* شكل response الفعلي يطابق generated type.
+* لا توجد حقول إضافية “غير موثقة” في graph summary.
+
+---
+
+## KG-04 — تصحيح/توضيح اعتماد `semanticTag` و`sourceType` في subgraph وsemantic neighborhood
+
+**الأولوية:** P1
+
+### المشكلة
+
+الـ routes في `artifacts/api-server/src/routes/graph.ts` تقبل فلاتر KG 2.0 مثل:
+
+* `sourceType`
+* `semanticTag`
+* `observedOnly`
+* `heuristicOnly`
+
+لكن التنفيذ الداخلي في `queries.ts` لا يمررها كلها إلى كل مسار traversal/aggregation.
+
+أوضح مثال:
+
+* `/graph/subgraph` يمرر الفلاتر إلى `getLayeredGraphView()`
+* لكن `getLayeredGraphView()` لا يطبّق `sourceTypes` أو `semanticTags` أو `observedOnly` أو `heuristicOnly`.
+
+### الملفات المرتبطة
+
+* `artifacts/api-server/src/routes/graph.ts`
+* `lib/knowledge-engine/src/queries.ts`
+* `lib/knowledge-engine/src/types.ts`
+
+### المطلوب
+
+* إما تطبيق الفلاتر المعلنة في كل query function يدعمها منطقيًا،
+* أو إزالة الحقول غير المدعومة من العقد/التوثيق.
+
+### معيار القبول
+
+* `sourceType` و`semanticTag` لا يضيعان داخل `getLayeredGraphView`.
+* `observedOnly` و`heuristicOnly` تعملان فعليًا في كل path موعود بدعمها.
+
+---
+
+## KG-05 — إضافة truncation / budget metadata لمسارات KG المحدودة
+
+**الأولوية:** P1
+
+### المشكلة
+
+يوجد أكثر من حدّ داخلي صريح لكن بدون إشارة في الردود:
+
+* `getEdgesByType()` يضع `limit(2000)`
+* `getImpactedEntities()` يحد العمق إلى 6
+* `getShortestPath()` يحد العمق إلى 8
+* `getNeighborhood()` و`getSemanticNeighborhood()` يحدان العمق إلى 4
+
+هذه الحدود موجودة في `lib/knowledge-engine/src/queries.ts`، لكن لا يوجد metadata واضح يعلن للمستهلك أن الناتج قد يكون مقيدًا أو مقصوصًا.
+
+### الملفات المرتبطة
+
+* `lib/knowledge-engine/src/queries.ts`
+* `artifacts/api-server/src/routes/graph.ts`
+
+### المطلوب
+
+* إرجاع `truncated` / `limitedBy` / `effectiveDepth` أو ما يعادلها حيثما يلزم.
+* توضيح متى تكون النتيجة partial بدل full.
+* عدم ترك حدود داخلية صامتة.
+
+### معيار القبول
+
+* المستهلك يعرف إن كانت النتيجة مقصوصة أم لا.
+* لا توجد قيود Depth/Limit مخفية بدون إشارة.
+
+---
+
+## KG-06 — تصحيح `runtime` layer metrics في `computeLayeredGraphSummary`
+
+**الأولوية:** P1
+
+### المشكلة
+
+في `lib/knowledge-engine/src/inference.ts`، `computeLayeredGraphSummary()` يرجع:
+
+* `runtime.entityCount: 0`
+  مع تعليق صريح يقول إن runtime entity tracking “not yet wired in”.
+
+وفي الوقت نفسه `GET /graph/runtime-subgraph/:projectId` في `artifacts/api-server/src/routes/graph.ts` يرجع فعلًا:
+
+* `entities`
+* `relationships`
+* `provenanceSummary`
+
+أي أن `runtime` موجود كبيانات فعلية، لكن summary يتعامل معه كأنه غير متتبع على مستوى entities.
+
+### الملفات المرتبطة
+
+* `lib/knowledge-engine/src/inference.ts`
+* `artifacts/api-server/src/routes/graph.ts`
+* `lib/knowledge-engine/src/types.ts`
+
+### المطلوب
+
+* إما توصيل runtime entity counting فعليًا،
+* أو إزالة/إعادة تسمية الحقل حتى لا يعطي انطباعًا مضللًا.
+
+### معيار القبول
+
+* أرقام `runtime` في summary تعكس الواقع بدل 0 ثابتة.
+* لا يوجد حقل يوحي بعدم وجود بيانات بينما route يعيدها بالفعل.
+
+---
+
+## KG-07 — اختبارات regression للفلاتر وprovenance contract
+
+**الأولوية:** P1
+
+### المطلوب
+
+إضافة اختبارات تغطي النقاط التالية:
+
+* `getLayeredGraphView()` يطبّق `sourceTypes` و`semanticTags` و`observedOnly` و`heuristicOnly`.
+* `getSemanticNeighborhood()` يطبّق `sourceTypes` و`semanticTags`.
+* `/graph/subgraph` و`/graph/semantic-neighborhood` لا تسقط الفلاتر بصمت.
+* `GraphProvenance` في الـ responses يطابق `sourceType/method/extractedAt/evidence`.
+* `/graph/summary` يطابق العقدة النهائية بعد حسم موضوع `layered`.
+
+### الملفات المرتبطة
+
+* `lib/knowledge-engine/src/__tests__/queries.test.ts`
+* `lib/knowledge-engine/src/__tests__/inference.test.ts`
+* `artifacts/api-server/src/routes/graph.test.ts`
+
+### معيار القبول
+
+* أي تغيير لاحق في KG لا يكسر filter propagation أو provenance shape بدون أن تكشفه الاختبارات.
+
+---
+
+## ترتيب التنفيذ المقترح
+
+1. KG-01
+2. KG-02
+3. KG-03
+4. KG-04
+5. KG-05
+6. KG-06
+7. KG-07
+

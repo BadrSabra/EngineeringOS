@@ -1,0 +1,209 @@
+--- a/lib/ai-orchestrator/src/prompts/prompt-composer.ts
++++ b/lib/ai-orchestrator/src/prompts/prompt-composer.ts
+@@ -1,5 +1,16 @@
+ import type { ProjectContext } from "../context-builder.js";
+ 
++export type PromptContextProfile = "full" | "chat" | "task" | "scan" | "review" | "workflow";
++
++const PROFILE_SECTIONS: Record<PromptContextProfile, Array<keyof Pick<ProjectContext, "project" | "latestMetrics" | "graphSummary" | "recentTasks" | "recentEvents" | "workflows">>> = {
++  full: ["project", "latestMetrics", "graphSummary", "workflows", "recentTasks", "recentEvents"],
++  chat: ["project", "latestMetrics", "graphSummary", "workflows", "recentTasks", "recentEvents"],
++  task: ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
++  scan: ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
++  review: ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
++  workflow: ["project", "latestMetrics", "workflows", "recentTasks", "recentEvents"],
++};
++
+ export function composePrompt(...parts: Array<string | null | undefined | false>): string {
+   return parts
+     .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+@@ -18,13 +29,17 @@
+   return items.map((item) => `${indent}- ${item}`).join("\n");
+ }
+ 
+-export function promptContextOverview(context: ProjectContext): string {
++export function promptContextOverview(
++  context: ProjectContext,
++  profile: PromptContextProfile = "full",
++): string {
++  const sections = PROFILE_SECTIONS[profile];
+   return composePrompt(
+-    promptSection("Project", context.project),
+-    promptSection("Quality Metrics", context.latestMetrics),
+-    promptSection("Knowledge Graph", context.graphSummary),
+-    promptSection("Workflows", context.workflows),
+-    promptSection("Recent Tasks", context.recentTasks),
+-    promptSection("Recent Events", context.recentEvents),
++    ...(sections.includes("project") ? [promptSection("Project", context.project)] : []),
++    ...(sections.includes("latestMetrics") ? [promptSection("Quality Metrics", context.latestMetrics)] : []),
++    ...(sections.includes("graphSummary") ? [promptSection("Knowledge Graph", context.graphSummary)] : []),
++    ...(sections.includes("workflows") ? [promptSection("Workflows", context.workflows)] : []),
++    ...(sections.includes("recentTasks") ? [promptSection("Recent Tasks", context.recentTasks)] : []),
++    ...(sections.includes("recentEvents") ? [promptSection("Recent Events", context.recentEvents)] : []),
+   );
+ }
+--- a/lib/ai-orchestrator/src/prompts/scan.prompt.ts
++++ b/lib/ai-orchestrator/src/prompts/scan.prompt.ts
+@@ -5,7 +5,8 @@
+   return composePrompt(
+     "You are an engineering project analyst.",
+     "You have access to the project's knowledge graph, quality metrics, recent tasks, and recent events. Analyze the project state and identify concrete strengths, weaknesses, and risks grounded in the provided data.",
+-    `You must respond with valid JSON matching this schema:\n${promptCodeBlock(
++    `You must respond with valid JSON matching this schema:
++${promptCodeBlock(
+       `{
+   "overallAssessment": "A concise summary of the project's current state. Mention a specific metric value, entity name, or event. Do not use phrases like 'the project shows room for improvement' without naming what room and where.",
+   "insights": [
+@@ -35,6 +36,6 @@
+ export function buildScanAnalystUserPrompt(context: ProjectContext): string {
+   return composePrompt(
+     "Analyse this engineering project. Cite specific metric values, entity names, and event timestamps in every insight.",
+-    promptContextOverview(context),
++    promptContextOverview(context, "scan"),
+   );
+ }
+--- a/lib/ai-orchestrator/src/prompts/review.prompt.ts
++++ b/lib/ai-orchestrator/src/prompts/review.prompt.ts
+@@ -56,7 +56,7 @@
+ 
+   return composePrompt(
+     "Review this project. Cite specific entity names, file paths, and metric values in every finding.",
+-    promptContextOverview(context),
++    promptContextOverview(context, "review"),
+     fileSection,
+   );
+ }
+--- a/lib/ai-orchestrator/src/prompts/workflow.prompt.ts
++++ b/lib/ai-orchestrator/src/prompts/workflow.prompt.ts
+@@ -11,8 +11,8 @@
+   "action": "advance" | "wait" | "fail" | "complete",
+   "reasoning": "One to three sentences citing the specific evidence that determined this action — name the task status, event type and timestamp, metric value, or phase condition that was evaluated. Do not restate the workflow name or describe what orchestration is.",
+   "nextPhase": "Exact phase name from the phase definitions — required when action is 'advance', omit otherwise.",
+-  "blockers": ["Required when action is 'wait'. Each blocker must name the specific task, event, or unmet phase condition causing the hold — e.g. 'Phase condition \\"all tests passing\\" cannot be confirmed: testsPassed metric is N/A'. Generic entries such as 'waiting for completion' are not acceptable."],
+-  "suggestions": ["Optional. Each suggestion must name a specific phase, step, or condition to change and the expected effect — e.g. 'Add a smoke-test step to the Deploy phase so failures surface before the Verify phase begins'. Vague suggestions such as \\"optimise the workflow\\" are not acceptable."]
++  "blockers": ["Required when action is 'wait'. Each blocker must name the specific task, event, or unmet phase condition causing the hold — e.g. 'Phase condition \\\"all tests passing\\\" cannot be confirmed: testsPassed metric is N/A'. Generic entries such as 'waiting for completion' are not acceptable."],
++  "suggestions": ["Optional. Each suggestion must name a specific phase, step, or condition to change and the expected effect — e.g. 'Add a smoke-test step to the Deploy phase so failures surface before the Verify phase begins'. Vague suggestions such as \\\"optimise the workflow\\\" are not acceptable."]
+ }`,
+       "json",
+     )}`,
+@@ -62,7 +62,7 @@
+ 
+ **Phase Definitions:**
+ ${phasesSummary}`,
+-    promptContextOverview(projectContext),
++    promptContextOverview(projectContext, "workflow"),
+     opts.additionalContext ? `**Additional context:** ${opts.additionalContext}` : "",
+   );
+ }
+--- a/lib/ai-orchestrator/src/prompts/chat.prompt.ts
++++ b/lib/ai-orchestrator/src/prompts/chat.prompt.ts
+@@ -33,7 +33,7 @@
+ **Tool rules — mandatory:**
+ 1. Call a tool BEFORE claiming information is unavailable. If the graph is empty or silent on a topic, use list_directory then read_file to gather the answer directly from source.
+ 2. write_file — ONLY call it when the user has stated BOTH the exact file path AND the exact change they want. If the request is vague (e.g. "I want to edit a file", "change something"), ask which file and what change before calling write_file. Never call write_file speculatively.
+-3. NEVER propose changes to auto-generated files. Generated files are identified by paths containing: /generated/, /dist/, /build/, .generated.ts, .generated.js, or files with a header comment containing "DO NOT EDIT" or "auto-generated". Editing them is pointless — they are overwritten on the next code-generation run. Explain this to the user and point them to the source instead.
++3. NEVER propose changes to auto-generated files. Generated files are identified by paths containing: /generated/, /dist/, /build/, .generated.ts, .generated.js, or files with a header comment containing "DO NOT EDIT" or "auto-generated". Editing them is pointless — they are overwritten on the next code-generation run. Explain to the user this and point them to the source instead.
+ 4. Git read tools (git_status, git_diff, git_log) ARE available in this session — use them to inspect the working tree, uncommitted changes, and commit history. However, NEVER claim the ability to commit, push, or perform any write VCS operation. Those actions are handled by the Git panel in the dashboard. If the user asks to commit or push, direct them to the GitHub Integration panel.`,
+     ),
+   );
+@@ -68,15 +68,16 @@
+     `**Source discipline**: In the sources array, list only the specific entity names, metric labels (e.g. "Perf: 99.0"), or file paths you actually cited in the response. If you have no specific citations, use an empty array — never include a generic fallback string like "no project data available" as a source.`,
+     streamingMode
+       ? "Your reply MUST be plain markdown prose — do NOT wrap it in JSON. Just answer directly."
+-      : `Your reply MUST be valid JSON with exactly this shape — no text before or after the JSON object:\n{"response":"<your answer in markdown prose>","sources":["<entity name, metric label, or file path>"]}`,
++      : `Your reply MUST be valid JSON with exactly this shape — no text before or after the JSON object:{"response":"<your answer in markdown prose>","sources":["<entity name, metric label, or file path>"]}`,
+   );
+ }
+ 
+ export function buildChatSystemPrompt(context: ProjectContext, hasTools = false, streamingMode = false): string {
+   return composePrompt(
+     "You are EngineeringOS AI — an engineering assistant embedded in the platform.",
+-    promptContextOverview(context),
+-    "How project access works:\nThe knowledge graph above is a pre-extracted index of code entities (functions, classes, APIs, modules). It covers the highest-confidence entities found during the last scan — it is not guaranteed to be exhaustive.",
++    promptContextOverview(context, "chat"),
++    `How project access works:
++The knowledge graph above is a pre-extracted index of code entities (functions, classes, APIs, modules). It covers the highest-confidence entities found during the last scan — it is not guaranteed to be exhaustive.`,
+     buildChatToolSection(hasTools),
+     buildChatRulesBlock(streamingMode),
+   );
+--- a/lib/ai-orchestrator/src/prompts/task.prompt.ts
++++ b/lib/ai-orchestrator/src/prompts/task.prompt.ts
+@@ -5,7 +5,7 @@
+   return composePrompt(
+     "You are an autonomous engineering task executor for EngineeringOS.",
+     "You have access to the project's knowledge graph (entity names, types, file paths, confidence scores), quality metrics, recent tasks, and recent events. Use them to ground every step and finding.",
+-    promptContextOverview(context),
++    promptContextOverview(context, "task"),
+     `You must respond with valid JSON matching this schema:\n${promptCodeBlock(
+       `{
+   "summary": "One sentence stating what was determined or found — not what was attempted. Must name at least one entity, file, or metric value from the context.",
+@@ -48,6 +48,5 @@
+ **Prompt / Instructions:** ${input.taskPrompt ?? "(none)"}
+ **Related files:**
+ ${filesSection}`,
+-    promptContextOverview(input.projectContext),
+   );
+ }
+--- a/lib/ai-orchestrator/src/__tests__/prompt-composer.test.ts
++++ b/lib/ai-orchestrator/src/__tests__/prompt-composer.test.ts
+@@ -32,4 +32,25 @@
+     expect(result).toContain("**Recent Events:**");
+     expect(result).toContain("Events A");
+   });
++
++  it("renders a slimmer task profile without workflows", () => {
++    const context = {
++      project: "Project A",
++      latestMetrics: "Metrics A",
++      graphSummary: "Graph A",
++      recentTasks: "Tasks A",
++      recentEvents: "Events A",
++      workflows: "Workflows A",
++      metricsVerified: true,
++    };
++
++    const result = promptContextOverview(context, "task");
++
++    expect(result).toContain("**Project:**");
++    expect(result).toContain("**Quality Metrics:**");
++    expect(result).toContain("**Knowledge Graph:**");
++    expect(result).toContain("**Recent Tasks:**");
++    expect(result).toContain("**Recent Events:**");
++    expect(result).not.toContain("**Workflows:**");
++  });
+ });
+--- a/artifacts/dashboard/src/pages/AiChat.tsx
++++ b/artifacts/dashboard/src/pages/AiChat.tsx
+@@ -1064,6 +1064,7 @@
+     if (projectsLoading || !selectedProjectId) return;
+ 
+     if (action.id === 'analyze') {
++      if (analyzeMutation.isPending) return;
+       setLocalMessages((prev) => [
+         ...prev,
+         { id: 'analyze-placeholder', role: 'user' as const, content: action.prompt, createdAt: new Date().toISOString() },
+@@ -1074,6 +1075,7 @@
+     }
+ 
+     if (action.id === 'review') {
++      if (reviewMutation.isPending) return;
+       setLocalMessages((prev) => [
+         ...prev,
+         { id: 'review-placeholder', role: 'user' as const, content: action.prompt, createdAt: new Date().toISOString() },
+@@ -1096,6 +1098,7 @@
+ 
+   function newSession() {
+     setSessionId(undefined);
++    setInput('');
+     setLocalMessages([]);
+     setPendingChanges([]);
+   }
+@@ -1247,7 +1250,7 @@
+                   <button
+                     key={action.id}
+                     onClick={() => handleQuickAction(action)}
+-                    disabled={!isLoaded || projectsLoading || !selectedProjectId}
++                    disabled={!isLoaded || projectsLoading || !selectedProjectId || (action.id === 'analyze' && analyzeMutation.isPending) || (action.id === 'review' && reviewMutation.isPending)}
+                     className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-secondary hover:bg-secondary/80 text-xs text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-secondary"
+                   >
+                     <action.icon className="w-3.5 h-3.5 text-primary shrink-0" />

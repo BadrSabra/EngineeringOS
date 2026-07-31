@@ -1,0 +1,182 @@
+--- a/lib/ai-orchestrator/src/provider-registry.ts
++++ b/lib/ai-orchestrator/src/provider-registry.ts
+@@ -24,7 +24,7 @@
+ };
+ 
+ /**
+- * Fallback priority order: openrouter → deepseek → groq.
++ * Fallback priority order: openrouter → gemini → deepseek → groq.
+  *
+  * resolveProvider() returns the first provider in this list whose key is
+  * available. resolveFallbackProvider() skips the current provider and returns
+@@ -67,7 +67,7 @@
+     consoleUrl: "aistudio.google.com/apikey",
+     statusUrl: "status.cloud.google.com",
+     supportsStreaming: true,
+-    supportsTools: true,
++    supportsTools: false,
+     supportsJsonMode: true,
+     defaultModels: {
+       fast: "gemini-2.0-flash",
+
+--- a/lib/ai-orchestrator/src/tools/git-tools.ts
++++ b/lib/ai-orchestrator/src/tools/git-tools.ts
+@@ -29,6 +29,13 @@
+   };
+ };
+ 
++const GIT_TOOL_NOTE_FIELD = {
++  note: {
++    type: "string",
++    description: "Optional context for the model. Ignored by the handler.",
++  },
++} as const;
++
+ export const GIT_TOOL_DEFINITIONS: GitToolDefinition[] = [
+   {
+     type: "function",
+@@ -37,7 +44,7 @@
+       description:
+         "Show the working-tree status: which files are modified, added, deleted, or untracked. " +
+         "Run this before proposing a commit message or reviewing pending changes.",
+-      parameters: { type: "object", properties: {}, required: [] },
++      parameters: { type: "object", properties: { ...GIT_TOOL_NOTE_FIELD }, required: [] },
+     },
+   },
+   {
+@@ -67,7 +74,7 @@
+       description:
+         "Show the last 15 commits as one-line summaries (hash · date · message). " +
+         "Use this to understand recent history or pick a base for a new commit message.",
+-      parameters: { type: "object", properties: {}, required: [] },
++      parameters: { type: "object", properties: { ...GIT_TOOL_NOTE_FIELD }, required: [] },
+     },
+   },
+ ];
+
+--- a/lib/ai-orchestrator/src/agents/chat-agent.ts
++++ b/lib/ai-orchestrator/src/agents/chat-agent.ts
+@@ -86,6 +86,31 @@
+ function requiresToolExecution(message: string): boolean {
+   return TOOL_EXECUTION_PATTERNS.some((p) => p.test(message));
+ }
++
++/**
++ * Build the tool list for the active provider.
++ *
++ * Gemini's OpenAI-compatible shim currently returns 404 when tool payloads are
++ * included, so we keep it in text-only mode and let it answer from context.
++ * Other providers receive the full file + git tool suite.
++ */
++function buildProviderTools(provider: keyof typeof PROVIDER_REGISTRY, rootPath: string | undefined) {
++  if (!rootPath) return undefined;
++  const cfg = PROVIDER_REGISTRY[provider];
++  if (!cfg.supportsTools) {
++    console.warn(
++      JSON.stringify({
++        scope: "chat-agent",
++        code: "TOOLS_DISABLED_FOR_PROVIDER",
++        provider,
++        reason: "provider registry marks this endpoint as text-only",
++      }),
++    );
++    return undefined;
++  }
++  return [...FILE_TOOL_DEFINITIONS, ...GIT_TOOL_DEFINITIONS];
++}
++
+ /**
+  * Hard cap on total tool executions per request (across all iterations).
+  * Prevents a single model response from requesting unbounded tool calls.
+@@ -227,7 +252,7 @@
+   /** Running count of tool executions that hit the real filesystem/grep. */
+   let totalToolCalls = 0;
+ 
+-  const tools = rootPath ? [...FILE_TOOL_DEFINITIONS, ...GIT_TOOL_DEFINITIONS] : undefined;
++  const tools = buildProviderTools(provider, rootPath);
+ 
+   // PR-02: build explicit name Sets from the authoritative definition arrays.
+   // Replaces the startsWith("git_") prefix heuristic so any future tool whose
+
+--- a/lib/ai-orchestrator/src/openai-compatible-client.ts
++++ b/lib/ai-orchestrator/src/openai-compatible-client.ts
+@@ -434,8 +434,9 @@
+   messages: RawMessage[],
+   opts: Omit<OpenAICompatibleOptions, "baseUrl" | "providerName" | "extraHeaders">,
+ ): Promise<RawGroqResponse> {
++  const { tools: _tools, responseFormat: _responseFormat, ...safeOpts } = opts;
+   return oacCompleteRaw(messages, {
+-    ...opts,
++    ...safeOpts,
+     baseUrl: GEMINI_BASE_URL,
+     providerName: "Gemini",
+   });
+@@ -448,8 +449,10 @@
+   messages: RawMessage[],
+   opts: Omit<OpenAICompatibleStreamOptions, "baseUrl" | "providerName" | "extraHeaders">,
+ ): AsyncGenerator<string> {
++  const { tools: _tools, responseFormat: _responseFormat, ...safeOpts } =
++    opts as OpenAICompatibleOptions & { tools?: unknown; responseFormat?: unknown };
+   return oacCompleteStream(messages, {
+-    ...opts,
++    ...safeOpts,
+     baseUrl: GEMINI_BASE_URL,
+     providerName: "Gemini",
+   });
+
+--- a/lib/ai-orchestrator/src/__tests__/chat-agent.test.ts
++++ b/lib/ai-orchestrator/src/__tests__/chat-agent.test.ts
+@@ -325,4 +325,53 @@
+     // The response must not contain a raw envelope.
+     expect(result.response).not.toMatch(/^\{/);
+   });
++
++  it("disables tool payloads for Gemini and still returns a response from context", async () => {
++    vi.resetModules();
++    process.env.GROQ_API_KEY = "test-key";
++
++    let capturedTools: unknown = "unset";
++    const mockGemini = vi.fn(async (_messages: unknown, opts: { tools?: unknown[] }) => {
++      capturedTools = opts.tools;
++      return {
++        content: "Gemini context-only answer",
++        toolCalls: [],
++      };
++    });
++
++    vi.doMock("../openai-compatible-client.js", () => ({
++      geminiCompleteRaw: mockGemini,
++      geminiCompleteStream: vi.fn(),
++      openrouterCompleteRaw: vi.fn(),
++      openrouterCompleteStream: vi.fn(),
++    }));
++
++    const { chat } = await import("../agents/chat-agent.js");
++    const result = await chat({
++      message: "Please analyze this project and explain the architecture.",
++      history: [],
++      projectContext: makeContext(),
++      rootPath: "/home/project",
++      provider: "gemini",
++      apiKey: "test-gemini-key",
++    });
++
++    expect(capturedTools).toBeUndefined();
++    expect(result.response).toContain("Gemini context-only answer");
++  });
++
++  it("keeps git tool schemas non-empty so stricter providers can accept them", async () => {
++    const { GIT_TOOL_DEFINITIONS } = await import("../tools/git-tools.js");
++    const statusTool = GIT_TOOL_DEFINITIONS.find((tool) => tool.function.name === "git_status");
++    const logTool = GIT_TOOL_DEFINITIONS.find((tool) => tool.function.name === "git_log");
++
++    expect(statusTool?.function.parameters).toMatchObject({
++      type: "object",
++      properties: { note: expect.any(Object) },
++    });
++    expect(logTool?.function.parameters).toMatchObject({
++      type: "object",
++      properties: { note: expect.any(Object) },
++    });
++  });
+ });

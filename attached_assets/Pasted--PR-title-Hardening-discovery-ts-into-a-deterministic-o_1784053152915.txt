@@ -1,0 +1,133 @@
+# PR title
+
+Hardening `discovery.ts` into a deterministic onboarding pipeline
+
+## files
+
+* `artifacts/api-server/src/routes/discovery.ts`
+* `artifacts/api-server/src/lib/discovery-adapters.ts`
+* `artifacts/api-server/src/lib/requireAuth.ts`
+* `artifacts/api-server/src/lib/requireProjectAccess.ts`
+* `artifacts/api-server/src/lib/audit.ts` أو ما يعادله إذا كان discovery يكتب audit مباشرة
+* `artifacts/api-server/src/lib/events.ts` أو ما يعادله إذا كان discovery يصدر events مباشرة
+* اختبارات discovery الحالية أو الجديدة
+* أي schema/contract مرتبط بحالة onboarding أو import session
+
+## changes
+
+1. **تثبيت discovery كمسار تشغيل لا كمسار عرض**
+
+   * تحويل `discovery.ts` إلى flow حتمي واضح: اختيار المصدر → حل المصدر → فحص أولي → import/attach → تثبيت الحالة.
+   * منع أي branch غامض أو behavior يعتمد على inference غير موثق.
+
+2. **توحيد مصادر الإدخال**
+
+   * مراجعة كل source type مدعوم: local workspace، existing repo، git URL، وأي مصدر آخر.
+   * إبقاء الأنواع غير المكتملة صريحة كـ unsupported أو coming soon بدل سلوك جزئي غير واضح.
+   * ضمان أن كل source resolve يخرج نتيجة موحدة الشكل.
+
+3. **تثبيت session/state machine**
+
+   * إدخال state واضح لجلسة discovery:
+
+     * idle
+     * validating-source
+     * resolving
+     * scanning
+     * importing
+     * completed
+     * failed
+   * منع القفز بين الحالات بلا سبب.
+   * جعل الانتقال بين الحالات قابلاً للتتبع والتدقيق.
+
+4. **تقوية validation**
+
+   * إضافة schema validation صريح لكل body/query/path.
+   * رفض أي payload ناقص أو غير متوافق مع source type.
+   * منع قبول source مكسور ثم محاولة إصلاحه بصمت.
+
+5. **فصل resolution عن التنفيذ**
+
+   * جعل adapter resolution منفصلًا عن import side effects.
+   * `discovery.ts` يجب أن يقرر "ما هو المصدر" و"هل يصلح"، ثم يسلّم التنفيذ إلى طبقة واضحة.
+   * عدم خلط file system logic مع database mutation داخل نفس الفرع بدون فاصل واضح.
+
+6. **ضبط effects بعد import**
+
+   * أي import ناجح يجب أن ينتج:
+
+     * audit entry
+     * initial project state
+     * initial scan context إن كان مطلوبًا
+     * metrics/seed data إن كانت موجودة
+   * منع اكتمال discovery من دون آثار تشغيلية قابلة للمراجعة.
+
+7. **حماية الملكية والصلاحيات**
+
+   * أي discovery مرتبط بمشروع موجود يجب أن يتحقق من access.
+   * أي local/workspace source لا يجوز أن يخلق أو يربط مشروعًا خارج نطاق المستخدم أو الجلسة المصرح بها.
+   * ربط discovery مع auth/access layer بشكل صريح لا ضمني.
+
+8. **إخراج response contract ثابت**
+
+   * تثبيت response shape النهائي:
+
+     * source metadata
+     * resolved path or repo ref
+     * discovery status
+     * warnings
+     * next step hint
+   * منع الردود المتغيرة الشكل بين حالات النجاح المختلفة.
+
+9. **تحسين معالجة الفشل**
+
+   * أي خطأ في resolve أو import أو validate يجب أن يعود برسالة محددة.
+   * تسجيل سبب الفشل مع تصنيف واضح:
+
+     * invalid source
+     * unsupported source
+     * permission denied
+     * resolution failed
+     * import failed
+     * internal error
+   * منع throwing خام غير معالج.
+
+## tests
+
+* discovery نجاح لمصدر محلي صالح.
+* discovery نجاح لمصدر Git صالح.
+* رفض source غير مدعوم.
+* رفض payload ناقص أو غير متسق.
+* رفض source بدون صلاحية.
+* فشل resolve مع رسالة محددة.
+* فشل import مع rollback واضح.
+* تأكيد أن state ينتقل بالترتيب الصحيح.
+* تأكيد كتابة audit/event عند النجاح.
+* تأكيد عدم كتابة side effects عند الفشل.
+
+## risk
+
+* كسر بعض مسارات onboarding الحالية إذا كانت تعتمد على responses غير موحدة.
+* ظهور اختلاف بين adapters القديمة والسلوك الجديد.
+* احتمالية كشف أن بعض المصادر كانت تعمل “ضمنيًا” بدون contract حقيقي.
+* احتمال تداخل discovery مع scan/import إذا كانت الحدود بينهما غير مفصولة حاليًا.
+
+## rollback
+
+* إعادة `discovery.ts` و`discovery-adapters.ts` إلى النسخة السابقة.
+* تعطيل أي state machine جديدة خلف تغييرات صغيرة إذا ظهرت تعارضات.
+* إبقاء response contract القديم مؤقتًا فقط إذا كان ضروريًا للتوافق، مع توثيق واضح للفرق.
+* إيقاف الدمج إذا لم تمر اختبارات source resolution وaccess control وimport effects معًا.
+
+## done
+
+يُعتبر `discovery.ts` مكتملًا فقط عندما:
+
+* يكون flow onboarding محددًا ومفصول الخطوات.
+* كل source type له عقدة معالجة واضحة.
+* state transitions مضبوطة.
+* الصلاحيات مفعلة.
+* الأخطاء مصنفة ومفهومة.
+* audit/effects تكتب عند النجاح فقط.
+* الاختبارات تثبت النجاح والفشل والrollback behavior.
+

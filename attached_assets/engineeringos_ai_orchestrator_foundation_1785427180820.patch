@@ -1,0 +1,380 @@
+--- a/lib/ai-orchestrator/src/agents/base-agent.ts
++++ b/lib/ai-orchestrator/src/agents/base-agent.ts
+@@ -4,16 +4,24 @@
+  * Consolidates the common flow shared by task-agent, scan-analyst, and
+  * code-reviewer:
+  *   1. build messages
+- *   2. call the configured provider with a single retry on NON_200
+- *   3. parse JSON into the declared schema
+- *   4. attach a parse-failure marker when validation degrades
++ *   2. select a quality-aware execution plan
++ *   3. call the configured provider with bounded retries
++ *   4. parse JSON into the declared schema
++ *   5. attach a parse-failure marker when validation degrades
+  */
+ import { GroqClientError, type AgentErrorCode } from "../errors.js";
+ import { agentComplete, type AgentCompleteOpts } from "../agent-complete.js";
+ import { parseAgentResponse } from "../parsing.js";
+-import { assessStructuredOutput, buildQualityHints, type QualityProfile } from "../quality-engine.js";
++import { assessStructuredOutput, type QualityProfile } from "../quality-engine.js";
+ import type { Message } from "../groq-client.js";
+ import type { ZodType, ZodTypeDef } from "zod";
++import { buildExecutionPlan } from "../quality/quality-planner.js";
++import {
++  canRetryAttempt,
++  selectAttemptHints,
++  shouldRetryAssessment,
++  shouldRetryParseFailure,
++} from "../quality/retry-controller.js";
+ 
+ export type AgentRunResult<T> = T & {
+   _parseError?: { code: AgentErrorCode; message: string; raw: string };
+@@ -59,35 +67,93 @@
+   async run(input: TInput, opts?: AgentCompleteOpts): Promise<AgentRunResult<TOutput>> {
+     const messages = this.buildMessages(input);
+     const qualityProfile = opts?.qualityProfile ?? this.buildQualityProfile(input);
+-    const response = await this.complete(messages, {
++    const executionPlan = buildExecutionPlan(this.scope, {
+       ...this.buildCompleteOpts(input),
+       ...(opts ?? {}),
+       qualityProfile,
+-      qualityHints: opts?.qualityHints ?? (qualityProfile ? buildQualityHints(qualityProfile) : undefined),
+     });
+ 
+-    const parsed = parseAgentResponse(response.content, this.schema, (raw) => this.fallbackOutput(raw));
+-    if (!parsed.ok) {
+-      console.warn(JSON.stringify({ scope: this.scope, code: parsed.code, message: parsed.message }));
+-      return { ...parsed.data, _parseError: { code: parsed.code, message: parsed.message, raw: parsed.raw } };
++    const hasExplicitHints = opts?.qualityHints != null;
++    const baseCompleteOpts = {
++      ...this.buildCompleteOpts(input),
++      ...(opts ?? {}),
++      qualityProfile,
++    };
++
++    let lastParseError: { code: AgentErrorCode; message: string; raw: string } | undefined;
++
++    for (let attempt = 0; attempt <= executionPlan.retryBudget; attempt += 1) {
++      const response = await this.complete(messages, {
++        ...baseCompleteOpts,
++        qualityHints: hasExplicitHints ? opts?.qualityHints : selectAttemptHints(executionPlan, attempt),
++      });
++
++      const parsed = parseAgentResponse(response.content, this.schema, (raw) => this.fallbackOutput(raw));
++      if (!parsed.ok) {
++        lastParseError = { code: parsed.code, message: parsed.message, raw: parsed.raw };
++
++        if (shouldRetryParseFailure(parsed.code) && canRetryAttempt(executionPlan, attempt)) {
++          console.warn(
++            JSON.stringify({
++              scope: this.scope,
++              code: "PARSE_RETRY",
++              attempt,
++              maxAttempts: executionPlan.retryBudget + 1,
++              parseCode: parsed.code,
++              message: parsed.message,
++            }),
++          );
++          continue;
++        }
++
++        console.warn(JSON.stringify({ scope: this.scope, code: parsed.code, message: parsed.message }));
++        return { ...parsed.data, _parseError: lastParseError };
++      }
++
++      const assessment = qualityProfile ? assessStructuredOutput(qualityProfile, parsed.data) : undefined;
++      if (shouldRetryAssessment(assessment, executionPlan, attempt, hasExplicitHints)) {
++        console.warn(
++          JSON.stringify({
++            scope: this.scope,
++            code: "QUALITY_RETRY",
++            qualityProfile,
++            score: assessment?.score,
++            threshold: assessment?.threshold,
++            reasons: assessment?.reasons ?? [],
++            attempt,
++            maxAttempts: executionPlan.retryBudget + 1,
++          }),
++        );
++        continue;
++      }
++
++      if (assessment && assessment.decision !== "accept") {
++        console.warn(
++          JSON.stringify({
++            scope: this.scope,
++            code: "QUALITY_REVIEW_LOW",
++            qualityProfile,
++            score: assessment.score,
++            threshold: assessment.threshold,
++            reasons: assessment.reasons,
++          }),
++        );
++      }
++
++      // parsed.data is TOutput, which satisfies AgentRunResult<TOutput> (= T & { _parseError? })
++      // because _parseError is optional. Cast is required because TypeScript cannot
++      // prove T satisfies T & { _parseError?: … } for an unconstrained generic.
++      return parsed.data as AgentRunResult<TOutput>;
+     }
+ 
+-    const assessment = qualityProfile ? assessStructuredOutput(qualityProfile, parsed.data) : undefined;
+-    if (assessment && assessment.decision !== "accept") {
+-      console.warn(
+-        JSON.stringify({
+-          scope: this.scope,
+-          code: "QUALITY_REVIEW_LOW",
+-          qualityProfile,
+-          score: assessment.score,
+-          threshold: assessment.threshold,
+-          reasons: assessment.reasons,
+-        }),
+-      );
+-    }
+-    // parsed.data is TOutput, which satisfies AgentRunResult<TOutput> (= T & { _parseError? })
+-    // because _parseError is optional. Cast is required because TypeScript cannot
+-    // prove T satisfies T & { _parseError?: … } for an unconstrained generic.
+-    return parsed.data as AgentRunResult<TOutput>;
++    const fallback = this.fallbackOutput("");
++    return {
++      ...fallback,
++      _parseError: lastParseError ?? {
++        code: "SCHEMA_VALIDATION_FAILED",
++        message: "Model did not return a valid structured response",
++        raw: "",
++      },
++    };
+   }
+ }
+
+--- a/lib/ai-orchestrator/src/agents/workflow-orchestrator.ts
++++ b/lib/ai-orchestrator/src/agents/workflow-orchestrator.ts
+@@ -14,7 +14,7 @@
+ import type { ProjectContext } from "../context-builder.js";
+ import { agentComplete } from "../agent-complete.js";
+ import type { ProviderId } from "../agent-complete.js";
+-import { buildQualityHints } from "../quality-engine.js";
++import { buildExecutionPlan } from "../quality/quality-planner.js";
+ import { buildWorkflowSystemPrompt, buildWorkflowUserPrompt } from "../prompts/workflow.prompt.js";
+ import { WorkflowDecisionSchema, type WorkflowDecision, type WorkflowPhase } from "../schemas/workflow.schema.js";
+ import { parseAgentResponse } from "../parsing.js";
+@@ -66,11 +66,17 @@
+     { role: "user", content: buildWorkflowUserPrompt(opts) },
+   ];
+ 
++  const executionPlan = buildExecutionPlan("workflow-orchestrator", {
++    apiKey: opts.apiKey,
++    provider: opts.provider,
++    qualityProfile: "workflow",
++  });
++
+   const response = await agentComplete(messages, {
+     apiKey: opts.apiKey,
+     provider: opts.provider,
+     qualityProfile: "workflow",
+-    qualityHints: buildQualityHints("workflow"),
++    qualityHints: executionPlan.strictHints,
+   });
+   const parsed = parseAgentResponse(response.content, WorkflowDecisionSchema, fallbackDecision);
+   if (!parsed.ok) {
+
+--- a/lib/ai-orchestrator/src/index.ts
++++ b/lib/ai-orchestrator/src/index.ts
+@@ -10,6 +10,13 @@
+ 
+ export { buildQualityHints, buildQualityPlan, assessStructuredOutput, sortProviderIdsByQuality } from "./quality-engine.js";
+ export type { QualityAssessment, QualityPlan, QualityProfile, QualitySortOptions } from "./quality-engine.js";
++
++export { buildExecutionPlan } from "./quality/quality-planner.js";
++export type { ExecutionPlan } from "./quality/quality-planner.js";
++export { buildTaskProfile, classifyTaskType } from "./quality/task-profile.js";
++export type { TaskComplexity, TaskProfile, TaskType } from "./quality/task-profile.js";
++export { canRetryAttempt, selectAttemptHints, shouldRetryAssessment, shouldRetryParseFailure } from "./quality/retry-controller.js";
++export { resolvePromptContextProfile } from "./prompts/prompt-planner.js";
+ 
+ export { GroqClientError } from "./errors.js";
+ export type { AgentErrorCode, GroqErrorCode } from "./errors.js";
+
+--- /dev/null
++++ b/lib/ai-orchestrator/src/prompts/prompt-planner.ts
+@@ -0,0 +1,25 @@
++import type { PromptContextProfile } from "./prompt-composer.js";
++import type { QualityProfile } from "../quality-engine.js";
++
++/**
++ * Central prompt-routing policy for AI orchestrator tasks.
++ *
++ * The goal is to keep prompt section selection consistent with the task
++ * quality profile so future agents do not drift into ad-hoc context choices.
++ */
++export function resolvePromptContextProfile(profile: QualityProfile): PromptContextProfile {
++  switch (profile) {
++    case "analysis":
++      return "scan";
++    case "task_execution":
++      return "task";
++    case "code_review":
++      return "review";
++    case "workflow":
++      return "workflow";
++    case "tool_chat":
++    case "chat":
++    default:
++      return "chat";
++  }
++}
+
+--- /dev/null
++++ b/lib/ai-orchestrator/src/quality/task-profile.ts
+@@ -0,0 +1,80 @@
++import type { QualityProfile } from "../quality-engine.js";
++import { resolvePromptContextProfile } from "../prompts/prompt-planner.js";
++import type { PromptContextProfile } from "../prompts/prompt-composer.js";
++
++export type TaskType = QualityProfile;
++
++export type TaskComplexity = "low" | "medium" | "high";
++
++export type TaskProfile = {
++  taskType: TaskType;
++  qualityProfile: QualityProfile;
++  promptProfile: PromptContextProfile;
++  complexity: TaskComplexity;
++  hasTools: boolean;
++  retryBudget: number;
++};
++
++const QUALITY_PROFILE_BY_SCOPE: Record<string, QualityProfile> = {
++  "task-agent": "task_execution",
++  "scan-analyst": "analysis",
++  "code-reviewer": "code_review",
++  "workflow-orchestrator": "workflow",
++};
++
++function resolveQualityProfile(scope: string, override?: QualityProfile): QualityProfile {
++  return override ?? QUALITY_PROFILE_BY_SCOPE[scope] ?? "chat";
++}
++
++function resolveComplexity(profile: QualityProfile): TaskComplexity {
++  switch (profile) {
++    case "analysis":
++    case "code_review":
++      return "high";
++    case "task_execution":
++    case "workflow":
++      return "medium";
++    case "tool_chat":
++    case "chat":
++    default:
++      return "low";
++  }
++}
++
++function resolveRetryBudget(complexity: TaskComplexity): number {
++  switch (complexity) {
++    case "high":
++      return 2;
++    case "medium":
++      return 1;
++    case "low":
++    default:
++      return 1;
++  }
++}
++
++export function buildTaskProfile(
++  scope: string,
++  opts?: { qualityProfile?: QualityProfile; hasTools?: boolean },
++): TaskProfile {
++  const qualityProfile = resolveQualityProfile(scope, opts?.qualityProfile);
++  const taskType = qualityProfile;
++  const complexity = resolveComplexity(qualityProfile);
++  const hasTools = opts?.hasTools ?? false;
++
++  return {
++    taskType,
++    qualityProfile,
++    promptProfile: resolvePromptContextProfile(qualityProfile),
++    complexity,
++    hasTools,
++    retryBudget: resolveRetryBudget(complexity),
++  };
++}
++
++export function classifyTaskType(
++  scope: string,
++  opts?: { qualityProfile?: QualityProfile; hasTools?: boolean },
++): TaskType {
++  return buildTaskProfile(scope, opts).taskType;
++}
+
+--- /dev/null
++++ b/lib/ai-orchestrator/src/quality/quality-planner.ts
+@@ -0,0 +1,28 @@
++import type { AgentCompleteOpts } from "../agent-complete.js";
++import type { ProviderCapabilityHints } from "../provider-capabilities.js";
++import { buildQualityPlan, type QualityProfile } from "../quality-engine.js";
++import { buildTaskProfile, type TaskProfile } from "./task-profile.js";
++
++export type ExecutionPlan = {
++  taskProfile: TaskProfile;
++  qualityProfile: QualityProfile;
++  strictHints: ProviderCapabilityHints;
++  relaxedHints: ProviderCapabilityHints;
++  retryBudget: number;
++};
++
++export function buildExecutionPlan(
++  scope: string,
++  opts?: AgentCompleteOpts & { hasTools?: boolean },
++): ExecutionPlan {
++  const taskProfile = buildTaskProfile(scope, opts);
++  const qualityPlan = buildQualityPlan(taskProfile.qualityProfile, { requireTools: taskProfile.hasTools });
++
++  return {
++    taskProfile,
++    qualityProfile: taskProfile.qualityProfile,
++    strictHints: opts?.qualityHints ?? qualityPlan.strictHints,
++    relaxedHints: opts?.qualityHints ?? qualityPlan.relaxedHints,
++    retryBudget: taskProfile.retryBudget,
++  };
++}
+
+--- /dev/null
++++ b/lib/ai-orchestrator/src/quality/retry-controller.ts
+@@ -0,0 +1,35 @@
++import type { AgentErrorCode } from "../errors.js";
++import type { QualityAssessment } from "../quality-engine.js";
++import type { ProviderCapabilityHints } from "../provider-capabilities.js";
++import type { ExecutionPlan } from "./quality-planner.js";
++
++export type RetryAttempt = {
++  attempt: number;
++  maxAttempts: number;
++};
++
++export function selectAttemptHints(plan: ExecutionPlan, attempt: number): ProviderCapabilityHints {
++  return attempt <= 0 ? plan.strictHints : plan.relaxedHints;
++}
++
++export function canRetryAttempt(plan: ExecutionPlan, attempt: number): boolean {
++  return attempt < plan.retryBudget;
++}
++
++export function shouldRetryParseFailure(_code: AgentErrorCode): boolean {
++  // Parse/validation failures are the exact cases where a fresh model pass
++  // has the highest chance of recovering a valid structured payload.
++  return true;
++}
++
++export function shouldRetryAssessment(
++  assessment: QualityAssessment | undefined,
++  plan: ExecutionPlan,
++  attempt: number,
++  hasExplicitHints: boolean,
++): boolean {
++  if (!assessment) return false;
++  if (assessment.decision !== "retry") return false;
++  if (hasExplicitHints) return false;
++  return canRetryAttempt(plan, attempt);
++}

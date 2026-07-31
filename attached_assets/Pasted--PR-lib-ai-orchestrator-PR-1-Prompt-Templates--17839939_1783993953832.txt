@@ -1,0 +1,190 @@
+# مهام PR متسلسلة لـ `lib/ai-orchestrator`
+
+## PR 1 — استخراج الـ Prompt Templates
+
+**الهدف:** فصل النصوص الثابتة عن منطق التنفيذ.
+
+**النطاق:**
+
+* إنشاء مجلد `lib/ai-orchestrator/prompts/`
+* نقل كل prompt inline إلى ملف مستقل
+* تعريف ملفات حسب المجال:
+
+  * `chat.prompt.ts`
+  * `review.prompt.ts`
+  * `scan.prompt.ts`
+  * `workflow.prompt.ts`
+  * `task.prompt.ts`
+
+**المخرجات المتوقعة:**
+
+* لا يبقى prompt طويل داخل ملفات التنفيذ
+* استيراد templates من ملفات مستقلة فقط
+
+**معيار الإغلاق:**
+
+* كل agent يستهلك prompt template خارجي
+* لا يوجد نص prompt كبير مضمّن داخل الدوال
+
+---
+
+## PR 2 — إنشاء Runtime Schemas للمخرجات والمدخلات
+
+**الهدف:** منع الاعتماد على TypeScript فقط وإضافة تحقق وقت التشغيل.
+
+**النطاق:**
+
+* إنشاء `lib/ai-orchestrator/schemas/`
+* تعريف schemas للمدخلات والمخرجات
+* استخدام `safeParse` بدل الاعتماد المباشر على الناتج
+
+**أمثلة للـ schemas:**
+
+* `AgentContextSchema`
+* `WorkflowDecisionSchema`
+* `TaskRecommendationSchema`
+* `ScanSummarySchema`
+* `ChatResponseSchema`
+
+**معيار الإغلاق:**
+
+* أي response من النموذج يمر عبر schema قبل الاستخدام
+* أي failure ينتقل إلى مسار fallback واضح
+
+---
+
+## PR 3 — توحيد طبقة Parsing وفشل JSON
+
+**الهدف:** جعل parsing مقاومًا للردود غير المثالية من النموذج.
+
+**النطاق:**
+
+* إنشاء parser helper مشترك
+* إزالة تكرار `JSON.parse` المباشر
+* دعم:
+
+  * code fences
+  * نص قبل JSON أو بعده
+  * response فارغ
+  * JSON غير مكتمل
+  * payload غير متوقع
+
+**معيار الإغلاق:**
+
+* كل agent يستخدم parser موحد
+* الفشل لا يسبب crash غير مضبوط
+
+---
+
+## PR 4 — إضافة اختبارات Parsing وFallback
+
+**الهدف:** تثبيت السلوك الحالي قبل أي تقوية أعمق.
+
+**النطاق:**
+
+* إنشاء مجلد اختبارات للحزمة
+* اختبارات لحالات:
+
+  * JSON صحيح
+  * JSON داخل fences
+  * response مختلط
+  * response فارغ
+  * malformed JSON
+  * schema failure
+  * fallback behavior
+
+**معيار الإغلاق:**
+
+* كل حالة فشل parsing أو validation لها اختبار
+* fallback paths مغطاة فعليًا
+
+---
+
+## PR 5 — تقوية `workflow-orchestrator`
+
+**الهدف:** تحويله من مستهلك output إلى حارس قرار مضبوط.
+
+**النطاق:**
+
+* فصل:
+
+  * `decide()`
+  * `validateDecision()`
+  * `executeDecision()`
+* منع transitions غير المسموحة
+* التحقق من state الحالي قبل التنفيذ
+* تسجيل سبب الرفض عند فشل القرار
+
+**معيار الإغلاق:**
+
+* لا يمكن للنموذج تمرير transition غير صالح
+* كل خطوة تمر عبر validation صريح
+
+---
+
+## PR 6 — تقوية `groq-client`
+
+**الهدف:** جعل بوابة النموذج أكثر صلابة وأوضح في الأخطاء.
+
+**النطاق:**
+
+* فصل مسؤوليات:
+
+  * بناء الطلب
+  * الإرسال
+  * قراءة الرد
+  * التحقق
+  * fallback
+* التعامل مع:
+
+  * timeout
+  * non-200
+  * empty response
+  * invalid schema
+  * network failure
+* إضافة logging للـ metadata الأساسية
+
+**معيار الإغلاق:**
+
+* لا يعود raw response إلى الطبقات العليا دون تحقق
+* كل failure له مسار واضح ومفهم
+
+---
+
+## PR 7 — إزالة التكرار وتوحيد نموذج الأخطاء
+
+**الهدف:** تنظيف الطبقة بعد استقرار البنية.
+
+**النطاق:**
+
+* إزالة parsing المكرر
+* توحيد error codes
+* توحيد fallback responses
+* تحديث internal docs عند الحاجة
+
+**معيار الإغلاق:**
+
+* يوجد error model واحد واضح
+* لا توجد مسارات تنفيذ متباينة لنفس نوع الفشل
+
+---
+
+## ترتيب الدمج المقترح
+
+1. PR 1
+2. PR 2
+3. PR 3
+4. PR 4
+5. PR 5
+6. PR 6
+7. PR 7
+
+## تعريف النجاح النهائي
+
+تُعتبر `lib/ai-orchestrator` مستقرّة عندما:
+
+* تكون الـ prompts منفصلة
+* تكون المخرجات محكومة بـ schemas
+* تكون parsing/fallback مغطاة بالاختبارات
+* يكون `workflow-orchestrator` حارس قرار
+* يكون `groq-client` بوابة صلبة لا نقطة هشاشة

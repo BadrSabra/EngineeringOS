@@ -1,0 +1,578 @@
+هذه ليست مجرد مجموعة تعديلات، بل **إعادة فصل مسؤوليات طبقة الاكتشاف (Discovery Layer)** إلى طبقات مستقلة. حاليًا يبدو أن `DiscoverProjectWizard` يعرف أكثر مما ينبغي عن طريقة إدخال المشروع، بينما المفترض أن يكون مجرد عميل (Client) لطبقة اكتشاف عامة.
+
+ تقسيم التنفيذ إلى سبع مراحل، بحيث تكون كل مرحلة قابلة للاختبار والدمج دون كسر ما هو موجود.
+
+---
+
+# المرحلة 1 — إعادة تصميم عقد الاكتشاف (Discovery Contract)
+
+> الهدف: جعل جميع الطبقات تتحدث بنفس اللغة.
+
+## الوضع الحالي
+
+```
+source = local | workspace
+rootPath = string
+```
+
+وهذا يربط واجهة المستخدم مباشرة بطريقة التنفيذ.
+
+---
+
+## العقد الجديد
+
+بدلاً من ذلك يصبح:
+
+```ts
+DiscoveryRequest
+{
+    sourceType: SourceType;
+
+    sourceConfig: {
+
+    };
+
+    options: {
+
+    };
+}
+```
+
+حيث
+
+```
+enum SourceType
+
+LOCAL_FOLDER
+WORKSPACE_PROJECT
+GIT_REPOSITORY
+ARCHIVE_UPLOAD
+REMOTE_FILESYSTEM
+DOCKER_VOLUME
+```
+
+وبذلك لا يعود الـ API يعرف شيئاً عن الواجهة.
+
+---
+
+## الملفات
+
+```
+lib/api-spec/
+```
+
+إضافة
+
+```
+DiscoveryRequest
+DiscoverySource
+SourceType
+```
+
+ثم
+
+```
+pnpm codegen
+```
+
+ليولد
+
+```
+api-zod
+
+react-query
+
+types
+```
+
+---
+
+# المرحلة الثانية — تحديث قاعدة البيانات
+
+## discovery.ts
+
+حالياً
+
+```
+enum source
+
+local
+
+workspace
+```
+
+يصبح
+
+```
+enum discovery_source
+
+LOCAL_FOLDER
+
+WORKSPACE_PROJECT
+
+GIT_REPOSITORY
+
+ARCHIVE_UPLOAD
+
+REMOTE_FILESYSTEM
+
+DOCKER_VOLUME
+```
+
+ثم إضافة جدول جديد
+
+```
+discovery_sources
+```
+
+بدلاً من تخزين rootPath فقط.
+
+مثلاً
+
+```
+id
+
+session_id
+
+source_type
+
+configuration_json
+
+resolved_path
+
+status
+
+created_at
+```
+
+وبذلك نستطيع إعادة تشغيل الاكتشاف لاحقاً.
+
+---
+
+# المرحلة الثالثة — OpenAPI
+
+إضافة
+
+```
+POST
+
+/discovery/start
+```
+
+ليستقبل
+
+```
+DiscoveryRequest
+```
+
+بدلاً من
+
+```
+rootPath
+```
+
+ثم
+
+```
+GET
+
+/discovery/sources
+```
+
+ليعيد
+
+```
+supported sources
+
+capabilities
+
+requirements
+```
+
+ليستعملها الـ UI.
+
+---
+
+# المرحلة الرابعة — DiscoverProjectWizard
+
+هذه أكثر نقطة تحتاج إعادة تصميم.
+
+بدلاً من
+
+```
+Step 1
+
+Select Folder
+```
+
+تصبح
+
+---
+
+## Step 1
+
+Choose Source
+
+بطاقات
+
+```
+📁 Local Folder
+
+🖥 Workspace
+
+🔗 Git Repository
+
+📦 Zip Archive
+
+☁ Remote Filesystem
+
+🐳 Docker Volume
+```
+
+---
+
+## Step 2
+
+Source Configuration
+
+إذا Git
+
+```
+Repository URL
+
+Branch
+
+Credentials
+```
+
+إذا Archive
+
+```
+Upload
+
+Password
+
+Encoding
+```
+
+إذا Local
+
+```
+Folder Picker
+```
+
+وهكذا.
+
+---
+
+## Step 3
+
+Validation
+
+```
+Reachable
+
+Permissions
+
+Estimated size
+
+Repository detected
+
+Language detected
+
+Package managers
+
+Framework
+
+Build system
+
+Git detected
+
+License
+
+Secrets scan
+```
+
+---
+
+## Step 4
+
+Discovery Preview
+
+يعرض
+
+```
+Projects
+
+Packages
+
+Services
+
+Libraries
+
+Dependencies
+
+Database
+
+API
+
+Documentation
+
+Tests
+
+Graph
+```
+
+---
+
+## Step 5
+
+Import
+
+---
+
+# المرحلة الخامسة — Discovery Route
+
+حالياً تقريباً
+
+```
+POST
+
+↓
+
+scanner
+
+↓
+
+save
+```
+
+المفترض
+
+```
+POST
+
+↓
+
+validate
+
+↓
+
+resolve source
+
+↓
+
+prepare
+
+↓
+
+scanner
+
+↓
+
+knowledge
+
+↓
+
+summary
+
+↓
+
+save
+
+↓
+
+return
+```
+
+أي تتحول إلى Orchestrator.
+
+---
+
+# المرحلة السادسة — Source Adapters
+
+هذه أهم طبقة ناقصة بالكامل تقريباً.
+
+إنشاء
+
+```
+src/discovery/sources
+```
+
+بداخلها
+
+```
+BaseSourceAdapter.ts
+
+LocalFolderAdapter.ts
+
+WorkspaceAdapter.ts
+
+GitRepositoryAdapter.ts
+
+ArchiveAdapter.ts
+
+RemoteFilesystemAdapter.ts
+
+DockerVolumeAdapter.ts
+```
+
+كل Adapter ينفذ نفس الواجهة.
+
+```
+interface SourceAdapter {
+
+validate()
+
+prepare()
+
+resolve()
+
+cleanup()
+
+metadata()
+
+}
+```
+
+بعد ذلك
+
+Discovery لا يعرف Git.
+
+ولا يعرف Zip.
+
+ولا يعرف Local.
+
+بل يتعامل فقط مع
+
+```
+SourceAdapter
+```
+
+---
+
+# المرحلة السابعة — Discovery Pipeline
+
+بدلاً من
+
+```
+rootPath
+
+↓
+
+scanner
+```
+
+تصبح
+
+```
+DiscoveryRequest
+
+↓
+
+Source Resolver
+
+↓
+
+Adapter
+
+↓
+
+Resolved Workspace
+
+↓
+
+Scanner
+
+↓
+
+Knowledge Builder
+
+↓
+
+Graph Builder
+
+↓
+
+Metrics
+
+↓
+
+Summary Generator
+
+↓
+
+Import Planner
+
+↓
+
+Persistence
+
+↓
+
+Response
+```
+
+---
+
+# الهيكل النهائي المقترح
+
+```
+DiscoverProjectWizard
+            │
+            ▼
+OpenAPI Discovery Contract
+            │
+            ▼
+Discovery Controller
+            │
+            ▼
+Discovery Orchestrator
+            │
+      Source Resolver
+            │
+ ┌──────────┼──────────┐
+ ▼          ▼          ▼
+Git      Local     Archive
+Adapter   Adapter    Adapter
+            │
+            ▼
+Resolved Workspace
+            │
+            ▼
+Scanner Engine
+            │
+            ▼
+Knowledge Engine
+            │
+            ▼
+Graph Builder
+            │
+            ▼
+Summary Engine
+            │
+            ▼
+Import Planner
+            │
+            ▼
+Persistence
+            │
+            ▼
+Dashboard
+```
+
+## خطوة إضافية أوصي بها
+
+أثناء مراجعة تصور المشروع، أرى أن طبقة **Source Adapters** ينبغي ألا تكون مرتبطة مباشرة بطبقة **Discovery**، بل تصبح خدمة مستقلة قابلة لإعادة الاستخدام مثل:
+
+```
+lib/source-runtime/
+├── adapters/
+├── contracts/
+├── resolver/
+├── credentials/
+├── workspace/
+└── capabilities/
+```
+
+بهذا تصبح أي ميزة مستقبلية—مثل إعادة الفحص (Rescan)، المزامنة الدورية (Sync)، أو استيراد الإضافات (Plugin Import)—تعتمد على نفس طبقة المصادر دون تكرار الكود، ويصبح الاكتشاف مجرد أحد المستهلكين لها، وهو تصميم أكثر قابلية للتوسع ويتماشى مع الطبيعة متعددة الطبقات لمشروع EngineeringOS.

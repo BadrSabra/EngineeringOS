@@ -1,0 +1,68 @@
+path,name,type,category,purpose_expected,read_scope,analyzable,notes
+package.json,package.json,json,إعدادات,ممتد/تشغيل,full,yes,نقطة تشغيل الجذر، سكربتات التحقق والبناء
+replit.md,replit.md,md,توثيق,تشغيل/بنية,full,yes,وصف بنية الريبو ومتطلبات التشغيل
+docs/fact-record.md,fact-record.md,md,توثيق,تاريخي/سجل حقائق,selective,yes,سجل حقائق تاريخي مع banner يحدد أنه ليس baseline حالي
+docs/architecture.md,architecture.md,md,توثيق,baseline معماري,selective,yes,المرجع الحالي للبنية المعمارية
+docs/completion-plan.md,completion-plan.md,md,توثيق,خطة تاريخية,selective,yes,خطة مراحل قديمة مع banner يعلن أنها تاريخية
+docs/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md,ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md,md,توثيق,مرجع تنفيذي,selective,yes,دستور تنفيذي مبني من codebase
+scripts/validate-truth-flow.ts,validate-truth-flow.ts,ts,سكربت,تحقق,full,yes,بوابة drift لمصفوفة truth-flow
+.github/workflows/ci.yml,ci.yml,yml,CI/CD,تحقق مستمر,full,yes,fast path drift + validate job
+artifacts/api-server/src/index.ts,index.ts,ts,كود,نقطة دخول,selective,yes,تهيئة التشغيل، reconciliations، invalidation channel
+artifacts/api-server/src/app.ts,app.ts,ts,كود,نقطة دخول,selective,yes,Express security hardening + routing
+artifacts/api-server/src/config.ts,config.ts,ts,كود,إعدادات,full,yes,مصدر إعدادات env مضبوط بـ zod
+artifacts/api-server/src/routes/index.ts,index.ts,ts,كود,تجميع routes,full,yes,ترتيب mount للـ routers
+artifacts/api-server/src/middlewares/requireAuth.ts,requireAuth.ts,ts,كود,مصادقة,full,yes,Auth + optionalAuth
+artifacts/api-server/src/middlewares/requireProjectAccess.ts,requireProjectAccess.ts,ts,كود,تفويض,full,yes,ملكية project-scoped
+artifacts/api-server/src/routes/projects.ts,projects.ts,ts,كود,CRUD projects,selective,yes,إنشاء/قراءة/تعديل/حذف/scan
+artifacts/api-server/src/routes/tasks.ts,tasks.ts,ts,كود,CRUD tasks,selective,yes,إدارة task lifecycle + AI execution
+artifacts/api-server/src/routes/rules.ts,rules.ts,ts,كود,CRUD rules,selective,yes,قواعد عامة + قواعد project-scoped
+artifacts/api-server/src/routes/workflows.ts,workflows.ts,ts,كود,CRUD workflows,selective,yes,workflow state + executions
+artifacts/api-server/src/routes/events.ts,events.ts,ts,كود,events API,full,yes,list scoped events
+artifacts/api-server/src/routes/metrics.ts,metrics.ts,ts,كود,metrics API,selective,yes,project metrics + latest snapshot
+artifacts/api-server/src/routes/graph.ts,graph.ts,ts,كود,graph API,selective,yes,KG query surface
+artifacts/api-server/src/routes/discovery.ts,discovery.ts,ts,كود,discovery,selective,yes,sessions + source detection
+artifacts/api-server/src/routes/plugins.ts,plugins.ts,ts,كود,plugins,selective,yes,seed/enable/disable plugins
+artifacts/api-server/src/routes/git.ts,git.ts,ts,كود,git integration,selective,yes,status/log/commit/push
+artifacts/api-server/src/routes/health.ts,health.ts,ts,كود,health,full,yes,healthz + counters
+artifacts/api-server/src/routes/ai/index.ts,index.ts,ts,كود,AI router,full,yes,compose AI subroutes
+artifacts/api-server/src/routes/ai/chat.ts,chat.ts,ts,كود,AI chat,selective,yes,chat/session/apply-changes
+artifacts/api-server/src/routes/ai/analysis.ts,analysis.ts,ts,كود,AI analysis,selective,yes,scan analysis + code review
+artifacts/api-server/src/routes/ai/tasks.ts,tasks.ts,ts,كود,AI tasks,selective,yes,task execution + scheduler
+artifacts/api-server/src/routes/ai/workflows.ts,workflows.ts,ts,كود,AI workflows,selective,yes,orchestration endpoint
+artifacts/api-server/src/routes/ai/providers.ts,providers.ts,ts,كود,provider keys,selective,yes,key CRUD + active provider
+artifacts/api-server/src/lib/scan-runner.ts,scan-runner.ts,ts,كود,scan pipeline,selective,yes,performScan transaction + plugin hooks
+artifacts/api-server/src/lib/discovery-runner.ts,discovery-runner.ts,ts,كود,discovery pipeline,selective,yes,source detection + summary
+artifacts/api-server/src/lib/job-queue.ts,job-queue.ts,ts,كود,job queue,full,yes,process-local queue with dedup
+artifacts/api-server/src/lib/plugin-runtime.ts,plugin-runtime.ts,ts,كود,plugin runtime,selective,yes,in-process hooks onScanComplete
+artifacts/api-server/src/lib/audit.ts,audit.ts,ts,كود,audit,full,yes,best-effort audit writes
+artifacts/api-server/src/lib/graph-provenance.ts,graph-provenance.ts,ts,كود,provenance,full,yes,normalize scanner provenance to DB
+artifacts/api-server/src/lib/logger.ts,logger.ts,ts,كود,logging,full,yes,pino logger
+lib/scanner/src/index.ts,index.ts,ts,كود,scanner barrel,full,yes,exports scanner surface
+lib/scanner/src/file-walker.ts,file-walker.ts,ts,كود,file walker,selective,yes,walk tree + language detection
+lib/scanner/src/graph-extractor.ts,graph-extractor.ts,ts,كود,graph extractor,selective,yes,AST/regex graph extraction
+lib/scanner/src/metrics-calc.ts,metrics-calc.ts,ts,كود,metrics,selective,yes,heuristic score computation
+lib/knowledge-engine/src/index.ts,index.ts,ts,كود,knowledge engine barrel,full,yes,export pure query/inference layer
+lib/knowledge-engine/src/queries.ts,queries.ts,ts,كود,graph queries,selective,yes,impact/path/neighborhood/provenance
+lib/knowledge-engine/src/inference.ts,inference.ts,ts,كود,inference,selective,yes,centrality / clusters / summaries
+lib/ai-orchestrator/src/index.ts,index.ts,ts,كود,orchestrator barrel,full,yes,export agents + context invalidation
+lib/ai-orchestrator/src/context-builder.ts,context-builder.ts,ts,كود,context builder,selective,yes,DB-backed prompt context + cache
+lib/ai-orchestrator/src/schemas/context.schema.ts,context.schema.ts,ts,كود,context schema,full,yes,strict agent context validation
+lib/ai-orchestrator/src/schemas/workflow.schema.ts,workflow.schema.ts,ts,كود,workflow schema,selective,yes,phases + decision schema
+lib/ai-orchestrator/src/agents/workflow-orchestrator.ts,workflow-orchestrator.ts,ts,كود,workflow orchestrator,selective,yes,decide/validate/execute transitions
+lib/ai-orchestrator/src/agents/chat-agent.ts,chat-agent.ts,ts,كود,chat agent,selective,yes,tool-using chat loop
+lib/ai-orchestrator/src/groq-client.ts,groq-client.ts,ts,كود,model gateway,selective,yes,retry/error classification
+lib/ai-orchestrator/src/provider-registry.ts,provider-registry.ts,ts,كود,providers,full,yes,single source of truth
+lib/ai-orchestrator/src/tools/file-tools.ts,file-tools.ts,ts,كود,file tools,selective,yes,read/list/search/write proposal
+lib/ai-orchestrator/src/tools/git-tools.ts,git-tools.ts,ts,كود,git tools,full,yes,status/diff/log helpers
+lib/db/src/index.ts,index.ts,ts,كود,DB entry,full,yes,drizzle pool + schema export
+lib/db/src/schema/index.ts,index.ts,ts,كود,schema barrel,full,yes,exports all tables
+lib/db/src/schema/projects.ts,projects.ts,ts,كود,projects schema,full,yes,owner-scoped project model
+lib/db/src/schema/tasks.ts,tasks.ts,ts,كود,tasks schema,full,yes,task lifecycle + correlation
+lib/db/src/schema/workflows.ts,workflows.ts,ts,كود,workflows schema,full,yes,workflow definitions/executions
+lib/db/src/schema/events.ts,events.ts,ts,كود,events schema,full,yes,project/event trace
+lib/db/src/schema/metrics.ts,metrics.ts,ts,كود,metrics schema,full,yes,score snapshots
+lib/db/src/schema/graph.ts,graph.ts,ts,كود,graph schema,selective,yes,KG provenance + evidence
+lib/db/src/schema/discovery.ts,discovery.ts,ts,كود,discovery schema,selective,yes,sessions/options/summary
+lib/db/src/schema/audit_logs.ts,audit_logs.ts,ts,كود,audit schema,full,yes,provenance log
+lib/db/src/schema/ai_chats.ts,ai_chats.ts,ts,كود,ai chat schema,full,yes,sessions + messages
+lib/db/src/schema/scan_jobs.ts,scan_jobs.ts,ts,كود,scan jobs schema,full,yes,async scan lifecycle

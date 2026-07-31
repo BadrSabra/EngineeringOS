@@ -1,0 +1,453 @@
+
+
+| ID    | الأولوية | المشكلة                                                                                   |
+| ----- | -------: | ----------------------------------------------------------------------------------------- |
+| DB-01 |       P0 | `audit_logs` بلا فهارس وبلا FK على `projectId`                                            |
+| DB-02 |       P0 | `workflow_executions` بلا فهارس مناسبة للاستعلامات المتكررة                               |
+| DB-03 |       P0 | `task_logs` بلا فهرس لـ `taskId` ووقت السجل                                               |
+| DB-04 |       P1 | فهارس مركبة ناقصة في `projects` / `workflows` / `tasks` / `events` / `metrics`            |
+| DB-05 |       P1 | `ai_chat_sessions` و`ai_chat_messages` بلا فهارس مناسبة                                   |
+| DB-06 |       P1 | `rules` و`discovery_sessions` تحتاج فهارس تشغيلية أوضح                                    |
+| DB-07 |       P1 | فحص/حماية bootstrap لقاعدة البيانات بعد الاستيراد ما زال يعتمد على التشغيل اليدوي         |
+| DB-08 |       P2 | تحسينات اختيارية على `graph_entities` / `graph_relationships` بحسب مسارات التصفية الفعلية |
+
+---
+
+# DB-01 — تدعيم audit_logs: FK + indexes
+
+**الأولوية:** P0
+
+## المشكلة
+
+`lib/db/src/schema/audit_logs.ts` لا يحتوي على أي indexes، و`projectId` موجود كحقل نصّي فقط بدون FK إلى `projects.id`.
+
+## الأدلة من الكود
+
+الجدول يُستخدم بكثرة في:
+
+* `artifacts/api-server/src/routes/projects.test.ts`
+* `artifacts/api-server/src/routes/tasks.test.ts`
+* `artifacts/api-server/src/routes/rules.test.ts`
+* `artifacts/api-server/src/routes/workflows.test.ts`
+* `artifacts/api-server/src/routes/ai.test.ts`
+
+والاستعلامات الشائعة هي:
+
+* `where(eq(auditLogsTable.entityId, ...))`
+* `where(eq(auditLogsTable.projectId, ...))`
+
+## المطلوب تنفيذًا
+
+* إضافة FK:
+
+  * `projectId -> projects.id`
+  * مع `onDelete: "set null"` لأن السجل audit يحتاج البقاء حتى لو حُذف المشروع.
+* إضافة indexes على الأقل لـ:
+
+  * `entityId`
+  * `projectId`
+  * `timestamp`
+  * `correlationId` إذا كان يُستخدم في traceability
+
+## معايير القبول
+
+* لا تعود `audit_logs` تعتمد على نص خام غير مقيد لعلاقة المشروع.
+* استعلامات audit by entity/project لا تعتمد على seq scan افتراضيًا.
+* حذف المشروع لا يكسر سجل التدقيق.
+
+## الملفات
+
+* `lib/db/src/schema/audit_logs.ts`
+* أي routes أو tests تعتمد على audit logs
+
+---
+
+# DB-02 — فهارس workflow_executions
+
+**الأولوية:** P0
+
+## المشكلة
+
+`workflow_executions` لا تملك أي indexes، بينما routes workflows تعتمد عليها مباشرة في:
+
+* البحث عن آخر execution
+* التصفية بـ `workflowId`
+* الترتيب بـ `startedAt`
+* الفلترة على `status`
+
+## الأدلة من الكود
+
+في:
+
+* `artifacts/api-server/src/routes/workflows.ts`
+
+توجد استعلامات مثل:
+
+* `where(eq(workflowExecutionsTable.workflowId, workflowId))`
+* `orderBy(desc(workflowExecutionsTable.startedAt))`
+* `where(eq(workflowExecutionsTable.status, "running"))`
+
+## المطلوب تنفيذًا
+
+إضافة indexes مناسبة مثل:
+
+* `workflow_id`
+* `workflow_id + started_at`
+* `status`
+* وربما `workflow_id + status` إذا ظلّت الاستعلامات المتزامنة كثيرة
+
+## معايير القبول
+
+* آخر execution لكل workflow يُستخرج بكفاءة.
+* عمليات start/stop/retry لا تعتمد على scanning كامل للجدول.
+* لا تتغير semantics الحالية.
+
+## الملفات
+
+* `lib/db/src/schema/workflows.ts`
+
+---
+
+# DB-03 — فهارس task_logs
+
+**الأولوية:** P0
+
+## المشكلة
+
+`task_logs` لا تملك أي indexes، بينما التطبيق يقرأ السجل غالبًا عبر:
+
+* `taskId`
+* `timestamp`
+* أحيانًا `correlationId`
+
+## الأدلة من الكود
+
+في:
+
+* `artifacts/api-server/src/routes/tasks.ts`
+
+يوجد:
+
+* `where(eq(taskLogsTable.taskId, taskId))`
+* `orderBy(desc(taskLogsTable.timestamp))`
+
+## المطلوب تنفيذًا
+
+إضافة:
+
+* index على `taskId`
+* index أو composite index على `taskId + timestamp`
+* optional index على `correlationId` إذا كان مطلوبًا لربط trace
+
+## معايير القبول
+
+* `GET task logs` لا يقرأ كل الجدول عند طلب logs لمهمة واحدة.
+* السجلات الجديدة تبقى متوافقة مع بقية المنظومة.
+
+## الملفات
+
+* `lib/db/src/schema/task_logs.ts`
+* `artifacts/api-server/src/routes/tasks.ts`
+
+---
+
+# DB-04 — فهارس مركبة للقراءات القائمة على owner/project + time
+
+**الأولوية:** P1
+
+## المشكلة
+
+عدة جداول لديها فهارس منفصلة، لكن routes تقرأ غالبًا بصيغة:
+
+* filter by project/owner
+* order by timestamp / createdAt / updatedAt descending
+
+هذا يعني أن الفهارس الحالية ليست كافية دائمًا.
+
+## الجداول المتأثرة والأدلة
+
+### 1) `projects`
+
+في:
+
+* `artifacts/api-server/src/routes/projects.ts`
+
+الاستعلام:
+
+* `where(eq(projectsTable.ownerId, req.userId)).orderBy(desc(projectsTable.createdAt))`
+
+**المطلوب:**
+`(owner_id, created_at desc)`
+
+---
+
+### 2) `workflows`
+
+في:
+
+* `artifacts/api-server/src/routes/workflows.ts`
+
+الاستعلام:
+
+* `where(eq(workflowsTable.projectId, project.id)).orderBy(desc(workflowsTable.createdAt))`
+
+**المطلوب:**
+`(project_id, created_at desc)`
+
+---
+
+### 3) `tasks`
+
+في:
+
+* `artifacts/api-server/src/routes/tasks.ts`
+
+الاستعلام:
+
+* `where(eq(tasksTable.projectId, project.id)).orderBy(desc(tasksTable.createdAt))`
+
+**المطلوب:**
+`(project_id, created_at desc)`
+
+---
+
+### 4) `events`
+
+في:
+
+* `artifacts/api-server/src/routes/events.ts`
+
+الاستعلام:
+
+* `where(eq(eventsTable.projectId, project.id)).orderBy(desc(eventsTable.timestamp)).limit(limit)`
+
+**المطلوب:**
+`(project_id, timestamp desc)`
+
+---
+
+### 5) `metrics`
+
+في:
+
+* `artifacts/api-server/src/routes/metrics.ts`
+
+الاستعلام:
+
+* `where(eq(metricsTable.projectId, project.id)).orderBy(desc(metricsTable.timestamp)).limit(1)`
+
+**المطلوب:**
+`(project_id, timestamp desc)`
+
+## معايير القبول
+
+* القراءات “latest per project” تصبح مباشرة بدل الاعتماد على أكثر من index منفصل.
+* لا يتغير أي شكل response.
+* التحسينات تظل backward-compatible.
+
+## الملفات
+
+* `lib/db/src/schema/projects.ts`
+* `lib/db/src/schema/workflows.ts`
+* `lib/db/src/schema/tasks.ts`
+* `lib/db/src/schema/events.ts`
+* `lib/db/src/schema/metrics.ts`
+
+---
+
+# DB-05 — AI chat sessions/messages تحتاج فهارس تشغيلية
+
+**الأولوية:** P1
+
+## المشكلة
+
+جداول الدردشة لا تحتوي فهارس، بينما routes تقرأ:
+
+* sessions by project
+* messages by session
+* ترتيب زمني للرسائل والجلسات
+
+## الأدلة من الكود
+
+في:
+
+* `artifacts/api-server/src/routes/ai/chat.ts`
+
+الاستعلامات تشمل:
+
+* `where(eq(aiChatSessionsTable.projectId, project.id)).orderBy(desc(aiChatSessionsTable.updatedAt))`
+* `where(eq(aiChatMessagesTable.sessionId, sessionId)).orderBy(aiChatMessagesTable.createdAt)`
+
+## المطلوب تنفيذًا
+
+إضافة:
+
+* index على `ai_chat_sessions.project_id`
+* composite index على `ai_chat_sessions(project_id, updated_at desc)`
+* index على `ai_chat_messages.session_id`
+* composite index على `ai_chat_messages(session_id, created_at)`
+
+## معايير القبول
+
+* عرض قائمة الجلسات لا يتدهور مع زيادة عدد الرسائل.
+* تحميل محادثة معينة لا يقرأ الرسائل عبر scan كامل.
+
+## الملفات
+
+* `lib/db/src/schema/ai_chats.ts`
+
+---
+
+# DB-06 — قواعد discovery و rules: تحسينات واضحة للفهرسة
+
+**الأولوية:** P1
+
+## المشكلة 1 — rules
+
+في:
+
+* `artifacts/api-server/src/routes/rules.ts`
+
+قائمة القواعد تُرتب بـ:
+
+* `orderBy(desc(rulesTable.hitCount))`
+
+لكن `hitCount` لا يملك index.
+
+### المطلوب
+
+* إضافة composite index مناسب مثل:
+
+  * `(project_id, hit_count desc)`
+* أو على الأقل index على `hit_count` إذا كان جدول global كبيرًا
+
+---
+
+## المشكلة 2 — discovery_sessions
+
+في:
+
+* `artifacts/api-server/src/lib/job-reconciliation.ts`
+* `artifacts/api-server/src/routes/discovery.ts`
+
+توجد قراءات/عمليات على:
+
+* `status`
+* `startedAt`
+* `id`
+
+وخصوصًا:
+
+* cleanup of stale sessions by `startedAt`
+* reconciliation by `status`
+
+### المطلوب
+
+* index على `status`
+* index على `startedAt`
+* إذا كان هناك listing أو future admin views: index على `ownerId`
+
+## معايير القبول
+
+* الاستعلامات التشغيلية على rules/discovery لا تكون bounded by table scans.
+* لا يتغير منطق العمل.
+
+## الملفات
+
+* `lib/db/src/schema/rules.ts`
+* `lib/db/src/schema/discovery.ts`
+
+---
+
+# DB-07 — bootstrap guard لقاعدة البيانات بعد الاستيراد
+
+**الأولوية:** P1
+
+## المشكلة
+
+تجربة الاستيراد السابقة أثبتت أن غياب `node_modules` أو عدم تنفيذ `drizzle-kit push` يؤدي إلى قاعدة فارغة، ثم تفشل الاختبارات على أخطاء مثل `relation "projects" does not exist`.
+
+المستودع يحتوي بالفعل على:
+
+* `scripts/verify-setup.sh`
+* `scripts/post-merge.sh`
+* `lib/db/drizzle.config.ts`
+* `lib/db/package.json`
+
+لكن التحقق ما زال يعتمد على تشغيل يدوي/عملي خارج التطبيق.
+
+## المطلوب تنفيذًا
+
+إضافة guard/verification رسمي عند الإقلاع أو في health/setup path:
+
+* التحقق من وجود الجداول الأساسية
+* إصدار رسالة actionable إذا كانت schema غير مطبقة
+* إظهار الإجراء المطلوب بوضوح
+
+## معايير القبول
+
+* يمكن اكتشاف غياب schema مبكرًا قبل أن يبدأ النظام في العمل.
+* لا يمرّ deployment/preview بوضع “يبدو شغالًا” بينما قاعدة البيانات فارغة.
+* رسالة الخطأ تقول بوضوح ما الذي يجب تشغيله.
+
+## الملفات
+
+* `scripts/verify-setup.sh`
+* `scripts/post-merge.sh`
+* `artifacts/api-server/src/app.ts`
+* `artifacts/api-server/src/index.ts`
+* أو طبقة initialization المناسبة
+
+---
+
+# DB-08 — تحسينات اختيارية على graph tables حسب الاستعلامات الفعلية
+
+**الأولوية:** P2
+
+## المشكلة
+
+`graph_entities` و`graph_relationships` لديهما indexes جيدة نسبيًا، لكن بعض مسارات التصفية ما زالت تعتمد على:
+
+* project scoping
+* sourceType / confidence / documentedOnly
+* relationType / confidence / isHeuristic
+
+## الأدلة من الكود
+
+في:
+
+* `artifacts/api-server/src/routes/graph.ts`
+
+الاستعلامات تشمل:
+
+* entity filters على `type`, `confidence`, `sourceType`, `isDocumented`
+* relationship filters على `relationType`, `confidence`, `sourceType`, `isHeuristic`
+
+## المطلوب المحتمل
+
+* مراجعة composite indexes فقط إذا أثبت profiling أن queries ما زالت بطيئة.
+* عدم إضافة indexes عشوائية قبل قياس.
+
+## معايير القبول
+
+* أي index جديد هنا يجب أن يكون مدفوعًا بقياس أو على الأقل بنمط query واضح جدًا.
+* لا يتم تضخيم schema بدون حاجة.
+
+## الملفات
+
+* `lib/db/src/schema/graph.ts`
+* `artifacts/api-server/src/routes/graph.ts`
+
+---
+
+## ترتيب التنفيذ المقترح
+
+1. DB-01
+2. DB-02
+3. DB-03
+4. DB-04
+5. DB-05
+6. DB-06
+7. DB-07
+8. DB-08
+

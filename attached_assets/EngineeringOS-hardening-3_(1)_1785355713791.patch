@@ -1,0 +1,264 @@
+diff -ruN orig99/EngineeringOS-main/artifacts/api-server/.tsbuildinfo workrepo2/EngineeringOS-main/artifacts/api-server/.tsbuildinfo
+--- orig99/EngineeringOS-main/artifacts/api-server/.tsbuildinfo	1970-01-01 00:00:00.000000000 +0000
++++ workrepo2/EngineeringOS-main/artifacts/api-server/.tsbuildinfo	2026-07-29 17:58:30.417169017 +0000
+@@ -0,0 +1 @@
++{"fileNames":["../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es5.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2015.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2016.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2017.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2018.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2019.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2020.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2021.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2022.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2015.core.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2015.collection.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2015.generator.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2015.iterable.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2015.promise.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2015.proxy.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2015.reflect.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2015.symbol.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2015.symbol.wellknown.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2016.array.include.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2016.intl.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2017.arraybuffer.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2017.date.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2017.object.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2017.sharedmemory.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2017.string.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2017.intl.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2017.typedarrays.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2018.asyncgenerator.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2018.asynciterable.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2018.intl.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2018.promise.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2018.regexp.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2019.array.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2019.object.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2019.string.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2019.symbol.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2019.intl.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2020.bigint.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2020.date.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2020.promise.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2020.sharedmemory.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2020.string.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2020.symbol.wellknown.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2020.intl.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2020.number.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2021.promise.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2021.string.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2021.weakref.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2021.intl.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2022.array.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2022.error.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2022.intl.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2022.object.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2022.string.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.es2022.regexp.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.decorators.d.ts","../../../../../../opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript/lib/lib.decorators.legacy.d.ts","./src/config.ts","./src/lib/logger.ts","./src/lib/operational-counters.ts","./src/lib/audit.ts","./src/lib/job-queue.ts","./src/lib/upload-store.ts","./src/lib/discovery-adapters.ts","./src/lib/path-validation.ts","./src/lib/advisory-lock.ts","./src/lib/discovery-runner.ts","./src/routes/discovery.ts","./src/lib/plugin-runtime.ts","./src/lib/graph-provenance.ts","./src/lib/scan-runner.ts","./src/middlewares/requireProjectAccess.ts","./src/routes/projects.ts","./src/services/task-service.ts","./src/types/express.d.ts","./src/middlewares/requireAuth.ts","./src/lib/credentials-crypto.ts","./src/lib/ai-route-helpers.ts","./src/routes/ai/providers.ts","./src/lib/rootpath-validator.ts","./src/lib/db-rate-limiter.ts","./src/routes/ai/chat.ts","./src/routes/ai/analysis.ts","./src/routes/ai/workflows.ts","./src/routes/ai/tasks.ts","./src/routes/ai/index.ts","./src/routes/ai.ts","./src/routes/tasks.ts","./src/routes/rules.ts","./src/lib/condition-evaluator.ts","./src/services/workflow-service.ts","./src/routes/workflows.ts","./src/routes/events.ts","./src/routes/metrics.ts","./src/routes/graph.ts","./src/routes/plugins.ts","./src/routes/dashboard.ts","./src/routes/git.ts","./src/routes/upload.ts","./src/routes/index.ts","./src/routes/health.ts","./src/middlewares/clerkProxyMiddleware.ts","./src/app.ts","./src/lib/job-reconciliation.ts","./src/lib/startup-migrations.ts","./src/index.ts","./src/lib/ai-route-helpers.test.ts","./src/lib/discovery-adapters.test.ts","./src/lib/discovery-runner.test.ts","./src/lib/job-queue.test.ts","./src/lib/job-reconciliation.test.ts","./src/lib/path-validation.test.ts","./src/lib/plugin-runtime.test.ts","./src/lib/project-error.test.ts","./src/lib/upload-store.test.ts","./src/middlewares/requireAuth.test.ts","./src/middlewares/requireProjectAccess.test.ts","./src/routes/ai-route-parity.test.ts","./src/routes/ai.test.ts","./src/routes/dashboard.test.ts","./src/routes/discovery.test.ts","./src/routes/events.test.ts","./src/routes/graph.test.ts","./src/routes/health.test.ts","./src/routes/metrics.test.ts","./src/routes/plugins.test.ts","./src/routes/projects.test.ts","./src/routes/rules.test.ts","./src/routes/tasks.test.ts","./src/routes/workflows.test.ts","./src/scripts/seed-provenance.ts"],"fileIdsList":[[58,59,76,100,101,102],[58,59,62,103,104,105],[78],[59,77],[59,60],[64],[63],[67],[59,66],[62],[59],[62,104],[59,62,63,67,71],[58],[65],[69],[103],[59,61,66,69,70],[76],[58,75],[72],[78,103],[86],[59,61,72,78,81],[59,61,66,72,78,80,81],[79,82,83,84,85],[59,77,78],[59,61,62,72,78,81],[59,61,66,72,78,81],[61,103],[59,61,62,64,65,67],[72,76],[59,61,62,71,72,77],[60,62],[68,73,87,88,89,92,93,94,95,96,97,98,99],[61],[62,103],[59,61,62,71,72],[61,72,76],[87,103],[61,72,74,76,87],[59,63,76],[61,72,76,91],[90]],"fileInfos":[{"version":"69684132aeb9b5642cbcd9e22dff7818ff0ee1aa831728af0ecf97d3364d5546","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"45b7ab580deca34ae9729e97c13cfd999df04416a79116c3bfb483804f85ded4","signature":false,"impliedFormat":1},{"version":"3facaf05f0c5fc569c5649dd359892c98a85557e3e0c847964caeb67076f4d75","signature":false,"impliedFormat":1},{"version":"e44bb8bbac7f10ecc786703fe0a6a4b952189f908707980ba8f3c8975a760962","signature":false,"impliedFormat":1},{"version":"5e1c4c362065a6b95ff952c0eab010f04dcd2c3494e813b493ecfd4fcb9fc0d8","signature":false,"impliedFormat":1},{"version":"68d73b4a11549f9c0b7d352d10e91e5dca8faa3322bfb77b661839c42b1ddec7","signature":false,"impliedFormat":1},{"version":"5efce4fc3c29ea84e8928f97adec086e3dc876365e0982cc8479a07954a3efd4","signature":false,"impliedFormat":1},{"version":"feecb1be483ed332fad555aff858affd90a48ab19ba7272ee084704eb7167569","signature":false,"impliedFormat":1},{"version":"ee7bad0c15b58988daa84371e0b89d313b762ab83cb5b31b8a2d1162e8eb41c2","signature":false,"impliedFormat":1},{"version":"c57796738e7f83dbc4b8e65132f11a377649c00dd3eee333f672b8f0a6bea671","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"dc2df20b1bcdc8c2d34af4926e2c3ab15ffe1160a63e58b7e09833f616efff44","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"515d0b7b9bea2e31ea4ec968e9edd2c39d3eebf4a2d5cbd04e88639819ae3b71","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"0559b1f683ac7505ae451f9a96ce4c3c92bdc71411651ca6ddb0e88baaaad6a3","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"0dc1e7ceda9b8b9b455c3a2d67b0412feab00bd2f66656cd8850e8831b08b537","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"ce691fb9e5c64efb9547083e4a34091bcbe5bdb41027e310ebba8f7d96a98671","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"8d697a2a929a5fcb38b7a65594020fcef05ec1630804a33748829c5ff53640d0","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"4ff2a353abf8a80ee399af572debb8faab2d33ad38c4b4474cff7f26e7653b8d","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"936e80ad36a2ee83fc3caf008e7c4c5afe45b3cf3d5c24408f039c1d47bdc1df","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"d15bea3d62cbbdb9797079416b8ac375ae99162a7fba5de2c6c505446486ac0a","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"68d18b664c9d32a7336a70235958b8997ebc1c3b8505f4f1ae2b7e7753b87618","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"eb3d66c8327153d8fa7dd03f9c58d351107fe824c79e9b56b462935176cdf12a","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"38f0219c9e23c915ef9790ab1d680440d95419ad264816fa15009a8851e79119","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"69ab18c3b76cd9b1be3d188eaf8bba06112ebbe2f47f6c322b5105a6fbc45a2e","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"fef8cfad2e2dc5f5b3d97a6f4f2e92848eb1b88e897bb7318cef0e2820bceaab","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"2f11ff796926e0832f9ae148008138ad583bd181899ab7dd768a2666700b1893","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"4de680d5bb41c17f7f68e0419412ca23c98d5749dcaaea1896172f06435891fc","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"954296b30da6d508a104a3a0b5d96b76495c709785c1d11610908e63481ee667","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"ac9538681b19688c8eae65811b329d3744af679e0bdfa5d842d0e32524c73e1c","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"0a969edff4bd52585473d24995c5ef223f6652d6ef46193309b3921d65dd4376","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"9e9fbd7030c440b33d021da145d3232984c8bb7916f277e8ffd3dc2e3eae2bdb","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"811ec78f7fefcabbda4bfa93b3eb67d9ae166ef95f9bff989d964061cbf81a0c","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"717937616a17072082152a2ef351cb51f98802fb4b2fdabd32399843875974ca","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"d7e7d9b7b50e5f22c915b525acc5a49a7a6584cf8f62d0569e557c5cfc4b2ac2","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"71c37f4c9543f31dfced6c7840e068c5a5aacb7b89111a4364b1d5276b852557","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"576711e016cf4f1804676043e6a0a5414252560eb57de9faceee34d79798c850","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"89c1b1281ba7b8a96efc676b11b264de7a8374c5ea1e6617f11880a13fc56dc6","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"74f7fa2d027d5b33eb0471c8e82a6c87216223181ec31247c357a3e8e2fddc5b","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"d6d7ae4d1f1f3772e2a3cde568ed08991a8ae34a080ff1151af28b7f798e22ca","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"063600664504610fe3e99b717a1223f8b1900087fab0b4cad1496a114744f8df","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"934019d7e3c81950f9a8426d093458b65d5aff2c7c1511233c0fd5b941e608ab","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"52ada8e0b6e0482b728070b7639ee42e83a9b1c22d205992756fe020fd9f4a47","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"3bdefe1bfd4d6dee0e26f928f93ccc128f1b64d5d501ff4a8cf3c6371200e5e6","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"59fb2c069260b4ba00b5643b907ef5d5341b167e7d1dbf58dfd895658bda2867","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"639e512c0dfc3fad96a84caad71b8834d66329a1f28dc95e3946c9b58176c73a","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"368af93f74c9c932edd84c58883e736c9e3d53cec1fe24c0b0ff451f529ceab1","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"af3dd424cf267428f30ccfc376f47a2c0114546b55c44d8c0f1d57d841e28d74","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"995c005ab91a498455ea8dfb63aa9f83fa2ea793c3d8aa344be4a1678d06d399","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"959d36cddf5e7d572a65045b876f2956c973a586da58e5d26cde519184fd9b8a","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"965f36eae237dd74e6cca203a43e9ca801ce38824ead814728a2807b1910117d","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"3925a6c820dcb1a06506c90b1577db1fdbf7705d65b62b99dce4be75c637e26b","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"0a3d63ef2b853447ec4f749d3f368ce642264246e02911fcb1590d8c161b8005","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"b5ce7a470bc3628408429040c4e3a53a27755022a32fd05e2cb694e7015386c7","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"8444af78980e3b20b49324f4a16ba35024fef3ee069a0eb67616ea6ca821c47a","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"3287d9d085fbd618c3971944b65b4be57859f5415f495b33a6adc994edd2f004","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"b4b67b1a91182421f5df999988c690f14d813b9850b40acd06ed44691f6727ad","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"8e7f8264d0fb4c5339605a15daadb037bf238c10b654bb3eee14208f860a32ea","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"782dec38049b92d4e85c1585fbea5474a219c6984a35b004963b00beb1aab538","signature":false,"affectsGlobalScope":true,"impliedFormat":1},{"version":"addc919449cf4da4c8f8e6c4cd22937326459d6403be3e957c79599e9538edd4","signature":false},{"version":"cd58d4d0bcb6ac6b622153dcc38d8532b1015e5cf48190e208dd67d9882bb6f6","signature":false},{"version":"4954f4a8e0d7466cdebb15e6432c0cc8cb8f71c9f6630408dc88a1a680def9e9","signature":false},{"version":"af928eb84175e29a6f81f1a098c6109074b68cfa9629337394314bf3db45ada2","signature":false},{"version":"1444a0b5cf634b378d838fa08f672cabeeec435359733364bc124d0a1a2fe58f","signature":false},{"version":"c1a28bb6057626460983d49571162ecaaf57edb001d9a5d1b116aa5ace281262","signature":false},{"version":"40e26f8b6792d66b63799537fcfe03d0fe42991f432937b9bddf7043a2f679ab","signature":false},{"version":"365b2ae542a30c404720783f2abcad82be1aa80c1255e8363217ee0535e21d83","signature":false},{"version":"339c792bf24c9384d73be8acc470acf2122c686aff96ec5c11572a26a6d5b586","signature":false},{"version":"2c1f64ab7f3d0a0befced30b1fc65121046bd624113fc06e8548fb4a1c2292ed","signature":false},{"version":"0a94a00a881a1cb950a8eb4b6209f5ebe4378ce78a66f91fbe6a6d8d259023ec","signature":false},{"version":"97820675f31f963234099e1f1ee73b59e708d1a22613c700de783e27e6f638f7","signature":false},{"version":"2b98627c67d88061e1d774381c87987204d01713ef399209293265458c9dbeb9","signature":false},{"version":"0e144438f648048ac6ef1045a2ac8f95c8421387196ad6911064b5921210c8a0","signature":false},{"version":"f33f57c312bbbbbe02c0df52d978b5ee5794da139029b9a00f41e74cbf7ebc41","signature":false},{"version":"2b2f1c2cf154c497e36572110ac1179f8131899d3754e02e4252ac5d6bc58add","signature":false},{"version":"cbcb4173eb1a09c6bddbf465227944e3646aa50de14b17db1de91352a8e92265","signature":false},{"version":"5d89227fb77ed4ab60bab3a89251c171a26d7b8f5a9cd091ff2a9cbcd0dd4f57","signature":false,"affectsGlobalScope":true},{"version":"806cf4991a613cd40ce291ff40e8679ce89dfc3338799f730fca6cee2e1e550d","signature":false},{"version":"b4059436cc03d614961be31cc06b7d4a011f4eceb2469552d3cd2d22b7461f40","signature":false},{"version":"55a1ba981e82515a72141d712c1a1aa3dac7fc5a5bad94b4996c191fb73df7ca","signature":false},{"version":"e3bb690909e31ae19cd2502b6565f39fba97c7babb345540e741f4c32d3c49da","signature":false},{"version":"8deadcd8e1e3c66fb60a69a1a156a0e6af07afc646e44eff2153f3f33f5b1b4e","signature":false},{"version":"0d7ce0555eef37e9ff90f0104e041dee22590eeda9087bfc95afa66a9bf49627","signature":false},{"version":"1e144ed2423c3bf77a8d3a69ad28541732a2dca7319867bb9e15f0df62a378ed","signature":false},{"version":"96a50b9b892eb528b84e9c6512ee72e37f74c4983a597c6e14ad1be6c346a933","signature":false},{"version":"90c7c0ce76b567fb66ad94243bf8c7f34a978018bc478ea3db51763becab921d","signature":false},{"version":"c692532ffab6b23c55fd5cf9e4620625fde2a40fde990662e81a9cea40c6f333","signature":false},{"version":"2c850c41dbacc0c952ba398fc61b025579ebe0a4a5afdd0aeb0099f2c2ce231f","signature":false},{"version":"cb4f998654818c14ca0aeca581419ed1366dd322c7bd2a79081427c6068d58d2","signature":false},{"version":"961f9a169de723d1fd02da1a652e15d2953160d8623be7a4b43f4912fea814e7","signature":false},{"version":"2f26854f21da3bca3eb09d28c541163c99ecc2e5d90f3f99c543793e7e4ee508","signature":false},{"version":"70b3050832ac91b59bc568f72a9100006cfe51c975c8f96408627ebbb3a30401","signature":false},{"version":"bc0d1dd3b7673996d18a979a8318e0c8218a360d087d775e80314888054d659f","signature":false},{"version":"a4441ce0138f652e5e1dbf9d1233ad3be8b22aad7a5735d32690a48f99d5db14","signature":false},{"version":"eae1f1d9bc780f76caff164715fced24dc05e6a879c0e17446ae01c25ab972a9","signature":false},{"version":"fbaabde9ca66a3d3c8416e53817ee81d54ac9f61e593e29ac29b8f90d67c176b","signature":false},{"version":"868ff86ca2b12b9d7bbeeb9a9fc9d5f52907dc94bc542ec2330530361cb4a9f8","signature":false},{"version":"6d25adf98101800205536c7addd31cbd8da77f36edcff44e92c32fe9d85ede76","signature":false},{"version":"6151e5f8035fad301c3252fa4c927db755406e8f6336e864d7f6f4cbedc4be39","signature":false},{"version":"078b2881e8d7d97b5b3c3b661ac4c2fa2d7d7cda34f6686b2dae317dba9c6ecf","signature":false},{"version":"87d30f2a6b8a0f4e135b2297f403170c390ed8e189350362f0b11c450e9b9620","signature":false},{"version":"1e2ae744fe3e8ed4e6c31a1af721023b7baafdbc51775db5bec8fb37e6d4df44","signature":false},{"version":"07158a6cabb807be64eaf6f9857fcba2bef647be9eda4cbcc6739e9a9e9043e9","signature":false},{"version":"4709696f6020bc6f869ec9becc2e332c1522724bd17cc42937c31bfe95b6d2ab","signature":false},{"version":"e17b6c163789178090b12803a4f6bcb6291b8efb29c789e32bd1ed2fd78e5355","signature":false},{"version":"2c42416c3143bbe632e29b8dd77d8bde9d23b297b1aebf5db6812d01f2317a02","signature":false},{"version":"1317fe56507152ad2566d660ff34d5c6ee654ac54ff7acbbe67e8012d60ae715","signature":false},{"version":"b7c49e5ec58a1af013ea9647ceaef7cc7b0722a47b23593d45def9fcc481cf6f","signature":false},{"version":"7fd37821af6840d96ecdfac0d128e370dc3db22ce01fc001409c6b8118d73612","signature":false},{"version":"a733a1235e5808c119463e56820fa722bc95198422198656cee9fe8b04d7a94f","signature":false},{"version":"09bc30a783b47eee2d57843fdba854b04cade9993205488aa710fffb63b7c628","signature":false},{"version":"d4d2220c65649eec8a97d9cfb66b4c3b03dc69d4008dc5efd14846f8a047fcf1","signature":false},{"version":"a7cbb18cce98e6db0e5fc377c238f70448767ced3039ee61f33c183d53e91a25","signature":false},{"version":"04cb68af59ec6f6e0c08868afe6adbc123223506818f40a3a21869af64368cc6","signature":false},{"version":"32bebceb1dd9b2fc10d71ca2cc9e4cb831875d49d26bc3feb8461aeea5ec3883","signature":false},{"version":"119127dea95cbdbd343a78a0dc795126c0b67ffc4a65d6c7880ba63d9bd236c9","signature":false},{"version":"a9454b6b586b0b6653051028e161488e65b552b3a558a1cf034c3a970681d414","signature":false},{"version":"b12837196c13f96bd66f9091bd48427a2bbf11ab1006141911295a439a023fe4","signature":false},{"version":"85019bd0a0c80b2b9219de899bc628f1be7ebb1a9117f306e97ecad8120a7cb9","signature":false},{"version":"dffc7dd3f7a537258a6a225d4b856ff57f31446a31c171dd2fdf3d06ea4af917","signature":false},{"version":"d37c8d78b2e408bf011f6332d62e8b8794f125e7e1d04d888b719d353905e9d7","signature":false},{"version":"748fd8642a5fb4c1dfe71eae7a4f1fdad6c7f13e4d5f738ffa5c78b75aa514ef","signature":false},{"version":"cdb04190236965093133a42b0d590a0347b157a80262f755960f8b47f755922a","signature":false},{"version":"52cf3e7305b1ad62b1318547ce615bf3f5272e9a533df554935c662fe77cf755","signature":false},{"version":"cb9ac38d2d7cf60d43d55c976c5dda298788c6bd1a8f1612908cff3e845994cc","signature":false},{"version":"4094c0813c1fd89abd4385e80ae80e20fad81bd862a66a13639fa0cbdbc3f84a","signature":false},{"version":"2cf5eacefd49113e3460391964c585385814fc76719ec1c618fc1bf8c314c309","signature":false},{"version":"fd95294f77076c956f2e75d0ca55615be33115cf31fa81fd8b6ae83007db0a30","signature":false},{"version":"00c4ef423d6f131ba0e97cbd83b5ababebde730a12f44e064cc7e87d499f18c5","signature":false},{"version":"fe250d83de51b448f845d1480a63c33c883af9fb7dd14549e8fb5490f296f1a2","signature":false},{"version":"4b1228720466f3c0ad46beb9c408d12e0455561ca86aa4f7324e60ef2fc20075","signature":false},{"version":"f2c934dba93a22287f40805f1aeaf64cea75e42a06e39c174d183d8e519591ee","signature":false},{"version":"93d38906afdd5c6c9855686b703b542dad8176c4cfcfd3f6862cbdd5ead18681","signature":false}],"root":[[58,131]],"options":{"alwaysStrict":true,"module":99,"noEmitOnError":true,"noFallthroughCasesInSwitch":true,"noImplicitAny":true,"noImplicitOverride":false,"noImplicitReturns":true,"noImplicitThis":true,"noUnusedLocals":true,"outDir":"./dist","rootDir":"./src","skipLibCheck":true,"strictBindCallApply":true,"strictFunctionTypes":false,"strictNullChecks":true,"strictPropertyInitialization":true,"target":9,"tsBuildInfoFile":"./.tsbuildinfo","useUnknownInCatchVariables":true},"referencedMap":[[103,1],[106,2],[107,3],[78,4],[61,5],[81,5],[108,6],[64,7],[109,8],[67,9],[110,10],[62,11],[111,12],[104,13],[59,14],[112,15],[113,16],[69,11],[114,17],[80,11],[71,18],[105,11],[115,7],[63,11],[116,19],[76,20],[117,21],[119,22],[87,23],[83,24],[82,25],[86,26],[79,27],[85,28],[84,29],[120,17],[97,19],[121,30],[68,31],[122,17],[93,32],[98,33],[123,17],[95,32],[124,17],[101,34],[100,35],[125,17],[94,32],[126,17],[96,36],[127,37],[73,38],[128,17],[89,39],[129,40],[88,41],[99,42],[130,17],[92,43],[91,44]],"changeFileSet":[103,58,106,66,107,78,61,90,77,81,108,64,109,67,70,110,62,111,104,59,60,112,65,113,69,114,80,71,105,115,63,102,116,76,117,72,118,119,87,83,82,86,79,85,84,120,97,121,68,122,93,98,123,95,124,101,100,125,94,126,96,127,73,128,89,129,88,99,130,92,131,74,91,75,56,57,11,10,2,12,13,14,15,16,17,18,19,3,20,21,4,22,26,23,24,25,27,28,29,5,30,31,32,33,6,37,34,35,36,38,7,39,44,45,40,41,42,43,8,49,46,47,48,50,9,51,52,53,55,54,1],"version":"5.8.3"}
+\ No newline at end of file
+diff -ruN orig99/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts workrepo2/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts
+--- orig99/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts	2026-07-29 03:03:11.000000000 +0000
++++ workrepo2/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts	2026-07-29 17:58:11.593169229 +0000
+@@ -614,31 +614,35 @@
+     const appliedPaths = results.filter((r) => r.ok).map((r) => r.path);
+     const failedPaths  = results.filter((r) => !r.ok).map((r) => r.path);
+     const applyCorrelationId = randomUUID();
+-    if (appliedPaths.length > 0) {
+-      await recordAudit({
+-        entityType: "project",
+-        entityId: projectId,
+-        action: "ai_executed",
+-        projectId,
+-        stateBefore: {},
+-        stateAfter: { filesWritten: appliedPaths },
+-        correlationId: applyCorrelationId,
+-      });
++    await recordAudit({
++      entityType: "project",
++      entityId: projectId,
++      action: "ai_executed",
++      projectId,
++      stateBefore: {},
++      stateAfter: { filesWritten: appliedPaths, failedFiles: failedPaths },
++      correlationId: applyCorrelationId,
++    });
+ 
++    if (appliedPaths.length > 0) {
+       invalidateContextCache(projectId);
+-
+-      const preview = appliedPaths.slice(0, 3).join(", ") + (appliedPaths.length > 3 ? ` +${appliedPaths.length - 3} more` : "");
+-      await db.insert(eventsTable).values({
+-        id: randomUUID(),
+-        type: "AiChangesApplied",
+-        projectId,
+-        severity: failedPaths.length > 0 ? "warning" : "success",
+-        message: `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
+-        correlationId: applyCorrelationId,
+-        payload: { appliedFiles: appliedPaths, failedFiles: failedPaths },
+-      });
+     }
+ 
++    const preview = appliedPaths.length > 0
++      ? appliedPaths.slice(0, 3).join(", ") + (appliedPaths.length > 3 ? ` +${appliedPaths.length - 3} more` : "")
++      : failedPaths.slice(0, 3).join(", ") + (failedPaths.length > 3 ? ` +${failedPaths.length - 3} more` : "");
++    await db.insert(eventsTable).values({
++      id: randomUUID(),
++      type: "AiChangesApplied",
++      projectId,
++      severity: appliedPaths.length > 0 ? (failedPaths.length > 0 ? "warning" : "success") : "warning",
++      message: appliedPaths.length > 0
++        ? `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`
++        : `AI apply made no writable changes: ${preview || "none"}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
++      correlationId: applyCorrelationId,
++      payload: { appliedFiles: appliedPaths, failedFiles: failedPaths },
++    });
++
+     const allOk = results.every((r) => r.ok);
+     return res.status(allOk ? 200 : 207).json({ results });
+   } finally {
+diff -ruN orig99/EngineeringOS-main/artifacts/api-server/src/routes/ai/tasks.ts workrepo2/EngineeringOS-main/artifacts/api-server/src/routes/ai/tasks.ts
+--- orig99/EngineeringOS-main/artifacts/api-server/src/routes/ai/tasks.ts	2026-07-29 03:03:11.000000000 +0000
++++ workrepo2/EngineeringOS-main/artifacts/api-server/src/routes/ai/tasks.ts	2026-07-29 17:59:06.589168609 +0000
+@@ -109,10 +109,14 @@
+       }),
+     ));
+   } catch (err) {
+-    await db
++    const [rolledBack] = await db
+       .update(tasksTable)
+       .set({ status: task.status, updatedAt: new Date() })
+-      .where(eq(tasksTable.id, taskId));
++      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
++      .returning();
++    if (!rolledBack) {
++      logger.warn({ taskId, correlationId }, "AI execution failed, but task state changed concurrently — rollback skipped");
++    }
+     await db.insert(taskLogsTable).values({
+       id: randomUUID(),
+       taskId,
+@@ -126,10 +130,14 @@
+   }
+ 
+   if (agentResult._parseError) {
+-    await db
++    const [parsedRolledBack] = await db
+       .update(tasksTable)
+       .set({ status: task.status, updatedAt: new Date() })
+-      .where(eq(tasksTable.id, taskId));
++      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
++      .returning();
++    if (!parsedRolledBack) {
++      logger.warn({ taskId, correlationId }, "AI parse failure occurred, but task state changed concurrently — rollback skipped");
++    }
+     await db.insert(taskLogsTable).values({
+       id: randomUUID(),
+       taskId,
+@@ -167,9 +175,44 @@
+       updatedAt: new Date(),
+       completedAt: finalStatus === "completed" ? new Date() : null,
+     })
+-    .where(eq(tasksTable.id, taskId))
++    .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+     .returning();
+ 
++  if (!updated) {
++    await db.insert(taskLogsTable).values({
++      id: randomUUID(),
++      taskId,
++      level: "warn",
++      message: "AI execution finished but the task changed concurrently; final result was not persisted",
++      metadata: { agentResult, correlationId },
++      correlationId,
++    });
++    await db.insert(eventsTable).values({
++      id: randomUUID(),
++      type: "TaskExecutionConflict",
++      projectId: task.projectId,
++      taskId,
++      severity: "warning",
++      message: `AI execution finished for "${task.title}" but the task state changed concurrently`,
++      correlationId,
++      payload: { expectedStatus: "running", attemptedStatus: finalStatus },
++    });
++    await recordAudit({
++      entityType: "task",
++      entityId: taskId,
++      action: "ai_execution_conflict",
++      projectId: task.projectId,
++      stateBefore: { status: task.status },
++      stateAfter: { status: task.status },
++      correlationId,
++    });
++    return res.status(409).json({
++      error: "task_state_changed_concurrently",
++      code: "task_state_changed_concurrently",
++      hint: "The task was modified while AI execution was running. Re-run the task.",
++    });
++  }
++
+   await db.insert(taskLogsTable).values({
+     id: randomUUID(),
+     taskId,
+@@ -295,7 +338,7 @@
+       let effectiveAutoProvider = provider;
+       try {
+         ({ result: agentResult, effectiveProvider: effectiveAutoProvider } = await runAgentWithFallback(
+-          req.userId,
++          userId,
+           { provider, apiKey },
+           (opts) => executeTask({
+             taskTitle: task.title,
+@@ -308,10 +351,14 @@
+           }),
+         ));
+       } catch (execErr) {
+-        await db
++        const [autoRolledBack] = await db
+           .update(tasksTable)
+           .set({ status: "verifying", updatedAt: new Date() })
+-          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")));
++          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
++          .returning();
++        if (!autoRolledBack) {
++          logger.warn({ taskId, correlationId }, "AI auto-execution failed, but task state changed concurrently — rollback skipped");
++        }
+         await db.insert(taskLogsTable).values({
+           id: randomUUID(),
+           taskId,
+@@ -326,7 +373,7 @@
+ 
+       const autoFinalStatus = agentResult.needsHumanReview ? "verifying" : "completed";
+ 
+-      await db
++      const [autoUpdated] = await db
+         .update(tasksTable)
+         .set({
+           status: autoFinalStatus,
+@@ -341,7 +388,31 @@
+           updatedAt: new Date(),
+           completedAt: autoFinalStatus === "completed" ? new Date() : null,
+         })
+-        .where(eq(tasksTable.id, taskId));
++        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
++        .returning();
++
++      if (!autoUpdated) {
++        logger.warn({ taskId, correlationId }, "AI auto-execution finished but task state changed concurrently — skipping final write");
++        await db.insert(taskLogsTable).values({
++          id: randomUUID(),
++          taskId,
++          level: "warn",
++          message: "AI auto-execution finished but the task changed concurrently; final result was not persisted",
++          metadata: { agentResult, correlationId },
++          correlationId,
++        });
++        await db.insert(eventsTable).values({
++          id: randomUUID(),
++          type: "TaskExecutionConflict",
++          projectId: task.projectId,
++          taskId,
++          severity: "warning",
++          message: `AI auto-execution finished for "${task.title}" but the task state changed concurrently`,
++          correlationId,
++          payload: { expectedStatus: "running", attemptedStatus: autoFinalStatus },
++        });
++        return;
++      }
+ 
+       await db.insert(taskLogsTable).values({
+         id: randomUUID(),
+diff -ruN orig99/EngineeringOS-main/artifacts/api-server/src/routes/ai.test.ts workrepo2/EngineeringOS-main/artifacts/api-server/src/routes/ai.test.ts
+--- orig99/EngineeringOS-main/artifacts/api-server/src/routes/ai.test.ts	2026-07-29 03:03:11.000000000 +0000
++++ workrepo2/EngineeringOS-main/artifacts/api-server/src/routes/ai.test.ts	2026-07-29 17:58:11.593169229 +0000
+@@ -610,6 +610,43 @@
+     expect(res.status).toBe(400);
+   });
+ 
++  it("emits a warning AiChangesApplied event when no file can be written", async () => {
++    // Use /tmp as the project rootPath but point the change outside the root so
++    // the handler records a no-op apply with an event/audit trail.
++    const id = randomUUID();
++    const now = new Date();
++    await db.insert(projectsTable).values({
++      id,
++      ownerId: "test-user",
++      name: `apply-test-${id.slice(0, 8)}`,
++      rootPath: "/tmp",
++      language: "typescript",
++      status: "active",
++      createdAt: now,
++      updatedAt: now,
++    });
++    projectIds.push(id);
++
++    const res = await request(app)
++      .post("/api/ai/chat/apply-changes")
++      .send({
++        projectId: id,
++        changes: [{ path: "escape.txt", absolutePath: "/etc/escape.txt", newContent: "// blocked" }],
++      });
++    expect(res.status).toBe(207);
++    expect(res.body.results).toHaveLength(1);
++    expect(res.body.results[0].ok).toBe(false);
++
++    const events = await db
++      .select()
++      .from(eventsTable)
++      .where(eq(eventsTable.projectId, id));
++    const ev = events.find((e) => e.type === "AiChangesApplied");
++    expect(ev).toBeDefined();
++    expect(ev?.severity).toBe("warning");
++    expect((ev?.payload as { appliedFiles?: string[] })?.appliedFiles ?? []).toHaveLength(0);
++  });
++
+   it("emits an AiChangesApplied event when at least one file is successfully written", async () => {
+     // Use /tmp as the project rootPath so the handler can actually write files.
+     const id = randomUUID();

@@ -1,0 +1,115 @@
+diff -ruN '--exclude=node_modules' '--exclude=.git' /tmp/engos_clean/EngineeringOS-main/artifacts/api-server/src/routes/ai/tasks.ts /tmp/engos/EngineeringOS-main/artifacts/api-server/src/routes/ai/tasks.ts
+--- /tmp/engos_clean/EngineeringOS-main/artifacts/api-server/src/routes/ai/tasks.ts	2026-07-29 03:03:11.000000000 +0000
++++ /tmp/engos/EngineeringOS-main/artifacts/api-server/src/routes/ai/tasks.ts	2026-07-29 17:51:40.073173637 +0000
+@@ -88,9 +88,30 @@
+     correlationId,
+   });
+ 
+-  const projectContext = await buildProjectContext(task.projectId, {
+-    sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+-  });
++  let projectContext: Awaited<ReturnType<typeof buildProjectContext>>;
++  try {
++    projectContext = await buildProjectContext(task.projectId, {
++      sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
++    });
++  } catch (err) {
++    await db
++      .update(tasksTable)
++      .set({ status: task.status, updatedAt: new Date() })
++      .where(eq(tasksTable.id, taskId));
++    await db.insert(taskLogsTable).values({
++      id: randomUUID(),
++      taskId,
++      level: "error",
++      message: err instanceof Error ? err.message : String(err),
++      metadata: { error: String(err), stage: "buildProjectContext", correlationId },
++      correlationId,
++    });
++    if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution", provider })) return;
++    return res.status(500).json({
++      error: "Failed to build project context",
++      hint: "Try executing the task again or refresh the project graph and metrics.",
++    });
++  }
+ 
+   let agentResult: Awaited<ReturnType<typeof executeTask>>;
+   let effectiveProvider = provider;
+@@ -118,7 +139,7 @@
+       taskId,
+       level: "error",
+       message: err instanceof Error ? err.message : String(err),
+-      metadata: { error: String(err), correlationId },
++      metadata: { error: String(err), stage: "runAgentWithFallback", correlationId },
+       correlationId,
+     });
+     if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution", provider: effectiveProvider })) return;
+@@ -287,15 +308,31 @@
+         correlationId,
+       });
+ 
+-      const projectContext = await buildProjectContext(task.projectId, {
+-        sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+-      });
++      let projectContext: Awaited<ReturnType<typeof buildProjectContext>>;
++      try {
++        projectContext = await buildProjectContext(task.projectId, {
++          sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
++        });
++      } catch (execErr) {
++        await db
++          .update(tasksTable)
++          .set({ status: "verifying", updatedAt: new Date() })
++          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")));
++        await db.insert(taskLogsTable).values({
++          id: randomUUID(),
++          taskId,
++          level: "error",
++          message: `AI auto-execution failed while building context: ${execErr instanceof Error ? execErr.message : String(execErr)}`,
++          correlationId,
++        });
++        throw execErr;
++      }
+ 
+       let agentResult: Awaited<ReturnType<typeof executeTask>>;
+       let effectiveAutoProvider = provider;
+       try {
+         ({ result: agentResult, effectiveProvider: effectiveAutoProvider } = await runAgentWithFallback(
+-          req.userId,
++          userId,
+           { provider, apiKey },
+           (opts) => executeTask({
+             taskTitle: task.title,
+diff -ruN '--exclude=node_modules' '--exclude=.git' /tmp/engos_clean/EngineeringOS-main/artifacts/api-server/src/routes/ai.test.ts /tmp/engos/EngineeringOS-main/artifacts/api-server/src/routes/ai.test.ts
+--- /tmp/engos_clean/EngineeringOS-main/artifacts/api-server/src/routes/ai.test.ts	2026-07-29 03:03:11.000000000 +0000
++++ /tmp/engos/EngineeringOS-main/artifacts/api-server/src/routes/ai.test.ts	2026-07-29 17:51:16.053173907 +0000
+@@ -802,6 +802,29 @@
+     expect(errLog).toBeDefined();
+   });
+ 
++  it("returns 500 and restores task status when buildProjectContext fails", async () => {
++    const { buildProjectContext } = await import("@workspace/ai-orchestrator");
++    vi.mocked(buildProjectContext).mockRejectedValueOnce(new Error("context build failed"));
++
++    const projectId = await insertProject();
++    projectIds.push(projectId);
++    const taskId = await insertTask(projectId, "pending");
++
++    const res = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
++    expect(res.status).toBe(500);
++    expect(res.body.error).toBe("Failed to build project context");
++
++    const [task] = await db
++      .select()
++      .from(tasksTable)
++      .where(eq(tasksTable.id, taskId))
++      .limit(1);
++    expect(task?.status).toBe("pending");
++
++    const logs = await db.select().from(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
++    expect(logs.some((l) => l.level === "error" && typeof l.message === "string" && l.message.includes("context build failed"))).toBe(true);
++  });
++
+   it("returns 428 and leaves task in original status when no Groq API key is configured", async () => {
+     // Regression: the key check must happen BEFORE the atomic claim so the task
+     // is never left stuck in "running" when no key is configured.

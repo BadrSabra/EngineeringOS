@@ -1,0 +1,57 @@
+راجع المسار من التخزين إلى الاختيار إلى الاستدعاء، والسبب الأقرب ليس في زر الحفظ نفسه، بل في سياسة تفعيل DeepSeek داخل المنصة.
+
+الخلل الأساسي: في artifacts/api-server/src/lib/ai-route-helpers.ts يتم اختيار DeepSeek أولًا بمجرد وجود مفتاح محفوظ في قاعدة البيانات. بعد ذلك، chatWithFallback() لا ينتقل إلى Groq إلا إذا كان الخطأ RATE_LIMITED فقط.
+هذا يعني أن أي مشكلة من نوع:
+
+مفتاح DeepSeek غير صالح (AUTH_ERROR)
+
+مشكلة شبكة (NETWORK_ERROR)
+
+رد غير 200 (NON_200)
+
+رد فارغ (EMPTY_RESPONSE)
+
+
+ستسقط الطلب مباشرة، ولن يحدث fallback إلى Groq حتى لو كان Groq مهيأ ومتاحًا.
+
+بمعنى أبسط:
+إذا حفظت DeepSeek API key غير صحيح أو منتهي، فالنظام يختاره كـ provider أساسي، ثم يفشل، ثم لا يحاول إنقاذ الطلب إلا في حالة rate limit فقط. هذا يفسر “المشكلة عند استخدام DeepSeek API keys” بشكل مباشر.
+
+نقطة ثانية تزيد الالتباس: handleOrchestratorError() ما زالت تُرجع رسائل Groq-centric حتى عندما يكون الخطأ آتيًا من DeepSeek.
+فالمستخدم قد يرى رسالة تقول Groq key أو Groq error بينما السبب الحقيقي DeepSeek. هذا لا يكسر التنفيذ وحده، لكنه يجعل التشخيص مضلّلًا جدًا.
+
+نقطة ثالثة مهمة: في lib/ai-orchestrator/src/agents/chat-agent.ts، مسار الـ streaming مفعل لـ Groq فقط:
+
+if (onDelta && provider === "groq")
+
+أما DeepSeek فيُرسل non-streaming فقط.
+إذًا لو الواجهة تعتمد على SSE tokens لتظهر “يكتب الآن”، فمع DeepSeek لن ترى deltas حيّة، وقد يبدو الأمر كأنه توقف أو لم يعمل رغم أن الرد قد يصل في النهاية.
+
+أخطر سيناريو عملي عندك الآن:
+
+1. المستخدم يحفظ DeepSeek key.
+
+
+2. resolveProvider() يختار DeepSeek تلقائيًا.
+
+
+3. الطلب يذهب إلى DeepSeek.
+
+
+4. إذا المفتاح أو الرد فيه أي خطأ غير rate limit، لا يوجد fallback.
+
+
+5. الواجهة تستقبل خطأ، ورسالة الخطأ نفسها قد تذكر Groq بدل DeepSeek.
+
+
+
+الخلاصة التقنية: المشكلة ليست “حفظ المفتاح” بحد ذاته، بل أن DeepSeek صار primary hard path بدون تعافٍ كافٍ، ومعه مسار streaming غير متاح، ورسائل أخطاء غير متطابقة مع المزود الفعلي.
+
+أقرب ملفين للإصلاح أولًا:
+
+artifacts/api-server/src/lib/ai-route-helpers.ts
+
+lib/ai-orchestrator/src/agents/chat-agent.ts
+
+
+الخطوة التالية الطبيعية هي تعديل fallback ليشمل أخطاء DeepSeek غير RATE_LIMITED، ثم توحيد رسائل الخطأ لتذكر المزود الحقيقي بدل Groq دائمًا.

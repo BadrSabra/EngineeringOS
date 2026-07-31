@@ -1,0 +1,35 @@
+7 - Upgrade Dashboard to Operational UI
+What & Why
+Current dashboard pages display data but don't let users act on it. The graph page shows nodes and edges but offers no way to navigate relationships. The workflows page shows status but not phase history. The metrics page shows numbers but no trend. Turning the dashboard into an operational tool means users can understand the health of a project, take action, and track outcomes — without opening the codebase.
+
+Done looks like
+The main Dashboard page shows a meaningful project health summary: active scan jobs, recent rule violations, workflow status, and a top-level quality score
+The Workflows page displays the full phase history for a workflow, including failure reasons and timestamps; users can trigger advance/retry/fail from the UI
+The Graph page lets users click a node to see its neighbors, relationships, and linked tasks or rules
+The Metrics page shows trend charts (not just current values) for key quality metrics over time
+The Tasks page supports creating, updating status, and viewing task logs inline
+All pages handle loading, error, and empty states with clear messaging (no blank pages or silent failures)
+The sidebar navigation reflects the real structure of the platform (no placeholder links)
+Out of scope
+AI-powered suggestions or automation
+Plugin management UI (deferred to plugin task)
+Real-time websocket updates (polling is acceptable)
+Steps
+Dashboard summary page — Wire up the dashboard overview endpoint to display project health cards, recent events, active jobs, and rule violation counts with real data
+Workflow phase history UI — Add a phase timeline component to the Workflows detail view; expose advance/retry/fail actions as buttons with confirmation dialogs
+Graph node explorer — Add click-to-expand neighbor navigation in the Graph page; show a side panel with entity details, linked rules, and linked tasks
+Metrics trend charts — Replace point-in-time metric display with sparkline/line charts showing the last N scans worth of data per metric
+Tasks inline logs — Add an expandable log section to each task row that fetches and displays task_logs entries
+Empty/error/loading states — Audit every page for missing states and add appropriate UI for each (skeleton loaders, error banners with retry, empty-state illustrations)
+Relevant files
+artifacts/dashboard/src/pages/Dashboard.tsx
+artifacts/dashboard/src/pages/Workflows.tsx
+artifacts/dashboard/src/pages/Graph.tsx
+artifacts/dashboard/src/pages/Metrics.tsx
+artifacts/dashboard/src/pages/Tasks.tsx
+artifacts/dashboard/src/pages/Projects.tsx
+artifacts/dashboard/src/pages/ProjectDetail.tsx
+lib/api-client-react/src/generated/api.ts
+artifacts/api-server/src/routes/dashboard.ts
+Dependencies
+Plan #7 - Upgrade dashboard to operational UI

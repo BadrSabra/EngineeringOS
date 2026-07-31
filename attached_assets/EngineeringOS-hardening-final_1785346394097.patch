@@ -1,0 +1,931 @@
+--- orig_engineeringos/EngineeringOS-main/artifacts/api-server/src/routes/ai/tasks.ts	2026-07-29 16:28:11.300330880 +0000
++++ hardening_work/EngineeringOS-main/artifacts/api-server/src/routes/ai/tasks.ts	2026-07-29 16:27:59.240331262 +0000
+@@ -32,6 +32,8 @@
+ 
+ const router = Router();
+ 
++class TaskStateConflictError extends Error {}
++
+ // ── POST /api/ai/tasks/:taskId/execute ───────────────────────────────────────
+ 
+ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
+@@ -88,13 +90,14 @@
+     correlationId,
+   });
+ 
+-  const projectContext = await buildProjectContext(task.projectId, {
+-    sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+-  });
+-
+   let agentResult: Awaited<ReturnType<typeof executeTask>>;
+   let effectiveProvider = provider;
++  let projectContext: Awaited<ReturnType<typeof buildProjectContext>>;
+   try {
++    projectContext = await buildProjectContext(task.projectId, {
++      sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
++    });
++
+     ({ result: agentResult, effectiveProvider } = await runAgentWithFallback(
+       req.userId,
+       { provider, apiKey },
+@@ -109,27 +112,55 @@
+       }),
+     ));
+   } catch (err) {
++    const message = err instanceof Error ? err.message : String(err);
++
+     await db
+       .update(tasksTable)
+       .set({ status: task.status, updatedAt: new Date() })
+-      .where(eq(tasksTable.id, taskId));
++      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")));
++
+     await db.insert(taskLogsTable).values({
+       id: randomUUID(),
+       taskId,
+       level: "error",
+-      message: err instanceof Error ? err.message : String(err),
+-      metadata: { error: String(err), correlationId },
++      message: `AI execution failed: ${message}`,
++      metadata: { error: message, correlationId },
+       correlationId,
+     });
++
++    await db.insert(eventsTable).values({
++      id: randomUUID(),
++      type: "TaskExecutionFailed",
++      projectId: task.projectId,
++      taskId,
++      severity: "error",
++      message: `AI execution of "${task.title}" failed: ${message}`,
++      correlationId,
++      payload: { error: message, status: task.status },
++    });
++
++    await recordAudit({
++      entityType: "task",
++      entityId: taskId,
++      action: "execution_failed",
++      projectId: task.projectId,
++      stateBefore: { status: "running" },
++      stateAfter: { status: task.status },
++      changedFields: { error: message },
++      correlationId,
++    });
++
++    invalidateContextCache(task.projectId);
++
+     if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution", provider: effectiveProvider })) return;
+-    throw err;
++    return res.status(500).json({ error: "task_execution_failed", reason: message });
+   }
+ 
+   if (agentResult._parseError) {
+     await db
+       .update(tasksTable)
+       .set({ status: task.status, updatedAt: new Date() })
+-      .where(eq(tasksTable.id, taskId));
++      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")));
+     await db.insert(taskLogsTable).values({
+       id: randomUUID(),
+       taskId,
+@@ -152,42 +183,58 @@
+   const finalStatus = agentResult.needsHumanReview ? "verifying" : "completed";
+   const agentResponseText = JSON.stringify(agentResult, null, 2);
+ 
+-  const [updated] = await db
+-    .update(tasksTable)
+-    .set({
+-      status: finalStatus,
+-      agentResponse: agentResponseText,
+-      verificationResult: {
+-        passed: !agentResult.needsHumanReview,
+-        steps: agentResult.steps.map((s: string) => ({
+-          name: s,
+-          passed: !agentResult.needsHumanReview,
+-        })),
+-      },
+-      updatedAt: new Date(),
+-      completedAt: finalStatus === "completed" ? new Date() : null,
+-    })
+-    .where(eq(tasksTable.id, taskId))
+-    .returning();
++  let updated: typeof tasksTable.$inferSelect;
++  try {
++    [updated] = await db.transaction(async (tx) => {
++      const [row] = await tx
++        .update(tasksTable)
++        .set({
++          status: finalStatus,
++          agentResponse: agentResponseText,
++          verificationResult: {
++            passed: !agentResult.needsHumanReview,
++            steps: agentResult.steps.map((s: string) => ({
++              name: s,
++              passed: !agentResult.needsHumanReview,
++            })),
++          },
++          updatedAt: new Date(),
++          completedAt: finalStatus === "completed" ? new Date() : null,
++        })
++        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
++        .returning();
++      if (!row) {
++        throw new TaskStateConflictError("Task state changed before execution results could be finalized");
++      }
+ 
+-  await db.insert(taskLogsTable).values({
+-    id: randomUUID(),
+-    taskId,
+-    level: finalStatus === "completed" ? "info" : "warn",
+-    message: `AI agent: ${agentResult.summary} (confidence: ${agentResult.confidence})`,
+-    metadata: { agentResult, correlationId },
+-    correlationId,
+-  });
++      await tx.insert(taskLogsTable).values({
++        id: randomUUID(),
++        taskId,
++        level: finalStatus === "completed" ? "info" : "warn",
++        message: `AI agent: ${agentResult.summary} (confidence: ${agentResult.confidence})`,
++        metadata: { agentResult, correlationId },
++        correlationId,
++      });
+ 
+-  await db.insert(eventsTable).values({
+-    id: randomUUID(),
+-    type: finalStatus === "completed" ? "TaskCompleted" : "TaskVerifying",
+-    projectId: task.projectId,
+-    taskId,
+-    severity: finalStatus === "completed" ? "success" : "warning",
+-    message: `AI executed "${task.title}" → ${finalStatus} (${agentResult.confidence} confidence)`,
+-    correlationId,
+-  });
++      await tx.insert(eventsTable).values({
++        id: randomUUID(),
++        type: finalStatus === "completed" ? "TaskCompleted" : "TaskVerifying",
++        projectId: task.projectId,
++        taskId,
++        severity: finalStatus === "completed" ? "success" : "warning",
++        message: `AI executed "${task.title}" → ${finalStatus} (${agentResult.confidence} confidence)`,
++        correlationId,
++      });
++
++      return [row];
++    });
++  } catch (err) {
++    if (err instanceof TaskStateConflictError) {
++      logger.warn({ taskId, finalStatus }, "task execution finalization skipped due to concurrent state change");
++      return res.status(409).json({ error: "task_state_changed_concurrently" });
++    }
++    throw err;
++  }
+ 
+   await recordAudit({
+     entityType: "task",
+@@ -287,15 +334,16 @@
+         correlationId,
+       });
+ 
+-      const projectContext = await buildProjectContext(task.projectId, {
+-        sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+-      });
+-
+       let agentResult: Awaited<ReturnType<typeof executeTask>>;
+       let effectiveAutoProvider = provider;
++      let projectContext: Awaited<ReturnType<typeof buildProjectContext>>;
+       try {
++        projectContext = await buildProjectContext(task.projectId, {
++          sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
++        });
++
+         ({ result: agentResult, effectiveProvider: effectiveAutoProvider } = await runAgentWithFallback(
+-          req.userId,
++          userId,
+           { provider, apiKey },
+           (opts) => executeTask({
+             taskTitle: task.title,
+@@ -308,17 +356,43 @@
+           }),
+         ));
+       } catch (execErr) {
++        const message = execErr instanceof Error ? execErr.message : String(execErr);
++
+         await db
+           .update(tasksTable)
+           .set({ status: "verifying", updatedAt: new Date() })
+           .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")));
++
+         await db.insert(taskLogsTable).values({
+           id: randomUUID(),
+           taskId,
+           level: "error",
+-          message: `AI auto-execution failed: ${execErr instanceof Error ? execErr.message : String(execErr)}`,
++          message: `AI auto-execution failed: ${message}`,
++          correlationId,
++        });
++
++        await db.insert(eventsTable).values({
++          id: randomUUID(),
++          type: "TaskAutoExecutionFailed",
++          projectId: task.projectId,
++          taskId,
++          severity: "error",
++          message: `AI auto-execution of "${task.title}" failed: ${message}`,
++          correlationId,
++          payload: { error: message, status: "verifying" },
++        });
++
++        await recordAudit({
++          entityType: "task",
++          entityId: taskId,
++          action: "ai_auto_execution_failed",
++          projectId: task.projectId,
++          stateBefore: { status: "running" },
++          stateAfter: { status: "verifying" },
+           correlationId,
+         });
++
++        invalidateContextCache(task.projectId);
+         throw execErr;
+       }
+ 
+@@ -326,7 +400,7 @@
+ 
+       const autoFinalStatus = agentResult.needsHumanReview ? "verifying" : "completed";
+ 
+-      await db
++      const [finalized] = await db
+         .update(tasksTable)
+         .set({
+           status: autoFinalStatus,
+@@ -341,7 +415,16 @@
+           updatedAt: new Date(),
+           completedAt: autoFinalStatus === "completed" ? new Date() : null,
+         })
+-        .where(eq(tasksTable.id, taskId));
++        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
++        .returning();
++
++      if (!finalized) {
++        logger.warn(
++          { taskId, status: task.status, autoFinalStatus },
++          "AI auto-execution finalization skipped due to concurrent state change",
++        );
++        return;
++      }
+ 
+       await db.insert(taskLogsTable).values({
+         id: randomUUID(),
+
+--- orig_engineeringos/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts	2026-07-29 16:28:11.300330880 +0000
++++ hardening_work/EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts	2026-07-29 16:26:18.532334454 +0000
+@@ -136,106 +136,108 @@
+       hint: "File changes are still being written for this project — wait a moment, then retry.",
+     });
+   }
+-  await applyProbe.release();
+-
+-  const projectContext = await buildProjectContext(projectId, {
+-    sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
+-  });
+-  let result: Awaited<ReturnType<typeof chat>>;
+   try {
+-    const chatOut = await chatWithFallback(
+-      req.userId,
+-      {
+-        message,
+-        history: historyRows
+-          .reverse()
+-          .filter((m) => m.role === "user" || m.role === "assistant")
+-          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+-        projectContext,
+-        rootPath: validRootPath,
+-      },
+-      { provider, apiKey },
+-      undefined,
+-    );
+-    result = chatOut.result;
+-  } catch (err) {
+-    if (handleOrchestratorError(err, res, { projectId, operation: "chat", provider })) return;
+-    throw err;
+-  }
++    const projectContext = await buildProjectContext(projectId, {
++      sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
++    });
++    let result: Awaited<ReturnType<typeof chat>>;
++    try {
++      const chatOut = await chatWithFallback(
++        req.userId,
++        {
++          message,
++          history: historyRows
++            .reverse()
++            .filter((m) => m.role === "user" || m.role === "assistant")
++            .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
++          projectContext,
++          rootPath: validRootPath,
++        },
++        { provider, apiKey },
++        undefined,
++      );
++      result = chatOut.result;
++    } catch (err) {
++      if (handleOrchestratorError(err, res, { projectId, operation: "chat", provider })) return;
++      throw err;
++    }
+ 
+-  if (result._parseError) {
+-    if (!result.response) {
+-      return res.status(422).json({
+-        error: "model_output_invalid",
+-        code: "model_output_invalid",
+-        hint: "The AI model returned an unexpected response — try rephrasing your message.",
+-        raw: result._parseError.raw.slice(0, 500),
+-        parseCode: result._parseError.code,
+-      });
++    if (result._parseError) {
++      if (!result.response) {
++        return res.status(422).json({
++          error: "model_output_invalid",
++          code: "model_output_invalid",
++          hint: "The AI model returned an unexpected response — try rephrasing your message.",
++          raw: result._parseError.raw.slice(0, 500),
++          parseCode: result._parseError.code,
++        });
++      }
++      logger.warn(
++        { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
++        "AI parse failure — using fallback response",
++      );
+     }
+-    logger.warn(
+-      { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
+-      "AI parse failure — using fallback response",
+-    );
+-  }
+ 
+-  invalidateContextCache(projectId);
++    invalidateContextCache(projectId);
++
++    const msgNow = new Date();
++    let session: typeof aiChatSessionsTable.$inferSelect;
++    if (existingSession) {
++      session = existingSession;
++    } else {
++      const [created] = await db
++        .insert(aiChatSessionsTable)
++        .values({
++          id: randomUUID(),
++          projectId,
++          title: message.slice(0, 60),
++          createdAt: now,
++          updatedAt: now,
++        })
++        .returning();
++      session = created;
++    }
+ 
+-  const msgNow = new Date();
+-  let session: typeof aiChatSessionsTable.$inferSelect;
+-  if (existingSession) {
+-    session = existingSession;
+-  } else {
+-    const [created] = await db
+-      .insert(aiChatSessionsTable)
+-      .values({
++    // Atomic: user message + assistant message + session timestamp update in one
++    // transaction — prevents a half-saved conversation if one insert fails.
++    const assistantMsg = await db.transaction(async (tx) => {
++      await tx.insert(aiChatMessagesTable).values({
+         id: randomUUID(),
+-        projectId,
+-        title: message.slice(0, 60),
++        sessionId: session.id,
++        role: "user",
++        content: message,
+         createdAt: now,
+-        updatedAt: now,
+-      })
+-      .returning();
+-    session = created;
+-  }
++      });
++      const [msg] = await tx
++        .insert(aiChatMessagesTable)
++        .values({
++          id: randomUUID(),
++          sessionId: session.id,
++          role: "assistant",
++          content: sanitizeResponseText(result.response),
++          sources: JSON.stringify(result.sources),
++          createdAt: msgNow,
++        })
++        .returning();
++      await tx
++        .update(aiChatSessionsTable)
++        .set({ updatedAt: msgNow })
++        .where(eq(aiChatSessionsTable.id, session.id));
++      return msg;
++    });
+ 
+-  // Atomic: user message + assistant message + session timestamp update in one
+-  // transaction — prevents a half-saved conversation if one insert fails.
+-  const assistantMsg = await db.transaction(async (tx) => {
+-    await tx.insert(aiChatMessagesTable).values({
+-      id: randomUUID(),
++    return res.json({
+       sessionId: session.id,
+-      role: "user",
+-      content: message,
+-      createdAt: now,
++      message: assistantMsg,
++      sources: result.sources,
++      pendingChanges: result.pendingChanges ?? [],
++      _meta: rootFallbackUsed
++        ? { rootPathFallback: { used: true, original: rootOriginalPath } }
++        : undefined,
+     });
+-    const [msg] = await tx
+-      .insert(aiChatMessagesTable)
+-      .values({
+-        id: randomUUID(),
+-        sessionId: session.id,
+-        role: "assistant",
+-        content: sanitizeResponseText(result.response),
+-        sources: JSON.stringify(result.sources),
+-        createdAt: msgNow,
+-      })
+-      .returning();
+-    await tx
+-      .update(aiChatSessionsTable)
+-      .set({ updatedAt: msgNow })
+-      .where(eq(aiChatSessionsTable.id, session.id));
+-    return msg;
+-  });
+-
+-  return res.json({
+-    sessionId: session.id,
+-    message: assistantMsg,
+-    sources: result.sources,
+-    pendingChanges: result.pendingChanges ?? [],
+-    _meta: rootFallbackUsed
+-      ? { rootPathFallback: { used: true, original: rootOriginalPath } }
+-      : undefined,
+-  });
++  } finally {
++    await applyProbe.release();
++  }
+ });
+ 
+ // ── POST /api/ai/chat/stream ─────────────────────────────────────────────────
+@@ -273,215 +275,227 @@
+   if (!providerResolved) return;
+   const { provider, apiKey } = providerResolved;
+ 
+-  res.setHeader("Content-Type", "text/event-stream");
+-  res.setHeader("Cache-Control", "no-cache, no-transform");
+-  res.setHeader("Connection", "keep-alive");
+-  res.setHeader("X-Accel-Buffering", "no");
+-  res.flushHeaders();
+-
+-  function sse(data: Record<string, unknown>): void {
+-    res.write(`data: ${JSON.stringify(data)}\n\n`);
++  const applyLock = await tryAdvisoryLock(LockNamespace.APPLY, projectId);
++  if (!applyLock.acquired) {
++    return res.status(409).json({
++      error: "apply_in_progress",
++      hint: "File changes are still being written for this project — wait a moment, then retry.",
++    });
+   }
+ 
+-  const now = new Date();
++  try {
++    res.setHeader("Content-Type", "text/event-stream");
++    res.setHeader("Cache-Control", "no-cache, no-transform");
++    res.setHeader("Connection", "keep-alive");
++    res.setHeader("X-Accel-Buffering", "no");
++    res.flushHeaders();
+ 
+-  let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
+-  if (sessionId) {
+-    const [found] = await db
+-      .select()
+-      .from(aiChatSessionsTable)
+-      .where(eq(aiChatSessionsTable.id, sessionId))
+-      .limit(1);
+-    // Prevent cross-project session leakage: reject sessions that belong to a
+-    // different project even if the UUID is known to the caller.
+-    if (found && found.projectId !== projectId) {
+-      sse({ type: "error", code: "forbidden", message: "Session does not belong to this project" });
+-      res.end();
+-      return;
++    function sse(data: Record<string, unknown>): void {
++      res.write(`data: ${JSON.stringify(data)}\n\n`);
+     }
+-    existingSession = found;
+-  }
+ 
+-  const historyRows = existingSession
+-    ? await db
++    const now = new Date();
++
++    let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
++    if (sessionId) {
++      const [found] = await db
+         .select()
+-        .from(aiChatMessagesTable)
+-        .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+-        .orderBy(desc(aiChatMessagesTable.createdAt))
+-        .limit(10)
+-    : [];
+-
+-  sse({ type: "stage", stage: "building-context" });
+-  const projectContext = await buildProjectContext(projectId, {
+-    sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
+-  });
++        .from(aiChatSessionsTable)
++        .where(eq(aiChatSessionsTable.id, sessionId))
++        .limit(1);
++      // Prevent cross-project session leakage: reject sessions that belong to a
++      // different project even if the UUID is known to the caller.
++      if (found && found.projectId !== projectId) {
++        sse({ type: "error", code: "forbidden", message: "Session does not belong to this project" });
++        res.end();
++        return;
++      }
++      existingSession = found;
++    }
+ 
+-  sse({ type: "stage", stage: "calling-model" });
++    const historyRows = existingSession
++      ? await db
++          .select()
++          .from(aiChatMessagesTable)
++          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
++          .orderBy(desc(aiChatMessagesTable.createdAt))
++          .limit(10)
++      : [];
++
++    sse({ type: "stage", stage: "building-context" });
++    const projectContext = await buildProjectContext(projectId, {
++      sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
++    });
+ 
+-  // Collect deltas as they arrive and forward each one as a real-time SSE
+-  // delta event. The accumulated string is used below for DB persistence.
+-  let streamedContent = "";
+-  let streamingActive = false;
+-  function onDelta(delta: string): void {
+-    if (!streamingActive) {
+-      // First token — signal the client to switch from "stage" indicator to
+-      // the live streaming bubble.
+-      sse({ type: "stage", stage: "streaming" });
+-      streamingActive = true;
+-    }
+-    streamedContent += delta;
+-    sse({ type: "delta", delta });
+-  }
++    sse({ type: "stage", stage: "calling-model" });
+ 
+-  let result: Awaited<ReturnType<typeof chat>>;
+-  try {
+-    const chatOut = await chatWithFallback(
+-      req.userId,
+-      {
+-        message,
+-        history: historyRows
+-          .reverse()
+-          .filter((m) => m.role === "user" || m.role === "assistant")
+-          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+-        projectContext,
+-        rootPath: validRootPath,
+-      },
+-      { provider, apiKey },
+-      onDelta,
+-    );
+-    result = chatOut.result;
+-  } catch (err) {
+-    if (err instanceof GroqClientError) {
+-      logger.error(
+-        { code: err.code, message: err.message, provider },
+-        "chat stream: all providers failed",
+-      );
+-      const base = { type: "error", code: err.code };
+-      switch (err.code) {
+-        case "RATE_LIMITED":
+-          sse({ ...base, message: "Rate limit reached on all configured AI providers — wait 30–60 seconds and retry.", hint: err.message });
+-          break;
+-        case "AUTH_ERROR":
+-          sse({ ...base, message: "AI provider key is invalid or unauthorized.", hint: "Delete your current key and save a valid one." });
+-          break;
+-        case "TIMEOUT":
+-        case "NETWORK_ERROR":
+-          sse({ ...base, message: "AI provider is temporarily unreachable — try again in a moment." });
+-          break;
+-        default:
+-          sse({ ...base, message: `AI provider error: ${err.message.slice(0, 200)}`, hint: err.message });
++    // Collect deltas as they arrive and forward each one as a real-time SSE
++    // delta event. The accumulated string is used below for DB persistence.
++    let streamedContent = "";
++    let streamingActive = false;
++    function onDelta(delta: string): void {
++      if (!streamingActive) {
++        // First token — signal the client to switch from "stage" indicator to
++        // the live streaming bubble.
++        sse({ type: "stage", stage: "streaming" });
++        streamingActive = true;
+       }
+-    } else {
+-      logger.error({ err }, "chat stream: unexpected non-GroqClientError");
+-      sse({ type: "error", code: "unknown", message: err instanceof Error ? err.message : String(err) });
++      streamedContent += delta;
++      sse({ type: "delta", delta });
+     }
+-    res.end();
+-    return;
+-  }
+ 
+-  if (result._parseError) {
+-    if (!result.response) {
+-      sse({
+-        type: "error",
+-        code: "model_output_invalid",
+-        message: "The AI model returned an unexpected response — try rephrasing your message.",
+-        raw: result._parseError.raw.slice(0, 500),
+-        parseCode: result._parseError.code,
+-      });
++    let result: Awaited<ReturnType<typeof chat>>;
++    try {
++      const chatOut = await chatWithFallback(
++        req.userId,
++        {
++          message,
++          history: historyRows
++            .reverse()
++            .filter((m) => m.role === "user" || m.role === "assistant")
++            .map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
++          projectContext,
++          rootPath: validRootPath,
++        },
++        { provider, apiKey },
++        onDelta,
++      );
++      result = chatOut.result;
++    } catch (err) {
++      if (err instanceof GroqClientError) {
++        logger.error(
++          { code: err.code, message: err.message, provider },
++          "chat stream: all providers failed",
++        );
++        const base = { type: "error", code: err.code };
++        switch (err.code) {
++          case "RATE_LIMITED":
++            sse({ ...base, message: "Rate limit reached on all configured AI providers — wait 30–60 seconds and retry.", hint: err.message });
++            break;
++          case "AUTH_ERROR":
++            sse({ ...base, message: "AI provider key is invalid or unauthorized.", hint: "Delete your current key and save a valid one." });
++            break;
++          case "TIMEOUT":
++          case "NETWORK_ERROR":
++            sse({ ...base, message: "AI provider is temporarily unreachable — try again in a moment." });
++            break;
++          default:
++            sse({ ...base, message: `AI provider error: ${err.message.slice(0, 200)}`, hint: err.message });
++        }
++      } else {
++        logger.error({ err }, "chat stream: unexpected non-GroqClientError");
++        sse({ type: "error", code: "unknown", message: err instanceof Error ? err.message : String(err) });
++      }
+       res.end();
+       return;
+     }
+-    logger.warn(
+-      { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
+-      "AI parse failure — using fallback response",
+-    );
+-  }
+-
+-  invalidateContextCache(projectId);
+ 
+-  // BUG-6: log language anomalies in AI responses.
+-  // If a response to an Arabic message contains Thai-range characters
+-  // (U+0E00–U+0E7F) or other unexpected scripts, record it for monitoring.
+-  // This catches hallucinations like "ภาษته" appearing inside Arabic prose.
+-  (() => {
+-    const hasArabic = /[\u0600-\u06FF]/.test(message);
+-    const thaiBidiRange = /[\u0E00-\u0E7F]/.test(result.response);
+-    if (hasArabic && thaiBidiRange) {
++    if (result._parseError) {
++      if (!result.response) {
++        sse({
++          type: "error",
++          code: "model_output_invalid",
++          message: "The AI model returned an unexpected response — try rephrasing your message.",
++          raw: result._parseError.raw.slice(0, 500),
++          parseCode: result._parseError.code,
++        });
++        res.end();
++        return;
++      }
+       logger.warn(
+-        { scope: "chat-route", action: "language_anomaly", projectId, provider,
+-          responsePreview: result.response.slice(0, 200) },
+-        "AI-06: response to Arabic message contains Thai-range characters — possible model hallucination",
++        { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
++        "AI parse failure — using fallback response",
+       );
+     }
+-  })();
+ 
+-  const msgNow = new Date();
+-  let session: typeof aiChatSessionsTable.$inferSelect;
+-  if (existingSession) {
+-    session = existingSession;
+-  } else {
+-    const [created] = await db
+-      .insert(aiChatSessionsTable)
+-      .values({
++    invalidateContextCache(projectId);
++
++    // BUG-6: log language anomalies in AI responses.
++    // If a response to an Arabic message contains Thai-range characters
++    // (U+0E00–U+0E7F) or other unexpected scripts, record it for monitoring.
++    // This catches hallucinations like "ภาษته" appearing inside Arabic prose.
++    (() => {
++      const hasArabic = /[\u0600-\u06FF]/.test(message);
++      const thaiBidiRange = /[\u0E00-\u0E7F]/.test(result.response);
++      if (hasArabic && thaiBidiRange) {
++        logger.warn(
++          { scope: "chat-route", action: "language_anomaly", projectId, provider,
++            responsePreview: result.response.slice(0, 200) },
++          "AI-06: response to Arabic message contains Thai-range characters — possible model hallucination",
++        );
++      }
++    })();
++
++    const msgNow = new Date();
++    let session: typeof aiChatSessionsTable.$inferSelect;
++    if (existingSession) {
++      session = existingSession;
++    } else {
++      const [created] = await db
++        .insert(aiChatSessionsTable)
++        .values({
++          id: randomUUID(),
++          projectId,
++          // BUG-5 fix: don't use a bare greeting as the session title.
++          // "مرحبا", "Hello", "Hi" etc. give no context in the sessions list.
++          // Use the first 60 chars only when the opener is substantive.
++          title: (() => {
++            const trimmed = message.trim();
++            const isGreeting = /^(مرحبا|مرحبً?ا|أهلاً?|سلام|هلا|hi|hello|hey|greetings|سلاماً?|صباح الخير|مساء الخير|good (morning|afternoon|evening))[\s!.،,]*$/i.test(trimmed);
++            return (!isGreeting && trimmed.length > 10)
++              ? trimmed.slice(0, 60)
++              : `Session ${now.toISOString().slice(0, 16).replace("T", " ")}`;
++          })(),
++          createdAt: now,
++          updatedAt: now,
++        })
++        .returning();
++      session = created;
++    }
++
++    // Atomic: user message + assistant message + session timestamp update in one
++    // transaction — prevents a half-saved conversation if one insert fails.
++    const assistantMsg = await db.transaction(async (tx) => {
++      await tx.insert(aiChatMessagesTable).values({
+         id: randomUUID(),
+-        projectId,
+-        // BUG-5 fix: don't use a bare greeting as the session title.
+-        // "مرحبا", "Hello", "Hi" etc. give no context in the sessions list.
+-        // Use the first 60 chars only when the opener is substantive.
+-        title: (() => {
+-          const trimmed = message.trim();
+-          const isGreeting = /^(مرحبا|مرحبً?ا|أهلاً?|سلام|هلا|hi|hello|hey|greetings|سلاماً?|صباح الخير|مساء الخير|good (morning|afternoon|evening))[\s!.،,]*$/i.test(trimmed);
+-          return (!isGreeting && trimmed.length > 10)
+-            ? trimmed.slice(0, 60)
+-            : `Session ${now.toISOString().slice(0, 16).replace("T", " ")}`;
+-        })(),
++        sessionId: session.id,
++        role: "user",
++        content: message,
+         createdAt: now,
+-        updatedAt: now,
+-      })
+-      .returning();
+-    session = created;
+-  }
++      });
++      const [msg] = await tx
++        .insert(aiChatMessagesTable)
++        .values({
++          id: randomUUID(),
++          sessionId: session.id,
++          role: "assistant",
++          content: sanitizeResponseText(result.response),
++          sources: JSON.stringify(result.sources),
++          createdAt: msgNow,
++        })
++        .returning();
++      await tx
++        .update(aiChatSessionsTable)
++        .set({ updatedAt: msgNow })
++        .where(eq(aiChatSessionsTable.id, session.id));
++      return msg;
++    });
+ 
+-  // Atomic: user message + assistant message + session timestamp update in one
+-  // transaction — prevents a half-saved conversation if one insert fails.
+-  const assistantMsg = await db.transaction(async (tx) => {
+-    await tx.insert(aiChatMessagesTable).values({
+-      id: randomUUID(),
++    sse({
++      type: "done",
+       sessionId: session.id,
+-      role: "user",
+-      content: message,
+-      createdAt: now,
++      message: assistantMsg,
++      sources: result.sources,
++      pendingChanges: result.pendingChanges ?? [],
++      _meta: rootFallbackUsed
++        ? { rootPathFallback: { used: true, original: rootOriginalPath } }
++        : undefined,
+     });
+-    const [msg] = await tx
+-      .insert(aiChatMessagesTable)
+-      .values({
+-        id: randomUUID(),
+-        sessionId: session.id,
+-        role: "assistant",
+-        content: sanitizeResponseText(result.response),
+-        sources: JSON.stringify(result.sources),
+-        createdAt: msgNow,
+-      })
+-      .returning();
+-    await tx
+-      .update(aiChatSessionsTable)
+-      .set({ updatedAt: msgNow })
+-      .where(eq(aiChatSessionsTable.id, session.id));
+-    return msg;
+-  });
+-
+-  sse({
+-    type: "done",
+-    sessionId: session.id,
+-    message: assistantMsg,
+-    sources: result.sources,
+-    pendingChanges: result.pendingChanges ?? [],
+-    _meta: rootFallbackUsed
+-      ? { rootPathFallback: { used: true, original: rootOriginalPath } }
+-      : undefined,
+-  });
+-  res.end();
+-  return;
++    res.end();
++    return;
++  } finally {
++    await applyLock.release();
++  }
+ });
+ 
+ // ── GET /api/ai/chat/sessions ────────────────────────────────────────────────
+
+--- orig_engineeringos/EngineeringOS-main/artifacts/api-server/src/routes/ai.test.ts	2026-07-29 16:28:11.300330880 +0000
++++ hardening_work/EngineeringOS-main/artifacts/api-server/src/routes/ai.test.ts	2026-07-29 16:25:09.564336640 +0000
+@@ -802,6 +802,34 @@
+     expect(errLog).toBeDefined();
+   });
+ 
++  it("returns 500 and restores the original task status when buildProjectContext fails", async () => {
++    const { buildProjectContext: mockBuildProjectContext } = await import("@workspace/ai-orchestrator");
++    vi.mocked(mockBuildProjectContext).mockRejectedValueOnce(new Error("context build failed"));
++
++    const projectId = await insertProject();
++    projectIds.push(projectId);
++    const taskId = await insertTask(projectId, "pending");
++
++    const res = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
++    expect(res.status).toBe(500);
++    expect(res.body.error).toBe("task_execution_failed");
++    expect(typeof res.body.reason).toBe("string");
++
++    const [task] = await db
++      .select()
++      .from(tasksTable)
++      .where(eq(tasksTable.id, taskId))
++      .limit(1);
++    expect(task?.status).toBe("pending");
++
++    const logs = await db.select().from(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
++    const errLog = logs.find((l) => l.level === "error");
++    expect(errLog).toBeDefined();
++
++    const events = await db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId));
++    expect(events.some((e) => e.type === "TaskExecutionFailed")).toBe(true);
++  });
++
+   it("returns 428 and leaves task in original status when no Groq API key is configured", async () => {
+     // Regression: the key check must happen BEFORE the atomic claim so the task
+     // is never left stuck in "running" when no key is configured.
+

@@ -1,0 +1,90 @@
+:
+
+## DB-16 — فهارس مركبة لـ `scan_jobs` لدعم reconciliation
+
+**المشكلة:**
+`scan_jobs` لديها الآن فهرسان فقط: `projectId` و`status`. لكن منطق الـ startup reconciliation يقرأ الجدول بطريقتين أكثر تحديدًا:
+
+* `status = "running"` مع `startedAt < cutoff`
+* `status = "queued"` مع `createdAt < cutoff`
+
+**الملفات المعنية:**
+
+* `lib/db/src/schema/scan_jobs.ts`
+* `artifacts/api-server/src/lib/job-reconciliation.ts`
+
+**التذكرة:**
+إضافة فهارس مركبة على الأقل:
+
+* `(status, started_at)`
+* `(status, created_at)`
+
+**لماذا هذا مهم:**
+بدونها، إعادة التسوية عند الإقلاع قد تتحول إلى فحص أوسع من اللازم كلما كبر عدد jobs.
+
+---
+
+## DB-17 — مواءمة فهارس `events` مع نمط القراءة الفعلي
+
+**المشكلة:**
+جدول `events` لديه الآن فهارس منفصلة على:
+
+* `projectId`
+* `timestamp`
+* `correlationId`
+
+لكن route القراءة الفعلية في `events.ts` يفلتر عبر:
+
+* `projectId`
+* `type` اختياريًا
+* `correlationId` اختياريًا
+* ثم يرتب بـ `timestamp DESC`
+
+**الملفات المعنية:**
+
+* `lib/db/src/schema/events.ts`
+* `artifacts/api-server/src/routes/events.ts`
+
+**التذكرة:**
+إضافة فهرس/فهارس مركبة أوضح لنمط القراءة الفعلي، مثل:
+
+* `(project_id, type, timestamp desc)`
+* وربما `(project_id, correlation_id)` إذا كان فلتر العمليات المشتركة شائعًا
+
+**لماذا هذا مهم:**
+الفهارس الحالية صحيحة جزئيًا، لكنها لا تطابق شكل الاستعلام الأكثر شيوعًا، خصوصًا مع فلتر `type` وطلب “أحدث الأحداث أولًا”.
+
+---
+
+## DB-18 — جعل فهرسة `rules` تطابق قائمة القواعد الفعلية
+
+**المشكلة:**
+الـ route في `rules.ts` يبني القائمة عبر:
+
+* `projectId` أو القواعد العامة
+* `severity` اختياريًا
+* ثم يرتب بـ `hitCount DESC`
+
+لكن schema الحالي يحتوي فقط على:
+
+* `projectId`
+* `severity`
+* `enabled`
+
+ولا يوجد فهرس يطابق هذا التجميع مع الترتيب.
+
+**الملفات المعنية:**
+
+* `lib/db/src/schema/rules.ts`
+* `artifacts/api-server/src/routes/rules.ts`
+
+**التذكرة:**
+إضافة فهرس مركب أقرب للاستعلام الفعلي، مثل:
+
+* `(project_id, severity, hit_count desc)`
+
+**ملاحظة:**
+إذا كانت القواعد العامة (`projectId = null`) تشكل جزءًا كبيرًا من الاستخدام، فقد تحتاج الخطة إلى فهرس موازٍ/منفصل للقواعد العامة أيضًا، لكن لا توجد أدلة كافية الآن لافتراض ذلك كمتطلب مؤكد.
+
+---
+

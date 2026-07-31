@@ -1,0 +1,168 @@
+.
+
+ما هو جاهز بالفعل ولا أضعه في أولوية التعديل:
+
+src/context-builder.ts وsrc/schemas/context.schema.ts متطابقان الآن على مستوى الحقول الأساسية.
+
+src/parsing.ts يغطي raw / fenced / commentary / empty / malformed بشكل جيد.
+
+src/groq-client.ts فيه model routing، retry policy، وtaxonomy أخطاء واضحة.
+
+src/agents/workflow-orchestrator.ts وsrc/__tests__/workflow-orchestrator.test.ts فيهما بالفعل حمايات أساسية واختبارات لـ invalid nextPhase وpremature complete وretry وno-op وstate ordering.
+
+
+التعديلات التي أنصح بها فعليًا، بالترتيب:
+
+1. src/schemas/workflow.schema.ts + src/agents/workflow-orchestrator.ts
+
+الملف الحالي يسمح بـ wait بدون blockers لأن blockers اختيارية في WaitDecisionSchema:38-43.
+
+validateDecision() في workflow-orchestrator.ts:74-105 لا يمنع القفز بين المراحل، بل يكتفي بالتأكد أن nextPhase معروفة وغير مساوية للحالية.
+
+بما أن عندك شرط state ordering، أضف guard يمنع الانتقال غير المتسلسل، مثل plan → verify عندما توجد مرحلة build بينهما.
+
+عدّل fallbackDecision() في workflow-orchestrator.ts:29-35 ليطابق schema الأشد إذا جعلت wait يتطلب blockers.
+
+أضف steps.min(1) داخل WorkflowPhaseSchema أيضًا.
+
+
+
+2. src/schemas/{task,scan,code-review,chat}.ts
+
+هذه schemas ما زالت permissive أكثر من اللازم: معظمها لا يستخدم .strict()، وحقول النص الأساسية تسمح بسلاسل فارغة.
+
+في code-review.schema.ts:6-23، وscan.schema.ts:4-18، وtask.schema.ts:3-9، وchat.schema.ts:42-45:
+
+أضف .strict() لكل object schema.
+
+أضف .min(1) للحقول النصية الجوهرية مثل summary, title, description, suggestion, result, topPriority, estimatedImpact, overallAssessment.
+
+في task.schema.ts اجعل steps غير فارغة: z.array(z.string().min(1)).min(1).
+
+
+هذا مهم لأن النظام الحالي يمكنه قبول مخرجات “شكلها صحيح” لكنها فارغة أو زائدة الحقول.
+
+
+
+3. src/schemas/chat.schema.ts + src/agents/chat-agent.ts + src/tools/file-tools.ts
+
+حاليًا يوجد PendingChangeSchema في chat.schema.ts:27-40، لكن file-tools.ts:31-42 يعرّف PendingChange مرة ثانية بنفس البنية.
+
+هذا drift risk واضح: type duplication في مكانين.
+
+وحّد المصدر: استورد type من chat.schema.ts بدل تعريف نسخة محلية في file-tools.ts.
+
+أضف ChatOutputSchema runtime validates response + sources + pendingChanges بدل الاعتماد على ChatResponseSchema فقط.
+
+في chat-agent.ts:238-256، بعد تجميع pendingChanges، الأفضل التحقق من النتيجة النهائية ضد ChatOutputSchema قبل الإرجاع.
+
+
+
+4. src/context-builder.ts
+
+عندك query للمهام هنا:
+
+src/context-builder.ts:27-35 يجلب tasks بترتيب updatedAt DESC مع limit(20).
+
+ثم 59-66 يعيد ترتيبها محليًا حسب priority.
+
+
+هذا يعني أن task قديمة P0 قد لا تصل أصلًا إلى السياق إذا كانت خارج آخر 20 تحديثًا.
+
+عدّلها إلى window أوسع، أو اجلب بترتيب يراعي الأولوية من المصدر نفسه، ثم قصّ بعد ذلك.
+
+هذا هو المكان الذي يحتاج فعليًا ضبط “recentTasks” حتى لا يختفي المهم لصالح الحديث فقط.
+
+
+
+5. src/tools/file-tools.ts
+
+search_code الآن يعيد "No matches found." حتى عند timeout أو فشل grep أو أي خطأ غير code 1 (321-325).
+
+هذا يخفي الأعطال التشغيلية تحت نفس رسالة “لا توجد نتائج”.
+
+افصل بين:
+
+no matches
+
+timeout
+
+grep missing
+
+invalid args
+
+
+هذا مهم لأن واجهة التصحيح تحتاج معرفة هل البحث فشل أم فقط لم يجد شيئًا.
+
+
+
+6. src/agents/{scan-analyst,task-agent,code-reviewer}.ts
+
+هذه الملفات تعتمد على fallback outputs بسيطة جدًا.
+
+إذا شددت schemas كما يجب، فـ fallback outputs يجب أن تظل صالحة أيضًا.
+
+أمثلة:
+
+scan-analyst.ts:13-20
+
+task-agent.ts:24-31
+
+code-reviewer.ts:13-22
+
+
+حدّثها بعد أي tightening للـ schema حتى لا تكسر parseAgentResponse().
+
+
+
+
+الاختبارات التي يجب تحديثها أو إضافتها:
+
+src/__tests__/schemas.test.ts
+
+أضف رفض extra fields لكل schema غير PendingChangeSchema.
+
+أضف رفض empty strings للحقول الجوهرية.
+
+أضف حالة wait بلا blockers إذا قررت جعلها mandatory.
+
+
+src/__tests__/workflow-orchestrator.test.ts
+
+أضف حالة واضحة تمنع القفز المرحلي إذا اعتمدت linear ordering.
+
+الاختبار الحالي بالفعل يغطي كثيرًا، لكن لا يغطي skip بين المراحل كحظر صريح.
+
+
+لا يوجد في الأرشيف chat-agent.test.ts أو file-tools.test.ts، وهذان مفقودان الآن ومناسبان جدًا بعد أي تعديل في output/schema/tool safety.
+
+src/__tests__/groq-client.test.ts
+
+الموجود جيد كبداية، لكن ينقصه timeout و401/403 و429 و5xx وapiKey selection.
+
+
+
+الخلاصة العملية:
+
+لا تبدأ من parsing.ts أو groq-client.ts أو context.schema.ts؛ هذه الطبقات ليست أول مصدر خلل الآن.
+
+ابدأ من:
+
+1. workflow.schema.ts + workflow-orchestrator.ts
+
+
+2. ثم task/scan/code-review/chat schemas
+
+
+3. ثم توحيد PendingChange
+
+
+4. ثم توسيع نافذة context-builder
+
+
+5. ثم تحسين file-tools
+
+
+
+
+lتب هذا مباشرة إلى **PR backlog ملف-بملف** بصيغة: `PR / scope / exact files / risk / acceptance criteria / tests`.

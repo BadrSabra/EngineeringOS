@@ -1,0 +1,332 @@
+--- a/lib/ai-orchestrator/src/index.ts
++++ b/lib/ai-orchestrator/src/index.ts
+@@ -35,6 +35,14 @@
+ } from "./context-builder.js";
+ export type { ProjectContext } from "./context-builder.js";
+ 
++export {
++  buildContextCacheKey,
++  getCachedContext,
++  setCachedContext,
++} from "./context-cache-manager.js";
++export type { LoadedProjectContext, BuildProjectContextOptions, ContextLoadSection } from "./context-loader.js";
++export { loadProjectContext } from "./context-loader.js";
++
+ export * from "./schemas/index.js";
+ 
+ export { chat } from "./agents/chat-agent.js";
+
+--- a/lib/ai-orchestrator/src/context-cache-manager.ts
++++ b/lib/ai-orchestrator/src/context-cache-manager.ts
+@@ -0,0 +1,143 @@
++import type { AgentContext } from "./schemas/context.schema.js";
++
++export type ProjectContext = AgentContext;
++
++const CONTEXT_CACHE_TTL_MS = 30_000;
++const contextCache = new Map<string, { data: ProjectContext; expiresAt: number }>();
++let invalidationNotifier: ((projectId: string) => void) | null = null;
++
++export type NotifyPoolClient = {
++  query(sql: string, params?: unknown[]): Promise<unknown>;
++  on(event: "notification", listener: (msg: { channel: string; payload?: string }) => void): NotifyPoolClient;
++  on(event: "error", listener: (err: Error) => void): NotifyPoolClient;
++  on(event: "end", listener: () => void): NotifyPoolClient;
++  release(): void;
++  removeAllListeners(): NotifyPoolClient;
++};
++
++export type NotifyPool = {
++  connect(): Promise<NotifyPoolClient>;
++};
++
++export function buildContextCacheKey(projectId: string, sections?: readonly string[]): string {
++  const normalized = [...new Set(sections ?? [])].sort();
++  return `${projectId}::${normalized.join(",")}`;
++}
++
++export function getCachedContext(cacheKey: string, now = Date.now()): ProjectContext | null {
++  const cached = contextCache.get(cacheKey);
++  if (!cached) return null;
++  if (cached.expiresAt <= now) {
++    contextCache.delete(cacheKey);
++    return null;
++  }
++  return cached.data;
++}
++
++export function setCachedContext(cacheKey: string, data: ProjectContext, now = Date.now()): void {
++  contextCache.set(cacheKey, { data, expiresAt: now + CONTEXT_CACHE_TTL_MS });
++}
++
++export function invalidateContextCache(projectId: string): void {
++  for (const key of contextCache.keys()) {
++    if (key.startsWith(`${projectId}::`)) contextCache.delete(key);
++  }
++  if (invalidationNotifier) {
++    try {
++      invalidationNotifier(projectId);
++    } catch {
++      /* swallowed — degrades to TTL */
++    }
++  }
++}
++
++export function setInvalidationNotifier(fn: (projectId: string) => void): void {
++  invalidationNotifier = fn;
++}
++
++function releaseClient(client: NotifyPoolClient | null): void {
++  if (!client) return;
++  try {
++    client.removeAllListeners();
++  } finally {
++    client.release();
++  }
++}
++
++export function startContextInvalidationChannel(pool: NotifyPool): { stop: () => void } {
++  let client: NotifyPoolClient | null = null;
++  let stopped = false;
++  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
++
++  async function connect(): Promise<void> {
++    if (stopped) return;
++    if (reconnectTimer) {
++      clearTimeout(reconnectTimer);
++      reconnectTimer = null;
++    }
++
++    let acquired: NotifyPoolClient | null = null;
++    try {
++      acquired = await pool.connect();
++      await acquired.query("LISTEN ctx_invalid");
++      client = acquired;
++      acquired = null;
++
++      client.on("notification", (msg) => {
++        if (msg.channel === "ctx_invalid" && msg.payload) {
++          const prefix = `${msg.payload}::`;
++          for (const key of contextCache.keys()) {
++            if (key.startsWith(prefix)) contextCache.delete(key);
++          }
++        }
++      });
++
++      client.on("error", (err) => {
++        console.warn(JSON.stringify({ scope: "ctx-cache-channel", code: "LISTEN_ERROR", error: String(err) }));
++        disconnect();
++      });
++
++      client.on("end", () => {
++        if (!stopped) {
++          console.warn(JSON.stringify({ scope: "ctx-cache-channel", code: "LISTEN_ENDED" }));
++          disconnect();
++        }
++      });
++
++      console.info(JSON.stringify({ scope: "ctx-cache-channel", code: "LISTEN_READY", channel: "ctx_invalid" }));
++    } catch (err) {
++      if (acquired) {
++        try { acquired.removeAllListeners(); } catch { /* ignore */ }
++        try { acquired.release(); } catch { /* ignore */ }
++        acquired = null;
++      }
++      console.warn(JSON.stringify({ scope: "ctx-cache-channel", code: "CONNECT_FAILED", error: String(err) }));
++      scheduleReconnect();
++    }
++  }
++
++  function disconnect(): void {
++    releaseClient(client);
++    client = null;
++    scheduleReconnect();
++  }
++
++  function scheduleReconnect(): void {
++    if (stopped || reconnectTimer) return;
++    reconnectTimer = setTimeout(() => {
++      reconnectTimer = null;
++      void connect();
++    }, 5_000);
++  }
++
++  void connect();
++
++  return {
++    stop(): void {
++      stopped = true;
++      if (reconnectTimer) clearTimeout(reconnectTimer);
++      releaseClient(client);
++      client = null;
++    },
++  };
++}
+
+--- a/lib/ai-orchestrator/src/context-loader.ts
++++ b/lib/ai-orchestrator/src/context-loader.ts
+@@ -0,0 +1,164 @@
++import { db } from "@workspace/db";
++import {
++  projectsTable,
++  tasksTable,
++  metricsTable,
++  graphEntitiesTable,
++  graphRelationshipsTable,
++  eventsTable,
++  workflowsTable,
++  scanJobsTable,
++} from "@workspace/db";
++import { eq, desc, asc } from "drizzle-orm";
++
++export type ContextLoadSection =
++  | "tasks"
++  | "metrics"
++  | "graphEntities"
++  | "graphRelationships"
++  | "events"
++  | "workflows";
++
++export type BuildProjectContextOptions = {
++  sections?: ContextLoadSection[];
++};
++
++const ALL_CONTEXT_SECTIONS: readonly ContextLoadSection[] = [
++  "tasks",
++  "metrics",
++  "graphEntities",
++  "graphRelationships",
++  "events",
++  "workflows",
++];
++
++function resolveContextSections(sections?: ContextLoadSection[]): Set<ContextLoadSection> {
++  return new Set(sections && sections.length > 0 ? sections : ALL_CONTEXT_SECTIONS);
++}
++
++export type LoadedProjectContext = {
++  project: any;
++  rawTasks: any[];
++  latestMetric: any | undefined;
++  entities: any[];
++  recentEvents: any[];
++  rawWorkflows: any[];
++  latestScanJob: any | undefined;
++  relationships: any[];
++  scanVerified: boolean;
++  requestedSections: Set<ContextLoadSection>;
++};
++
++export async function loadProjectContext(projectId: string, options: BuildProjectContextOptions = {}): Promise<LoadedProjectContext> {
++  const requestedSections = resolveContextSections(options.sections);
++  const wants = (section: ContextLoadSection) => requestedSections.has(section);
++
++  const queryEntries: Array<{ key: string; promise: Promise<unknown> }> = [];
++  queryEntries.push({
++    key: "project",
++    promise: db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
++  });
++
++  if (wants("tasks")) {
++    queryEntries.push({
++      key: "tasks",
++      promise: db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)).orderBy(asc(tasksTable.priority), desc(tasksTable.updatedAt)).limit(10),
++    });
++  }
++  if (wants("metrics")) {
++    queryEntries.push({
++      key: "metrics",
++      promise: db.select().from(metricsTable).where(eq(metricsTable.projectId, projectId)).orderBy(desc(metricsTable.timestamp)).limit(1),
++    });
++  }
++  if (wants("graphEntities")) {
++    queryEntries.push({
++      key: "graphEntities",
++      promise: db.select().from(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, projectId)).orderBy(desc(graphEntitiesTable.confidence)).limit(60),
++    });
++  }
++  if (wants("events")) {
++    queryEntries.push({
++      key: "events",
++      promise: db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId)).orderBy(desc(eventsTable.timestamp)).limit(10),
++    });
++  }
++  if (wants("workflows")) {
++    queryEntries.push({
++      key: "workflows",
++      promise: db.select().from(workflowsTable).where(eq(workflowsTable.projectId, projectId)).orderBy(desc(workflowsTable.updatedAt)).limit(20),
++    });
++  }
++
++  queryEntries.push({
++    key: "scanJobs",
++    promise: db.select({ status: scanJobsTable.status, error: scanJobsTable.error, finishedAt: scanJobsTable.finishedAt })
++      .from(scanJobsTable).where(eq(scanJobsTable.projectId, projectId)).orderBy(desc(scanJobsTable.createdAt)).limit(1),
++  });
++
++  if (wants("graphRelationships")) {
++    queryEntries.push({
++      key: "graphRelationships",
++      promise: db.select({
++        id: graphRelationshipsTable.id,
++        sourceId: graphRelationshipsTable.sourceId,
++        targetId: graphRelationshipsTable.targetId,
++        relation: graphRelationshipsTable.relation,
++        relationType: graphRelationshipsTable.relationType,
++        confidence: graphRelationshipsTable.confidence,
++        isHeuristic: graphRelationshipsTable.isHeuristic,
++      }).from(graphRelationshipsTable)
++        .where(eq(graphRelationshipsTable.projectId, projectId))
++        .orderBy(desc(graphRelationshipsTable.confidence))
++        .limit(40),
++    });
++  }
++
++  const settledResults = await db.transaction(async () => Promise.allSettled(queryEntries.map((entry) => entry.promise)), { isolationLevel: "repeatable read" });
++  const resultByKey = new Map<string, PromiseSettledResult<unknown>>();
++  queryEntries.forEach((entry, index) => resultByKey.set(entry.key, settledResults[index] as PromiseSettledResult<unknown>));
++
++  const projectResult = resultByKey.get("project") as PromiseSettledResult<any[]>;
++  const tasksResult = (resultByKey.get("tasks") ?? { status: "fulfilled", value: [] as never[] }) as PromiseSettledResult<any[]>;
++  const metricsResult = (resultByKey.get("metrics") ?? { status: "fulfilled", value: [] as never[] }) as PromiseSettledResult<any[]>;
++  const entitiesResult = (resultByKey.get("graphEntities") ?? { status: "fulfilled", value: [] as never[] }) as PromiseSettledResult<any[]>;
++  const eventsResult = (resultByKey.get("events") ?? { status: "fulfilled", value: [] as never[] }) as PromiseSettledResult<any[]>;
++  const workflowsResult = (resultByKey.get("workflows") ?? { status: "fulfilled", value: [] as never[] }) as PromiseSettledResult<any[]>;
++  const scanJobResult = (resultByKey.get("scanJobs") ?? { status: "fulfilled", value: [] as never[] }) as PromiseSettledResult<any[]>;
++  const relationshipsResult = (resultByKey.get("graphRelationships") ?? { status: "fulfilled", value: [] as never[] }) as PromiseSettledResult<any[]>;
++
++  const settled = <T>(result: PromiseSettledResult<T[]>, label: string): T[] => {
++    if (result.status === "fulfilled") return result.value;
++    console.warn(JSON.stringify({ scope: "context-builder", code: "QUERY_DEGRADED", query: label, projectId, error: String(result.reason) }));
++    return [];
++  };
++
++  if (projectResult.status === "rejected") {
++    console.error(JSON.stringify({ scope: "context-builder", code: "PROJECT_QUERY_FAILED", projectId, error: String(projectResult.reason) }));
++    throw new Error(`Failed to load project ${projectId}: ${projectResult.reason}`);
++  }
++
++  const [project] = projectResult.value as any[];
++  if (!project) throw new Error(`Project ${projectId} not found`);
++
++  const rawTasks = wants("tasks") ? (settled(tasksResult, "tasks") as any[]) : [];
++  const [latestMetric] = wants("metrics") ? (settled(metricsResult, "metrics") as any[]) : [];
++  const entities = wants("graphEntities") ? (settled(entitiesResult, "graphEntities") as any[]) : [];
++  const recentEvents = wants("events") ? (settled(eventsResult, "events") as any[]) : [];
++  const rawWorkflows = wants("workflows") ? (settled(workflowsResult, "workflows") as any[]) : [];
++  const [latestScanJob] = settled(scanJobResult, "scanJobs") as any[];
++  const relationships = wants("graphRelationships") ? (settled(relationshipsResult, "graphRelationships") as any[]) : [];
++
++  return {
++    project,
++    rawTasks,
++    latestMetric,
++    entities,
++    recentEvents,
++    rawWorkflows,
++    latestScanJob,
++    relationships,
++    scanVerified: latestScanJob?.status === "completed",
++    requestedSections,
++  };
++}

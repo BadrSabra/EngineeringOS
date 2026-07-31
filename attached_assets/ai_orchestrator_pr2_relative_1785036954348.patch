@@ -1,0 +1,359 @@
+diff -ruN a/lib/ai-orchestrator/src/context-builder.test.ts b/lib/ai-orchestrator/src/context-builder.test.ts
+--- a/lib/ai-orchestrator/src/context-builder.test.ts	2026-07-26 03:33:43.215670715 +0000
++++ b/lib/ai-orchestrator/src/context-builder.test.ts	2026-07-26 03:31:19.119672338 +0000
+@@ -14,8 +14,9 @@
+ // Module-level `const` are NOT initialised yet at that point (temporal dead
+ // zone). vi.hoisted() runs its callback before hoisting and returns values that
+ // ARE safe to reference inside a vi.mock factory.
+-const { _tableData, _mockDb } = vi.hoisted(() => {
++const { _tableData, _tableHits, _mockDb } = vi.hoisted(() => {
+   const _tableData = new Map<object, unknown[]>();
++  const _tableHits = new Map<object, number>();
+ 
+   function makeChain(rows: unknown[]): Record<string, unknown> {
+     const c: Record<string, unknown> = {};
+@@ -42,7 +43,10 @@
+     // select() accepts optional field projections but we ignore them — the mock
+     // always returns the full pre-configured row arrays.
+     select: () => ({
+-      from: (table: object) => makeChain(_tableData.get(table) ?? []),
++      from: (table: object) => {
++        _tableHits.set(table, (_tableHits.get(table) ?? 0) + 1);
++        return makeChain(_tableData.get(table) ?? []);
++      },
+     }),
+     // PR-04: buildProjectContext now wraps all queries in db.transaction().
+     // The mock runs the callback synchronously with a tx that has the same
+@@ -53,7 +57,7 @@
+     ) => callback(_mockDb),
+   };
+ 
+-  return { _tableData, _mockDb };
++  return { _tableData, _tableHits, _mockDb };
+ });
+ 
+ // ── Drizzle helper mock ───────────────────────────────────────────────────────
+@@ -169,6 +173,7 @@
+     invalidateContextCache(PROJECT_ID);
+     // Reset DB data to a minimal valid state for each test.
+     _tableData.clear();
++    _tableHits.clear();
+     _tableData.set(projectsTable as object, [makeProject()]);
+     _tableData.set(tasksTable as object, []);
+     _tableData.set(metricsTable as object, [makeMetric()]);
+@@ -296,6 +301,25 @@
+     expect(ctx.graphSummary).toMatch(/Provenance:/);
+     expect(ctx.graphSummary).toMatch(/Confidence:/);
+   });
++  it("skips unloaded sections and only queries the requested context slices", async () => {
++    const ctx = await buildProjectContext(PROJECT_ID, { sections: ["metrics"] });
++
++    expect(ctx.latestMetrics).toContain("Overall:");
++    expect(ctx.recentTasks).toMatch(/not loaded/i);
++    expect(ctx.recentEvents).toMatch(/not loaded/i);
++    expect(ctx.workflows).toMatch(/not loaded/i);
++    expect(ctx.graphSummary).toMatch(/not loaded/i);
++
++    expect(_tableHits.get(projectsTable as object)).toBe(1);
++    expect(_tableHits.get(metricsTable as object)).toBe(1);
++    expect(_tableHits.get(scanJobsTable as object)).toBe(1);
++    expect(_tableHits.get(tasksTable as object) ?? 0).toBe(0);
++    expect(_tableHits.get(graphEntitiesTable as object) ?? 0).toBe(0);
++    expect(_tableHits.get(graphRelationshipsTable as object) ?? 0).toBe(0);
++    expect(_tableHits.get(eventsTable as object) ?? 0).toBe(0);
++    expect(_tableHits.get(workflowsTable as object) ?? 0).toBe(0);
++  });
++
+ 
+   // PR-03: cache invalidation correctness
+   it("serves cached data on repeated calls within the TTL", async () => {
+diff -ruN a/lib/ai-orchestrator/src/context-builder.ts b/lib/ai-orchestrator/src/context-builder.ts
+--- a/lib/ai-orchestrator/src/context-builder.ts	2026-07-26 03:33:43.215670715 +0000
++++ b/lib/ai-orchestrator/src/context-builder.ts	2026-07-26 03:33:31.923670843 +0000
+@@ -23,6 +23,35 @@
+ /** The context object every agent prompt is built from. Shape is enforced at runtime by `AgentContextSchema`. */
+ export type ProjectContext = AgentContext;
+ 
++export type ContextLoadSection =
++  | "tasks"
++  | "metrics"
++  | "graphEntities"
++  | "graphRelationships"
++  | "events"
++  | "workflows";
++
++export type BuildProjectContextOptions = {
++  sections?: ContextLoadSection[];
++};
++
++const ALL_CONTEXT_SECTIONS: readonly ContextLoadSection[] = [
++  "tasks",
++  "metrics",
++  "graphEntities",
++  "graphRelationships",
++  "events",
++  "workflows",
++];
++
++function resolveContextSections(sections?: ContextLoadSection[]): Set<ContextLoadSection> {
++  return new Set(sections && sections.length > 0 ? sections : ALL_CONTEXT_SECTIONS);
++}
++
++function buildMissingSummary(section: string): string {
++  return `${section} not loaded — request it through buildProjectContext({ sections: [...] })`;
++}
++
+ // Priority rank map: lower number = higher urgency (P0 is most urgent).
+ const PRIORITY_RANK: Record<string, number> = { p0: 0, p1: 1, p2: 2, p3: 3 };
+ 
+@@ -220,7 +249,7 @@
+   }
+ }
+ 
+-export async function buildProjectContext(projectId: string): Promise<ProjectContext> {
++export async function buildProjectContext(projectId: string, options: BuildProjectContextOptions = {}): Promise<ProjectContext> {
+   // Return cached context when it is still fresh.
+   const now = Date.now();
+   const cached = contextCache.get(projectId);
+@@ -235,27 +264,68 @@
+   // query still degrades gracefully rather than rolling back the whole read and
+   // serving a 500.  The project row remains a hard failure — all others degrade
+   // to empty arrays with a logged warning.
+-  const [
+-    projectResult, tasksResult, metricsResult, entitiesResult,
+-    eventsResult, workflowsResult, scanJobResult, relationshipsResult,
+-  ] = await db.transaction(async (tx) => {
+-    return Promise.allSettled([
+-      tx.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
+-      // Sort in the DB by priority ASC (p0 < p1 < p2 < p3 lexically), then by
+-      // recency DESC as a tiebreaker.  This ensures a P0 task that hasn't been
+-      // touched in weeks is never cut before lower-priority recently-updated tasks.
+-      tx.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)).orderBy(asc(tasksTable.priority), desc(tasksTable.updatedAt)).limit(10),
+-      tx.select().from(metricsTable).where(eq(metricsTable.projectId, projectId)).orderBy(desc(metricsTable.timestamp)).limit(1),
+-      // Order by confidence DESC so the most certain entities fill the cap first.
+-      tx.select().from(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, projectId)).orderBy(desc(graphEntitiesTable.confidence)).limit(60),
+-      tx.select().from(eventsTable).where(eq(eventsTable.projectId, projectId)).orderBy(desc(eventsTable.timestamp)).limit(10),
+-      tx.select().from(workflowsTable).where(eq(workflowsTable.projectId, projectId)).orderBy(desc(workflowsTable.updatedAt)).limit(20),
+-      // Fetch scan job to distinguish real scans from import-time defaults.
+-      tx.select({ status: scanJobsTable.status, error: scanJobsTable.error, finishedAt: scanJobsTable.finishedAt })
+-        .from(scanJobsTable).where(eq(scanJobsTable.projectId, projectId)).orderBy(desc(scanJobsTable.createdAt)).limit(1),
+-      // Gap-1 fix: load relationships so the AI sees graph topology (edges), not
+-      // just entity nodes. Capped at 40 high-confidence edges.
+-      tx.select({
++  const requestedSections = resolveContextSections(options.sections);
++  const wants = (section: ContextLoadSection) => requestedSections.has(section);
++
++  const queryEntries: Array<{ key: string; promise: Promise<unknown> }> = [];
++  queryEntries.push({
++    key: "project",
++    promise: db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
++  });
++
++  if (wants("tasks")) {
++    // Sort in the DB by priority ASC (p0 < p1 < p2 < p3 lexically), then by
++    // recency DESC as a tiebreaker.  This ensures a P0 task that hasn't been
++    // touched in weeks is never cut before lower-priority recently-updated tasks.
++    queryEntries.push({
++      key: "tasks",
++      promise: db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)).orderBy(asc(tasksTable.priority), desc(tasksTable.updatedAt)).limit(10),
++    });
++  }
++
++  if (wants("metrics")) {
++    queryEntries.push({
++      key: "metrics",
++      promise: db.select().from(metricsTable).where(eq(metricsTable.projectId, projectId)).orderBy(desc(metricsTable.timestamp)).limit(1),
++    });
++  }
++
++  if (wants("graphEntities")) {
++    // Order by confidence DESC so the most certain entities fill the cap first.
++    queryEntries.push({
++      key: "graphEntities",
++      promise: db.select().from(graphEntitiesTable).where(eq(graphEntitiesTable.projectId, projectId)).orderBy(desc(graphEntitiesTable.confidence)).limit(60),
++    });
++  }
++
++  if (wants("events")) {
++    queryEntries.push({
++      key: "events",
++      promise: db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId)).orderBy(desc(eventsTable.timestamp)).limit(10),
++    });
++  }
++
++  if (wants("workflows")) {
++    queryEntries.push({
++      key: "workflows",
++      promise: db.select().from(workflowsTable).where(eq(workflowsTable.projectId, projectId)).orderBy(desc(workflowsTable.updatedAt)).limit(20),
++    });
++  }
++
++  // Fetch scan job to distinguish real scans from import-time defaults.
++  // This is always loaded because metricsVerified depends on it.
++  queryEntries.push({
++    key: "scanJobs",
++    promise: db.select({ status: scanJobsTable.status, error: scanJobsTable.error, finishedAt: scanJobsTable.finishedAt })
++      .from(scanJobsTable).where(eq(scanJobsTable.projectId, projectId)).orderBy(desc(scanJobsTable.createdAt)).limit(1),
++  });
++
++  if (wants("graphRelationships")) {
++    // Gap-1 fix: load relationships so the AI sees graph topology (edges), not
++    // just entity nodes. Capped at 40 high-confidence edges.
++    queryEntries.push({
++      key: "graphRelationships",
++      promise: db.select({
+         id: graphRelationshipsTable.id,
+         sourceId: graphRelationshipsTable.sourceId,
+         targetId: graphRelationshipsTable.targetId,
+@@ -267,9 +337,27 @@
+         .where(eq(graphRelationshipsTable.projectId, projectId))
+         .orderBy(desc(graphRelationshipsTable.confidence))
+         .limit(40),
+-    ]);
++    });
++  }
++
++  const settledResults = await db.transaction(async () => {
++    return Promise.allSettled(queryEntries.map((entry) => entry.promise));
+   }, { isolationLevel: "repeatable read" });
+ 
++  const resultByKey = new Map<string, PromiseSettledResult<unknown>>();
++  queryEntries.forEach((entry, index) => {
++    resultByKey.set(entry.key, settledResults[index] as PromiseSettledResult<unknown>);
++  });
++
++  const projectResult = resultByKey.get("project") as PromiseSettledResult<any[]>;
++  const tasksResult = (resultByKey.get("tasks") ?? { status: "fulfilled", value: [] as never[] }) as PromiseSettledResult<any[]>;
++  const metricsResult = (resultByKey.get("metrics") ?? { status: "fulfilled", value: [] as never[] }) as PromiseSettledResult<any[]>;
++  const entitiesResult = (resultByKey.get("graphEntities") ?? { status: "fulfilled", value: [] as never[] }) as PromiseSettledResult<any[]>;
++  const eventsResult = (resultByKey.get("events") ?? { status: "fulfilled", value: [] as never[] }) as PromiseSettledResult<any[]>;
++  const workflowsResult = (resultByKey.get("workflows") ?? { status: "fulfilled", value: [] as never[] }) as PromiseSettledResult<any[]>;
++  const scanJobResult = (resultByKey.get("scanJobs") ?? { status: "fulfilled", value: [] as never[] }) as PromiseSettledResult<any[]>;
++  const relationshipsResult = (resultByKey.get("graphRelationships") ?? { status: "fulfilled", value: [] as never[] }) as PromiseSettledResult<any[]>;
++
+   // Helper: returns the fulfilled value or an empty array, logging a warning
+   // so degraded contexts are visible in server logs.
+   function settled<T>(result: PromiseSettledResult<T[]>, label: string): T[] {
+@@ -288,14 +376,14 @@
+     throw new Error(`Failed to load project ${projectId}: ${projectResult.reason}`);
+   }
+ 
+-  const [project]       = projectResult.value;
+-  const rawTasks        = settled(tasksResult,         "tasks");
+-  const [latestMetric]  = settled(metricsResult,       "metrics");
+-  const entities        = settled(entitiesResult,      "graphEntities");
+-  const recentEvents    = settled(eventsResult,        "events");
+-  const rawWorkflows    = settled(workflowsResult,     "workflows");
+-  const [latestScanJob] = settled(scanJobResult,       "scanJobs");
+-  const relationships   = settled(relationshipsResult, "graphRelationships");
++  const [project] = projectResult.value as any[];
++  const rawTasks = wants("tasks") ? (settled(tasksResult, "tasks") as any[]) : [];
++  const [latestMetric] = wants("metrics") ? (settled(metricsResult, "metrics") as any[]) : [];
++  const entities = wants("graphEntities") ? (settled(entitiesResult, "graphEntities") as any[]) : [];
++  const recentEvents = wants("events") ? (settled(eventsResult, "events") as any[]) : [];
++  const rawWorkflows = wants("workflows") ? (settled(workflowsResult, "workflows") as any[]) : [];
++  const [latestScanJob] = settled(scanJobResult, "scanJobs") as any[];
++  const relationships = wants("graphRelationships") ? (settled(relationshipsResult, "graphRelationships") as any[]) : [];
+ 
+   if (!project) throw new Error(`Project ${projectId} not found`);
+ 
+@@ -365,7 +453,9 @@
+     return `- ${head}${suffix}${body}`;
+   });
+ 
+-  const taskSummary = taskLines.length > 0 ? taskLines.join("\n") : "No tasks yet";
++  const taskSummary = wants("tasks")
++    ? (taskLines.length > 0 ? taskLines.join("\n") : "No tasks yet")
++    : buildMissingSummary("Tasks");
+ 
+   // ── Metrics ────────────────────────────────────────────────────────────────
+   // Every column of the metrics row is represented; nullable fields are shown
+@@ -373,7 +463,9 @@
+   // إصلاح: نُميّز بين المقاييس الحقيقية (من مسح ناجح) والقيم الافتراضية (من الاستيراد).
+   // النموذج يجب أن يعرف عندما يعمل بقيم غير موثوقة حتى لا يقدّمها كنتائج فعلية.
+   let metricsSummary: string;
+-  if (latestMetric) {
++  if (!wants("metrics")) {
++    metricsSummary = buildMissingSummary("Metrics");
++  } else if (latestMetric) {
+     const fmt = (v: number | null | undefined) => (v != null ? v.toFixed(1) : "N/A");
+     const fmtInt = (v: number | null | undefined) => (v != null ? String(v) : "N/A");
+     const asOf = latestMetric.timestamp.toISOString().slice(0, 10);
+@@ -493,9 +585,11 @@
+     provenanceHeader = `Provenance: ${provParts}\nConfidence: ${confParts}\n`;
+   }
+ 
+-  const graphSummary =
+-    entities.length > 0
+-      ? `${provenanceHeader}${entities.length} entities total:\n${entityLines.join("\n")}${relSummary}`
++  const graphSummary = !wants("graphEntities") && !wants("graphRelationships")
++    ? buildMissingSummary("Knowledge graph")
++    : entities.length > 0
++      ? `${provenanceHeader}${entities.length} entities total:
++${entityLines.join("\n")}${relSummary}`
+       : "Knowledge graph empty — run a scan first";
+ 
+   // ── Events ────────────────────────────────────────────────────────────────
+@@ -514,7 +608,9 @@
+     return `- [${e.severity.toUpperCase()}] ${ts} ${e.type}: ${e.message}${refStr}`;
+   });
+ 
+-  const eventSummary = eventLines.length > 0 ? eventLines.join("\n") : "No recent events";
++  const eventSummary = wants("events")
++    ? (eventLines.length > 0 ? eventLines.join("\n") : "No recent events")
++    : buildMissingSummary("Recent events");
+ 
+   // ── Workflows ──────────────────────────────────────────────────────────────
+   const workflowLines = rawWorkflows.map((w) => {
+@@ -527,8 +623,9 @@
+       : "";
+     return `- [${w.status.toUpperCase()}] ${w.name}${current}${executions}${lastRun}${phaseNames ? ` | phases: ${phaseNames}` : ""}`;
+   });
+-  const workflowSummary =
+-    workflowLines.length > 0 ? workflowLines.join("\n") : "No workflows defined yet";
++  const workflowSummary = wants("workflows")
++    ? (workflowLines.length > 0 ? workflowLines.join("\n") : "No workflows defined yet")
++    : buildMissingSummary("Workflows");
+ 
+   const result: ProjectContext = {
+     project: projectParts.join(" | "),
+@@ -547,7 +644,7 @@
+   // exceeds 80 K chars (~20 K tokens) so operators can tune the entity/relation
+   // caps before hitting silent model-side truncation.
+   const CONTEXT_WARN_CHARS = 80_000;
+-  const totalChars = Object.values(result).reduce((sum, v) => sum + (typeof v === "string" ? v.length : 0), 0);
++  const totalChars = Object.values(result as Record<string, string | boolean>).reduce((sum, v) => sum + (typeof v === "string" ? v.length : 0), 0);
+   if (totalChars > CONTEXT_WARN_CHARS) {
+     console.warn(
+       JSON.stringify({
+diff -ruN a/lib/ai-orchestrator/src/schemas/context.schema.ts b/lib/ai-orchestrator/src/schemas/context.schema.ts
+--- a/lib/ai-orchestrator/src/schemas/context.schema.ts	1970-01-01 00:00:00.000000000 +0000
++++ b/lib/ai-orchestrator/src/schemas/context.schema.ts	2026-07-26 03:31:19.119672338 +0000
+@@ -0,0 +1,27 @@
++import { z } from "zod";
++
++/**
++ * Validates the shape of the context object every agent prompt is built from.
++ *
++ * Every field is a non-empty string: the builder always produces a non-empty
++ * value (empty states use explicit fallback strings such as "No tasks yet").
++ * z.string().min(1) therefore reflects the real contract and rejects blank
++ * fields that indicate a broken builder, rather than silently accepting them.
++ *
++ * .strict() rejects objects that carry extra keys, so any future builder field
++ * that is not declared here fails loudly instead of being silently stripped.
++ */
++export const AgentContextSchema = z
++  .object({
++    project: z.string().min(1),
++    recentTasks: z.string().min(1),
++    latestMetrics: z.string().min(1),
++    graphSummary: z.string().min(1),
++    recentEvents: z.string().min(1),
++    workflows: z.string().min(1),
++    /** Structural flag: true only when a real scan has completed successfully. */
++    metricsVerified: z.boolean(),
++  })
++  .strict();
++
++export type AgentContext = z.infer<typeof AgentContextSchema>;

@@ -1,0 +1,519 @@
+فيما يلي خطة PR تنفيذية متسلسلة، ملفًا ملفًا، تبدأ من `app.ts` وتتحرك من طبقة الحماية إلى طبقة المشاريع ثم الاكتشاف ثم التنفيذ ثم الرصد والذكاء. الصياغة هنا عملية وموجهة مباشرة للتنفيذ.
+
+---
+
+## PR 1 — `app.ts`
+
+**الهدف:** تثبيت هيكل التطبيق، ترتيب الـ middleware، وضمان أن كل مسار يمر عبر طبقة الحماية والتتبع بشكل متسق.
+
+**الملفات:**
+
+* `artifacts/api-server/src/app.ts`
+
+**التغييرات:**
+
+* تثبيت ترتيب middleware بشكل نهائي: `helmet` → `rateLimit` → `cors` → `clerkMiddleware` → `requireAuth`.
+* إضافة Request ID موحّد لكل طلب وربطه بالـ logs والـ errors.
+* توحيد التعامل مع أخطاء 404/500 في نقطة مركزية واحدة بدل تشتتها.
+* التأكد من أن مسارات الـ health / readiness / debug لا تكسر نموذج الحماية.
+* تنظيم route mounting بحيث تكون مسارات الـ API واضحة ومفصولة عن غيرها.
+
+**الاختبارات:**
+
+* اختبار أن الطلبات غير المصرّح بها تُرفض قبل الوصول إلى handlers.
+* اختبار أن 404 و500 يعودان بصيغة موحدة.
+* اختبار أن requestId يظهر في الاستجابات/اللوغز.
+* اختبار عدم كسر أي route موجود بعد إعادة ترتيب الـ middleware.
+
+**المخاطر:**
+
+* كسر غير مقصود في ترتيب التنفيذ.
+* ظهور اختلافات في سلوك بعض المسارات الخاصة إذا كانت تعتمد ضمنيًا على ترتيب قديم.
+
+**rollback:**
+
+* إعادة `app.ts` إلى الترتيب الحالي إن ظهر أي regression في auth أو routing.
+* إبقاء التغييرات محصورة في هذا الملف فقط في هذا الـ PR.
+
+---
+
+## PR 2 — `requireAuth.ts` و`requireProjectAccess.ts`
+
+**الهدف:** تحويل التحقق من الهوية والملكية إلى طبقة صلبة ومستخدمة على نطاق كامل.
+
+**الملفات:**
+
+* `artifacts/api-server/src/middleware/requireAuth.ts`
+* `artifacts/api-server/src/middleware/requireProjectAccess.ts`
+
+**التغييرات:**
+
+* جعل `requireAuth` يثبت `userId` و`sessionId` وحقول الهوية بشكل موحد.
+* جعل `requireProjectAccess` هو المرجع الوحيد للتحقق من ملكية المشروع.
+* إضافة تفريق واضح بين:
+
+  * authenticated
+  * project member
+  * project owner
+  * project write access
+* تحسين رسائل الخطأ لتكون قابلة للتتبع داخل logs.
+* التأكد من أن أي مسار يمرر `projectId` لا يعتمد على الثقة بالمعرّف فقط.
+
+**الاختبارات:**
+
+* user authenticated بدون ملكية لا يصل إلى مشروع ليس له.
+* user يملك المشروع يمر بنجاح.
+* user لا يملك write access يفشل في PATCH/DELETE/scan.
+* 401 و403 يعودان بشكل منفصل وصحيح.
+
+**المخاطر:**
+
+* اكتشاف مسارات كانت تعمل سابقًا بالاعتماد على ثغرة access ضمنية.
+* احتمال ظهور مسارات ناقصة الحماية بعد تطبيق تشديد أمني.
+
+**rollback:**
+
+* إعادة logic التفويض إلى النسخة السابقة مؤقتًا مع إبقاء logs لتحديد المسارات المتأثرة.
+
+---
+
+## PR 3 — `projects.ts`
+
+**الهدف:** تثبيت طبقة المشاريع كطبقة مرجعية آمنة ومنضبطة.
+
+**الملفات:**
+
+* `artifacts/api-server/src/routes/projects.ts`
+
+**التغييرات:**
+
+* الحفاظ على `ownerId` من `req.userId` فقط، ومنع أي override من body.
+* فرض `requireProjectAccess` و`requireProjectWriteAccess` على كل endpoints الخاصة بالمشروع.
+* توحيد response shape في list/get/create/update/delete/scan.
+* التحقق الصارم من `projectId` قبل أي قراءة/تعديل.
+* إبقاء scan enqueue فقط داخل route، وعدم تنفيذ العمل الثقيل داخل request cycle.
+
+**الاختبارات:**
+
+* إنشاء مشروع يربطه تلقائيًا بـ owner الصحيح.
+* قراءة/تعديل/حذف مشروع من مستخدم غير مالك يفشل.
+* scan route ينشئ job فقط ولا ينجز scan داخل الطلب.
+* قائمة المشاريع تعرض فقط مشاريع المستخدم الحالي.
+
+**المخاطر:**
+
+* أي endpoint كان يعتمد على permissive access سيبدأ بالفشل، وهذا مقصود لكنه يحتاج رصدًا.
+* احتمال وجود client code قديم يعتمد على response shape غير موحد.
+
+**rollback:**
+
+* التراجع عن strict guards فقط عند الضرورة القصوى، مع الاحتفاظ بخيار logging للحالات المرفوضة.
+
+---
+
+## PR 4 — `discovery.ts`
+
+**الهدف:** تثبيت onboarding الاكتشافي كمحرك فعلي لفهم المشروع وليس مجرد import endpoint.
+
+**الملفات:**
+
+* `artifacts/api-server/src/routes/discovery.ts`
+* `artifacts/api-server/src/lib/discovery-adapters.ts` إذا كان متصلاً مباشرة بسير العمل
+
+**التغييرات:**
+
+* توحيد اكتشاف المصدر: local path / repo / workspace source.
+* تشديد التحقق من root path ووجوده قبل enqueue أو import.
+* ضمان أن discovery session تُستهلك مرة واحدة فقط.
+* جعل create project + metrics + graph seed + tasks + events داخل transaction قدر الإمكان.
+* تنظيم فرق واضح بين:
+
+  * resolve source
+  * scan source tree
+  * detect stack/features
+  * persist discovery output
+  * enqueue follow-up work
+* حفظ سبب الفشل التفصيلي في discovery session بدل رسالة عامة.
+
+**الاختبارات:**
+
+* source صالح ينتج session منتهية بنجاح.
+* root path مفقود أو غير صالح يفشل مبكرًا.
+* إعادة import لنفس المصدر لا تكرر نفس الكيان بلا ضوابط.
+* failure في الاستيراد لا يترك بيانات جزئية غير متسقة.
+
+**المخاطر:**
+
+* discovery معقد بطبيعته، وأي تعديل في sequencing قد يسبب duplicate entities أو partially imported projects.
+* التغييرات هنا قد تكشف اعتمادًا قديمًا على سلوك غير محدد.
+
+**rollback:**
+
+* التراجع إلى path سابق محفوظ لعملية discovery مع إبقاء checks الجديدة على source validation.
+
+---
+
+## PR 5 — `scan-runner.ts`
+
+**الهدف:** تقوية pipeline الفحص ليصبح قابلًا للتتبع والاستعادة والاختبار.
+
+**الملفات:**
+
+* `artifacts/api-server/src/lib/scan-runner.ts`
+
+**التغييرات:**
+
+* تثبيت lifecycle واضح للـ scan: start → walk → match → extract → persist → complete/fail.
+* جعل `correlationId` إلزاميًا ومكتوبًا في كل event/metric/audit متصل بالفحص.
+* التأكد أن فشل scan يعيد المشروع إلى حالة سليمة بدل تركه عالقًا.
+* إحكام التعامل مع الملفات الكبيرة أو المسارات العميقة.
+* تقليل الاعتماد على side effects غير الموثقة أثناء التحليل.
+
+**الاختبارات:**
+
+* scan ناجح يحدّث الحالة والمقاييس والـ graph.
+* scan يفشل في منتصفه ثم يترك المشروع بحالة صالحة.
+* correlationId يظهر في كل الأثر الناتج.
+* حدود الحجم/العمق تمنع الانفجار.
+
+**المخاطر:**
+
+* احتمالية كسر بعض النتائج إذا كان هناك اعتماد ضمني على ordering قديم.
+* أي bug هنا يظهر على شكل نتائج scan غير مكتملة أو مكررة.
+
+**rollback:**
+
+* إعادة lifecycle القديم مع الاحتفاظ بأكبر قدر من التحسينات في telemetry.
+
+---
+
+## PR 6 — `tasks.ts`
+
+**الهدف:** جعل المهام مرتبطة بملكية المشروع والتتبع بشكل صارم.
+
+**الملفات:**
+
+* `artifacts/api-server/src/routes/tasks.ts`
+
+**التغييرات:**
+
+* إضافة `requireProjectAccess` أو تحقق equivalent قبل أي read/write.
+* منع الوصول إلى tasks عبر `taskId` فقط دون فحص صلة المشروع.
+* توحيد task state transitions.
+* تثبيت audit/event emission عند create/update/complete/assign.
+* منع أي تعديل cross-project بالخطأ.
+
+**الاختبارات:**
+
+* user غير مالك لا يرى tasks الخاصة بمشروع آخر.
+* transitions غير الصالحة تُرفض.
+* كل عملية مهمة تُنتج trace واضحًا.
+* taskId وحده لا يكفي للوصول.
+
+**المخاطر:**
+
+* ظهور حالات كانت مسموحة سابقًا لكنها كانت غير آمنة.
+* احتمال الحاجة لتعديل clients تعتمد على سلوك permissive.
+
+**rollback:**
+
+* إعادة فتح المسار القديم مؤقتًا مع log alerts إذا ظهر تأثير واسع.
+
+---
+
+## PR 7 — `rules.ts`
+
+**الهدف:** ربط قواعد النظام بنطاق المشروع ومنع العبث العرضي أو التعدّي بين المشاريع.
+
+**الملفات:**
+
+* `artifacts/api-server/src/routes/rules.ts`
+
+**التغييرات:**
+
+* فرض project scope على كل operations.
+* التحقق من ownership قبل create/update/delete/enable/disable.
+* توحيد صيغة rule validation وsource metadata.
+* ربط rule changes بالأحداث audit/events.
+
+**الاختبارات:**
+
+* rule لا يمر بين المشاريع.
+* user غير مخوّل لا يعدل قواعد مشروع غيره.
+* rule invalid يرفض برسالة واضحة.
+* audit يلتقط change events.
+
+**المخاطر:**
+
+* القواعد قد تكون مستعملة حاليًا من واجهات تفترض وصولًا واسعًا.
+* قد يظهر تعارض مع بيانات قديمة غير مرتبطة جيدًا بالمشروع.
+
+**rollback:**
+
+* إعادة scope السابق مع الاحتفاظ بآلية validation المنضبطة.
+
+---
+
+## PR 8 — `workflows.ts`
+
+**الهدف:** تقوية محرك الـ workflow كطبقة حالة لا كمنطق صفحات.
+
+**الملفات:**
+
+* `artifacts/api-server/src/routes/workflows.ts`
+* وربما أجزاء مرتبطة من `artifacts/api-server/src/lib/workflow-state.ts` إن كانت مستخدمة مباشرة
+
+**التغييرات:**
+
+* إلزام project ownership على كل workflow operations.
+* توحيد transitions بين الحالات.
+* رفض الانتقال غير المسموح بدل تصحيحه صامتًا.
+* ربط workflow step changes بالـ events والـ audit.
+* الحفاظ على idempotency في start/advance/complete/fail.
+
+**الاختبارات:**
+
+* workflow transitions valid/invalid.
+* workflow لا ينتقل بين مشاريع مختلفة.
+* duplicate requests لا تكسر الحالة.
+* كل تغير حالة يولد trace.
+
+**المخاطر:**
+
+* workflow code عادة حساس لأن أي تغيير state model قد يظهر كـ regression في الواجهة.
+* قد تحتاج بعض screens لتعديل توقعات الحالة.
+
+**rollback:**
+
+* revert جزء transitions فقط مع الحفاظ على access control.
+
+---
+
+## PR 9 — `events.ts`
+
+**الهدف:** جعل event stream متسقًا وآمنًا ومرتبطًا بالمشروع الصحيح.
+
+**الملفات:**
+
+* `artifacts/api-server/src/routes/events.ts`
+
+**التغييرات:**
+
+* تقييد event reads على المشروع المملوك أو المخوّل.
+* توحيد فلترة `projectId`, `entityType`, `entityId`, `correlationId`.
+* تحسين pagination/ordering.
+* منع إظهار events خام من مشاريع أخرى.
+* تثبيت schema response للأحداث.
+
+**الاختبارات:**
+
+* لا events cross-project.
+* pagination صحيحة.
+* correlation filter يعمل.
+* لا انهيار عند data volume كبيرة.
+
+**المخاطر:**
+
+* احتمال أن تكون بعض dashboards تعتمد على read واسع للأحداث.
+* قد يظهر كشف لبيانات كانت تُقرأ دون تحقق.
+
+**rollback:**
+
+* العودة إلى read model القديم مع إضافة alerting بدل التعطيل الكامل.
+
+---
+
+## PR 10 — `metrics.ts`
+
+**الهدف:** ضبط المراقبة لتكون مرتبطة بالسياق الصحيح وليست قراءات عامة بلا حدود.
+
+**الملفات:**
+
+* `artifacts/api-server/src/routes/metrics.ts`
+* وربما `artifacts/api-server/src/lib/metrics.ts` إذا كان موجودًا كطبقة مساعدة
+
+**التغييرات:**
+
+* إظهار metrics على مستوى المشروع بعد التحقق من access.
+* تقييد latest/summary queries على project scope.
+* توحيد naming وaggregation.
+* منع أي استعلام واسع غير مقيد إلا إذا كان endpoint إداريًا صريحًا.
+* ربط metrics بأحداث الفحص/التشغيل/الـ workflows.
+
+**الاختبارات:**
+
+* metrics تظهر فقط للمشروع المخوّل.
+* aggregation ثابتة.
+* الاستعلامات الكبيرة لا تستهلك موارد زائدة.
+* لا leakage بين المشاريع.
+
+**المخاطر:**
+
+* dashboards قد تفقد بيانات كانت تعتمد عليها بدون project filter.
+* احتمال طلب تعديل client-side selectors.
+
+**rollback:**
+
+* إعادة endpoints إلى المسار القديم مع إضافات logging لقياس الأثر.
+
+---
+
+## PR 11 — `graph.ts`
+
+**الهدف:** حماية graph API وربطها بالمشروع الصحيح مع تقوية التمكين التحليلي.
+
+**الملفات:**
+
+* `artifacts/api-server/src/routes/graph.ts`
+* وأي helpers مباشرة مرتبطة بها
+
+**التغييرات:**
+
+* فرض access check على كل graph reads.
+* التأكد أن entities/relationships تُفلتر ضمن المشروع.
+* ضبط neighborhood/path queries بحيث لا تتجاوز scope المشروع.
+* توحيد response shape للرسم.
+* منع أي query مكلف بدون pagination أو حد أقصى.
+
+**الاختبارات:**
+
+* graph لا يكشف عقدًا من مشروع آخر.
+* path queries مقيدة.
+* الأداء ضمن الحدود مع بيانات كثيرة.
+* response schema ثابت.
+
+**المخاطر:**
+
+* graph عادة أكثر منطقة تُظهر تسرب بيانات إن لم تُقيد.
+* قد تحتاج الواجهة لتعديل بعض assumptions.
+
+**rollback:**
+
+* التراجع عن القيود الصارمة مؤقتًا فقط إذا تعطل dashboard، مع logging قوي.
+
+---
+
+## PR 12 — `ai.ts`
+
+**الهدف:** جعل طبقة الذكاء تعمل داخل حدود المشروع وبسياق مضبوط.
+
+**الملفات:**
+
+* `artifacts/api-server/src/routes/ai.ts`
+* وربما `lib/ai-orchestrator/*` إن كان هناك تعديل مباشر مكمّل
+
+**التغييرات:**
+
+* فرض project access على chat/analyze/review endpoints.
+* تقليل بناء context ليكون انتقائيًا لا شاملاً دائمًا.
+* ضبط حدود السياق المرسل للنموذج.
+* التأكد أن ردود الـ AI لا تتجاوز المشروع المصرح به.
+* ربط AI outputs بـ correlationId وaudit عند الحاجة.
+
+**الاختبارات:**
+
+* user غير المخوّل لا يحصل على تحليل مشروع آخر.
+* context builder لا يقرأ بيانات زائدة.
+* parsing/fallback يبقى ثابتًا.
+* timeout/retry behavior يعمل كما هو متوقع.
+
+**المخاطر:**
+
+* تكلفة سياق كبيرة إذا بقيت بيانات المشروع تُمرر كاملة.
+* احتمال تضخيم الاستجابات أو بطء المسارات.
+
+**rollback:**
+
+* تقليل نطاق context بدل إلغاء الحماية.
+
+---
+
+## PR 13 — `audit.ts`
+
+**الهدف:** رفع traceability دون كسر مسار التنفيذ.
+
+**الملفات:**
+
+* `artifacts/api-server/src/lib/audit.ts`
+
+**التغييرات:**
+
+* توحيد event names وentity references.
+* التأكد أن `correlationId` و`actorId` و`projectId` حاضرون في أكبر قدر ممكن من السجلات.
+* تحسين best-effort handling مع توثيق واضح لما فشل تسجيله.
+* منع تضارب names أو payload shapes بين العمليات المختلفة.
+
+**الاختبارات:**
+
+* audit records تحتوي الحقول الأساسية.
+* failure في audit لا يكسر mutation الأساسية.
+* mapping بين mutation وevent واضح.
+
+**المخاطر:**
+
+* تغيير شكل audit قد يؤثر على أي tools أو reports تقرأه مباشرة.
+* محاولة جعله transactional بالكامل قد تزيد التعقيد.
+
+**rollback:**
+
+* العودة إلى payload السابق مع الاحتفاظ بتحسينات الحقول الأساسية.
+
+---
+
+## PR 14 — `job-queue.ts` و`job-reconciliation.ts`
+
+**الهدف:** ضمان استمرارية التشغيل بعد restart ومنع تعطل الأعمال الثقيلة.
+
+**الملفات:**
+
+* `artifacts/api-server/src/lib/job-queue.ts`
+* `artifacts/api-server/src/lib/job-reconciliation.ts`
+
+**التغييرات:**
+
+* تثبيت حدود التوازي والـ backpressure.
+* التأكد أن stuck jobs تُعاد معالجتها بصورة صحيحة.
+* فصل reconcile logic عن business logic.
+* إبقاء queue state قابلة للفهم في logs.
+
+**الاختبارات:**
+
+* jobs المتوقفة تُعاد معالجتها.
+* الفشل لا يسبب duplication غير مقصود.
+* التوازي لا يتجاوز الحدود.
+* queue restart behavior سليم.
+
+**المخاطر:**
+
+* أي تعديل هنا قد يظهر فقط تحت الضغط وليس في الاختبار السطحي.
+* ازدواجية job processing إن لم تضبط state transitions جيدًا.
+
+**rollback:**
+
+* العودة إلى queue config السابق مع إبقاء reconcile safety checks إن أمكن.
+
+---
+
+## الترتيب العملي المقترح للتنفيذ
+
+ابدأ بالترتيب التالي حتى لا تُفتح فجوات أمنية أو تشغيلية:
+
+1. `app.ts`
+2. `requireAuth.ts` / `requireProjectAccess.ts`
+3. `projects.ts`
+4. `discovery.ts`
+5. `scan-runner.ts`
+6. `tasks.ts`
+7. `rules.ts`
+8. `workflows.ts`
+9. `events.ts`
+10. `metrics.ts`
+11. `graph.ts`
+12. `ai.ts`
+13. `audit.ts`
+14. `job-queue.ts` / `job-reconciliation.ts`
+
+هذا الترتيب مهم لأنك بذلك تثبت الأساس الأمني أولًا، ثم تمنع تسرب الوصول، ثم تضبط onboarding والاكتشاف، ثم تُقفل باقي surfaces التي تقرأ أو تعدل بيانات المشروع.
+
+إذا رغبت، أستطيع في الخطوة التالية تحويل هذه الخطة نفسها إلى **صيغة PR جاهزة للإرسال للـ agent** لكل ملف بصيغة:
+`PR title / scope / exact changes / acceptance criteria / tests / risk / rollback`.

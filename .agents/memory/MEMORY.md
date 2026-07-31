@@ -1,0 +1,43 @@
+- [Autonomous Project Discovery](discovery-feature.md) — correctness rules for discovery/import: rootPath hard-fail, atomic claim, transactional import.
+- [Audit Fixes](audit-fixes.md) — graph dual-map identity, rate-limit proxy trust, metrics alignment, codegen gate, scanner test suite behavioral facts.
+- [Testing & drift-check gotchas](testing-drift-checks.md) — git-diff vs git-status for codegen drift, DB test isolation, proving atomic claims and real error paths.
+- [Scanner AST rewrite](scanner-ast-extraction.md) — graph-extractor uses TS compiler API for TS/JS and a batched `python3 ast` subprocess for Python; regex only as fallback now.
+- [EngineeringOS completion plan](engineeringos-completion-plan.md) — phased plan lives in docs/; work inside-out (data→execution→analysis→orchestration→governance→tests→UI→docs), never UI-first.
+- [Deferred FK vs atomic-claim ordering](fk-atomic-claim-ordering.md) — adding a real FK on a "claim" column breaks pre-transaction optimistic-claim patterns; move the claim inside the same tx, after the referenced row is inserted.
+- [Orval/OpenAPI codegen gotchas](orval-openapi-codegen.md) — inline (non-$ref) request-body schemas can collide with generated zod-type exports; always $ref a named schema for non-empty bodies.
+- [Drizzle error wrapping](drizzle-error-wrapping.md) — raw pg error (`.code`/`.constraint`) is on `err.cause`, not `err`, when using drizzle-orm's node-postgres driver.
+- [Imported project workflow/DB failures](imported-project-workflow-failures.md) — missing `node_modules` vs. never-pushed drizzle schema are separate root causes for post-import workflow failures.
+- [Clerk auth + vitest supertest bypass](clerk-auth-testing.md) — vitest defaults NODE_ENV=test; gate requireAuth bypass on that instead of mocking Clerk tokens for supertest.
+- [Knowledge engine package](knowledge-engine.md) — lib/knowledge-engine: BFS impact/path/neighbourhood queries + centrality/cluster inference; drizzle-orm must be a direct dep (not just transitive via @workspace/db).
+- [AI Orchestration Layer](ai-orchestrator-layer.md) — lib/ai-orchestrator with Groq; 5 agents; /api/ai/* routes; ai_chat_sessions/messages tables; AiChat dashboard page at /ai.
+- [Silent API failure: ETag/304, not auth](clerk-401-race-cookie-vs-bearer.md) — signed-in-looking "failure" was Express ETag causing bodyless 304 (fetch treats as error); disable etag + no-store, check status codes before blaming auth.
+- [Knowledge-engine BFS off-by-one](knowledge-engine-bfs-depth.md) — a test-less package aborting `pnpm -r test` early masked a real bug in a sibling package's already-passing-looking tests.
+- [Discovery multi-source architecture](discovery-multi-source.md) — SourceAdapter pattern, 6 SourceType values, DB schema columns, generated file locations, build commands.
+- [AI orchestrator hardening](ai-orchestrator-hardening.md) — prompts/schemas/parsing separation, zod generic-inference gotcha with `.default()`, decide/validate/execute split, groq-client error codes.
+- [Discovery adapter registry](discovery-adapter-registry.md) — adding a source type needs only ADAPTERS entry; route never changes. isResolveError narrows the union.
+- [Project ownership/access-scope model](project-ownership-scoping.md) — single-owner ownerId, requireProjectAccess middleware, 404-vs-403 convention; only projects.ts enforces it so far.
+- [Imported project missing Clerk secrets](imported-project-clerk-secrets.md) — clerkMiddleware crashes on every request (incl. tests) with "Missing Clerk Secret Key" pre-auth-bypass; fix is setupClerkWhitelabelAuth(), not code changes.
+- [completion-plan.md backlog is stale](completion-plan-stale-backlog.md) — its trailing "Remaining open items" list lags behind the phase log above it; verify against code, not the backlog text.
+- [Dashboard scoping PR-01](dashboard-scoping-pr01.md) — dashboard route scoped to ownerId; inArray needs non-empty guard; 7 isolation tests added.
+- [AI Tool Calling Architecture](ai-tool-calling.md) — file-system tools (read/list/search/write) with deferred write approval; completeRaw in groq-client; agentic loop in chat-agent.
+- [PR-02 provenance layer](pr02-provenance-layer.md) — GraphProvenance unified shape, graph-provenance.ts single-point helpers, clerkMiddleware test bypass, walkProject hard-fail scan test fix.
+- [Project bootstrap checklist](project-bootstrap.md) — two steps always needed after import: push DB schema + provision Clerk before first run.
+- [Git AI Orchestrator bug fixes](git-ai-orchestrator-fixes.md) — 5 bugs fixed: prompt/tools conflict, commit UI non-repo guard, HTTPS-only push enforcement, partial apply state, export endpoint.
+- [Gap analysis fixes batch-1](gap-analysis-fixes-batch1.md) — 9 gaps fixed: task DB sort, events for apply/commit/push, post-push scan, apply race guard, git-status invalidation, localStorage TTL, pendingChanges salvage, generated-file write guard.
+- [Gap analysis fixes batch-2](gap-analysis-fixes-batch2.md) — 5 remaining gaps fixed: context TTL cache + invalidation, workflow metrics gate, downgrade logging, single-shot agent retries, Tasks.tsx type cast.
+- [Trace-by-Trace Analysis](trace-analysis.md) — 7 divergences (Prompt/Context/Events/Security) found and fixed; full report in docs/ai-orchestrator-trace-analysis.md.
+- [AI orchestrator gap closure](ai-orchestrator-gap-closure.md) — 10 gaps closed across groq-client, file-tools, routes/ai, context-builder; vi.hoisted pattern needed for drizzle mock.
+- [Context cache invalidation rule](context-cache-invalidation-rule.md) — any DB write to a context-builder table must call invalidateContextCache; TTL is perf, not correctness.
+- [Discovery resolution hardening](pr04-discovery-hardening.md) — URL scheme whitelist (https only), credential redaction, validateRootPath is async + realpath symlink check.
+- [PR-C AI auto-trigger](pr-c-ai-autotrigger.md) — scheduleAiTaskExecution was already in ai.ts; PR-C was wiring only (import + 2 call sites in tasks.ts); vi.mock importOriginal pattern for integration test spy.
+- [PR-D Workflow conditions](pr-d-workflow-conditions.md) — condition eval in /advance: Function() with safe context {qualityScore,currentPhase,completedPhases}; 409/400 shapes; audit enum extended; heavyJobQueue import fix.
+- [PR-01 Job Durability](pr01-job-durability.md) — pending status + discovery-runner extraction + reconciliation split (queued→re-enqueue, running→fail, pending→re-enqueue, discovering→fail).
+- [PR-H and PR-I completion](pr-h-i-completion.md) — H-1 observability (getStats/healthz/startup log); SSE chat stream endpoint + useAiChatStream hook; TS7030 SSE handler gotcha.
+- [Forensic audit PR-01–08](forensic-audit-batch.md) — advisory locks, real doc extraction, route parity test, OpenAPI sync, codegen; all 8 closed 2026-07-20.
+- [Forensic audit PR-01–06 batch-2](forensic-audit-pr01-06.md) — safe evaluator, stale-job sweep, service extraction, structuralTestEstimate rename, rootpath helper, CI gate.
+- [PR-D1 Job Queue Durability](pr-d1-job-queue-durability.md) — enqueueWithId deduplication + stale-pending sweep; all DB-backed jobs must use enqueueWithId, not plain enqueue.
+- [Health route must precede Clerk middleware](healthz-before-clerk.md) — healthRouter registered before clerkMiddleware in app.ts; Clerk crashes /api/healthz with 500 when CLERK_SECRET_KEY absent.
+- [Provider Registry & OpenRouter](provider-registry-openrouter.md) — PROVIDER_PRIORITY array drives all fallback ordering; openai-compatible-client.ts is the generic transport for deepseek+openrouter.
+- [RBAC archived write gate](rbac-archived-gate.md) — requireProjectWriteAccess now rejects archived projects (403); read access still allowed via requireProjectAccess.
+- [Scanner governance fixes](scanner-governance-fixes.md) — GAP-1–5 implemented: stale deletion, extractorVersion, scanSessionId, deterministic walk, heuristic fallback evidence kind.
+- [Quality engine scoring and cache NOTIFY fix](quality-engine-fixes.md) — task_execution scorer needs `summary` bonus; NOTIFY handler must prefix-scan cache keys not bare-delete; test isolation needs beforeEach in LISTEN channel block.

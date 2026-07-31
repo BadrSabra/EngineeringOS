@@ -1,0 +1,411 @@
+# EngineeringOS — PR Backlog عملي (File-by-File)
+
+> هذا الـ backlog مبني على الملفات الفعلية داخل الأرشيف، مع إعطاء الأولوية لمسارات الحقيقة التنفيذية أولًا: العقد، الـ API، الـ scan/discovery، الـ AI orchestration، ثم UI والحوكمة.
+
+---
+
+## PR 03 — OpenAPI → Route → Handler Chain Audit
+
+**الهدف:** التأكد أن كل endpoint له سلسلة كاملة: spec → route → handler → DB → audit → frontend → generated client → tests.
+
+**الملفات:**
+
+* `lib/api-spec/openapi.yaml`
+* `artifacts/api-server/src/routes/*.ts`
+* `artifacts/api-server/src/lib/*.ts`
+* `lib/api-zod/src/generated/*`
+* `lib/api-client-react/src/generated/*`
+* `artifacts/dashboard/src/pages/*`
+* `artifacts/api-server/src/routes/*.test.ts`
+
+**Checklist:**
+
+* [ ] مطابقة كل path في `openapi.yaml` مع route فعلي بنفس السلوك.
+* [ ] التأكد أن `api-zod` و`api-client-react` ناتجان من نفس spec الحالية.
+* [ ] حصر أي endpoint لا يملك test مباشر أو سلوك error واضح.
+* [ ] توثيق أي مسار مقصود غير مكتمل بدل أن يبقى drift صامت.
+* [ ] مراجعة routes ذات التداخلات الحساسة:
+  `projects.ts`, `discovery.ts`, `tasks.ts`, `workflows.ts`, `ai.ts`, `graph.ts`.
+* [ ] التأكد أن الـ frontend hooks/queries المستخدمة فعليًا تطابق الـ generated client.
+
+**Done criteria:**
+
+* لا يوجد endpoint يتيم.
+* لا يوجد mismatch بين spec والتنفيذ والـ generated artifacts.
+* كل فجوة موثقة بسبب واضح أو مُغلقة بكود/اختبار.
+
+---
+
+## PR 04 — Placeholder / Stub / Dead-Code Cleanup
+
+**الهدف:** إزالة أي placeholder أو stub أو dead code أو TODO غير مبرر.
+
+**الملفات:**
+
+* `docs/PLACEHOLDER_REGISTER.md`
+* `artifacts/api-server/src/routes/discovery.ts`
+* `artifacts/api-server/src/routes/ai.ts`
+* `artifacts/api-server/src/lib/plugin-runtime.ts`
+* `artifacts/dashboard/src/pages/AiChat.tsx`
+* `artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx`
+* `lib/api-client-react/src/custom-fetch.ts`
+* أي ملفات ظهر فيها TODO/FIXME/Temporary/Fake/Stub
+
+**Checklist:**
+
+* [ ] مراجعة كل TODO/FIXME ظاهر في الكود.
+* [ ] حذف أي dead code غير مستخدم.
+* [ ] تحويل أي placeholder production-facing إلى تنفيذ فعلي أو توضيح مقصود.
+* [ ] مراجعة شواهد “return null / throw new Error” للتأكد أنها guard حقيقي وليست stub.
+* [ ] تنظيف أي UI نصّي يوحي بأن المسار ما يزال تجريبيًا إذا كان بالفعل production-critical.
+* [ ] توثيق أي stub لا يمكن حذفه الآن مع owner وnext step.
+
+**Done criteria:**
+
+* لا يبقى placeholder صامت في مسار production-critical.
+* كل TODO له قرار: إما تنفيذ أو تبرير أو حذف.
+
+---
+
+## PR 05 — Scanner / Discover Project Hardening
+
+**الهدف:** جعل discovery + scan مسارًا موثوقًا من المصدر حتى الملخص.
+
+**الملفات:**
+
+* `artifacts/dashboard/src/pages/Projects.tsx`
+* `artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx`
+* `artifacts/dashboard/src/components/*`
+* `artifacts/api-server/src/routes/discovery.ts`
+* `artifacts/api-server/src/lib/discovery-adapters.ts`
+* `artifacts/api-server/src/lib/path-validation.ts`
+* `artifacts/api-server/src/lib/scan-runner.ts`
+* `lib/scanner/src/*`
+
+**Checklist:**
+
+* [ ] اختبار اختيار المصدر: local / workspace / git repository.
+* [ ] التأكد أن root path لا يُقبل إذا كان غير موجود أو ليس directory.
+* [ ] التأكد أن import atomic: claim ثم transaction ثم commit.
+* [ ] التأكد أن retry بعد failure لا يخلق state نصف مكتمل.
+* [ ] مراجعة `scan-runner.ts` على خطوات: walk → match → graph → metrics → persist → audit → plugin dispatch.
+* [ ] اختبار adapter cleanup في حالات النجاح والفشل.
+* [ ] التأكد أن `path-validation.ts` يمنع المسارات النظامية الخطرة.
+* [ ] مراجعة صفحات الـ wizard والتأكد أن حالات الخطأ مرئية وواضحة.
+
+**Done criteria:**
+
+* discovery/import/scan لا يصمت عند الفشل.
+* كل failure ينتج حالة مفهومة وقابلة للتتبع.
+* لا توجد scans تعمل على path خاطئ أو fallback غير مقصود.
+
+---
+
+## PR 06 — AI Chat / Orchestrator UX Fixes
+
+**الهدف:** إنهاء الصمت في الإرسال، وتوحيد error classification، وتحسين الـ AI flows.
+
+**الملفات:**
+
+* `artifacts/dashboard/src/pages/AiChat.tsx`
+* `artifacts/api-server/src/routes/ai.ts`
+* `lib/ai-orchestrator/src/*`
+* `artifacts/api-server/src/lib/credentials-crypto.ts`
+
+**Checklist:**
+
+* [ ] التأكد أن `AiChat.tsx` لا يرسل request صامتًا عند غياب project أو key.
+* [ ] تصنيف errors إلى:
+
+  * unauthorized
+  * forbidden
+  * validation
+  * provider
+  * network/timeout
+* [ ] مراجعة `groq-client.ts` على timeout/retry/error mapping.
+* [ ] مراجعة `parsing.ts` على malformed JSON / fences / empty response.
+* [ ] التأكد أن `credentials-crypto.ts` round-trip آمن ويكشف البيانات الفاسدة.
+* [ ] توحيد شكل الاستجابات بين chat/analyze/review/orchestrate/execute.
+* [ ] إضافة state واضح في الواجهة لكل مسار فشل.
+
+**Done criteria:**
+
+* لا silent send failure.
+* كل خطأ AI له message وسلوك واضح.
+* لا يبقى المستخدم بين “تم الإرسال” و“لا شيء حدث”.
+
+---
+
+## PR 07 — Runtime Durability & Job Queue Recovery
+
+**الهدف:** تقليل فقدان العمل عند restart وتحسين recovery semantics.
+
+**الملفات:**
+
+* `artifacts/api-server/src/lib/job-queue.ts`
+* `artifacts/api-server/src/lib/job-reconciliation.ts`
+* `artifacts/api-server/src/lib/scan-runner.ts`
+* أي route/consumer يعتمد على queue
+
+**Checklist:**
+
+* [ ] تثبيت concurrency behavior واختباره.
+* [ ] توثيق ماذا يحدث عند restart.
+* [ ] التأكد أن jobs العالقة تُستعاد أو تُصفّر بشكل صريح.
+* [ ] مراجعة حالات `queued/running/failed`.
+* [ ] التأكد أن reconciliation لا يلمس jobs سليمة.
+* [ ] إضافة/توسيع tests على recovery after crash.
+* [ ] تقييم ما إذا كانت queue داخل الذاكرة كافية أو يلزم durable worker لاحقًا.
+
+**Done criteria:**
+
+* سلوك restart واضح ومختبر.
+* لا job critical تضيع صامتًا.
+* حالات recovery قابلة للتدقيق.
+
+---
+
+## PR 08 — Audit / Metrics / Event Consistency
+
+**الهدف:** جعل كل حدث مهم قابلاً للتتبع عبر events, metrics, audit logs, task logs.
+
+**الملفات:**
+
+* `artifacts/api-server/src/lib/audit.ts`
+* `artifacts/api-server/src/routes/*.ts`
+* `artifacts/api-server/src/lib/*.ts`
+* `lib/db/src/schema/*.ts`
+
+**Checklist:**
+
+* [ ] توحيد `actor: req.userId` في جميع audit calls.
+* [ ] التأكد أن الأحداث المهمة تكتب trace متسق.
+* [ ] مراجعة correlation IDs في المسارات الحرجة.
+* [ ] ربط event → audit → metric بسلوك واحد متوقع.
+* [ ] التأكد أن audit best-effort لا يفسد الـ transaction الأساسية إن كان هذا مقصودًا.
+* [ ] توثيق أي استثناء من التتبع الكامل.
+
+**Done criteria:**
+
+* كل mutation مهمة لها trace واضح.
+* لا توجد عمليات حساسة بلا أثر قابل للتدقيق.
+
+---
+
+## PR 09 — Tests & Gate Enforcement
+
+**الهدف:** تحويل الجهد الحالي إلى بوابات تمنع drift لاحقًا.
+
+**الملفات:**
+
+* `package.json`
+* `scripts/*`
+* `artifacts/api-server/src/**/*.test.ts`
+* `artifacts/dashboard/src/**/*`
+* `lib/api-spec/openapi.yaml`
+* `lib/api-zod/src/generated/*`
+* `lib/api-client-react/src/generated/*`
+* أي CI config إن أُضيف
+
+**Checklist:**
+
+* [ ] التأكد أن `truth:validate` و`codegen:check` و`typecheck` و`test` تعمل كحزمة واحدة.
+* [ ] اعتماد `git status --porcelain` لمراقبة codegen drift.
+* [ ] تثبيت DB test isolation.
+* [ ] التأكد أن concurrent atomic claim tests تتحقق من state لا HTTP فقط.
+* [ ] إضافة/تعزيز tests على المسارات الحرجة في:
+  `projects`, `tasks`, `workflows`, `discovery`, `ai`, `graph`, `rules`, `metrics`.
+* [ ] التأكد أن أي mismatch بين spec/client/codegen يفشل البوابة.
+
+**Done criteria:**
+
+* لا drift يمر دون فشل.
+* الاختبارات تقيس الحالة الفعلية لا فقط response code.
+
+---
+
+## PR 10 — Final UI Consistency Pass
+
+**الهدف:** توحيد اللغة البصرية والرسائل مع الحقيقة التشغيلية الحالية.
+
+**الملفات:**
+
+* `artifacts/dashboard/src/pages/*`
+* `artifacts/dashboard/src/components/*`
+* `artifacts/dashboard/src/lib/clerk.ts`
+* `artifacts/dashboard/src/lib/utils.ts`
+
+**Checklist:**
+
+* [ ] مراجعة كل شاشة تعرض status / empty state / error state.
+* [ ] إزالة أي wording قديم أو misleading.
+* [ ] التأكد أن كل route تعرض actions المفهومة للمستخدم.
+* [ ] ضبط placeholders لتكون أمثلة UX فقط لا إشارات إلى stub.
+* [ ] مراجعة التوافق مع Clerk/base path.
+* [ ] التأكد أن layout العام لا يكسر في الشاشات الطويلة أو الصغيرة.
+
+**Done criteria:**
+
+* الواجهة تعكس الحقيقة الحالية بدون رسائل قديمة أو ملتبسة.
+* كل فشل له تفسير قابل للفهم والعمل.
+
+---
+
+## PR 11 — Documentation Finalization
+
+**الهدف:** جعل الوثائق تطابق الكود الفعلي بعد الإغلاق.
+
+**الملفات:**
+
+* `docs/*`
+* `.agents/memory/*` المرتبطة بالخطة
+* أي ملف truth/register أو completion plan
+
+**Checklist:**
+
+* [ ] تحديث fact-record ليتطابق مع الأرشيف الحالي.
+* [ ] تحديث execution alignment بعد كل PR كبير.
+* [ ] إزالة claims القديمة.
+* [ ] توحيد المصطلحات: app / artifact / library / route / service / agent.
+* [ ] جعل onboarding docs تعكس البنية الحالية فقط.
+
+**Done criteria:**
+
+* لا وثيقة تحكي قصة أقدم من الكود.
+* يوجد مصدر حقيقة واحد واضح للمراجعة اللاحقة.
+
+---
+
+## PR 12 — Release Hardening / Merge Readiness
+
+**الهدف:** تجهيز المشروع للاعتماد الواسع أو الدمج النهائي.
+
+**الملفات:**
+
+* `docs/*`
+* `package.json`
+* CI/config إن وُجد
+* release checklist artifacts إن أُضيفت
+
+**Checklist:**
+
+* [ ] توثيق rollback assumptions.
+* [ ] توثيق smoke checks الأساسية.
+* [ ] توثيق merge policy وrelease gate.
+* [ ] التأكد أن critical gaps مغلقة.
+* [ ] التأكد أن build/test/codegen gates مفعلة ومفهومة.
+
+**Done criteria:**
+
+* لا يوجد gap critical مفتوح.
+* خطوات النشر/الدمج موثقة وقابلة للتكرار.
+
+---
+
+# Checklist ملف-بملف حسب الأولوية
+
+## أولوية P0 — يجب مراجعتها أولًا
+
+* `artifacts/api-server/src/routes/discovery.ts`
+* `artifacts/api-server/src/routes/ai.ts`
+* `artifacts/api-server/src/routes/tasks.ts`
+* `artifacts/api-server/src/routes/workflows.ts`
+* `artifacts/api-server/src/routes/projects.ts`
+* `artifacts/api-server/src/lib/scan-runner.ts`
+* `artifacts/api-server/src/lib/job-queue.ts`
+* `artifacts/api-server/src/lib/job-reconciliation.ts`
+* `lib/ai-orchestrator/src/groq-client.ts`
+* `lib/ai-orchestrator/src/parsing.ts`
+* `lib/scanner/src/graph-extractor.ts`
+* `lib/scanner/src/python-extractor.ts`
+* `lib/db/src/schema/*.ts`
+
+**لكل ملف من هذه الملفات:**
+
+* [ ] تحديد المسؤولية الدقيقة للملف.
+* [ ] حصر كل side effect.
+* [ ] حصر كل dependency واردة وصادرة.
+* [ ] تحديد حالات الفشل الممكنة.
+* [ ] إضافة أو تحديث tests.
+* [ ] منع أي behavior صامت.
+
+---
+
+## أولوية P1 — مهمة جدًا بعد P0
+
+* `artifacts/api-server/src/middlewares/requireAuth.ts`
+* `artifacts/api-server/src/middlewares/requireProjectAccess.ts`
+* `artifacts/api-server/src/middlewares/clerkProxyMiddleware.ts`
+* `artifacts/api-server/src/middlewares/path-validation.ts`
+* `artifacts/api-server/src/lib/discovery-adapters.ts`
+* `artifacts/api-server/src/lib/credentials-crypto.ts`
+* `artifacts/api-server/src/lib/audit.ts`
+* `artifacts/api-server/src/routes/graph.ts`
+* `artifacts/api-server/src/routes/metrics.ts`
+* `artifacts/api-server/src/routes/events.ts`
+* `artifacts/api-server/src/routes/rules.ts`
+* `artifacts/api-server/src/routes/plugins.ts`
+* `artifacts/dashboard/src/pages/AiChat.tsx`
+* `artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx`
+* `artifacts/dashboard/src/pages/Projects.tsx`
+* `artifacts/dashboard/src/pages/Graph.tsx`
+* `artifacts/dashboard/src/pages/Workflows.tsx`
+* `artifacts/dashboard/src/pages/Tasks.tsx`
+
+**لكل ملف:**
+
+* [ ] مراجعة inputs/outputs.
+* [ ] مراجعة scoping/access control.
+* [ ] مراجعة error states.
+* [ ] مراجعة naming / state transitions.
+* [ ] إضافة tests أو تحديثها.
+
+---
+
+## أولوية P2 — تحسينات بعد تثبيت المسارات الحرجة
+
+* `lib/knowledge-engine/src/*`
+* `lib/scanner/src/file-walker.ts`
+* `lib/scanner/src/rule-matcher.ts`
+* `lib/scanner/src/metrics-calc.ts`
+* `lib/ai-orchestrator/src/context-builder.ts`
+* `lib/ai-orchestrator/src/agents/*.ts`
+* `lib/ai-orchestrator/src/prompts/*.ts`
+* `lib/ai-orchestrator/src/schemas/*.ts`
+* `artifacts/dashboard/src/components/layout/Shell.tsx`
+* `artifacts/dashboard/src/components/layout/Sidebar.tsx`
+
+**لكل ملف:**
+
+* [ ] تقليل coupling.
+* [ ] توحيد contracts.
+* [ ] تحسين قابلية الاختبار.
+* [ ] تقليل الحالات غير المحددة.
+
+---
+
+# ترتيب التنفيذ المقترح
+
+1. PR 03
+2. PR 04
+3. PR 05
+4. PR 06
+5. PR 07
+6. PR 08
+7. PR 09
+8. PR 10
+9. PR 11
+10. PR 12
+
+---
+
+# مخرجات كل PR
+
+كل PR يجب أن ينتهي بـ:
+
+* [ ] قائمة الملفات التي تغيّرت.
+* [ ] ما الذي كان معطلاً قبل التعديل.
+* [ ] ما الذي أصبح صحيحًا بعد التعديل.
+* [ ] اختبارات مثبتة.
+* [ ] أي debt مؤجل مذكور صراحة.
+* [ ] عدم ترك أي behavior صامت أو غامض.

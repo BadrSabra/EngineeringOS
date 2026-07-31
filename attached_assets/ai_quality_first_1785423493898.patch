@@ -1,0 +1,818 @@
+--- a/lib/ai-orchestrator/src/quality-engine.ts
++++ b/lib/ai-orchestrator/src/quality-engine.ts
+@@ -0,0 +1,328 @@
++import { PROVIDER_PRIORITY, getProviderCapabilities, type ProviderId } from "./provider-registry.js";
++import { providerMatchesHints, scoreProviderCapabilities, type ProviderCapabilityHints } from "./provider-capabilities.js";
++
++export type QualityProfile = "chat" | "tool_chat" | "analysis" | "task_execution" | "code_review" | "workflow";
++
++export type QualityPlan = {
++  profile: QualityProfile;
++  strictHints: ProviderCapabilityHints;
++  relaxedHints: ProviderCapabilityHints;
++};
++
++export type QualityAssessment = {
++  profile: QualityProfile;
++  score: number;
++  threshold: number;
++  decision: "accept" | "retry";
++  reasons: string[];
++};
++
++export type QualitySortOptions = {
++  requireTools?: boolean;
++};
++
++function clampScore(value: number): number {
++  if (Number.isNaN(value)) return 0;
++  return Math.max(0, Math.min(1, value));
++}
++
++function buildBasePlans(profile: QualityProfile): Pick<QualityPlan, "strictHints" | "relaxedHints"> {
++  switch (profile) {
++    case "tool_chat":
++      return {
++        strictHints: {
++          requireStreaming: true,
++          requireTools: true,
++          requireJsonMode: true,
++          requireReasoning: true,
++          requireFunctionCalling: true,
++          requireThinking: true,
++        },
++        relaxedHints: {
++          requireStreaming: true,
++          requireTools: true,
++          requireJsonMode: true,
++          requireReasoning: true,
++        },
++      };
++    case "analysis":
++      return {
++        strictHints: {
++          requireJsonMode: true,
++          requireReasoning: true,
++          requireThinking: true,
++          minimumContext: 16_000,
++        },
++        relaxedHints: {
++          requireJsonMode: true,
++          requireReasoning: true,
++          minimumContext: 8_000,
++        },
++      };
++    case "task_execution":
++      return {
++        strictHints: {
++          requireJsonMode: true,
++          requireReasoning: true,
++          requireThinking: true,
++          minimumContext: 8_000,
++        },
++        relaxedHints: {
++          requireJsonMode: true,
++          requireReasoning: true,
++          minimumContext: 4_000,
++        },
++      };
++    case "code_review":
++      return {
++        strictHints: {
++          requireJsonMode: true,
++          requireReasoning: true,
++          requireThinking: true,
++          minimumContext: 12_000,
++        },
++        relaxedHints: {
++          requireJsonMode: true,
++          requireReasoning: true,
++          minimumContext: 6_000,
++        },
++      };
++    case "workflow":
++      return {
++        strictHints: {
++          requireJsonMode: true,
++          requireReasoning: true,
++          requireThinking: true,
++        },
++        relaxedHints: {
++          requireJsonMode: true,
++          requireReasoning: true,
++        },
++      };
++    case "chat":
++    default:
++      return {
++        strictHints: {
++          requireStreaming: true,
++          requireReasoning: true,
++        },
++        relaxedHints: {
++          requireStreaming: true,
++        },
++      };
++  }
++}
++
++export function buildQualityPlan(profile: QualityProfile, options?: QualitySortOptions): QualityPlan {
++  const base = buildBasePlans(profile);
++  const strictHints = options?.requireTools
++    ? { ...base.strictHints, requireTools: true }
++    : base.strictHints;
++  const relaxedHints = options?.requireTools
++    ? { ...base.relaxedHints, requireTools: true }
++    : base.relaxedHints;
++
++  return { profile, strictHints, relaxedHints };
++}
++
++export function buildQualityHints(profile: QualityProfile, options?: QualitySortOptions): ProviderCapabilityHints {
++  return buildQualityPlan(profile, options).strictHints;
++}
++
++export function sortProviderIdsByQuality(
++  providerIds: ProviderId[],
++  profile: QualityProfile,
++  options?: QualitySortOptions,
++): ProviderId[] {
++  const uniqueIds = [...new Set(providerIds)].filter((id) => PROVIDER_PRIORITY.includes(id));
++  if (uniqueIds.length <= 1) return uniqueIds;
++
++  const plan = buildQualityPlan(profile, options);
++  const strictMatches = uniqueIds.filter((providerId) => providerMatchesHints(getProviderCapabilities(providerId), plan.strictHints));
++  const relaxedMatches = uniqueIds.filter((providerId) => providerMatchesHints(getProviderCapabilities(providerId), plan.relaxedHints));
++  const pool = strictMatches.length > 0 ? strictMatches : relaxedMatches.length > 0 ? relaxedMatches : uniqueIds;
++  const scoringHints = strictMatches.length > 0 ? plan.strictHints : plan.relaxedHints;
++
++  return [...pool].sort((a, b) => {
++    const scoreA = scoreProviderCapabilities(getProviderCapabilities(a), scoringHints);
++    const scoreB = scoreProviderCapabilities(getProviderCapabilities(b), scoringHints);
++    if (scoreA !== scoreB) return scoreB - scoreA;
++
++    const priorityA = PROVIDER_PRIORITY.indexOf(a);
++    const priorityB = PROVIDER_PRIORITY.indexOf(b);
++    if (priorityA !== priorityB) return priorityA - priorityB;
++
++    return a.localeCompare(b);
++  });
++}
++
++const PLACEHOLDER_PATTERNS: RegExp[] = [
++  /model did not return/i,
++  /analysis completed/i,
++  /task analyzed by ai agent/i,
++  /code review completed/i,
++  /workflow decision/i,
++  /review the detailed analysis above/i,
++  /review the workflow state manually/i,
++  /please try again/i,
++  /please review/i,
++];
++
++function isPlaceholderText(value: string): boolean {
++  const trimmed = value.trim();
++  if (!trimmed) return true;
++  return PLACEHOLDER_PATTERNS.some((pattern) => pattern.test(trimmed));
++}
++
++function countMeaningfulStrings(record: Record<string, unknown>): { total: number; meaningful: number; placeholder: number } {
++  let total = 0;
++  let meaningful = 0;
++  let placeholder = 0;
++  for (const value of Object.values(record)) {
++    if (typeof value !== "string") continue;
++    total += 1;
++    if (isPlaceholderText(value)) {
++      placeholder += 1;
++    } else if (value.trim().length > 0) {
++      meaningful += 1;
++    }
++  }
++  return { total, meaningful, placeholder };
++}
++
++function countMeaningfulArrays(record: Record<string, unknown>): { total: number; nonEmpty: number } {
++  let total = 0;
++  let nonEmpty = 0;
++  for (const value of Object.values(record)) {
++    if (!Array.isArray(value)) continue;
++    total += 1;
++    if (value.length > 0) nonEmpty += 1;
++  }
++  return { total, nonEmpty };
++}
++
++function profileThreshold(profile: QualityProfile): number {
++  switch (profile) {
++    case "analysis":
++    case "code_review":
++      return 0.78;
++    case "task_execution":
++      return 0.75;
++    case "workflow":
++      return 0.72;
++    case "tool_chat":
++      return 0.7;
++    case "chat":
++    default:
++      return 0.68;
++  }
++}
++
++export function assessStructuredOutput(profile: QualityProfile, output: unknown): QualityAssessment {
++  const threshold = profileThreshold(profile);
++  if (!output || typeof output !== "object" || Array.isArray(output)) {
++    return {
++      profile,
++      score: 0,
++      threshold,
++      decision: "retry",
++      reasons: ["structured output was not an object"],
++    };
++  }
++
++  const record = output as Record<string, unknown>;
++  const strings = countMeaningfulStrings(record);
++  const arrays = countMeaningfulArrays(record);
++  const reasons: string[] = [];
++
++  let score = 0.34;
++  score += Math.min(0.18, strings.meaningful * 0.045);
++  score -= Math.min(0.18, strings.placeholder * 0.09);
++  score += Math.min(0.12, arrays.nonEmpty * 0.04);
++
++  switch (profile) {
++    case "analysis": {
++      const insights = record.insights;
++      if (Array.isArray(insights) && insights.length > 0) score += 0.1;
++      else reasons.push("analysis insights are empty");
++
++      const assessment = record.overallAssessment;
++      if (typeof assessment === "string" && !isPlaceholderText(assessment)) score += 0.08;
++      else reasons.push("overall assessment looks like placeholder text");
++
++      const priority = record.topPriority;
++      if (typeof priority === "string" && !isPlaceholderText(priority)) score += 0.05;
++      else reasons.push("top priority is missing or placeholder");
++      break;
++    }
++
++    case "code_review": {
++      const issues = record.issues;
++      const strengths = record.strengths;
++      if (Array.isArray(issues) && Array.isArray(strengths)) {
++        score += 0.06;
++        if (issues.length > 0 || strengths.length > 0) score += 0.08;
++      } else {
++        reasons.push("code review arrays are missing");
++      }
++
++      const verdict = record.verdict;
++      if (typeof verdict === "string" && verdict.length > 0) score += 0.06;
++      else reasons.push("verdict is missing");
++      break;
++    }
++
++    case "task_execution": {
++      const steps = record.steps;
++      if (Array.isArray(steps) && steps.length > 0) score += 0.1;
++      else reasons.push("task steps are empty");
++
++      const result = record.result;
++      if (typeof result === "string" && !isPlaceholderText(result)) score += 0.08;
++      else reasons.push("task result looks like fallback text");
++
++      const confidence = record.confidence;
++      if (typeof confidence === "string" && confidence.length > 0) score += 0.04;
++      break;
++    }
++
++    case "workflow": {
++      const reasoning = record.reasoning;
++      if (typeof reasoning === "string" && !isPlaceholderText(reasoning)) score += 0.08;
++      else reasons.push("workflow reasoning is missing or placeholder");
++
++      const suggestions = record.suggestions;
++      if (Array.isArray(suggestions) && suggestions.length > 0) score += 0.05;
++      else reasons.push("workflow suggestions are empty");
++      break;
++    }
++
++    case "tool_chat": {
++      const response = record.response;
++      if (typeof response === "string" && !isPlaceholderText(response)) score += 0.12;
++      else reasons.push("chat response looks like fallback text");
++      break;
++    }
++
++    case "chat":
++    default: {
++      const response = record.response;
++      if (typeof response === "string" && !isPlaceholderText(response)) score += 0.12;
++      else reasons.push("chat response looks like fallback text");
++      break;
++    }
++  }
++
++  const normalized = clampScore(score);
++  if (normalized < threshold) {
++    reasons.push(`quality score ${normalized.toFixed(2)} is below threshold ${threshold.toFixed(2)}`);
++  }
++
++  return {
++    profile,
++    score: normalized,
++    threshold,
++    decision: normalized >= threshold ? "accept" : "retry",
++    reasons,
++  };
++}
+
+--- a/lib/ai-orchestrator/src/__tests__/quality-engine.test.ts
++++ b/lib/ai-orchestrator/src/__tests__/quality-engine.test.ts
+@@ -0,0 +1,45 @@
++import { describe, expect, it } from "vitest";
++import { assessStructuredOutput, sortProviderIdsByQuality } from "../quality-engine.js";
++
++describe("sortProviderIdsByQuality", () => {
++  it("prefers a thinking-capable provider for analysis tasks", () => {
++    const ordered = sortProviderIdsByQuality(["groq", "openrouter", "deepseek", "gemini"], "analysis");
++    expect(ordered[0]).toBe("deepseek");
++    expect(ordered).not.toContain("gemini");
++  });
++
++  it("keeps tool-capable providers ahead of text-only providers for tool chat", () => {
++    const ordered = sortProviderIdsByQuality(["gemini", "groq", "openrouter"], "tool_chat", { requireTools: true });
++    expect(ordered[0]).not.toBe("gemini");
++    expect(ordered).toContain("groq");
++    expect(ordered).toContain("openrouter");
++  });
++});
++
++describe("assessStructuredOutput", () => {
++  it("accepts a complete task execution payload", () => {
++    const assessment = assessStructuredOutput("task_execution", {
++      summary: "Task analyzed",
++      steps: ["Inspect", "Fix"],
++      result: "Completed successfully",
++      confidence: "high",
++      needsHumanReview: false,
++    });
++
++    expect(assessment.decision).toBe("accept");
++    expect(assessment.score).toBeGreaterThanOrEqual(assessment.threshold);
++  });
++
++  it("flags fallback-style task output for retry", () => {
++    const assessment = assessStructuredOutput("task_execution", {
++      summary: "Task analyzed by AI agent",
++      steps: [],
++      result: "The model did not return a structured result.",
++      confidence: "medium",
++      needsHumanReview: true,
++    });
++
++    expect(assessment.decision).toBe("retry");
++    expect(assessment.reasons.length).toBeGreaterThan(0);
++  });
++});
+
+--- a/lib/ai-orchestrator/src/index.ts
++++ b/lib/ai-orchestrator/src/index.ts
+@@ -8,6 +8,9 @@
+ 
+ export type { PendingChange } from "./tools/file-tools.js";
+ 
++export { buildQualityHints, buildQualityPlan, assessStructuredOutput, sortProviderIdsByQuality } from "./quality-engine.js";
++export type { QualityAssessment, QualityPlan, QualityProfile, QualitySortOptions } from "./quality-engine.js";
++
+ export { GroqClientError } from "./errors.js";
+ export type { AgentErrorCode, GroqErrorCode } from "./errors.js";
+ 
+
+--- a/lib/ai-orchestrator/src/agent-complete.ts
++++ b/lib/ai-orchestrator/src/agent-complete.ts
+@@ -8,18 +8,27 @@
+ import { complete, completeRaw, MODEL_POWERFUL } from "./groq-client.js";
+ import { deepseekCompleteRaw } from "./deepseek-client.js";
+ import { openrouterCompleteRaw, geminiCompleteRaw } from "./openai-compatible-client.js";
+-import { loadProvider } from "./provider-registry.js";
++import { discoverProvider, loadProvider } from "./provider-registry.js";
++import { buildQualityHints, type QualityProfile } from "./quality-engine.js";
+ import { GroqClientError } from "./errors.js";
+ import type { Message } from "./groq-client.js";
+ import type { ProviderConfig, ProviderId } from "./provider-registry.js";
++import type { ProviderCapabilityHints } from "./provider-capabilities.js";
+ 
+ export type { ProviderId };
+ 
+ export type AgentCompleteOpts = {
+   /** Per-user API key. Required for DeepSeek and OpenRouter; falls back to GROQ_API_KEY env for Groq. */
+   apiKey?: string;
+-  /** Which AI provider to use. Defaults to "groq". */
++  /** Which AI provider to use. Defaults to the quality-aware best available provider. */
+   provider?: ProviderId;
++  /**
++   * Optional quality profile used to bias provider selection toward the
++   * strongest available runtime for this task type.
++   */
++  qualityProfile?: QualityProfile;
++  /** Optional explicit capability hints override. */
++  qualityHints?: ProviderCapabilityHints;
+ };
+ 
+ function requireApiKey(provider: ProviderConfig, apiKey?: string): string {
+@@ -98,7 +107,9 @@
+   messages: Message[],
+   opts: AgentCompleteOpts,
+ ): Promise<{ content: string }> {
+-  const provider = loadProvider(opts.provider ?? "groq");
++  const qualityHints = opts.qualityHints ?? (opts.qualityProfile ? buildQualityHints(opts.qualityProfile) : undefined);
++  const providerId = opts.provider ?? (qualityHints ? discoverProvider(qualityHints)?.providerId ?? "groq" : "groq");
++  const provider = loadProvider(providerId);
+   const apiKey = requireApiKey(provider, opts.apiKey);
+ 
+   switch (provider.providerId) {
+
+--- a/lib/ai-orchestrator/src/agents/base-agent.ts
++++ b/lib/ai-orchestrator/src/agents/base-agent.ts
+@@ -11,6 +11,7 @@
+ import { GroqClientError, type AgentErrorCode } from "../errors.js";
+ import { agentComplete, type AgentCompleteOpts } from "../agent-complete.js";
+ import { parseAgentResponse } from "../parsing.js";
++import { assessStructuredOutput, buildQualityHints, type QualityProfile } from "../quality-engine.js";
+ import type { Message } from "../groq-client.js";
+ import type { ZodType, ZodTypeDef } from "zod";
+ 
+@@ -24,6 +25,21 @@
+   protected abstract buildMessages(input: TInput): Message[];
+   protected abstract fallbackOutput(raw: string): TOutput;
+ 
++  protected buildQualityProfile(_input: TInput): QualityProfile | undefined {
++    switch (this.scope) {
++      case "task-agent":
++        return "task_execution";
++      case "scan-analyst":
++        return "analysis";
++      case "code-reviewer":
++        return "code_review";
++      case "workflow-orchestrator":
++        return "workflow";
++      default:
++        return undefined;
++    }
++  }
++
+   protected buildCompleteOpts(_input: TInput): AgentCompleteOpts {
+     return {};
+   }
+@@ -42,13 +58,33 @@
+ 
+   async run(input: TInput, opts?: AgentCompleteOpts): Promise<AgentRunResult<TOutput>> {
+     const messages = this.buildMessages(input);
+-    const response = await this.complete(messages, { ...this.buildCompleteOpts(input), ...(opts ?? {}) });
++    const qualityProfile = opts?.qualityProfile ?? this.buildQualityProfile(input);
++    const response = await this.complete(messages, {
++      ...this.buildCompleteOpts(input),
++      ...(opts ?? {}),
++      qualityProfile,
++      qualityHints: opts?.qualityHints ?? (qualityProfile ? buildQualityHints(qualityProfile) : undefined),
++    });
+ 
+     const parsed = parseAgentResponse(response.content, this.schema, (raw) => this.fallbackOutput(raw));
+     if (!parsed.ok) {
+       console.warn(JSON.stringify({ scope: this.scope, code: parsed.code, message: parsed.message }));
+       return { ...parsed.data, _parseError: { code: parsed.code, message: parsed.message, raw: parsed.raw } };
+     }
++
++    const assessment = qualityProfile ? assessStructuredOutput(qualityProfile, parsed.data) : undefined;
++    if (assessment && assessment.decision !== "accept") {
++      console.warn(
++        JSON.stringify({
++          scope: this.scope,
++          code: "QUALITY_REVIEW_LOW",
++          qualityProfile,
++          score: assessment.score,
++          threshold: assessment.threshold,
++          reasons: assessment.reasons,
++        }),
++      );
++    }
+     // parsed.data is TOutput, which satisfies AgentRunResult<TOutput> (= T & { _parseError? })
+     // because _parseError is optional. Cast is required because TypeScript cannot
+     // prove T satisfies T & { _parseError?: … } for an unconstrained generic.
+
+--- a/lib/ai-orchestrator/src/agents/workflow-orchestrator.ts
++++ b/lib/ai-orchestrator/src/agents/workflow-orchestrator.ts
+@@ -14,6 +14,7 @@
+ import type { ProjectContext } from "../context-builder.js";
+ import { agentComplete } from "../agent-complete.js";
+ import type { ProviderId } from "../agent-complete.js";
++import { buildQualityHints } from "../quality-engine.js";
+ import { buildWorkflowSystemPrompt, buildWorkflowUserPrompt } from "../prompts/workflow.prompt.js";
+ import { WorkflowDecisionSchema, type WorkflowDecision, type WorkflowPhase } from "../schemas/workflow.schema.js";
+ import { parseAgentResponse } from "../parsing.js";
+@@ -65,7 +66,12 @@
+     { role: "user", content: buildWorkflowUserPrompt(opts) },
+   ];
+ 
+-  const response = await agentComplete(messages, { apiKey: opts.apiKey, provider: opts.provider });
++  const response = await agentComplete(messages, {
++    apiKey: opts.apiKey,
++    provider: opts.provider,
++    qualityProfile: "workflow",
++    qualityHints: buildQualityHints("workflow"),
++  });
+   const parsed = parseAgentResponse(response.content, WorkflowDecisionSchema, fallbackDecision);
+   if (!parsed.ok) {
+     console.warn(JSON.stringify({ scope: "workflow-orchestrator", stage: "decide", code: parsed.code, message: parsed.message }));
+
+--- a/artifacts/api-server/src/lib/ai-route-helpers.ts
++++ b/artifacts/api-server/src/lib/ai-route-helpers.ts
+@@ -17,8 +17,9 @@
+   GroqClientError,
+   PROVIDER_PRIORITY,
+   PROVIDER_REGISTRY,
++  sortProviderIdsByQuality,
+ } from "@workspace/ai-orchestrator";
+-import type { ProviderId } from "@workspace/ai-orchestrator";
++import type { ProviderId, QualityProfile } from "@workspace/ai-orchestrator";
+ import { logger } from "./logger.js";
+ import { decryptApiKey } from "./credentials-crypto.js";
+ 
+@@ -27,6 +28,8 @@
+ type ProviderSelectionOptions = {
+   /** When true, skip providers that cannot handle the request's tool payloads. */
+   requireTools?: boolean;
++  /** Optional quality profile used to bias provider selection. */
++  qualityProfile?: QualityProfile;
+ };
+ 
+ function providerCanHandleRequest(provider: ProviderId, options?: ProviderSelectionOptions): boolean {
+@@ -36,6 +39,40 @@
+   return true;
+ }
+ 
++async function collectAvailableProviders(
++  userId: string,
++  options?: ProviderSelectionOptions,
++): Promise<Array<{ provider: ProviderId; apiKey: string }>> {
++  const available: Array<{ provider: ProviderId; apiKey: string }> = [];
++
++  for (const provider of PROVIDER_PRIORITY) {
++    const key = await resolveProviderKey(userId, provider);
++    if (!key) continue;
++    if (!providerCanHandleRequest(provider, options)) {
++      logger.info(
++        { provider, requireTools: !!options?.requireTools },
++        "Skipping provider that cannot satisfy the current request",
++      );
++      continue;
++    }
++    available.push({ provider, apiKey: key });
++  }
++
++  if (options?.qualityProfile && available.length > 1) {
++    const orderedIds = sortProviderIdsByQuality(
++      available.map((candidate) => candidate.provider),
++      options.qualityProfile,
++      { requireTools: options.requireTools },
++    );
++    const byProvider = new Map(available.map((candidate) => [candidate.provider, candidate.apiKey]));
++    return orderedIds
++      .map((provider) => ({ provider, apiKey: byProvider.get(provider) }))
++      .filter((candidate): candidate is { provider: ProviderId; apiKey: string } => Boolean(candidate?.apiKey));
++  }
++
++  return available;
++}
++
+ // ── Per-provider key resolution ───────────────────────────────────────────────
+ 
+ /**
+@@ -108,19 +145,8 @@
+   userId: string,
+   options?: ProviderSelectionOptions,
+ ): Promise<{ provider: ProviderId; apiKey: string } | undefined> {
+-  for (const provider of PROVIDER_PRIORITY) {
+-    const key = await resolveProviderKey(userId, provider);
+-    if (!key) continue;
+-    if (!providerCanHandleRequest(provider, options)) {
+-      logger.info(
+-        { provider, requireTools: !!options?.requireTools },
+-        "Skipping provider that cannot satisfy the current request",
+-      );
+-      continue;
+-    }
+-    return { provider, apiKey: key };
+-  }
+-  return undefined;
++  const available = await collectAvailableProviders(userId, options);
++  return available[0];
+ }
+ 
+ /**
+@@ -132,14 +158,8 @@
+   currentProvider: ProviderId,
+   options?: ProviderSelectionOptions,
+ ): Promise<{ provider: ProviderId; apiKey: string } | undefined> {
+-  for (const provider of PROVIDER_PRIORITY) {
+-    if (provider === currentProvider) continue;
+-    const key = await resolveProviderKey(userId, provider);
+-    if (!key) continue;
+-    if (!providerCanHandleRequest(provider, options)) continue;
+-    return { provider, apiKey: key };
+-  }
+-  return undefined;
++  const available = (await collectAvailableProviders(userId, options)).filter((candidate) => candidate.provider !== currentProvider);
++  return available[0];
+ }
+ 
+ const TOOL_REQUEST_PATTERNS = [
+@@ -179,13 +199,11 @@
+   userId: string,
+   initialProvider: { provider: ProviderId; apiKey: string },
+   run: (opts: { provider: ProviderId; apiKey: string }) => Promise<T>,
++  options?: ProviderSelectionOptions,
+ ): Promise<{ result: T; effectiveProvider: ProviderId }> {
+-  const orderedProviders: Array<{ provider: ProviderId; apiKey: string }> = [initialProvider];
+-  for (const provider of PROVIDER_PRIORITY) {
+-    if (provider === initialProvider.provider) continue;
+-    const key = await resolveProviderKey(userId, provider);
+-    if (!key) continue;
+-    orderedProviders.push({ provider, apiKey: key });
++  const orderedProviders = await collectAvailableProviders(userId, options);
++  if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
++    orderedProviders.unshift(initialProvider);
+   }
+ 
+   let lastErr: GroqClientError | undefined;
+@@ -235,23 +253,9 @@
+   onDelta?: (delta: string) => void,
+   options?: ProviderSelectionOptions,
+ ): Promise<{ result: Awaited<ReturnType<typeof chat>>; effectiveProvider: ProviderId }> {
+-  // Build an ordered list: initial provider first when it can satisfy the
+-  // current request, then remaining providers in PROVIDER_PRIORITY order.
+-  const orderedProviders: Array<{ provider: ProviderId; apiKey: string }> = [];
+-  if (providerCanHandleRequest(initialProvider.provider, options)) {
+-    orderedProviders.push(initialProvider);
+-  } else {
+-    logger.info(
+-      { provider: initialProvider.provider, requireTools: !!options?.requireTools },
+-      "Skipping initial provider that cannot satisfy the current request",
+-    );
+-  }
+-  for (const provider of PROVIDER_PRIORITY) {
+-    if (provider === initialProvider.provider) continue;
+-    const key = await resolveProviderKey(userId, provider);
+-    if (!key) continue;
+-    if (!providerCanHandleRequest(provider, options)) continue;
+-    orderedProviders.push({ provider, apiKey: key });
++  const orderedProviders = await collectAvailableProviders(userId, options);
++  if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
++    orderedProviders.unshift(initialProvider);
+   }
+ 
+   if (orderedProviders.length === 0) {
+
+--- a/artifacts/api-server/src/routes/ai/chat.ts
++++ b/artifacts/api-server/src/routes/ai/chat.ts
+@@ -125,7 +125,10 @@
+         .limit(10)
+     : [];
+ 
+-  const providerResolved = await requireProvider(req.userId, res);
++  const providerResolved = await requireProvider(req.userId, res, {
++    requireTools: !!validRootPath,
++    qualityProfile: validRootPath ? "tool_chat" : "chat",
++  });
+   if (!providerResolved) return;
+   const { provider, apiKey } = providerResolved;
+ 
+@@ -155,6 +158,7 @@
+         },
+         { provider, apiKey },
+         undefined,
++        { requireTools: !!validRootPath, qualityProfile: validRootPath ? "tool_chat" : "chat" },
+       );
+       result = chatOut.result;
+     } catch (err) {
+@@ -271,7 +275,10 @@
+   const { validRootPath, fallbackUsed: rootFallbackUsed, originalPath: rootOriginalPath } =
+     await resolveRootPath(project.rootPath, projectId);
+ 
+-  const providerResolved = await requireProvider(req.userId, res);
++  const providerResolved = await requireProvider(req.userId, res, {
++    requireTools: !!validRootPath,
++    qualityProfile: validRootPath ? "tool_chat" : "chat",
++  });
+   if (!providerResolved) return;
+   const { provider, apiKey } = providerResolved;
+ 
+@@ -359,6 +366,7 @@
+         },
+         { provider, apiKey },
+         onDelta,
++        { requireTools: !!validRootPath, qualityProfile: validRootPath ? "tool_chat" : "chat" },
+       );
+       result = chatOut.result;
+     } catch (err) {
+
+--- a/artifacts/api-server/src/routes/ai/tasks.ts
++++ b/artifacts/api-server/src/routes/ai/tasks.ts
+@@ -55,7 +55,9 @@
+       .json({ error: `Cannot AI-execute task with status "${task.status}"` });
+   }
+ 
+-  const providerResolved = await requireProvider(req.userId, res);
++  const providerResolved = await requireProvider(req.userId, res, {
++    qualityProfile: "task_execution",
++  });
+   if (!providerResolved) return;
+   const { provider, apiKey } = providerResolved;
+ 
+@@ -134,6 +136,7 @@
+         projectContext,
+         ...opts,
+       }),
++      { qualityProfile: "task_execution" },
+     ));
+   } catch (err) {
+     const message = err instanceof Error ? err.message : String(err);
+@@ -308,7 +311,9 @@
+         return;
+       }
+ 
+-      const resolved = await resolveProvider(userId);
++      const resolved = await resolveProvider(userId, {
++        qualityProfile: "task_execution",
++      });
+       if (!resolved) {
+         logger.warn({ taskId }, "AI auto-trigger: no AI provider configured — task stays in verifying");
+         await db.insert(eventsTable).values({
+@@ -405,6 +410,7 @@
+             projectContext,
+             ...opts,
+           }),
++          { qualityProfile: "task_execution" },
+         ));
+       } catch (execErr) {
+         const message = execErr instanceof Error ? execErr.message : String(execErr);
+
+--- a/artifacts/api-server/src/routes/ai/analysis.ts
++++ b/artifacts/api-server/src/routes/ai/analysis.ts
+@@ -30,7 +30,9 @@
+ 
+   logger.info({ projectId }, "AI scan analysis requested");
+ 
+-  const providerResolved = await requireProvider(req.userId, res);
++  const providerResolved = await requireProvider(req.userId, res, {
++    qualityProfile: "analysis",
++  });
+   if (!providerResolved) return;
+   const { provider, apiKey } = providerResolved;
+ 
+@@ -52,6 +54,7 @@
+       req.userId,
+       { provider, apiKey },
+       (opts) => analyzeScan(projectContext, opts),
++      { qualityProfile: "analysis" },
+     ));
+   } catch (err) {
+     if (handleOrchestratorError(err, res, { projectId, operation: "scan-analysis", provider: effectiveProvider })) return;
+@@ -124,7 +127,9 @@
+     });
+   }
+ 
+-  const providerResolved = await requireProvider(req.userId, res);
++  const providerResolved = await requireProvider(req.userId, res, {
++    qualityProfile: "code_review",
++  });
+   if (!providerResolved) return;
+   const { provider, apiKey } = providerResolved;
+ 
+@@ -138,6 +143,7 @@
+       req.userId,
+       { provider, apiKey },
+       (opts) => reviewCode(projectContext, fileContents, opts),
++      { qualityProfile: "code_review" },
+     ));
+   } catch (err) {
+     if (handleOrchestratorError(err, res, { projectId, operation: "code-review", provider: effectiveProvider })) return;
+
+--- a/artifacts/api-server/src/routes/ai/workflows.ts
++++ b/artifacts/api-server/src/routes/ai/workflows.ts
+@@ -63,7 +63,9 @@
+     .orderBy(desc(workflowExecutionsTable.startedAt))
+     .limit(1);
+ 
+-  const providerResolved = await requireProvider(req.userId, res);
++  const providerResolved = await requireProvider(req.userId, res, {
++    qualityProfile: "workflow",
++  });
+   if (!providerResolved) return;
+   const { provider, apiKey } = providerResolved;
+ 
+

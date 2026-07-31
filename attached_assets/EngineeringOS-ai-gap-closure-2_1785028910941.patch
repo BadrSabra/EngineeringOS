@@ -1,0 +1,100 @@
+--- /tmp/tmp.B4sEsySnBV/EngineeringOS-main/lib/ai-orchestrator/src/tools/git-tools.ts	2026-07-26 00:49:17.000000000 +0000
++++ /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/lib/ai-orchestrator/src/tools/git-tools.ts	2026-07-26 01:19:59.285033250 +0000
+@@ -29,6 +29,13 @@
+   };
+ };
+ 
++const GIT_TOOL_NOTE_FIELD = {
++  note: {
++    type: "string",
++    description: "Optional context for the model. Ignored by the handler.",
++  },
++} as const;
++
+ export const GIT_TOOL_DEFINITIONS: GitToolDefinition[] = [
+   {
+     type: "function",
+@@ -37,7 +44,7 @@
+       description:
+         "Show the working-tree status: which files are modified, added, deleted, or untracked. " +
+         "Run this before proposing a commit message or reviewing pending changes.",
+-      parameters: { type: "object", properties: {}, required: [] },
++      parameters: { type: "object", properties: { ...GIT_TOOL_NOTE_FIELD } },
+     },
+   },
+   {
+@@ -56,7 +63,6 @@
+               "Optional: project-relative path to a specific file. Omit to show all changes.",
+           },
+         },
+-        required: [],
+       },
+     },
+   },
+@@ -67,7 +73,7 @@
+       description:
+         "Show the last 15 commits as one-line summaries (hash · date · message). " +
+         "Use this to understand recent history or pick a base for a new commit message.",
+-      parameters: { type: "object", properties: {}, required: [] },
++      parameters: { type: "object", properties: { ...GIT_TOOL_NOTE_FIELD } },
+     },
+   },
+ ];
+--- /tmp/tmp.B4sEsySnBV/EngineeringOS-main/lib/ai-orchestrator/src/__tests__/chat-agent.test.ts	2026-07-26 00:49:17.000000000 +0000
++++ /mnt/data/EngineeringOS-main-extracted/EngineeringOS-main/lib/ai-orchestrator/src/__tests__/chat-agent.test.ts	2026-07-26 01:20:03.929033418 +0000
+@@ -325,4 +325,55 @@
+     // The response must not contain a raw envelope.
+     expect(result.response).not.toMatch(/^\{/);
+   });
++
++  it("disables tool payloads for Gemini and still returns a response from context", async () => {
++    vi.resetModules();
++    process.env.GROQ_API_KEY = "test-key";
++
++    let capturedTools: unknown = "unset";
++    const mockGemini = vi.fn(async (_messages: unknown, opts: { tools?: unknown[] }) => {
++      capturedTools = opts.tools;
++      return {
++        content: "Gemini context-only answer",
++        toolCalls: [],
++      };
++    });
++
++    vi.doMock("../openai-compatible-client.js", () => ({
++      geminiCompleteRaw: mockGemini,
++      geminiCompleteStream: vi.fn(),
++      openrouterCompleteRaw: vi.fn(),
++      openrouterCompleteStream: vi.fn(),
++    }));
++
++    const { chat } = await import("../agents/chat-agent.js");
++    const result = await chat({
++      message: "Please analyze this project and explain the architecture.",
++      history: [],
++      projectContext: makeContext(),
++      rootPath: "/home/project",
++      provider: "gemini",
++      apiKey: "test-gemini-key",
++    });
++
++    expect(capturedTools).toBeUndefined();
++    expect(result.response).toContain("Gemini context-only answer");
++  });
++
++  it("keeps git tool schemas non-empty so stricter providers can accept them", async () => {
++    const { GIT_TOOL_DEFINITIONS } = await import("../tools/git-tools.js");
++    const statusTool = GIT_TOOL_DEFINITIONS.find((tool) => tool.function.name === "git_status");
++    const logTool = GIT_TOOL_DEFINITIONS.find((tool) => tool.function.name === "git_log");
++
++    expect(statusTool?.function.parameters).toMatchObject({
++      type: "object",
++      properties: { note: expect.any(Object) },
++    });
++    expect(logTool?.function.parameters).toMatchObject({
++      type: "object",
++      properties: { note: expect.any(Object) },
++    });
++    expect(statusTool?.function.parameters).not.toHaveProperty("required");
++    expect(logTool?.function.parameters).not.toHaveProperty("required");
++  });
+ });

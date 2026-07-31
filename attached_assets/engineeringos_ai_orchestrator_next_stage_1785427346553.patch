@@ -1,0 +1,442 @@
+diff --git a/lib/ai-orchestrator/src/__tests__/retry-controller.test.ts b/lib/ai-orchestrator/src/__tests__/retry-controller.test.ts
+new file mode 100644
+index 0000000..0b7b6f2
+--- /dev/null
++++ b/lib/ai-orchestrator/src/__tests__/retry-controller.test.ts
+@@ -0,0 +1,39 @@
++import { describe, expect, it } from "vitest";
++import type { QualityAssessment } from "../quality-engine.js";
++import { decideRetry } from "../quality/retry-controller.js";
++
++describe("decideRetry", () => {
++  it("retries on parse failure while budget remains", () => {
++    const decision = decideRetry({
++      attempt: 1,
++      limit: 2,
++      parseError: { code: "MALFORMED_JSON", message: "bad json" },
++    });
++
++    expect(decision.shouldRetry).toBe(true);
++    expect(decision.useRelaxedHints).toBe(true);
++  });
++
++  it("retries on low-quality structured output", () => {
++    const assessment: QualityAssessment = {
++      profile: "workflow",
++      score: 0.4,
++      threshold: 0.72,
++      decision: "retry",
++      reasons: ["missing reasoning"],
++    };
++
++    const decision = decideRetry({ attempt: 1, limit: 2, assessment });
++    expect(decision.shouldRetry).toBe(true);
++  });
++
++  it("stops when the retry budget is exhausted", () => {
++    const decision = decideRetry({
++      attempt: 2,
++      limit: 2,
++      parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "schema" },
++    });
++
++    expect(decision.shouldRetry).toBe(false);
++  });
++});
+diff --git a/lib/ai-orchestrator/src/__tests__/task-profile.test.ts b/lib/ai-orchestrator/src/__tests__/task-profile.test.ts
+new file mode 100644
+index 0000000..0e0d222
+--- /dev/null
++++ b/lib/ai-orchestrator/src/__tests__/task-profile.test.ts
+@@ -0,0 +1,18 @@
++import { describe, expect, it } from "vitest";
++import { buildTaskProfile, inferTaskType } from "../quality/task-profile.js";
++
++describe("task profile", () => {
++  it("maps workflow scopes to workflow tasks", () => {
++    expect(inferTaskType("workflow-orchestrator")).toBe("workflow");
++    expect(buildTaskProfile("workflow-orchestrator").qualityProfile).toBe("workflow");
++  });
++
++  it("distinguishes chat agents with tools from plain chat", () => {
++    expect(buildTaskProfile("chat-agent", { hasTools: true }).taskType).toBe("tool_chat");
++    expect(buildTaskProfile("chat-agent").taskType).toBe("chat");
++  });
++
++  it("defaults unknown scopes to chat", () => {
++    expect(buildTaskProfile("custom-scope").taskType).toBe("chat");
++  });
++});
+diff --git a/lib/ai-orchestrator/src/agents/base-agent.ts b/lib/ai-orchestrator/src/agents/base-agent.ts
+index dd53df9..b4582a3 100644
+--- a/lib/ai-orchestrator/src/agents/base-agent.ts
++++ b/lib/ai-orchestrator/src/agents/base-agent.ts
+@@ -11,7 +11,9 @@
+ import { GroqClientError, type AgentErrorCode } from "../errors.js";
+ import { agentComplete, type AgentCompleteOpts } from "../agent-complete.js";
+ import { parseAgentResponse } from "../parsing.js";
+-import { assessStructuredOutput, buildQualityHints, type QualityProfile } from "../quality-engine.js";
++import { assessStructuredOutput, type QualityProfile } from "../quality-engine.js";
++import { buildExecutionPlan } from "../quality/quality-planner.js";
++import { decideRetry } from "../quality/retry-controller.js";
+ import type { Message } from "../groq-client.js";
+ import type { ZodType, ZodTypeDef } from "zod";
+ 
+@@ -69,18 +71,53 @@ export abstract class BaseAgent<TInput, TOutput> {
+ 
+   async run(input: TInput, opts?: AgentCompleteOpts): Promise<AgentRunResult<TOutput>> {
+     const messages = this.buildMessages(input);
+-    const qualityProfile = opts?.qualityProfile ?? this.buildQualityProfile(input);
++    const executionPlan = buildExecutionPlan(this.scope, {
++      qualityProfile: opts?.qualityProfile ?? this.buildQualityProfile(input),
++    });
++    const qualityProfile = opts?.qualityProfile ?? this.buildQualityProfile(input) ?? executionPlan.qualityProfile;
++    const parseResponse = (raw: string) => parseAgentResponse(raw, this.schema, (fallbackRaw) => this.fallbackOutput(fallbackRaw));
++
+     const response = await this.complete(messages, {
+       ...this.buildCompleteOpts(input),
+       ...(opts ?? {}),
+       qualityProfile,
+-      qualityHints: opts?.qualityHints ?? (qualityProfile ? buildQualityHints(qualityProfile) : undefined),
++      qualityHints: opts?.qualityHints ?? executionPlan.strictHints,
++    });
++
++    let parsed = parseResponse(response.content);
++    let parseError = parsed.ok ? undefined : { code: parsed.code, message: parsed.message, raw: parsed.raw };
++    const initialAssessment = parsed.ok && qualityProfile ? assessStructuredOutput(qualityProfile, parsed.data) : undefined;
++    const retryDecision = decideRetry({
++      attempt: 1,
++      limit: executionPlan.retryLimit,
++      parseError,
++      assessment: initialAssessment,
+     });
+ 
+-    const parsed = parseAgentResponse(response.content, this.schema, (raw) => this.fallbackOutput(raw));
++    if (retryDecision.shouldRetry) {
++      console.warn(
++        JSON.stringify({
++          scope: this.scope,
++          code: "MODEL_RETRY",
++          reason: retryDecision.reason,
++          qualityProfile,
++        }),
++      );
++
++      const retryResponse = await this.complete(messages, {
++        ...this.buildCompleteOpts(input),
++        ...(opts ?? {}),
++        qualityProfile,
++        qualityHints: executionPlan.relaxedHints,
++      });
++
++      parsed = parseResponse(retryResponse.content);
++      parseError = parsed.ok ? undefined : { code: parsed.code, message: parsed.message, raw: parsed.raw };
++    }
++
+     if (!parsed.ok) {
+       console.warn(JSON.stringify({ scope: this.scope, code: parsed.code, message: parsed.message }));
+-      return { ...parsed.data, _parseError: { code: parsed.code, message: parsed.message, raw: parsed.raw } };
++      return { ...parsed.data, _parseError: parseError };
+     }
+ 
+     const assessment = qualityProfile ? assessStructuredOutput(qualityProfile, parsed.data) : undefined;
+diff --git a/lib/ai-orchestrator/src/agents/workflow-orchestrator.ts b/lib/ai-orchestrator/src/agents/workflow-orchestrator.ts
+index 12632f1..4e9135d 100644
+--- a/lib/ai-orchestrator/src/agents/workflow-orchestrator.ts
++++ b/lib/ai-orchestrator/src/agents/workflow-orchestrator.ts
+@@ -14,7 +14,9 @@ import type { Message } from "../groq-client.js";
+ import type { ProjectContext } from "../context-builder.js";
+ import { agentComplete } from "../agent-complete.js";
+ import type { ProviderId } from "../agent-complete.js";
+-import { buildQualityHints } from "../quality-engine.js";
++import { assessStructuredOutput } from "../quality-engine.js";
++import { buildExecutionPlan } from "../quality/quality-planner.js";
++import { decideRetry } from "../quality/retry-controller.js";
+ import { buildWorkflowSystemPrompt, buildWorkflowUserPrompt } from "../prompts/workflow.prompt.js";
+ import { WorkflowDecisionSchema, type WorkflowDecision, type WorkflowPhase } from "../schemas/workflow.schema.js";
+ import { parseAgentResponse } from "../parsing.js";
+@@ -66,18 +68,50 @@ export async function decide(opts: {
+     { role: "user", content: buildWorkflowUserPrompt(opts) },
+   ];
+ 
+-  const response = await agentComplete(messages, {
++  const executionPlan = buildExecutionPlan("workflow", { retryLimit: 2 });
++  const parseResponse = (raw: string) => parseAgentResponse(raw, WorkflowDecisionSchema, fallbackDecision);
++
++  const completionOpts = {
+     apiKey: opts.apiKey,
+     provider: opts.provider,
+-    qualityProfile: "workflow",
+-    qualityHints: buildQualityHints("workflow"),
++    qualityProfile: executionPlan.qualityProfile,
++    qualityHints: executionPlan.strictHints,
++  };
++
++  const response = await agentComplete(messages, completionOpts);
++  let parsed = parseResponse(response.content);
++  let parseError = parsed.ok ? undefined : { code: parsed.code, message: parsed.message, raw: parsed.raw };
++  const assessment = parsed.ok ? assessStructuredOutput(executionPlan.qualityProfile, parsed.data) : undefined;
++  const retryDecision = decideRetry({
++    attempt: 1,
++    limit: executionPlan.retryLimit,
++    parseError,
++    assessment,
+   });
+-  const parsed = parseAgentResponse(response.content, WorkflowDecisionSchema, fallbackDecision);
++
++  if (retryDecision.shouldRetry) {
++    console.warn(
++      JSON.stringify({
++        scope: "workflow-orchestrator",
++        stage: "decide",
++        code: "MODEL_RETRY",
++        reason: retryDecision.reason,
++      }),
++    );
++
++    const retryResponse = await agentComplete(messages, {
++      ...completionOpts,
++      qualityHints: executionPlan.relaxedHints,
++    });
++    parsed = parseResponse(retryResponse.content);
++    parseError = parsed.ok ? undefined : { code: parsed.code, message: parsed.message, raw: parsed.raw };
++  }
++
+   if (!parsed.ok) {
+     console.warn(JSON.stringify({ scope: "workflow-orchestrator", stage: "decide", code: parsed.code, message: parsed.message }));
+     // PR-E: surface parse failure to the route so it can return 422 instead of
+     // silently returning a degraded "wait" fallback as a 200.
+-    return { ...parsed.data, _parseError: { code: parsed.code, message: parsed.message, raw: parsed.raw } };
++    return { ...parsed.data, _parseError: parseError };
+   }
+   return parsed.data;
+ }
+diff --git a/lib/ai-orchestrator/src/index.ts b/lib/ai-orchestrator/src/index.ts
+index 2ec366a..e1fc7e6 100644
+--- a/lib/ai-orchestrator/src/index.ts
++++ b/lib/ai-orchestrator/src/index.ts
+@@ -10,6 +10,12 @@ export type { PendingChange } from "./tools/file-tools.js";
+ 
+ export { buildQualityHints, buildQualityPlan, assessStructuredOutput, sortProviderIdsByQuality } from "./quality-engine.js";
+ export type { QualityAssessment, QualityPlan, QualityProfile, QualitySortOptions } from "./quality-engine.js";
++export { buildExecutionPlan } from "./quality/quality-planner.js";
++export type { ExecutionPlan } from "./quality/quality-planner.js";
++export { buildTaskProfile, inferTaskType } from "./quality/task-profile.js";
++export type { TaskProfile, TaskType } from "./quality/task-profile.js";
++export { decideRetry } from "./quality/retry-controller.js";
++export type { RetryDecision } from "./quality/retry-controller.js";
+ 
+ export { GroqClientError } from "./errors.js";
+ export type { AgentErrorCode, GroqErrorCode } from "./errors.js";
+diff --git a/lib/ai-orchestrator/src/prompts/index.ts b/lib/ai-orchestrator/src/prompts/index.ts
+index be385a0..58c1eab 100644
+--- a/lib/ai-orchestrator/src/prompts/index.ts
++++ b/lib/ai-orchestrator/src/prompts/index.ts
+@@ -1,4 +1,5 @@
+ export { composePrompt, promptCodeBlock, promptContextOverview, promptList, promptSection } from "./prompt-composer.js";
++export { buildPromptContextProfile, buildPromptPlan } from "./prompt-planner.js";
+ export { buildChatSystemPrompt } from "./chat.prompt.js";
+ export { buildCodeReviewSystemPrompt, buildCodeReviewUserPrompt } from "./review.prompt.js";
+ export { buildScanAnalystSystemPrompt, buildScanAnalystUserPrompt } from "./scan.prompt.js";
+diff --git a/lib/ai-orchestrator/src/prompts/prompt-planner.ts b/lib/ai-orchestrator/src/prompts/prompt-planner.ts
+new file mode 100644
+index 0000000..96bfdaa
+--- /dev/null
++++ b/lib/ai-orchestrator/src/prompts/prompt-planner.ts
+@@ -0,0 +1,29 @@
++import type { PromptContextProfile } from "./prompt-composer.js";
++import type { TaskType } from "../quality/task-profile.js";
++
++export type PromptPlan = {
++  contextProfile: PromptContextProfile;
++  useTools: boolean;
++  streamingMode: boolean;
++};
++
++const PROMPT_PROFILE_BY_TASK: Record<TaskType, PromptContextProfile> = {
++  chat: "chat",
++  tool_chat: "chat",
++  analysis: "scan",
++  task_execution: "task",
++  code_review: "review",
++  workflow: "workflow",
++};
++
++export function buildPromptContextProfile(taskType: TaskType): PromptContextProfile {
++  return PROMPT_PROFILE_BY_TASK[taskType];
++}
++
++export function buildPromptPlan(taskType: TaskType): PromptPlan {
++  return {
++    contextProfile: buildPromptContextProfile(taskType),
++    useTools: taskType === "tool_chat",
++    streamingMode: taskType === "chat" || taskType === "tool_chat",
++  };
++}
+diff --git a/lib/ai-orchestrator/src/quality/quality-planner.ts b/lib/ai-orchestrator/src/quality/quality-planner.ts
+new file mode 100644
+index 0000000..d35bd55
+--- /dev/null
++++ b/lib/ai-orchestrator/src/quality/quality-planner.ts
+@@ -0,0 +1,40 @@
++import type { PromptContextProfile } from "../prompts/prompt-composer.js";
++import { buildPromptPlan } from "../prompts/prompt-planner.js";
++import { buildQualityPlan, type QualityProfile } from "../quality-engine.js";
++import type { ProviderCapabilityHints } from "../provider-capabilities.js";
++import { buildTaskProfile, type TaskProfile } from "./task-profile.js";
++
++export type ExecutionPlan = {
++  taskProfile: TaskProfile;
++  qualityProfile: QualityProfile;
++  promptProfile: PromptContextProfile;
++  strictHints: ProviderCapabilityHints;
++  relaxedHints: ProviderCapabilityHints;
++  retryLimit: number;
++};
++
++export function buildExecutionPlan(
++  scope: string,
++  options?: {
++    hasTools?: boolean;
++    requireTools?: boolean;
++    qualityProfile?: QualityProfile;
++    retryLimit?: number;
++  },
++): ExecutionPlan {
++  const taskProfile = buildTaskProfile(scope, { hasTools: options?.hasTools });
++  const qualityProfile = options?.qualityProfile ?? taskProfile.qualityProfile;
++  const qualityPlan = buildQualityPlan(qualityProfile, {
++    requireTools: options?.requireTools ?? taskProfile.useTools,
++  });
++  const promptPlan = buildPromptPlan(taskProfile.taskType);
++
++  return {
++    taskProfile,
++    qualityProfile,
++    promptProfile: promptPlan.contextProfile,
++    strictHints: qualityPlan.strictHints,
++    relaxedHints: qualityPlan.relaxedHints,
++    retryLimit: options?.retryLimit ?? (taskProfile.retryOnParseFailure || taskProfile.retryOnLowQuality ? 2 : 1),
++  };
++}
+diff --git a/lib/ai-orchestrator/src/quality/retry-controller.ts b/lib/ai-orchestrator/src/quality/retry-controller.ts
+new file mode 100644
+index 0000000..f60b5e0
+--- /dev/null
++++ b/lib/ai-orchestrator/src/quality/retry-controller.ts
+@@ -0,0 +1,70 @@
++import { GroqClientError, type AgentErrorCode, type GroqErrorCode } from "../errors.js";
++import type { QualityAssessment } from "../quality-engine.js";
++
++export type RetryDecision = {
++  shouldRetry: boolean;
++  useRelaxedHints: boolean;
++  reason: string;
++};
++
++const RETRYABLE_GROQ_CODES = new Set<GroqErrorCode>([
++  "TIMEOUT",
++  "NETWORK_ERROR",
++  "SERVER_ERROR",
++  "RATE_LIMITED",
++  "NON_200",
++]);
++
++function isRetryableTransportError(error: unknown): error is GroqClientError {
++  return error instanceof GroqClientError && RETRYABLE_GROQ_CODES.has(error.code);
++}
++
++function describeAssessment(assessment: QualityAssessment): string {
++  return `quality score ${assessment.score.toFixed(2)} below threshold ${assessment.threshold.toFixed(2)}`;
++}
++
++export function decideRetry(options: {
++  attempt: number;
++  limit: number;
++  parseError?: { code: AgentErrorCode; message: string };
++  assessment?: QualityAssessment;
++  transportError?: unknown;
++}): RetryDecision {
++  if (options.attempt >= options.limit) {
++    return {
++      shouldRetry: false,
++      useRelaxedHints: false,
++      reason: "retry budget exhausted",
++    };
++  }
++
++  if (options.parseError) {
++    return {
++      shouldRetry: true,
++      useRelaxedHints: true,
++      reason: `parse failure (${options.parseError.code})`,
++    };
++  }
++
++  if (options.assessment?.decision === "retry") {
++    return {
++      shouldRetry: true,
++      useRelaxedHints: true,
++      reason: describeAssessment(options.assessment),
++    };
++  }
++
++  if (isRetryableTransportError(options.transportError)) {
++    return {
++      shouldRetry: true,
++      useRelaxedHints: true,
++      reason: `transport error (${options.transportError.code})`,
++    };
++  }
++
++  return {
++    shouldRetry: false,
++    useRelaxedHints: false,
++    reason: "no retry signal",
++  };
++}
+diff --git a/lib/ai-orchestrator/src/quality/task-profile.ts b/lib/ai-orchestrator/src/quality/task-profile.ts
+new file mode 100644
+index 0000000..0bdf94c
+--- /dev/null
++++ b/lib/ai-orchestrator/src/quality/task-profile.ts
+@@ -0,0 +1,39 @@
++import type { QualityProfile } from "../quality-engine.js";
++
++export type TaskType = "chat" | "tool_chat" | "analysis" | "task_execution" | "code_review" | "workflow";
++
++export type TaskProfile = {
++  taskType: TaskType;
++  scope: string;
++  qualityProfile: QualityProfile;
++  useTools: boolean;
++  retryOnParseFailure: boolean;
++  retryOnLowQuality: boolean;
++};
++
++function normalizeScope(scope: string): string {
++  return scope.trim().toLowerCase();
++}
++
++export function inferTaskType(scope: string, hasTools = false): TaskType {
++  const normalized = normalizeScope(scope);
++  if (normalized.includes("workflow")) return "workflow";
++  if (normalized.includes("review")) return "code_review";
++  if (normalized.includes("scan")) return "analysis";
++  if (normalized.includes("task")) return "task_execution";
++  if (normalized.includes("chat")) return hasTools ? "tool_chat" : "chat";
++  return hasTools ? "tool_chat" : "chat";
++}
++
++export function buildTaskProfile(scope: string, options?: { hasTools?: boolean }): TaskProfile {
++  const hasTools = options?.hasTools ?? false;
++  const taskType = inferTaskType(scope, hasTools);
++  return {
++    taskType,
++    scope,
++    qualityProfile: taskType,
++    useTools: hasTools,
++    retryOnParseFailure: taskType !== "chat" || hasTools,
++    retryOnLowQuality: taskType !== "chat",
++  };
++}

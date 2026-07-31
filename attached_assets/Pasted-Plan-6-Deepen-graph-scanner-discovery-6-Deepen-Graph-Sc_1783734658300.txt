@@ -1,0 +1,35 @@
+Plan #6 - Deepen graph, scanner & discovery
+
+
+#6 - Deepen Graph, Scanner & Discovery
+What & Why
+The graph extractor uses the TS compiler API for TS/JS but falls back to regex for Python. CommonJS require() calls and export= patterns are not captured. Class methods are not represented as graph nodes. These gaps mean the knowledge graph is incomplete for real-world projects. Richer graph semantics (call relationships, class membership, cross-file type dependencies) turn the graph from a file-import map into a genuine knowledge tool.
+
+Done looks like
+Python files are parsed with a proper AST approach (or a structured regex approach that correctly handles function/class definitions and imports) rather than ad-hoc regex
+CommonJS require() calls and module.exports/export= patterns are captured as graph relationships
+Class methods appear as child entities linked to their parent class entity in the graph
+The discovery pipeline hard-fails with a clear error when rootPath is invalid (no silent fallback to cwd)
+walkProject() documents its fallback behavior and callers outside discovery are audited to ensure they pass a validated path
+Graph entities include a kind field that distinguishes files, functions, classes, methods, and modules
+Out of scope
+Graph visualization UI (covered in the Dashboard task)
+AI-based semantic understanding of relationships
+Support for languages beyond TS/JS and Python in this task
+Steps
+Python structured extraction — Replace ad-hoc regex in graph-extractor.ts for Python files with a structured approach that correctly identifies def, class, and import statements
+CommonJS support — Add extraction of require() calls and module.exports assignments as graph relationships in the TS/JS extractor path
+Class method nodes — Emit child graph entities for each method in a class, linked to the parent class entity with a memberOf relationship type
+rootPath hard-fail audit — Grep all callers of walkProject() and ensure every call site validates the path before calling; add a runtime guard inside walkProject() that throws (not falls back) on a missing directory
+Entity kind field — Ensure every emitted graph entity carries a kind discriminator (file, function, class, method, module) and that the OpenAPI schema and DB schema reflect this field
+Relevant files
+lib/scanner/src/graph-extractor.ts
+lib/scanner/src/file-walker.ts
+lib/scanner/src/rule-matcher.ts
+lib/scanner/src/metrics-calc.ts
+artifacts/api-server/src/routes/discovery.ts
+artifacts/api-server/src/lib/scan-runner.ts
+lib/db/src/schema
+.agents/memory/scanner-ast-extraction.md
+.agents/memory/discovery-feature.md
+Dependencies

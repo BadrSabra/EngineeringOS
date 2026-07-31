@@ -1,0 +1,29 @@
+نفذ الإصلاحات— هذه مشاكل **مثبتة من الكود نفسه** بعد إعادة القراءة من الصفر:
+
+1. **جلسات AI يمكن أن تختلط بين المشاريع**
+   في `artifacts/api-server/src/routes/ai/chat.ts`، إذا أرسل العميل `sessionId` فالخادم يجلب الجلسة مباشرةً ثم يعيد استخدامها، **من دون التحقق أن `existingSession.projectId === projectId`**.
+   النتيجة: يمكن ربط محادثة مشروع بجلسة مشروع آخر إذا كان الـ UUID معروفًا، وهذا يخلط history ويؤدي إلى context غير صحيح.
+
+2. **حفظ رسائل المحادثة ليس Atomic**
+   نفس الملف يحفظ رسالة المستخدم ورسالة المساعد بـ `Promise.all([...])` على إدخالين منفصلين، **من دون transaction**.
+   إذا نجح أحد الإدخالين وفشل الآخر، ستبقى المحادثة بحالة نصف محفوظة: رسالة Assistant بلا User، أو العكس.
+
+3. **Auto-trigger للمهام يكتب event قبل أن يحسم claim**
+   في `artifacts/api-server/src/routes/ai/tasks.ts`، `scheduleAiTaskExecution()` يكتب حدث `TaskAutoTriggered` **قبل** تحديث حالة المهمة من `verifying` إلى `running`.
+   إذا خسر الـ update السباق أو تغيّرت الحالة بالتوازي، سيبقى في الـ event log أثر يقول إن التشغيل بدأ، بينما التنفيذ الفعلي لم يبدأ.
+
+4. **Git push ينجح حتى لو scan ما بعد الـ push فشل**
+   في `artifacts/api-server/src/routes/git.ts`، بعد `git push` يتم تشغيل scan جديد داخل `setImmediate(async () => { ... })`، وأي خطأ داخله يُلتهم في `catch` ويُسجل فقط في `console.error`.
+   هذا يعني أن الـ push يُعلن نجاحه للمستخدم، لكن الـ scan اللاحق قد لا يحدث أصلًا، فتظل الـ graph والـ metrics قديمة حتى مسح يدوي.
+
+5. **حماية الملفات الحساسة في apply-changes قابلة للتجاوز**
+   في `artifacts/api-server/src/routes/ai/chat.ts` داخل `apply-changes`، فحص الامتدادات الحساسة يتم على `change.path` فقط، ثم الكتابة تتم إلى `change.absolutePath` بعد `path.resolve(...)`.
+   بمعنى عملي: يمكن تمرير `path` غير حساس و`absolutePath` يشير إلى ملف حساس داخل نفس الجذر، فتتجاوز الحماية. والأسوأ أن `path.resolve` لا يكشف symlink escape، لأن الكود لا يستخدم `realpath` هنا.
+
+6. **بعض endpoints تتحول إلى N+1 / full-scan تحت الحمل**
+   في `artifacts/api-server/src/routes/metrics.ts`، endpoint `/metrics/latest` عندما لا يُمرَّر `projectId` يعمل **استعلامًا منفصلًا لكل مشروع** يملكه المستخدم.
+   وفي `artifacts/api-server/src/routes/projects.ts` و`dashboard.ts` تُقرأ كل المهام/المقاييس في الذاكرة ثم يُحسب منها الملخص. هذا مقبول الآن، لكنه سيتحول إلى عنق زجاجة واضح مع زيادة عدد المشاريع والمهام.
+
+7. **فك ضغط الأرشيفات يتم مباشرةً بدون فحص صريح للمسارات داخل الأرشيف**
+   في `artifacts/api-server/src/routes/upload.ts` يتم استخراج `.zip` عبر `AdmZip.extractAllTo(...)` و`.tar.gz` عبر `tar -xzf` مباشرةً إلى مجلد مؤقت، **من دون فحص صريح لمدخلات الأرشيف** مثل `../` أو المسارات المطلقة.
+   هذا يترك أمان الاستخراج معتمدًا بالكامل على سلوك المكتبات/الأداة الخارجية، وليس على حراسة واضحة في الكود نفسه.

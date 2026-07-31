@@ -1,0 +1,366 @@
+path,layer_group,status,size_bytes
+.agents/memory/MEMORY.md,agents memory,decision memory,1674
+.agents/memory/audit-fixes.md,agents memory,decision memory,1459
+.agents/memory/discovery-feature.md,agents memory,decision memory,2496
+.agents/memory/drizzle-error-wrapping.md,agents memory,decision memory,1244
+.agents/memory/engineeringos-completion-plan.md,agents memory,decision memory,1240
+.agents/memory/fk-atomic-claim-ordering.md,agents memory,decision memory,2145
+.agents/memory/imported-project-workflow-failures.md,agents memory,decision memory,1335
+.agents/memory/orval-openapi-codegen.md,agents memory,decision memory,1158
+.agents/memory/scanner-ast-extraction.md,agents memory,decision memory,1094
+.agents/memory/testing-drift-checks.md,agents memory,decision memory,1129
+lib/api-client-react/src/custom-fetch.ts,api-client core,source,11377
+lib/api-client-react/src/index.ts,api-client core,source,268
+lib/api-client-react/src/generated/api.schemas.ts,api-client generated,generated/derived,13732
+lib/api-client-react/src/generated/api.ts,api-client generated,generated/derived,109853
+artifacts/api-server/src/app.ts,api-server core,source,2463
+artifacts/api-server/src/config.ts,api-server core,source,2281
+artifacts/api-server/src/index.ts,api-server core,source,296
+artifacts/api-server/src/middlewares/.gitkeep,api-server core,other,0
+artifacts/api-server/src/lib/audit.ts,api-server lib,source,2400
+artifacts/api-server/src/lib/logger.ts,api-server lib,source,426
+artifacts/api-server/src/lib/scan-runner.ts,api-server lib,source,13233
+artifacts/api-server/src/routes/dashboard.ts,api-server routes,source,2667
+artifacts/api-server/src/routes/discovery.ts,api-server routes,source,29020
+artifacts/api-server/src/routes/events.ts,api-server routes,source,984
+artifacts/api-server/src/routes/graph.ts,api-server routes,source,3577
+artifacts/api-server/src/routes/health.ts,api-server routes,source,284
+artifacts/api-server/src/routes/index.ts,api-server routes,source,977
+artifacts/api-server/src/routes/metrics.ts,api-server routes,source,1584
+artifacts/api-server/src/routes/plugins.ts,api-server routes,source,4340
+artifacts/api-server/src/routes/projects.ts,api-server routes,source,6990
+artifacts/api-server/src/routes/rules.ts,api-server routes,source,5598
+artifacts/api-server/src/routes/tasks.ts,api-server routes,source,15132
+artifacts/api-server/src/routes/workflows.ts,api-server routes,source,18339
+artifacts/api-server/src/routes/discovery.test.ts,api-server tests,test,4759
+artifacts/api-server/src/routes/graph.test.ts,api-server tests,test,3858
+artifacts/api-server/src/routes/metrics.test.ts,api-server tests,test,2712
+artifacts/api-server/src/routes/plugins.test.ts,api-server tests,test,1205
+artifacts/api-server/src/routes/projects.test.ts,api-server tests,test,6988
+artifacts/api-server/src/routes/tasks.test.ts,api-server tests,test,4536
+artifacts/api-server/src/routes/workflows.test.ts,api-server tests,test,5421
+lib/api-spec/openapi.yaml,api-spec,config/support,50360
+lib/api-spec/orval.config.ts,api-spec,config/support,1959
+lib/api-spec/package.json,api-spec,config/support,307
+lib/api-zod/src/generated/api.ts,api-zod generated,generated/derived,38306
+lib/api-zod/src/generated/types/createProjectInput.ts,api-zod generated,generated/derived,307
+lib/api-zod/src/generated/types/createRuleInput.ts,api-zod generated,generated/derived,432
+lib/api-zod/src/generated/types/createTaskInput.ts,api-zod generated,generated/derived,453
+lib/api-zod/src/generated/types/createWorkflowInput.ts,api-zod generated,generated/derived,348
+lib/api-zod/src/generated/types/dashboardOverview.ts,api-zod generated,generated/derived,820
+lib/api-zod/src/generated/types/dashboardOverviewProjectScoresItem.ts,api-zod generated,generated/derived,436
+lib/api-zod/src/generated/types/dashboardOverviewProjectScoresItemTrend.ts,api-zod generated,generated/derived,464
+lib/api-zod/src/generated/types/dashboardOverviewTaskStatusBreakdown.ts,api-zod generated,generated/derived,241
+lib/api-zod/src/generated/types/dashboardOverviewTopRulesItem.ts,api-zod generated,generated/derived,285
+lib/api-zod/src/generated/types/discoveryGraphSummaryData.ts,api-zod generated,generated/derived,264
+lib/api-zod/src/generated/types/discoveryReport.ts,api-zod generated,generated/derived,1286
+lib/api-zod/src/generated/types/discoveryRuleViolationItem.ts,api-zod generated,generated/derived,283
+lib/api-zod/src/generated/types/discoverySessionStatus.ts,api-zod generated,generated/derived,676
+lib/api-zod/src/generated/types/discoverySessionStatusStatus.ts,api-zod generated,generated/derived,438
+lib/api-zod/src/generated/types/discoveryStepItem.ts,api-zod generated,generated/derived,378
+lib/api-zod/src/generated/types/discoveryStepItemStatus.ts,api-zod generated,generated/derived,406
+lib/api-zod/src/generated/types/entityType.ts,api-zod generated,generated/derived,418
+lib/api-zod/src/generated/types/evaluateRuleRequest.ts,api-zod generated,generated/derived,227
+lib/api-zod/src/generated/types/event.ts,api-zod generated,generated/derived,484
+lib/api-zod/src/generated/types/eventPayload.ts,api-zod generated,generated/derived,220
+lib/api-zod/src/generated/types/eventSeverity.ts,api-zod generated,generated/derived,366
+lib/api-zod/src/generated/types/failWorkflowPhaseInput.ts,api-zod generated,generated/derived,227
+lib/api-zod/src/generated/types/getGraphEntityNeighbors200.ts,api-zod generated,generated/derived,440
+lib/api-zod/src/generated/types/getGraphEntityNeighbors404.ts,api-zod generated,generated/derived,228
+lib/api-zod/src/generated/types/getLatestMetricsParams.ts,api-zod generated,generated/derived,227
+lib/api-zod/src/generated/types/graphEntity.ts,api-zod generated,generated/derived,453
+lib/api-zod/src/generated/types/graphEntityMetadata.ts,api-zod generated,generated/derived,227
+lib/api-zod/src/generated/types/graphRelationship.ts,api-zod generated,generated/derived,415
+lib/api-zod/src/generated/types/graphRelationshipMetadata.ts,api-zod generated,generated/derived,233
+lib/api-zod/src/generated/types/healthStatus.ts,api-zod generated,generated/derived,293
+lib/api-zod/src/generated/types/healthStatusStatus.ts,api-zod generated,generated/derived,320
+lib/api-zod/src/generated/types/importProjectInput.ts,api-zod generated,generated/derived,353
+lib/api-zod/src/generated/types/importProjectInputOverrides.ts,api-zod generated,generated/derived,296
+lib/api-zod/src/generated/types/index.ts,api-zod generated,generated/derived,2969
+lib/api-zod/src/generated/types/listEventsParams.ts,api-zod generated,generated/derived,252
+lib/api-zod/src/generated/types/listGraphEntitiesParams.ts,api-zod generated,generated/derived,295
+lib/api-zod/src/generated/types/listGraphRelationshipsParams.ts,api-zod generated,generated/derived,252
+lib/api-zod/src/generated/types/listMetricsParams.ts,api-zod generated,generated/derived,245
+lib/api-zod/src/generated/types/listRulesParams.ts,api-zod generated,generated/derived,297
+lib/api-zod/src/generated/types/listTasksParams.ts,api-zod generated,generated/derived,366
+lib/api-zod/src/generated/types/listWorkflowsParams.ts,api-zod generated,generated/derived,224
+lib/api-zod/src/generated/types/metricRecord.ts,api-zod generated,generated/derived,660
+lib/api-zod/src/generated/types/metricRecordBuildStatus.ts,api-zod generated,generated/derived,394
+lib/api-zod/src/generated/types/plugin.ts,api-zod generated,generated/derived,433
+lib/api-zod/src/generated/types/pluginCapabilitiesItem.ts,api-zod generated,generated/derived,436
+lib/api-zod/src/generated/types/pluginProjectRequest.ts,api-zod generated,generated/derived,228
+lib/api-zod/src/generated/types/project.ts,api-zod generated,generated/derived,473
+lib/api-zod/src/generated/types/projectStatus.ts,api-zod generated,generated/derived,376
+lib/api-zod/src/generated/types/projectSummary.ts,api-zod generated,generated/derived,508
+lib/api-zod/src/generated/types/projectSummaryTaskCounts.ts,api-zod generated,generated/derived,303
+lib/api-zod/src/generated/types/rule.ts,api-zod generated,generated/derived,514
+lib/api-zod/src/generated/types/ruleEvaluationResult.ts,api-zod generated,generated/derived,424
+lib/api-zod/src/generated/types/ruleEvaluationResultMatchesItem.ts,api-zod generated,generated/derived,267
+lib/api-zod/src/generated/types/ruleSeverity.ts,api-zod generated,generated/derived,374
+lib/api-zod/src/generated/types/scanJob.ts,api-zod generated,generated/derived,739
+lib/api-zod/src/generated/types/scanJobStatus.ts,api-zod generated,generated/derived,376
+lib/api-zod/src/generated/types/scanResult.ts,api-zod generated,generated/derived,329
+lib/api-zod/src/generated/types/startDiscoveryInput.ts,api-zod generated,generated/derived,341
+lib/api-zod/src/generated/types/startDiscoveryInputSource.ts,api-zod generated,generated/derived,380
+lib/api-zod/src/generated/types/task.ts,api-zod generated,generated/derived,784
+lib/api-zod/src/generated/types/taskLog.ts,api-zod generated,generated/derived,427
+lib/api-zod/src/generated/types/taskLogLevel.ts,api-zod generated,generated/derived,352
+lib/api-zod/src/generated/types/taskLogMetadata.ts,api-zod generated,generated/derived,223
+lib/api-zod/src/generated/types/taskPriority.ts,api-zod generated,generated/derived,332
+lib/api-zod/src/generated/types/taskStatus.ts,api-zod generated,generated/derived,438
+lib/api-zod/src/generated/types/updateProjectInput.ts,api-zod generated,generated/derived,359
+lib/api-zod/src/generated/types/updateProjectInputStatus.ts,api-zod generated,generated/derived,420
+lib/api-zod/src/generated/types/updateRuleInput.ts,api-zod generated,generated/derived,391
+lib/api-zod/src/generated/types/updateTaskInput.ts,api-zod generated,generated/derived,394
+lib/api-zod/src/generated/types/verificationResult.ts,api-zod generated,generated/derived,346
+lib/api-zod/src/generated/types/verificationResultStepsItem.ts,api-zod generated,generated/derived,266
+lib/api-zod/src/generated/types/workflow.ts,api-zod generated,generated/derived,548
+lib/api-zod/src/generated/types/workflowExecution.ts,api-zod generated,generated/derived,443
+lib/api-zod/src/generated/types/workflowPhase.ts,api-zod generated,generated/derived,257
+lib/api-zod/src/generated/types/workflowStatus.ts,api-zod generated,generated/derived,398
+attached_assets/EngineeringOS_Audit_Report_1783641389270.md,attached_assets,supporting artifact,14716
+attached_assets/EngineeringOS_Audit_Report_Expanded_1783642792349.md,attached_assets,supporting artifact,17381
+attached_assets/EngineeringOS_Combined_Deep_Analysis_(1)_1783706911895.md,attached_assets,supporting artifact,13363
+attached_assets/EngineeringOS_File_Inventory_Complete(1)_1783706911845.md,attached_assets,supporting artifact,16789
+attached_assets/EngineeringOS_File_by_File_Fact_Record_1783725698283.md,attached_assets,supporting artifact,91708
+attached_assets/EngineeringOS_Implementation_Document_1783726156016.md,attached_assets,supporting artifact,24261
+attached_assets/EngineeringOS_Project_1783718452179.pdf,attached_assets,supporting artifact,53834
+attached_assets/EngineeringOS_file_inventory_(1)_1783729892809.csv,attached_assets,supporting artifact,38456
+attached_assets/EngineeringOS_project_analysis_report(1)_1783729892769.md,attached_assets,supporting artifact,13022
+attached_assets/Engineering_Os_Fact_Record_1783718570175.pdf,attached_assets,supporting artifact,104719
+attached_assets/Engineering_Os_Phased_Completion_Plan_(1)_1783718452123.pdf,attached_assets,supporting artifact,77805
+attached_assets/Engineering_Os_Phased_Completion_Plan_1783718452216.pdf,attached_assets,supporting artifact,77807
+attached_assets/Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783565505918.txt,attached_assets,supporting artifact,6622
+attached_assets/Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783566150077.txt,attached_assets,supporting artifact,6622
+attached_assets/Pasted--Plan-3-Sync-fact-record-architecture-docs-3-Sync-Fact-_1783733496072.txt,attached_assets,supporting artifact,17691
+attached_assets/Pasted--Plan-3-Sync-fact-record-architecture-docs-3-Sync-Fact-_1783790285219.txt,attached_assets,supporting artifact,17691
+attached_assets/Pasted-7-Upgrade-Dashboard-to-Operational-UI-What-Why-Current-_1783734748019.txt,attached_assets,supporting artifact,2796
+attached_assets/Pasted-7-Upgrade-Dashboard-to-Operational-UI-What-Why-Current-_1783798897613.txt,attached_assets,supporting artifact,2795
+attached_assets/Pasted-Plan-6-Deepen-graph-scanner-discovery-6-Deepen-Graph-Sc_1783734658300.txt,attached_assets,supporting artifact,2633
+attached_assets/Screenshot_٢٠٢٦٠٧٠٩-٠٦١٦٢٥_1783567039006.png,attached_assets,supporting artifact,98945
+attached_assets/Screenshot_٢٠٢٦٠٧٠٩-٠٦٢٠٣٨_1783610776566.png,attached_assets,supporting artifact,100944
+attached_assets/agents_(1)_1783564013722.zip,attached_assets,supporting artifact,256
+attached_assets/artifacts_(7)_(1)_1783564013761.zip,attached_assets,supporting artifact,1668739
+attached_assets/git_(2)_1783564013691.zip,attached_assets,supporting artifact,134
+attached_assets/gitattributes_1783564013915.txt,attached_assets,supporting artifact,92
+attached_assets/gitignore_(1)_1783564013965.txt,attached_assets,supporting artifact,668
+attached_assets/lib_(7)_(1)_1783564013810.zip,attached_assets,supporting artifact,219450
+attached_assets/node_modules_(2)_1783564014266.zip,attached_assets,supporting artifact,22
+attached_assets/npmrc_(2)_1783564014024.txt,attached_assets,supporting artifact,56
+attached_assets/package_(1)_(7)_1783564014328.json,attached_assets,supporting artifact,649
+attached_assets/pnpm-lock.yaml_(3)_1783564014392.txt,attached_assets,supporting artifact,210264
+attached_assets/pnpm-workspace.yaml_(3)_1783564014449.txt,attached_assets,supporting artifact,6579
+attached_assets/replit_(13)_1783564014085.md,attached_assets,supporting artifact,1521
+attached_assets/replit_(2)_1783564014509.txt,attached_assets,supporting artifact,372
+attached_assets/replitignore_1783564014569.txt,attached_assets,supporting artifact,201
+attached_assets/scripts_(8)_1783564013865.zip,attached_assets,supporting artifact,11642
+attached_assets/tsconfig.base_(2)_(1)_1783564014142.json,attached_assets,supporting artifact,692
+attached_assets/tsconfig_(7)_1783564014202.json,attached_assets,supporting artifact,279
+attached_assets/خطة_العمل_التنفيذية_لمشروع_EngineeringOS_1783729892699.docx,attached_assets,supporting artifact,18423
+artifacts/dashboard/src/App.tsx,dashboard core,source,1768
+artifacts/dashboard/src/hooks/use-mobile.tsx,dashboard core,source,576
+artifacts/dashboard/src/hooks/use-toast.ts,dashboard core,source,3952
+artifacts/dashboard/src/index.css,dashboard core,source,7551
+artifacts/dashboard/src/lib/utils.ts,dashboard core,source,169
+artifacts/dashboard/src/main.tsx,dashboard core,source,159
+artifacts/dashboard/src/components/layout/Shell.tsx,dashboard layout,source,1829
+artifacts/dashboard/src/components/layout/Sidebar.tsx,dashboard layout,source,2907
+artifacts/dashboard/src/pages/Dashboard.tsx,dashboard pages,source,13416
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx,dashboard pages,source,32392
+artifacts/dashboard/src/pages/Events.tsx,dashboard pages,source,7448
+artifacts/dashboard/src/pages/Graph.tsx,dashboard pages,source,13646
+artifacts/dashboard/src/pages/Metrics.tsx,dashboard pages,source,9174
+artifacts/dashboard/src/pages/ProjectDetail.tsx,dashboard pages,source,12508
+artifacts/dashboard/src/pages/Projects.tsx,dashboard pages,source,8101
+artifacts/dashboard/src/pages/Rules.tsx,dashboard pages,source,10190
+artifacts/dashboard/src/pages/Tasks.tsx,dashboard pages,source,13202
+artifacts/dashboard/src/pages/Workflows.tsx,dashboard pages,source,20806
+artifacts/dashboard/src/pages/not-found.tsx,dashboard pages,source,971
+artifacts/dashboard/src/components/ui/accordion.tsx,dashboard ui,source,2013
+artifacts/dashboard/src/components/ui/alert-dialog.tsx,dashboard ui,source,4447
+artifacts/dashboard/src/components/ui/alert.tsx,dashboard ui,source,1609
+artifacts/dashboard/src/components/ui/aspect-ratio.tsx,dashboard ui,source,143
+artifacts/dashboard/src/components/ui/avatar.tsx,dashboard ui,source,1431
+artifacts/dashboard/src/components/ui/badge.tsx,dashboard ui,source,1528
+artifacts/dashboard/src/components/ui/breadcrumb.tsx,dashboard ui,source,2735
+artifacts/dashboard/src/components/ui/button-group.tsx,dashboard ui,source,2222
+artifacts/dashboard/src/components/ui/button.tsx,dashboard ui,source,2370
+artifacts/dashboard/src/components/ui/calendar.tsx,dashboard ui,source,7607
+artifacts/dashboard/src/components/ui/card.tsx,dashboard ui,source,1856
+artifacts/dashboard/src/components/ui/carousel.tsx,dashboard ui,source,6288
+artifacts/dashboard/src/components/ui/chart.tsx,dashboard ui,source,10846
+artifacts/dashboard/src/components/ui/checkbox.tsx,dashboard ui,source,1038
+artifacts/dashboard/src/components/ui/collapsible.tsx,dashboard ui,source,335
+artifacts/dashboard/src/components/ui/command.tsx,dashboard ui,source,4918
+artifacts/dashboard/src/components/ui/context-menu.tsx,dashboard ui,source,7446
+artifacts/dashboard/src/components/ui/dialog.tsx,dashboard ui,source,3889
+artifacts/dashboard/src/components/ui/drawer.tsx,dashboard ui,source,3029
+artifacts/dashboard/src/components/ui/dropdown-menu.tsx,dashboard ui,source,7646
+artifacts/dashboard/src/components/ui/empty.tsx,dashboard ui,source,2410
+artifacts/dashboard/src/components/ui/field.tsx,dashboard ui,source,6079
+artifacts/dashboard/src/components/ui/form.tsx,dashboard ui,source,4232
+artifacts/dashboard/src/components/ui/hover-card.tsx,dashboard ui,source,1245
+artifacts/dashboard/src/components/ui/input-group.tsx,dashboard ui,source,4993
+artifacts/dashboard/src/components/ui/input-otp.tsx,dashboard ui,source,2160
+artifacts/dashboard/src/components/ui/input.tsx,dashboard ui,source,775
+artifacts/dashboard/src/components/ui/item.tsx,dashboard ui,source,4519
+artifacts/dashboard/src/components/ui/kbd.tsx,dashboard ui,source,867
+artifacts/dashboard/src/components/ui/label.tsx,dashboard ui,source,733
+artifacts/dashboard/src/components/ui/menubar.tsx,dashboard ui,source,8655
+artifacts/dashboard/src/components/ui/navigation-menu.tsx,dashboard ui,source,5150
+artifacts/dashboard/src/components/ui/pagination.tsx,dashboard ui,source,2772
+artifacts/dashboard/src/components/ui/popover.tsx,dashboard ui,source,1351
+artifacts/dashboard/src/components/ui/progress.tsx,dashboard ui,source,799
+artifacts/dashboard/src/components/ui/radio-group.tsx,dashboard ui,source,1421
+artifacts/dashboard/src/components/ui/resizable.tsx,dashboard ui,source,1733
+artifacts/dashboard/src/components/ui/scroll-area.tsx,dashboard ui,source,1650
+artifacts/dashboard/src/components/ui/select.tsx,dashboard ui,source,5773
+artifacts/dashboard/src/components/ui/separator.tsx,dashboard ui,source,764
+artifacts/dashboard/src/components/ui/sheet.tsx,dashboard ui,source,4307
+artifacts/dashboard/src/components/ui/sidebar.tsx,dashboard ui,source,21969
+artifacts/dashboard/src/components/ui/skeleton.tsx,dashboard ui,source,269
+artifacts/dashboard/src/components/ui/slider.tsx,dashboard ui,source,1043
+artifacts/dashboard/src/components/ui/sonner.tsx,dashboard ui,source,902
+artifacts/dashboard/src/components/ui/spinner.tsx,dashboard ui,source,334
+artifacts/dashboard/src/components/ui/switch.tsx,dashboard ui,source,1155
+artifacts/dashboard/src/components/ui/table.tsx,dashboard ui,source,2881
+artifacts/dashboard/src/components/ui/tabs.tsx,dashboard ui,source,1890
+artifacts/dashboard/src/components/ui/textarea.tsx,dashboard ui,source,655
+artifacts/dashboard/src/components/ui/toast.tsx,dashboard ui,source,4871
+artifacts/dashboard/src/components/ui/toaster.tsx,dashboard ui,source,777
+artifacts/dashboard/src/components/ui/toggle-group.tsx,dashboard ui,source,1767
+artifacts/dashboard/src/components/ui/toggle.tsx,dashboard ui,source,1494
+artifacts/dashboard/src/components/ui/tooltip.tsx,dashboard ui,source,1277
+lib/db/src/index.ts,db core,source,434
+lib/db/src/schema/audit_logs.ts,db schema,source,2134
+lib/db/src/schema/discovery.ts,db schema,source,2611
+lib/db/src/schema/events.ts,db schema,source,1092
+lib/db/src/schema/graph.ts,db schema,source,1510
+lib/db/src/schema/index.ts,db schema,source,365
+lib/db/src/schema/metrics.ts,db schema,source,1190
+lib/db/src/schema/plugins.ts,db schema,source,785
+lib/db/src/schema/projects.ts,db schema,source,862
+lib/db/src/schema/rules.ts,db schema,source,1113
+lib/db/src/schema/scan_jobs.ts,db schema,source,1394
+lib/db/src/schema/task_logs.ts,db schema,source,750
+lib/db/src/schema/tasks.ts,db schema,source,1838
+lib/db/src/schema/workflows.ts,db schema,source,1762
+docs/completion-plan.md,docs,canonical doc,22891
+docs/fact-record.md,docs,canonical doc,107305
+.gitattributes,root/meta,other,170
+.gitignore,root/meta,other,668
+.npmrc,root/meta,other,56
+.replit,root/meta,other,372
+.replitignore,root/meta,other,201
+artifacts/api-server/.replit-artifact/artifact.toml,root/meta,config/support,784
+artifacts/api-server/build.mjs,root/meta,other,3455
+artifacts/api-server/package.json,root/meta,config/support,1116
+artifacts/api-server/tsconfig.json,root/meta,config/support,382
+artifacts/api-server/vitest.config.ts,root/meta,config/support,208
+artifacts/dashboard/.replit-artifact/artifact.toml,root/meta,config/support,561
+artifacts/dashboard/components.json,root/meta,config/support,434
+artifacts/dashboard/index.html,root/meta,config/support,1352
+artifacts/dashboard/package.json,root/meta,config/support,2733
+artifacts/dashboard/public/favicon.svg,root/meta,config/support,163
+artifacts/dashboard/public/robots.txt,root/meta,config/support,23
+artifacts/dashboard/tsconfig.json,root/meta,config/support,520
+artifacts/dashboard/vite.config.ts,root/meta,config/support,1803
+artifacts/mockup-sandbox/.replit-artifact/artifact.toml,root/meta,config/support,327
+artifacts/mockup-sandbox/components.json,root/meta,config/support,426
+artifacts/mockup-sandbox/index.html,root/meta,config/support,4325
+artifacts/mockup-sandbox/mockupPreviewPlugin.ts,root/meta,config/support,4639
+artifacts/mockup-sandbox/package.json,root/meta,config/support,2515
+artifacts/mockup-sandbox/src/.generated/mockup-components.ts,root/meta,source,171
+artifacts/mockup-sandbox/src/App.tsx,root/meta,source,3654
+artifacts/mockup-sandbox/src/components/ui/accordion.tsx,root/meta,source,2001
+artifacts/mockup-sandbox/src/components/ui/alert-dialog.tsx,root/meta,source,4419
+artifacts/mockup-sandbox/src/components/ui/alert.tsx,root/meta,source,1598
+artifacts/mockup-sandbox/src/components/ui/aspect-ratio.tsx,root/meta,source,140
+artifacts/mockup-sandbox/src/components/ui/avatar.tsx,root/meta,source,1419
+artifacts/mockup-sandbox/src/components/ui/badge.tsx,root/meta,source,1163
+artifacts/mockup-sandbox/src/components/ui/breadcrumb.tsx,root/meta,source,2712
+artifacts/mockup-sandbox/src/components/ui/button-group.tsx,root/meta,source,2209
+artifacts/mockup-sandbox/src/components/ui/button.tsx,root/meta,source,1925
+artifacts/mockup-sandbox/src/components/ui/calendar.tsx,root/meta,source,7569
+artifacts/mockup-sandbox/src/components/ui/card.tsx,root/meta,source,1828
+artifacts/mockup-sandbox/src/components/ui/carousel.tsx,root/meta,source,6210
+artifacts/mockup-sandbox/src/components/ui/chart.tsx,root/meta,source,10674
+artifacts/mockup-sandbox/src/components/ui/checkbox.tsx,root/meta,source,1031
+artifacts/mockup-sandbox/src/components/ui/collapsible.tsx,root/meta,source,329
+artifacts/mockup-sandbox/src/components/ui/command.tsx,root/meta,source,4887
+artifacts/mockup-sandbox/src/components/ui/context-menu.tsx,root/meta,source,7406
+artifacts/mockup-sandbox/src/components/ui/dialog.tsx,root/meta,source,3835
+artifacts/mockup-sandbox/src/components/ui/drawer.tsx,root/meta,source,3007
+artifacts/mockup-sandbox/src/components/ui/dropdown-menu.tsx,root/meta,source,7606
+artifacts/mockup-sandbox/src/components/ui/empty.tsx,root/meta,source,2396
+artifacts/mockup-sandbox/src/components/ui/field.tsx,root/meta,source,6044
+artifacts/mockup-sandbox/src/components/ui/form.tsx,root/meta,source,4175
+artifacts/mockup-sandbox/src/components/ui/hover-card.tsx,root/meta,source,1237
+artifacts/mockup-sandbox/src/components/ui/input-group.tsx,root/meta,source,4883
+artifacts/mockup-sandbox/src/components/ui/input-otp.tsx,root/meta,source,2143
+artifacts/mockup-sandbox/src/components/ui/input.tsx,root/meta,source,768
+artifacts/mockup-sandbox/src/components/ui/item.tsx,root/meta,source,4494
+artifacts/mockup-sandbox/src/components/ui/kbd.tsx,root/meta,source,862
+artifacts/mockup-sandbox/src/components/ui/label.tsx,root/meta,source,724
+artifacts/mockup-sandbox/src/components/ui/menubar.tsx,root/meta,source,8608
+artifacts/mockup-sandbox/src/components/ui/navigation-menu.tsx,root/meta,source,5124
+artifacts/mockup-sandbox/src/components/ui/pagination.tsx,root/meta,source,2751
+artifacts/mockup-sandbox/src/components/ui/popover.tsx,root/meta,source,1342
+artifacts/mockup-sandbox/src/components/ui/progress.tsx,root/meta,source,792
+artifacts/mockup-sandbox/src/components/ui/radio-group.tsx,root/meta,source,1410
+artifacts/mockup-sandbox/src/components/ui/resizable.tsx,root/meta,source,1723
+artifacts/mockup-sandbox/src/components/ui/scroll-area.tsx,root/meta,source,1642
+artifacts/mockup-sandbox/src/components/ui/select.tsx,root/meta,source,5745
+artifacts/mockup-sandbox/src/components/ui/separator.tsx,root/meta,source,756
+artifacts/mockup-sandbox/src/components/ui/sheet.tsx,root/meta,source,4280
+artifacts/mockup-sandbox/src/components/ui/sidebar.tsx,root/meta,source,21056
+artifacts/mockup-sandbox/src/components/ui/skeleton.tsx,root/meta,source,266
+artifacts/mockup-sandbox/src/components/ui/slider.tsx,root/meta,source,1037
+artifacts/mockup-sandbox/src/components/ui/sonner.tsx,root/meta,source,894
+artifacts/mockup-sandbox/src/components/ui/spinner.tsx,root/meta,source,331
+artifacts/mockup-sandbox/src/components/ui/switch.tsx,root/meta,source,1148
+artifacts/mockup-sandbox/src/components/ui/table.tsx,root/meta,source,2859
+artifacts/mockup-sandbox/src/components/ui/tabs.tsx,root/meta,source,1877
+artifacts/mockup-sandbox/src/components/ui/textarea.tsx,root/meta,source,649
+artifacts/mockup-sandbox/src/components/ui/toast.tsx,root/meta,source,4845
+artifacts/mockup-sandbox/src/components/ui/toaster.tsx,root/meta,source,772
+artifacts/mockup-sandbox/src/components/ui/toggle-group.tsx,root/meta,source,1753
+artifacts/mockup-sandbox/src/components/ui/toggle.tsx,root/meta,source,1486
+artifacts/mockup-sandbox/src/components/ui/tooltip.tsx,root/meta,source,1267
+artifacts/mockup-sandbox/src/hooks/use-mobile.tsx,root/meta,source,565
+artifacts/mockup-sandbox/src/hooks/use-toast.ts,root/meta,source,3767
+artifacts/mockup-sandbox/src/index.css,root/meta,source,5760
+artifacts/mockup-sandbox/src/lib/utils.ts,root/meta,source,166
+artifacts/mockup-sandbox/src/main.tsx,root/meta,source,157
+artifacts/mockup-sandbox/tsconfig.json,root/meta,config/support,513
+artifacts/mockup-sandbox/vite.config.ts,root/meta,config/support,1592
+lib/api-client-react/package.json,root/meta,config/support,265
+lib/api-client-react/tsconfig.json,root/meta,config/support,251
+lib/api-zod/package.json,root/meta,config/support,189
+lib/api-zod/src/index.ts,root/meta,source,136
+lib/api-zod/tsconfig.json,root/meta,config/support,221
+lib/db/drizzle.config.ts,root/meta,config/support,352
+lib/db/package.json,root/meta,config/support,578
+lib/db/tsconfig.json,root/meta,config/support,244
+lib/scanner/package.json,root/meta,config/support,434
+lib/scanner/tsconfig.json,root/meta,config/support,244
+lib/scanner/vitest.config.ts,root/meta,config/support,304
+package.json,root/meta,config/support,1198
+pnpm-lock.yaml,root/meta,generated/derived,228849
+pnpm-workspace.yaml,root/meta,config/support,6579
+replit.md,root/meta,documentation,4075
+scripts/package.json,root/meta,source,281
+scripts/post-merge.sh,root/meta,source,72
+scripts/tsconfig.json,root/meta,source,157
+tsconfig.base.json,root/meta,config/support,692
+tsconfig.json,root/meta,config/support,279
+lib/scanner/src/file-walker.ts,scanner core,source,4034
+lib/scanner/src/graph-extractor.ts,scanner core,source,14219
+lib/scanner/src/index.ts,scanner core,source,558
+lib/scanner/src/metrics-calc.ts,scanner core,source,5505
+lib/scanner/src/rule-matcher.ts,scanner core,source,3971
+lib/scanner/src/__tests__/file-walker.test.ts,scanner tests,test,4764
+lib/scanner/src/__tests__/graph-extractor.test.ts,scanner tests,test,7378
+lib/scanner/src/__tests__/metrics-calc.test.ts,scanner tests,test,4652
+lib/scanner/src/__tests__/rule-matcher.test.ts,scanner tests,test,3493
+scripts/src/hello.ts,scripts,source,46

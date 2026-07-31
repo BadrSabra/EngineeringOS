@@ -1,0 +1,316 @@
+إذا كان الهدف هو أن يصبح **`artifacts/api-server/src/lib/scan-runner.ts`** جاهزًا للإنتاج، فسأرتب الإصلاحات حسب **الأولوية التشغيلية** (وليس حسب سهولة التنفيذ). سأميز بوضوح بين ما هو **مؤكد من الكود** وما هو **يحتاج تحققًا إضافيًا**.
+
+| الأولوية | ID     | النوع          | الحالة     | الهدف                                     |
+| -------- | ------ | -------------- | ---------- | ----------------------------------------- |
+| P0       | SR-001 | Build Fix      | مؤكد       | إصلاح خطأ TypeScript الذي يمنع البناء     |
+| P1       | SR-002 | Runtime Safety | يحتاج تحقق | منع تداخل عمليات Scan لنفس المشروع        |
+| P2       | SR-003 | Performance    | يحتاج تحقق | تقليل مدة المعاملة (Transaction)          |
+| P3       | SR-004 | Data Integrity | يحتاج تحقق | تحسين ربط العلاقات بالكيانات              |
+| P4       | SR-005 | DB Consistency | يحتاج تحقق | منع تكرار المهام على مستوى قاعدة البيانات |
+| P5       | SR-006 | Cleanup        | مؤكد       | إزالة الشيفرة غير الضرورية                |
+
+---
+
+# P0 — SR-001 (إجباري قبل أي شيء)
+
+### الهدف
+
+إعادة نجاح `pnpm run typecheck`.
+
+### الملف
+
+```
+artifacts/api-server/src/lib/scan-runner.ts
+```
+
+### التعديل
+
+```diff
+- testCoverage: metrics.structuralTestEstimate,
++ structuralTestEstimate: metrics.structuralTestEstimate,
+```
+
+### سبب الأولوية
+
+هذا هو الخطأ الذي أوقف GitHub Actions بالكامل.
+
+بدونه لا يوجد Build.
+
+---
+
+# P1 — SR-002
+
+## جعل الـ lock على المشروع وليس الـ Job
+
+### المشكلة
+
+حاليًا:
+
+```
+tryAdvisoryLock(... jobId)
+```
+
+إذا وُجد:
+
+```
+Job A -> Project X
+
+Job B -> Project X
+```
+
+فقد يعملان بالتوازي.
+
+### المطلوب
+
+اجعل الـ Lock يعتمد على
+
+```
+projectId
+```
+
+بدلاً من
+
+```
+jobId
+```
+
+أو
+
+```
+(projectId + ScanNamespace)
+```
+
+### لماذا؟
+
+لأن المشروع هو المورد الحقيقي.
+
+وليس الـ Job.
+
+---
+
+# P2 — SR-003
+
+## إخراج الأعمال الثقيلة من Transaction
+
+داخل transaction يوجد تقريبًا:
+
+```
+extractGraph(...)
+```
+
+وهذا تحليل CPU.
+
+الأفضل:
+
+```
+walkProject()
+
+↓
+
+extractGraph()
+
+↓
+
+computeMetrics()
+
+↓
+
+transaction {
+
+insert
+
+update
+
+delete
+
+}
+```
+
+وليس
+
+```
+transaction {
+
+extractGraph()
+
+....
+
+insert
+
+}
+```
+
+### النتيجة
+
+* Transaction أقصر.
+* Lock أقل.
+* Pool أفضل.
+
+---
+
+# P3 — SR-004
+
+## تحسين Entity Mapping
+
+حاليًا يوجد شيء قريب من:
+
+```
+findEntityId(name)
+```
+
+ثم يبحث:
+
+```
+file
+
+class
+
+function
+
+module
+```
+
+بالاسم فقط.
+
+إذا كان لدينا
+
+```
+src/a/User.ts
+
+src/b/User.ts
+```
+
+قد تُربط العلاقة مع أول واحدة.
+
+### المطلوب
+
+الاعتماد على
+
+```
+(type + path + symbol)
+```
+
+بدلاً من
+
+```
+name
+```
+
+---
+
+# P4 — SR-005
+
+## منع Duplicate Tasks من قاعدة البيانات
+
+الملف يعتمد على:
+
+```
+existingRuleTasks
+```
+
+ثم يقرر هل ينشئ task.
+
+لكن لو حدث:
+
+```
+Runner A
+
+Runner B
+```
+
+في الوقت نفسه.
+
+يمكن نظريًا إنشاء duplicate.
+
+الأفضل وجود
+
+```
+UNIQUE(projectId, ruleId)
+```
+
+ثم
+
+```
+ON CONFLICT DO NOTHING
+```
+
+أو ما يعادله.
+
+> **ملاحظة:** هذا الاقتراح يعتمد على ما إذا كان مخطط قاعدة البيانات لا يحتوي بالفعل على قيد فريد. يلزم التحقق من ملف الـ schema أو migrations قبل تنفيذه.
+
+---
+
+# P5 — SR-006
+
+تنظيف بسيط.
+
+بدلاً من:
+
+```ts
+stateAfter: {
+    qualityScore:
+        scanResult.issuesDetected >= 0
+            ? metrics.overallScore
+            : null
+}
+```
+
+اجعلها
+
+```ts
+stateAfter: {
+    qualityScore: metrics.overallScore
+}
+```
+
+لأن
+
+```
+issuesDetected >= 0
+```
+
+شرط لا يغيّر النتيجة إذا كانت قيمة `issuesDetected` غير سالبة دائمًا. إذا كان من الممكن أن تكون سالبة وفق منطق آخر، فيجب الاحتفاظ بالشرط بعد التحقق من تعريفها.
+
+---
+
+# بعد الانتهاء من هذه الأولويات
+
+أنصح بتشغيلها بهذا الترتيب:
+
+```
+1)
+pnpm run typecheck
+
+2)
+pnpm test
+
+3)
+pnpm lint
+
+4)
+إجراء Scan كامل لمشروع صغير
+
+5)
+إجراء Restart أثناء Scan
+
+6)
+إجراء Scan متزامنين لنفس المشروع
+```
+
+---
+
+## ما هو المؤكد وما يحتاج تحققًا؟
+
+**مؤكد من الأدلة المتاحة:**
+
+* إصلاح اسم الحقل الذي يكسر `typecheck` إذا كان مخطط الجدول يعرّف `structuralTestEstimate` فعلًا.
+* تبسيط شرط `stateAfter` إذا كانت قيمة `issuesDetected` لا يمكن أن تكون سالبة.
+
+**يحتاج تحققًا من بقية المستودع قبل التنفيذ:**
+
+* تغيير مفتاح الـ advisory lock إلى `projectId` (قد يكون هناك سبب معماري لاستخدام `jobId` في ملفات أخرى).
+* إضافة قيد `UNIQUE` أو `ON CONFLICT` (يتطلب مراجعة الـ schema وملفات migrations).
+* نقل `extractGraph` خارج الـ transaction (يتطلب التأكد من عدم اعتماده على حالة تُنشأ داخل المعاملة).
+* تغيير آلية `findEntityId` (يتطلب مراجعة كيفية إنشاء واستخدام معرفات الكيانات في بقية النظام).
+
+هذا الترتيب يعطيك خطة إصلاح آمنة، ويُبقي أي تعديل معماري مشروطًا بالتحقق من الملفات المرتبطة بدل افتراض سلوكها.

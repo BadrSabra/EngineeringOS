@@ -1,0 +1,210 @@
+diff -ruN a/lib/ai-orchestrator/src/__tests__/tool-policy.test.ts b/lib/ai-orchestrator/src/__tests__/tool-policy.test.ts
+--- a/lib/ai-orchestrator/src/__tests__/tool-policy.test.ts	1970-01-01 00:00:00.000000000 +0000
++++ b/lib/ai-orchestrator/src/__tests__/tool-policy.test.ts	2026-07-26 03:52:20.635658134 +0000
+@@ -0,0 +1,53 @@
++import { describe, expect, it } from "vitest";
++import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
++
++describe("tool policy", () => {
++  it("disables tools when the project root is missing", () => {
++    const policy = resolveToolPolicy({ provider: "groq" });
++
++    expect(policy.enabled).toBe(false);
++    expect(policy.reason).toContain("project root path");
++    expect(getAllowedToolDefinitions(policy)).toEqual([]);
++  });
++
++  it("disables tools for providers marked as text-only", () => {
++    const policy = resolveToolPolicy({ provider: "gemini", rootPath: "/tmp/project" });
++
++    expect(policy.enabled).toBe(false);
++    expect(policy.reason).toContain("text-only");
++    expect(getAllowedToolDefinitions(policy)).toEqual([]);
++  });
++
++  it("exposes the full tool suite in workspace mode", () => {
++    const policy = resolveToolPolicy({ provider: "groq", rootPath: "/tmp/project", mode: "workspace" });
++    const toolNames = getAllowedToolDefinitions(policy).map((tool) => tool.function.name);
++
++    expect(policy.enabled).toBe(true);
++    expect(toolNames).toEqual([
++      "read_file",
++      "list_directory",
++      "search_code",
++      "write_file",
++      "git_status",
++      "git_diff",
++      "git_log",
++    ]);
++  });
++
++  it("removes write_file in read-only mode while keeping read tools", () => {
++    const policy = resolveToolPolicy({ provider: "groq", rootPath: "/tmp/project", mode: "read-only" });
++    const toolNames = getAllowedToolDefinitions(policy).map((tool) => tool.function.name);
++
++    expect(policy.enabled).toBe(true);
++    expect(policy.allowFileWrite).toBe(false);
++    expect(toolNames).toEqual([
++      "read_file",
++      "list_directory",
++      "search_code",
++      "git_status",
++      "git_diff",
++      "git_log",
++    ]);
++    expect(toolNames).not.toContain("write_file");
++  });
++});
+diff -ruN a/lib/ai-orchestrator/src/agents/chat-agent.ts b/lib/ai-orchestrator/src/agents/chat-agent.ts
+--- a/lib/ai-orchestrator/src/agents/chat-agent.ts	2026-07-26 02:08:03.000000000 +0000
++++ b/lib/ai-orchestrator/src/agents/chat-agent.ts	2026-07-26 03:52:20.635658134 +0000
+@@ -53,6 +53,7 @@
+ import { parseAgentResponse } from "../parsing.js";
+ import { FILE_TOOL_DEFINITIONS, executeFileTool } from "../tools/file-tools.js";
+ import { GIT_TOOL_DEFINITIONS, executeGitTool } from "../tools/git-tools.js";
++import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
+ 
+ export type ChatMessage = { role: "user" | "assistant"; content: string };
+ export type { ChatOutput };
+@@ -95,20 +96,31 @@
+  * Other providers receive the full file + git tool suite.
+  */
+ function buildProviderTools(provider: keyof typeof PROVIDER_REGISTRY, rootPath: string | undefined) {
+-  if (!rootPath) return undefined;
+-  const cfg = PROVIDER_REGISTRY[provider];
+-  if (!cfg.supportsTools) {
++  const policy = resolveToolPolicy({ provider, rootPath, mode: "workspace" });
++  if (!policy.enabled) {
+     console.warn(
+       JSON.stringify({
+         scope: "chat-agent",
+         code: "TOOLS_DISABLED_FOR_PROVIDER",
+         provider,
+-        reason: "provider registry marks this endpoint as text-only",
++        reason: policy.reason ?? "tool policy denied access",
+       }),
+     );
+     return undefined;
+   }
+-  return [...FILE_TOOL_DEFINITIONS, ...GIT_TOOL_DEFINITIONS];
++  const tools = getAllowedToolDefinitions(policy);
++  if (tools.length === 0) {
++    console.warn(
++      JSON.stringify({
++        scope: "chat-agent",
++        code: "TOOLS_DISABLED_FOR_PROVIDER",
++        provider,
++        reason: "tool policy produced no allowed tools",
++      }),
++    );
++    return undefined;
++  }
++  return tools;
+ }
+ 
+ /**
+diff -ruN a/lib/ai-orchestrator/src/index.ts b/lib/ai-orchestrator/src/index.ts
+--- a/lib/ai-orchestrator/src/index.ts	2026-07-26 02:08:03.000000000 +0000
++++ b/lib/ai-orchestrator/src/index.ts	2026-07-26 03:52:20.635658134 +0000
+@@ -10,6 +10,9 @@
+ export { GroqClientError } from "./errors.js";
+ export type { AgentErrorCode, GroqErrorCode } from "./errors.js";
+ 
++export { resolveToolPolicy, getAllowedToolDefinitions, isToolAllowed } from "./tool-policy.js";
++export type { ToolMode, ToolPolicy } from "./tool-policy.js";
++
+ export { extractJson, parseAgentResponse } from "./parsing.js";
+ export type { AgentParseResult } from "./parsing.js";
+ 
+diff -ruN a/lib/ai-orchestrator/src/tool-policy.ts b/lib/ai-orchestrator/src/tool-policy.ts
+--- a/lib/ai-orchestrator/src/tool-policy.ts	1970-01-01 00:00:00.000000000 +0000
++++ b/lib/ai-orchestrator/src/tool-policy.ts	2026-07-26 03:52:20.635658134 +0000
+@@ -0,0 +1,88 @@
++/**
++ * Tool policy and capability gating for ai-orchestrator.
++ *
++ * This layer decides whether a provider may receive any tools at all and
++ * which tool definitions are exposed in a given execution mode.
++ */
++import { getProvider, type ProviderId } from "./provider-registry.js";
++import { FILE_TOOL_DEFINITIONS, type ToolDefinition } from "./tools/file-tools.js";
++import { GIT_TOOL_DEFINITIONS, type GitToolDefinition } from "./tools/git-tools.js";
++
++export type ToolMode = "workspace" | "read-only";
++
++export type ToolDefinitionLike = ToolDefinition | GitToolDefinition;
++
++export type ToolPolicy = {
++  provider: ProviderId;
++  rootPath?: string;
++  mode: ToolMode;
++  enabled: boolean;
++  allowFileRead: boolean;
++  allowFileWrite: boolean;
++  allowGit: boolean;
++  reason?: string;
++};
++
++const FILE_READ_TOOL_NAMES = new Set(["read_file", "list_directory", "search_code"]);
++const FILE_WRITE_TOOL_NAMES = new Set(["write_file"]);
++const GIT_TOOL_NAMES = new Set(["git_status", "git_diff", "git_log"]);
++
++const ALL_TOOL_DEFINITIONS: ToolDefinitionLike[] = [...FILE_TOOL_DEFINITIONS, ...GIT_TOOL_DEFINITIONS];
++
++export function resolveToolPolicy(opts: {
++  provider: ProviderId;
++  rootPath?: string;
++  mode?: ToolMode;
++}): ToolPolicy {
++  const provider = getProvider(opts.provider);
++  const mode = opts.mode ?? "workspace";
++
++  if (!opts.rootPath) {
++    return {
++      provider: provider.providerId,
++      rootPath: opts.rootPath,
++      mode,
++      enabled: false,
++      allowFileRead: false,
++      allowFileWrite: false,
++      allowGit: false,
++      reason: "tool policy requires a project root path",
++    };
++  }
++
++  if (!provider.supportsTools) {
++    return {
++      provider: provider.providerId,
++      rootPath: opts.rootPath,
++      mode,
++      enabled: false,
++      allowFileRead: false,
++      allowFileWrite: false,
++      allowGit: false,
++      reason: "provider registry marks this endpoint as text-only",
++    };
++  }
++
++  return {
++    provider: provider.providerId,
++    rootPath: opts.rootPath,
++    mode,
++    enabled: true,
++    allowFileRead: true,
++    allowFileWrite: mode === "workspace",
++    allowGit: true,
++  };
++}
++
++export function isToolAllowed(policy: ToolPolicy, toolName: string): boolean {
++  if (!policy.enabled) return false;
++  if (FILE_READ_TOOL_NAMES.has(toolName)) return policy.allowFileRead;
++  if (FILE_WRITE_TOOL_NAMES.has(toolName)) return policy.allowFileWrite;
++  if (GIT_TOOL_NAMES.has(toolName)) return policy.allowGit;
++  return false;
++}
++
++export function getAllowedToolDefinitions(policy: ToolPolicy): ToolDefinitionLike[] {
++  if (!policy.enabled) return [];
++  return ALL_TOOL_DEFINITIONS.filter((tool) => isToolAllowed(policy, tool.function.name));
++}

@@ -1,0 +1,491 @@
+path,status,note
+.agents/memory/MEMORY.md,decision-memory,Design/decision note kept for agent continuity; not executable code.
+.agents/memory/ai-orchestrator-layer.md,decision-memory,Design/decision note kept for agent continuity; not executable code.
+.agents/memory/audit-fixes.md,decision-memory,Design/decision note kept for agent continuity; not executable code.
+.agents/memory/clerk-401-race-cookie-vs-bearer.md,decision-memory,Design/decision note kept for agent continuity; not executable code.
+.agents/memory/clerk-auth-testing.md,decision-memory,Design/decision note kept for agent continuity; not executable code.
+.agents/memory/discovery-feature.md,decision-memory,Design/decision note kept for agent continuity; not executable code.; stub language
+.agents/memory/drizzle-error-wrapping.md,decision-memory,Design/decision note kept for agent continuity; not executable code.
+.agents/memory/engineeringos-completion-plan.md,decision-memory,Design/decision note kept for agent continuity; not executable code.
+.agents/memory/fk-atomic-claim-ordering.md,decision-memory,Design/decision note kept for agent continuity; not executable code.
+.agents/memory/imported-project-workflow-failures.md,decision-memory,Design/decision note kept for agent continuity; not executable code.
+.agents/memory/knowledge-engine-bfs-depth.md,decision-memory,Design/decision note kept for agent continuity; not executable code.
+.agents/memory/knowledge-engine.md,decision-memory,Design/decision note kept for agent continuity; not executable code.
+.agents/memory/orval-openapi-codegen.md,decision-memory,Design/decision note kept for agent continuity; not executable code.
+.agents/memory/scanner-ast-extraction.md,decision-memory,Design/decision note kept for agent continuity; not executable code.
+.agents/memory/testing-drift-checks.md,decision-memory,Design/decision note kept for agent continuity; not executable code.
+.gitattributes,root-config,Workspace-level configuration or operating guidance.
+.gitignore,root-config,Workspace-level configuration or operating guidance.
+.npmrc,root-config,Workspace-level configuration or operating guidance.
+.replit,root-config,Workspace-level configuration or operating guidance.
+.replitignore,root-config,Workspace-level configuration or operating guidance.
+artifacts/api-server/.replit-artifact/artifact.toml,other,Auxiliary file.; has marker
+artifacts/api-server/build.mjs,other,Auxiliary file.
+artifacts/api-server/package.json,other,Auxiliary file.
+artifacts/api-server/src/app.ts,backend-core,API server implementation.
+artifacts/api-server/src/config.ts,backend-core,API server implementation.
+artifacts/api-server/src/index.ts,backend-core,API server implementation.
+artifacts/api-server/src/lib/audit.ts,backend-core,API server implementation.
+artifacts/api-server/src/lib/job-queue.test.ts,core-test,Unit/integration test.
+artifacts/api-server/src/lib/job-queue.ts,backend-core,API server implementation.
+artifacts/api-server/src/lib/job-reconciliation.test.ts,core-test,Unit/integration test.
+artifacts/api-server/src/lib/job-reconciliation.ts,backend-core,API server implementation.
+artifacts/api-server/src/lib/logger.ts,backend-core,API server implementation.
+artifacts/api-server/src/lib/plugin-runtime.test.ts,core-test,Unit/integration test.
+artifacts/api-server/src/lib/plugin-runtime.ts,backend-core,API server implementation.; placeholder language
+artifacts/api-server/src/lib/scan-runner.ts,backend-core,API server implementation.
+artifacts/api-server/src/middlewares/.gitkeep,backend-core,API server implementation.
+artifacts/api-server/src/middlewares/clerkProxyMiddleware.ts,backend-core,API server implementation.
+artifacts/api-server/src/middlewares/requireAuth.ts,backend-core,API server implementation.
+artifacts/api-server/src/routes/ai.ts,backend-core,API server implementation.
+artifacts/api-server/src/routes/dashboard.ts,backend-core,API server implementation.
+artifacts/api-server/src/routes/discovery.test.ts,api-test,Route or lib test.
+artifacts/api-server/src/routes/discovery.ts,backend-core,API server implementation.; stub language
+artifacts/api-server/src/routes/events.ts,backend-core,API server implementation.
+artifacts/api-server/src/routes/graph.test.ts,api-test,Route or lib test.
+artifacts/api-server/src/routes/graph.ts,backend-core,API server implementation.
+artifacts/api-server/src/routes/health.ts,backend-core,API server implementation.
+artifacts/api-server/src/routes/index.ts,backend-core,API server implementation.
+artifacts/api-server/src/routes/metrics.test.ts,api-test,Route or lib test.
+artifacts/api-server/src/routes/metrics.ts,backend-core,API server implementation.
+artifacts/api-server/src/routes/plugins.test.ts,api-test,Route or lib test.
+artifacts/api-server/src/routes/plugins.ts,backend-core,API server implementation.
+artifacts/api-server/src/routes/projects.test.ts,api-test,Route or lib test.
+artifacts/api-server/src/routes/projects.ts,backend-core,API server implementation.
+artifacts/api-server/src/routes/rules.ts,backend-core,API server implementation.
+artifacts/api-server/src/routes/tasks.test.ts,api-test,Route or lib test.
+artifacts/api-server/src/routes/tasks.ts,backend-core,API server implementation.
+artifacts/api-server/src/routes/workflows.test.ts,api-test,Route or lib test.
+artifacts/api-server/src/routes/workflows.ts,backend-core,API server implementation.
+artifacts/api-server/src/scripts/seed-provenance.ts,backend-core,API server implementation.
+artifacts/api-server/tsconfig.json,other,Auxiliary file.
+artifacts/api-server/vitest.config.ts,other,Auxiliary file.
+artifacts/dashboard/.replit-artifact/artifact.toml,other,Auxiliary file.
+artifacts/dashboard/components.json,other,Auxiliary file.
+artifacts/dashboard/index.html,other,Auxiliary file.
+artifacts/dashboard/package.json,other,Auxiliary file.
+artifacts/dashboard/public/favicon.svg,other,Auxiliary file.
+artifacts/dashboard/public/logo.svg,other,Auxiliary file.
+artifacts/dashboard/public/robots.txt,other,Auxiliary file.
+artifacts/dashboard/src/App.tsx,ui-shell,Dashboard application shell and routing.
+artifacts/dashboard/src/components/layout/Shell.tsx,ui-core,Dashboard feature implementation.; placeholder language
+artifacts/dashboard/src/components/layout/Sidebar.tsx,ui-core,Dashboard feature implementation.
+artifacts/dashboard/src/components/ui/accordion.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/alert-dialog.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/alert.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/aspect-ratio.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/avatar.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/badge.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/breadcrumb.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/button-group.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/button.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/calendar.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/card.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/carousel.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/chart.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/checkbox.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/collapsible.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/command.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.; placeholder language
+artifacts/dashboard/src/components/ui/context-menu.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/dialog.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/drawer.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/dropdown-menu.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/empty.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/field.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/form.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/hover-card.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/input-group.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/input-otp.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/input.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.; placeholder language
+artifacts/dashboard/src/components/ui/item.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/kbd.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/label.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/menubar.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/navigation-menu.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/pagination.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/popover.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/progress.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/radio-group.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/resizable.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/scroll-area.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/select.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.; placeholder language
+artifacts/dashboard/src/components/ui/separator.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/sheet.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/sidebar.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/skeleton.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/slider.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/sonner.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/spinner.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/switch.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/table.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/tabs.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/textarea.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.; placeholder language
+artifacts/dashboard/src/components/ui/toast.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/toaster.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/toggle-group.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/toggle.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/components/ui/tooltip.tsx,ui-primitive,Reusable UI primitive; largely generated/boilerplate.
+artifacts/dashboard/src/hooks/use-mobile.tsx,ui-core,Dashboard feature implementation.
+artifacts/dashboard/src/hooks/use-toast.ts,ui-core,Dashboard feature implementation.
+artifacts/dashboard/src/index.css,ui-core,Dashboard feature implementation.; placeholder language
+artifacts/dashboard/src/lib/clerk.ts,ui-core,Dashboard feature implementation.
+artifacts/dashboard/src/lib/utils.ts,ui-core,Dashboard feature implementation.
+artifacts/dashboard/src/main.tsx,ui-core,Dashboard feature implementation.
+artifacts/dashboard/src/pages/AiChat.tsx,ui-core,Dashboard feature implementation.; placeholder language
+artifacts/dashboard/src/pages/Dashboard.tsx,ui-core,Dashboard feature implementation.
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx,ui-core-partial,"Implemented discovery wizard, but source selection is still limited and not yet multi-source onboarding.; placeholder language"
+artifacts/dashboard/src/pages/Events.tsx,ui-core,Dashboard feature implementation.; placeholder language
+artifacts/dashboard/src/pages/Graph.tsx,ui-core,Dashboard feature implementation.; placeholder language
+artifacts/dashboard/src/pages/Landing.tsx,ui-core,Dashboard feature implementation.
+artifacts/dashboard/src/pages/Metrics.tsx,ui-core,Dashboard feature implementation.
+artifacts/dashboard/src/pages/ProjectDetail.tsx,ui-core,Dashboard feature implementation.
+artifacts/dashboard/src/pages/Projects.tsx,ui-core,Dashboard feature implementation.; placeholder language
+artifacts/dashboard/src/pages/Rules.tsx,ui-core,Dashboard feature implementation.; placeholder language
+artifacts/dashboard/src/pages/SignIn.tsx,ui-core,Dashboard feature implementation.
+artifacts/dashboard/src/pages/SignUp.tsx,ui-core,Dashboard feature implementation.
+artifacts/dashboard/src/pages/Tasks.tsx,ui-core,Dashboard feature implementation.; placeholder language
+artifacts/dashboard/src/pages/Workflows.tsx,ui-core,Dashboard feature implementation.; placeholder language
+artifacts/dashboard/src/pages/not-found.tsx,ui-core,Dashboard feature implementation.
+artifacts/dashboard/tsconfig.json,other,Auxiliary file.
+artifacts/dashboard/vite.config.ts,other,Auxiliary file.
+artifacts/mockup-sandbox/.replit-artifact/artifact.toml,other,Auxiliary file.
+artifacts/mockup-sandbox/components.json,other,Auxiliary file.
+artifacts/mockup-sandbox/index.html,other,Auxiliary file.
+artifacts/mockup-sandbox/mockupPreviewPlugin.ts,other,Auxiliary file.
+artifacts/mockup-sandbox/package.json,other,Auxiliary file.
+artifacts/mockup-sandbox/src/.generated/mockup-components.ts,other,Auxiliary file.
+artifacts/mockup-sandbox/src/App.tsx,other,Auxiliary file.
+artifacts/mockup-sandbox/src/components/ui/accordion.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/alert-dialog.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/alert.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/aspect-ratio.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/avatar.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/badge.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/breadcrumb.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/button-group.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/button.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/calendar.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/card.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/carousel.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/chart.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/checkbox.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/collapsible.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/command.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.; placeholder language
+artifacts/mockup-sandbox/src/components/ui/context-menu.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/dialog.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/drawer.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/dropdown-menu.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/empty.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/field.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/form.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/hover-card.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/input-group.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/input-otp.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/input.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.; placeholder language
+artifacts/mockup-sandbox/src/components/ui/item.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/kbd.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/label.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/menubar.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/navigation-menu.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/pagination.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/popover.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/progress.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/radio-group.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/resizable.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/scroll-area.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/select.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.; placeholder language
+artifacts/mockup-sandbox/src/components/ui/separator.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/sheet.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/sidebar.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/skeleton.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/slider.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/sonner.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/spinner.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/switch.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/table.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/tabs.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/textarea.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.; placeholder language
+artifacts/mockup-sandbox/src/components/ui/toast.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/toaster.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/toggle-group.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/toggle.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/components/ui/tooltip.tsx,mockup-ui-primitive,Sandbox UI primitive; preview environment.
+artifacts/mockup-sandbox/src/hooks/use-mobile.tsx,other,Auxiliary file.
+artifacts/mockup-sandbox/src/hooks/use-toast.ts,other,Auxiliary file.
+artifacts/mockup-sandbox/src/index.css,other,Auxiliary file.; placeholder language
+artifacts/mockup-sandbox/src/lib/utils.ts,other,Auxiliary file.
+artifacts/mockup-sandbox/src/main.tsx,other,Auxiliary file.
+artifacts/mockup-sandbox/tsconfig.json,other,Auxiliary file.
+artifacts/mockup-sandbox/vite.config.ts,other,Auxiliary file.
+attached_assets/EngineeringOS_Audit_Report_1783641389270.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_Audit_Report_Expanded_1783642792349.md,evidence-text,Supporting analysis/export artifact; not runtime code.; stub language
+attached_assets/EngineeringOS_Combined_Deep_Analysis_(1)_1783706911895.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_Execution_Plan_1783831261195.pdf,evidence-doc,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_Executive_Build_Directive_v1_1783912619169.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_File_Inventory_Complete(1)_1783706911845.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_File_by_File_Fact_Record_1783725698283.md,evidence-text,Supporting analysis/export artifact; not runtime code.; placeholder language
+attached_assets/EngineeringOS_Implementation_Document_1783726156016.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_Plan_1783818095882.pdf,evidence-doc,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_Project_1783718452179.pdf,evidence-doc,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_deep_analysis_report_1783800987828.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_file_inventory_(1)_1783729892809.csv,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_file_inventory_full_1783800987783.csv,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_minimum_path_to_vision_(1)_1783830867380.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_minimum_path_to_vision_1783830816710.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_operational_status_record_1783912104506.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_project_analysis_report(1)_1783729892769.md,evidence-text,Supporting analysis/export artifact; not runtime code.; placeholder language
+attached_assets/EngineeringOS_provenance_registry_linked_1783911530593.json,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_provenance_registry_seed_1783911530658.json,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_replit_execution_directive_1783800987701.json,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_replit_execution_directive_1783800987743.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series14_truth_matrix_1783966531635.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series15_deep_evidence_1783966531578.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series16_truth_matrix_(1)_1783966531512.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series17_deep_analysis_1783966531444.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series18_status_register_(1)_1783966531375.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series19_control_plane_evidence_1783966531303.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series20_status_register_1783966531239.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series21_deep_status_1783966531177.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series22_second_wave_analysis_1783966531113.md,evidence-text,Supporting analysis/export artifact; not runtime code.; stub language
+attached_assets/EngineeringOS_series23_self_verifying_architecture_1783966531049.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series24_deep_evidence_1783966530990.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series25_truth_register_1783966530939.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series26_boundary_analysis_1783966530884.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series27_failure_semantics_1783966530824.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series28_traceability_mesh_1783966530766.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series29_trust_boundary_register_1783966530702.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series30_release_handoff_audit_1783966530642.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series31_release_handoff_audit_1783966530586.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series32_phase_conformance_audit_1783966530537.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_series33_provenance_authority_graph_1783966530470.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_status_record_(1)_1783980758791.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_status_register_(1)_1783818095824.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_status_register_final_1783902107873.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_task_backlog_1783800987875.json,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/EngineeringOS_truth_register_current_1783825680736.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/Engineering_Os_Fact_Record_1783718570175.pdf,evidence-doc,Supporting analysis/export artifact; not runtime code.
+attached_assets/Engineering_Os_Phased_Completion_Plan_(1)_1783718452123.pdf,evidence-doc,Supporting analysis/export artifact; not runtime code.
+attached_assets/Engineering_Os_Phased_Completion_Plan_1783718452216.pdf,evidence-doc,Supporting analysis/export artifact; not runtime code.
+attached_assets/Pasted---1783906604381_1783906604385.txt,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/Pasted---1783956390496_1783956390501.txt,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/Pasted--Backlog-Execution-Backlog-v1-0--1783975284276_1783975284279.txt,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783565505918.txt,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/Pasted--EngineeringOS-Autonomous-Project-Discovery-Onboarding-_1783566150077.txt,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/Pasted--Plan-3-Sync-fact-record-architecture-docs-3-Sync-Fact-_1783733496072.txt,evidence-text,"Supporting analysis/export artifact; not runtime code.; placeholder language, stub language"
+attached_assets/Pasted--Plan-3-Sync-fact-record-architecture-docs-3-Sync-Fact-_1783790285219.txt,evidence-text,"Supporting analysis/export artifact; not runtime code.; placeholder language, stub language"
+attached_assets/Pasted-7-Upgrade-Dashboard-to-Operational-UI-What-Why-Current-_1783734748019.txt,evidence-text,Supporting analysis/export artifact; not runtime code.; placeholder language
+attached_assets/Pasted-7-Upgrade-Dashboard-to-Operational-UI-What-Why-Current-_1783798897613.txt,evidence-text,Supporting analysis/export artifact; not runtime code.; placeholder language
+attached_assets/Pasted-Plan-6-Deepen-graph-scanner-discovery-6-Deepen-Graph-Sc_1783734658300.txt,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/Screenshot_٢٠٢٦٠٧٠٩-٠٦١٦٢٥_1783567039006.png,evidence-image,Evidence screenshot or visual artifact attached to the repo.
+attached_assets/Screenshot_٢٠٢٦٠٧٠٩-٠٦٢٠٣٨_1783610776566.png,evidence-image,Evidence screenshot or visual artifact attached to the repo.; has marker
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٣٥٣١٨_1783904118069.png,evidence-image,Evidence screenshot or visual artifact attached to the repo.; has marker
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٤٠٥١١_1783904724118.png,evidence-image,Evidence screenshot or visual artifact attached to the repo.; has marker
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٤٤٤٢٨_1783907108840.png,evidence-image,Evidence screenshot or visual artifact attached to the repo.; has marker
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٥٠١٣٨_1783908128704.png,evidence-image,Evidence screenshot or visual artifact attached to the repo.; has marker
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٥١٤٥٤_1783908924873.png,evidence-image,Evidence screenshot or visual artifact attached to the repo.; has marker
+attached_assets/Screenshot_٢٠٢٦٠٧١٣-٠٥١٩٤٨_1783909201747.png,evidence-image,Evidence screenshot or visual artifact attached to the repo.; has marker
+attached_assets/agents_(1)_1783564013722.zip,evidence-archive,Archived extracted material or previous workspace snapshot.
+attached_assets/artifacts_(7)_(1)_1783564013761.zip,evidence-archive,Archived extracted material or previous workspace snapshot.
+attached_assets/git_(2)_1783564013691.zip,evidence-archive,Archived extracted material or previous workspace snapshot.
+attached_assets/gitattributes_1783564013915.txt,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/gitignore_(1)_1783564013965.txt,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/lib_(7)_(1)_1783564013810.zip,evidence-archive,Archived extracted material or previous workspace snapshot.
+attached_assets/node_modules_(2)_1783564014266.zip,evidence-archive,Archived extracted material or previous workspace snapshot.
+attached_assets/npmrc_(2)_1783564014024.txt,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/package_(1)_(7)_1783564014328.json,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/pnpm-lock.yaml_(3)_1783564014392.txt,evidence-text,Supporting analysis/export artifact; not runtime code.; has marker
+attached_assets/pnpm-workspace.yaml_(3)_1783564014449.txt,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/replit_(13)_1783564014085.md,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/replit_(2)_1783564014509.txt,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/replitignore_1783564014569.txt,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/scripts_(8)_1783564013865.zip,evidence-archive,Archived extracted material or previous workspace snapshot.
+attached_assets/tsconfig.base_(2)_(1)_1783564014142.json,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/tsconfig_(7)_1783564014202.json,evidence-text,Supporting analysis/export artifact; not runtime code.
+attached_assets/تحليل_EngineeringOS_1783804577785.docx,evidence-doc,Supporting analysis/export artifact; not runtime code.
+attached_assets/خطة_العمل_التنفيذية_لمشروع_EngineeringOS_1783729892699.docx,evidence-doc,Supporting analysis/export artifact; not runtime code.
+docs/completion-plan.md,project-doc,Project-level guidance/plan document.; placeholder language
+docs/fact-record.md,project-doc,Project-level guidance/plan document.; placeholder language
+lib/ai-orchestrator/package.json,other,Auxiliary file.
+lib/ai-orchestrator/src/agents/chat-agent.ts,core-lib,Core platform library.
+lib/ai-orchestrator/src/agents/code-reviewer.ts,core-lib,Core platform library.
+lib/ai-orchestrator/src/agents/scan-analyst.ts,core-lib,Core platform library.
+lib/ai-orchestrator/src/agents/task-agent.ts,core-lib,Core platform library.
+lib/ai-orchestrator/src/agents/workflow-orchestrator.ts,core-lib,Core platform library.
+lib/ai-orchestrator/src/context-builder.ts,core-lib,Core platform library.
+lib/ai-orchestrator/src/groq-client.ts,core-lib,Core platform library.
+lib/ai-orchestrator/src/index.ts,core-lib,Core platform library.
+lib/ai-orchestrator/tsconfig.json,other,Auxiliary file.
+lib/api-client-react/package.json,other,Auxiliary file.
+lib/api-client-react/src/custom-fetch.ts,other,Auxiliary file.; explicit gap note
+lib/api-client-react/src/generated/api.schemas.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-client-react/src/generated/api.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-client-react/src/index.ts,other,Auxiliary file.
+lib/api-client-react/tsconfig.json,other,Auxiliary file.
+lib/api-spec/openapi.yaml,contract,API contract/codegen configuration.
+lib/api-spec/orval.config.ts,contract,API contract/codegen configuration.
+lib/api-spec/package.json,contract,API contract/codegen configuration.
+lib/api-zod/package.json,other,Auxiliary file.
+lib/api-zod/src/generated/api.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiChatMessage.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiChatMessageRole.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiChatOutput.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiChatRequest.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiChatSession.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiCodeIssue.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiCodeIssueSeverity.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiCodeIssueType.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiCodeReview.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiCodeReviewVerdict.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiOrchestrateRequest.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiOrchestrationDecision.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiOrchestrationDecisionAction.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiReviewRequest.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiReviewRequestFileContents.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiScanAnalysis.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiScanInsight.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiScanInsightCategory.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/aiScanInsightSeverity.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/createProjectInput.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/createRuleInput.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/createTaskInput.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/createWorkflowInput.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/dashboardOverview.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/dashboardOverviewProjectScoresItem.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/dashboardOverviewProjectScoresItemTrend.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/dashboardOverviewTaskStatusBreakdown.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/dashboardOverviewTopRulesItem.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/discoveryGraphSummaryData.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/discoveryGraphSummaryDataEntitiesByType.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/discoveryGraphSummaryDataFilesByLanguage.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/discoveryReport.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/discoveryRuleViolationItem.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/discoverySessionStatus.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/discoverySessionStatusStatus.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/discoveryStepItem.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/discoveryStepItemStatus.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/entityType.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/evaluateRuleRequest.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/event.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/eventPayload.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/eventSeverity.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/failWorkflowPhaseInput.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/getGraphEntityImpact404.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/getGraphEntityImpactParams.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/getGraphEntityNeighbors200.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/getGraphEntityNeighbors404.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/getGraphPathParams.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/getLatestMetricsParams.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/graphCentralityScore.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/graphEntity.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/graphEntityMetadata.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/graphImpactHop.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/graphImpactResult.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/graphPathResult.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/graphPathStep.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/graphProvenance.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/graphRelationship.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/graphRelationshipMetadata.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/graphSummary.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/graphSummaryEntitiesByType.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/graphSummaryRelationsByType.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/healthStatus.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/healthStatusStatus.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/importProjectInput.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/importProjectInputOverrides.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/index.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/listAiChatSessionsParams.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/listEventsParams.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/listGraphEntitiesParams.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/listGraphRelationshipsParams.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/listMetricsParams.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/listRulesParams.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/listTasksParams.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/listWorkflowsParams.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/metricRecord.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/metricRecordBuildStatus.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/plugin.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/pluginCapabilitiesItem.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/pluginProjectRequest.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/project.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/projectStatus.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/projectSummary.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/projectSummaryTaskCounts.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/rule.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/ruleEvaluationResult.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/ruleEvaluationResultMatchesItem.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/ruleSeverity.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/scanJob.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/scanJobStatus.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/scanResult.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/startDiscoveryInput.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/startDiscoveryInputSource.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/task.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/taskLog.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/taskLogLevel.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/taskLogMetadata.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/taskPriority.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/taskStatus.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/updateProjectInput.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/updateProjectInputStatus.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/updateRuleInput.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/updateTaskInput.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/verificationResult.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/verificationResultStepsItem.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/workflow.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/workflowExecution.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/workflowPhase.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/generated/types/workflowStatus.ts,generated-contract,Generated from OpenAPI; should remain codegen-consistent.
+lib/api-zod/src/index.ts,other,Auxiliary file.
+lib/api-zod/tsconfig.json,other,Auxiliary file.
+lib/db/drizzle.config.ts,db-package,Database schema/configuration package.
+lib/db/package.json,db-package,Database schema/configuration package.
+lib/db/src/index.ts,core-lib,Core platform library.
+lib/db/src/schema/ai_chats.ts,core-lib,Core platform library.
+lib/db/src/schema/audit_logs.ts,core-lib,Core platform library.
+lib/db/src/schema/discovery.ts,core-lib,Core platform library.
+lib/db/src/schema/events.ts,core-lib,Core platform library.
+lib/db/src/schema/graph.ts,core-lib,Core platform library.
+lib/db/src/schema/index.ts,core-lib,Core platform library.
+lib/db/src/schema/metrics.ts,core-lib,Core platform library.
+lib/db/src/schema/plugins.ts,core-lib,Core platform library.
+lib/db/src/schema/projects.ts,core-lib,Core platform library.
+lib/db/src/schema/rules.ts,core-lib,Core platform library.
+lib/db/src/schema/scan_jobs.ts,core-lib,Core platform library.
+lib/db/src/schema/task_logs.ts,core-lib,Core platform library.
+lib/db/src/schema/tasks.ts,core-lib,Core platform library.
+lib/db/src/schema/workflows.ts,core-lib,Core platform library.
+lib/db/tsconfig.json,db-package,Database schema/configuration package.
+lib/knowledge-engine/package.json,other,Auxiliary file.
+lib/knowledge-engine/src/__tests__/inference.test.ts,core-test,Unit/integration test.
+lib/knowledge-engine/src/__tests__/queries.test.ts,core-test,Unit/integration test.
+lib/knowledge-engine/src/index.ts,core-lib,Core platform library.
+lib/knowledge-engine/src/inference.ts,core-lib,Core platform library.
+lib/knowledge-engine/src/queries.ts,core-lib,Core platform library.
+lib/knowledge-engine/src/types.ts,core-lib,Core platform library.
+lib/knowledge-engine/tsconfig.json,other,Auxiliary file.
+lib/scanner/package.json,other,Auxiliary file.
+lib/scanner/src/__tests__/file-walker.test.ts,core-test,Unit/integration test.
+lib/scanner/src/__tests__/graph-extractor.test.ts,core-test,Unit/integration test.
+lib/scanner/src/__tests__/metrics-calc.test.ts,core-test,Unit/integration test.
+lib/scanner/src/__tests__/rule-matcher.test.ts,core-test,Unit/integration test.
+lib/scanner/src/file-walker.ts,core-lib,Core platform library.
+lib/scanner/src/graph-extractor.ts,core-lib,Core platform library.; stub language
+lib/scanner/src/index.ts,core-lib,Core platform library.
+lib/scanner/src/metrics-calc.ts,core-lib,Core platform library.
+lib/scanner/src/python-ast-script.py,core-lib,Core platform library.
+lib/scanner/src/python-ast-script.ts,core-lib,Core platform library.
+lib/scanner/src/python-extractor.ts,core-lib,Core platform library.
+lib/scanner/src/rule-matcher.ts,core-lib,Core platform library.
+lib/scanner/tsconfig.json,other,Auxiliary file.
+lib/scanner/vitest.config.ts,other,Auxiliary file.
+package.json,root-config,Workspace-level configuration or operating guidance.
+pnpm-lock.yaml,root-config,Workspace-level configuration or operating guidance.; has marker
+pnpm-workspace.yaml,root-config,Workspace-level configuration or operating guidance.
+replit.md,root-config,Workspace-level configuration or operating guidance.
+scripts/check-codegen-drift.ts,tooling,Repository tooling / maintenance script.
+scripts/package.json,tooling,Repository tooling / maintenance script.
+scripts/post-merge.sh,tooling,Repository tooling / maintenance script.
+scripts/src/hello.ts,tooling,Repository tooling / maintenance script.
+scripts/tsconfig.json,tooling,Repository tooling / maintenance script.
+tsconfig.base.json,root-config,Workspace-level configuration or operating guidance.
+tsconfig.json,root-config,Workspace-level configuration or operating guidance.

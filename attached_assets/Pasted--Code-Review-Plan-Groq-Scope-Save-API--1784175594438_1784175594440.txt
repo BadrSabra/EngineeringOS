@@ -1,0 +1,810 @@
+# خطة مراجعة كود (Code Review Plan)
+
+## التحقيق الكامل في دورة حياة مفتاح Groq
+
+**Scope: Save → API → Service → Repository → Database → Read → AI Usage**
+
+---
+
+# الهدف النهائي من التحقيق
+
+إثبات أين يحدث الانقطاع في هذا المسار:
+
+```
+User enters Groq API Key
+        |
+        v
+Settings UI
+        |
+        v
+Save Mutation
+        |
+        v
+HTTP POST /providers
+        |
+        v
+Backend Route
+        |
+        v
+Credential Service
+        |
+        v
+Database Write
+        |
+        v
+Database Read
+        |
+        v
+requireGroqApiKey()
+        |
+        v
+AI Request
+```
+
+---
+
+# المرحلة 0 — تحديد نقطة البداية
+
+## الملفات المستهدفة أولًا
+
+ابحث عن:
+
+```
+groq
+provider
+apiKey
+credentials
+settings
+providers
+requireGroqApiKey
+```
+
+الأولوية:
+
+```
+apps/
+artifacts/
+packages/
+libs/
+server/
+```
+
+---
+
+# المرحلة 1 — مراجعة واجهة Settings
+
+## الملفات المحتملة
+
+```
+artifacts/dashboard/src/pages/Settings*.tsx
+```
+
+أو:
+
+```
+src/pages/settings/*
+```
+
+---
+
+## نقاط الفحص
+
+### 1. مصدر قيمة المفتاح
+
+ابحث عن:
+
+```tsx
+const [apiKey,setApiKey]
+```
+
+أو:
+
+```tsx
+useState("")
+```
+
+تحقق:
+
+* هل القيمة محلية فقط؟
+* هل يتم تحميلها من API عند فتح الصفحة؟
+
+المشكلة المحتملة:
+
+```tsx
+const [groqKey,setGroqKey] = useState("")
+```
+
+بدون:
+
+```tsx
+useEffect(fetchProviders)
+```
+
+---
+
+## 2. زر Save
+
+ابحث عن:
+
+```tsx
+onClick={save}
+```
+
+أو:
+
+```tsx
+mutation.mutate()
+```
+
+تحقق من:
+
+### Request Payload
+
+مثال صحيح:
+
+```json
+{
+ provider:"groq",
+ apiKey:"gsk_xxx"
+}
+```
+
+تحقق من وجود:
+
+```
+userId
+projectId
+workspaceId
+```
+
+حسب تصميم المشروع.
+
+---
+
+## 3. بعد نجاح الحفظ
+
+ابحث عن:
+
+```tsx
+onSuccess
+```
+
+تحقق:
+
+هل يحدث:
+
+```tsx
+invalidateQueries()
+```
+
+أم فقط:
+
+```tsx
+toast.success()
+```
+
+المشكلة المحتملة:
+
+الواجهة تقول:
+
+```
+Saved successfully
+```
+
+لكن السيرفر لم يحفظ.
+
+---
+
+# المرحلة 2 — تتبع API Request
+
+## الملفات المحتملة
+
+```
+routes/providers.ts
+```
+
+أو:
+
+```
+routes/settings.ts
+```
+
+أو:
+
+```
+api/providers/*
+```
+
+---
+
+# فحص Route
+
+ابحث:
+
+```ts
+router.post
+```
+
+أو:
+
+```ts
+app.post
+```
+
+---
+
+## تحقق من:
+
+### استقبال البيانات
+
+مثال:
+
+```ts
+const {
+ provider,
+ apiKey
+}=req.body
+```
+
+أسئلة:
+
+* هل اسم الحقل مطابق للواجهة؟
+* هل هناك typo؟
+
+مثال خطير:
+
+Frontend:
+
+```json
+{
+ apiKey:"xxx"
+}
+```
+
+Backend:
+
+```ts
+req.body.key
+```
+
+النتيجة:
+
+```
+undefined
+```
+
+---
+
+# المرحلة 3 — مراجعة Authentication Context
+
+هذه مرحلة مهمة جدًا.
+
+لأن المشكلة قد تكون:
+
+الحفظ يتم على User A
+
+والقراءة على User B
+
+ابحث:
+
+```
+req.userId
+```
+
+```
+session.user.id
+```
+
+```
+workspaceId
+```
+
+---
+
+قارن:
+
+في الحفظ:
+
+```ts
+saveProvider(
+ userId
+)
+```
+
+وفي القراءة:
+
+```ts
+getProvider(
+ userId
+)
+```
+
+يجب أن يكون نفس المصدر.
+
+---
+
+# المرحلة 4 — مراجعة Service Layer
+
+## ملفات محتملة:
+
+```
+services/providers.ts
+```
+
+```
+services/credentials.ts
+```
+
+```
+provider-service.ts
+```
+
+---
+
+ابحث:
+
+```ts
+saveCredential
+```
+
+```ts
+storeApiKey
+```
+
+```ts
+encrypt
+```
+
+---
+
+## أسئلة المراجعة
+
+### هل يتم التشفير؟
+
+مثال:
+
+```ts
+const encrypted =
+encrypt(apiKey)
+```
+
+ثم:
+
+```ts
+db.insert({
+ key:encrypted
+})
+```
+
+---
+
+تحقق:
+
+هل القراءة تستخدم:
+
+```ts
+decrypt()
+```
+
+؟
+
+---
+
+خطأ شائع:
+
+الحفظ:
+
+```
+encrypt(key)
+```
+
+القراءة:
+
+```
+return encryptedKey
+```
+
+---
+
+# المرحلة 5 — مراجعة Repository
+
+## الملفات المحتملة:
+
+```
+repositories/provider*
+```
+
+```
+db/provider*
+```
+
+---
+
+ابحث:
+
+```ts
+insert
+```
+
+```ts
+update
+```
+
+```ts
+upsert
+```
+
+---
+
+## أهم نقطة:
+
+هل الحفظ يعمل Upsert؟
+
+المفترض:
+
+```sql
+INSERT
+ON CONFLICT
+UPDATE
+```
+
+وليس:
+
+```sql
+INSERT ONLY
+```
+
+لأن المستخدم قد يغير المفتاح.
+
+---
+
+# المرحلة 6 — مراجعة Database Schema
+
+## الملفات:
+
+```
+schema.ts
+```
+
+أو:
+
+```
+db/schema/*
+```
+
+---
+
+ابحث:
+
+```
+provider_credentials
+```
+
+أو:
+
+```
+api_keys
+```
+
+---
+
+تحقق من:
+
+## الأعمدة
+
+هل موجود:
+
+```
+id
+userId
+provider
+encryptedKey
+createdAt
+updatedAt
+```
+
+---
+
+## الفهارس
+
+هل يوجد:
+
+```sql
+unique(userId,provider)
+```
+
+؟
+
+بدونه قد يحدث:
+
+```
+Groq
+Groq
+Groq
+```
+
+عدة سجلات.
+
+---
+
+# المرحلة 7 — اختبار الكتابة مباشرة
+
+بعد تحديد الـ route:
+
+نفذ اختبار:
+
+## قبل الحفظ
+
+Database:
+
+```
+SELECT *
+FROM provider_credentials
+WHERE provider='groq'
+```
+
+النتيجة:
+
+```
+0 rows
+```
+
+---
+
+اضغط Save.
+
+بعدها مباشرة:
+
+```
+SELECT *
+FROM provider_credentials
+```
+
+---
+
+نتيجتان:
+
+## الحالة A
+
+لا يوجد سجل
+
+المشكلة:
+
+```
+UI → API
+```
+
+أو:
+
+```
+API → Service
+```
+
+---
+
+## الحالة B
+
+يوجد سجل
+
+انتقل للقراءة.
+
+---
+
+# المرحلة 8 — مراجعة GET Providers
+
+## الملفات:
+
+```
+routes/providers.ts
+```
+
+ابحث:
+
+```ts
+GET
+```
+
+---
+
+تحقق:
+
+هل يرجع:
+
+```json
+{
+ provider:"groq",
+ configured:true
+}
+```
+
+---
+
+أم:
+
+```json
+{
+ provider:"groq",
+ apiKey:null
+}
+```
+
+---
+
+# المرحلة 9 — مراجعة requireGroqApiKey()
+
+الملف الذي ذكرته:
+
+```
+routes/ai.ts
+```
+
+ابحث عن:
+
+```ts
+requireGroqApiKey
+```
+
+ثم اتبع المصدر.
+
+---
+
+افحص:
+
+```ts
+const provider =
+await getProvider(userId,"groq")
+```
+
+---
+
+أسئلة:
+
+* هل userId صحيح؟
+* هل provider name مطابق؟
+
+مثال:
+
+الحفظ:
+
+```
+"GROQ"
+```
+
+القراءة:
+
+```
+"groq"
+```
+
+قد تفشل حسب DB collation.
+
+---
+
+# المرحلة 10 — اختبار النهاية للنهاية
+
+سيناريو الاختبار:
+
+## Test 1
+
+افتح Settings
+
+أدخل:
+
+```
+gsk_test123
+```
+
+اضغط Save.
+
+راقب:
+
+```
+Network tab
+```
+
+---
+
+يجب:
+
+```
+POST /providers
+
+200 OK
+```
+
+---
+
+ثم:
+
+Refresh
+
+ثم:
+
+GET /providers
+
+يجب:
+
+```
+groq configured=true
+```
+
+---
+
+ثم:
+
+Chat
+
+يجب:
+
+```
+requireGroqApiKey()
+```
+
+ينجح.
+
+---
+
+# ترتيب الملفات الذي سأراجعه فعليًا
+
+بالترتيب:
+
+```
+1. Settings*.tsx
+        ↓
+2. API client / hooks
+        ↓
+3. routes/providers.ts
+        ↓
+4. services/provider-credentials.ts
+        ↓
+5. repositories/*
+        ↓
+6. db/schema/*
+        ↓
+7. requireGroqApiKey()
+        ↓
+8. routes/ai.ts
+```
+
+---
+
+# علامات الخطأ التي سأبحث عنها أثناء المراجعة
+
+| العلامة                     | معناها المحتمل                      |
+| --------------------------- | ----------------------------------- |
+| Save يعطي نجاح لكن DB فارغة | API لا يحفظ                         |
+| DB تحتوي سجل لكن GET فارغ   | Query/filter مشكلة                  |
+| GET يعمل قبل refresh فقط    | state محلي                          |
+| GET يرجع null               | decrypt أو mapping                  |
+| chat يفشل فقط               | requireGroqApiKey لا يجد credential |
+| أكثر من سجل Groq            | لا يوجد upsert                      |
+
+---
+
+## نتيجة التحقيق المطلوبة في النهاية
+
+سيكون التقرير النهائي بهذا الشكل:
+
+```
+ROOT CAUSE:
+
+File:
+xxxxx.ts
+
+Function:
+saveProvider()
+
+Problem:
+API key stored only in React state because DB insert never executes.
+
+Fix:
+Replace X with Y.
+
+Verification:
+1. Save key
+2. Refresh
+3. GET /providers returns configured=true
+4. Chat request succeeds
+```
+
+هذه الخطة هي مسار مراجعة فعلي يمكن تنفيذه على المستودع خطوة بخطوة بدون الرجوع للتخمين.

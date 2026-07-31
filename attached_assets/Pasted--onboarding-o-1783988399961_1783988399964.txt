@@ -1,0 +1,96 @@
+هذه الفجوة بالذات هي نقطة التحوّل الحقيقية في المشروع، لأنها تكشف الفرق بين **onboarding شكلي** و**onboarding فعلي متعدد المصادر**.
+
+ما يحدث الآن، بناءً على الملفات نفسها، هو الآتي:
+
+`artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx`
+الواجهة تعرض خطوة “Select Source” لكن المصدر فعليًا **مجمّد داخل الكود** على `local` فقط، والبطاقة الظاهرة للمستخدم هي “Local Workspace Folder” وحدها. هذا يعني أن المستخدم لا يختار “استراتيجية إدخال المشروع”، بل يملأ حقلاً لمسار محلي فقط.
+
+`lib/api-zod/src/generated/types/startDiscoveryInputSource.ts`
+النوع المولَّد يدعم فقط:
+
+* `local`
+* `workspace`
+
+وهذا ليس تعدد مصادر حقيقيًا؛ هذا مجرد تصنيف داخلي محدود، وليس قائمة قنوات onboarding كما في الوثيقة التصميمية.
+
+`lib/db/src/schema/discovery.ts`
+الـ enum في قاعدة البيانات أيضًا محصور في:
+
+* `local`
+* `workspace`
+
+أي أن طبقة التخزين نفسها لم تُصمم بعد لتسجيل مصادر متعددة فعلية مثل Git URL أو archive upload.
+
+`artifacts/api-server/src/routes/discovery.ts`
+الـ API يستقبل `source` لكنه لا يفرّع التنفيذ بناءً عليه.
+المسار الحقيقي هو: **خذ `rootPath` → تحقّق منه → امسحه scanner → خزّن session**.
+بمعنى أدق: الـ `source` هنا مجرد metadata، وليس “محرك اختيار” يؤثر في طريقة جلب المشروع أو تهيئة المدخل.
+
+وهذا يفسر الفجوة التي شعرت بها:
+المشروع يملك **Discovery Engine قويًا**، لكنه ما زال يفتقد **Source Acquisition Layer** الحقيقية.
+
+## ما الذي يعنيه هذا معماريًا
+
+المنصة الحالية تعرف كيف:
+
+* تمسح مجلدًا
+* تستخرج graph
+* تحسب metrics
+* تولّد summary
+* تجهّز import
+
+لكنها لا تعرف بعد كيف:
+
+* تستقبل مشروعًا من Git URL
+* تستقبل archive مرفوع
+* تتعامل مع workspace موجود
+* تفصل بين “مصدر المشروع” و“مسار المسح النهائي”
+
+وهنا بيت القصيد:
+**المسار الحالي يعتمد على `rootPath` كمدخل وحيد، بينما التصميم المطلوب يعتمد على `source descriptor` ثم normalizer ثم scanner.**
+
+## الشكل الصحيح لإكمال هذا الجزء
+
+الترتيب العملي السليم يجب أن يكون هكذا:
+
+**1) اختيار المصدر**
+بطاقات حقيقية، كل بطاقة تمثل طريقة إدخال مختلفة:
+
+* Local Workspace Folder
+* Existing Workspace Repository
+* Git Repository URL
+* Uploaded Project Archive
+
+**2) توحيد المصدر**
+كل اختيار يتحول إلى كائن موحّد مثل:
+
+* `sourceType`
+* `input`
+* `resolvedRootPath`
+* `metadata`
+
+**3) التحضير قبل المسح**
+
+* Git URL → clone/fetch into temp/workspace
+* Archive → unpack into temp/workspace
+* Local folder → validate path مباشرة
+* Existing workspace repo → resolve workspace mount
+
+**4) discovery pipeline واحد**
+بعد التوحيد، يبدأ scanner كما هو، بدون تكرار logic.
+
+**5) summary ثم import**
+النتيجة تعرض للمستخدم للتأكيد أو override، ثم import من دون rescanning.
+
+## الخلاصة الدقيقة
+
+الفجوة ليست في “قدرة النظام على الاكتشاف”.
+الفجوة في أن **نقطة الدخول ما زالت أحادية المصدر ومبنية حول path محلي**، بينما الرؤية المعلنة في وثيقة التنفيذ تطلب **Discovery by source** لا **Discovery by path**.
+
+## الأولوية التالية
+
+أول تعديل يجب أن يحدث ليس تجميلاً بصريًا، بل **إعادة تصميم عقد الإدخال** بين الواجهة والـ API والـ DB بحيث يصبح المصدر كيانًا مستقلًا، لا مجرد قيمة نصية.
+
+خطة العمل مرفقة أيضا حول هذا مباشرة إلى **خطة تعديل ملف-بملف** تبدأ من:
+`DiscoverProjectWizard.tsx → OpenAPI/Zod → discovery schema → discovery route → source adapters`
+وتنتهي بواجهة onboarding متعددة المصادر فعلية.

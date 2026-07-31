@@ -1,0 +1,250 @@
+ — Discovery & Scanner Layer
+
+هذه الطبقة هي بداية سلسلة الحقيقة (Origin of Truth).
+
+إذا كانت هذه الطبقة غير صحيحة، فإن:
+
+الـ Knowledge Graph سيكون خاطئًا.
+
+محرك الاستدلال سيبني استنتاجات خاطئة.
+
+الـ AI سيعمل على سياق غير صحيح.
+
+الـ Audit سيوثق قرارات مبنية على أدلة غير صحيحة.
+
+
+لذلك فهي Root of Evidence.
+
+
+---
+
+Scope
+
+سنقصر التحليل على مكونات الاكتشاف والمسح فقط، مثل:
+
+lib/scanner/**
+artifacts/api-server/src/routes/discovery.ts
+artifacts/api-server/src/services/discovery/*
+artifacts/api-server/src/services/scan-runner.ts
+artifacts/api-server/src/lib/graph-extractor.ts
+artifacts/api-server/src/lib/graph-provenance.ts
+
+وأي adapters أو parsers أو extractors مرتبطة بها.
+
+
+---
+
+أسئلة الحوكمة
+
+لن نسأل "هل الـ Scanner يعمل؟"، بل:
+
+1. Source Authenticity
+
+هل كل دليل له مصدر معروف؟
+
+هل يتم تسجيل الملف الأصلي؟
+
+هل يتم تسجيل نوع المصدر (Git، Workspace، Upload...)؟
+
+
+
+---
+
+2. Provenance Completeness
+
+هل كل Entity تحتوى على:
+
+Source File
+
+Line Range
+
+Parser
+
+Extractor Version
+
+Confidence
+
+Timestamp
+
+Project
+
+Scan Session
+
+
+أم أن بعضها يضيع أثناء التحويل؟
+
+
+---
+
+3. Incremental Correctness
+
+عند إعادة Scan:
+
+هل يعاد بناء الحقيقة بالكامل؟
+
+أم يتم دمجها؟
+
+هل تزال الأدلة القديمة؟
+
+هل يوجد Drift Detection؟
+
+
+
+---
+
+4. Determinism
+
+إذا مسحنا نفس المشروع مرتين:
+
+هل نحصل على نفس:
+
+Entities
+
+Relationships
+
+Metrics
+
+Provenance
+
+
+أم توجد نتائج تختلف دون تغير في الكود؟
+
+
+---
+
+5. Extraction Integrity
+
+هل الـ Extractors:
+
+Pure Functions؟
+
+Stateless؟
+
+قابلة للاختبار؟
+
+أم تعتمد على حالة خارجية؟
+
+
+
+---
+
+6. Confidence Model
+
+كيف تُحسب:
+
+confidence
+
+heuristic
+
+observed
+
+
+وهل يوجد Contract واضح لذلك؟
+
+
+---
+
+7. Evidence Quality
+
+هل كل Relationship لها:
+
+Evidence
+
+Justification
+
+Confidence
+
+Provenance
+
+
+أم توجد علاقات "مستنتجة" دون دليل واضح؟
+
+
+---
+
+8. Failure Model
+
+إذا فشل Parser:
+
+هل:
+
+يسقط الملف فقط؟
+
+تتوقف الجلسة كلها؟
+
+يسجل السبب؟
+
+يسجل الملفات التى لم تُحلل؟
+
+
+
+---
+
+9. Performance Governance
+
+سنفحص:
+
+Parallelism
+
+Cancellation
+
+Queueing
+
+Retry
+
+Memory limits
+
+
+للتأكد أن الأداء لا يأتي على حساب صحة الأدلة.
+
+
+---
+
+10. Truth Guarantee
+
+سنحدد بدقة:
+
+هل الـ Scanner هو:
+
+File Indexer
+
+Code Analyzer
+
+Knowledge Extractor
+
+أم بالفعل Evidence Producer؟
+
+
+
+---
+
+معايير الحكم
+
+سنقيّم كل مكون وفق:
+
+البند	السؤال
+
+Responsibility	ما مسؤوليته الوحيدة؟
+Inputs	ما الذي يثق به؟
+Outputs	ماذا ينتج؟
+Determinism	هل نفس المدخلات تعطي نفس النتائج؟
+Provenance	هل يحفظ أصل كل معلومة؟
+Evidence	هل لكل استنتاج دليل؟
+Failure	كيف يتصرف عند الخطأ؟
+Drift	كيف يكتشف الانحراف؟
+Dependencies	ما الذي يعتمد عليه؟
+Verdict	Proven / Partially Proven / Not Proven
+
+
+
+---
+
+الهدف النهائي
+
+لن نعتبر هذه الطبقة ناجحة إلا إذا استطعنا إثبات العبارة التالية:
+
+> "كل كيان (Entity) وكل علاقة (Relationship) وكل Metric داخل EngineeringOS يمكن إرجاعها إلى دليل أصلي محدد داخل المشروع، مع معرفة كيف ومتى وبأي إصدار من الـ Scanner تم استخراجها."
+
+
+
+إذا تحقق ذلك، تصبح طبقة Discovery & Scanner هي Root of Evidence التي يمكن أن تبنى عليها بقية طبقات الحوكمة بثقة.

@@ -1,0 +1,412 @@
+# Forensic Software Engineering Audit
+
+## 1) Executive Summary
+
+I audited the repository as a code-first system and treated docs as supporting evidence only. The repo is a pnpm workspace with **769 files**; the highest-concentration runtime code sits in `artifacts/api-server`, `lib/scanner`, `lib/ai-orchestrator`, `lib/knowledge-engine`, `lib/db`, and `artifacts/dashboard`. No `node_modules/`, `dist/`, `build/`, or `target/` trees were present in the extracted repo.
+
+The most important confirmed findings are:
+
+1. **Workflow condition evaluation is unsafe.**
+   `artifacts/api-server/src/routes/workflows.ts:371-390` evaluates user-supplied `condition` strings with `new Function(...)`. The schema allows `phases[].condition` as a string (`lib/api-zod/src/generated/api.ts:722-730`). This is a server-side code execution risk in an authenticated path.
+
+2. **The job system is process-local, not durable.**
+   `artifacts/api-server/src/lib/job-queue.ts` is an in-memory queue, and `job-reconciliation.ts` exists to repair state after restarts. That means resilience depends on reconciliation rather than durable queue semantics.
+
+3. **The core product flow is real, not just documented.**
+   Discovery, scanning, graph extraction, task execution, workflow advancement, AI chat/apply, and audit/event persistence are all implemented across `discovery.ts`, `scan-runner.ts`, `tasks.ts`, `workflows.ts`, `ai.ts`, and the DB schema.
+
+4. **The architecture is layered but not thin.**
+   The API routes contain substantial business logic instead of acting as pure transports, especially `ai.ts`, `tasks.ts`, and `workflows.ts`.
+
+5. **The repo is unusually documentation-heavy.**
+   Docs, prompts, and supporting notes are numerous, but several backlog docs are stale relative to the code.
+
+---
+
+## 2) Repository Scope and Master Inventory
+
+### Inventory summary
+
+* **Total files:** 769
+* **Excluded from textual inspection:** 27 asset files and 1 large binary archive
+* **Root directories covered:** `artifacts`, `lib`, `docs`, `scripts`, `attached_assets`, `.agents`, plus root config files
+* **No** `node_modules/`, `dist/`, `build/`, or `target/` directories found
+
+### Primary-file inventory for critical paths
+
+| ID    | Path                                                 | Type                           | Role (Documented vs Actual)                 | Evidence                                                     | Status                   | Confidence |
+| ----- | ---------------------------------------------------- | ------------------------------ | ------------------------------------------- | ------------------------------------------------------------ | ------------------------ | ---------- |
+| F-001 | `package.json`                                       | Configuration                  | Workspace bootstrap and command surface     | pnpm workspace scripts for codegen, build, typecheck, test   | Confirmed                | High       |
+| F-002 | `pnpm-workspace.yaml`                                | Configuration                  | Workspace/package policy                    | workspace globs, release-age policy                          | Confirmed                | High       |
+| F-003 | `tsconfig.json`                                      | Configuration                  | Project references                          | references to `lib/*` packages                               | Confirmed                | High       |
+| F-004 | `replit.md`                                          | Documentation                  | Operational guidance                        | runtime commands, secrets, DB notes                          | Supporting evidence only | Medium     |
+| F-005 | `artifacts/api-server/src/index.ts`                  | Runtime Path                   | Server bootstrap                            | reconciliation + listen startup order                        | Confirmed                | High       |
+| F-006 | `artifacts/api-server/src/app.ts`                    | Runtime Path                   | HTTP middleware + routing                   | Clerk, helmet, rate limiting, CORS, error handler            | Confirmed                | High       |
+| F-007 | `artifacts/api-server/src/config.ts`                 | Configuration                  | Env validation                              | strict env parsing for port/log level                        | Confirmed                | High       |
+| F-008 | `artifacts/api-server/src/routes/ai.ts`              | Source of Truth / Runtime Path | AI orchestration transport + state mutation | chat, apply, analyze, review, orchestrate, execute endpoints | Confirmed                | High       |
+| F-009 | `artifacts/api-server/src/routes/tasks.ts`           | Source of Truth / Runtime Path | Task lifecycle                              | create/update/execute/retry/rollback/logs                    | Confirmed                | High       |
+| F-010 | `artifacts/api-server/src/routes/workflows.ts`       | Source of Truth / Runtime Path | Workflow lifecycle                          | start/stop/advance/fail/retry                                | Confirmed                | High       |
+| F-011 | `artifacts/api-server/src/lib/job-queue.ts`          | Orchestration                  | In-memory work queue                        | bounded, process-local queue                                 | Confirmed                | High       |
+| F-012 | `artifacts/api-server/src/lib/job-reconciliation.ts` | Orchestration                  | Crash-recovery repair                       | requeues queued jobs, fails orphaned running jobs            | Confirmed                | High       |
+| F-013 | `artifacts/api-server/src/lib/scan-runner.ts`        | Orchestration                  | Scan pipeline execution                     | walk → match rules → compute metrics → persist graph/tasks   | Confirmed                | High       |
+| F-014 | `lib/ai-orchestrator/src/context-builder.ts`         | Orchestration / AI Adapter     | Project context assembly                    | repeatable-read DB transaction + TTL cache                   | Confirmed                | High       |
+| F-015 | `lib/scanner/src/graph-extractor.ts`                 | Source of Truth                | Graph extraction                            | AST-based TS + Python subprocess extractor                   | Confirmed                | High       |
+| F-016 | `lib/knowledge-engine/src/index.ts`                  | Source of Truth                | Graph query/inference API                   | traversal, layered view, summary, centrality                 | Confirmed                | High       |
+| F-017 | `lib/db/src/schema/projects.ts`                      | Source of Truth                | Project state model                         | root path, status, scans, quality                            | Confirmed                | High       |
+| F-018 | `lib/db/src/schema/tasks.ts`                         | Source of Truth                | Task state model                            | lifecycle, retries, correlation IDs                          | Confirmed                | High       |
+| F-019 | `lib/db/src/schema/workflows.ts`                     | Source of Truth                | Workflow state model                        | phases, executions, conditions                               | Confirmed                | High       |
+| F-020 | `lib/db/src/schema/graph.ts`                         | Source of Truth                | Graph provenance model                      | entities, relationships, evidence fields                     | Confirmed                | High       |
+
+### Coverage table
+
+| Area                 | Examined               | Deferred | Why                                      | Impact |
+| -------------------- | ---------------------- | -------: | ---------------------------------------- | ------ |
+| Core runtime code    | Yes                    |        0 | Highest relevance                        | Low    |
+| DB schema            | Yes                    |        0 | State truth source                       | Low    |
+| Generated contracts  | Yes                    |  Partial | Large, derivative, codegen-backed        | Low    |
+| Docs/prompts         | Yes                    |  Partial | Used for gap analysis, not runtime truth | Low    |
+| Asset files          | Counted, not text-read |       27 | No runtime logic                         | None   |
+| Large binary archive | Excluded               |        1 | Not text-inspectable                     | Low    |
+
+---
+
+## 3) System Architecture (Actual) & Layer Map
+
+### Actual layers
+
+| Layer ID | Layer                        | Files                                                                                                                         | Core / Supporting / Derivative | Actual responsibility                                   |
+| -------- | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ------------------------------------------------------- |
+| L-001    | Bootstrap / Configuration    | `package.json`, `pnpm-workspace.yaml`, `tsconfig.json`, `artifacts/api-server/src/config.ts`                                  | Core                           | Process startup, workspace policy, env validation       |
+| L-002    | HTTP Transport               | `artifacts/api-server/src/app.ts`, `artifacts/api-server/src/routes/*`                                                        | Core                           | Auth, middleware, request validation, response shaping  |
+| L-003    | Orchestration / Jobs         | `job-queue.ts`, `job-reconciliation.ts`, `scan-runner.ts`, `discovery-runner.ts`, `startup-migrations.ts`, `advisory-lock.ts` | Core                           | Background work, repair, scheduling, startup correction |
+| L-004    | AI Adapter / AI Orchestrator | `lib/ai-orchestrator/*`                                                                                                       | Core                           | Prompting, parsing, context assembly, provider access   |
+| L-005    | Scanner                      | `lib/scanner/*`                                                                                                               | Core                           | File walking, rule matching, graph extraction, metrics  |
+| L-006    | Knowledge Engine             | `lib/knowledge-engine/*`                                                                                                      | Core                           | Graph query and inference over persisted entities/edges |
+| L-007    | Domain State / Persistence   | `lib/db/src/schema/*`, `credentials-crypto.ts`, `graph-provenance.ts`                                                         | Core                           | Durable state, audit, events, provenance                |
+| L-008    | Presentation                 | `artifacts/dashboard/*`, `artifacts/mockup-sandbox/*`                                                                         | Supporting                     | UI over API state                                       |
+| L-009    | Generated Contracts          | `lib/api-zod/src/generated/*`, `lib/api-client-react/src/generated/*`                                                         | Derivative                     | Codegen-backed schemas and clients                      |
+| L-010    | Tooling / Scripts            | `scripts/*`                                                                                                                   | Supporting                     | Codegen drift, truth-flow validation, maintenance       |
+| L-011    | Documentation / Evidence     | `docs/*`, `attached_assets/*`, `.agents/*`                                                                                    | Supporting                     | Human-readable claims, plans, traces, backlog history   |
+
+### Boundary observations
+
+* **Transport is not thin.** `routes/ai.ts`, `routes/tasks.ts`, and `routes/workflows.ts` contain real domain transitions, not just request forwarding.
+* **Persistence is central.** Many operations are transactional and write audit/event rows as first-class outcomes.
+* **Generated contracts are derivative.** They are inputs to runtime code, but not the truth source.
+* **Docs are stale in places.** Several backlog and alignment docs describe missing work that now exists in code.
+
+---
+
+## 4) Detailed Layer-by-Layer Analysis
+
+### L-001 Bootstrap / Configuration
+
+* `artifacts/api-server/src/index.ts:10-17` starts reconciliation before listening.
+* `artifacts/api-server/src/config.ts` enforces environment correctness instead of silently defaulting.
+* `package.json` blocks npm/yarn usage and defines codegen/build/test workflows.
+
+### L-002 HTTP Transport
+
+* `artifacts/api-server/src/app.ts:31-124` mounts middleware in a conventional order: proxy trust, Clerk, helmet, rate limit, logging, CORS, JSON limit, routes, error handler.
+* In test mode it bypasses external auth and swaps in synthetic auth logic.
+* This layer is operationally complete, but it also hosts domain logic in route handlers.
+
+### L-003 Orchestration / Jobs
+
+* `job-queue.ts` is bounded and in-memory.
+* `job-reconciliation.ts` repairs unfinished jobs and discovery sessions after restart.
+* `scan-runner.ts` performs the full scan pipeline and persists graph/task/metric state transactionally.
+* This is a real orchestration layer, but not durable like an external queue.
+
+### L-004 AI Adapter / AI Orchestrator
+
+* `lib/ai-orchestrator/src/context-builder.ts` builds an evidence-rich project snapshot using a repeatable-read transaction plus cache.
+* `groq-client.ts` centralizes provider access with retries and a circuit breaker.
+* `parsing.ts` hardens model-output parsing.
+* The agent schemas and parse-failure markers are wired into routes so invalid output can return 422 instead of corrupting state.
+
+### L-005 Scanner
+
+* `file-walker.ts` imposes explicit file limits and skip rules.
+* `graph-extractor.ts` extracts relationships and provenance from source code, with AST handling for TypeScript and a Python subprocess path.
+* `metrics-calc.ts` computes structural metrics, but some outputs are heuristic rather than measured.
+
+### L-006 Knowledge Engine
+
+* `lib/knowledge-engine/src/index.ts` exports traversal, evidence, layered views, and summary functions.
+* It is read-heavy and pure in intent, with no direct mutation path.
+* This layer is well-bounded and comparatively mature.
+
+### L-007 Domain State / Persistence
+
+* `projects.ts`, `tasks.ts`, `workflows.ts`, `graph.ts`, `events.ts`, `metrics.ts`, `audit_logs.ts`, `scan_jobs.ts`, `ai_chat_*` define the true state surface.
+* The model is provenance-aware and event/audit-oriented.
+* Ownership appears single-user rather than multi-tenant org-based.
+
+### L-008 Presentation
+
+* Dashboard pages consume generated client hooks and render state, but do not define core logic.
+* This layer is supportive and mostly complete enough for the currently exposed API surface.
+
+### L-009 Generated Contracts
+
+* Generated schema/client trees are derivative and should be treated as drift-prone artifacts.
+* They are important, but not source-of-truth code.
+
+---
+
+## 5) Critical File-by-File Analysis
+
+| ID    | File                                                 | Actual role        | Evidence                                                              | Status    |
+| ----- | ---------------------------------------------------- | ------------------ | --------------------------------------------------------------------- | --------- |
+| C-001 | `artifacts/api-server/src/index.ts`                  | Bootstrap order    | reconciles stuck jobs, repairs dead roots, then listens               | Confirmed |
+| C-002 | `artifacts/api-server/src/app.ts`                    | Transport stack    | auth, rate limit, CORS, error mapping, health before protected routes | Confirmed |
+| C-003 | `artifacts/api-server/src/routes/ai.ts`              | AI + file mutation | chat, apply-changes, analyze, review, orchestrate, execute            | Confirmed |
+| C-004 | `artifacts/api-server/src/routes/tasks.ts`           | Task lifecycle     | create/update/execute/retry/rollback; emits events/audits             | Confirmed |
+| C-005 | `artifacts/api-server/src/routes/workflows.ts`       | Workflow lifecycle | start/stop/advance/fail/retry; condition evaluation                   | Confirmed |
+| C-006 | `artifacts/api-server/src/lib/job-queue.ts`          | Queue              | bounded in-process queue, concurrency limited                         | Confirmed |
+| C-007 | `artifacts/api-server/src/lib/job-reconciliation.ts` | Recovery           | restarts queued/running/discovery items from DB                       | Confirmed |
+| C-008 | `artifacts/api-server/src/lib/scan-runner.ts`        | Scan pipeline      | walk → match → graph/metrics → persist → event                        | Confirmed |
+| C-009 | `lib/ai-orchestrator/src/context-builder.ts`         | Context assembly   | repeatable-read transaction, TTL cache, warning markers               | Confirmed |
+| C-010 | `lib/scanner/src/graph-extractor.ts`                 | Graph extraction   | AST extraction + provenance and relationship modeling                 | Confirmed |
+| C-011 | `lib/knowledge-engine/src/queries.ts`                | Graph traversal    | BFS, impact, neighborhood, evidence, observed subgraph                | Confirmed |
+| C-012 | `lib/db/src/schema/workflows.ts`                     | Workflow state     | phases and execution tables are the real workflow source              | Confirmed |
+| C-013 | `lib/db/src/schema/tasks.ts`                         | Task state         | status, retry, prompt/response, verification result                   | Confirmed |
+| C-014 | `lib/db/src/schema/projects.ts`                      | Project state      | rootPath, status, qualityScore, scan metadata                         | Confirmed |
+| C-015 | `lib/db/src/schema/graph.ts`                         | Provenance model   | source type/method/evidence/isHeuristic fields                        | Confirmed |
+
+---
+
+## 6) End-to-End Execution Flow Analysis
+
+### A. Discovery → Scan → Graph
+
+| Path           | Entry point                                                            | Intermediaries                                                                                   | Exit point                                                                   | Status   |
+| -------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- | -------- |
+| Happy path     | `artifacts/api-server/src/routes/discovery.ts` → `discovery-runner.ts` | source resolution, root validation, session creation, scan pipeline, graph extraction            | DB rows for project, scan job, graph entities/relationships, metrics, events | Complete |
+| Error path     | same                                                                   | unsupported source returns 501; root/path failures are rejected early; cleanup occurs on failure | no project mutation or a failed discovery session                            | Complete |
+| Bootstrap path | `index.ts` → reconciliation                                            | queued/running discovery sessions are repaired on startup                                        | job/session state normalized                                                 | Complete |
+
+### B. Chat → Pending Changes → Apply
+
+| Path         | Entry point                   | Intermediaries                                                                                | Exit point                                | Status   |
+| ------------ | ----------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------- | -------- |
+| Happy path   | `routes/ai.ts: chat`          | rate limit, project context build, provider call, parse, session insert, message persistence  | chat session + persisted messages         | Complete |
+| Apply path   | `routes/ai.ts: apply-changes` | advisory lock, path validation, sensitive-file guard, write, audit, cache invalidation, event | file mutations + `AiChangesApplied` event | Complete |
+| Failure path | same                          | parse failure may return 422; invalid path or blocked extension aborts before write           | no mutation or partial rejection          | Complete |
+
+### C. Task Execute → Verify → Audit
+
+| Path              | Entry point                                          | Intermediaries                                                            | Exit point                                     | Status   |
+| ----------------- | ---------------------------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------- | -------- |
+| Happy path        | `routes/tasks.ts: execute`                           | atomic claim, execution log, verification branch, DB update, event, audit | task transitions to `verifying` or `completed` | Complete |
+| Retry path        | `routes/tasks.ts` retry/rollback                     | status reset, log/event/audit                                             | task state restored                            | Complete |
+| Auto-trigger path | `routes/tasks.ts` update → `scheduleAiTaskExecution` | enqueue, atomic claim, provider call, rollback on failure                 | async execution or restored verifying state    | Complete |
+
+### D. Workflow Start → Advance → Fail/Retry
+
+| Path       | Entry point                    | Intermediaries                                                                   | Exit point                           | Status   |
+| ---------- | ------------------------------ | -------------------------------------------------------------------------------- | ------------------------------------ | -------- |
+| Start      | `routes/workflows.ts: start`   | atomic claim, execution insert, event, audit                                     | workflow running                     | Complete |
+| Advance    | `routes/workflows.ts: advance` | current execution check, condition evaluation, atomic phase update, event, audit | phase advanced or workflow completed | Complete |
+| Fail/Retry | `fail-phase` / `retry-phase`   | execution status mutation, event, audit                                          | workflow failed or resumed           | Complete |
+
+---
+
+## 7) Documentation Gap Analysis
+
+### Promised vs Delivered
+
+| Doc claim / theme                                                | Code reality                                                            | Classification                            |
+| ---------------------------------------------------------------- | ----------------------------------------------------------------------- | ----------------------------------------- |
+| AI chat, apply, analysis, workflow orchestration, task execution | Implemented in `routes/ai.ts`, `routes/tasks.ts`, `routes/workflows.ts` | Match                                     |
+| Discovery sources: local folder, git repo, workspace project     | Implemented in `routes/discovery.ts` / discovery adapters               | Match                                     |
+| Archive upload / remote filesystem / Docker volume sources       | Explicitly unavailable in discovery source registry                     | Not implemented                           |
+| Event/audit traceability for key actions                         | Implemented broadly across routes and orchestrators                     | Match                                     |
+| Workflow phase conditions                                        | Implemented, but unsafe evaluation via `new Function`                   | Conflicting / high-risk                   |
+| Some backlog docs mark items as still pending                    | Code now contains those features                                        | Obsolete                                  |
+| Generated schemas/clients                                        | Present and used                                                        | Implemented but undocumented in some docs |
+
+### Notable stale docs
+
+* `docs/PR_BACKLOG.md` lists multiple PRs as closed. Those items now appear in code.
+* `docs/truth-flow-pr-checklist.md` is governance-heavy and should not be treated as runtime proof.
+* Several prompt/analysis docs are trace artifacts, not authoritative runtime contracts.
+
+---
+
+## 8) Code Quality & Structural Assessment
+
+| ID    | Weakness                                                          | Evidence                                                        | Severity           | Impact                                     |
+| ----- | ----------------------------------------------------------------- | --------------------------------------------------------------- | ------------------ | ------------------------------------------ |
+| W-001 | Arbitrary JS evaluation for workflow conditions                   | `routes/workflows.ts:371-390`, schema allows string conditions  | **Blocker / High** | Authenticated code execution risk          |
+| W-002 | In-memory queue is not durable                                    | `lib/job-queue.ts`, recovery depends on `job-reconciliation.ts` | **High**           | Job loss or replay ambiguity on crash      |
+| W-003 | Route handlers contain business logic                             | `ai.ts`, `tasks.ts`, `workflows.ts`                             | **Medium**         | Harder testing, tighter coupling           |
+| W-004 | Structural test coverage is heuristic, not measured               | `lib/scanner/src/metrics-calc.ts`                               | **Medium**         | Misleading quality metrics                 |
+| W-005 | Context can fall back to workspace root when root is inaccessible | `ai.ts`, `context-builder.ts`, path validation                  | **Medium**         | Broader trust boundary, stale context risk |
+| W-006 | Generated artifacts need drift control                            | `scripts/check-codegen-drift.ts`, generated trees               | **Low/Medium**     | Contract drift if CI is bypassed           |
+
+---
+
+## 9) Technical Debt Report
+
+1. **Queue durability debt**
+   Root cause: in-process queue.
+   Impact: crash/restart recovery relies on reconciliation.
+   Fix: durable queue or outbox pattern.
+
+2. **Security debt in workflow expressions**
+   Root cause: string evaluation with `new Function`.
+   Impact: server-side code execution within authenticated scope.
+   Fix: replace with safe expression parser or constrained AST interpreter.
+
+3. **Metric semantics debt**
+   Root cause: heuristic coverage labeled as coverage.
+   Impact: false confidence in quality reporting.
+   Fix: rename to `structuralEstimate` or integrate real coverage telemetry.
+
+4. **Layering debt**
+   Root cause: business logic in route files.
+   Impact: testing and change isolation suffer.
+   Fix: extract service/use-case modules.
+
+5. **Generated drift debt**
+   Root cause: generated contracts are stored in repo and may drift.
+   Impact: API/client mismatch.
+   Fix: enforce codegen drift checks in CI.
+
+---
+
+## 10) Completion Assessment Matrix
+
+| Component              | Completion % | Implementation |   Test | Documentation | Integration | Operational | Confidence |
+| ---------------------- | -----------: | -------------: | -----: | ------------: | ----------: | ----------: | ---------- |
+| API server             |          88% |           High | Medium |        Medium |        High |        High | Confirmed  |
+| Scanner                |          90% |           High |   High |        Medium |        High |      Medium | Confirmed  |
+| Knowledge engine       |          92% |           High |   High |        Medium |        High |        High | Confirmed  |
+| AI orchestrator        |          88% |           High | Medium |        Medium |        High |        High | Confirmed  |
+| DB schema/state        |          95% |           High | Medium |        Medium |        High |        High | Confirmed  |
+| Dashboard              |          82% |         Medium | Medium |        Medium |      Medium |      Medium | Likely     |
+| Generated contracts    |          90% |           High | Medium |           Low |        High |      Medium | Confirmed  |
+| Job/recovery subsystem |          75% |         Medium | Medium |           Low |      Medium |      Medium | Likely     |
+
+### Below-80% items
+
+* **Job/recovery subsystem** is below 80% because it repairs around a non-durable queue rather than solving durability itself.
+* **Dashboard** is likely above the baseline, but still less complete than backend subsystems because it is dependent on generated API state.
+
+---
+
+## 11) Risk Register
+
+| ID    | Risk                           | Root cause                                  | Likelihood | Severity    | Evidence                                                 |
+| ----- | ------------------------------ | ------------------------------------------- | ---------- | ----------- | -------------------------------------------------------- |
+| R-001 | Workflow condition injection   | `new Function` on user-supplied `condition` | High       | **Blocker** | `routes/workflows.ts:371-390`, `api-zod` workflow schema |
+| R-002 | Job loss on process crash      | In-memory queue                             | Medium     | **High**    | `job-queue.ts`, `job-reconciliation.ts`                  |
+| R-003 | Misleading quality metrics     | Heuristic coverage metric                   | High       | **Medium**  | `scanner/src/metrics-calc.ts`                            |
+| R-004 | Stale or widened context reads | TTL cache + workspace fallback              | Medium     | **Medium**  | `context-builder.ts`, `ai.ts`, path validation           |
+| R-005 | Generated contract drift       | Checked-in generated artifacts              | Medium     | **Medium**  | `scripts/check-codegen-drift.ts`, generated dirs         |
+
+### Top 5 risks threatening stability/completion
+
+1. R-001
+2. R-002
+3. R-004
+4. R-005
+5. R-003
+
+---
+
+## 12) Missing Components List
+
+These are absent or not implemented in the inspected runtime code:
+
+* Safe workflow-condition evaluator
+* Durable queue/outbox
+* Real coverage instrumentation
+* Supported discovery adapters for archive upload / remote filesystem / Docker volume
+* Clear separation of route transport vs use-case logic in core mutation paths
+* Stronger contract enforcement around generated API drift
+
+---
+
+## 13) Development Roadmap
+
+### Epic A — Safety hardening
+
+* Replace workflow expression execution.
+* Harden path and condition validation.
+* Add explicit rejection paths for unsafe input.
+
+### Epic B — Durable orchestration
+
+* Make background jobs durable.
+* Add idempotent recovery semantics.
+* Standardize job state transitions.
+
+### Epic C — Structural cleanup
+
+* Move business logic out of routes.
+* Consolidate service/use-case modules.
+* Reduce coupling between transport and persistence.
+
+### Epic D — Truthfulness of metrics
+
+* Replace heuristic coverage label.
+* Add measured test/verification outputs.
+* Surface confidence levels in UI and APIs.
+
+### Epic E — Contract integrity
+
+* Enforce generated-client/schema drift checks in CI.
+* Tie build failures to codegen mismatch.
+* Keep docs aligned with current implementation.
+
+---
+
+## 14) PR Backlog
+
+| PR    | Type             | Target files                                                                     | Objective                                             | Depends on     | Risks addressed             | Acceptance criteria                                      |
+| ----- | ---------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------- | -------------- | --------------------------- | -------------------------------------------------------- |
+| PR-01 | Fix              | `routes/workflows.ts`, schema source for workflow conditions, tests              | Replace `new Function` with safe evaluator            | None           | R-001                       | Unsafe expressions rejected; valid conditions still work |
+| PR-02 | Technical        | `job-queue.ts`, `job-reconciliation.ts`, `scan-runner.ts`, `discovery-runner.ts` | Add durable execution semantics or outbox             | PR-01 optional | R-002                       | Jobs survive restart or are deterministically replayed   |
+| PR-03 | Structural       | `ai.ts`, `tasks.ts`, `workflows.ts`                                              | Extract use-case services from route handlers         | None           | R-004, maintainability debt | Routes become thin; tests cover services directly        |
+| PR-04 | Fix              | `metrics-calc.ts`, `routes/metrics.ts`, dashboard components                     | Rename or replace heuristic coverage metric           | None           | R-003                       | Metric meaning matches implementation                    |
+| PR-05 | Fix              | `context-builder.ts`, `ai.ts`, `path-validation.ts`                              | Tighten context fallback and root-path trust boundary | PR-03 optional | R-004                       | Fallback is explicit, visible, and bounded               |
+| PR-06 | Test / Technical | `scripts/check-codegen-drift.ts`, generated dirs, CI config                      | Enforce contract drift checks in CI                   | None           | R-005                       | Build fails on stale generated artifacts                 |
+
+### Sequencing
+
+* **PR-01 first**: it removes the highest-severity security risk.
+* **PR-02 second**: it stabilizes background work and recovery.
+* **PR-03 and PR-04 can run in parallel** once PR-01 is safe.
+* **PR-05** follows PR-03 or can be folded into it.
+* **PR-06** can run independently.
+
+---
+
+## 15) Meta-Verification
+
+I re-checked five high-impact items against the code evidence:
+
+1. `routes/workflows.ts:371-390` — condition evaluation is indeed string-based and executed.
+2. `job-queue.ts` + `job-reconciliation.ts` — queue is in-memory and recovery logic exists.
+3. `context-builder.ts` — context assembly uses a repeatable-read DB transaction and cache.
+4. `scan-runner.ts` — scan completion persists graph, metrics, tasks, and events transactionally.
+5. `tasks.ts` — execute path includes claim, verification, update, event, and audit behavior.
+
+**Self-confidence score:** 0.87
+
+---
+
+## 16) Final Engineering Verdict
+
+The repository is **substantially implemented** and the core architecture is real: discovery, scanning, graph inference, task lifecycle, workflow transitions, AI orchestration, audit logging, and dashboard consumption all exist in code.
+
+The main blocker is not incompleteness in the usual sense; it is **safety and operational hardness**:
+
+* the workflow condition evaluator is dangerously permissive,
+* the queue is not durable,
+* and one quality metric is structural rather than measured.
+
+So the system is **functional but not yet safe enough to trust as a production-grade execution kernel** until the top risks are repaired.

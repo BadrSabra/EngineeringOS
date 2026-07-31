@@ -1,0 +1,363 @@
+.
+
+---
+
+## 1) SCAN-01 — توحيد مسار الفحص اليدوي مع المسار الإنتاجي
+
+**الملفات المعنية**
+
+* `scripts/trigger-scan.mts`
+* `artifacts/api-server/src/lib/scan-runner.ts`
+
+**المشكلة من داخل الملفات**
+في `scripts/trigger-scan.mts` يتم تنفيذ فحص كامل بشكل مستقل، لكن المنطق لا يطابق المسار الإنتاجي الموجود في `runScanJob` داخل `artifacts/api-server/src/lib/scan-runner.ts`.
+أوضح مثالين:
+
+* `scripts/trigger-scan.mts:39` يستدعي `matchRules([], walkResult.files)` بقائمة قواعد فارغة.
+* `scripts/trigger-scan.mts:48` يستدعي `extractGraph(walkResult.files, project.rootPath)`.
+* في المقابل، `scan-runner.ts:220-239` يبني `ruleInputs` من `rulesTable`، ثم يستدعي `matchRules(ruleInputs, files)`، ثم `extractGraph(files)`.
+
+هذا يعني أن السكربت اليدوي يعمل كمسار مختلف، فينتج نتائج لا تطابق ما يراه النظام الإنتاجي.
+
+**هدف التذكرة**
+إزالة الازدواجية بين مسار الفحص اليدوي ومسار الفحص الحقيقي، حتى لا تكون نتائج `trigger-scan` منفصلة أو مضللة.
+
+**نطاق التنفيذ**
+
+1. استبدال منطق الفحص داخل `scripts/trigger-scan.mts` باستدعاء المسار المشترك المستخدم في `scan-runner.ts`.
+2. إذا كان `runScanJob(jobId, projectId)` هو العقدة الصحيحة، فليستدعها السكربت بعد إنشاء job row بدل إعادة تنفيذ منطق المسح يدويًا.
+3. إذا تعذر إعادة الاستخدام المباشر، فاستخرج helper مشترك من `scan-runner.ts` بحيث يشارك المساران نفس:
+
+   * تحميل القواعد
+   * `matchRules`
+   * `extractGraph`
+   * حساب `metrics`
+4. أضف log يوضح أن المسار اليدوي يستخدم نفس التنفيذ الإنتاجي وليس نسخة موازية.
+
+**معايير القبول**
+
+* لا يبقى في `scripts/trigger-scan.mts` منطق مسح مستقل يكرر ما في `scan-runner.ts`.
+* أي scan يدوي يعطي نفس نوع النتائج ومجالها الذي يعطيه المسار الإنتاجي.
+* لا توجد فروقات سلوكية بين المسارين في القواعد أو graph extraction أو metrics.
+
+**اختبار القبول**
+
+* شغّل scan يدويًا ثم شغّل المسار الإنتاجي على نفس المشروع.
+* قارن `overallScore`، و`lintIssues`، وعدد العناصر المستخرجة في graph.
+* يجب أن يخرج المساران بنتائج متقاربة جدًا لأنهما يستخدمان نفس التنفيذ.
+
+---
+
+## 2) SCAN-02 — تحميل قواعد الفحص الفعلية بدل `matchRules([])`
+
+**الملفات المعنية**
+
+* `scripts/trigger-scan.mts`
+* `artifacts/api-server/src/lib/scan-runner.ts`
+* `@workspace/db` / `rulesTable`
+
+**المشكلة من داخل الملفات**
+في `scripts/trigger-scan.mts:39` يوجد:
+
+```ts
+const ruleResults = matchRules([], walkResult.files);
+```
+
+هذه ليست مجرد ملاحظة صغيرة؛ هذا يعني أن الفحص يعمل بقائمة قواعد فارغة.
+أما `scan-runner.ts:177-181` فيجلب القواعد من `rulesTable` مع شرط `enabled = true` و`projectId` أو القواعد العامة، ثم يحولها إلى `RuleInput[]` في `scan-runner.ts:220-227`.
+
+**هدف التذكرة**
+جعل الفحص اليدوي يستهلك نفس قواعد المشروع الحقيقية بدل قائمة فارغة.
+
+**نطاق التنفيذ**
+
+1. أضف جلب القواعد من `rulesTable` داخل `scripts/trigger-scan.mts` أو انقل هذا المنطق إلى helper مشترك.
+2. ابنِ `RuleInput[]` بنفس الحقول التي يستخدمها `scan-runner.ts`:
+
+   * `id`
+   * `code`
+   * `pattern`
+   * `severity`
+   * `enabled`
+3. مرّر `ruleInputs` إلى `matchRules(ruleInputs, walkResult.files)` بدل المصفوفة الفارغة.
+4. أضف حماية إذا كانت القواعد صفرًا:
+
+   * log واضح
+   * أو فشل صريح إن كان هذا السيناريو غير متوقع
+5. لا تترك الفحص اليدوي في وضع “نجح بدون قواعد”.
+
+**معايير القبول**
+
+* `lintIssues` لم يعد يساوي صفرًا فقط لأن المصفوفة كانت فارغة.
+* عدد القواعد المستخدمة في `trigger-scan` يطابق ما في المسار الإنتاجي.
+* نتائج `metrics` تعكس القواعد الفعلية المخزنة في قاعدة البيانات.
+
+**اختبار القبول**
+
+* أنشئ/استخدم مشروعًا له قواعد فعلية.
+* شغّل `scripts/trigger-scan.mts`.
+* تحقق أن `matchRules` استُخدمت بقواعد غير فارغة.
+* تحقق أن `rulesTable.hitCount` أو النتائج المرتبطة بالقواعد تتغير كما هو متوقع.
+
+---
+
+## 3) SCAN-03 — إلغاء `buildStatus: "unknown"` كقيمة افتراضية مضللة
+
+**الملفات المعنية**
+
+* `scripts/trigger-scan.mts`
+* `artifacts/api-server/src/lib/scan-runner.ts`
+* `metricsTable`
+
+**المشكلة من داخل الملفات**
+في `scripts/trigger-scan.mts:84-94` يتم حفظ:
+
+```ts
+buildStatus: "unknown"
+```
+
+وهذا يجعل السجل يبدو كأن حالة البناء “حُسبت” بينما هي في الواقع placeholder.
+وفي السياق العام للمشروع، تظهر `Build: unknown` في النتائج، ما يعني أن الحالة لا تُقاس فعليًا.
+
+**هدف التذكرة**
+منع تخزين قيمة افتراضية على أنها نتيجة محسوبة.
+
+**نطاق التنفيذ**
+
+1. حدّد المصدر الحقيقي لحالة البناء:
+
+   * إما probe فعلي
+   * أو pipeline مستقل
+   * أو عدم حفظها إن لم توجد آلية قياس
+2. إذا لم توجد آلية build detection حقيقية، فلا تكتب `unknown` داخل `metricsTable` كأنه ناتج scan.
+3. فرّق بين:
+
+   * `not measured`
+   * `failed build`
+   * `successful build`
+4. حدّث أي consumer يعرض `Build: unknown` حتى لا يبدو كحكم نهائي من scan.
+
+**معايير القبول**
+
+* لا تُسجَّل `unknown` كقيمة محسوبة إلا إذا كانت هذه هي السياسة المتعمدة والمعلنة.
+* لا يبقى المقياس معروضًا كأنه نتيجة تحقق فعلي وهو ليس كذلك.
+* أي build status محفوظ له مصدر قياس واضح.
+
+**اختبار القبول**
+
+* راجع صف `metrics` بعد scan.
+* تأكد أن قيمة `buildStatus` لا تُكتب افتراضيًا من السكربت اليدوي إذا لم توجد آلية قياس.
+* إذا أُضيف probe فعلي، تحقق أن قيمته تتغير تبعًا لحالة البناء الحقيقية.
+
+---
+
+## 4) AI-01 — إصلاح bypass الخاص بـ OpenRouter في `chat-agent.ts`
+
+**الملفات المعنية**
+
+* `lib/ai-orchestrator/src/agents/chat-agent.ts`
+* `lib/ai-orchestrator/src/parsing.ts`
+* `lib/ai-orchestrator/src/prompts/chat.prompt.ts`
+
+**المشكلة من داخل الملفات**
+في `lib/ai-orchestrator/src/agents/chat-agent.ts:413-425` يوجد مسار streaming مبكر:
+
+```ts
+const directContent = result.content;
+if (directContent && (provider === "openrouter" || !["groq", "deepseek"].includes(provider))) {
+  ...
+  return { response: directContent.trim(), sources: mergedSources, pendingChanges };
+}
+```
+
+هذا يعني أن `OpenRouter` يمكن أن يرجع المحتوى النهائي مباشرة إلى `response` بدون المرور على `parseAgentResponse`.
+المشكلة أن `chat.prompt.ts:85-87` يفرض في non-streaming أن الرد يجب أن يكون JSON، بينما هذا الفرع يتجاوز التطبيع ويبعث ما وصل حرفيًا.
+النتيجة: إذا خرج من `OpenRouter` envelope مثل `{"response":"...","sources":[...]}`، فقد يصل إلى الواجهة كنص خام.
+
+**هدف التذكرة**
+ضمان أن `OpenRouter` لا يتجاوز التطبيع، وأن `onDelta` لا يبث envelope خامًا.
+
+**نطاق التنفيذ**
+
+1. لا تُعد `provider === "openrouter"` سببًا كافيًا للإرجاع المبكر من `chat-agent.ts`.
+2. مرّر `result.content` عبر `parseAgentResponse(...)` قبل أي return نهائي.
+3. في حالة streaming:
+
+   * ابثّ `parsed.data.response` وليس `directContent` الخام
+   * أو حوّل الـ response أولًا ثم stream النص المنظف فقط
+4. احتفظ بـ `sources` و`pendingChanges` كما هي، لكن لا تسمح لطبقة العرض أن ترى JSON envelope.
+5. إذا فشل parsing، أعد مسارًا واضحًا بدل تمرير المحتوى الخام كما هو.
+
+**معايير القبول**
+
+* لا يظهر `{"response": ...}` داخل bubble الخاص بالرد.
+* `onDelta` يبث prose نظيفًا فقط.
+* `sources` تبقى محفوظة.
+* لا يتراجع سلوك `groq` و`deepseek`.
+
+**اختبار القبول**
+
+* أضف اختبارًا يحاكي `OpenRouter` مع `onDelta`.
+* تأكد أن `response` النهائي ليس JSON envelope.
+* تأكد أن streaming deltas لا تحتوي `tool_calls` أو wrapper JSON.
+
+---
+
+## 5) AI-02 — تحصين `artifacts/api-server/src/routes/ai/chat.ts` قبل الحفظ والإرسال
+
+**الملفات المعنية**
+
+* `artifacts/api-server/src/routes/ai/chat.ts`
+* `lib/ai-orchestrator/src/agents/chat-agent.ts`
+
+**المشكلة من داخل الملفات**
+في `artifacts/api-server/src/routes/ai/chat.ts:341-416` يتم:
+
+* فحص `_parseError`
+* ثم حفظ `result.response` مباشرة في `aiChatMessagesTable`
+* ثم إرساله في `done`
+
+```ts
+content: result.response,
+sources: JSON.stringify(result.sources),
+```
+
+إذا رجع orchestrator ردًا خامًا أو envelope JSON، فهذا السطر سيحفظه كما هو.
+
+**هدف التذكرة**
+إضافة طبقة حراسة في route تمنع تسرب أي raw envelope إلى DB أو SSE حتى لو رجع من orchestrator.
+
+**نطاق التنفيذ**
+
+1. أضف validation صريحًا قبل التخزين:
+
+   * إذا كان `result.response` يبدو كـ JSON envelope، ارفضه أو نظّفه
+2. لا تعتمد على `_parseError` وحده كحماية؛ فبعض الحالات قد تمر بدون `_parseError` ومع ذلك تكون غير صالحة للعرض.
+3. في مسار `done`:
+
+   * خزّن فقط النص المنظف
+   * لا تمرّر raw structured payload كما هو
+4. في مسار SSE:
+
+   * إذا لم يوجد `response` صالح، أرسل error واضحًا بدل `done`
+
+**معايير القبول**
+
+* لا يُكتب إلى `aiChatMessagesTable.content` أي `{"response":...}` خام.
+* `done` لا يحمل envelope خامًا.
+* أي fallback يظل ظاهرًا للمستخدم كنص طبيعي أو كخطأ واضح، لا كـ JSON داخلي.
+
+**اختبار القبول**
+
+* مرّر payload يحاكي ردًا خامًا.
+* تحقق أن route يرفضه أو ينظفه قبل الحفظ.
+* تحقق أن سجل الرسائل المخزّن لا يحتوي envelope JSON.
+
+---
+
+## 6) AI-03 — إضافة اختبارات رجوع للخلف لمسار OpenRouter والـ streaming
+
+**الملفات المعنية**
+
+* `lib/ai-orchestrator/src/__tests__/chat-agent.test.ts`
+* `artifacts/api-server/src/routes/ai.test.ts`
+* `artifacts/api-server/src/routes/ai-route-parity.test.ts`
+* `lib/ai-orchestrator/src/parsing.ts`
+
+**الملاحظة من داخل الملفات**
+الاختبارات الحالية في `lib/ai-orchestrator/src/__tests__/chat-agent.test.ts` تركز على:
+
+* صحة `ChatOutputSchema`
+* سلوك Groq
+* إسقاط `pendingChanges` غير الصالحة
+
+لكنها لا تغطي المسار الذي تسبب في المشكلة:
+`OpenRouter` + `onDelta` + محتوى raw أو JSON envelope.
+
+**هدف التذكرة**
+منع تكرار المشكلة باختبارات واضحة تلتقط أي bypass مشابه مستقبلًا.
+
+**نطاق التنفيذ**
+
+1. أضف اختبارًا في `chat-agent.test.ts` لمسار `OpenRouter` مع `onDelta`.
+2. أضف fixture يمرر محتوى يشبه envelope JSON:
+
+   * `{"response":"...","sources":[...]}`
+3. تأكد أن:
+
+   * `response` النهائي ليس wrapper JSON
+   * `onDelta` لا يبث wrapper JSON
+   * `sources` تبقى سليمة
+4. أضف اختبار route يثبت أن `artifacts/api-server/src/routes/ai/chat.ts` لا يخزن raw envelope إذا وصلته قيمة غير منظفة.
+5. إذا كان هناك test parity بين route وUI، حدّثه ليغطي هذا السيناريو أيضًا.
+
+**معايير القبول**
+
+* أي regression في `OpenRouter` streaming تُلتقط بالاختبار.
+* أي raw envelope يصل للطبقة العليا يكسر الاختبار.
+* الاختبارات الحالية لا تتراجع في سيناريوهات Groq و pending changes.
+
+**اختبار القبول**
+
+* تشغيل suite الخاصة بـ `lib/ai-orchestrator`.
+* تشغيل suite الخاصة بـ `artifacts/api-server`.
+* فشل الاختبار إذا ظهر `{"response":...}` في أي مخرجات نهائية.
+
+---
+
+## 7) UI-01 — تحسين `AiChat.tsx` كحارس عرض أخير وتخطيط موبايل
+
+**الملفات المعنية**
+
+* `artifacts/dashboard/src/pages/AiChat.tsx`
+
+**المشكلة من داخل الملف**
+الواجهة الحالية تعتمد على:
+
+* sidebar ثابت بعرض `w-56` في `AiChat.tsx:861`
+* main chat area بدون collapse واضح
+* rendering مباشر لما يصل من backend في `MessageBubble`
+* منطقة streaming تعرض النص حرفيًا كما يأتي
+
+هذا يجعل أي envelope خام ظاهرًا للمستخدم مباشرة، ويزيد سوء التجربة على الشاشات الضيقة.
+
+**هدف التذكرة**
+إضافة حماية عرض أخيرة وتحسين layout على الشاشات الصغيرة.
+
+**نطاق التنفيذ**
+
+1. أضف guard بسيطًا في `MessageBubble`:
+
+   * إذا كان النص يشبه envelope JSON صالحًا ويحتوي `response` نصيًا، اعرض النص الداخلي فقط
+   * لا تُخفِ الأخطاء الحقيقية، فقط امنع wrapper JSON المعروف
+2. اجعل sidebar قابلة للطي أو قابلة للإخفاء على الشاشات الضيقة.
+3. أضف breakpoint behavior بدل الاعتماد على `w-56` الثابت وحده.
+4. حافظ على عرض `streamingContent` كنص طبيعي فقط.
+
+**معايير القبول**
+
+* لا يظهر JSON envelope للمستخدم في bubble حتى لو وصل من backend.
+* الواجهة تصبح مقروءة على الهاتف دون تضييق شديد.
+* لا يتكسر عرض الرسائل أو pending changes.
+
+**اختبار القبول**
+
+* افتح الصفحة على شاشة ضيقة.
+* تحقق أن sidebar لا يستهلك معظم العرض.
+* أرسل ردًا يحوي envelope JSON وتأكد أن المعروض هو `response` فقط.
+
+---
+
+## ترتيب التنفيذ المقترح
+
+1. `SCAN-01`
+2. `SCAN-02`
+3. `SCAN-03`
+4. `AI-01`
+5. `AI-02`
+6. `AI-03`
+7. `UI-01`
+
+هذا الترتيب مهم لأن `SCAN-01` و`SCAN-02` و`SCAN-03` يزيلون سبب النتائج المضللة من مصدره، ثم `AI-01` و`AI-02` يمنعان وصول الردود الخام إلى الواجهة والتخزين، ثم `AI-03` يثبت السلوك بالاختبارات، و`UI-01` يضيف حارس عرض أخير وتحسينًا للموبايل.
+
+رتّب هذه التذاكر أيضًا في صيغة * جاهزة للتنفيذ مباشرة: `Summary / Description / Scope / Acceptance Criteria / Subtasks / Dependencies`.

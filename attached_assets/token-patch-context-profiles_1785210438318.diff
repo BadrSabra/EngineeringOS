@@ -1,0 +1,318 @@
+--- a/lib/ai-orchestrator/src/context-builder.ts
++++ b/lib/ai-orchestrator/src/context-builder.ts
+@@ -50,6 +50,11 @@
+ 
+ function buildMissingSummary(section: string): string {
+   return `${section} not loaded — request it through buildProjectContext({ sections: [...] })`;
++}
++
++function buildContextCacheKey(projectId: string, sections?: ContextLoadSection[]): string {
++  const normalized = [...resolveContextSections(sections)].sort();
++  return `${projectId}::${normalized.join(",")}`;
+ }
+ 
+ // Priority rank map: lower number = higher urgency (P0 is most urgent).
+@@ -241,7 +246,11 @@
+  * file changes, completing a scan, or updating a task.
+  */
+ export function invalidateContextCache(projectId: string): void {
+-  contextCache.delete(projectId);
++  for (const key of contextCache.keys()) {
++    if (key.startsWith(`${projectId}::`)) {
++      contextCache.delete(key);
++    }
++  }
+   // Fire-and-forget cross-process NOTIFY — errors are swallowed so a broken
+   // NOTIFY path never propagates to the (synchronous) call site.
+   if (_invalidationNotifier) {
+@@ -251,8 +260,9 @@
+ 
+ export async function buildProjectContext(projectId: string, options: BuildProjectContextOptions = {}): Promise<ProjectContext> {
+   // Return cached context when it is still fresh.
++  const cacheKey = buildContextCacheKey(projectId, options.sections);
+   const now = Date.now();
+-  const cached = contextCache.get(projectId);
++  const cached = contextCache.get(cacheKey);
+   if (cached && cached.expiresAt > now) return cached.data;
+   // PR-04 / G-12: wrap all 8 reads in a single REPEATABLE READ transaction so
+   // every query sees the same committed DB snapshot.  Without this, a concurrent
+@@ -660,6 +670,6 @@
+ 
+   // Store in cache — subsequent requests within the TTL window skip the 8
+   // parallel DB queries entirely.
+-  contextCache.set(projectId, { data: result, expiresAt: Date.now() + CONTEXT_CACHE_TTL_MS });
++  contextCache.set(cacheKey, { data: result, expiresAt: now + CONTEXT_CACHE_TTL_MS });
+   return result;
+ }
+--- a/lib/ai-orchestrator/src/__tests__/prompt-composer.test.ts
++++ b/lib/ai-orchestrator/src/__tests__/prompt-composer.test.ts
+@@ -32,4 +32,31 @@
+     expect(result).toContain("**Recent Events:**");
+     expect(result).toContain("Events A");
+   });
++
++  it("renders a slimmer task profile without workflows", () => {
++    const context = {
++      project: "Project A",
++      latestMetrics: "Metrics A",
++      graphSummary: "Graph A",
++      recentTasks: "Tasks A",
++      recentEvents: "Events A",
++      workflows: "Workflows A",
++      metricsVerified: true,
++    };
++
++    const result = promptContextOverview(context, "task");
++
++    expect(result).toContain("**Project:**");
++    expect(result).toContain("Project A");
++    expect(result).toContain("**Quality Metrics:**");
++    expect(result).toContain("Metrics A");
++    expect(result).toContain("**Knowledge Graph:**");
++    expect(result).toContain("Graph A");
++    expect(result).toContain("**Recent Tasks:**");
++    expect(result).toContain("Tasks A");
++    expect(result).toContain("**Recent Events:**");
++    expect(result).toContain("Events A");
++    expect(result).not.toContain("**Workflows:**");
++  });
++
+ });
+--- a/lib/ai-orchestrator/src/prompts/workflow.prompt.ts
++++ b/lib/ai-orchestrator/src/prompts/workflow.prompt.ts
+@@ -62,7 +62,7 @@
+ 
+ **Phase Definitions:**
+ ${phasesSummary}`,
+-    promptContextOverview(projectContext),
++    promptContextOverview(projectContext, "workflow"),
+     opts.additionalContext ? `**Additional context:** ${opts.additionalContext}` : "",
+   );
+ }
+--- a/lib/ai-orchestrator/src/prompts/prompt-composer.ts
++++ b/lib/ai-orchestrator/src/prompts/prompt-composer.ts
+@@ -1,4 +1,20 @@
+ import type { ProjectContext } from "../context-builder.js";
++
++export type PromptContextSection = keyof Pick<
++  ProjectContext,
++  "project" | "latestMetrics" | "graphSummary" | "recentTasks" | "recentEvents" | "workflows"
++>;
++
++export type PromptContextProfile = "full" | "chat" | "task" | "scan" | "review" | "workflow";
++
++const PROFILE_SECTIONS: Record<PromptContextProfile, readonly PromptContextSection[]> = {
++  full: ["project", "latestMetrics", "graphSummary", "workflows", "recentTasks", "recentEvents"],
++  chat: ["project", "latestMetrics", "graphSummary", "workflows", "recentTasks", "recentEvents"],
++  task: ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
++  scan: ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
++  review: ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
++  workflow: ["project", "latestMetrics", "workflows", "recentTasks", "recentEvents"],
++};
+ 
+ export function composePrompt(...parts: Array<string | null | undefined | false>): string {
+   return parts
+@@ -11,20 +27,25 @@
+ }
+ 
+ export function promptCodeBlock(content: string, language = "text"): string {
+-  return `\`\`\`${language}\n${content}\n\`\`\``;
++  return `\`\`\`${language}\n${content}\n\`\`\`;
+ }
+ 
+ export function promptList(items: string[], indent = ""): string {
+   return items.map((item) => `${indent}- ${item}`).join("\n");
+ }
+ 
+-export function promptContextOverview(context: ProjectContext): string {
++export function promptContextOverview(
++  context: ProjectContext,
++  profile: PromptContextProfile = "full",
++): string {
++  const sections = new Set(PROFILE_SECTIONS[profile]);
++
+   return composePrompt(
+-    promptSection("Project", context.project),
+-    promptSection("Quality Metrics", context.latestMetrics),
+-    promptSection("Knowledge Graph", context.graphSummary),
+-    promptSection("Workflows", context.workflows),
+-    promptSection("Recent Tasks", context.recentTasks),
+-    promptSection("Recent Events", context.recentEvents),
++    ...(sections.has("project") ? [promptSection("Project", context.project)] : []),
++    ...(sections.has("latestMetrics") ? [promptSection("Quality Metrics", context.latestMetrics)] : []),
++    ...(sections.has("graphSummary") ? [promptSection("Knowledge Graph", context.graphSummary)] : []),
++    ...(sections.has("workflows") ? [promptSection("Workflows", context.workflows)] : []),
++    ...(sections.has("recentTasks") ? [promptSection("Recent Tasks", context.recentTasks)] : []),
++    ...(sections.has("recentEvents") ? [promptSection("Recent Events", context.recentEvents)] : []),
+   );
+ }
+--- a/lib/ai-orchestrator/src/prompts/task.prompt.ts
++++ b/lib/ai-orchestrator/src/prompts/task.prompt.ts
+@@ -5,7 +5,7 @@
+   return composePrompt(
+     "You are an autonomous engineering task executor for EngineeringOS.",
+     "You have access to the project's knowledge graph (entity names, types, file paths, confidence scores), quality metrics, recent tasks, and recent events. Use them to ground every step and finding.",
+-    promptContextOverview(context),
++    promptContextOverview(context, "task"),
+     `You must respond with valid JSON matching this schema:\n${promptCodeBlock(
+       `{
+   "summary": "One sentence stating what was determined or found — not what was attempted. Must name at least one entity, file, or metric value from the context.",
+@@ -48,6 +48,5 @@
+ **Prompt / Instructions:** ${input.taskPrompt ?? "(none)"}
+ **Related files:**
+ ${filesSection}`,
+-    promptContextOverview(input.projectContext),
+   );
+ }
+--- a/lib/ai-orchestrator/src/prompts/scan.prompt.ts
++++ b/lib/ai-orchestrator/src/prompts/scan.prompt.ts
+@@ -35,6 +35,6 @@
+ export function buildScanAnalystUserPrompt(context: ProjectContext): string {
+   return composePrompt(
+     "Analyse this engineering project. Cite specific metric values, entity names, and event timestamps in every insight.",
+-    promptContextOverview(context),
++    promptContextOverview(context, "scan"),
+   );
+ }
+--- a/lib/ai-orchestrator/src/prompts/chat.prompt.ts
++++ b/lib/ai-orchestrator/src/prompts/chat.prompt.ts
+@@ -75,7 +75,7 @@
+ export function buildChatSystemPrompt(context: ProjectContext, hasTools = false, streamingMode = false): string {
+   return composePrompt(
+     "You are EngineeringOS AI — an engineering assistant embedded in the platform.",
+-    promptContextOverview(context),
++    promptContextOverview(context, "chat"),
+     "How project access works:\nThe knowledge graph above is a pre-extracted index of code entities (functions, classes, APIs, modules). It covers the highest-confidence entities found during the last scan — it is not guaranteed to be exhaustive.",
+     buildChatToolSection(hasTools),
+     buildChatRulesBlock(streamingMode),
+--- a/lib/ai-orchestrator/src/prompts/review.prompt.ts
++++ b/lib/ai-orchestrator/src/prompts/review.prompt.ts
+@@ -56,7 +56,7 @@
+ 
+   return composePrompt(
+     "Review this project. Cite specific entity names, file paths, and metric values in every finding.",
+-    promptContextOverview(context),
++    promptContextOverview(context, "review"),
+     fileSection,
+   );
+ }
+--- a/artifacts/api-server/src/routes/ai/chat.ts
++++ b/artifacts/api-server/src/routes/ai/chat.ts
+@@ -138,7 +138,9 @@
+   }
+   await applyProbe.release();
+ 
+-  const projectContext = await buildProjectContext(projectId);
++  const projectContext = await buildProjectContext(projectId, {
++    sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
++  });
+   let result: Awaited<ReturnType<typeof chat>>;
+   try {
+     const chatOut = await chatWithFallback(
+@@ -310,7 +312,9 @@
+     : [];
+ 
+   sse({ type: "stage", stage: "building-context" });
+-  const projectContext = await buildProjectContext(projectId);
++  const projectContext = await buildProjectContext(projectId, {
++    sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
++  });
+ 
+   sse({ type: "stage", stage: "calling-model" });
+ 
+--- a/artifacts/api-server/src/routes/ai/analysis.ts
++++ b/artifacts/api-server/src/routes/ai/analysis.ts
+@@ -34,7 +34,9 @@
+   if (!providerResolved) return;
+   const { provider, apiKey } = providerResolved;
+ 
+-  const projectContext = await buildProjectContext(projectId);
++  const projectContext = await buildProjectContext(projectId, {
++    sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
++  });
+ 
+   const rlAnalyze = await checkProjectRateLimitDb(projectId);
+   if (!rlAnalyze.allowed) {
+@@ -121,7 +123,9 @@
+   if (!providerResolved) return;
+   const { provider, apiKey } = providerResolved;
+ 
+-  const projectContext = await buildProjectContext(projectId);
++  const projectContext = await buildProjectContext(projectId, {
++    sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
++  });
+   let result: Awaited<ReturnType<typeof reviewCode>>;
+   try {
+     result = await reviewCode(projectContext, fileContents, { apiKey, provider });
+--- a/artifacts/api-server/src/routes/ai/workflows.ts
++++ b/artifacts/api-server/src/routes/ai/workflows.ts
+@@ -67,7 +67,9 @@
+   if (!providerResolved) return;
+   const { provider, apiKey } = providerResolved;
+ 
+-  const projectContext = await buildProjectContext(workflow.projectId);
++  const projectContext = await buildProjectContext(workflow.projectId, {
++    sections: ["tasks", "metrics", "events", "workflows"],
++  });
+ 
+   const phasesResult = parseWorkflowPhases(workflow.phases ?? []);
+   if (!phasesResult.ok) {
+--- a/artifacts/api-server/src/routes/ai/tasks.ts
++++ b/artifacts/api-server/src/routes/ai/tasks.ts
+@@ -87,7 +87,9 @@
+     correlationId,
+   });
+ 
+-  const projectContext = await buildProjectContext(task.projectId);
++  const projectContext = await buildProjectContext(task.projectId, {
++    sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
++  });
+ 
+   let agentResult: Awaited<ReturnType<typeof executeTask>>;
+   try {
+@@ -280,7 +282,9 @@
+         correlationId,
+       });
+ 
+-      const projectContext = await buildProjectContext(task.projectId);
++      const projectContext = await buildProjectContext(task.projectId, {
++    sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
++  });
+ 
+       let agentResult: Awaited<ReturnType<typeof executeTask>>;
+       try {
+--- a/artifacts/dashboard/src/pages/AiChat.tsx
++++ b/artifacts/dashboard/src/pages/AiChat.tsx
+@@ -1064,6 +1064,7 @@
+     if (projectsLoading || !selectedProjectId) return;
+ 
+     if (action.id === 'analyze') {
++      if (analyzeMutation.isPending) return;
+       setLocalMessages((prev) => [
+         ...prev,
+         { id: 'analyze-placeholder', role: 'user' as const, content: action.prompt, createdAt: new Date().toISOString() },
+@@ -1074,6 +1075,7 @@
+     }
+ 
+     if (action.id === 'review') {
++      if (reviewMutation.isPending) return;
+       setLocalMessages((prev) => [
+         ...prev,
+         { id: 'review-placeholder', role: 'user' as const, content: action.prompt, createdAt: new Date().toISOString() },
+@@ -1096,6 +1098,7 @@
+ 
+   function newSession() {
+     setSessionId(undefined);
++    setInput('');
+     setLocalMessages([]);
+     setPendingChanges([]);
+   }
+@@ -1247,7 +1250,7 @@
+                   <button
+                     key={action.id}
+                     onClick={() => handleQuickAction(action)}
+-                    disabled={!isLoaded || projectsLoading || !selectedProjectId}
++                    disabled={!isLoaded || projectsLoading || !selectedProjectId || (action.id === 'analyze' && analyzeMutation.isPending) || (action.id === 'review' && reviewMutation.isPending)}
+                     className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-secondary hover:bg-secondary/80 text-xs text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-secondary"
+                   >
+                     <action.icon className="w-3.5 h-3.5 text-primary shrink-0" />

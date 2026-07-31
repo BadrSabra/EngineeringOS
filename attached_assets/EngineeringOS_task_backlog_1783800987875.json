@@ -1,0 +1,128 @@
+[
+  {
+    "id": "T1",
+    "title": "ثبت سجل الحقيقة مع شجرة الملفات الحالية",
+    "goal": "مزامنة docs/fact-record.md و docs/completion-plan.md مع الشجرة الفعلية، وإضافة أي ملف جديد أو مكرر مع تصنيف واضح.",
+    "inputs": [
+      "docs/fact-record.md",
+      "docs/completion-plan.md",
+      ".agents/memory/*",
+      "attached_assets/*"
+    ],
+    "done_when": [
+      "لا يوجد ملف tracked خارج السجل",
+      "كل ملف في السجل له تصنيف: عقد/بيانات/تحليل/تنفيذ/عرض/مختبر/وثائق/أصول",
+      "أي تعارض في العدد أو العناوين يتم حله"
+    ],
+    "priority": "high"
+  },
+  {
+    "id": "T2",
+    "title": "تقوية الحدود غير الوظيفية في طبقة التنفيذ",
+    "goal": "إغلاق الفجوات الأمنية/التشغيلية التي ما زالت تعتمد على اتفاق ضمني أكثر من كونها مفروضة.",
+    "inputs": [
+      "artifacts/api-server/src/app.ts",
+      "artifacts/api-server/src/routes/*",
+      "lib/db/src/schema/*"
+    ],
+    "done_when": [
+      "تثبيت سياسة CORS/Helmet/Rate limit مبررة ومختبرة",
+      "إضافة طبقة auth/RBAC أو توثيق غيابها كقرار صريح إذا كان المنتج داخليًا",
+      "تعريف حدود واضحة للبيانات الحساسة وسجل التدقيق"
+    ],
+    "priority": "high"
+  },
+  {
+    "id": "T3",
+    "title": "افصل مسار المسح الثقيل عن دورة HTTP",
+    "goal": "تحويل scan jobs من fire-and-forget داخل العملية إلى عامل خلفي واضح أو queue داخلي موثق.",
+    "inputs": [
+      "artifacts/api-server/src/lib/scan-runner.ts",
+      "lib/db/src/schema/scan_jobs.ts",
+      "artifacts/api-server/src/routes/projects.ts"
+    ],
+    "done_when": [
+      "لا يعتمد المسح الطويل على نفس event loop دون عزل واضح",
+      "حالات queued/running/completed/failed قابلة للتتبع بدقة",
+      "فشل المسح لا يترك المشروع في حالة معلقة"
+    ],
+    "priority": "high"
+  },
+  {
+    "id": "T4",
+    "title": "عمّق قدرات المستخرج البنيوي والربط البياني",
+    "goal": "زيادة تغطية graph-extractor ليصبح المعرفة الهيكلية أكثر ثراءً وأقل اعتمادًا على regex.",
+    "inputs": [
+      "lib/scanner/src/graph-extractor.ts",
+      "lib/scanner/src/__tests__/graph-extractor.test.ts"
+    ],
+    "done_when": [
+      "تغطية أعمق لأنماط TS/JS الحرجة",
+      "فصل واضح لما يدعمه AST وما يزال regex",
+      "اختبارات تثبت عدم كسر الأنماط الحالية"
+    ],
+    "priority": "medium"
+  },
+  {
+    "id": "T5",
+    "title": "حوّل لوحة التحكم إلى مركز تشغيلي كامل",
+    "goal": "استكمال واجهات العلاقات والتاريخ والـ logs والـ trend charts والـ empty/error states.",
+    "inputs": [
+      "artifacts/dashboard/src/pages/*",
+      "lib/api-client-react/src/generated/*"
+    ],
+    "done_when": [
+      "الصفحات تعرض بيانات زمنية وتاريخًا تشغيليًا وليس لقطات سطحية فقط",
+      "Graph وWorkflow وTasks قابلة للتشغيل من الواجهة",
+      "كل صفحة لها loading/error/empty states منضبطة"
+    ],
+    "priority": "medium"
+  },
+  {
+    "id": "T6",
+    "title": "ارفع الاختبارات إلى مستوى تثبيت السلوك",
+    "goal": "إضافة اختبارات لمسارات الفشل والاتساق والعلاقات المتقاطعة وليس فقط النجاح.",
+    "inputs": [
+      "artifacts/api-server/src/routes/*.test.ts",
+      "lib/scanner/src/__tests__/*"
+    ],
+    "done_when": [
+      "اختبارات race/atomic-claim وfailure-path موجودة",
+      "تغطية المسارات الحساسة في discovery/import/task/workflow",
+      "codegen drift check مفعّل ضمن سير التطوير"
+    ],
+    "priority": "high"
+  },
+  {
+    "id": "T7",
+    "title": "ثبّت حوكمة الإضافات",
+    "goal": "تعريف contract واضح للـ plugins وربطها بنقاط تمديد حقيقية داخل النظام.",
+    "inputs": [
+      "lib/db/src/schema/plugins.ts",
+      "artifacts/api-server/src/routes/plugins.ts"
+    ],
+    "done_when": [
+      "capabilities ليست مجرد سجل، بل تُستخدم في سلوك النظام",
+      "توثيق رسمي لكيفية إضافة/تعطيل plugin وتأثيره",
+      "اختبار تفعيل/تعطيل وحالات الفشل"
+    ],
+    "priority": "medium"
+  },
+  {
+    "id": "T8",
+    "title": "مراجعة نهائية للعقد المولّد والدقة بين الطبقات",
+    "goal": "التأكد أن openapi.yaml و api-zod و api-client-react و routes متطابقة بلا drift.",
+    "inputs": [
+      "lib/api-spec/openapi.yaml",
+      "lib/api-zod/src/generated/*",
+      "lib/api-client-react/src/generated/*",
+      "artifacts/api-server/src/routes/*"
+    ],
+    "done_when": [
+      "codegen:check نظيف",
+      "أي endpoint جديد يولّد schemas/hooks بدون تعارض أسماء",
+      "لا توجد مسارات خادم غير ممثلة في العقد"
+    ],
+    "priority": "high"
+  }
+]

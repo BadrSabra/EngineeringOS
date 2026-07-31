@@ -1,0 +1,625 @@
+ هذه **الخريطة الأولى الدقيقة لطبقة الـ AI فقط** كما تظهر من الكود الحالي، مقسّمة إلى **ملفات → وظائف → تدفقات**.
+
+# 1) صورة الطبقة كاملة
+
+```text
+HTTP Routes
+  └─ artifacts/api-server/src/routes/ai/*
+       ├─ providers.ts
+       ├─ chat.ts
+       ├─ analysis.ts
+       ├─ workflows.ts
+       └─ tasks.ts
+            ↓
+Shared AI Runtime
+  └─ lib/ai-orchestrator/src/*
+       ├─ context-builder.ts
+       ├─ prompts/*
+       ├─ agents/*
+       ├─ provider-registry.ts
+       ├─ agent-complete.ts
+       ├─ parsing.ts
+       ├─ tool-policy.ts
+       └─ tools/*
+            ↓
+Providers
+  └─ groq / openrouter / gemini / deepseek
+            ↓
+DB / Events / Audit / Cache Invalidation
+```
+
+# 2) خريطة الملفات الأساسية
+
+| الملف                                                     | الدور                         | أهم الوظائف                                                                        |
+| --------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------- |
+| `artifacts/api-server/src/routes/ai/index.ts`             | مجمّع الراوتات                | يجمع `providers`, `chat`, `analysis`, `workflows`, `tasks`                         |
+| `artifacts/api-server/src/routes/ai/providers.ts`         | إدارة مفاتيح المزوّدات        | حفظ/حذف مفاتيح AI وتحديد provider النشط                                            |
+| `artifacts/api-server/src/routes/ai/chat.ts`              | المحادثة والتطبيق والـ stream | `POST /ai/chat`, `POST /ai/chat/stream`, apply changes, sessions                   |
+| `artifacts/api-server/src/routes/ai/analysis.ts`          | scan analysis + code review   | `analyze`, `review`                                                                |
+| `artifacts/api-server/src/routes/ai/workflows.ts`         | orchestration للـ workflows   | `decide`, `advance`, `fail`, `retry`, `start/stop`                                 |
+| `artifacts/api-server/src/routes/ai/tasks.ts`             | تنفيذ المهام AI               | `execute`, scheduler                                                               |
+| `lib/ai-orchestrator/src/context-builder.ts`              | بناء السياق                   | `buildProjectContext`, `invalidateContextCache`, `startContextInvalidationChannel` |
+| `lib/ai-orchestrator/src/prompts/prompt-composer.ts`      | تركيب السياق في prompt        | `promptContextOverview`, `composePrompt`                                           |
+| `lib/ai-orchestrator/src/prompts/chat.prompt.ts`          | prompt المحادثة               | `buildChatSystemPrompt`                                                            |
+| `lib/ai-orchestrator/src/prompts/task.prompt.ts`          | prompt المهام                 | `buildTaskAgentSystemPrompt`, `buildTaskAgentUserPrompt`                           |
+| `lib/ai-orchestrator/src/prompts/workflow.prompt.ts`      | prompt الـ workflow           | `buildWorkflowSystemPrompt`, `buildWorkflowUserPrompt`                             |
+| `lib/ai-orchestrator/src/agents/base-agent.ts`            | القالب المشترك                | `run`, `complete`                                                                  |
+| `lib/ai-orchestrator/src/agents/chat-agent.ts`            | agent المحادثة                | `chat`                                                                             |
+| `lib/ai-orchestrator/src/agents/task-agent.ts`            | agent المهام                  | `executeTask`                                                                      |
+| `lib/ai-orchestrator/src/agents/workflow-orchestrator.ts` | decision + validation         | `decide`, `validateDecision`, `orchestrateWorkflow`                                |
+| `lib/ai-orchestrator/src/agents/scan-analyst.ts`          | تحليل scan                    | `analyzeScan`                                                                      |
+| `lib/ai-orchestrator/src/agents/code-reviewer.ts`         | مراجعة الكود                  | `reviewCode`                                                                       |
+| `lib/ai-orchestrator/src/provider-registry.ts`            | registry للمزوّدات            | `PROVIDER_PRIORITY`, `PROVIDER_REGISTRY`, `resolveProvider` helpers                |
+| `lib/ai-orchestrator/src/agent-complete.ts`               | طبقة تنفيذ موحدة              | `agentComplete`, `validateProviderKey`                                             |
+| `lib/ai-orchestrator/src/parsing.ts`                      | parsing + schema recovery     | `extractJson`, `parseAgentResponse`                                                |
+| `lib/ai-orchestrator/src/tool-policy.ts`                  | سياسة الأدوات                 | `resolveToolPolicy`, `isToolAllowed`                                               |
+| `lib/ai-orchestrator/src/tools/file-tools.ts`             | أدوات الملفات                 | `read_file`, `list_directory`, `search_code`, `write_file`                         |
+| `lib/ai-orchestrator/src/tools/git-tools.ts`              | أدوات git                     | `git_status`, `git_diff`, `git_log`                                                |
+
+# 3) التدفق الأعلى: من HTTP إلى النموذج ثم الرجوع
+
+```text
+Request
+  ↓
+Route handler
+  ↓
+requireProjectAccess / requireProvider / rate limit checks
+  ↓
+buildProjectContext()
+  ↓
+prompt composer
+  ↓
+agent (chat / task / workflow / scan / review)
+  ↓
+provider-registry → agent-complete → provider
+  ↓
+raw model output
+  ↓
+parseAgentResponse()
+  ↓
+route-level guards
+  ↓
+DB write / events / audit / cache invalidation
+  ↓
+HTTP response
+```
+
+# 4) خريطة طبقة الـ Context
+
+هذه أهم طبقة لأنها ما يراه النموذج فعليًا.
+
+## الملف
+
+`lib/ai-orchestrator/src/context-builder.ts`
+
+## الوظيفة
+
+يبني `ProjectContext` من بيانات قاعدة البيانات، ثم يقدمه كنص منظم للـ prompt.
+
+## الحقول التي تُدخل عادةً إلى السياق
+
+* `project`
+* `latestMetrics`
+* `graphSummary`
+* `recentTasks`
+* `recentEvents`
+* `workflows`
+
+## نقاط مهمة في هذه الطبقة
+
+* يوجد **TTL cache** داخل الذاكرة لمدة 30 ثانية.
+* يوجد **cross-process invalidation** عبر `pg_notify`.
+* يوجد **sections selection**، أي أن السياق ليس دائمًا كاملًا؛ يمكن طلب أجزاء محددة فقط.
+* `graphSummary` هنا **نصي** وليس graph object خام.
+
+## التدفق الداخلي
+
+```text
+DB queries
+  ↓
+structured objects
+  ↓
+string sections
+  ↓
+AgentContext schema
+  ↓
+ProjectContext
+```
+
+# 5) خريطة الـ Prompt Layer
+
+## الملف
+
+`lib/ai-orchestrator/src/prompts/prompt-composer.ts`
+
+## الوظيفة
+
+تحويل `ProjectContext` إلى sections قابلة للإدخال في prompt.
+
+## أهم وظيفة
+
+`promptContextOverview(context, profile)`
+
+والـ profiles الحالية:
+
+* `full`
+* `chat`
+* `task`
+* `scan`
+* `review`
+* `workflow`
+
+## معنى ذلك
+
+النظام لا يرسل كل شيء دائمًا للنموذج.
+كل agent يرى **subset** مختلفًا من السياق.
+
+---
+
+## ملف المحادثة
+
+`lib/ai-orchestrator/src/prompts/chat.prompt.ts`
+
+### ماذا يفعل؟
+
+* يبني system prompt للمحادثة.
+* يشرح حدود الأدوات.
+* يفرض قواعد:
+
+  * نفس لغة المستخدم
+  * عدم ترجمة أسماء الملفات والدوال
+  * عدم اختراع معلومات
+  * التعامل الصارم مع source discipline
+
+### نقطة مهمة جدًا
+
+في هذا الملف يوجد نص صريح يقول إن **Knowledge Graph pre-extracted index** و**not guaranteed to be exhaustive**.
+
+هذا يعني أن النموذج **ليس مع الجراف الكامل**، بل مع **لقطة/فهرس مختصر**.
+
+# 6) خريطة الـ Agent Layer
+
+## 6.1 `BaseAgent`
+
+### الملف
+
+`lib/ai-orchestrator/src/agents/base-agent.ts`
+
+### دوره
+
+القالب المشترك للمهام ذات المرة الواحدة:
+
+1. build messages
+2. call provider
+3. parse output
+4. fallback عند الفشل
+
+### النتيجة
+
+هذا هو الأساس الذي تستخدمه agents مثل:
+
+* `task-agent`
+* `scan-analyst`
+* `code-reviewer`
+
+---
+
+## 6.2 `chat-agent.ts`
+
+### الملف
+
+`lib/ai-orchestrator/src/agents/chat-agent.ts`
+
+### دوره
+
+هذا هو **أكثر agent تعقيدًا** لأنه يدير:
+
+* المحادثة
+* tool loop
+* read/list/search
+* pendingChanges
+* streaming
+* source sanitation
+
+### ما يميزه
+
+* `MAX_TOOL_ITERATIONS`
+* `MAX_TOOL_CALLS`
+* dedup cache للأوامر المتكررة
+* `write_file` لا يكتب فعليًا على القرص، بل يبني `pendingChanges`
+* `toolSources` تُجمع من أدوات القراءة الفعلية
+
+### التدفق الداخلي
+
+```text
+chat message
+  ↓
+build prompt + tools policy
+  ↓
+provider call
+  ↓
+tool calls? → execute tools → append results → loop
+  ↓
+parse result
+  ↓
+sanitize sources
+  ↓
+return response + sources + pendingChanges
+```
+
+---
+
+## 6.3 `task-agent.ts`
+
+### الملف
+
+`lib/ai-orchestrator/src/agents/task-agent.ts`
+
+### دوره
+
+إخراج structured recommendation لمهمة واحدة.
+
+### المخرجات المتوقعة
+
+* `summary`
+* `steps`
+* `result`
+* `confidence`
+* `needsHumanReview`
+
+---
+
+## 6.4 `workflow-orchestrator.ts`
+
+### الملف
+
+`lib/ai-orchestrator/src/agents/workflow-orchestrator.ts`
+
+### دوره
+
+اتخاذ قرار workflow ثم التحقق منه.
+
+### الوظائف
+
+* `decide()`
+* `validateDecision()`
+* `orchestrateWorkflow()`
+
+### الميزة الأساسية
+
+حتى لو اقترح النموذج `advance` أو `complete`:
+
+* يتم تطبيق **metrics gate**
+* ثم **validation**
+* ثم فقط يخرج القرار النهائي
+
+### التدفق
+
+```text
+workflow state + projectContext
+  ↓
+LLM proposal
+  ↓
+parseAgentResponse
+  ↓
+metrics gate
+  ↓
+validateWorkflowDecision
+  ↓
+final decision
+```
+
+# 7) خريطة الـ Provider Layer
+
+## الملف
+
+`lib/ai-orchestrator/src/provider-registry.ts`
+
+### ماذا يحتوي؟
+
+* `PROVIDER_PRIORITY`
+* `PROVIDER_REGISTRY`
+* capabilities لكل مزود
+* ordering للفallback
+
+### المزوّدات
+
+* `openrouter`
+* `gemini`
+* `deepseek`
+* `groq`
+
+### التدفق
+
+```text
+resolveProvider(userId)
+  ↓
+read saved key / env fallback
+  ↓
+check capabilities
+  ↓
+return active provider
+```
+
+---
+
+## الملف
+
+`lib/ai-orchestrator/src/agent-complete.ts`
+
+### دوره
+
+تنفيذ الطلب بشكل موحد عبر provider واحد.
+
+### أهميته
+
+يمنع تكرار منطق النداء لكل agent.
+
+# 8) خريطة الـ Parsing Layer
+
+## الملف
+
+`lib/ai-orchestrator/src/parsing.ts`
+
+### دوره
+
+* استخراج JSON من النص
+* محاولة إصلاح/فهم الرد
+* التحقق عبر schema
+* إنتاج fallback عند اللزوم
+
+### التدفق
+
+```text
+raw model text
+  ↓
+extract JSON
+  ↓
+validate schema
+  ↓
+ok? → return parsed
+  ↓
+fail? → fallback + _parseError
+```
+
+### لماذا هذه الطبقة مهمة؟
+
+لأنها نقطة الفصل بين:
+
+* نص النموذج الخام
+* وبين مخرجات منضبطة يمكن للراوتات حفظها أو رفضها
+
+# 9) خريطة الراوتات
+
+## 9.1 `analysis.ts`
+
+### الملف
+
+`artifacts/api-server/src/routes/ai/analysis.ts`
+
+### المساران
+
+* `POST /ai/projects/:projectId/analyze`
+* `POST /ai/projects/:projectId/review`
+
+### التدفق
+
+```text
+auth/access
+  ↓
+provider resolution
+  ↓
+buildProjectContext
+  ↓
+rate limit check
+  ↓
+runAgentWithFallback
+  ↓
+if _parseError → 422
+  ↓
+invalidateContextCache
+  ↓
+recordAudit + events
+  ↓
+return result
+```
+
+---
+
+## 9.2 `tasks.ts`
+
+### الملف
+
+`artifacts/api-server/src/routes/ai/tasks.ts`
+
+### المسار الأساسي
+
+* `POST /ai/tasks/:taskId/execute`
+
+### التدفق
+
+```text
+load task
+  ↓
+access check
+  ↓
+provider resolution
+  ↓
+rate limit check
+  ↓
+claim task = running
+  ↓
+insert task log
+  ↓
+buildProjectContext
+  ↓
+executeTask via fallback
+  ↓
+parse/error handling
+  ↓
+update task + invalidate cache
+  ↓
+audit + events
+```
+
+### يوجد أيضًا scheduler
+
+`scheduleAiTaskExecution`
+
+وهو المسار الذي يطلق التنفيذ تلقائيًا من الخلفية.
+
+---
+
+## 9.3 `workflows.ts`
+
+### الملف
+
+`artifacts/api-server/src/routes/ai/workflows.ts`
+
+### التدفق العام
+
+```text
+workflow state load
+  ↓
+provider + context
+  ↓
+decide/orchestrate
+  ↓
+metrics gate
+  ↓
+validate
+  ↓
+advance/fail/retry
+  ↓
+events + audit + cache invalidation
+```
+
+---
+
+## 9.4 `chat.ts`
+
+### الملف
+
+`artifacts/api-server/src/routes/ai/chat.ts`
+
+### هذا هو المسار الأكثر تعقيدًا
+
+لأنه يجمع:
+
+* جلسات chat
+* streaming
+* pending changes
+* apply changes
+* advisory lock
+* parse handling
+* cache invalidation
+* transaction on message persistence
+
+### التدفق المبسط
+
+```text
+request
+  ↓
+load project + access
+  ↓
+rate limit
+  ↓
+resolve rootPath
+  ↓
+provider resolution
+  ↓
+advisory lock (apply)
+  ↓
+buildProjectContext
+  ↓
+chatWithFallback
+  ↓
+parse error handling
+  ↓
+invalidateContextCache
+  ↓
+persist session/messages in transaction
+  ↓
+return response / SSE stream
+```
+
+### نقطة مهمة
+
+في `stream` يوجد SSE path مستقل، لكنه ما يزال يمر بنفس منطق:
+
+* context
+* provider fallback
+* parse handling
+* cache invalidation
+* persistence
+
+# 10) خريطة الأدوات Tools
+
+## الملفات
+
+* `lib/ai-orchestrator/src/tools/file-tools.ts`
+* `lib/ai-orchestrator/src/tools/git-tools.ts`
+* `lib/ai-orchestrator/src/tool-policy.ts`
+
+## ماذا تفعل؟
+
+هذه الطبقة تمنح `chat-agent` قدرة مقيدة على:
+
+* قراءة الملفات
+* البحث في الشفرة
+* استعراض الدليل
+* اقتراح تعديلات كمقترحات pending
+* inspect git state
+
+## التدفق
+
+```text
+Chat agent
+  ↓
+tool policy
+  ↓
+allowed tools
+  ↓
+executeFileTool / executeGitTool
+  ↓
+record tool sources
+  ↓
+append tool outputs to conversation
+```
+
+# 11) أين تقع نقاط الحساسية في هذه الطبقة؟
+
+## أ) `buildProjectContext()`
+
+أهم نقطة لأنها تحدد ما الذي يراه الـ AI.
+
+## ب) `promptContextOverview()`
+
+تحدد كيف تُصاغ هذه البيانات.
+
+## ج) `chat-agent.ts`
+
+لأنه الوحيد تقريبًا الذي يدير loop أدوات + pending changes + sources.
+
+## د) `parseAgentResponse()`
+
+لأنه نقطة الفصل بين الرد الخام والرد المعتمد.
+
+## هـ) `provider-registry.ts`
+
+لأنه يحدد من ينفذ الطلب أصلًا.
+
+## و) الراوتات
+
+لأنها تقرر:
+
+* هل نرفض؟
+* هل نُسجل؟
+* هل نُبطل الكاش؟
+* هل نحفظ 422 أم 200؟
+
+# 12) الخلاصة الأولية
+
+الآن يمكننا وصف طبقة الـ AI في هذا المشروع بهذه الجملة:
+
+**هي بنية Agent-based, context-snapshot-driven, schema-validated, provider-abstracted، مع guard rails في الراوتات، لكنها تعتمد بشدة على جودة `buildProjectContext()` وصياغة الـ prompt وحدود الـ sample المرسل للنموذج.**

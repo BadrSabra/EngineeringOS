@@ -1,0 +1,410 @@
+# EngineeringOS — PR-by-PR Execution Pack for Replit AI
+
+## تعليمات تشغيل عامة
+
+* نفّذ PRs بالترتيب المذكور فقط.
+* لا تنتقل إلى PR لاحق قبل تحقق Acceptance Criteria بالكامل.
+* في كل PR: افحص الشجرة أولًا، ثم عدّل أقل عدد ممكن من الملفات، ثم شغّل typecheck/tests/build المرتبطة.
+* أي تغيير في scoping أو jobs يجب أن ينعكس على tests وdocs ذات الصلة.
+* حافظ على التوافق مع OpenAPI / Zod / generated clients / routes.
+* إذا اكتشفت drift إضافيًا داخل نفس نطاق PR، أصلحه ضمن PR نفسه ولا تؤجله.
+
+---
+
+## PR-01 — Enforce project-scoped reads in dashboard and loaders
+
+### Replit AI directive
+
+أعدّ جميع قراءات المشروع في dashboard وواجهات التحميل بحيث تصبح مقيدة صراحةً بـ `projectId + owner scope`.
+افحص كل query, loader, hook, summary card, recent-items panel, counts, drilldowns، وأي aggregation ظاهر للمستخدم.
+أي قراءة لا تمر عبر scope واضح يجب تعديلها أو تغليفها داخل helper يفرض scope.
+
+### التنفيذ المطلوب
+
+1. حدّد جميع أماكن قراءة بيانات المشروع في الواجهة والـ API المرتبط بها.
+2. ابحث عن أي aggregation أو list query أو stats query لا يمرر `projectId`.
+3. أضف guard واضحًا في كل مسار بيانات حساس.
+4. وحّد أسماء helpers الخاصة بالـ scoping.
+5. حدّث أي hook أو loader أو service يعرض بيانات عامة ليصبح scoped.
+6. أضف/حدّث الاختبارات التي تثبت أن المستخدم يرى فقط بيانات مشاريعه.
+
+### ملفات مستهدفة
+
+* `apps/dashboard/src/**`
+* `apps/api-server/src/**`
+* أي `lib/**` أو `services/**` مرتبط بالـ project read path
+
+### Acceptance
+
+* لا توجد query حساسة بدون scope.
+* كل dashboard view يعرض بيانات مشروع محدد فقط.
+* الاختبارات تثبت رفض القراءة غير المصرح بها.
+* لا يظهر أي drift بين summary counts والبيانات المصدر.
+
+### ناتج Replit AI المتوقع
+
+* patch يفرض project scoping على كل read path.
+* tests جديدة أو محدثة.
+* build/typecheck نظيف في المسارات المعدلة.
+
+---
+
+## PR-02 — Centralize authorization and project-access helpers
+
+### Replit AI directive
+
+اجمع كل منطق `requireAuth` و`requireProjectAccess` وownership checks في طبقة helper واحدة موحدة.
+أزل التكرار من routes/services/middlewares، واجعل كل endpoint حساس يعتمد على نفس العقدة المرجعية.
+
+### التنفيذ المطلوب
+
+1. استخرج منطق الوصول من أماكنه المكررة.
+2. أنشئ helper واحدًا أو مجموعة helpers صغيرة واضحة ومحددة المسؤولية.
+3. بدّل كل route/service حساس ليستخدم helper الموحد.
+4. وحّد رسائل الخطأ وحالات الرفض.
+5. أضف اختبارات authorization تغطي authorized/unauthorized cases.
+6. تأكد أن helper لا يعتمد على conventions غير مضمونة.
+
+### ملفات مستهدفة
+
+* `apps/api-server/src/lib/**`
+* `apps/api-server/src/routes/**`
+* أي middleware أو auth utility مشابه
+
+### Acceptance
+
+* توجد نقطة مرجعية واحدة للتحقق من access.
+* لا يوجد تكرار منطقي بين المسارات.
+* جميع المسارات الحساسة تستخدم helper الموحد.
+* الاختبارات تغطي عدم السماح للمستخدم غير المالك.
+
+### ناتج Replit AI المتوقع
+
+* refactor أمني موحّد.
+* tests محدثة.
+* لا تغيير وظيفي خارج access semantics.
+
+---
+
+## PR-03 — Lock down cross-layer query contracts
+
+### Replit AI directive
+
+حوّل project scope إلى contract إلزامي عبر الطبقات كلها.
+أي helper أو hook أو service جديد يجب أن يفرض context واضحًا، ولا يسمح باستدعاء عام يتجاوز المشروع.
+
+### التنفيذ المطلوب
+
+1. راجع shared helpers والـ API client hooks والـ service wrappers.
+2. افصل بين public helpers وproject-scoped helpers.
+3. امنع أو قلّل السطوح العامة التي يمكن إساءة استخدامها.
+4. أضف typings أو guards تجعل الاستهلاك غير المقيد صعبًا أو مستحيلًا.
+5. حدّث docs أو comments التي توضح شرط scope.
+
+### ملفات مستهدفة
+
+* `lib/**`
+* `apps/dashboard/src/lib/**`
+* `apps/api-server/src/lib/**`
+* generated client wrappers إن وجدت
+
+### Acceptance
+
+* أي مسار بيانات project-related يطلب context صراحة.
+* لا توجد helper paths “عامة” في المسارات الحرجة.
+* typecheck/CI يلتقط أي استخدام غير صحيح.
+* لم يعد scope مجرد convention.
+
+### ناتج Replit AI المتوقع
+
+* contract boundaries أقوى.
+* typings/guards محدثة.
+* no silent bypass paths.
+
+---
+
+## PR-04 — Persist background jobs خارج الذاكرة
+
+### Replit AI directive
+
+حوّل queue الخلفية من in-memory runtime إلى تنفيذ دائم أو شبه دائم.
+الهدف هو حفظ حالة jobs وإعادة بناء الحالة بعد restart أو crash وعدم فقدان المهام المعلقة.
+
+### التنفيذ المطلوب
+
+1. افحص job queue الحالية وآلية التشغيل/reconciliation.
+2. صمّم storage دائم لحالة jobs.
+3. خزّن lifecycle state لكل job.
+4. أضف rehydrate/restart path يستعيد pending/running jobs.
+5. تأكد أن الفشل الجزئي لا يضيع المهمة.
+6. اربط أي state جديد بسجل audit إن وُجد.
+
+### Files مستهدفة
+
+* `apps/api-server/src/lib/job-queue.ts` أو ما يعادله
+* `apps/api-server/src/lib/job-reconciliation.ts`
+* أي worker/service runner
+* migrations / schema الخاصة بالjobs
+
+### Acceptance
+
+* restart لا يضيّع jobs.
+* jobs يمكن استعادتها بعد crash.
+* pending/running/failed states واضحة ومخزنة.
+* توجد اختبارات على restart/recovery.
+
+### ناتج Replit AI المتوقع
+
+* durable job state.
+* reconciliation آمن بعد restart.
+* اختبارات recovery.
+
+---
+
+## PR-05 — Add retry, idempotency, and dead-letter semantics
+
+### Replit AI directive
+
+أضف retry policy واضحة، ومفاتيح idempotency، ومسارًا نهائيًا للفشل بدل الدوران اللامحدود.
+اجعل كل operation طويل أو sensitive قابلاً لإعادة المحاولة بدون تكرار غير مقصود.
+
+### التنفيذ المطلوب
+
+1. حدّد العمليات القابلة للفشل المؤقت.
+2. أضف idempotency key where applicable.
+3. طبّق retry policy بعدد محاولات وحدود واضحة.
+4. ميّز بين transient failures وfinal failures.
+5. أضف dead-letter or terminal failure state إن لزم.
+6. وثّق behavior في comments/tests.
+
+### Files مستهدفة
+
+* job runner
+* reconciliation utilities
+* services التي تتعامل مع providers أو long-running tasks
+* DB schema إن احتاجت حالات إضافية
+
+### Acceptance
+
+* duplicate job submission لا يسبب duplicate side effects.
+* transient failures تُعاد محاولتها.
+* exhausted retries تنتقل لحالة نهائية واضحة.
+* توجد اختبارات idempotency/retry/dead-letter.
+
+### ناتج Replit AI المتوقع
+
+* operationally safe job execution.
+* no repeated side effects.
+* failure semantics واضحة.
+
+---
+
+## PR-06 — Make reconciliation observable and auditable
+
+### Replit AI directive
+
+اجعل حالة jobs ونتائج reconciliation مرئية وقابلة للتتبع داخل logs/audit/dashboard.
+لا تترك أي job صامتًا أو غير قابل للتفسير.
+
+### التنفيذ المطلوب
+
+1. أضف نقاط تسجيل lifecycle لكل job.
+2. سجّل سبب الفشل ومحاولات retry ونتيجة reconciliation.
+3. اعرض الحالة في dashboard أو admin surface مناسب.
+4. اربط الأحداث المهمة بسجل audit.
+5. تأكد أن أي job orphaned أو recovered يظهر بوضوح.
+
+### Files مستهدفة
+
+* audit/event logging layer
+* job queue/reconciliation layer
+* dashboard status surfaces
+* docs إن لزم
+
+### Acceptance
+
+* يمكن تتبع job من creation إلى terminal state.
+* reconciliation نتيجته واضحة.
+* dashboard يعكس الحالة الفعلية.
+* لا توجد jobs “غامضة”.
+
+### ناتج Replit AI المتوقع
+
+* observability أفضل.
+* audit trail أوضح.
+* admin visibility محسّن.
+
+---
+
+## PR-07 — Remove generated/export drift in shared client layer
+
+### Replit AI directive
+
+نظّف shared client exports وأزل أي re-export drift أو تضارب في index/barrel files.
+اجعل الاستيراد واضحًا، أحادي المصدر، وخاليًا من التكرار.
+
+### التنفيذ المطلوب
+
+1. افحص barrels and index files في shared client layer.
+2. احذف التكرارات أو المسارات المتداخلة.
+3. وحّد export surface ليكون predictable.
+4. حدّث الاستهلاك في أي مكان تأثر.
+5. شغّل typecheck/build للحزمة المرتبطة.
+
+### Files مستهدفة
+
+* `lib/api-client-react/src/index.ts`
+* generated client wrappers
+* أي barrel files مماثلة
+
+### Acceptance
+
+* لا توجد re-export duplicates.
+* imports أصبحت واضحة.
+* build/typecheck نظيف.
+* generated surface matches source contracts.
+
+### ناتج Replit AI المتوقع
+
+* clean export surface.
+* less ambiguity.
+* fewer maintenance traps.
+
+---
+
+## PR-08 — Replace placeholder copy and staged mock surfaces with production-ready states
+
+### Replit AI directive
+
+امسح أو اعزل كل placeholder copy وmock-only surfaces حتى لا تبدو التجربة نهائية وهي ليست كذلك.
+أي surface غير مكتمل يجب أن يكون واضحًا أو مخفيًا.
+
+### التنفيذ المطلوب
+
+1. ابحث عن النصوص المؤقتة والـ prototype labels.
+2. صنّف السطوح: production / staged / sandbox / mock.
+3. اخفِ أو علّم أي surface غير نهائي.
+4. نظّف copy المضللة أو غير الدقيقة.
+5. تأكد أن الواجهة لا توحي بنضج غير موجود.
+
+### Files مستهدفة
+
+* `apps/dashboard/src/**`
+* `artifacts/mockup-sandbox/**`
+* أي docs أو UI labels ذات صلة
+
+### Acceptance
+
+* لا توجد عبارات مضللة.
+* أي mock surface معزول بوضوح.
+* user-facing copy متسق مع status الحقيقي.
+* لا توجد آثار prototype في المسارات النهائية.
+
+### ناتج Replit AI المتوقع
+
+* cleaner UX.
+* clearer product truth.
+* less confusion in production surfaces.
+
+---
+
+## PR-09 — Strengthen frontend and contract tests around critical paths
+
+### Replit AI directive
+
+ارفع مستوى الاختبارات في المسارات الحرجة: scoping, jobs, reconciliation, generated client usage, dashboard critical flows.
+أي drift يعود يجب أن يفشل في الاختبارات بسرعة.
+
+### التنفيذ المطلوب
+
+1. راجع coverage الحالي في المسارات الحساسة.
+2. أضف اختبارات scoping/access.
+3. أضف اختبارات jobs/recovery/reconciliation.
+4. أضف اختبارات للـ generated client contract usage.
+5. أضف integration tests أو updates where necessary.
+6. تأكد أن CI/locally running test suite تمر على هذه المسارات.
+
+### Files مستهدفة
+
+* `apps/dashboard/src/**/*.test.*`
+* `apps/api-server/src/**/*.test.*`
+* contract/integration test folders
+* test utilities
+
+### Acceptance
+
+* coverage يغطي critical paths الأساسية.
+* أي drift مهم يسبب test failure.
+* الاختبارات عملية وليست شكلية.
+* لا يوجد تفاوت واضح بين frontend/backend behavior.
+
+### ناتج Replit AI المتوقع
+
+* stronger regression safety.
+* clearer critical-path behavior.
+* safer future changes.
+
+---
+
+## PR-10 — Synchronize truth records with implementation reality
+
+### Replit AI directive
+
+حدّث كل ملفات الحقيقة/الخطة/السجل لتطابق الوضع الحالي بعد تنفيذ PRs السابقة.
+احذف الادعاءات التي لم تعد دقيقة، وثبّت ما تم إنجازه وما بقي بوضوح.
+
+### التنفيذ المطلوب
+
+1. راجع docs التي تُستخدم كمرجع حقيقة.
+2. حدّث status لكل layer وfeature.
+3. أزل أي contradictions بين docs والكود.
+4. أعد كتابة ما يلزم من backlog أو completion plan.
+5. اجعل truth record قابلًا للاستخدام كمرجع تشغيلي.
+
+### Files مستهدفة
+
+* `docs/fact-record.md`
+* `docs/completion-plan.md`
+* `docs/PR_BACKLOG.md`
+* `docs/RUNTIME_EXECUTION_MATRIX.md`
+* أي truth/audit docs أخرى
+
+### Acceptance
+
+* docs متسقة مع التنفيذ.
+* gaps محدثة بدقة.
+* لا توجد contradictions.
+* الوثائق تصلح كمرجع للمرحلة التالية.
+
+### ناتج Replit AI المتوقع
+
+* synced truth layer.
+* reduced drift.
+* cleaner handoff to next phase.
+
+---
+
+## ترتيب التنفيذ النهائي
+
+ابدأ بهذا التسلسل فقط:
+
+1. PR-01
+2. PR-02
+3. PR-03
+4. PR-04
+5. PR-05
+6. PR-06
+7. PR-07
+8. PR-08
+9. PR-09
+10. PR-10
+
+## معيار الإنهاء
+
+لا يعتبر هذا المسار مكتملًا إلا عندما:
+
+* scoping مغلق بالكامل،
+* jobs/durability أصبحت قابلة للاسترجاع والتتبع،
+* surface drift انخفض بوضوح،
+* tests تغطي المسارات الحرجة،
+* truth docs تطابق الواقع التنفيذي.

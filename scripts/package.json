@@ -1,0 +1,21 @@
+{
+  "name": "@workspace/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "hello": "tsx ./src/hello.ts",
+    "parse-check-spec": "tsx ./parse-check-spec.ts",
+    "check-codegen-drift": "tsx ./check-codegen-drift.ts",
+    "validate-truth-flow": "tsx ./validate-truth-flow.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@workspace/api-zod": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "catalog:",
+    "tsx": "catalog:"
+  }
+}

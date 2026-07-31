@@ -1,0 +1,419 @@
+## 1) Executive Summary
+
+| ID    | Path / Scope                                                         | Type                       | Role (Documented vs Actual)                                                                                                                                  | Evidence                                                                                                 | Status    | Confidence | Impact                                                | Dependencies                           | Next Action                       |
+| ----- | -------------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- | --------- | ---------- | ----------------------------------------------------- | -------------------------------------- | --------------------------------- |
+| S-001 | `EngineeringOS-main/`                                                | Repository                 | Multi-package pnpm monorepo; code is organized around `artifacts/` apps and `lib/` packages                                                                  | `package.json:5-14`, `tsconfig.json:5-24`                                                                | Confirmed | High       | Defines the whole execution surface                   | All packages                           | None                              |
+| S-002 | `artifacts/api-server/src/index.ts`, `app.ts`                        | Runtime bootstrap          | Server startup is explicit: env validation, startup repairs, listen, then background sweep                                                                   | `config.ts:3-58`, `index.ts:1-38`, `job-reconciliation.ts:1-28`                                          | Confirmed | High       | Startup order affects recoverability and availability | DB, queue, migrations                  | None                              |
+| S-003 | `artifacts/api-server/src/routes/ai.ts`, `lib/ai-orchestrator/*`     | Runtime path               | AI requests are not “thin wrappers”; the route does auth, rate limit, provider resolution, fallback, persistence, cache invalidation, and audit/event writes | `routes/ai.ts:61-129`, `142-312`, `454-1699`; `context-builder.ts:29-40`; `chat-agent.ts:1-20`           | Confirmed | High       | Central to product behavior and cost/safety           | DB, provider keys, scanner, file tools | None                              |
+| S-004 | `artifacts/api-server/src/lib/job-queue.ts`, `job-reconciliation.ts` | Runtime infrastructure     | Heavy jobs are in-process and bounded, with restart reconciliation for queued/running DB rows                                                                | `job-queue.ts:1-114`, `job-reconciliation.ts:1-28`, `48-114`                                             | Confirmed | High       | Biggest stability risk                                | DB state, server process               | Harden durability                 |
+| S-005 | `lib/api-spec/openapi.yaml` vs `routes/*`                            | Contract layer             | Runtime routes mostly match the API spec, but `POST /api/upload/archive` exists in code and not in OpenAPI/generated client                                  | `routes/index.ts:20-31`, `routes/upload.ts:1-91`, `openapi.yaml:7-40`, parity diff from route extraction | Confirmed | High       | Contract drift breaks clients and parity checks       | Codegen, client consumers              | Add spec entry and regenerate     |
+| S-006 | `.replit`                                                            | Configuration              | A secret-like encryption key is committed in repo config                                                                                                     | `.replit:25-28`                                                                                          | Confirmed | High       | Sensitive configuration exposure risk                 | Runtime env provisioning               | Move out of committed config      |
+| S-007 | `attached_assets/`, `docs/`, `.agents/memory/`                       | Historical / documentation | Large amount of historical analysis exists, but it is supporting evidence only                                                                               | `docs/*`, `.agents/memory/*`, `attached_assets/*`                                                        | Confirmed | Medium     | Useful for context, not governing truth               | None                                   | Keep separated from runtime truth |
+
+**Bottom line:** the codebase is structurally coherent and heavily instrumented, but two issues stand out as operationally important: the heavy-job system is in-process rather than durable, and there is measurable API contract drift (`upload/archive`). The rest of the core runtime is comparatively well-factored and well-tested.
+
+---
+
+## 2) Repository Scope and Master Inventory
+
+| Scope                                             | Count | Primary classification                                | Notes                                                                                                          |
+| ------------------------------------------------- | ----: | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Total archive entries                             |   855 | Mixed                                                 | Includes directories                                                                                           |
+| Total files                                       |   793 | Mixed                                                 | All non-directory entries                                                                                      |
+| Binary / asset files excluded under your rule set |    44 | `Generated` / `Documentation` / `Historical` / assets | 5,532,891 bytes total; no `node_modules/`, `vendor/`, `dist/`, `build/`, or `target/` directories were present |
+| Remaining text-like files                         |   749 | Mixed                                                 | Reviewed statically                                                                                            |
+| Generated subtree files                           |   166 | `Generated`                                           | Mostly `lib/api-zod`, `lib/api-client-react`, and one mockup-generated module                                  |
+| Test files found                                  |    33 | `Test Path`                                           | 20 under `artifacts/`, 13 under `lib/`                                                                         |
+| Docs / prompt / report files                      |    16 | `Documentation`                                       | `docs/`, `replit.md`, and historical notes                                                                     |
+| Tooling / scripts                                 |     8 | `Tooling/Script`                                      | `scripts/*`                                                                                                    |
+| Root config / workspace files                     |    10 | `Configuration`                                       | `package.json`, `tsconfig*`, `.replit`, `.npmrc`, `.gitignore`, etc.                                           |
+
+### Master inventory by major root group
+
+| Group                      | Count | Dominant role                       |
+| -------------------------- | ----: | ----------------------------------- |
+| `artifacts/api-server`     |    70 | `Runtime Path` / `Source of Truth`  |
+| `artifacts/dashboard`      |    90 | `Runtime Path` / `Presentation`     |
+| `artifacts/mockup-sandbox` |    69 | `Runtime Path` / `Generated`        |
+| `lib/api-zod`              |   167 | `Generated` / `Configuration`       |
+| `lib/api-client-react`     |     8 | `Generated` + handwritten hook      |
+| `lib/api-spec`             |     3 | `Configuration` / contract source   |
+| `lib/ai-orchestrator`      |    36 | `Source of Truth` / `Runtime Path`  |
+| `lib/scanner`              |    15 | `Source of Truth` / `Runtime Path`  |
+| `lib/knowledge-engine`     |     8 | `Source of Truth` / `Runtime Path`  |
+| `lib/db`                   |    20 | `Source of Truth` / `Persistence`   |
+| `scripts`                  |     8 | `Tooling/Script`                    |
+| `docs`                     |    15 | `Documentation`                     |
+| `.agents`                  |    39 | `Documentation` / historical memory |
+| `attached_assets`          |   232 | Historical / derivative evidence    |
+
+### Phase checklist
+
+* Inventoried files: **793**
+* Excluded binary assets: **44**
+* Excluded `node_modules/vendor/dist/build/target`: **0**
+* Critical file IDs assigned: **F-001 to F-012**
+* Major runtime entry points identified: **yes**
+* Central state files identified: **yes**
+
+---
+
+## 3) System Architecture (Actual) & Layer Map
+
+| Layer ID | Layer                      | Files                                                                                                                                  | Core / Supporting / Derivative | Actual responsibility                                                                                 | Relationships                                                                                                  |
+| -------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| L-001    | Presentation               | `artifacts/dashboard/src/App.tsx:1-120`, `Shell.tsx:1-37`, page modules                                                                | Core                           | Auth-gated UI routing, dashboard shell, page composition                                              | Calls generated client and Clerk; no direct DB access                                                          |
+| L-002    | API / Transport            | `artifacts/api-server/src/app.ts:1-140`, `routes/*.ts`, `middlewares/*.ts`                                                             | Core                           | HTTP auth, validation, route dispatch, response shaping, error translation                            | Talks to DB and orchestrator; should stay transport-focused, but some routes also orchestrate business actions |
+| L-003    | Orchestration              | `lib/ai-orchestrator/*`, `artifacts/api-server/src/lib/job-queue.ts`, `job-reconciliation.ts`, `scan-runner.ts`, `discovery-runner.ts` | Core                           | AI provider calls, context building, tool loops, queueing, startup recovery, scan/discovery execution | Depends on DB, scanner, filesystem, and provider keys                                                          |
+| L-004    | Domain / Analysis          | `lib/scanner/*`, `lib/knowledge-engine/*`                                                                                              | Core                           | File walking, rule matching, graph extraction, metrics, graph queries, inference                      | Used by scan/discovery routes and the AI context builder                                                       |
+| L-005    | Persistence                | `lib/db/src/index.ts`, `lib/db/src/schema/*`                                                                                           | Core                           | Central PostgreSQL schema and database access surface                                                 | Shared by server, orchestrator, scripts, and tests                                                             |
+| L-006    | Contract / Generated       | `lib/api-spec/openapi.yaml`, `lib/api-zod/src/generated/*`, `lib/api-client-react/src/generated/*`                                     | Supporting                     | API contract source and generated runtime/client schemas                                              | Consumed by dashboard, server tests, and codegen guard                                                         |
+| L-007    | Tooling / CI               | `scripts/*`, `package.json`, `.github/*`, `drizzle.config.ts`, `vite.config.ts` files                                                  | Supporting                     | Codegen drift checks, truth-flow validation, setup verification, post-merge DB push                   | Guards correctness of layers above                                                                             |
+| L-008    | Documentation / Historical | `docs/*`, `.agents/memory/*`, `attached_assets/*`, `replit.md`                                                                         | Derivative                     | Candidate requirements and audit trail, not governing truth                                           | Must not override code                                                                                         |
+
+### Boundary notes
+
+| Boundary               | Observation                                                                       | Verdict                                    |
+| ---------------------- | --------------------------------------------------------------------------------- | ------------------------------------------ |
+| Dashboard → API client | Dashboard uses `@workspace/api-client-react` rather than calling server internals | Clean                                      |
+| API → persistence      | Server routes access `@workspace/db` directly                                     | Expected                                   |
+| API → orchestration    | AI routes call orchestrator/context builder and also manage DB writes             | Mixed responsibility; acceptable but large |
+| Scan/discovery → queue | Heavy work is enqueued in-process                                                 | Operational weakness                       |
+| Contract → runtime     | `check-codegen-drift.ts` enforces drift detection                                 | Strong                                     |
+| Runtime → docs         | One route exists in code but not in OpenAPI                                       | Contract violation                         |
+
+No package-cycle was visible in the package-level references; the architecture is layered and mostly acyclic.
+
+---
+
+## 4) Detailed Layer-by-Layer Analysis
+
+### L-001 Presentation
+
+| Item             | Evidence                                                                 | Assessment                                                    |
+| ---------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| App routing      | `artifacts/dashboard/src/App.tsx:84-118`                                 | Routes are explicit and gated by Clerk                        |
+| Shell layout     | `Shell.tsx:5-33`                                                         | Search bar, version badge, notification button, sidebar shell |
+| App dependencies | `artifacts/dashboard/package.json:6-10, 51-80`                           | Uses the generated API client, React Query, Clerk, Wouter     |
+| Test coverage    | No dashboard test files were present; package script has no `test` entry | Low coverage                                                  |
+
+**Completeness estimate:** 78%
+**Why:** page structure and auth are implemented, but no package-level test script and no dashboard tests were present.
+
+### L-002 API / Transport
+
+| Item                | Evidence                                                                           | Assessment                                                          |
+| ------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Startup validation  | `config.ts:3-58`                                                                   | Single env reader, fail-fast config                                 |
+| Security middleware | `app.ts:39-124`                                                                    | Helmet, rate limit, CORS, body cap, auth gating, no-store on `/api` |
+| Route ordering      | `routes/index.ts:20-31`                                                            | Discovery before projects; route mount order is deliberate          |
+| Error normalization | `app.ts:126-140`                                                                   | Zod validation returns 400; other errors 500 with safe message      |
+| Route scopes        | `routes/projects.ts:33-40`, `routes/metrics.ts:11-24`, `routes/dashboard.ts:32-49` | Ownership checks are explicit                                       |
+
+**Completeness estimate:** 90%
+**Why:** transport and auth are well covered, but the `ai.ts` route file still contains substantial orchestration logic.
+
+### L-003 Orchestration
+
+| Item                  | Evidence                                                   | Assessment                                                                    |
+| --------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| AI provider gateway   | `lib/ai-orchestrator/src/groq-client.ts:78-118`, `182-203` | Circuit breaker, retries, keyed client cache, single provider gateway         |
+| Chat context building | `context-builder.ts:29-40`                                 | 30s TTL cache for project context                                             |
+| Tool loop             | `agents/chat-agent.ts` (tool loop and parse correction)    | Full tool execution loop with safety budget and source capture                |
+| Workflow decisioning  | `agents/workflow-orchestrator.ts:1-31`                     | Model proposes, validator rejects invalid transitions, executor applies state |
+| Queueing / recovery   | `job-queue.ts:1-114`, `job-reconciliation.ts:1-28, 48-114` | In-process bounded queue with startup recovery                                |
+
+**Completeness estimate:** 86%
+**Why:** behavior is rich and explicit, but durability is still process-bound.
+
+### L-004 Domain / Analysis
+
+| Item             | Evidence                                                                                   | Assessment                                            |
+| ---------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| File walking     | `lib/scanner/src/file-walker.ts:4-39, 69-108`                                              | Hard caps, truncation semantics, explicit exclusions  |
+| Graph extraction | `lib/scanner/src/graph-extractor.ts` and `knowledge-engine/src/queries.ts`, `inference.ts` | Typed graph extraction and pure inference/query layer |
+| Metrics          | `metrics-calc.ts` and `lib/db/src/schema/metrics.ts:18-38`                                 | Structural estimate, not literal coverage             |
+| Query purity     | `knowledge-engine/src/index.ts:4-9`, `queries.ts:4-6`, `inference.ts:1-6`                  | Functions are intentionally pure and read-only        |
+
+**Completeness estimate:** 88%
+**Why:** core analysis and query functionality are implemented and tested, but metrics remain heuristic by design.
+
+### L-005 Persistence
+
+| Item        | Evidence                     | Assessment                                                    |
+| ----------- | ---------------------------- | ------------------------------------------------------------- |
+| Projects    | `projects.ts:17-36`          | Single-owner projects, unique `rootPath`, scan state          |
+| Tasks       | `tasks.ts:43-63`             | Status lifecycle, retries, verification result, correlationId |
+| Workflows   | `workflows.ts:19-47`         | Phase model + execution records                               |
+| Events      | `events.ts:13-35`            | Unified event stream with correlation IDs                     |
+| Rate limits | `rate_limits.ts:1-15, 18-35` | DB-backed project-scoped fixed-window limiter                 |
+| Audit       | `audit_logs.ts:1-8, 45-60`   | Formal provenance trail                                       |
+
+**Completeness estimate:** 92%
+**Why:** schema coverage is strong and consistent with runtime usage.
+
+### L-006 Contract / Generated
+
+| Item                   | Evidence                                                     | Assessment                                 |
+| ---------------------- | ------------------------------------------------------------ | ------------------------------------------ |
+| OpenAPI source         | `lib/api-spec/openapi.yaml:1-40`                             | Authoritative contract source              |
+| Spec drift guard       | `scripts/check-codegen-drift.ts:1-16, 27-40`                 | CI guard exists                            |
+| Generated API schemas  | `lib/api-zod/src/generated/*`                                | Contract-derived runtime schemas           |
+| Generated React client | `lib/api-client-react/src/generated/*`, `src/index.ts:13-24` | Generated client plus handwritten SSE hook |
+
+**Completeness estimate:** 97%
+**Why:** generation and drift checks are present; only one code-only route was found.
+
+### L-007 Tooling / CI
+
+| Item                  | Evidence                              | Assessment                                          |
+| --------------------- | ------------------------------------- | --------------------------------------------------- |
+| Truth-flow validation | `scripts/validate-truth-flow.ts:1-40` | Schema/baseline drift gate                          |
+| Setup verification    | `scripts/verify-setup.sh:1-40`        | Smoke checks env, DB, and services                  |
+| Post-merge DB push    | `scripts/post-merge.sh`               | Operational hook exists                             |
+| Build orchestration   | `package.json:5-14`                   | Codegen, validate, build, typecheck, test are wired |
+
+**Completeness estimate:** 84%
+**Why:** good operational checks, but they are mostly repository-level rather than product-level.
+
+### L-008 Documentation / Historical
+
+| Item                        | Evidence                                               | Assessment                           |
+| --------------------------- | ------------------------------------------------------ | ------------------------------------ |
+| Current architecture claims | `replit.md:3-19`                                       | Matches real major layers            |
+| Historical reports / memory | `docs/*`, `.agents/memory/*`, `attached_assets/*`      | Supporting evidence only             |
+| Conflicting/obsolete notes  | `attached_assets/*` and some docs are clearly archival | Must not be treated as runtime truth |
+
+**Completeness estimate:** 65%
+**Why:** documentation is rich but mixed with historical artifacts; it is not a single authoritative source.
+
+---
+
+## 5) Critical File-by-File Analysis
+
+| ID    | Path / Scope                                         | Type   | Role (Documented vs Actual)                                       | Evidence                                   | Status    | Confidence | Impact                                | Dependencies                                      | Next Action                          |
+| ----- | ---------------------------------------------------- | ------ | ----------------------------------------------------------------- | ------------------------------------------ | --------- | ---------- | ------------------------------------- | ------------------------------------------------- | ------------------------------------ |
+| F-001 | `artifacts/api-server/src/index.ts`                  | File   | Startup entry point; performs recovery before listening           | `index.ts:1-38`                            | Confirmed | High       | Startup safety                        | `job-reconciliation`, `startup-migrations`, `app` | Keep                                 |
+| F-002 | `artifacts/api-server/src/app.ts`                    | File   | HTTP composition and auth boundary                                | `app.ts:39-140`                            | Confirmed | High       | Security and transport correctness    | Clerk, routes, middlewares                        | Keep                                 |
+| F-003 | `artifacts/api-server/src/routes/ai.ts`              | File   | AI route hub; transport + orchestration + persistence in one file | `routes/ai.ts:61-1699`                     | Confirmed | High       | Highest complexity and risk surface   | DB, orchestrator, provider keys, auth             | Split by concern if growth continues |
+| F-004 | `artifacts/api-server/src/lib/job-queue.ts`          | File   | In-process bounded queue                                          | `job-queue.ts:1-114`                       | Confirmed | High       | Durability/stability risk             | `scan-runner`, `discovery-runner`                 | Make durable or add worker backing   |
+| F-005 | `artifacts/api-server/src/lib/job-reconciliation.ts` | File   | Restart recovery for queued/running jobs                          | `job-reconciliation.ts:1-28, 48-114`       | Confirmed | High       | Prevents orphaned job states          | DB, queue, runners                                | Keep and expand metrics              |
+| F-006 | `artifacts/api-server/src/lib/scan-runner.ts`        | File   | Atomic scan execution pipeline                                    | `scan-runner.ts:169-194, 248-270, 395-475` | Confirmed | High       | Core project scan behavior            | scanner, DB, audit, plugin runtime                | Keep                                 |
+| F-007 | `artifacts/api-server/src/lib/discovery-runner.ts`   | File   | Stepwise discovery/import pipeline                                | `discovery-runner.ts:316-360, 473-488`     | Confirmed | High       | Project import behavior               | scanner, DB, discovery sessions                   | Keep                                 |
+| F-008 | `lib/ai-orchestrator/src/groq-client.ts`             | File   | Model gateway with circuit breaker and retries                    | `groq-client.ts:78-118, 128-179, 182-203`  | Confirmed | High       | Provider reliability and cost control | Groq SDK, env vars                                | Keep                                 |
+| F-009 | `lib/ai-orchestrator/src/context-builder.ts`         | File   | 30s context cache; DB-backed context assembly                     | `context-builder.ts:29-40`                 | Confirmed | Medium     | Performance and freshness             | DB, cache invalidation                            | Keep                                 |
+| F-010 | `lib/scanner/src/file-walker.ts`                     | File   | Directory traversal with hard caps and exclusions                 | `file-walker.ts:4-39, 85-108`              | Confirmed | High       | Scan completeness and performance     | filesystem                                        | Keep                                 |
+| F-011 | `lib/db/src/schema/discovery.ts`                     | File   | Discovery session/source model                                    | `discovery.ts:7-33, 106-135`               | Confirmed | Medium     | Import semantics and recovery         | server routes, runners                            | Keep                                 |
+| F-012 | `lib/api-spec/openapi.yaml`                          | File   | Contract source of truth                                          | `openapi.yaml:1-40`                        | Confirmed | High       | Codegen and client parity             | codegen scripts                                   | Add missing route                    |
+| F-013 | `artifacts/dashboard/src/App.tsx`                    | File   | Auth-gated front-end routing                                      | `App.tsx:34-46, 84-118`                    | Confirmed | Medium     | UI access and navigation              | Clerk, generated client                           | Add tests                            |
+| F-014 | `.replit`                                            | Config | Workspace/runtime config with committed key material              | `.replit:25-28`                            | Confirmed | High       | Secret exposure risk                  | deployment/runtime                                | Remove secret-like value from repo   |
+
+---
+
+## 6) End-to-End Execution Flow Analysis
+
+| Path ID | Capability                        | Start point                                            | Key intermediaries                                                                                                                                                                                                                                            | End point                                              | Mutates state? | Status                                       |
+| ------- | --------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ | -------------- | -------------------------------------------- |
+| P-001   | Bootstrap / init                  | `artifacts/api-server/src/index.ts:1-38`               | `reconcileStuckJobs()` → `fixDeadRootPaths()` → `app.listen()` → `startStaleJobSweep()`                                                                                                                                                                       | Server is listening and stale-job sweep is active      | Yes            | Complete                                     |
+| P-002   | Project scan                      | `artifacts/api-server/src/routes/projects.ts:184-223`  | `scan_jobs` insert → `heavyJobQueue.enqueue(runScanJob)` → `scan-runner.ts:169-194` (`walkProject`, `matchRules`, `computeMetrics`) → `scan-runner.ts:248-475` (`extractGraph`, metrics/task/event/project/audit writes, cache invalidation, plugin dispatch) | DB receives scan result, metrics, graph, events, audit | Yes            | Complete, but queue durability is incomplete |
+| P-003   | Discovery / import                | `artifacts/api-server/src/routes/discovery.ts:133-283` | `discoverySessionsTable` create → `runDiscovery` in `discovery-runner.ts:316-360` → `walkProject`, language/framework detection → `discovery-runner.ts:473-488`                                                                                               | Session ends `ready` or `error`                        | Yes            | Complete                                     |
+| P-004   | AI chat / stream                  | `artifacts/api-server/src/routes/ai.ts:454-865`        | Ownership check → DB rate limit → `buildProjectContext()` → provider resolution/fallback → `chat-agent` → session/message persistence → event logging                                                                                                         | Chat response + persisted session/messages             | Yes            | Complete                                     |
+| P-005   | AI apply changes                  | `artifacts/api-server/src/routes/ai.ts:927-1048`       | Absolute-path validation → sensitive extension block → path containment checks → file writes → audit/event/cache invalidation                                                                                                                                 | Files modified on disk and recorded in DB              | Yes            | Complete                                     |
+| P-006   | AI task execution / orchestration | `artifacts/api-server/src/routes/ai.ts:1335-1699`      | Task claim guard → rate limit → execution / rollback → verification result → audit/event/log writes; async auto-execution via `heavyJobQueue`                                                                                                                 | Task status transitions and outcome recorded           | Yes            | Complete                                     |
+
+### Error / retry behavior observed
+
+| Path        | Failure handling                                                                     | Evidence                                         |
+| ----------- | ------------------------------------------------------------------------------------ | ------------------------------------------------ |
+| Bootstrap   | `fixDeadRootPaths()` catches and logs rather than throwing                           | `startup-migrations.ts:29-60`                    |
+| Queue       | Job failure is logged; queue never surfaces unhandled rejection                      | `job-queue.ts:63-105`                            |
+| Scan        | Transaction wraps the scan atomically; outer catch marks job failed                  | `scan-runner.ts:185-194`, `443-475`              |
+| Discovery   | Session moves to `error` with message on failure                                     | `discovery-runner.ts:481-488`                    |
+| AI provider | `GroqClientError` maps to specific HTTP codes; fallback provider retry on rate limit | `routes/ai.ts:61-129`, `238-274`                 |
+| AI parse    | Parse failures surface as `422` instead of silent success                            | `routes/ai.ts:454-865`, `1053-1199`, `1204-1510` |
+
+---
+
+## 7) Documentation Gap Analysis — Promised vs Delivered
+
+| Claim / capability                                 | Doc evidence                                                                                     | Code evidence                                                                                     | Discrepancy class                               | Assessment                                |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------- |
+| API Server, Dashboard, Mockup Sandbox, shared libs | `replit.md:3-19`                                                                                 | `artifacts/api-server`, `artifacts/dashboard`, `artifacts/mockup-sandbox`, `lib/*`                | Match                                           | Delivered                                 |
+| Codegen drift guard                                | `docs/EXECUTION_ALIGNMENT_REPORT.md`, `package.json:7-14`, `scripts/check-codegen-drift.ts:1-16` | Same                                                                                              | Match                                           | Delivered                                 |
+| Truth-flow validation                              | `package.json:10`, `scripts/validate-truth-flow.ts:1-40`                                         | Same                                                                                              | Match                                           | Delivered                                 |
+| Discovery / scan / graph / metrics                 | `replit.md:13-19`, `docs/architecture.md`, `lib/scanner/*`, `lib/knowledge-engine/*`             | Same                                                                                              | Match                                           | Delivered                                 |
+| Upload archive endpoint                            | Not found in docs/OpenAPI                                                                        | `routes/upload.ts:1-91`                                                                           | Exceeds Doc / Implemented but Undocumented      | Code-only runtime route                   |
+| Dashboard tests                                    | Not promised in docs                                                                             | No `artifacts/dashboard/*.test.*` and no `test` script in `artifacts/dashboard/package.json:6-10` | Implemented but Undocumented (as absent)        | Missing test coverage, not a docs promise |
+| Hardcoded encryption key in `.replit`              | Not documented as a design choice                                                                | `.replit:25-28`                                                                                   | Obsolete / Conflicting with secure env handling | Should be removed                         |
+
+**Core promised feature not started:** none obvious from the examined docs; the main gap is not absence, but contract drift and durability hardening.
+
+---
+
+## 8) Code Quality & Structural Assessment
+
+| Severity | Weakness                                                                                      | Evidence                                                                    | Impact                                                                       | Recommended action                                                        |
+| -------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Blocker  | In-process heavy-job queue is not durable across process death                                | `job-queue.ts:1-15, 46-53, 63-68`; `job-reconciliation.ts:1-28`             | In-flight work can be lost or downgraded to failed on restart                | Move heavy work to durable queue/worker or persist queue state explicitly |
+| High     | API contract drift: `POST /api/upload/archive` is in code, not OpenAPI                        | `routes/upload.ts:1-91`; `openapi.yaml:7-40`; `routes/index.ts:20-31`       | Generated client and parity checks do not represent the real runtime surface | Add spec entry and regenerate                                             |
+| High     | `routes/ai.ts` is extremely large and mixes transport, orchestration, persistence, and policy | `routes/ai.ts:61-1699`                                                      | Hard to review, hard to test, easy to regress                                | Split by sub-capability                                                   |
+| High     | Sensitive config value committed in `.replit`                                                 | `.replit:25-28`                                                             | Secret exposure / operational risk                                           | Move to runtime secret store                                              |
+| Medium   | Presentation layer has no declared tests                                                      | `artifacts/dashboard/package.json:6-10` and no dashboard tests were present | UI regressions may slip through                                              | Add route/component tests                                                 |
+| Medium   | Generated client package has no test suite                                                    | `lib/api-client-react/src/index.ts:1-24`; no tests present                  | SSE/client regressions are less protected                                    | Add client contract tests                                                 |
+| Medium   | Metrics “coverage” is a heuristic estimate, not real coverage                                 | `lib/db/src/schema/metrics.ts:30-31`; `metrics-calc.ts` comments            | Risk of misinterpreting operational quality                                  | Rename/label metric clearly                                               |
+| Low      | Legacy backup config exists                                                                   | `tsconfig.base.json.bak`                                                    | Confusing historical debris                                                  | Remove after confirming no use                                            |
+
+---
+
+## 9) Technical Debt Report
+
+| Debt area             | Root cause                                          | Dependency chain                                                       | Effect                        | Fix direction                           |
+| --------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------- | --------------------------------------- |
+| Queue durability      | Heavy jobs are closure-based and in-memory          | `projects.ts`, `discovery.ts`, `job-queue.ts`, `job-reconciliation.ts` | Restart risk, state ambiguity | Durable queue / worker                  |
+| Contract completeness | OpenAPI is not the only runtime source              | `routes/upload.ts` vs `openapi.yaml`                                   | Client drift                  | Keep route parity test and codegen sync |
+| Large route file      | AI route handler accreted multiple responsibilities | `routes/ai.ts`                                                         | Review burden                 | Split into smaller route modules        |
+| Weak UI test surface  | No dashboard test script                            | `artifacts/dashboard/package.json`                                     | Regression risk               | Add component and route tests           |
+| Secret management     | Sensitive value in repo config                      | `.replit`                                                              | Security risk                 | Secret store / env injection            |
+
+---
+
+## 10) Completion Assessment Matrix
+
+| Component                   | Implementation complete | Test complete | Documentation complete | Integration complete | Operational complete | Completion % | Confidence                                                                                           |
+| --------------------------- | ----------------------: | ------------: | ---------------------: | -------------------: | -------------------: | -----------: | ---------------------------------------------------------------------------------------------------- |
+| API server                  |                      90 |            80 |                     85 |                   90 |                   85 |          86% | Confirmed                                                                                            |
+| AI orchestrator             |                      88 |            80 |                     80 |                   88 |                   78 |          83% | Confirmed                                                                                            |
+| Scanner                     |                      90 |            85 |                     70 |                   88 |                   80 |          83% | Confirmed                                                                                            |
+| Knowledge engine            |                      88 |            85 |                     70 |                   85 |                   80 |          82% | Confirmed                                                                                            |
+| Persistence layer           |                      95 |            78 |                     90 |                   92 |                   90 |          89% | Confirmed                                                                                            |
+| Dashboard                   |                      80 |            40 |                     70 |                   82 |                   70 |          68% | Likely — code exists, but test surface is weak; verify by adding and running UI tests                |
+| Mockup sandbox              |                      75 |            20 |                     55 |                   70 |                   60 |          56% | Likely — functionality exists, but operational/test maturity is low; verify with preview smoke tests |
+| Contract/generated packages |                      97 |            75 |                     95 |                   95 |                   93 |          91% | Confirmed                                                                                            |
+
+**Below 80% and needing a plan:** dashboard, mockup sandbox.
+
+---
+
+## 11) Risk Register
+
+| Risk ID | Root cause                                   | Impact                                                         | Likelihood | Exploitability       | Dependencies                         | How to test                                              | How to fix                                          | Severity |
+| ------- | -------------------------------------------- | -------------------------------------------------------------- | ---------- | -------------------- | ------------------------------------ | -------------------------------------------------------- | --------------------------------------------------- | -------- |
+| R-001   | In-process heavy-job queue is not durable    | Lost or downgraded scan/discovery/AI-queued work after restart | High       | N/A                  | Scan, discovery, auto-task execution | Kill process mid-job; restart; observe recovery behavior | Persist jobs in a durable worker queue              | Blocker  |
+| R-002   | API contract drift for `/api/upload/archive` | Clients/codegen can miss a live route                          | Medium     | N/A                  | Upload consumers, client generation  | Compare OpenAPI path set against route declarations      | Add the route to OpenAPI and regenerate client/code | High     |
+| R-003   | Committed secret-like value in `.replit`     | Exposure of sensitive material and unsafe operational practice | Medium     | Medium (repo access) | Startup/deployment config            | Search repo for hardcoded secrets; rotate if needed      | Remove from repo and inject via secret store        | High     |
+| R-004   | Large AI route file mixes concerns           | Review complexity and regression risk                          | High       | N/A                  | AI chat/apply/task/workflow routes   | Measure file growth / test surface; isolate failures     | Split route modules by capability                   | Medium   |
+| R-005   | UI has no declared test script               | Front-end regressions may escape CI                            | High       | N/A                  | Dashboard                            | Run package scripts; verify no `test` command exists     | Add component and route tests                       | Medium   |
+
+### Top 5 risks
+
+`R-001`, `R-002`, `R-003`, `R-004`, `R-005`.
+
+---
+
+## 12) Missing Components List
+
+| Missing / incomplete component                | Evidence                                | Priority |
+| --------------------------------------------- | --------------------------------------- | -------- |
+| Durable queue / worker backing for heavy jobs | `job-queue.ts`, `job-reconciliation.ts` | Highest  |
+| OpenAPI entry for `POST /api/upload/archive`  | `routes/upload.ts` vs `openapi.yaml`    | High     |
+| Dashboard package test script and test files  | `artifacts/dashboard/package.json:6-10` | High     |
+| Secret moved out of committed `.replit` value | `.replit:25-28`                         | High     |
+| Smaller AI route modules                      | `routes/ai.ts:61-1699`                  | Medium   |
+| Stronger client-side contract tests           | `lib/api-client-react`                  | Medium   |
+
+---
+
+## 13) Development Roadmap
+
+### Epic A — Stabilize background work
+
+| Feature                          | Outcome                                                         |
+| -------------------------------- | --------------------------------------------------------------- |
+| Durable scan/discovery execution | Jobs survive restarts without ambiguity                         |
+| Queue observability              | Queue depth, retry counts, and failure reasons surfaced clearly |
+| Auto-task execution safety       | No silent loss of verifying tasks                               |
+
+### Epic B — Contract fidelity
+
+| Feature                       | Outcome                                   |
+| ----------------------------- | ----------------------------------------- |
+| OpenAPI parity repair         | Runtime routes and contract match exactly |
+| Regenerate client and schemas | Contract changes propagate automatically  |
+| Route parity tests            | Prevent future drift                      |
+
+### Epic C — Reduce orchestration complexity
+
+| Feature                        | Outcome                                       |
+| ------------------------------ | --------------------------------------------- |
+| Split AI routes                | Smaller, testable modules                     |
+| Separate policy from transport | Cleaner validation and persistence boundaries |
+| Harden provider fallback       | Easier debugging and safer error semantics    |
+
+### Epic D — Improve front-end verification
+
+| Feature                     | Outcome                                 |
+| --------------------------- | --------------------------------------- |
+| Dashboard tests             | Protect routing and major pages         |
+| Client smoke tests          | Validate API client + SSE hook behavior |
+| Preview sandbox smoke tests | Catch generated preview regressions     |
+
+### Epic E — Security hygiene
+
+| Feature                             | Outcome                    |
+| ----------------------------------- | -------------------------- |
+| Remove committed secret-like config | No sensitive value in repo |
+| Centralize secret provisioning      | Runtime-only secret access |
+| Secret scanning in CI               | Detect future leaks        |
+
+---
+
+## 14) PR Backlog
+
+| PR    | Type                | Targets                                                                                                                                         | Objective                                               | Dependencies   | Required tests                                   | Risks         | Merge order |
+| ----- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | -------------- | ------------------------------------------------ | ------------- | ----------- |
+| PR-01 | Fix / Technical     | `artifacts/api-server/src/lib/job-queue.ts`, `job-reconciliation.ts`, `scan-runner.ts`, `discovery-runner.ts`                                   | Make heavy jobs durable or worker-backed                | None           | Restart-mid-job simulation, queue recovery tests | R-001         | 1           |
+| PR-02 | Fix / Documentation | `lib/api-spec/openapi.yaml`, `lib/api-zod/src/generated/*`, `lib/api-client-react/src/generated/*`, `artifacts/api-server/src/routes/upload.ts` | Add `/api/upload/archive` to contract and regenerate    | PR-01 optional | Codegen drift check, route parity test           | R-002         | 2           |
+| PR-03 | Fix / Security      | `.replit`, deployment env setup                                                                                                                 | Remove committed key and switch to secret injection     | None           | Startup smoke test with injected secret          | R-003         | 3           |
+| PR-04 | Structural          | `artifacts/api-server/src/routes/ai.ts`                                                                                                         | Split AI route hub into subroutes                       | None           | Existing AI route tests + added module tests     | R-004         | 4           |
+| PR-05 | Test                | `artifacts/dashboard/*`, `package.json`                                                                                                         | Add dashboard test script and tests                     | None           | Route/component tests                            | R-005         | 5           |
+| PR-06 | Test / Technical    | `lib/api-client-react/*`, `lib/api-spec/*`                                                                                                      | Add client smoke tests and parity checks                | PR-02          | Generated client calls + SSE hook tests          | R-002         | 6           |
+| PR-07 | Structural          | `artifacts/api-server/src/lib/scan-runner.ts`, `discovery-runner.ts`                                                                            | Reduce duplication between scan and discovery pipelines | PR-01 optional | Shared helper tests                              | R-001 / R-004 | 7           |
+
+### Traceability table
+
+| PR    | Linked risk | Files                                  | Objective                      | Tests                  | Merge order |
+| ----- | ----------- | -------------------------------------- | ------------------------------ | ---------------------- | ----------- |
+| PR-01 | R-001       | queue + reconciliation + runners       | Durability                     | Restart/recovery       | 1           |
+| PR-02 | R-002       | spec + generated client + upload route | Contract fidelity              | Parity + codegen drift | 2           |
+| PR-03 | R-003       | `.replit` / deployment                 | Security hygiene               | Startup smoke          | 3           |
+| PR-04 | R-004       | `routes/ai.ts`                         | Structural cleanup             | AI route suite         | 4           |
+| PR-05 | R-005       | dashboard app                          | UI test coverage               | Front-end tests        | 5           |
+| PR-06 | R-002       | client/spec                            | Client parity                  | SSE/client tests       | 6           |
+| PR-07 | R-001/R-004 | scan/discovery runners                 | Shared pipeline simplification | pipeline unit tests    | 7           |
+
+---
+
+## 15) Meta-Verification
+
+| Item re-checked       | Evidence re-verified                                                         | Result    |
+| --------------------- | ---------------------------------------------------------------------------- | --------- |
+| Startup order         | `index.ts:1-38`, `startup-migrations.ts:29-60`, `job-reconciliation.ts:1-28` | Confirmed |
+| Queue durability risk | `job-queue.ts:46-53, 63-68`, `job-reconciliation.ts:13-27, 70-114`           | Confirmed |
+| Contract drift        | `routes/upload.ts:1-91` vs `openapi.yaml:7-40`                               | Confirmed |
+| Scan atomicity        | `scan-runner.ts:185-194, 248-475`                                            | Confirmed |
+| Dashboard test gap    | `artifacts/dashboard/package.json:6-10` and no dashboard test files in tree  | Confirmed |
+
+**Self-confidence score:** **0.86**
+
+---
+
+## 16) Final Engineering Verdict
+
+The repository is not a loose prototype. It is a strongly structured pnpm monorepo with a real layered runtime, explicit auth, contract generation, DB-backed state, and well-defined analysis pipelines. The evidence shows substantial completion in the core scan, discovery, AI, and persistence paths.
+
+The two most important engineering facts are:
+
+1. **The heavy-job system is still process-bound**, so restart behavior is bounded but not truly durable.
+2. **The runtime surface is not perfectly aligned with the OpenAPI contract**, because `/api/upload/archive` is live in code but absent from the spec/client generation chain.
+
+Everything else is secondary to those facts. The project is far along, but those two gaps prevent a full “finished and production-hardened” verdict.

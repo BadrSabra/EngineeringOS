@@ -1,0 +1,471 @@
+diff -ruN EngineeringOS-main/lib/ai-orchestrator/src/agent-complete.ts EngineeringOS-main/lib/ai-orchestrator/src/agent-complete.ts
+--- EngineeringOS-main/lib/ai-orchestrator/src/agent-complete.ts	2026-07-26 03:28:11.575674449 +0000
++++ EngineeringOS-main/lib/ai-orchestrator/src/agent-complete.ts	2026-07-26 03:28:49.251674025 +0000
+@@ -1,23 +1,17 @@
+ /**
+  * Provider-agnostic completion helper for single-shot agents.
+  *
+- * Wraps groq-client's `complete()`, deepseek-client's `deepseekCompleteRaw()`,
+- * and openai-compatible-client's `openrouterCompleteRaw()` behind a single
+- * interface so scan-analyst, code-reviewer, task-agent, and workflow-orchestrator
+- * can support all providers without duplicating provider selection logic.
+- *
+- * Groq path:      uses the high-level `complete()` client — circuit-breaker,
+- *                 exponential-backoff retries, and structured Message types included.
+- * DeepSeek path:  uses `deepseekCompleteRaw()` — same GroqClientError union.
+- * OpenRouter path: uses `openrouterCompleteRaw()` — OpenAI-compatible, same error union.
++ * This layer still delegates to the provider-specific transport clients, but
++ * the provider configuration itself now flows through the registry helpers so
++ * selection, defaults, and validation share one source of truth.
+  */
+ import { complete, completeRaw, MODEL_POWERFUL } from "./groq-client.js";
+-import { deepseekCompleteRaw, DEEPSEEK_MODEL_POWERFUL } from "./deepseek-client.js";
++import { deepseekCompleteRaw } from "./deepseek-client.js";
+ import { openrouterCompleteRaw, geminiCompleteRaw } from "./openai-compatible-client.js";
+-import { PROVIDER_REGISTRY } from "./provider-registry.js";
++import { loadProvider } from "./provider-registry.js";
+ import { GroqClientError } from "./errors.js";
+ import type { Message } from "./groq-client.js";
+-import type { ProviderId } from "./provider-registry.js";
++import type { ProviderConfig, ProviderId } from "./provider-registry.js";
+ 
+ export type { ProviderId };
+ 
+@@ -28,6 +22,44 @@
+   provider?: ProviderId;
+ };
+ 
++function requireApiKey(provider: ProviderConfig, apiKey?: string): string {
++  if (provider.providerId === "groq") {
++    return apiKey ?? "";
++  }
++  if (!apiKey) {
++    throw new GroqClientError(
++      "INVALID_CONFIG",
++      `${provider.label} API key is required but was not provided`,
++    );
++  }
++  return apiKey;
++}
++
++function assertContent(provider: ProviderConfig, content: string | null | undefined): string {
++  if (content) return content;
++  throw new GroqClientError("EMPTY_RESPONSE", `${provider.label} returned no content for this request`);
++}
++
++async function probeProviderKey(provider: ProviderConfig, apiKey: string): Promise<void> {
++  const testMessages: Message[] = [{ role: "user", content: "hi" }];
++
++  switch (provider.providerId) {
++    case "deepseek":
++      await deepseekCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
++      return;
++    case "openrouter":
++      await openrouterCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
++      return;
++    case "gemini":
++      await geminiCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
++      return;
++    default:
++      // groq — uses high-level client with 10s timeout for the probe
++      await completeRaw(testMessages, { apiKey, maxTokens: 1, timeoutMs: 10_000 });
++      return;
++  }
++}
++
+ /**
+  * Validates an API key by sending a minimal 1-token probe to the provider.
+  *
+@@ -42,18 +74,9 @@
+   provider: ProviderId,
+   apiKey: string,
+ ): Promise<{ valid: boolean; reason?: string }> {
+-  const testMessages: Message[] = [{ role: "user", content: "hi" }];
++  const config = loadProvider(provider);
+   try {
+-    if (provider === "deepseek") {
+-      await deepseekCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
+-    } else if (provider === "openrouter") {
+-      await openrouterCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
+-    } else if (provider === "gemini") {
+-      await geminiCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
+-    } else {
+-      // groq — uses high-level client with 10s timeout for the probe
+-      await completeRaw(testMessages, { apiKey, maxTokens: 1, timeoutMs: 10_000 });
+-    }
++    await probeProviderKey(config, apiKey);
+     return { valid: true };
+   } catch (err) {
+     if (err instanceof GroqClientError && err.code === "AUTH_ERROR") {
+@@ -75,68 +98,37 @@
+   messages: Message[],
+   opts: AgentCompleteOpts,
+ ): Promise<{ content: string }> {
+-  const provider = opts.provider ?? "groq";
++  const provider = loadProvider(opts.provider ?? "groq");
++  const apiKey = requireApiKey(provider, opts.apiKey);
+ 
+-  if (provider === "deepseek") {
+-    const apiKey = opts.apiKey;
+-    if (!apiKey) {
+-      throw new GroqClientError(
+-        "INVALID_CONFIG",
+-        "DeepSeek API key is required but was not provided",
+-      );
++  switch (provider.providerId) {
++    case "deepseek": {
++      const result = await deepseekCompleteRaw(messages, {
++        model: provider.defaultModels.powerful,
++        apiKey,
++      });
++      return { content: assertContent(provider, result.content) };
++    }
++
++    case "openrouter": {
++      const result = await openrouterCompleteRaw(messages, {
++        model: provider.defaultModels.powerful,
++        apiKey,
++      });
++      return { content: assertContent(provider, result.content) };
++    }
++
++    case "gemini": {
++      const result = await geminiCompleteRaw(messages, {
++        model: provider.defaultModels.powerful,
++        apiKey,
++      });
++      return { content: assertContent(provider, result.content) };
++    }
++
++    default: {
++      const result = await complete(messages, { model: MODEL_POWERFUL, apiKey: apiKey || undefined });
++      return { content: assertContent(provider, result.content) };
+     }
+-    const result = await deepseekCompleteRaw(messages, {
+-      model: DEEPSEEK_MODEL_POWERFUL,
+-      apiKey,
+-    });
+-    const content = result.content;
+-    if (!content) {
+-      throw new GroqClientError("EMPTY_RESPONSE", "DeepSeek returned no content for this request");
+-    }
+-    return { content };
+   }
+-
+-  if (provider === "openrouter") {
+-    const apiKey = opts.apiKey;
+-    if (!apiKey) {
+-      throw new GroqClientError(
+-        "INVALID_CONFIG",
+-        "OpenRouter API key is required but was not provided",
+-      );
+-    }
+-    const config = PROVIDER_REGISTRY.openrouter;
+-    const result = await openrouterCompleteRaw(messages, {
+-      model: config.defaultModels.powerful,
+-      apiKey,
+-    });
+-    const content = result.content;
+-    if (!content) {
+-      throw new GroqClientError("EMPTY_RESPONSE", "OpenRouter returned no content for this request");
+-    }
+-    return { content };
+-  }
+-
+-  if (provider === "gemini") {
+-    const apiKey = opts.apiKey;
+-    if (!apiKey) {
+-      throw new GroqClientError(
+-        "INVALID_CONFIG",
+-        "Gemini API key is required but was not provided",
+-      );
+-    }
+-    const config = PROVIDER_REGISTRY.gemini;
+-    const result = await geminiCompleteRaw(messages, {
+-      model: config.defaultModels.powerful,
+-      apiKey,
+-    });
+-    const content = result.content;
+-    if (!content) {
+-      throw new GroqClientError("EMPTY_RESPONSE", "Gemini returned no content for this request");
+-    }
+-    return { content };
+-  }
+-
+-  // groq — full-featured client with circuit-breaker and retry.
+-  const result = await complete(messages, { model: MODEL_POWERFUL, apiKey: opts.apiKey });
+-  return { content: result.content };
+ }
+diff -ruN EngineeringOS-main/lib/ai-orchestrator/src/index.ts EngineeringOS-main/lib/ai-orchestrator/src/index.ts
+--- EngineeringOS-main/lib/ai-orchestrator/src/index.ts	2026-07-26 03:28:11.575674449 +0000
++++ EngineeringOS-main/lib/ai-orchestrator/src/index.ts	2026-07-26 03:28:36.415674170 +0000
+@@ -1,8 +1,9 @@
+ export { complete, completeRaw, completeStream, MODEL_POWERFUL, MODEL_FAST } from "./groq-client.js";
+ export { agentComplete, validateProviderKey } from "./agent-complete.js";
+ export type { AgentCompleteOpts, ProviderId } from "./agent-complete.js";
+-export { PROVIDER_REGISTRY, PROVIDER_PRIORITY, getProvider } from "./provider-registry.js";
++export { PROVIDER_REGISTRY, PROVIDER_PRIORITY, getProvider, loadProvider, discoverProvider, discoverProviders, registerProvider, getProviderCapabilities } from "./provider-registry.js";
+ export type { ProviderConfig } from "./provider-registry.js";
++export type { ProviderCapabilityHints, ProviderCapabilitySummary, ProviderCostTier } from "./provider-capabilities.js";
+ export type { Message, GroqResponse, CompleteOptions, RawMessage, ToolCall, ToolDefinition, RawGroqResponse } from "./groq-client.js";
+ 
+ export type { PendingChange } from "./tools/file-tools.js";
+diff -ruN EngineeringOS-main/lib/ai-orchestrator/src/provider-capabilities.ts EngineeringOS-main/lib/ai-orchestrator/src/provider-capabilities.ts
+--- EngineeringOS-main/lib/ai-orchestrator/src/provider-capabilities.ts	1970-01-01 00:00:00.000000000 +0000
++++ EngineeringOS-main/lib/ai-orchestrator/src/provider-capabilities.ts	2026-07-26 03:28:36.415674170 +0000
+@@ -0,0 +1,94 @@
++/**
++ * Provider capability helpers.
++ *
++ * This layer keeps provider selection logic declarative without forcing the
++ * rest of the orchestrator to know the provider-specific transport details.
++ */
++
++export type ProviderCostTier = "low" | "medium" | "high";
++
++export type ProviderCapabilitySummary = {
++  supportsStreaming: boolean;
++  supportsTools: boolean;
++  supportsJsonMode: boolean;
++  supportsVision: boolean;
++  supportsReasoning: boolean;
++  supportsFunctionCalling: boolean;
++  supportsThinking: boolean;
++  maxContext: number | null;
++  maxOutput: number | null;
++  costTier: ProviderCostTier;
++};
++
++export type ProviderCapabilityHints = {
++  requireStreaming?: boolean;
++  requireTools?: boolean;
++  requireJsonMode?: boolean;
++  requireVision?: boolean;
++  requireReasoning?: boolean;
++  requireFunctionCalling?: boolean;
++  requireThinking?: boolean;
++  minimumContext?: number;
++  minimumOutput?: number;
++  preferredCostTier?: ProviderCostTier;
++};
++
++export const DEFAULT_PROVIDER_CAPABILITIES: ProviderCapabilitySummary = {
++  supportsStreaming: false,
++  supportsTools: false,
++  supportsJsonMode: false,
++  supportsVision: false,
++  supportsReasoning: false,
++  supportsFunctionCalling: false,
++  supportsThinking: false,
++  maxContext: null,
++  maxOutput: null,
++  costTier: "medium",
++};
++
++export function providerMatchesHints(
++  capabilities: ProviderCapabilitySummary,
++  hints?: ProviderCapabilityHints,
++): boolean {
++  if (!hints) return true;
++  if (hints.requireStreaming && !capabilities.supportsStreaming) return false;
++  if (hints.requireTools && !capabilities.supportsTools) return false;
++  if (hints.requireJsonMode && !capabilities.supportsJsonMode) return false;
++  if (hints.requireVision && !capabilities.supportsVision) return false;
++  if (hints.requireReasoning && !capabilities.supportsReasoning) return false;
++  if (hints.requireFunctionCalling && !capabilities.supportsFunctionCalling) return false;
++  if (hints.requireThinking && !capabilities.supportsThinking) return false;
++  if (hints.minimumContext != null) {
++    if (capabilities.maxContext == null || capabilities.maxContext < hints.minimumContext) return false;
++  }
++  if (hints.minimumOutput != null) {
++    if (capabilities.maxOutput == null || capabilities.maxOutput < hints.minimumOutput) return false;
++  }
++  return true;
++}
++
++export function scoreProviderCapabilities(
++  capabilities: ProviderCapabilitySummary,
++  hints?: ProviderCapabilityHints,
++): number {
++  if (!hints) return 0;
++  let score = 0;
++  if (hints.requireStreaming) score += capabilities.supportsStreaming ? 10 : -1000;
++  if (hints.requireTools) score += capabilities.supportsTools ? 10 : -1000;
++  if (hints.requireJsonMode) score += capabilities.supportsJsonMode ? 6 : -1000;
++  if (hints.requireVision) score += capabilities.supportsVision ? 6 : -1000;
++  if (hints.requireReasoning) score += capabilities.supportsReasoning ? 6 : -1000;
++  if (hints.requireFunctionCalling) score += capabilities.supportsFunctionCalling ? 6 : -1000;
++  if (hints.requireThinking) score += capabilities.supportsThinking ? 6 : -1000;
++  if (hints.minimumContext != null && capabilities.maxContext != null) {
++    score += Math.min(12, Math.floor(capabilities.maxContext / Math.max(hints.minimumContext, 1)));
++  }
++  if (hints.minimumOutput != null && capabilities.maxOutput != null) {
++    score += Math.min(6, Math.floor(capabilities.maxOutput / Math.max(hints.minimumOutput, 1)));
++  }
++  if (hints.preferredCostTier) {
++    const rank: Record<ProviderCostTier, number> = { low: 3, medium: 2, high: 1 };
++    score += rank[capabilities.costTier] >= rank[hints.preferredCostTier] ? 2 : 0;
++  }
++  return score;
++}
+diff -ruN EngineeringOS-main/lib/ai-orchestrator/src/provider-registry.ts EngineeringOS-main/lib/ai-orchestrator/src/provider-registry.ts
+--- EngineeringOS-main/lib/ai-orchestrator/src/provider-registry.ts	2026-07-26 03:28:11.579674449 +0000
++++ EngineeringOS-main/lib/ai-orchestrator/src/provider-registry.ts	2026-07-26 03:28:36.415674170 +0000
+@@ -1,11 +1,13 @@
+ /**
+  * Provider Registry — single source of truth for AI provider metadata.
+  *
+- * Adding a new provider requires only one entry here.
+- * resolveProvider() and resolveFallbackProvider() in ai-route-helpers.ts
+- * both iterate PROVIDER_PRIORITY so fallback ordering stays in one place.
++ * The static registry remains the compatibility surface used by the rest of
++ * the workspace, while the helper functions below provide a path toward a
++ * more declarative capability-driven registry.
+  */
+ 
++import { DEFAULT_PROVIDER_CAPABILITIES, providerMatchesHints, scoreProviderCapabilities, type ProviderCapabilityHints, type ProviderCapabilitySummary } from "./provider-capabilities.js";
++
+ export type ProviderId = "groq" | "deepseek" | "openrouter" | "gemini";
+ 
+ export type ProviderConfig = {
+@@ -21,6 +23,8 @@
+   supportsJsonMode: boolean;
+   /** Default model slugs for fast (tool-loop) and powerful (single-shot) tasks. */
+   defaultModels: { fast: string; powerful: string };
++  /** Optional richer capability summary used by discovery helpers. */
++  capabilities?: Partial<ProviderCapabilitySummary>;
+ };
+ 
+ /**
+@@ -47,6 +51,18 @@
+       fast: "google/gemma-4-31b-it:free",
+       powerful: "nvidia/nemotron-3-ultra-550b-a55b:free",
+     },
++    capabilities: {
++      supportsStreaming: true,
++      supportsTools: true,
++      supportsJsonMode: true,
++      supportsVision: false,
++      supportsReasoning: true,
++      supportsFunctionCalling: true,
++      supportsThinking: false,
++      maxContext: 128_000,
++      maxOutput: 32_000,
++      costTier: "medium",
++    },
+   },
+   deepseek: {
+     providerId: "deepseek",
+@@ -60,6 +76,18 @@
+       fast: "deepseek-chat",
+       powerful: "deepseek-chat",
+     },
++    capabilities: {
++      supportsStreaming: true,
++      supportsTools: true,
++      supportsJsonMode: true,
++      supportsVision: false,
++      supportsReasoning: true,
++      supportsFunctionCalling: true,
++      supportsThinking: true,
++      maxContext: 64_000,
++      maxOutput: 8_000,
++      costTier: "low",
++    },
+   },
+   gemini: {
+     providerId: "gemini",
+@@ -73,6 +101,18 @@
+       fast: "gemini-2.0-flash",
+       powerful: "gemini-2.0-flash",
+     },
++    capabilities: {
++      supportsStreaming: true,
++      supportsTools: false,
++      supportsJsonMode: true,
++      supportsVision: true,
++      supportsReasoning: true,
++      supportsFunctionCalling: false,
++      supportsThinking: false,
++      maxContext: 128_000,
++      maxOutput: 8_192,
++      costTier: "medium",
++    },
+   },
+   groq: {
+     providerId: "groq",
+@@ -86,11 +126,72 @@
+       fast: "llama-3.1-8b-instant",
+       powerful: "llama-3.3-70b-versatile",
+     },
++    capabilities: {
++      supportsStreaming: true,
++      supportsTools: true,
++      supportsJsonMode: true,
++      supportsVision: false,
++      supportsReasoning: true,
++      supportsFunctionCalling: true,
++      supportsThinking: false,
++      maxContext: 128_000,
++      maxOutput: 8_192,
++      costTier: "low",
++    },
+   },
+ };
+ 
+-export function getProvider(id: ProviderId): ProviderConfig {
+-  const cfg = PROVIDER_REGISTRY[id];
++const PROVIDER_CATALOG = new Map<ProviderId, ProviderConfig>(
++  Object.values(PROVIDER_REGISTRY).map((provider) => [provider.providerId, provider]),
++);
++
++function mergeCapabilities(config: ProviderConfig): ProviderCapabilitySummary {
++  return {
++    ...DEFAULT_PROVIDER_CAPABILITIES,
++    supportsStreaming: config.supportsStreaming,
++    supportsTools: config.supportsTools,
++    supportsJsonMode: config.supportsJsonMode,
++    ...config.capabilities,
++  };
++}
++
++export function getProviderCapabilities(id: ProviderId): ProviderCapabilitySummary {
++  const cfg = loadProvider(id);
++  return mergeCapabilities(cfg);
++}
++
++export function registerProvider(config: ProviderConfig): ProviderConfig {
++  PROVIDER_CATALOG.set(config.providerId, config);
++  return config;
++}
++
++export function loadProvider(id: ProviderId): ProviderConfig {
++  const cfg = PROVIDER_CATALOG.get(id);
+   if (!cfg) throw new Error(`Unknown provider: ${id}`);
+   return cfg;
+ }
++
++export function discoverProviders(hints?: ProviderCapabilityHints): ProviderConfig[] {
++  const ordered = [...PROVIDER_CATALOG.values()];
++  const priorityIndex = new Map<ProviderId, number>(PROVIDER_PRIORITY.map((providerId, index) => [providerId, index]));
++
++  return ordered
++    .filter((provider) => providerMatchesHints(mergeCapabilities(provider), hints))
++    .sort((a, b) => {
++      const scoreA = scoreProviderCapabilities(mergeCapabilities(a), hints);
++      const scoreB = scoreProviderCapabilities(mergeCapabilities(b), hints);
++      if (scoreA !== scoreB) return scoreB - scoreA;
++      const priorityA = priorityIndex.get(a.providerId) ?? Number.MAX_SAFE_INTEGER;
++      const priorityB = priorityIndex.get(b.providerId) ?? Number.MAX_SAFE_INTEGER;
++      if (priorityA !== priorityB) return priorityA - priorityB;
++      return a.label.localeCompare(b.label);
++    });
++}
++
++export function discoverProvider(hints?: ProviderCapabilityHints): ProviderConfig | undefined {
++  return discoverProviders(hints)[0];
++}
++
++export function getProvider(id: ProviderId): ProviderConfig {
++  return loadProvider(id);
++}

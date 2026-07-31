@@ -1,0 +1,569 @@
+
+
+المنصة الحالية ليست مجرد chat app؛ هي منصة حوكمة فيها مسار موحّد نسبيًا لإدارة مزودي الـ AI، لكن هذا المسار ما زال مقفلًا على مزودين فقط: groq وdeepseek.
+
+ما هو جاهز نسبيًا
+
+جدول ai_provider_credentials في قاعدة البيانات يخزن provider كحقل نصي، ومعه قيد uniqueness على (ownerId, provider)؛ هذا جيد جدًا لأن إضافة مزود ثالث لا تحتاج إعادة تصميم جدول من الصفر.
+
+عندك بالفعل طبقة مركزية لإدارة المزودات في:
+
+artifacts/api-server/src/lib/ai-route-helpers.ts
+
+lib/ai-orchestrator/src/agent-complete.ts
+
+lib/ai-orchestrator/src/agents/chat-agent.ts
+
+
+التوجيه الحالي للطلبات صار provider-aware، والـ fallback والأخطاء والـ streaming كلها أصبحت منظمة أكثر من النسخ السابقة.
+
+
+ما زال مقفلًا على مزودين فقط
+
+النوعية/الـ unions في الكود ما زالت تكتب صراحة:
+
+"groq" | "deepseek"
+
+
+OpenAPI والـ generated types والـ dashboard ما زالوا يعرضون مزودين فقط.
+
+الاختبارات الخاصة بالتكافؤ بين routes وOpenAPI مبنية على نفس الثنائي.
+
+مسارات التحكم في المفاتيح في الواجهة والخادم ما زالت لكل مزود على حدة، ولا يوجد Registry عام للمزودات.
+
+لا يوجد أي أثر لـ OpenRouter في الكود الحالي.
+
+
+لماذا OpenRouter مناسب هنا
+
+OpenRouter يقدّم واجهة OpenAI-compatible عبر POST /api/v1/chat/completions، مع Bearer auth، ويمكن استخدامه بتغيير baseURL فقط إلى https://openrouter.ai/api/v1 في نمط OpenAI SDK/HTTP العادي. كما أن وثائقه تذكر صراحة دعم streaming وnon-streaming، مع رؤوس اختيارية مثل HTTP-Referer وX-OpenRouter-Title. 
+
+هذا يعني أن OpenRouter لا ينبغي أن يُضاف كنسخة رابعة من deepseek-client.ts، بل كمثال أول على Provider Registry وOpenAI-Compatible Adapter.
+
+
+---
+
+الخطة التنفيذية الكاملة
+
+المرحلة 1: تثبيت نموذج المزودات قبل إضافة OpenRouter
+
+الهدف هنا هو منع تكرار نفس مشكلة DeepSeek سابقًا، حيث كل مزود كان يحصل على منطق خاص به.
+
+المطلوب
+
+1. إنشاء طبقة Registry للمزودات.
+
+
+2. تعريف قدرات كل مزود بشكل صريح.
+
+
+3. فصل “المزود” عن “العميل” وعن “النموذج”.
+
+
+
+التصميم المقترح
+
+بدل:
+
+groq-client.ts
+
+deepseek-client.ts
+
+
+اجعل عندك:
+
+provider-registry.ts
+
+openai-compatible-client.ts
+
+ثم providers محددة كتهيئة/Config فوقه
+
+
+ما يجب أن يحتويه الـ Registry
+
+providerId
+
+baseUrl
+
+authHeader
+
+supportsStreaming
+
+supportsTools
+
+supportsJsonMode
+
+defaultModels
+
+validateKey()
+
+resolveKey()
+
+buildRequest()
+
+normalizeResponse()
+
+normalizeError()
+
+
+نتيجة هذه المرحلة
+
+تصبح إضافة OpenRouter لاحقًا مجرد إدخال جديد في registry، وليس إعادة نسخ منطق LLM كامل مرة أخرى.
+
+
+---
+
+المرحلة 2: إدخال OpenRouter في طبقة orchestrator
+
+هذه هي الطبقة التي تنفذ الطلبات الفعلية للـ AI.
+
+الملفات الأساسية
+
+lib/ai-orchestrator/src/agent-complete.ts
+
+lib/ai-orchestrator/src/agents/chat-agent.ts
+
+lib/ai-orchestrator/src/agents/task-agent.ts
+
+lib/ai-orchestrator/src/agents/code-reviewer.ts
+
+lib/ai-orchestrator/src/agents/scan-analyst.ts
+
+lib/ai-orchestrator/src/agents/workflow-orchestrator.ts
+
+
+المطلوب
+
+1. توسيع provider union ليشمل:
+
+groq
+
+deepseek
+
+openrouter
+
+
+
+2. جعل agentComplete() يختار العميل والنموذج من الـ registry بدل if/else الثابت.
+
+
+3. جعل chat-agent.ts وagent-complete.ts وworkflow-orchestrator.ts وtask-agent.ts وscan-analyst.ts وcode-reviewer.ts تقرأ من نفس registry، لا من مفاتيح hardcoded.
+
+
+4. إضافة validateProviderKey("openrouter", apiKey) بحيث:
+
+يتم اختبار المفتاح قبل الحفظ
+
+الفشل يكون AUTH_ERROR أو NETWORK_ERROR وفقًا للسبب
+
+transient failures لا تمنع الحفظ إذا كانت السياسة هكذا
+
+
+
+
+لماذا هذا مهم
+
+OpenRouter ليس “نوعًا مختلفًا من AI” داخل المنصة؛ هو مزود OpenAI-compatible. إذًا إذا بقيت طبقة orchestrator مكتوبة كمزودين منفصلين فقط، ستتكرر نفس المشاكل كل مرة تضيف مزودًا جديدًا.
+
+
+---
+
+المرحلة 3: توسيع طبقة الخادم لإدارة المفاتيح والتوجيه
+
+هذه المرحلة هي التي تجعل OpenRouter مرئيًا ومتاحًا داخل التطبيق.
+
+الملفات الأساسية
+
+artifacts/api-server/src/lib/ai-route-helpers.ts
+
+artifacts/api-server/src/routes/ai/providers.ts
+
+artifacts/api-server/src/routes/ai/chat.ts
+
+artifacts/api-server/src/routes/ai/analysis.ts
+
+artifacts/api-server/src/routes/ai/tasks.ts
+
+artifacts/api-server/src/routes/ai/workflows.ts
+
+
+المطلوب
+
+1. تحديث resolveProvider() ليشمل OpenRouter.
+
+
+2. تحديث resolveFallbackProvider() ليعرف ترتيبات fallback الجديدة.
+
+
+3. تحديث handleOrchestratorError() ليصبح provider-aware مع openrouter.
+
+
+4. إضافة endpoints للمفتاح:
+
+إمّا:
+
+/api/ai/openrouter-key
+
+
+أو الأفضل:
+
+/api/ai/providers/:provider/key
+
+
+
+
+5. جعل رسائل الخطأ والـ hints تشير إلى المصدر الحقيقي للمشكلة.
+
+
+6. الحفاظ على السلوك الحالي للمزودات القديمة حتى لا ينكسر Groq/DeepSeek.
+
+
+
+ترتيب fallback المقترح
+
+أنصح أن يكون configurable بدل hardcoded.
+الترتيب المناسب قد يكون:
+
+OpenRouter
+
+DeepSeek
+
+Groq
+
+
+أو حسب إعداد المستخدم/المشروع.
+الأهم: لا تجعل الترتيب متجمدًا في if/else داخل helper واحد.
+
+
+---
+
+المرحلة 4: تحديث عقد الـ API والـ generated clients
+
+هذه المرحلة ضرورية لأن المشروع عنده contract-first discipline.
+
+الملفات الأساسية
+
+lib/api-spec/openapi.yaml
+
+lib/api-zod/src/generated/api.ts
+
+artifacts/api-server/src/routes/ai-route-parity.test.ts
+
+أي client hooks أو generated React Query hooks
+
+
+المطلوب
+
+1. توسيع ActiveProviderStatus.provider ليشمل openrouter.
+
+
+2. إضافة schema لـ OpenRouterKeyStatus.
+
+
+3. إضافة schema لـ SaveOpenRouterKeyInput.
+
+
+4. إضافة endpoints في OpenAPI:
+
+GET/PUT/DELETE key status
+
+active-provider
+
+
+
+5. إعادة توليد:
+
+Zod schemas
+
+client hooks
+
+أي types مرتبطة
+
+
+
+6. تحديث parity tests لتشمل OpenRouter baseline.
+
+
+
+نقطة مهمة
+
+OpenRouter يقدم API متوافقًا مع OpenAI، لذلك يمكن أن تبقى صيغ الرسائل والـ chat completions ثابتة في العقد، بينما يظل الاختلاف في:
+
+baseURL
+
+apiKey
+
+headers اختيارية
+
+model slug
+
+
+هذا يتسق مع وثائق OpenRouter. 
+
+
+---
+
+المرحلة 5: تحديث قاعدة البيانات والإعدادات
+
+الخبر الجيد هنا أن الـ DB schema الحالي مساعد جدًا.
+
+ما الذي أراه من التحليل
+
+ai_provider_credentials.provider هو text وليس enum ضيق، لذلك غالبًا لا تحتاج migration هيكلية كبيرة لإضافة OpenRouter.
+لكن تحتاج:
+
+تحديث التعليقات/القيود في الكود
+
+تحديث أي seed data أو validation
+
+تحديث أي منطق يعتمد على strings hardcoded
+
+
+المطلوب
+
+1. مراجعة أي schema validation في DB أو Zod يقفل provider على groq/deepseek.
+
+
+2. إضافة provider slug جديد:
+
+openrouter
+
+
+
+3. التأكد أن unique constraint (ownerId, provider) يبقى صالحًا كما هو.
+
+
+4. التأكد أن last4 / updatedAt / encryption تعمل بنفس النهج الحالي.
+
+
+
+
+---
+
+المرحلة 6: تحديث الواجهة
+
+الملفات الأساسية
+
+artifacts/dashboard/src/pages/AiChat.tsx
+
+أي صفحة settings أو providers أخرى
+
+أي generated types في dashboard
+
+
+المطلوب
+
+1. إضافة بطاقة OpenRouter في UI.
+
+
+2. تحديث typing:
+
+ActiveProvider = { provider: 'groq' | 'deepseek' | 'openrouter' | null ... }
+
+
+
+3. تحديث describeAiError() ليعرض رسائل دقيقة لـ OpenRouter.
+
+
+4. تحديث copy/text:
+
+بدل نصوص تشير فقط إلى Groq أو DeepSeek.
+
+
+
+5. تحديث indicator الخاص بالمزوّد النشط.
+
+
+6. إن أمكن، توحيد شاشة إدارة المفاتيح بدل تكرار بطاقات كثيرة.
+
+
+
+ملاحظة تشغيلية
+
+بما أن OpenRouter API يستخدم Bearer token ويمكن ضبط base URL، الواجهة لا تحتاج معرفة تفاصيل النقل؛ فقط:
+
+حفظ المفتاح
+
+عرض الحالة
+
+اختيار provider النشط
+
+تقديم error copy واضح. 
+
+
+
+---
+
+المرحلة 7: الاختبارات والضمانات
+
+هذه ليست مرحلة “إضافية”؛ هذه هي التي تمنع تكرار الانكسار لاحقًا.
+
+اختبارات وحدة
+
+validateProviderKey:
+
+valid / invalid / network fail
+
+
+resolveProvider:
+
+عندما يوجد OpenRouter key
+
+عندما لا يوجد
+
+fallback chain
+
+
+agentComplete:
+
+provider routing
+
+
+chat-agent:
+
+streaming
+
+non-streaming fallback
+
+tool loop
+
+
+handleOrchestratorError:
+
+provider-aware messages
+
+
+
+اختبارات تكامل
+
+حفظ مفتاح OpenRouter
+
+استرجاع status
+
+active-provider
+
+chat request using OpenRouter
+
+fallback من OpenRouter إلى DeepSeek/Groq عند أخطاء قابلة للتعافي
+
+
+اختبارات contract
+
+OpenAPI parity
+
+generated schema sync
+
+route parity
+
+no provider enum drift
+
+
+
+---
+
+المرحلة 8: rollout آمن
+
+ما أنصح به
+
+1. إطلاق OpenRouter خلف flag أو enablement جزئي.
+
+
+2. تفعيله على حسابات محدودة أولًا.
+
+
+3. مراقبة:
+
+AUTH_ERROR
+
+NON_200
+
+TIMEOUT
+
+fallback frequency
+
+parse errors
+
+
+
+4. ثم تعميمه تدريجيًا.
+
+
+
+سبب هذا الترتيب
+
+OpenRouter يمكن أن يُستخدم كثيرًا من أي OpenAI-compatible SDK عبر تغيير baseURL فقط، لكن اختلاف model slugs أو routing behavior بين النماذج قد يخلق فروقًا في السلوك حتى لو كان النقل متوافقًا. 
+
+
+---
+
+الترتيب التنفيذي الذي أنصح به
+
+PR 1 — Provider registry
+
+إنشاء registry موحد
+
+تعريف provider capabilities
+
+إدخال openrouter metadata
+
+
+PR 2 — OpenAI-compatible transport
+
+تنفيذ generic client
+
+ربط DeepSeek/OpenRouter عليه
+
+ترك Groq كما هو أو موحد لاحقًا
+
+
+PR 3 — API server support
+
+key routes
+
+provider resolution
+
+fallback
+
+error mapping
+
+
+PR 4 — Contract update
+
+OpenAPI
+
+generated types
+
+parity tests
+
+
+PR 5 — Dashboard
+
+key card
+
+active provider display
+
+error copy
+
+
+PR 6 — Tests + rollout
+
+integration coverage
+
+feature flag
+
+staged enablement
+
+
+
+---
+
+الخلاصة التنفيذية
+
+النسخة الحالية من المشروع جاهزة فكريًا لإضافة OpenRouter، لكنها ليست جاهزة تنظيميًا بعد، لأن المزودات ما زالت ممسوكة على شكل unions ثابتة وملفات منفصلة.
+أفضل مسار هو: تحويل طبقة AI إلى Provider Registry أولًا، ثم إضافة OpenRouter كأول مزود OpenAI-compatible عام، بدل إضافة ملف ثالث مشابه لـ DeepSeek.
+
+إذا أردت، أستطيع في الخطوة التالية أن :
+
+PR / الهدف / الملفات / المخاطر / acceptance criteria / rollback
+
+حول هذه الخطة إلى **Backlog تنفيذي PR-by-PR** بصيغة تبدأ مباشرة من الملفات التي يجب تعديلها أولًا.

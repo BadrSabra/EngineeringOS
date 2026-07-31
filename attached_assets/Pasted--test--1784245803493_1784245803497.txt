@@ -1,0 +1,368 @@
+راجعت الشجرة الفعلية، وهذه نسخة تنفيذية ملفًا ملفًا مبنية على الملفات الموجودة الآن، مع أوامر test / verify / rollback لكل PR.
+
+الملفات التي تصنع فجوة provenance/drift فعلًا هي: lib/scanner/src/graph-extractor.ts، artifacts/api-server/src/lib/scan-runner.ts، artifacts/api-server/src/routes/discovery.ts، lib/knowledge-engine/src/queries.ts، lib/knowledge-engine/src/inference.ts، scripts/validate-truth-flow.ts، lib/api-zod/src/truth-flow-matrix.schema.ts، وdocs/fact-record.md.
+
+PR-00 — تثبيت baseline الحقيقة ومنع drift في Truth Flow
+
+الملفات
+
+docs/fact-record.md
+
+docs/truth-flow-pr-checklist.md
+
+lib/api-zod/src/truth-flow-matrix.schema.ts
+
+scripts/validate-truth-flow.ts
+
+
+Checklist
+
+[ ] اجعل fact-record.md يميّز بوضوح بين: baseline / derived / historical / runtime.
+
+[ ] ثبّت TruthFlowMatrixSchema كمرجع هندسي واحد، مع بقاء nodes[].exactRepoPaths شرطًا إلزاميًا.
+
+[ ] اترك validate-truth-flow.ts يفشل صراحة عند أي drift بين JSON baseline وschema.
+
+[ ] اجعل docs/truth-flow-pr-checklist.md يعكس نفس المصطلحات والحالات الموجودة في الـ schema.
+
+
+test
+
+pnpm run truth:validate
+pnpm run typecheck
+
+verify
+
+pnpm run truth:validate && pnpm run typecheck
+
+rollback
+
+git restore docs/fact-record.md docs/truth-flow-pr-checklist.md lib/api-zod/src/truth-flow-matrix.schema.ts scripts/validate-truth-flow.ts
+
+
+---
+
+PR-01 — جعل الـ extractor يخرج provenance حقيقيًا بدل metadata جزئي
+
+الملفات
+
+lib/scanner/src/graph-extractor.ts
+
+lib/scanner/src/python-extractor.ts
+
+lib/scanner/src/__tests__/graph-extractor.test.ts
+
+
+Checklist
+
+[ ] أضف provenance صريحًا لكل entity/relationship، لا مجرد sourceType وconfidence.
+
+[ ] اجعل mergeResult() هو نقطة الإثراء الوحيدة، لكن وسّعها لتوليد provenance موحّد من: sourceType + method + evidence.
+
+[ ] اربط GraphEvidence بكل edge/نتاج AST بدل الاعتماد على وصف عام.
+
+[ ] حافظ على dedupe الحالي: entity.type::entity.name::entity.path وsource→target::relation.
+
+[ ] غطِّ حالات: AST حقيقي، Python AST، وregex fallback.
+
+
+test
+
+pnpm --filter @workspace/scanner test -- src/__tests__/graph-extractor.test.ts
+
+verify
+
+pnpm --filter @workspace/scanner test && pnpm run typecheck
+
+rollback
+
+git restore lib/scanner/src/graph-extractor.ts lib/scanner/src/python-extractor.ts lib/scanner/src/__tests__/graph-extractor.test.ts
+
+
+---
+
+PR-02 — منع إدخال أي graph row بلا provenance عند الكتابة للـ DB
+
+الملفات
+
+artifacts/api-server/src/lib/scan-runner.ts
+
+artifacts/api-server/src/routes/discovery.ts
+
+artifacts/api-server/src/scripts/seed-provenance.ts
+
+lib/db/src/schema/graph.ts إذا قررتَ تشديد القيد على مستوى schema
+
+
+Checklist
+
+[ ] في scan-runner.ts املأ graphEntitiesTable.provenance وgraphRelationshipsTable.provenance عند insert.
+
+[ ] في discovery.ts لا تُنشئ api stubs أو غيرها من entities بدون provenance.
+
+[ ] اجعل seed-provenance.ts مرجعًا سلوكيًا: نفس شكل provenance في import اليدوي وفي scan الآلي.
+
+[ ] إن رغبت في hardening إضافي، شدّد schema في graph.ts بحيث يصبح غياب provenance خطأً واضحًا وليس مجرد null مسموحًا.
+
+[ ] لا تغيّر دلالة evidenceJson, confidence, sourceType؛ فقط اجعلها جزءًا من provenance الكامل.
+
+
+test
+
+pnpm --filter @workspace/api-server test -- src/routes/projects.test.ts src/routes/discovery.test.ts src/routes/graph.test.ts
+
+verify
+
+pnpm --filter @workspace/api-server test && pnpm run typecheck
+
+rollback
+
+git restore artifacts/api-server/src/lib/scan-runner.ts artifacts/api-server/src/routes/discovery.ts artifacts/api-server/src/scripts/seed-provenance.ts lib/db/src/schema/graph.ts
+
+
+---
+
+PR-03 — جعل queries provenance-aware لا topology-only
+
+الملفات
+
+lib/knowledge-engine/src/queries.ts
+
+lib/knowledge-engine/src/types.ts
+
+artifacts/api-server/src/routes/graph.ts
+
+lib/knowledge-engine/src/__tests__/queries.test.ts
+
+artifacts/api-server/src/routes/graph.test.ts
+
+
+Checklist
+
+[ ] اجعل getEvidenceForNode() وgetLayeredGraphView() وgetObservedRuntimeSubgraph() تُظهر provenance/evidence بوضوح.
+
+[ ] لا تغيّر BFS والمنطق الحالي، فقط زد الشفافية: لماذا ظهر هذا المسار؟ ومن أين جاءت الحافة؟
+
+[ ] في graph.ts اعرض في الردود ما يكفي لتفسير النتيجة، لا topology وحدها.
+
+[ ] أبقِ فلترة observedOnly / heuristicOnly / minConfidence / sourceType كما هي لكن اجعلها قابلة للتفسير.
+
+[ ] أضف اختبارات على evidence + layered subgraph + high-confidence path.
+
+
+test
+
+pnpm --filter @workspace/knowledge-engine test -- src/__tests__/queries.test.ts
+pnpm --filter @workspace/api-server test -- src/routes/graph.test.ts
+
+verify
+
+pnpm --filter @workspace/knowledge-engine test && pnpm --filter @workspace/api-server test -- src/routes/graph.test.ts
+
+rollback
+
+git restore lib/knowledge-engine/src/queries.ts lib/knowledge-engine/src/types.ts artifacts/api-server/src/routes/graph.ts lib/knowledge-engine/src/__tests__/queries.test.ts artifacts/api-server/src/routes/graph.test.ts
+
+
+---
+
+PR-04 — جعل inference مبنيًا على الطبقات الصحيحة لا على proxies تقريبية
+
+الملفات
+
+lib/knowledge-engine/src/inference.ts
+
+lib/knowledge-engine/src/__tests__/inference.test.ts
+
+artifacts/api-server/src/routes/graph.ts
+
+
+Checklist
+
+[ ] راجع computeLayeredGraphSummary()؛ حاليًا runtime.entityCount ما يزال 0، وهذا يجب أن يصبح إما wired فعليًا أو موثقًا كحقل غير مكتمل.
+
+[ ] لا تجعل sourceType === "regex-fallback" proxy وحيدًا لكل heuristic؛ اربطه فعليًا بـ isHeuristic.
+
+[ ] اجعل avgConfidence وavgConfidenceOverall يعبّران عن layer الحقيقي، لا مجرد تجميع عام.
+
+[ ] أبقِ computeCentrality() وdetectClusters() كما هما، لكن غلّف النتائج بتفسير provenance-aware.
+
+[ ] أضف tests لحالات structural / heuristic / runtime صراحة.
+
+
+test
+
+pnpm --filter @workspace/knowledge-engine test -- src/__tests__/inference.test.ts
+
+verify
+
+pnpm --filter @workspace/knowledge-engine test && pnpm run typecheck
+
+rollback
+
+git restore lib/knowledge-engine/src/inference.ts lib/knowledge-engine/src/__tests__/inference.test.ts artifacts/api-server/src/routes/graph.ts
+
+
+---
+
+PR-05 — تحويل truth-flow validation من schema gate إلى drift gate على الحقيقة الفعلية
+
+الملفات
+
+scripts/validate-truth-flow.ts
+
+lib/api-zod/src/truth-flow-matrix.schema.ts
+
+docs/fact-record.md
+
+
+Checklist
+
+[ ] اجعل التحقق لا يكتفي بـ JSON baseline، بل يقارن أيضًا بما ينتجه graph/scan/provenance فعليًا.
+
+[ ] احتفظ بالتحقق البنيوي isTruthFlowMatrix() كطبقة أولى، ثم أضف drift signals كطبقة ثانية.
+
+[ ] اربط الرسالة النهائية بأثر عملي: ما الذي drifted، وأين، وما الخطوة التالية.
+
+[ ] وثّق في fact-record.md الفرق بين "matrix كوثيقة" و"matrix كحقيقة مُتحقّقة".
+
+
+test
+
+pnpm run truth:validate
+
+verify
+
+pnpm run truth:validate && pnpm run typecheck
+
+rollback
+
+git restore scripts/validate-truth-flow.ts lib/api-zod/src/truth-flow-matrix.schema.ts docs/fact-record.md
+
+
+---
+
+PR-06 — توحيد أخطاء drift/provenance/audit عبر الطبقات
+
+الملفات
+
+artifacts/api-server/src/lib/scan-runner.ts
+
+artifacts/api-server/src/lib/audit.ts
+
+artifacts/api-server/src/routes/projects.ts
+
+artifacts/api-server/src/routes/discovery.ts
+
+artifacts/api-server/src/routes/graph.ts
+
+artifacts/api-server/src/routes/ai.ts
+
+artifacts/api-server/src/middlewares/requireAuth.ts
+
+artifacts/api-server/src/middlewares/requireProjectAccess.ts
+
+
+Checklist
+
+[ ] وحّد format الخطأ: layer, file, rule, evidence, impact, nextAction.
+
+[ ] أبقِ 401/403/404/409 مستقرة، ولا تسمح بتسرب stack traces للعميل.
+
+[ ] اربط كل mutation وscan وimport وAI action بـ correlationId واحد واضح.
+
+[ ] اجعل audit وevent trace يظهران نفس الخطأ بنفس اللغة والمفاتيح.
+
+[ ] لا تغيّر business logic؛ غيّر فقط شكل السجل والتشخيص.
+
+
+test
+
+pnpm --filter @workspace/api-server test -- src/routes/projects.test.ts src/routes/discovery.test.ts src/routes/graph.test.ts src/routes/ai.test.ts src/middlewares/requireAuth.test.ts
+
+verify
+
+pnpm --filter @workspace/api-server test && pnpm run typecheck
+
+rollback
+
+git restore artifacts/api-server/src/lib/scan-runner.ts artifacts/api-server/src/lib/audit.ts artifacts/api-server/src/routes/projects.ts artifacts/api-server/src/routes/discovery.ts artifacts/api-server/src/routes/graph.ts artifacts/api-server/src/routes/ai.ts artifacts/api-server/src/middlewares/requireAuth.ts artifacts/api-server/src/middlewares/requireProjectAccess.ts
+
+
+---
+
+PR-07 — backfill provenance والاختبارات الارتدادية على البيانات الحالية
+
+الملفات
+
+artifacts/api-server/src/scripts/seed-provenance.ts
+
+attached_assets/EngineeringOS_provenance_registry_seed_*.json
+
+attached_assets/EngineeringOS_provenance_registry_linked_*.json
+
+artifacts/api-server/src/routes/projects.test.ts
+
+artifacts/api-server/src/routes/discovery.test.ts
+
+artifacts/api-server/src/routes/graph.test.ts
+
+
+Checklist
+
+[ ] استخدم seed-provenance.ts لإعادة بناء knowledge graph الخاص بالمستودع نفسه بشكل idempotent.
+
+[ ] تأكد أن كل entity/relationship مستوردة من registry تحمل provenance متسقًا.
+
+[ ] أضف regression tests تثبت أن import/backfill لا يكسر scan jobs أو graph summary أو access control.
+
+[ ] اجعل snapshots في attached_assets جزءًا من التحقق، لا مجرد أرشيف.
+
+
+test
+
+pnpm --filter @workspace/api-server exec tsx src/scripts/seed-provenance.ts
+pnpm --filter @workspace/api-server test -- src/routes/projects.test.ts src/routes/discovery.test.ts src/routes/graph.test.ts
+
+verify
+
+pnpm --filter @workspace/api-server exec tsx src/scripts/seed-provenance.ts && pnpm run truth:validate
+
+rollback
+
+git restore artifacts/api-server/src/scripts/seed-provenance.ts attached_assets/EngineeringOS_provenance_registry_seed_*.json attached_assets/EngineeringOS_provenance_registry_linked_*.json
+
+
+---
+
+الترتيب الذي أنصح به الآن
+
+1. PR-00
+
+
+2. PR-01
+
+
+3. PR-02
+
+
+4. PR-03
+
+
+5. PR-04
+
+
+6. PR-05
+
+
+7. PR-06
+
+
+8. PR-07
+
+
+
+والسبب بسيط:
+أولًا نثبت baseline، ثم نجعل الاستخراج يخرج provenance، ثم نمنع تسرب rows ناقصة إلى DB، ثم نجعل الاستعلامات والاستدلال يريان الحقيقة نفسها، وبعدها فقط نغلق drift gate ونبني backfill.
+
+الخطوة التالية المنطقية هي  حوّل هذا مباشرة إلى نسخة PR-by-PR جاهزة للإرسال إلى Replit AI بصياغة أوامر تنفيذية لكل PR على حدة.

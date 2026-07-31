@@ -1,0 +1,364 @@
+--- a/lib/ai-orchestrator/src/provider-registry.ts
++++ b/lib/ai-orchestrator/src/provider-registry.ts
+@@ -67,7 +67,7 @@
+     consoleUrl: "aistudio.google.com/apikey",
+
+     statusUrl: "status.cloud.google.com",
+
+     supportsStreaming: true,
+
+-    supportsTools: true,
+
++    supportsTools: false,
+
+     supportsJsonMode: true,
+
+     defaultModels: {
+
+       fast: "gemini-2.0-flash",
+
+
+--- a/lib/ai-orchestrator/src/openai-compatible-client.ts
++++ b/lib/ai-orchestrator/src/openai-compatible-client.ts
+@@ -157,11 +157,12 @@
+     max_tokens: maxTokens,
+
+   };
+
+ 
+
+-  const hasTools = Array.isArray(tools) && tools.length > 0;
+
++  const isGemini = providerName === "Gemini";
+
++  const hasTools = !isGemini && Array.isArray(tools) && tools.length > 0;
+
+   if (hasTools) {
+
+     body.tools = tools;
+
+     body.tool_choice = "auto";
+
+-  } else if (opts.responseFormat) {
+
++  } else if (!isGemini && opts.responseFormat) {
+
+     body.response_format = opts.responseFormat;
+
+   }
+
+ 
+
+
+--- a/lib/ai-orchestrator/src/agents/chat-agent.ts
++++ b/lib/ai-orchestrator/src/agents/chat-agent.ts
+@@ -227,7 +227,7 @@
+   /** Running count of tool executions that hit the real filesystem/grep. */
+
+   let totalToolCalls = 0;
+
+ 
+
+-  const tools = rootPath ? [...FILE_TOOL_DEFINITIONS, ...GIT_TOOL_DEFINITIONS] : undefined;
+
++  const tools = rootPath && PROVIDER_REGISTRY[provider].supportsTools ? [...FILE_TOOL_DEFINITIONS, ...GIT_TOOL_DEFINITIONS] : undefined;
+
+ 
+
+   // PR-02: build explicit name Sets from the authoritative definition arrays.
+
+   // Replaces the startsWith("git_") prefix heuristic so any future tool whose
+
+
+--- a/lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts
++++ b/lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts
+@@ -0,0 +1,66 @@
++/**
+
++ * Regression tests for the OpenAI-compatible client.
+
++ *
+
++ * Gemini's OpenAI-compatible shim should not receive tool payloads or
+
++ * response_format hints — those requests have been observed to fail with 404s
+
++ * when those fields are present.
+
++ */
+
++import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
++import { geminiCompleteRaw } from "../openai-compatible-client.js";
+
++
+
++const baseMessages = [{ role: "user", content: "hello" } as const];
+
++
+
++describe("geminiCompleteRaw", () => {
+
++  beforeEach(() => {
+
++    vi.stubGlobal(
+
++      "fetch",
+
++      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+
++        const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+
++        (globalThis as unknown as { __capturedGeminiBody?: Record<string, unknown> }).__capturedGeminiBody = body;
+
++        return {
+
++          ok: true,
+
++          status: 200,
+
++          json: async () => ({
+
++            choices: [{ message: { content: '{"response":"ok","sources":[]}' } }],
+
++            model: "gemini-2.0-flash",
+
++            usage: { prompt_tokens: 1, completion_tokens: 1 },
+
++          }),
+
++          text: async () => "",
+
++        } as Response;
+
++      }),
+
++    );
+
++  });
+
++
+
++  afterEach(() => {
+
++    vi.unstubAllGlobals();
+
++    delete (globalThis as unknown as { __capturedGeminiBody?: Record<string, unknown> }).__capturedGeminiBody;
+
++    vi.restoreAllMocks();
+
++  });
+
++
+
++  it("strips tools and response_format from Gemini requests", async () => {
+
++    const result = await geminiCompleteRaw(baseMessages as any, {
+
++      apiKey: "test-key",
+
++      maxTokens: 1,
+
++      model: "gemini-2.0-flash",
+
++      tools: [
+
++        {
+
++          type: "function",
+
++          function: {
+
++            name: "read_file",
+
++            description: "Read a file",
+
++            parameters: { type: "object", properties: {}, required: [] },
+
++          },
+
++        },
+
++      ],
+
++      responseFormat: { type: "json_object" },
+
++    });
+
++
+
++    expect(result.content).toBe('{"response":"ok","sources":[]}');
+
++
+
++    const body = (globalThis as unknown as { __capturedGeminiBody?: Record<string, unknown> }).__capturedGeminiBody;
+
++    expect(body).toBeDefined();
+
++    expect(body).not.toHaveProperty("tools");
+
++    expect(body).not.toHaveProperty("tool_choice");
+
++    expect(body).not.toHaveProperty("response_format");
+
++  });
+
++});
+
+
+--- a/lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts
++++ b/lib/ai-orchestrator/src/__tests__/chat-agent-gemini-gating.test.ts
+@@ -0,0 +1,76 @@
++/**
+
++ * Regression tests for provider-aware tool gating in the chat agent.
+
++ */
+
++import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+
++
+
++const capturedCalls: Array<{ provider: string; opts: Record<string, unknown> }> = [];
+
++
+
++vi.mock("../groq-client.js", () => ({
+
++  completeRaw: vi.fn(),
+
++  completeStream: vi.fn(),
+
++  MODEL_POWERFUL: "llama-3.3-70b-versatile",
+
++  MODEL_FAST: "llama-3.1-8b-instant",
+
++}));
+
++
+
++vi.mock("../deepseek-client.js", () => ({
+
++  deepseekCompleteRaw: vi.fn(),
+
++  deepseekCompleteStream: vi.fn(),
+
++  DEEPSEEK_MODEL_FAST: "deepseek-chat",
+
++  DEEPSEEK_MODEL_POWERFUL: "deepseek-chat",
+
++}));
+
++
+
++vi.mock("../openai-compatible-client.js", () => ({
+
++  openrouterCompleteRaw: vi.fn(),
+
++  openrouterCompleteStream: vi.fn(),
+
++  geminiCompleteRaw: vi.fn(async (_messages: unknown, opts: Record<string, unknown>) => {
+
++    capturedCalls.push({ provider: "gemini", opts });
+
++    return {
+
++      content: '{"response":"ok","sources":[]}',
+
++      toolCalls: null,
+
++      model: "gemini-2.0-flash",
+
++      usage: { promptTokens: 1, completionTokens: 1 },
+
++    };
+
++  }),
+
++  geminiCompleteStream: vi.fn(),
+
++}));
+
++
+
++function makeContext() {
+
++  return {
+
++    project: "test | project",
+
++    workflows: "No workflows defined yet",
+
++    recentTasks: "",
+
++    latestMetrics: "",
+
++    graphSummary: "",
+
++    recentEvents: "",
+
++    metricsVerified: false,
+
++  };
+
++}
+
++
+
++describe("chat agent provider tool gating", () => {
+
++  beforeEach(() => {
+
++    vi.resetModules();
+
++    capturedCalls.length = 0;
+
++  });
+
++
+
++  afterEach(() => {
+
++    vi.clearAllMocks();
+
++  });
+
++
+
++  it("does not pass tools to Gemini when the provider is tools-disabled", async () => {
+
++    const { chat } = await import("../agents/chat-agent.js");
+
++
+
++    const result = await chat({
+
++      message: "analyze the project",
+
++      history: [],
+
++      projectContext: makeContext() as any,
+
++      rootPath: "/tmp/project",
+
++      provider: "gemini",
+
++      apiKey: "test-key",
+
++    });
+
++
+
++    expect(result.response).toBe("ok");
+
++    expect(capturedCalls).toHaveLength(1);
+
++    expect(capturedCalls[0]?.provider).toBe("gemini");
+
++    expect(capturedCalls[0]?.opts).not.toHaveProperty("tools");
+
++  });
+
++});
+
+

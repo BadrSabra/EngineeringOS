@@ -1,0 +1,116 @@
+We are CONTINUING an interrupted implementation session.
+
+DO NOT restart the analysis.
+DO NOT regenerate the audit.
+DO NOT re-plan the roadmap.
+
+Treat the previous forensic audit as the source of truth.
+
+Current status:
+- The repository audit has already been completed.
+- The execution roadmap has already been approved.
+- Implementation had already begun.
+- The session was interrupted before completion.
+
+The last confirmed implementation state was:
+
+Completed / Started:
+- PR-01: durable scan job retry implementation (partially implemented)
+- PR-02: database-backed AI rate limiter (partially implemented)
+- PR-03: AI fallback metadata (partially implemented)
+- PR-04: scanner truncation tracking (partially implemented)
+- PR-05: task-service comment correction
+- PR-06: shared dashboard apiFetch refactor (partially implemented)
+- Epic D: Archive Upload implementation (partially implemented)
+
+The implementation was modifying these files:
+
+lib/db/src/schema/scan_jobs.ts
+lib/db/src/schema/rate_limits.ts
+lib/db/src/schema/index.ts
+
+artifacts/api-server/src/lib/job-reconciliation.ts
+artifacts/api-server/src/lib/db-rate-limiter.ts
+artifacts/api-server/src/lib/upload-store.ts
+
+artifacts/api-server/src/routes/ai.ts
+artifacts/api-server/src/routes/discovery.ts
+artifacts/api-server/src/routes/upload.ts
+artifacts/api-server/src/routes/index.ts
+
+artifacts/api-server/src/discovery/discovery-adapters.ts
+
+lib/scanner/src/file-walker.ts
+
+artifacts/api-server/src/services/task-service.ts
+
+artifacts/dashboard/src/lib/api-fetch.ts
+artifacts/dashboard/src/pages/AiChat.tsx
+artifacts/dashboard/src/components/GitPanel.tsx
+
+The previous session reached the verification stage.
+
+The last unfinished tasks were:
+
+1. Finish all remaining edits inside routes/ai.ts
+   - Replace the in-memory rate limiter.
+   - Use checkProjectRateLimitDb().
+   - Update every call site.
+   - Surface fallbackUsed and originalPath.
+   - Add _meta to responses.
+   - Update SSE responses.
+
+2. Finish job-reconciliation retry logic.
+
+3. Finish Archive Upload adapter.
+
+4. Finish upload route.
+
+5. Finish dashboard shared apiFetch migration.
+
+6. Verify imports.
+
+7. Compile.
+
+8. Fix compile errors.
+
+9. Run tests.
+
+10. Continue until every PR is fully complete.
+
+IMPORTANT:
+
+You are NOT allowed to stop after editing one file.
+
+Continue autonomously until:
+
+- every affected file is updated
+- compilation succeeds
+- tests succeed
+- remaining errors are fixed
+
+If a compilation error appears:
+- fix it immediately
+- continue compiling
+- repeat until clean
+
+If additional files must change due to type dependencies:
+modify them automatically.
+
+Never ask for confirmation.
+
+Never stop to summarize progress.
+
+Only stop when there is nothing left to implement.
+
+At the end provide ONLY:
+
+1. Files changed
+2. Tests executed
+3. Remaining blockers (if any)
+4. Git diff summary
+5. Next PR if work remains
+
+Do not repeat previous analysis.
+
+Resume exactly from the interrupted implementation state.

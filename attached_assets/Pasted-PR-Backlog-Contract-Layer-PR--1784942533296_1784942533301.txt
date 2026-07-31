@@ -1,0 +1,297 @@
+PR Backlog — Contract Layer
+
+الترتيب هنا مقصود: كل PR يقفل فئة فشل محددة قبل الانتقال إلى التي تليها.
+الهدف ليس “تحسين” العقد، بل جعله قابلًا للتحليل والتوليد والتدقيق بدون التباس.
+
+---
+
+PR-01 — إصلاح parseability في OpenAPI
+
+الهدف
+جعل "openapi.yaml" قابلًا للـ parse بشكل نظيف ومباشر قبل أي codegen أو validation.
+
+النطاق
+
+- إصلاح النص المكسور داخل "lib/api-spec/openapi.yaml"
+- مراجعة أي descriptions أو examples قد تحتوي JSON غير مقتبس أو YAML غير صالح
+- إضافة فحص parse مبكر في CI قبل codegen
+
+الملفات
+
+- "lib/api-spec/openapi.yaml"
+- "scripts/check-codegen-drift.ts"
+- ".github/workflows/ci.yml" أو ما يعادله في مسار CI الحالي
+
+الأثر
+
+- يمنع كسر مصدر الحقيقة نفسه
+- يوقف التوليد الفاسد من الأصل
+- يرفع موثوقية السلسلة contract → generation
+
+يكسر
+
+- التوليد: نعم، مباشرة
+- التتبع: بشكل غير مباشر
+- التدقيق: بشكل غير مباشر
+
+الاعتماد
+
+- لا يعتمد على أي PR سابق
+- يجب أن يكتمل قبل أي PR لاحق
+
+معيار القبول
+
+- "openapi.yaml" يمر عبر parser نظيف
+- "pnpm --filter @workspace/api-spec run codegen" يعمل بدون fallback
+- CI يفشل مبكرًا إذا فشل parse
+- لا توجد descriptions أو examples مكسورة نحويًا
+
+---
+
+PR-02 — توحيد security coverage في العقد
+
+الهدف
+جعل نموذج الحماية ظاهرًا وصريحًا داخل الـ OpenAPI بدل الاعتماد فقط على middleware runtime.
+
+النطاق
+
+- إضافة "security" إلى العمليات التي يجب أن تكون محمية
+- أو تعريف security عالميًا على مستوى spec مع استثناءات واضحة فقط
+- توثيق "/api/healthz" والاستثناءات الأخرى إن وجدت
+
+الملفات
+
+- "lib/api-spec/openapi.yaml"
+- "artifacts/api-server/src/app.ts"
+- أي ملفات تعريف auth-related paths داخل "openapi.yaml"
+
+الأثر
+
+- يرفع contract fidelity
+- يطابق spec مع الواقع التنفيذي
+- يتيح tooling أوضح للعميل والاختبارات والتدقيق
+
+يكسر
+
+- التتبع: نعم إذا ظل الأمن ضمن runtime فقط
+- التدقيق: نعم لأن model الحماية غير ممثل في العقد
+- التوليد: لا يكسره مباشرة، لكنه يكشف under-specification
+
+الاعتماد
+
+- يعتمد على نجاح PR-01
+
+معيار القبول
+
+- كل "/api/*" محمية مذكورة بوضوح في الـ spec
+- الاستثناءات مكتوبة صراحة ومبررة
+- لا توجد عمليات حساسة بلا "security" عندما يفترض أن تكون محمية
+- لا يوجد تناقض بين "app.ts" والـ spec
+
+---
+
+PR-03 — توحيد error envelope
+
+الهدف
+جعل أخطاء API قابلة للتنبؤ والتماثل عبر جميع المسارات.
+
+النطاق
+
+- توحيد 4xx/5xx responses على schema واضح
+- اعتماد envelope ثابت للأخطاء
+- إزالة العشوائية في error shapes
+- ربط responses في OpenAPI بما يخرجه السيرفر فعليًا
+
+الملفات
+
+- "lib/api-spec/openapi.yaml"
+- "lib/api-zod/src/generated/types/apiError.ts"
+- "artifacts/api-server/src/lib/*error*"
+- أي route handlers تُرجع أخطاء مباشرة
+
+الأثر
+
+- يسهل observability
+- يسهل postmortem
+- يقلل divergence بين API docs والواقع
+- يحسن قابلية الاختبار والاستهلاك
+
+يكسر
+
+- التدقيق: نعم إذا بقيت الأخطاء غير موحدة
+- التتبع: نعم لأن الخطأ نفسه يصبح غير قابل للترابط عبر المسارات
+- التوليد: لا، لكنه يضعف فاعلية generated client/types
+
+الاعتماد
+
+- يعتمد على PR-01
+- يفضّل أن يأتي قبل أي strict schema tightening
+
+معيار القبول
+
+- كل الأخطاء الحرجة لها schema موحد
+- الردود الموثقة في OpenAPI تطابق الردود الفعلية
+- العميل المولد يستطيع التمييز بين error kinds بشكل ثابت
+- لا توجد payloads error ad hoc غير موثقة
+
+---
+
+PR-04 — فرض strict schemas على المستوى المناسب
+
+الهدف
+منع إسقاط الحقول الزائدة بصمت، ورفع صرامة الإدخال إلى مستوى governance-grade.
+
+النطاق
+
+- مراجعة schemas المولدة من "api-zod"
+- إضافة strictness حيثما يكون آمنًا ومطلوبًا
+- تحديد المواضع التي يجب فيها رفض unknown keys بدل تجاهلها
+- إضافة اختبارات لحالات extra/unknown properties
+
+الملفات
+
+- "lib/api-zod/src/generated/api.ts"
+- "lib/api-zod/src/generated/types/*"
+- "lib/api-spec/openapi.yaml"
+- اختبارات type/runtime validation إن وجدت
+
+الأثر
+
+- يمنع silent data loss
+- يرفع confidence في صحة المدخلات
+- يجعل contracts أقرب إلى proof-grade
+
+يكسر
+
+- التتبع: نعم إذا استمرت الحقول الزائدة في الذوبان بصمت
+- التدقيق: نعم لأن ما لم يُرفض صراحةً قد لا يُلاحظ لاحقًا
+- التوليد: لا، لكنه يغيّر سلوك runtime validation
+
+الاعتماد
+
+- يعتمد على PR-01
+- يفضّل بعد PR-03 حتى لا تخلط بين error schema وinput schema issues
+
+معيار القبول
+
+- unknown keys تُرفض في المواضع الحرجة
+- الحالات المتوقعة فقط هي التي تمر
+- لا توجد regressions في المسارات التي تتطلب leniency مقصودة
+- اختبارات strictness تمر
+
+---
+
+PR-05 — تقوية codegen hardening
+
+الهدف
+إزالة الاعتماد على patching هش فوق ناتج المولّد، وجعل codegen قابلًا للصيانة والترقية.
+
+النطاق
+
+- إعادة تقييم "sed" post-processing في "codegen"
+- تقليل أو إزالة أي transforms خارجية غير ضرورية
+- تثبيت سلوك Orval أو استبدال workaround بمسار أكثر صلابة
+- جعل drift check أكثر صرامة ووضوحًا
+
+الملفات
+
+- "lib/api-spec/package.json"
+- "lib/api-spec/orval.config.ts"
+- "scripts/check-codegen-drift.ts"
+- "lib/api-zod/src/generated/*"
+- "lib/api-client-react/src/generated/*"
+
+الأثر
+
+- يقلل fragility
+- يجعل التوليد أكثر قابلية للتنبؤ
+- يمنع drift “المُصلَح يدويًا” من العودة لاحقًا
+
+يكسر
+
+- التوليد: نعم إذا بقيت post-processing غير مستقرة
+- التتبع: بشكل غير مباشر
+- التدقيق: بشكل غير مباشر
+
+الاعتماد
+
+- يعتمد على PR-01
+- يفضّل بعد PR-04 حتى لا يختلط hardening مع schema changes
+
+معيار القبول
+
+- codegen يعمل بدون hacks غير مبررة أو موثقة
+- drift check يكتشف أي انحراف فعلي
+- ناتج التوليد مستقر عبر rerun متكرر
+- أي workaround متبقٍ يكون مبررًا ومحدودًا جدًا
+
+---
+
+PR-06 — تثبيت boundary الخاص بـ SSE / chat stream
+
+الهدف
+جعل استثناء "/api/ai/chat/stream" استثناءً مضبوطًا ومفهومًا، وليس ثغرة خارج العقد.
+
+النطاق
+
+- توثيق سبب استثناء SSE من codegen
+- ربط hook اليدوي "useAiChatStream" بعقد مضبوط
+- إضافة schema/contract للأحداث streamed إن أمكن
+- التأكد أن هذا المسار لا يتسرب خارج boundary المقصود
+
+الملفات
+
+- "lib/api-client-react/src/use-ai-chat-stream.ts"
+- "lib/api-client-react/src/index.ts"
+- "lib/api-spec/openapi.yaml"
+- أي ملفات تخص streaming events في السيرفر
+
+الأثر
+
+- يمنع أن يصبح SSE “منطقة رمادية” خارج governance
+- يثبت الاستثناء بدل أن يتركه كفجوة
+- يحسن استقرار الـ AI client boundary
+
+يكسر
+
+- التوليد: جزئيًا فقط إذا بقي الاستثناء غير موثّق
+- التتبع: نعم إذا لم تكن الأحداث streamable ممثلة بوضوح
+- التدقيق: نعم لأن streaming هو أكثر الأماكن عرضة لفقدان السياق
+
+الاعتماد
+
+- يعتمد على PR-01 وPR-05
+- يفضّل بعد تثبيت error envelope والـ strict schemas
+
+معيار القبول
+
+- الاستثناء موثق صراحة
+- الحد الفاصل بين generated client والهُوك اليدوي واضح
+- events streamed لها shape ثابت
+- لا يوجد سلوك SSE غير موثق أو غير قابل للتتبع
+
+---
+
+الترتيب التنفيذي الموصى به
+
+1. PR-01 إصلاح parseability
+2. PR-02 security coverage
+3. PR-03 error envelope
+4. PR-04 strict schemas
+5. PR-05 codegen hardening
+6. PR-06 SSE contract boundary
+
+---
+
+تعريف الإغلاق لهذه الطبقة
+
+لن نعد طبقة العقود “مغلقة” إلا إذا تحققت الشروط التالية معًا:
+
+- "openapi.yaml" قابل للـ parse
+- security ممثلة صراحةً ومطابقة للواقع
+- error shapes موحدة
+- schemas تمنع التلاشي الصامت للحقول الزائدة
+- codegen لا يعتمد على patching هش
+- الاستثناءات اليدوية خارج التوليد موثقة ومحصورة
+
+عندها فقط تصبح طبقة العقود Partially Proven → Proven enough for downstream governance.

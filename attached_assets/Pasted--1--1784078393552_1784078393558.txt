@@ -1,0 +1,264 @@
+نعم. هذه هي **السلسلة 1 العملية**، مرتبة من **ملفات الحقيقة الأساسية** ثم إلى **أسطح التنفيذ الحرجة**، وبشكل يراعي الاعتماديات حتى لا نبدأ من الواجهة قبل تثبيت الأساس.
+
+## سلسلة 1 — تثبيت الحقيقة ثم تنفيذ العمود الفقري
+
+### 1) تثبيت سجل الحقيقة والاتجاه المعماري
+
+ابدأ بهذه الملفات لأنها تحدد “ما الذي نؤمن به الآن” قبل أي تعديل:
+
+* `docs/fact-record.md`
+* `docs/completion-plan.md`
+* `.agents/memory/MEMORY.md`
+* `.agents/memory/engineeringos-completion-plan.md`
+* `.agents/memory/discovery-feature.md`
+* `.agents/memory/discovery-multi-source.md`
+* `.agents/memory/discovery-adapter-registry.md`
+* `.agents/memory/scanner-ast-extraction.md`
+* `.agents/memory/knowledge-engine.md`
+* `.agents/memory/knowledge-engine-bfs-depth.md`
+* `.agents/memory/ai-orchestrator-layer.md`
+* `.agents/memory/ai-orchestrator-hardening.md`
+* `.agents/memory/audit-fixes.md`
+* `.agents/memory/testing-drift-checks.md`
+* `.agents/memory/orval-openapi-codegen.md`
+
+**الهدف هنا:**
+تثبيت: مصدر الحقيقة، ترتيب التنفيذ، أسباب القرارات، وما الذي يعتبر منتهيًا فعلًا وما الذي لا يزال مجرد مرجع أو ذاكرة عمل.
+
+---
+
+### 2) قفل عقد النظام قبل أي تنفيذ
+
+هذه هي طبقة العقد؛ أي شيء بعدها يجب أن يطابقها:
+
+* `lib/api-spec/openapi.yaml`
+* `lib/api-spec/orval.config.ts`
+* `lib/api-spec/package.json`
+
+ثم الملفات المشتقة منها، لكن **للمراجعة والتأكد من عدم الانحراف** لا للتعديل اليدوي:
+
+* `lib/api-zod/src/generated/api.ts`
+* `lib/api-zod/src/generated/types/*`
+* `lib/api-client-react/src/generated/api.ts`
+* `lib/api-client-react/src/generated/api.schemas.ts`
+* `lib/api-client-react/src/index.ts`
+* `lib/api-client-react/src/custom-fetch.ts`
+
+**الهدف هنا:**
+أي تغيير في backend أو UI يجب أن يمر من هنا أولًا، لا العكس.
+
+---
+
+### 3) تثبيت طبقة البيانات
+
+هذه الطبقة هي أساس كل شيء عملي:
+
+* `lib/db/drizzle.config.ts`
+* `lib/db/src/index.ts`
+* `lib/db/src/schema/index.ts`
+* `lib/db/src/schema/ai_chats.ts`
+* `lib/db/src/schema/audit_logs.ts`
+* `lib/db/src/schema/discovery.ts`
+* `lib/db/src/schema/events.ts`
+* `lib/db/src/schema/graph.ts`
+* `lib/db/src/schema/metrics.ts`
+* `lib/db/src/schema/projects.ts`
+* `lib/db/src/schema/rules.ts`
+* `lib/db/src/schema/tasks.ts`
+* `lib/db/src/schema/workflows.ts`
+
+**الهدف هنا:**
+التأكد من أن الكيانات والعلاقات والقيود والمفاتيح الأجنبية والـ invariants كلها تعكس ما يقوله `openapi.yaml` وما يحتاجه التنفيذ الفعلي.
+
+---
+
+### 4) تعميق الفاحص Scanner قبل أي توسعة أخرى
+
+لأن المشروع يعتمد على فهم المشروع نفسه، هذه الطبقة لا بد أن تكون صلبة:
+
+* `lib/scanner/src/index.ts`
+* `lib/scanner/src/file-walker.ts`
+* `lib/scanner/src/graph-extractor.ts`
+* `lib/scanner/src/metrics-calc.ts`
+* `lib/scanner/src/rule-matcher.ts`
+* `lib/scanner/src/python-extractor.ts`
+* `lib/scanner/src/python-ast-script.ts`
+* `lib/scanner/src/python-ast-script.py`
+* `lib/scanner/src/__tests__/file-walker.test.ts`
+* `lib/scanner/src/__tests__/graph-extractor.test.ts`
+* `lib/scanner/src/__tests__/metrics-calc.test.ts`
+* `lib/scanner/src/__tests__/rule-matcher.test.ts`
+
+**ملاحظة حاسمة:**
+أقوى نقطة ضعف ظاهرة هنا هي `graph-extractor.ts` لأنه ما زال **Partial**؛ لذلك هذا الملف يكون أول ملف تنفيذ فعلي داخل السلسلة بعد تثبيت الحقيقة والعقد والبيانات.
+
+---
+
+### 5) تحويل graph من بنية إلى طبقة معرفة
+
+بعد الـ scanner مباشرة، لأن المعرفة لا معنى لها بدون مدخل صحيح:
+
+* `lib/knowledge-engine/src/index.ts`
+* `lib/knowledge-engine/src/inference.ts`
+* `lib/knowledge-engine/src/queries.ts`
+* `lib/knowledge-engine/src/types.ts`
+* `lib/knowledge-engine/src/__tests__/inference.test.ts`
+* `lib/knowledge-engine/src/__tests__/queries.test.ts`
+
+**الهدف هنا:**
+تحويل بيانات الفحص إلى استدلالات وأسئلة ومخرجات يمكن اعتمادها في التقارير والـ UI والـ orchestration.
+
+---
+
+### 6) تقوية طبقة AI Orchestration
+
+هذه الطبقة يجب أن تأتي بعد scanner وknowledge، لا قبلهما:
+
+* `lib/ai-orchestrator/src/index.ts`
+* `lib/ai-orchestrator/src/errors.ts`
+* `lib/ai-orchestrator/src/context-builder.ts`
+* `lib/ai-orchestrator/src/groq-client.ts`
+* `lib/ai-orchestrator/src/parsing.ts`
+* `lib/ai-orchestrator/src/agents/chat-agent.ts`
+* `lib/ai-orchestrator/src/agents/code-reviewer.ts`
+* `lib/ai-orchestrator/src/agents/scan-analyst.ts`
+* `lib/ai-orchestrator/src/agents/task-agent.ts`
+* `lib/ai-orchestrator/src/agents/workflow-orchestrator.ts`
+* `lib/ai-orchestrator/src/prompts/chat.prompt.ts`
+* `lib/ai-orchestrator/src/prompts/review.prompt.ts`
+* `lib/ai-orchestrator/src/prompts/scan.prompt.ts`
+* `lib/ai-orchestrator/src/prompts/task.prompt.ts`
+* `lib/ai-orchestrator/src/prompts/workflow.prompt.ts`
+* `lib/ai-orchestrator/src/prompts/index.ts`
+* `lib/ai-orchestrator/src/schemas/chat.schema.ts`
+* `lib/ai-orchestrator/src/schemas/code-review.schema.ts`
+* `lib/ai-orchestrator/src/schemas/context.schema.ts`
+* `lib/ai-orchestrator/src/schemas/scan.schema.ts`
+* `lib/ai-orchestrator/src/schemas/task.schema.ts`
+* `lib/ai-orchestrator/src/schemas/workflow.schema.ts`
+* `lib/ai-orchestrator/src/schemas/workflow.schema.ts`
+* `lib/ai-orchestrator/src/__tests__/groq-client.test.ts`
+* `lib/ai-orchestrator/src/__tests__/parsing.test.ts`
+* `lib/ai-orchestrator/src/__tests__/schemas.test.ts`
+* `lib/ai-orchestrator/src/__tests__/workflow-orchestrator.test.ts`
+
+**الهدف هنا:**
+إخراج AI من كونه “wrapper” إلى كونه طبقة منظمة، قابلة للفحص، ومربوطة بسياق المشروع الحقيقي.
+
+---
+
+### 7) بعدها فقط: backend التنفيذي الحرِج
+
+هذه الطبقة هي التي يجب أن تعكس كل ما سبق، وهي الجزء الذي يُنتج السلوك الفعلي:
+
+#### نواة التطبيق
+
+* `artifacts/api-server/src/app.ts`
+* `artifacts/api-server/src/index.ts`
+* `artifacts/api-server/src/config.ts`
+
+#### الحماية والهوية والصلاحيات
+
+* `artifacts/api-server/src/middlewares/requireAuth.ts`
+* `artifacts/api-server/src/middlewares/requireAuth.test.ts`
+* `artifacts/api-server/src/middlewares/requireProjectAccess.ts`
+* `artifacts/api-server/src/middlewares/clerkProxyMiddleware.ts`
+
+#### الخدمات المساندة
+
+* `artifacts/api-server/src/lib/audit.ts`
+* `artifacts/api-server/src/lib/logger.ts`
+* `artifacts/api-server/src/lib/job-queue.ts`
+* `artifacts/api-server/src/lib/job-queue.test.ts`
+* `artifacts/api-server/src/lib/job-reconciliation.ts`
+* `artifacts/api-server/src/lib/job-reconciliation.test.ts`
+* `artifacts/api-server/src/lib/plugin-runtime.ts`
+* `artifacts/api-server/src/lib/plugin-runtime.test.ts`
+* `artifacts/api-server/src/lib/discovery-adapters.ts`
+* `artifacts/api-server/src/lib/discovery-adapters.test.ts`
+* `artifacts/api-server/src/lib/scan-runner.ts`
+
+#### المسارات الحرجة بالترتيب
+
+* `artifacts/api-server/src/routes/projects.ts`
+* `artifacts/api-server/src/routes/projects.test.ts`
+* `artifacts/api-server/src/routes/discovery.ts`
+* `artifacts/api-server/src/routes/discovery.test.ts`
+* `artifacts/api-server/src/routes/tasks.ts`
+* `artifacts/api-server/src/routes/tasks.test.ts`
+* `artifacts/api-server/src/routes/workflows.ts`
+* `artifacts/api-server/src/routes/workflows.test.ts`
+* `artifacts/api-server/src/routes/graph.ts`
+* `artifacts/api-server/src/routes/graph.test.ts`
+* `artifacts/api-server/src/routes/metrics.ts`
+* `artifacts/api-server/src/routes/metrics.test.ts`
+* `artifacts/api-server/src/routes/events.ts`
+* `artifacts/api-server/src/routes/events.test.ts`
+* `artifacts/api-server/src/routes/rules.ts`
+* `artifacts/api-server/src/routes/rules.test.ts`
+* `artifacts/api-server/src/routes/ai.ts`
+* `artifacts/api-server/src/routes/ai.test.ts`
+* `artifacts/api-server/src/routes/dashboard.ts`
+* `artifacts/api-server/src/routes/dashboard.test.ts`
+* `artifacts/api-server/src/routes/health.ts`
+* `artifacts/api-server/src/routes/health.test.ts`
+* `artifacts/api-server/src/routes/plugins.ts`
+* `artifacts/api-server/src/routes/plugins.test.ts`
+
+**نقطة التركيز الأهم هنا:**
+`discovery.ts` ما زال `Partial`، لذلك هو أول route يجب إغلاقه فعليًا لأنه بوابة الدخول للمشروع كله.
+
+---
+
+### 8) أخيرًا: واجهة العرض التي تعكس الحقيقة
+
+لا تُبنى قبل أن تستقر الطبقات السابقة:
+
+* `artifacts/dashboard/src/App.tsx`
+* `artifacts/dashboard/src/components/layout/Shell.tsx`
+* `artifacts/dashboard/src/components/layout/Sidebar.tsx`
+* `artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx`
+* `artifacts/dashboard/src/pages/Projects.tsx`
+* `artifacts/dashboard/src/pages/ProjectDetail.tsx`
+* `artifacts/dashboard/src/pages/Dashboard.tsx`
+* `artifacts/dashboard/src/pages/Graph.tsx`
+* `artifacts/dashboard/src/pages/Tasks.tsx`
+* `artifacts/dashboard/src/pages/Workflows.tsx`
+* `artifacts/dashboard/src/pages/Rules.tsx`
+* `artifacts/dashboard/src/pages/Events.tsx`
+* `artifacts/dashboard/src/pages/Metrics.tsx`
+* `artifacts/dashboard/src/pages/AiChat.tsx`
+* `artifacts/dashboard/src/pages/SignIn.tsx`
+* `artifacts/dashboard/src/pages/SignUp.tsx`
+* `artifacts/dashboard/src/pages/Landing.tsx`
+* `artifacts/dashboard/src/pages/not-found.tsx`
+
+**أولوية الواجهة هنا:**
+`DiscoverProjectWizard.tsx` ثم `Projects.tsx` ثم `ProjectDetail.tsx` ثم `Graph/Tasks/Workflows/AiChat`؛ لأن هذه الصفحات هي التي يجب أن تعكس الحقيقة الجديدة لا أن تختلق حقيقة بديلة.
+
+---
+
+## ما تعتبره “مكتملًا” داخل السلسلة 1
+
+السلسلة 1 لا تُغلق عندما تكتمل الملفات فقط، بل عندما يتحقق الآتي:
+
+* لا يوجد تضارب بين `docs/fact-record.md` والواقع الحالي.
+* `openapi.yaml` وطبقة DB وgenerated clients/schemas كلها متوافقة.
+* `discovery.ts` لم يعد surface مبتورًا.
+* `graph-extractor.ts` لم يعد نقطة ضعف.
+* `workflow-orchestrator.ts` و`groq-client.ts` و`parsing.ts` أصبحت قابلة للاعتماد.
+* المسارات الحرجة كلها محمية بـ auth/access/audit.
+* صفحات dashboard تعكس backend truth بدل placeholder drift.
+
+## ترتيب PRs المقترح داخل السلسلة 1
+
+1. Baseline truth refresh
+2. Contract freeze
+3. DB integrity pass
+4. Scanner hardening
+5. Knowledge engine alignment
+6. AI orchestration hardening
+7. Backend execution hardening
+8. Dashboard truth reflection
+
+السلسلة التالية بعد هذه مباشرة تكون **سلسلة 2: Deep Risk Register للملفات الـ Partial والـ High-Risk فقط**، ثم بعدها **خطة PR تنفيذية ملفًا ملفًا**.
