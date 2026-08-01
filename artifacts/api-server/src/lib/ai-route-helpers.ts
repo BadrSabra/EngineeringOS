@@ -269,6 +269,9 @@ export async function chatWithFallback(
   }
 
   let lastErr: GroqClientError | undefined;
+  // GAP-C1: collect every provider failure so the final error message shows
+  // the full cascade, not just the last attempt.
+  const providerErrors: Array<{ provider: string; code: string; message: string }> = [];
 
   for (const providerEntry of orderedProviders) {
     if (lastErr) {
@@ -292,6 +295,7 @@ export async function chatWithFallback(
           { provider: providerEntry.provider, code: err.code, message: err.message },
           "provider failed — trying next in chain",
         );
+        providerErrors.push({ provider: providerEntry.provider, code: err.code, message: err.message });
         lastErr = err;
         continue;
       }
@@ -300,8 +304,16 @@ export async function chatWithFallback(
     }
   }
 
-  // All providers exhausted.
-  throw lastErr ?? new GroqClientError("EMPTY_RESPONSE", "No AI provider returned a response");
+  // GAP-C1: All providers exhausted — surface the full cascade so the caller
+  // (and the user) can see which providers were tried and why each failed,
+  // instead of only seeing the last provider's error code.
+  const cascade = providerErrors.map((e) => `${e.provider}: [${e.code}] ${e.message.slice(0, 120)}`).join(" | ");
+  const exhaustedMsg = cascade
+    ? `All providers failed — ${cascade}`
+    : "No AI provider returned a response";
+  throw lastErr
+    ? new GroqClientError(lastErr.code, exhaustedMsg)
+    : new GroqClientError("EMPTY_RESPONSE", exhaustedMsg);
 }
 
 /**

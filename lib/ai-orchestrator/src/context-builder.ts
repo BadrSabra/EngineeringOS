@@ -10,7 +10,7 @@ import type { AgentContext } from "./schemas/context.schema.js";
 import { buildContextCacheKey, getCachedContext, setCachedContext } from "./context-cache-manager.js";
 import { loadProjectContext, type BuildProjectContextOptions } from "./context-loader.js";
 import { buildProjectContextFromLoadedContext } from "./context-serializer.js";
-import { warnIfContextTooLarge } from "./context-compressor.js";
+import { warnIfContextTooLarge, trimContextToFit } from "./context-compressor.js";
 
 export { invalidateContextCache, setInvalidationNotifier, startContextInvalidationChannel } from "./context-cache-manager.js";
 export type { BuildProjectContextOptions, ContextLoadSection } from "./context-loader.js";
@@ -25,8 +25,10 @@ export async function buildProjectContext(projectId: string, options: BuildProje
   if (cached && cached.expiresAt > now) return cached.data;
 
   const loaded = await loadProjectContext(projectId, options);
-  const result = buildProjectContextFromLoadedContext(loaded);
-  warnIfContextTooLarge(projectId, result);
+  const raw = buildProjectContextFromLoadedContext(loaded);
+  warnIfContextTooLarge(projectId, raw);
+  // GAP-A3: enforce hard cap so large repos never silently exceed model window.
+  const result = trimContextToFit(projectId, raw);
   setCachedContext(cacheKey, result);
   return result;
 }

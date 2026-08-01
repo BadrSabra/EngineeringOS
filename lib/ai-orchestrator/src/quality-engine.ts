@@ -88,15 +88,21 @@ function buildBasePlans(profile: QualityProfile): Pick<QualityPlan, "strictHints
         },
       };
     case "workflow":
+      // GAP-C2: workflow decisions query tasks/events/graph via the agent's
+      // tool loop — a provider that doesn't support function calling cannot
+      // execute this profile correctly. Require tools on both strict and
+      // relaxed hints so Gemini (supportsTools: false) is never selected.
       return {
         strictHints: {
           requireJsonMode: true,
           requireReasoning: true,
           requireThinking: true,
+          requireTools: true,
         },
         relaxedHints: {
           requireJsonMode: true,
           requireReasoning: true,
+          requireTools: true,
         },
       };
     case "chat":

@@ -113,6 +113,16 @@ router.patch("/tasks/:taskId", async (req, res) => {
   const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
   if (!project) return;
 
+  // GAP-B3: reject edits while the AI agent is actively executing the task.
+  // Allowing a PATCH on a running task could corrupt the agent's in-flight
+  // state (e.g. overwriting the status it's about to transition away from).
+  if (before[0].status === "running") {
+    return res.status(409).json({
+      error: "task_running",
+      hint: "This task is currently being executed by the AI — wait for it to finish (or cancel it) before making changes.",
+    });
+  }
+
   const updated = await db
     .update(tasksTable)
     .set({ ...body, updatedAt: new Date() })
