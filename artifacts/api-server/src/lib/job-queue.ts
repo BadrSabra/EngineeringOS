@@ -26,6 +26,43 @@ import { logger } from "./logger.js";
 
 type JobFn = () => Promise<void>;
 
+/**
+ * GAP-B1: Maximum wall-clock time a single job may hold a concurrency slot
+ * before the watchdog forcibly frees the slot and lets the queue drain.
+ *
+ * The underlying job closure continues running in the background — it can
+ * still complete (or fail) on its own, but it can no longer block new jobs
+ * from starting. Set HUNG_JOB_TIMEOUT_MS to override (e.g. for slow scans
+ * on very large repos). Default: 10 minutes.
+ */
+const HUNG_JOB_TIMEOUT_MS = Number(
+  process.env.HUNG_JOB_TIMEOUT_MS ?? 10 * 60 * 1000,
+);
+
+/**
+ * Races a job promise against a timeout. If the timeout fires first the slot
+ * is freed by resolving — the job closure itself is not cancelled (JS has no
+ * cooperative cancellation) but can no longer wedge the queue.
+ */
+function raceWithTimeout(id: string | null, fn: JobFn): Promise<void> {
+  const jobPromise = fn();
+  const timeoutPromise = new Promise<void>((resolve) =>
+    setTimeout(() => {
+      logger.warn(
+        {
+          scope: "job-queue",
+          code: "HUNG_JOB_TIMEOUT",
+          jobId: id,
+          timeoutMs: HUNG_JOB_TIMEOUT_MS,
+        },
+        "job queue: job exceeded timeout watchdog — slot freed, job continues in background",
+      );
+      resolve();
+    }, HUNG_JOB_TIMEOUT_MS),
+  );
+  return Promise.race([jobPromise, timeoutPromise]);
+}
+
 interface QueueItem {
   /** DB row ID used for deduplication, or null for anonymous jobs. */
   id: string | null;
@@ -166,7 +203,10 @@ export class JobQueue {
       }
 
       this.running++;
-      item.fn()
+      // GAP-B1: race against a watchdog timer so a hung job can't hold a
+      // concurrency slot forever. raceWithTimeout resolves (never rejects)
+      // when the deadline fires, so .finally() runs and drains the queue.
+      raceWithTimeout(item.id, item.fn)
         .catch((err) => {
           // Jobs are documented to handle their own errors internally, so
           // reaching here means a job broke that contract (missing top-level

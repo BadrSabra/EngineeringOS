@@ -350,6 +350,20 @@ router.post("/ai/chat/stream", async (req, res) => {
       streamedContent += delta;
       sse({ type: "delta", delta });
     }
+    // GAP-A2: Called by chatWithFallback when the native SSE stream broke
+    // mid-flight and the agent is falling back to the non-streaming result.
+    // Emit stream_reset so the client discards the partial bubble before the
+    // full response arrives in the `done` event.
+    function onStreamReset(): void {
+      if (streamingActive) {
+        logger.warn(
+          { scope: "chat-route", action: "stream_reset", provider, streamedBytes: streamedContent.length },
+          "SSE stream broke mid-flight — emitting stream_reset to client",
+        );
+        streamedContent = "";
+        sse({ type: "stream_reset" });
+      }
+    }
 
     let result: Awaited<ReturnType<typeof chat>>;
     try {
@@ -367,6 +381,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         { provider, apiKey },
         onDelta,
         { requireTools: !!validRootPath, qualityProfile: validRootPath ? "tool_chat" : "chat" },
+        onStreamReset,
       );
       result = chatOut.result;
     } catch (err) {

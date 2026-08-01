@@ -252,6 +252,7 @@ export async function chatWithFallback(
   initialProvider: { provider: ProviderId; apiKey: string },
   onDelta?: (delta: string) => void,
   options?: ProviderSelectionOptions,
+  onStreamReset?: () => void,
 ): Promise<{ result: Awaited<ReturnType<typeof chat>>; effectiveProvider: ProviderId }> {
   const orderedProviders = await collectAvailableProviders(userId, options);
   if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
@@ -282,6 +283,7 @@ export async function chatWithFallback(
         apiKey: providerEntry.apiKey,
         provider: providerEntry.provider,
         onDelta,
+        onStreamReset,
       });
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {

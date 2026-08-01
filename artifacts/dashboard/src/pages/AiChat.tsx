@@ -1030,6 +1030,12 @@ export default function AiChat() {
         onDelta: (delta) => {
           setStreamingContent((prev) => prev + delta);
         },
+        onStreamReset: () => {
+          // GAP-A2: SSE stream broke mid-flight — clear the partial bubble so
+          // the full fallback response in the subsequent `done` event is shown
+          // cleanly without a flash of inconsistent partial content.
+          setStreamingContent('');
+        },
         onDone: (data) => {
           setAgentStage(null);
           setStreamingContent('');

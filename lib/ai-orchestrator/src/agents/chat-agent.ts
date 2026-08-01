@@ -330,8 +330,15 @@ export async function chat(opts: {
    * Pending-changes from tool calls are still returned normally.
    */
   onDelta?: (delta: string) => void;
+  /**
+   * GAP-A2: Called when the native SSE stream broke mid-flight and the agent
+   * is falling back to the non-streaming result. The caller should signal the
+   * client to discard any partial content before the full response arrives.
+   * Only called when `onDelta` was provided AND at least one delta was emitted.
+   */
+  onStreamReset?: () => void;
 }): Promise<ChatResult> {
-  const { message, history, projectContext, rootPath, apiKey, provider = "groq", onDelta } = opts;
+  const { message, history, projectContext, rootPath, apiKey, provider = "groq", onDelta, onStreamReset } = opts;
 
   // Provider dispatch: complete-function references have distinct signatures so
   // they remain an explicit map. Model names come from PROVIDER_REGISTRY so
@@ -666,6 +673,12 @@ export async function chat(opts: {
         console.warn(
           JSON.stringify({ scope: "chat-agent", code: "STREAM_FALLBACK", provider, reason: String(streamErr) }),
         );
+        // GAP-A2: If we already sent partial deltas to the caller, signal a
+        // reset so the client can discard the incomplete bubble before the
+        // full fallback response arrives in the return value below.
+        if (accumulated && onStreamReset) {
+          onStreamReset();
+        }
         accumulated = "";
       }
 
