@@ -1,0 +1,606 @@
+================================================================================
+JIRA EPIC
+================================================================================
+
+Epic Key:
+AI-01
+
+Title:
+Decompose AI Orchestration Layer
+
+Goal:
+Reduce architectural complexity and improve maintainability of the AI orchestration layer without changing functional behavior or external APIs.
+
+Definition of Done:
+- Existing behavior is preserved.
+- No functional regressions.
+- Existing tests continue to pass.
+- New tests added where applicable.
+- Documentation updated where architecture changes.
+
+================================================================================
+PR-001
+================================================================================
+
+Title
+Eliminate any from Context Loader
+
+Status
+Confirmed
+
+Priority
+Critical
+
+Components
+AI Orchestrator
+Context
+
+Description
+
+The context loading boundary currently relies on several `any`-typed fields inside `LoadedProjectContext`, reducing compile-time guarantees and allowing runtime shape drift.
+
+Replace untyped objects with explicit DTOs and strongly typed mapping.
+
+Scope
+
+- context-loader.ts
+- LoadedProjectContext
+- Typed DTOs
+- Mapping layer
+
+Acceptance Criteria
+
+□ No `any` remains inside LoadedProjectContext
+□ All database rows map into explicit DTOs
+□ TypeScript passes without suppressions
+□ Existing behavior unchanged
+□ Unit tests updated
+
+--------------------------------------------------------------------------------
+
+PR-002
+
+Title
+Split Context Database Loader
+
+Status
+Confirmed
+
+Priority
+Critical
+
+Components
+AI Orchestrator
+Context
+
+Description
+
+Split the monolithic `loadProjectContext()` into small domain-specific loaders.
+
+Acceptance Criteria
+
+□ loadProject()
+□ loadTasks()
+□ loadMetrics()
+□ loadGraph()
+□ loadEvents()
+□ loadWorkflow()
+□ loadScanJobs()
+
+□ buildContext() orchestrates loaders only
+□ Existing API preserved
+□ Tests added per loader
+
+--------------------------------------------------------------------------------
+
+PR-003
+
+Title
+Formalize Context Mapping Boundary
+
+Status
+Partial
+
+Priority
+High
+
+Components
+AI Orchestrator
+Context
+
+Description
+
+Strengthen the existing DB → Context mapping by introducing explicit DTO boundaries between SQL models and AI prompt models.
+
+Acceptance Criteria
+
+□ Explicit mapper for every context section
+□ SQL models never exposed directly
+□ Prompt model isolated from DB schema
+□ Serializer tests updated
+
+================================================================================
+PR-004
+================================================================================
+
+Title
+Introduce Provider Strategy Abstraction
+
+Status
+Re-scope
+
+Priority
+High
+
+Components
+AI Orchestrator
+Providers
+
+Description
+
+Generalize provider-specific behavior behind a strategy interface without changing runtime behavior.
+
+Acceptance Criteria
+
+□ ProviderStrategy interface introduced
+□ Provider implementations isolated
+□ New providers require no changes to chat()
+□ Existing providers remain compatible
+
+--------------------------------------------------------------------------------
+
+PR-005
+
+Title
+Extract Tool Execution Engine
+
+Status
+Confirmed
+
+Priority
+Critical
+
+Components
+AI Orchestrator
+Tools
+
+Description
+
+Move tool execution orchestration into an independent execution engine.
+
+Acceptance Criteria
+
+□ executeToolLoop()
+□ executeSingleTool()
+□ cache abstraction
+□ retry abstraction
+□ budget abstraction
+
+□ chat() no longer owns tool execution logic
+
+--------------------------------------------------------------------------------
+
+PR-006
+
+Title
+Extract Response Parsing Pipeline
+
+Status
+Confirmed
+
+Priority
+Critical
+
+Components
+AI Orchestrator
+Parser
+
+Description
+
+Separate parsing responsibilities into an independent pipeline.
+
+Acceptance Criteria
+
+□ parse()
+□ repair()
+□ fallback()
+□ validate()
+□ normalize()
+
+□ chat() delegates parsing
+□ Parser independently testable
+
+--------------------------------------------------------------------------------
+
+PR-007
+
+Title
+Stabilize Prompt Assembly Boundary
+
+Status
+Already Exists
+
+Priority
+Medium
+
+Components
+Prompts
+
+Description
+
+Prompt composition already exists.
+
+Ensure prompt construction remains isolated and prevent prompt rebuilding inside chat-agent.
+
+Acceptance Criteria
+
+□ Prompt logic remains centralized
+□ No duplicated prompt assembly
+□ chat-agent only wires prompt inputs
+
+--------------------------------------------------------------------------------
+
+PR-008
+
+Title
+Introduce Conversation State Object
+
+Status
+Confirmed
+
+Priority
+High
+
+Components
+AI Orchestrator
+
+Description
+
+Replace scattered runtime variables with a single ConversationState object.
+
+Acceptance Criteria
+
+□ ConversationState introduced
+□ Runtime mutable state centralized
+□ Helper signatures simplified
+□ Existing behavior preserved
+
+--------------------------------------------------------------------------------
+
+PR-009
+
+Title
+Split chat() into Pipeline
+
+Status
+Confirmed
+
+Priority
+Critical
+
+Components
+AI Orchestrator
+
+Description
+
+Break the God Function into discrete orchestration stages.
+
+Acceptance Criteria
+
+□ Prepare stage
+□ Provider stage
+□ Prompt stage
+□ Tool stage
+□ Parse stage
+□ Normalize stage
+□ Return stage
+
+□ chat() becomes orchestration only
+
+================================================================================
+PR-010
+================================================================================
+
+Title
+Reduce Provider-specific Branching
+
+Status
+Re-scope
+
+Priority
+Medium
+
+Description
+
+Further encapsulate provider differences using registry/strategy patterns where beneficial.
+
+Acceptance Criteria
+
+□ Provider decisions centralized
+□ No duplicated provider branching
+□ Easier provider extensibility
+
+================================================================================
+PR-011
+================================================================================
+
+Title
+Extract Streaming State Machine
+
+Status
+Confirmed
+
+Priority
+High
+
+Components
+API Server
+
+Description
+
+Move streaming lifecycle management outside the HTTP route.
+
+Acceptance Criteria
+
+□ StreamSession abstraction
+□ Delta handling isolated
+□ Reset handling isolated
+□ Route contains no stream state
+
+--------------------------------------------------------------------------------
+
+PR-012
+
+Title
+Extract Chat Persistence Layer
+
+Status
+Confirmed
+
+Priority
+High
+
+Components
+API Server
+
+Description
+
+Separate persistence responsibilities from transport logic.
+
+Acceptance Criteria
+
+□ Session persistence isolated
+□ Message persistence isolated
+□ Audit persistence isolated
+□ Event persistence isolated
+
+□ Route performs no direct persistence orchestration
+
+--------------------------------------------------------------------------------
+
+PR-013
+
+Title
+Introduce Chat Service Layer
+
+Status
+Confirmed
+
+Priority
+Critical
+
+Components
+API Server
+
+Description
+
+Move orchestration responsibilities into ChatService.
+
+Acceptance Criteria
+
+□ handleChat()
+□ handleStream()
+□ handleApply()
+
+□ Route reduced to HTTP transport only
+
+--------------------------------------------------------------------------------
+
+PR-014
+
+Title
+Extract Apply Engine
+
+Status
+Confirmed
+
+Priority
+High
+
+Components
+API Server
+
+Description
+
+Move Apply workflow into an independent execution engine.
+
+Acceptance Criteria
+
+□ Apply engine introduced
+□ Filesystem validation isolated
+□ Apply workflow testable independently
+
+--------------------------------------------------------------------------------
+
+PR-015
+
+Title
+Centralize AI Error Normalization
+
+Status
+Partial
+
+Priority
+High
+
+Components
+Shared
+
+Description
+
+Unify external AI error mapping while preserving the existing internal error model.
+
+Acceptance Criteria
+
+□ Unified public error mapping
+□ Stable error contract
+□ Route no longer duplicates mapping logic
+
+================================================================================
+PR-016
+================================================================================
+
+Title
+Introduce AI Metrics Layer
+
+Status
+Confirmed
+
+Priority
+Medium
+
+Description
+
+Create centralized AI observability.
+
+Acceptance Criteria
+
+Metrics collected for:
+
+□ Latency
+□ Provider
+□ Retries
+□ Parse failures
+□ Tool calls
+□ Streaming resets
+□ Fallbacks
+
+================================================================================
+PR-017
+================================================================================
+
+Title
+Add AI Contract Tests
+
+Status
+Confirmed
+
+Priority
+Critical
+
+Acceptance Criteria
+
+Contract coverage for:
+
+□ Context
+□ Prompt
+□ Agent
+□ Response
+□ Pending Changes
+□ Apply
+
+================================================================================
+PR-018
+================================================================================
+
+Title
+Provider Compatibility Test Matrix
+
+Status
+Partial
+
+Priority
+High
+
+Acceptance Criteria
+
+Coverage for:
+
+□ Groq
+□ Gemini
+□ DeepSeek
+□ OpenRouter
+
+Validate:
+
+□ JSON
+□ Streaming
+□ Tools
+□ Vision
+□ Context
+
+================================================================================
+PR-019
+================================================================================
+
+Title
+End-to-End AI Pipeline Tests
+
+Status
+Partial
+
+Priority
+High
+
+Acceptance Criteria
+
+End-to-end coverage for:
+
+Dashboard
+→ Route
+→ Context
+→ Prompt
+→ Provider
+→ Parser
+→ Pending Changes
+→ Apply
+
+Regression suite passes successfully.
+
+================================================================================
+PR-020
+================================================================================
+
+Title
+Architecture Cleanup
+
+Status
+Confirmed
+
+Priority
+Medium
+
+Description
+
+Final cleanup after all architectural refactoring has been completed.
+
+Acceptance Criteria
+
+□ Dead code removed
+□ Internal APIs unified
+□ Documentation updated
+□ Architecture diagrams updated
+□ No obsolete execution paths remain
+
+================================================================================
+RELEASE GATE
+================================================================================
+
+The Epic is considered complete only when:
+
+✓ All Confirmed PRs are merged.
+✓ All Partial/Re-scope items are resolved or explicitly accepted.
+✓ No behavioral regressions are introduced.
+✓ Full test suite passes.
+✓ AI pipeline remains functionally identical.
+✓ Documentation matches implementation.
