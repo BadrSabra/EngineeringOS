@@ -1,5 +1,8 @@
 import type { AgentContext as ProjectContext } from "./schemas/context.schema.js";
-import type { LoadedProjectContext } from "./context-loader.js";
+import type {
+  LoadedProjectContext,
+  GraphEntityRow,
+} from "./context-loader.js";
 
 function buildMissingSummary(section: string): string {
   return `${section} not loaded — request it through buildProjectContext({ sections: [...] })`;
@@ -11,7 +14,8 @@ const PRIORITY_RANK: Record<string, number> = { p0: 0, p1: 1, p2: 2, p3: 3 };
 function buildScanLabel(loaded: LoadedProjectContext): string {
   const { latestScanJob, scanVerified } = loaded;
   const scanFailed = latestScanJob?.status === "failed";
-  const scanPending = latestScanJob?.status === "queued" || latestScanJob?.status === "running";
+  const scanPending =
+    latestScanJob?.status === "queued" || latestScanJob?.status === "running";
   return scanVerified
     ? "completed"
     : scanFailed
@@ -23,9 +27,11 @@ function buildScanLabel(loaded: LoadedProjectContext): string {
 
 function buildProjectSummary(loaded: LoadedProjectContext): string {
   const { project, scanVerified } = loaded;
-  const lastScan = project.lastScanAt ? project.lastScanAt.toISOString().slice(0, 10) : "never";
+  const lastScan = project.lastScanAt
+    ? project.lastScanAt.toISOString().slice(0, 10)
+    : "never";
   const qualityNote = scanVerified
-    ? project.qualityScore?.toFixed(1) ?? "N/A"
+    ? (project.qualityScore?.toFixed(1) ?? "N/A")
     : `${project.qualityScore?.toFixed(1) ?? "N/A"} ⚠ unverified`;
 
   const parts: string[] = [
@@ -43,7 +49,9 @@ function buildProjectSummary(loaded: LoadedProjectContext): string {
     const branch = project.gitDefaultBranch ?? "main";
     parts.push(`Git remote: ${project.gitRemoteUrl} (branch: ${branch})`);
   } else {
-    parts.push(`Git remote: not configured — user can add one in the GitHub panel`);
+    parts.push(
+      `Git remote: not configured — user can add one in the GitHub panel`,
+    );
   }
 
   return parts.join(" | ");
@@ -64,14 +72,17 @@ function buildTaskSummary(loaded: LoadedProjectContext): string {
     const head = `[${t.status.toUpperCase()}] ${t.title} (${t.priority})`;
     const extras: string[] = [];
     if (t.phase) extras.push(`phase: ${t.phase}`);
-    if ((t.relatedFiles ?? []).length > 0) extras.push(`${(t.relatedFiles ?? []).length} file(s)`);
+    if (t.relatedFiles.length > 0)
+      extras.push(`${t.relatedFiles.length} file(s)`);
     const suffix = extras.length > 0 ? ` [${extras.join(", ")}]` : "";
     const body = t.description ? ` — ${t.description.slice(0, 100)}` : "";
     return `- ${head}${suffix}${body}`;
   });
 
   return wants("tasks")
-    ? (taskLines.length > 0 ? taskLines.join("\n") : "No tasks yet")
+    ? taskLines.length > 0
+      ? taskLines.join("\n")
+      : "No tasks yet"
     : buildMissingSummary("Tasks");
 }
 
@@ -85,8 +96,10 @@ function buildMetricsSummary(loaded: LoadedProjectContext): string {
     return "No metrics available yet — a scan has not been run for this project.";
   }
 
-  const fmt = (v: number | null | undefined) => (v != null ? v.toFixed(1) : "N/A");
-  const fmtInt = (v: number | null | undefined) => (v != null ? String(v) : "N/A");
+  const fmt = (v: number | null | undefined) =>
+    v != null ? v.toFixed(1) : "N/A";
+  const fmtInt = (v: number | null | undefined) =>
+    v != null ? String(v) : "N/A";
   const asOf = latestMetric.timestamp.toISOString().slice(0, 10);
 
   const parts: string[] = [
@@ -101,10 +114,14 @@ function buildMetricsSummary(loaded: LoadedProjectContext): string {
   ];
 
   if (latestMetric.testsTotal != null) {
-    parts.push(`Tests: ${fmtInt(latestMetric.testsPassed)}/${fmtInt(latestMetric.testsTotal)} passed`);
+    parts.push(
+      `Tests: ${fmtInt(latestMetric.testsPassed)}/${fmtInt(latestMetric.testsTotal)} passed`,
+    );
   }
   if (latestMetric.structuralTestEstimate != null) {
-    parts.push(`StructuralTestEstimate: ${fmt(latestMetric.structuralTestEstimate)}% (heuristic — not measured coverage)`);
+    parts.push(
+      `StructuralTestEstimate: ${fmt(latestMetric.structuralTestEstimate)}% (heuristic — not measured coverage)`,
+    );
   }
   if (latestMetric.lintIssues != null) {
     parts.push(`LintIssues: ${latestMetric.lintIssues}`);
@@ -124,8 +141,7 @@ function buildGraphSummary(loaded: LoadedProjectContext): string {
     return buildMissingSummary("Knowledge graph");
   }
 
-  type Entity = (typeof entities)[number];
-  const entityGroups: Record<string, Entity[]> = {};
+  const entityGroups: Record<string, GraphEntityRow[]> = {};
   for (const e of entities) {
     (entityGroups[e.type] ??= []).push(e);
   }
@@ -141,9 +157,14 @@ function buildGraphSummary(loaded: LoadedProjectContext): string {
         shownIds.add(e.id);
         const file = e.path ? ` (${e.path.replace(/^.*[\\/]/, "")})` : "";
         const kind = e.kind ? ` <${e.kind}>` : "";
-        const conf = e.confidence != null ? ` [${(e.confidence * 100).toFixed(0)}%]` : "";
+        const conf =
+          e.confidence != null
+            ? ` [${(e.confidence * 100).toFixed(0)}%]`
+            : "";
         const domain = e.domain ? ` {${e.domain}}` : "";
-        const desc = e.description ? ` — ${e.description.slice(0, 60)}` : "";
+        const desc = e.description
+          ? ` — ${e.description.slice(0, 60)}`
+          : "";
         return `  • ${e.name}${kind}${file}${conf}${domain}${desc}`;
       });
 
@@ -153,22 +174,34 @@ function buildGraphSummary(loaded: LoadedProjectContext): string {
     if (shownIds.size >= 50) break;
   }
 
-  const entityNameById = new Map<string, string>(entities.map((e) => [e.id, e.name]));
+  const entityNameById = new Map<string, string>(
+    entities.map((e) => [e.id, e.name]),
+  );
   const relLines: string[] = [];
   for (const r of relationships) {
     const src = entityNameById.get(r.sourceId) ?? r.sourceId.slice(0, 8);
     const tgt = entityNameById.get(r.targetId) ?? r.targetId.slice(0, 8);
     const label = r.relationType ?? r.relation;
-    const conf = r.confidence != null ? ` [${(r.confidence * 100).toFixed(0)}%]` : "";
+    const conf =
+      r.confidence != null ? ` [${(r.confidence * 100).toFixed(0)}%]` : "";
     const heuristic = r.isHeuristic ? " [heuristic]" : "";
-    relLines.push(`  • ${src} → ${label} → ${tgt}${conf}${heuristic}`);
+    relLines.push(
+      `  • ${src} → ${label} → ${tgt}${conf}${heuristic}`,
+    );
   }
-  const relSummary = relLines.length > 0 ? `\nRelationships (${relationships.length} shown):\n${relLines.join("\n")}` : "";
+  const relSummary =
+    relLines.length > 0
+      ? `\nRelationships (${relationships.length} shown):\n${relLines.join("\n")}`
+      : "";
 
   let provenanceHeader = "";
   if (entities.length > 0) {
     const sourceTypeCounts: Record<string, number> = {};
-    const confidenceBuckets: Record<string, number> = { high: 0, medium: 0, low: 0 };
+    const confidenceBuckets: Record<string, number> = {
+      high: 0,
+      medium: 0,
+      low: 0,
+    };
     for (const e of entities) {
       const st = (e.sourceType as string | null) ?? "unknown";
       sourceTypeCounts[st] = (sourceTypeCounts[st] ?? 0) + 1;
@@ -206,7 +239,9 @@ function buildEventSummary(loaded: LoadedProjectContext): string {
   });
 
   return wants("events")
-    ? (eventLines.length > 0 ? eventLines.join("\n") : "No recent events")
+    ? eventLines.length > 0
+      ? eventLines.join("\n")
+      : "No recent events"
     : buildMissingSummary("Recent events");
 }
 
@@ -214,19 +249,25 @@ function buildWorkflowSummary(loaded: LoadedProjectContext): string {
   const { rawWorkflows, wants } = loaded;
   const workflowLines = rawWorkflows.map((w) => {
     const phases = Array.isArray(w.phases) ? w.phases : [];
-    const phaseNames = phases.map((p: { name: string }) => p.name).join(" → ");
+    const phaseNames = phases.map((p) => p.name).join(" → ");
     const current = w.currentPhase ? ` | current: ${w.currentPhase}` : "";
     const executions = w.executionCount > 0 ? ` | runs: ${w.executionCount}` : "";
-    const lastRun = w.lastExecutedAt ? ` | last run: ${w.lastExecutedAt.toISOString().slice(0, 10)}` : "";
+    const lastRun = w.lastExecutedAt
+      ? ` | last run: ${w.lastExecutedAt.toISOString().slice(0, 10)}`
+      : "";
     return `- [${w.status.toUpperCase()}] ${w.name}${current}${executions}${lastRun}${phaseNames ? ` | phases: ${phaseNames}` : ""}`;
   });
 
   return wants("workflows")
-    ? (workflowLines.length > 0 ? workflowLines.join("\n") : "No workflows defined yet")
+    ? workflowLines.length > 0
+      ? workflowLines.join("\n")
+      : "No workflows defined yet"
     : buildMissingSummary("Workflows");
 }
 
-export function buildProjectContextFromLoadedContext(loaded: LoadedProjectContext): ProjectContext {
+export function buildProjectContextFromLoadedContext(
+  loaded: LoadedProjectContext,
+): ProjectContext {
   return {
     project: buildProjectSummary(loaded),
     workflows: buildWorkflowSummary(loaded),
