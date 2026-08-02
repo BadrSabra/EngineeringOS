@@ -111,13 +111,20 @@ function classifyStatus(
     normalizedBody.includes("invalid model id") ||
     normalizedBody.includes("unknown model") ||
     normalizedBody.includes("model not found") ||
-    normalizedBody.includes("model unavailable");
+    normalizedBody.includes("model unavailable") ||
+    normalizedBody.includes("unavailable for free");
 
   // STORY-03: OpenRouter returns 404 when a free model is discontinued or
-  // temporarily unavailable.  Classify separately so the fallback engine
-  // (openrouterCompleteWithFallback) can catch this code and advance to the
-  // next model in the chain rather than bubbling as a hard failure.
-  if (providerName === "OpenRouter" && (status === 404 || (status === 400 && looksLikeMissingModel))) {
+  // temporarily unavailable, and 402 when a model requires payment / credits
+  // that the account does not have.  Both cases mean "this model cannot be
+  // used right now" — classify them as MODEL_NOT_FOUND so the fallback engine
+  // (openrouterCompleteWithFallback) advances to the next candidate rather
+  // than surfacing a hard failure.  400 with a model-not-found body is also
+  // included (added by the previous patch for invalid slugs).
+  if (
+    providerName === "OpenRouter" &&
+    (status === 404 || status === 402 || (status === 400 && looksLikeMissingModel))
+  ) {
     return new GroqClientError(
       "MODEL_NOT_FOUND",
       `OpenRouter model not found (${status}) — the model may have been discontinued or is temporarily unavailable. ${body.slice(0, 200)}`,
