@@ -44,6 +44,8 @@ export type GroqErrorCode =
   | "RATE_LIMITED"
   | "SERVER_ERROR"
   | "NON_200"
+  // model availability — OpenRouter 404 when a free model is discontinued
+  | "MODEL_NOT_FOUND"
   // response
   | "EMPTY_RESPONSE"
   // configuration

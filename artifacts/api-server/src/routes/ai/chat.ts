@@ -235,6 +235,8 @@ router.post("/ai/chat", async (req, res) => {
       message: assistantMsg,
       sources: result.sources,
       pendingChanges: result.pendingChanges ?? [],
+      // STORY-04: actual model used (may differ from default if fallback occurred)
+      resolvedModel: result.resolvedModel,
       _meta: rootFallbackUsed
         ? { rootPathFallback: { used: true, original: rootOriginalPath } }
         : undefined,
@@ -510,6 +512,8 @@ router.post("/ai/chat/stream", async (req, res) => {
       message: assistantMsg,
       sources: result.sources,
       pendingChanges: result.pendingChanges ?? [],
+      // STORY-04: surface the actual model used so the UI can display it accurately
+      resolvedModel: result.resolvedModel,
       _meta: rootFallbackUsed
         ? { rootPathFallback: { used: true, original: rootOriginalPath } }
         : undefined,

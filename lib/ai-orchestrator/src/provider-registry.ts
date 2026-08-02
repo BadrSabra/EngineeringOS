@@ -19,6 +19,19 @@ import { groqStrategy } from "./strategies/groq.strategy.js";
 import { deepseekStrategy } from "./strategies/deepseek.strategy.js";
 import { openrouterStrategy } from "./strategies/openrouter.strategy.js";
 import { geminiStrategy } from "./strategies/gemini.strategy.js";
+// STORY-07: OpenRouter model IDs come from the resolver — no hardcoded strings
+// in the registry. resolveFallbackChain is the pure (no-logging) variant so
+// startup doesn't emit decision-trace lines for every server boot.
+import { resolveFallbackChain } from "./openrouter/model-resolver.js";
+
+// Computed once at module load; falls back to a known-good model if the
+// catalog is somehow empty (defensive only — catalog is never empty).
+const _orFast =
+  resolveFallbackChain({ capability: "chat", quality: "fast", preferFreeTier: true })[0]?.id ??
+  "meta-llama/llama-3.1-8b-instruct:free";
+const _orPowerful =
+  resolveFallbackChain({ capability: "reasoning", quality: "powerful", preferFreeTier: true })[0]?.id ??
+  "meta-llama/llama-3.3-70b-instruct:free";
 
 export type ProviderId = "groq" | "deepseek" | "openrouter" | "gemini";
 
@@ -60,9 +73,11 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
     supportsTools: true,
     supportsJsonMode: true,
     defaultModels: {
-      // OR-002: all OpenRouter defaults must be free-tier models only.
-      fast: "google/gemma-2-9b-it:free",
-      powerful: "meta-llama/llama-3.3-70b-instruct:free",
+      // STORY-07: model IDs are resolved from the catalog at startup — not
+      // hardcoded here.  Changing model availability only requires editing
+      // openrouter/model-catalog.ts; nothing in the registry changes.
+      fast: _orFast,
+      powerful: _orPowerful,
     },
     capabilities: {
       supportsStreaming: true,

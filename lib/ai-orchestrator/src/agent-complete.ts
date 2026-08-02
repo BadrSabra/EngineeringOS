@@ -7,7 +7,7 @@
  */
 import { complete, completeRaw, MODEL_POWERFUL } from "./groq-client.js";
 import { deepseekCompleteRaw } from "./deepseek-client.js";
-import { openrouterCompleteRaw, geminiCompleteRaw } from "./openai-compatible-client.js";
+import { openrouterCompleteWithFallback, geminiCompleteRaw } from "./openai-compatible-client.js";
 import { discoverProvider, loadProvider } from "./provider-registry.js";
 import { buildQualityHints, type QualityProfile } from "./quality-engine.js";
 import { GroqClientError } from "./errors.js";
@@ -57,7 +57,9 @@ async function probeProviderKey(provider: ProviderConfig, apiKey: string): Promi
       await deepseekCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
       return;
     case "openrouter":
-      await openrouterCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
+      // Use fallback-aware client; a 404 on the probe just means the default
+      // model is gone — fallback confirms whether the key itself is valid.
+      await openrouterCompleteWithFallback(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
       return;
     case "gemini":
       await geminiCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
@@ -122,7 +124,10 @@ export async function agentComplete(
     }
 
     case "openrouter": {
-      const result = await openrouterCompleteRaw(messages, {
+      // STORY-03: fallback-aware client automatically tries the next free model
+      // if the primary returns MODEL_NOT_FOUND. Model ID comes from the resolver
+      // via provider.defaultModels (STORY-07 — no hardcoded strings here).
+      const result = await openrouterCompleteWithFallback(messages, {
         model: provider.defaultModels.powerful,
         apiKey,
       });

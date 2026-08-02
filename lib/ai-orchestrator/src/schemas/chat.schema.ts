@@ -51,8 +51,21 @@ export const ChatResponseSchema = z.object({
  * model — but it is typed here via PendingChangeSchema so the shape is a
  * single source of truth for both TypeScript and runtime validation.
  */
+/**
+ * STORY-04: resolved model info appended by the chat agent after the tool
+ * loop. Optional — older callers that don't populate it still pass validation.
+ */
+export const ResolvedModelSchema = z.object({
+  id: z.string(),
+  provider: z.string(),
+  free: z.boolean(),
+});
+
+export type ResolvedModelInfo = z.infer<typeof ResolvedModelSchema>;
+
 export const ChatOutputSchema = ChatResponseSchema.extend({
   pendingChanges: z.array(PendingChangeSchema).default([]),
+  resolvedModel: ResolvedModelSchema.optional(),
 });
 
 export type ChatOutput = z.infer<typeof ChatOutputSchema>;

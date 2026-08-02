@@ -13,6 +13,7 @@
  */
 import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./groq-client.js";
 import { GroqClientError } from "./errors.js";
+import { buildFallbackChainFromId } from "./openrouter/model-resolver.js";
 
 export type OpenAICompatibleOptions = {
   model?: string;
@@ -101,6 +102,16 @@ function classifyStatus(
     return new GroqClientError(
       "SERVER_ERROR",
       `${providerName} API server error (${status}): ${body.slice(0, 200)}`,
+    );
+  }
+  // STORY-03: OpenRouter returns 404 when a free model is discontinued or
+  // temporarily unavailable.  Classify separately so the fallback engine
+  // (openrouterCompleteWithFallback) can catch this code and advance to the
+  // next model in the chain rather than bubbling as a hard failure.
+  if (status === 404 && providerName === "OpenRouter") {
+    return new GroqClientError(
+      "MODEL_NOT_FOUND",
+      `OpenRouter model not found (404) — the model may have been discontinued or is temporarily unavailable. ${body.slice(0, 200)}`,
     );
   }
   return new GroqClientError(
@@ -431,6 +442,11 @@ export async function* oacCompleteStream(
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_EXTRA_HEADERS = { "X-Title": "EngineeringOS" };
 
+/** True for errors that indicate the model itself is unavailable (STORY-03). */
+function isModelNotFoundError(err: unknown): err is GroqClientError {
+  return err instanceof GroqClientError && err.code === "MODEL_NOT_FOUND";
+}
+
 /**
  * Non-streaming completion via OpenRouter.
  *
@@ -469,6 +485,62 @@ export async function openrouterCompleteRaw(
     await sleep(1500);
     return oacCompleteRaw(trimmed, fullOpts);
   }
+}
+
+/**
+ * Non-streaming completion via OpenRouter with automatic free-model fallback
+ * (STORY-03).
+ *
+ * If the initial model returns MODEL_NOT_FOUND (404 — model discontinued or
+ * unavailable on the free tier), advances through the quality-ordered fallback
+ * chain built by buildFallbackChainFromId until a model succeeds or all
+ * candidates are exhausted.
+ *
+ * Every skip is logged as a structured JSON line (scope:"openrouter-fallback")
+ * so the decision chain is observable in server logs (STORY-05).
+ *
+ * Transient errors (429, 5xx, timeout, network) on any candidate are still
+ * retried by the underlying openrouterCompleteRaw before advancing the chain.
+ */
+export async function openrouterCompleteWithFallback(
+  messages: RawMessage[],
+  opts: Omit<OpenAICompatibleOptions, "baseUrl" | "providerName" | "extraHeaders">,
+): Promise<RawGroqResponse> {
+  const initialModel = opts.model;
+  if (!initialModel) {
+    // No model specified — delegate to raw (will use oacCompleteRaw default).
+    return openrouterCompleteRaw(messages, opts);
+  }
+
+  const chain = buildFallbackChainFromId(initialModel);
+  let lastError: GroqClientError | undefined;
+
+  for (let i = 0; i < chain.length; i++) {
+    const model = chain[i] as string;
+    try {
+      return await openrouterCompleteRaw(messages, { ...opts, model });
+    } catch (err) {
+      if (isModelNotFoundError(err) && i < chain.length - 1) {
+        const nextModel = chain[i + 1] as string;
+        console.warn(
+          JSON.stringify({
+            scope: "openrouter-fallback",
+            code: "MODEL_NOT_FOUND_FALLBACK",
+            failedModel: model,
+            nextModel,
+            attempt: i + 1,
+            remaining: chain.length - i - 1,
+          }),
+        );
+        lastError = err;
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError ??
+    new GroqClientError("MODEL_NOT_FOUND", "All OpenRouter free-tier fallback models exhausted");
 }
 
 /**

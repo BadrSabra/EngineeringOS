@@ -63,6 +63,8 @@ export type AiStreamDoneEvent = {
     originalContent: string | null;
     reason: string;
   }>;
+  /** STORY-04: actual model used at runtime (may differ from configured default if fallback occurred). */
+  resolvedModel?: { id: string; provider: string; free: boolean };
 };
 
 export type AiStreamErrorEvent = {

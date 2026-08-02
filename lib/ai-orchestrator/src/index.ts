@@ -48,6 +48,21 @@ export * from "./schemas/index.js";
 export { chat } from "./agents/chat-agent.js";
 export type { ChatMessage, ChatResult } from "./agents/chat-agent.js";
 
+export {
+  resolveModel,
+  resolveFallbackChain,
+  buildFallbackChainFromId,
+  emitModelDecisionTrace,
+  FREE_MODELS,
+} from "./openrouter/index.js";
+export type {
+  ModelCapability,
+  OpenRouterFreeModel,
+  ResolvedModel,
+  ResolveModelOpts,
+  ModelDecisionTrace,
+} from "./openrouter/index.js";
+
 export { analyzeScan } from "./agents/scan-analyst.js";
 export type { ScanAnalysisResult } from "./agents/scan-analyst.js";
 

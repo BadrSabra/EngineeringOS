@@ -10,7 +10,7 @@
  * call (which is slow and unreliable on free tiers).
  */
 import {
-  openrouterCompleteRaw,
+  openrouterCompleteWithFallback,
   openrouterCompleteStream,
 } from "../openai-compatible-client.js";
 import { GroqClientError } from "../errors.js";
@@ -25,6 +25,8 @@ export const openrouterStrategy: ProviderStrategy = {
   providerId: "openrouter",
   supportsNativeStream: false,
 
+  // STORY-03: use fallback-aware client so a discontinued free model (404)
+  // automatically advances to the next candidate in the quality-ordered chain.
   call(messages: RawMessage[], opts: StrategyCallOptions) {
     if (!opts.apiKey) {
       throw new GroqClientError(
@@ -32,7 +34,7 @@ export const openrouterStrategy: ProviderStrategy = {
         "OpenRouter requires an API key — save one in the AI settings panel",
       );
     }
-    return openrouterCompleteRaw(messages, { ...opts, apiKey: opts.apiKey });
+    return openrouterCompleteWithFallback(messages, { ...opts, apiKey: opts.apiKey });
   },
 
   stream(messages: RawMessage[], opts: StrategyStreamOptions): AsyncGenerator<string> {

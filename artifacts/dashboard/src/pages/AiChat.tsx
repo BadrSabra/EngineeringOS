@@ -49,6 +49,23 @@ const AiApiError = ApiError;
  * Maps an AiApiError (or any error) to a concise, user-facing string.
  * Status codes align with what ai.ts returns after handleOrchestratorError.
  */
+/** STORY-04: human-readable label for an OpenRouter model ID. */
+const OR_MODEL_LABELS: Record<string, string> = {
+  "meta-llama/llama-3.3-70b-instruct:free": "Llama 3.3 70B",
+  "meta-llama/llama-3.1-8b-instruct:free":  "Llama 3.1 8B",
+  "deepseek/deepseek-v3-0324:free":          "DeepSeek V3",
+  "deepseek/deepseek-r1:free":               "DeepSeek R1",
+  "qwen/qwen3-235b-a22b:free":               "Qwen3 235B",
+  "qwen/qwen3-8b:free":                      "Qwen3 8B",
+  "qwen/qwen3-30b-a3b:free":                 "Qwen3 30B",
+  "mistralai/mistral-7b-instruct:free":      "Mistral 7B",
+  "google/gemma-3-27b-it:free":              "Gemma 3 27B",
+  "google/gemma-3-12b-it:free":              "Gemma 3 12B",
+};
+function fmtModelId(id: string): string {
+  return OR_MODEL_LABELS[id] ?? (id.split("/").pop()?.replace(/:free$/, "") ?? id);
+}
+
 function describeAiError(err: unknown): string {
   if (err instanceof AiApiError) {
     switch (err.status) {
@@ -787,6 +804,9 @@ export default function AiChat() {
   // Streaming: accumulates raw text deltas while Groq is streaming a response.
   // Cleared to '' once the `done` event arrives and the full message is added.
   const [streamingContent, setStreamingContent] = useState('');
+  // STORY-04: actual model used at runtime — updated from every SSE done event
+  // so the badge always reflects what the model that actually ran the request.
+  const [lastResolvedModel, setLastResolvedModel] = useState<{ id: string; provider: string; free: boolean } | undefined>(undefined);
   const { send: streamSend, isPending: isSending } = useAiChatStream();
 
   // GAP-2: dedicated analyze / review mutations — call specialized endpoints
@@ -1045,6 +1065,8 @@ export default function AiChat() {
             return [...withoutOpt, data.message as ChatMessage];
           });
           setPendingChanges(data.pendingChanges ?? []);
+          // STORY-04: update displayed model from the done event
+          if (data.resolvedModel) setLastResolvedModel(data.resolvedModel);
           void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
         },
         onError: (err) => {
@@ -1231,7 +1253,9 @@ export default function AiChat() {
             {activeProvider?.provider === 'deepseek'
               ? 'DeepSeek V3'
               : activeProvider?.provider === 'openrouter'
-                ? 'Gemma 4 · OpenRouter'
+                ? (lastResolvedModel
+                    ? `${fmtModelId(lastResolvedModel.id)} · OpenRouter`
+                    : 'OpenRouter')
                 : activeProvider?.provider === 'gemini'
                   ? 'Gemini 2.5 Flash'
                   : 'Llama 3.3 · Groq'}

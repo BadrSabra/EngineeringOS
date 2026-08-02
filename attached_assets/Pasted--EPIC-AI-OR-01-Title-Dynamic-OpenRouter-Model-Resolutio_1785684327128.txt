@@ -1,0 +1,519 @@
+
+
+# EPIC-AI-OR-01
+
+## Title
+
+**Dynamic OpenRouter Model Resolution & Free-Tier Optimization**
+
+---
+
+## Epic Goal
+
+Remove hardcoded OpenRouter model selection and introduce a centralized, capability-driven model resolution policy with automatic fallback between supported free models.
+
+---
+
+## Scope
+
+يشمل فقط:
+
+* OpenRouter
+* اختيار النموذج
+* Free Tier
+* Model Fallback
+* Telemetry
+
+ولا يشمل:
+
+* Tool Policy
+* Provider Registry redesign
+* Retry Engine redesign
+* AI orchestration redesign
+
+---
+
+# STORY-01
+
+## Title
+
+Extract OpenRouter Model Resolver
+
+### Priority
+
+P0
+
+### Problem
+
+Model identifiers are currently hardcoded inside execution paths.
+
+Example:
+
+```
+chat-agent.ts
+
+↓
+
+fastModel
+```
+
+```
+agent-complete.ts
+
+↓
+
+provider.defaultModels.powerful
+```
+
+This tightly couples execution logic to specific OpenRouter models.
+
+---
+
+### Files
+
+```
+lib/ai-orchestrator/src/provider-registry.ts
+
+lib/ai-orchestrator/src/agents/chat-agent.ts
+
+lib/ai-orchestrator/src/agent-complete.ts
+```
+
+New
+
+```
+lib/ai-orchestrator/src/openrouter/model-resolver.ts
+```
+
+---
+
+### Tasks
+
+Create
+
+```
+resolveModel()
+```
+
+Input
+
+```
+Capability
+
+Quality
+
+RequireTools
+
+PreferFreeTier
+```
+
+Output
+
+```
+ResolvedModel
+```
+
+---
+
+### Acceptance Criteria
+
+* No execution component reads model IDs directly.
+* All OpenRouter model selection goes through Model Resolver.
+* Existing behavior preserved.
+
+---
+
+# STORY-02
+
+## Title
+
+Introduce Capability-Based Model Mapping
+
+### Priority
+
+P0
+
+### Problem
+
+Current routing is:
+
+```
+fast
+
+↓
+
+Gemma
+```
+
+```
+power
+
+↓
+
+Llama
+```
+
+Instead it should become:
+
+```
+Capability
+
+↓
+
+Model
+```
+
+---
+
+### Example Mapping
+
+| Capability   | Target             |
+| ------------ | ------------------ |
+| Chat         | Lightweight Free   |
+| Coding       | Code Model         |
+| Tool Calling | Tool-capable Model |
+| Reasoning    | High Capability    |
+| JSON         | Structured-capable |
+| Long Context | Long Context Model |
+
+---
+
+### Acceptance Criteria
+
+Adding a new model requires updating only one mapping file.
+
+---
+
+# STORY-03
+
+## Title
+
+Automatic Free Model Fallback
+
+### Priority
+
+P0
+
+### Problem
+
+Current behavior:
+
+```
+Gemma
+
+↓
+
+404
+
+↓
+
+FAIL
+```
+
+Desired behavior:
+
+```
+Gemma
+
+↓
+
+404
+
+↓
+
+Llama
+
+↓
+
+DeepSeek
+
+↓
+
+Qwen
+
+↓
+
+FAIL
+```
+
+Only after all compatible free models fail.
+
+---
+
+### Files
+
+```
+model-resolver.ts
+
+openrouter.strategy.ts
+```
+
+---
+
+### Acceptance Criteria
+
+404 on one model does not terminate the request.
+
+---
+
+# STORY-04
+
+## Title
+
+Synchronize UI With Actual Model
+
+### Priority
+
+P1
+
+### Problem
+
+Dashboard currently displays:
+
+```
+Gemma 4 • OpenRouter
+```
+
+while runtime may execute another model.
+
+---
+
+### Files
+
+```
+artifacts/dashboard/src/pages/AiChat.tsx
+```
+
+---
+
+### Tasks
+
+Display
+
+```
+Provider
+
+Resolved Model
+
+Free/Paid
+```
+
+taken from runtime.
+
+---
+
+### Acceptance Criteria
+
+Displayed model always matches executed model.
+
+---
+
+# STORY-05
+
+## Title
+
+Model Decision Trace
+
+### Priority
+
+P1
+
+### Problem
+
+Today it is impossible to answer:
+
+Why was this model selected?
+
+---
+
+### Log Example
+
+```
+Provider:
+OpenRouter
+
+Capability:
+Reasoning
+
+Prefer Free:
+true
+
+Candidates:
+Gemma
+↓
+
+404
+
+↓
+
+Llama
+
+↓
+
+Selected
+```
+
+---
+
+### Acceptance Criteria
+
+Each request records:
+
+* Requested capability
+* Candidate models
+* Selected model
+* Failure reason
+* Fallback chain
+* Final model
+
+---
+
+# STORY-06
+
+## Title
+
+OpenRouter Model Catalog
+
+### Priority
+
+P2
+
+### Problem
+
+The system currently knows only models hardcoded in the registry.
+
+---
+
+### New File
+
+```
+lib/ai-orchestrator/src/openrouter/model-catalog.ts
+```
+
+---
+
+### Example
+
+```ts
+export const FREE_MODELS = [
+  {
+    id: "...",
+    capabilities: [...],
+    context: ...,
+    supportsTools: true,
+    supportsJson: true
+  }
+];
+```
+
+---
+
+### Acceptance Criteria
+
+Registry no longer owns OpenRouter model metadata.
+
+---
+
+# STORY-07
+
+## Title
+
+Registry Simplification
+
+### Priority
+
+P2
+
+### Problem
+
+Registry currently stores:
+
+```
+Provider
+
+↓
+
+Default Models
+```
+
+After introducing Model Resolver:
+
+Registry should only describe providers.
+
+---
+
+### Files
+
+```
+provider-registry.ts
+```
+
+---
+
+### Tasks
+
+Keep only:
+
+* Provider ID
+* Endpoint
+* Priority
+* Authentication
+* Provider capabilities
+
+Remove:
+
+```
+defaultModels
+```
+
+---
+
+### Acceptance Criteria
+
+Provider Registry contains no routing logic.
+
+---
+
+# تنفيذ المراحل
+
+## Phase 1 (Critical)
+
+* Story 01
+* Story 02
+* Story 03
+
+**النتيجة:**
+
+* إزالة الـ hardcode.
+* حل مشكلة 404 للنماذج غير المتاحة.
+* الاستفادة الأفضل من OpenRouter Free Tier.
+
+---
+
+## Phase 2 (Operational)
+
+* Story 04
+* Story 05
+
+**النتيجة:**
+
+* توافق واجهة المستخدم مع التنفيذ الفعلي.
+* إمكانية تتبع قرارات اختيار النموذج وتشخيصها.
+
+---
+
+## Phase 3 (Architecture Cleanup)
+
+* Story 06
+* Story 07
+
+**النتيجة:**
+
+* فصل بيانات النماذج عن سجل المزوّد.
+* تسهيل إضافة أو إزالة النماذج دون تعديل منطق التنفيذ.
+
+---
+
+## ملاحظة معمارية مهمة
+
+أثناء التحقيق ظهر أن **الخطأ الحالي (404 على `google/gemma-2-9b-it:free`) ناتج عن نموذج لم يعد متاحًا**. لذلك **Story-03 (Automatic Free Model Fallback)** هي أعلى أولوية لأنها تعالج العطل الفعلي مباشرة. أما **Story-06 وStory-07** فهما تحسينات معمارية يُفضّل تنفيذهما بعد استقرار السلوك الأساسي، لأنهما يغيّران تنظيم البيانات أكثر مما يعالجان سبب الفشل الحالي.

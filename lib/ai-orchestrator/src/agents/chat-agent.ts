@@ -45,7 +45,7 @@ import type { AgentErrorCode } from "../errors.js";
 import type { RawMessage } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildChatSystemPrompt } from "../prompts/chat.prompt.js";
-import { ChatResponseSchema, ChatOutputSchema, PendingChangeSchema, type ChatOutput, type PendingChange } from "../schemas/chat.schema.js";
+import { ChatResponseSchema, ChatOutputSchema, PendingChangeSchema, type ChatOutput, type PendingChange, type ResolvedModelInfo } from "../schemas/chat.schema.js";
 import { parseAgentResponse } from "../parsing.js";
 import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
 import { speculativePrefetch } from "./speculative-prefetch.js";
@@ -425,6 +425,12 @@ export async function chat(opts: {
   // ── Final response from model ─────────────────────────────────────────────
   const result = loopResult.result;
 
+  // STORY-04: capture actual model used — may differ from initial selection if
+  // the fallback engine advanced to a different model mid-request.
+  const resolvedModelInfo: ResolvedModelInfo | undefined = result.model
+    ? { id: result.model, provider, free: provider === "openrouter" }
+    : undefined;
+
   // ── Streaming path ────────────────────────────────────────────────────────
   // When the caller provided an onDelta callback, stream the final response
   // so tokens arrive at the client in real time.
@@ -485,7 +491,7 @@ export async function chat(opts: {
         );
       }
 
-      return { response: responseText, sources: mergedSources, pendingChanges: finalChanges };
+      return { response: responseText, sources: mergedSources, pendingChanges: finalChanges, resolvedModel: resolvedModelInfo };
     }
 
     // Strategy 2 — native SSE streaming (Groq / DeepSeek).
@@ -522,7 +528,7 @@ export async function chat(opts: {
       // use only ground-truth toolSources (already clean); never fall back
       // to a generic label.
       const mergedSources = toolSources.length > 0 ? toolSources : [];
-      return { response: accumulated.trim(), sources: mergedSources, pendingChanges };
+      return { response: accumulated.trim(), sources: mergedSources, pendingChanges, resolvedModel: resolvedModelInfo };
     }
     // Streaming failed — fall through to non-streaming path below.
   }
@@ -591,6 +597,7 @@ export async function chat(opts: {
     ...parsed.data,
     sources: mergedSources,
     pendingChanges,
+    resolvedModel: resolvedModelInfo,
   };
   const check = ChatOutputSchema.safeParse(output);
   if (!check.success) {
@@ -613,7 +620,7 @@ export async function chat(opts: {
         droppedChanges: pendingChanges.length - validChanges.length,
       }),
     );
-    return { ...parsed.data, sources: mergedSources, pendingChanges: validChanges, _parseError: parseError };
+    return { ...parsed.data, sources: mergedSources, pendingChanges: validChanges, _parseError: parseError, resolvedModel: resolvedModelInfo };
   }
   return parseError ? { ...check.data, _parseError: parseError } : check.data;
 }
