@@ -28,8 +28,9 @@
  *   NON_200           Any other non-200 status (e.g. 400 bad request).
  *
  * Model availability
- *   MODEL_NOT_FOUND   404/402: model permanently discontinued or requires payment.
- *   MODEL_UNAVAILABLE 422/410: model temporarily offline or being retired.
+ *   MODEL_NOT_FOUND    404: model permanently discontinued.
+ *   PLAN_RESTRICTED    402: model requires paid tier / free-tier restriction.
+ *   MODEL_UNAVAILABLE  422/410: model temporarily offline or being retired.
  *
  * Response
  *   EMPTY_RESPONSE    Response received but contained no content or tool calls.
@@ -47,11 +48,12 @@ export type GroqErrorCode =
   // HTTP — split by semantics
   | "AUTH_ERROR"
   | "RATE_LIMITED"
-  | "QUOTA"           // billing quota / credits exhausted (PR-008)
+  | "QUOTA"             // billing quota / credits exhausted (PR-008)
   | "SERVER_ERROR"
   | "NON_200"
-  // model availability — distinct from each other (PR-008)
-  | "MODEL_NOT_FOUND"     // 404/402 — model discontinued or requires payment
+  // model availability — distinct from each other (PR-004 / PR-008)
+  | "MODEL_NOT_FOUND"     // 404 — model permanently discontinued
+  | "PLAN_RESTRICTED"     // 402 — model requires paid plan / free-tier restriction
   | "MODEL_UNAVAILABLE"   // 422/410 — model temporarily offline (PR-008)
   // response
   | "EMPTY_RESPONSE"

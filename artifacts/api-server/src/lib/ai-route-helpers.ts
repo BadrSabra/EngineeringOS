@@ -18,6 +18,7 @@ import {
   PROVIDER_PRIORITY,
   PROVIDER_REGISTRY,
   sortProviderIdsByQuality,
+  isCircuitOpen,
 } from "@workspace/ai-orchestrator";
 import type { ProviderId, QualityProfile } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
@@ -52,6 +53,14 @@ async function collectAvailableProviders(
       logger.info(
         { provider, requireTools: !!options?.requireTools },
         "Skipping provider that cannot satisfy the current request",
+      );
+      continue;
+    }
+    // PR-07: skip providers whose circuit breaker is open (cooldown not elapsed).
+    if (isCircuitOpen(provider)) {
+      logger.warn(
+        { provider },
+        "Skipping provider — circuit is open due to consecutive failures",
       );
       continue;
     }
@@ -176,6 +185,11 @@ export function requestLooksToolBound(message: string): boolean {
 /**
  * Error codes that should trigger a provider fallback rather than surfacing
  * the error directly to the caller.
+ *
+ * PR-03: MODEL_UNAVAILABLE (410/422) and PLAN_RESTRICTED (402 free-tier) are
+ * now fallback-worthy — they mean the model is gone on THIS provider but
+ * another provider may succeed.  QUOTA is also included: if a provider's
+ * credits are exhausted we should try the next one.
  */
 const FALLBACK_TRIGGER_CODES = new Set<string>([
   "RATE_LIMITED",
@@ -186,6 +200,9 @@ const FALLBACK_TRIGGER_CODES = new Set<string>([
   "EMPTY_RESPONSE",
   "SERVER_ERROR",
   "MODEL_NOT_FOUND",
+  "MODEL_UNAVAILABLE",   // PR-03: 410/422 — model temporarily offline
+  "PLAN_RESTRICTED",     // PR-03/PR-04: 402 — free-tier restriction
+  "QUOTA",               // PR-03: credits/billing exhausted on this provider
 ]);
 
 /**
@@ -424,16 +441,43 @@ export function handleOrchestratorError(
       });
       return true;
     case "MODEL_NOT_FOUND": {
-      // OpenRouter free-tier models return 404/402 "unavailable for free" when the
-      // account has no credit balance — give a more actionable hint than the
-      // generic "model slug rejected" message.
       const isOpenRouter = providerId === "openrouter";
       res.status(422).json({
         ...base,
-        error: `${providerLabel} selected model is unavailable.`,
+        error: `${providerLabel} model has been discontinued or removed.`,
         hint: isOpenRouter
-          ? `All OpenRouter free-tier models are currently unavailable — this usually means the account needs a small credit balance (from ${providerConsole}). Alternatively, save a Groq or DeepSeek API key as a fallback provider.`
+          ? `All OpenRouter free-tier models are currently unavailable — the model may have been discontinued. Try a different provider (Groq, DeepSeek, or Gemini) by saving another API key.`
           : `The configured model slug is no longer accepted by ${providerLabel}. Re-save the provider key or try again after the model catalog refreshes.`,
+      });
+      return true;
+    }
+    // PR-04: plan-restricted models (402 — free-tier limitation)
+    case "PLAN_RESTRICTED": {
+      const isOpenRouter = providerId === "openrouter";
+      res.status(402).json({
+        ...base,
+        error: `${providerLabel} model requires a paid plan or credit balance.`,
+        hint: isOpenRouter
+          ? `The selected OpenRouter model is only available on paid plans. Add a small credit balance at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`
+          : `${providerLabel} requires a paid plan for this model. Check your plan at ${providerConsole}.`,
+      });
+      return true;
+    }
+    // PR-04: model temporarily offline (410/422)
+    case "MODEL_UNAVAILABLE": {
+      res.status(503).json({
+        ...base,
+        error: `${providerLabel} model is temporarily unavailable.`,
+        hint: `The model is temporarily offline or being retired. Try again in a moment, or save a fallback provider key (Groq, DeepSeek, or Gemini) for automatic retry.`,
+      });
+      return true;
+    }
+    // PR-04: billing quota / credits exhausted
+    case "QUOTA": {
+      res.status(402).json({
+        ...base,
+        error: `${providerLabel} billing quota or credits are exhausted.`,
+        hint: `Replenish your ${providerLabel} credits at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`,
       });
       return true;
     }

@@ -1,8 +1,15 @@
 /**
  * OpenRouter provider strategy.
  *
- * Wraps `openrouterCompleteRaw` and `openrouterCompleteStream` from
+ * Wraps `openrouterCompleteWithFallback` and `openrouterCompleteStream` from
  * openai-compatible-client.ts behind the `ProviderStrategy` interface.
+ *
+ * PR-01: refreshes the dynamic model catalog before each call so stale model
+ * IDs are filtered out of the fallback chain as soon as they disappear.
+ *
+ * PR-07: integrates the circuit breaker — checks before attempting a call,
+ * records success/failure so the circuit opens after repeated failures and
+ * re-enables after the cooldown.
  *
  * `supportsNativeStream: false` — OpenRouter free-tier models often
  * include the final answer in the non-streaming tool-loop response, so the
@@ -14,6 +21,12 @@ import {
   openrouterCompleteStream,
 } from "../openai-compatible-client.js";
 import { GroqClientError } from "../errors.js";
+import { refreshDynamicCatalog } from "../openrouter/dynamic-catalog.js";
+import {
+  isCircuitOpen,
+  recordCircuitFailure,
+  recordCircuitSuccess,
+} from "../openrouter/circuit-breaker.js";
 import type { RawMessage } from "../groq-client.js";
 import type {
   ProviderStrategy,
@@ -25,25 +38,65 @@ export const openrouterStrategy: ProviderStrategy = {
   providerId: "openrouter",
   supportsNativeStream: false,
 
-  // STORY-03: use fallback-aware client so a discontinued free model (404)
-  // automatically advances to the next candidate in the quality-ordered chain.
-  call(messages: RawMessage[], opts: StrategyCallOptions) {
+  // PR-01 + PR-07: refresh catalog (fire-and-forget), check circuit, record outcome.
+  async call(messages: RawMessage[], opts: StrategyCallOptions): Promise<ReturnType<ProviderStrategy["call"]>> {
     if (!opts.apiKey) {
       throw new GroqClientError(
         "INVALID_CONFIG",
         "OpenRouter requires an API key — save one in the AI settings panel",
       );
     }
-    return openrouterCompleteWithFallback(messages, { ...opts, apiKey: opts.apiKey });
+
+    // PR-07: reject immediately when circuit is open (cooldown not elapsed).
+    if (isCircuitOpen("openrouter")) {
+      throw new GroqClientError(
+        "MODEL_NOT_FOUND",
+        "OpenRouter is temporarily disabled — too many consecutive failures. It will be retried automatically after the cooldown.",
+      );
+    }
+
+    // PR-01: refresh the live model catalog so stale IDs are filtered before
+    // the fallback chain is built.  Fire-and-forget — the resolver uses the
+    // previous snapshot if the refresh hasn't completed yet.
+    void refreshDynamicCatalog(opts.apiKey);
+
+    try {
+      const result = await openrouterCompleteWithFallback(messages, { ...opts, apiKey: opts.apiKey });
+      // PR-07: successful call closes any open circuit.
+      recordCircuitSuccess("openrouter");
+      return result;
+    } catch (err) {
+      // PR-07: record failure so the circuit opens after the threshold.
+      recordCircuitFailure("openrouter");
+      throw err;
+    }
   },
 
-  stream(messages: RawMessage[], opts: StrategyStreamOptions): AsyncGenerator<string> {
+  async *stream(messages: RawMessage[], opts: StrategyStreamOptions): AsyncGenerator<string> {
     if (!opts.apiKey) {
       throw new GroqClientError(
         "INVALID_CONFIG",
         "OpenRouter requires an API key — save one in the AI settings panel",
       );
     }
-    return openrouterCompleteStream(messages, { ...opts, apiKey: opts.apiKey });
+
+    // PR-07: same circuit check for streaming.
+    if (isCircuitOpen("openrouter")) {
+      throw new GroqClientError(
+        "MODEL_NOT_FOUND",
+        "OpenRouter is temporarily disabled — too many consecutive failures.",
+      );
+    }
+
+    // PR-01: fire-and-forget catalog refresh.
+    void refreshDynamicCatalog(opts.apiKey);
+
+    try {
+      yield* openrouterCompleteStream(messages, { ...opts, apiKey: opts.apiKey });
+      recordCircuitSuccess("openrouter");
+    } catch (err) {
+      recordCircuitFailure("openrouter");
+      throw err;
+    }
   },
 };

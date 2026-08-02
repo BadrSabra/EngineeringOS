@@ -89,16 +89,25 @@ export {
 export { validateAiProvidersAtStartup } from "./startup-validator.js";
 export type { ProviderValidationResult } from "./startup-validator.js";
 
-// PR-007/PR-008: extended error types
+// PR-004/PR-007/PR-008: extended error types
 export type { ProviderErrorContext } from "./errors.js";
 
-// PR-011: provider metrics
+// PR-05 / PR-011: provider metrics
 export {
   recordRequest,
   recordFailure,
+  recordSuccess,
   recordFallbackSuccess,
   recordInvalidModel,
   recordLatency,
   getProviderMetrics,
 } from "./provider-metrics.js";
 export type { ProviderMetricsSnapshot } from "./provider-metrics.js";
+
+// PR-07: circuit breaker
+export {
+  isCircuitOpen,
+  recordCircuitFailure,
+  recordCircuitSuccess,
+  getCircuitState,
+} from "./openrouter/circuit-breaker.js";

@@ -16,3 +16,12 @@ export {
   isDynamicCatalogLoaded,
   auditStaticCatalog,
 } from "./dynamic-catalog.js";
+
+// PR-07: circuit breaker
+export {
+  isCircuitOpen,
+  recordCircuitFailure,
+  recordCircuitSuccess,
+  getCircuitState,
+  _resetCircuitsForTest,
+} from "./circuit-breaker.js";

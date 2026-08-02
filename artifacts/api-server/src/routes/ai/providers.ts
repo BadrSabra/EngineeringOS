@@ -19,7 +19,13 @@ import { eq, and } from "drizzle-orm";
 import { encryptApiKey } from "../../lib/credentials-crypto.js";
 import { logger } from "../../lib/logger.js";
 import { resolveProvider } from "../../lib/ai-route-helpers.js";
-import { validateProviderKey, PROVIDER_REGISTRY, getProviderMetrics } from "@workspace/ai-orchestrator";
+import {
+  validateProviderKey,
+  PROVIDER_REGISTRY,
+  PROVIDER_PRIORITY,
+  getProviderMetrics,
+  getCircuitState,
+} from "@workspace/ai-orchestrator";
 import type { ProviderId } from "@workspace/ai-orchestrator";
 import type { Request, Response } from "express";
 
@@ -161,12 +167,40 @@ router.get("/ai/active-provider", async (req, res) => {
 
 /**
  * GET /api/ai/metrics
- * Returns in-memory provider reliability metrics:
- *   requests, failures, fallbackSuccesses, invalidModels, latency percentiles.
+ *
+ * PR-05/PR-06: Returns in-memory provider reliability metrics merged with
+ * circuit-breaker state so the dashboard can show per-provider runtime health.
+ *
+ * Shape per entry:
+ *   requests, failures, fallbackSuccesses, invalidModels, latency percentiles,
+ *   successRate, lastSuccessAt, lastFailureAt, consecutiveFailures   (PR-05)
+ *   circuitOpen, cooldownRemainingMs                                 (PR-07)
+ *
  * Resets on process restart — for runtime observability, not persistent analytics.
  */
 router.get("/ai/metrics", (_req, res) => {
-  return res.json({ metrics: getProviderMetrics() });
+  const metricsMap = new Map(getProviderMetrics().map((m) => [m.provider, m]));
+
+  // Merge circuit state into each metric snapshot; include all known providers
+  // even if no requests have been recorded yet (so the UI always has an entry).
+  const enriched = PROVIDER_PRIORITY.map((provider) => {
+    const metric = metricsMap.get(provider) ?? {
+      provider,
+      requests: 0, failures: 0, fallbackSuccesses: 0, invalidModels: 0,
+      p50LatencyMs: null, p95LatencyMs: null, avgLatencyMs: null,
+      successRate: null, lastSuccessAt: null, lastFailureAt: null,
+      consecutiveFailures: 0,
+    };
+    const circuit = getCircuitState(provider);
+    return {
+      ...metric,
+      circuitOpen:         circuit.open,
+      circuitHalfOpen:     circuit.halfOpen,
+      cooldownRemainingMs: circuit.cooldownRemainingMs,
+    };
+  });
+
+  return res.json({ metrics: enriched });
 });
 
 // ── Backward-compat aliases ───────────────────────────────────────────────────

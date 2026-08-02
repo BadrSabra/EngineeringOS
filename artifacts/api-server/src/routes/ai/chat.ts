@@ -27,6 +27,7 @@ import {
   GroqClientError,
   recordRequest,
   recordFailure,
+  recordSuccess,
   recordInvalidModel,
   recordLatency,
   recordFallbackSuccess,
@@ -395,9 +396,11 @@ router.post("/ai/chat/stream", async (req, res) => {
         onStreamReset,
       );
       result = chatOut.result;
-      // PR-011: record successful call latency.
+      // PR-05/PR-011: record successful call latency and health.
       const callLatency = Date.now() - chatStartMs;
-      recordLatency(provider, callLatency);
+      const effectiveProvider = chatOut.effectiveProvider ?? provider;
+      recordLatency(effectiveProvider, callLatency);
+      recordSuccess(effectiveProvider);
       // effectiveProvider differs from `provider` when fallback occurred
       if (chatOut.effectiveProvider && chatOut.effectiveProvider !== provider) {
         recordFallbackSuccess(provider);
@@ -456,6 +459,14 @@ router.post("/ai/chat/stream", async (req, res) => {
               message: `All AI model fallbacks exhausted${err.providerModel ? ` (last tried: ${err.providerModel})` : ""} — no model was available.`,
               retryable: false,
               suggestedFix: "Check your OpenRouter API key and model availability on openrouter.ai/models.",
+            });
+            break;
+          case "PLAN_RESTRICTED":
+            sse({
+              ...base,
+              message: "The selected AI model requires a paid plan or credit balance — all free-tier fallbacks failed.",
+              retryable: false,
+              suggestedFix: "Add credit balance to your OpenRouter account, or save a Groq/Gemini API key as a free fallback.",
             });
             break;
           case "MODEL_UNAVAILABLE":

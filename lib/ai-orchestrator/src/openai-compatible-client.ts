@@ -18,7 +18,7 @@
  */
 import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./groq-client.js";
 import { GroqClientError } from "./errors.js";
-import { buildFallbackChainFromId } from "./openrouter/model-resolver.js";
+import { buildFallbackChainFromId, resolveFallbackChain } from "./openrouter/model-resolver.js";
 import { FREE_MODELS } from "./openrouter/model-catalog.js";
 
 export type OpenAICompatibleOptions = {
@@ -93,15 +93,17 @@ function isTransientError(err: unknown): err is GroqClientError {
 }
 
 /**
- * PR-003 / PR-008: true for errors that indicate the model itself is unusable
- * and the fallback engine should advance to the next candidate.
- * Includes both MODEL_NOT_FOUND (permanently gone) and MODEL_UNAVAILABLE
- * (temporarily offline — 422/410).
+ * PR-003 / PR-004 / PR-008: true for errors that indicate the model itself is
+ * unusable and the fallback engine should advance to the next candidate.
+ * Includes MODEL_NOT_FOUND (removed), PLAN_RESTRICTED (free-tier), and
+ * MODEL_UNAVAILABLE (temporarily offline — 422/410).
  */
 function isModelUnavailableError(err: unknown): err is GroqClientError {
   return (
     err instanceof GroqClientError &&
-    (err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE")
+    (err.code === "MODEL_NOT_FOUND" ||
+      err.code === "PLAN_RESTRICTED" ||
+      err.code === "MODEL_UNAVAILABLE")
   );
 }
 
@@ -203,17 +205,30 @@ function classifyStatus(
       pCode.includes("model_unavailable")
     ));
 
-  // STORY-03 + PR-003: model-related error codes that should trigger fallback.
-  //   404 — model permanently discontinued or removed from the free tier.
-  //   402 — model requires payment / account has no credits.
+  // PR-004: distinguish removed models (404) from plan-restricted (402).
+  //   404 — model permanently discontinued / removed.
+  //   402 — model requires a paid plan or the free quota is exhausted.
   //   400 — invalid model slug (body confirms it's a model error).
-  if (
-    providerName === "OpenRouter" &&
-    (status === 404 || status === 402 || (status === 400 && looksLikeMissingModel))
-  ) {
+  if (providerName === "OpenRouter" && status === 404) {
     return new GroqClientError(
       "MODEL_NOT_FOUND",
-      `OpenRouter model not found (${status}) — the model may have been discontinued or is temporarily unavailable. ${body.slice(0, 200)}`,
+      `OpenRouter model not found (404) — the model has been discontinued or removed. ${body.slice(0, 200)}`,
+      { context: ctx },
+    );
+  }
+
+  if (providerName === "OpenRouter" && status === 402) {
+    return new GroqClientError(
+      "PLAN_RESTRICTED",
+      `OpenRouter model requires a paid plan or free-tier credit balance (402). ${body.slice(0, 200)}`,
+      { context: ctx },
+    );
+  }
+
+  if (providerName === "OpenRouter" && status === 400 && looksLikeMissingModel) {
+    return new GroqClientError(
+      "MODEL_NOT_FOUND",
+      `OpenRouter rejected the model slug (400) — the model ID may be invalid. ${body.slice(0, 200)}`,
       { context: ctx },
     );
   }
@@ -608,11 +623,12 @@ export async function openrouterCompleteWithFallback(
   opts: Omit<OpenAICompatibleOptions, "baseUrl" | "providerName" | "extraHeaders">,
 ): Promise<RawGroqResponse> {
   const initialModel = opts.model;
-  if (!initialModel) {
-    return openrouterCompleteRaw(messages, opts);
-  }
 
-  const chain = buildFallbackChainFromId(initialModel);
+  // PR-01: when no model is specified, use the resolver to build a full
+  // fallback chain rather than using the static default with no fallback.
+  const chain = initialModel
+    ? buildFallbackChainFromId(initialModel)
+    : resolveFallbackChain({ capability: "chat", quality: "fast" }).map((m) => m.id);
   let lastError: GroqClientError | undefined;
 
   for (let i = 0; i < chain.length; i++) {

@@ -42,3 +42,4 @@
 - [Scanner governance fixes](scanner-governance-fixes.md) — GAP-1–5 implemented: stale deletion, extractorVersion, scanSessionId, deterministic walk, heuristic fallback evidence kind.
 - [Quality engine scoring and cache NOTIFY fix](quality-engine-fixes.md) — task_execution scorer needs `summary` bonus; NOTIFY handler must prefix-scan cache keys not bare-delete; test isolation needs beforeEach in LISTEN channel block.
 - [EPIC-AI-OR-01 OpenRouter model resolution](epic-ai-or-01.md) — catalog+resolver+fallback replaces hardcoded model IDs; 404→MODEL_NOT_FOUND; Story-07 registry uses resolver at startup.
+- [OpenRouter reliability hardening](openrouter-reliability-hardening.md) — PRs 01-08: PLAN_RESTRICTED code, circuit breaker, dynamic catalog refresh, FALLBACK_TRIGGER_CODES expansion, metrics health fields, providers enriched endpoint, AiChat runtime badges.

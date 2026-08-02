@@ -33,6 +33,22 @@ type DeepSeekKeyStatus  = ProviderKeyStatus;
 type OpenRouterKeyStatus = ProviderKeyStatus;
 type GeminiKeyStatus    = ProviderKeyStatus;
 type ActiveProvider     = { provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini' | null; configured: boolean };
+
+/** PR-06: runtime health snapshot returned by /api/ai/metrics */
+type ProviderRuntimeMetric = {
+  provider: string;
+  requests: number;
+  failures: number;
+  successRate: number | null;
+  lastSuccessAt: string | null;
+  lastFailureAt: string | null;
+  consecutiveFailures: number;
+  avgLatencyMs: number | null;
+  circuitOpen: boolean;
+  circuitHalfOpen: boolean;
+  cooldownRemainingMs: number | null;
+};
+type MetricsResponse = { metrics: ProviderRuntimeMetric[] };
 type PendingChange = {
   path: string;
   absolutePath: string;
@@ -44,6 +60,53 @@ type PendingChange = {
 // PR-06: AiApiError replaced by the shared ApiError from lib/api-fetch.
 // Alias retained only to avoid renaming the one remaining internal reference.
 const AiApiError = ApiError;
+
+/**
+ * PR-06: Compact runtime status badge for a provider card.
+ * Shows circuit state, consecutive failures, last success, and avg latency.
+ */
+function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | undefined }) {
+  if (!metric || metric.requests === 0) return null;
+
+  const cooldownSec = metric.cooldownRemainingMs != null
+    ? Math.ceil(metric.cooldownRemainingMs / 1000)
+    : null;
+
+  const lastSuccessLabel = metric.lastSuccessAt
+    ? (() => {
+        const secs = Math.floor((Date.now() - new Date(metric.lastSuccessAt).getTime()) / 1000);
+        if (secs < 60)   return `${secs}s ago`;
+        if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+        return `${Math.floor(secs / 3600)}h ago`;
+      })()
+    : null;
+
+  if (metric.circuitOpen) {
+    return (
+      <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-red-400">
+        <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+        <span>Circuit open{cooldownSec != null ? ` · ${cooldownSec}s cooldown` : ''}</span>
+      </div>
+    );
+  }
+
+  const isHealthy = metric.consecutiveFailures === 0 && metric.successRate != null && metric.successRate > 0.8;
+  const isDegraded = metric.consecutiveFailures > 0 || (metric.successRate != null && metric.successRate < 0.8);
+
+  return (
+    <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isHealthy ? 'bg-green-400' : isDegraded ? 'bg-yellow-400' : 'bg-muted-foreground'}`} />
+      <span className="flex-1 truncate">
+        {metric.consecutiveFailures > 0
+          ? `${metric.consecutiveFailures} consecutive fail${metric.consecutiveFailures > 1 ? 's' : ''}`
+          : lastSuccessLabel
+            ? `OK · ${lastSuccessLabel}`
+            : 'Active'}
+        {metric.avgLatencyMs != null ? ` · ${metric.avgLatencyMs}ms` : ''}
+      </span>
+    </div>
+  );
+}
 
 /**
  * Maps an AiApiError (or any error) to a concise, user-facing string.
@@ -299,7 +362,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
   );
 }
 
-function DeepSeekKeyCard() {
+function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [keyInput, setKeyInput] = useState('');
@@ -381,6 +444,8 @@ function DeepSeekKeyCard() {
         </p>
       )}
 
+      <ProviderRuntimeBadge metric={runtimeMetric} />
+
       {(showInput || !status?.configured) && (
         <div className="flex gap-1 mt-2">
           <Input
@@ -405,7 +470,7 @@ function DeepSeekKeyCard() {
   );
 }
 
-function GroqKeyCard() {
+function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [keyInput, setKeyInput] = useState('');
@@ -483,6 +548,8 @@ function GroqKeyCard() {
         <p className="text-muted-foreground mb-2">No personal key saved — the server's key will be used if one is configured.</p>
       )}
 
+      <ProviderRuntimeBadge metric={runtimeMetric} />
+
       {(showInput || !status?.configured) && (
         <div className="flex gap-1 mt-2">
           <Input
@@ -508,7 +575,7 @@ function GroqKeyCard() {
   );
 }
 
-function GeminiKeyCard() {
+function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [keyInput, setKeyInput] = useState('');
@@ -590,6 +657,8 @@ function GeminiKeyCard() {
         </p>
       )}
 
+      <ProviderRuntimeBadge metric={runtimeMetric} />
+
       {(showInput || !status?.configured) && (
         <div className="flex gap-1 mt-2">
           <Input
@@ -615,7 +684,7 @@ function GeminiKeyCard() {
   );
 }
 
-function OpenRouterKeyCard() {
+function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [keyInput, setKeyInput] = useState('');
@@ -696,6 +765,8 @@ function OpenRouterKeyCard() {
           Get a free key at <span className="font-mono">openrouter.ai/keys</span> — routes to 300+ models, used first when configured.
         </p>
       )}
+
+      <ProviderRuntimeBadge metric={runtimeMetric} />
 
       {(showInput || !status?.configured) && (
         <div className="flex gap-1 mt-2">
@@ -862,6 +933,18 @@ export default function AiChat() {
     queryFn: () => apiGet<ActiveProvider>('/api/ai/active-provider'),
     staleTime: 30_000,
   });
+
+  // PR-06: poll runtime health metrics so provider cards show live state
+  const { data: metricsData } = useQuery<MetricsResponse>({
+    queryKey: ['ai-metrics'],
+    queryFn: () => apiGet<MetricsResponse>('/api/ai/metrics'),
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    enabled: isLoaded,
+  });
+  const metricsMap = new Map(
+    (metricsData?.metrics ?? []).map((m) => [m.provider, m]),
+  );
 
   // G-06 fix: pending changes are stored with a timestamp so stale entries
   // (from a crashed/closed tab after the server wrote the files but before
@@ -1238,10 +1321,10 @@ export default function AiChat() {
 
         {/* Provider key cards — bottom of sidebar (priority order: OpenRouter → Gemini → DeepSeek → Groq) */}
         <div className="border-t border-border pt-2">
-          <OpenRouterKeyCard />
-          <GeminiKeyCard />
-          <DeepSeekKeyCard />
-          <GroqKeyCard />
+          <OpenRouterKeyCard runtimeMetric={metricsMap.get('openrouter')} />
+          <GeminiKeyCard    runtimeMetric={metricsMap.get('gemini')} />
+          <DeepSeekKeyCard  runtimeMetric={metricsMap.get('deepseek')} />
+          <GroqKeyCard      runtimeMetric={metricsMap.get('groq')} />
         </div>
       </div>
 
