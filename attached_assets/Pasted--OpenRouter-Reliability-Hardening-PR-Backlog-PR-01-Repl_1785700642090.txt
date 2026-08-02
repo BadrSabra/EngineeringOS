@@ -1,0 +1,265 @@
+# OpenRouter Reliability Hardening – PR Backlog
+
+---
+
+# PR-01 — Replace Static OpenRouter Model Selection with Runtime Resolution
+
+### Files
+
+* `lib/ai-orchestrator/src/openrouter/model-catalog.ts`
+* `lib/ai-orchestrator/src/provider-registry.ts`
+* `lib/ai-orchestrator/src/openai-compatible-client.ts`
+* `lib/ai-orchestrator/src/strategies/openrouter.strategy.ts`
+
+### Problem
+
+يستخدم النظام قائمة نماذج (Catalog) ثابتة لاختيار نموذج OpenRouter. عند إزالة نموذج أو تغييره أو انتقاله إلى خطة مدفوعة، يستمر النظام في اختياره مما يؤدي إلى:
+
+* `MODEL_NOT_FOUND (404)`
+* `selected model is unavailable`
+
+### Evidence
+
+* ظهور `MODEL_NOT_FOUND (404)` في Event Stream.
+* `FREE_MODELS` معرفة داخل `model-catalog.ts`.
+* `provider-registry.ts` يبني النماذج الافتراضية اعتمادًا على هذه القائمة.
+* `openai-compatible-client.ts` يحاول نفس سلسلة النماذج الموجودة في الكتالوج.
+
+### Acceptance Criteria
+
+* إزالة أي Model IDs ثابتة قديمة.
+* اختيار النموذج يتم من Catalog محدث أو Resolver ديناميكي.
+* عدم إرسال أي Model ID غير موجود.
+* اختبارات تغطي حذف نموذج من OpenRouter بدون كسر النظام.
+
+---
+
+# PR-02 — Strengthen OpenRouter Fallback Chain
+
+### Files
+
+* `lib/ai-orchestrator/src/openai-compatible-client.ts`
+* `lib/ai-orchestrator/src/openrouter/model-resolver.ts`
+* `lib/ai-orchestrator/src/provider-strategy.ts`
+
+### Problem
+
+عند فشل النموذج الحالي لا يتم التعافي بصورة كافية، وينتهي الطلب بخطأ رغم وجود بدائل محتملة.
+
+### Evidence
+
+* تكرار نفس الخطأ عدة مرات في Event Stream.
+* انتهاء السلسلة برسالة:
+  `All OpenRouter free-tier fallback models exhausted`
+* عدم وجود انتقال واضح إلى Provider آخر في السيناريو الظاهر.
+
+### Acceptance Criteria
+
+* عند 404 أو MODEL_NOT_FOUND:
+
+  * إزالة النموذج الفاشل من السلسلة.
+  * تجربة النموذج التالي.
+* عند انتهاء جميع نماذج OpenRouter:
+
+  * الانتقال تلقائيًا إلى Provider آخر إذا كان متاحًا.
+* تسجيل سبب كل انتقال في Logs.
+
+---
+
+# PR-03 — Improve Provider Failover
+
+### Files
+
+* `artifacts/api-server/src/lib/ai-route-helpers.ts`
+* `lib/ai-orchestrator/src/provider-registry.ts`
+
+### Problem
+
+فشل OpenRouter يؤدي مباشرة إلى فشل العملية حتى عندما توجد Providers أخرى قابلة للاستخدام.
+
+### Evidence
+
+* `handleOrchestratorError()` يحول الخطأ إلى 422.
+* `collectAvailableProviders()` يعتمد فقط على المفاتيح المتوفرة.
+* لا يظهر Failover واضح في السيناريو الحالي.
+
+### Acceptance Criteria
+
+* تجربة Provider التالي تلقائيًا.
+* عدم إعادة 422 إلا بعد استنفاد جميع Providers.
+* تسجيل Provider الذي نجح في النهاية.
+
+---
+
+# PR-04 — Improve Error Classification
+
+### Files
+
+* `lib/ai-orchestrator/src/openai-compatible-client.ts`
+* `artifacts/api-server/src/lib/ai-route-helpers.ts`
+
+### Problem
+
+أخطاء مختلفة يتم دمجها تحت رسائل عامة.
+
+### Evidence
+
+الرسائل الحالية:
+
+* MODEL_NOT_FOUND
+* selected model unavailable
+* Failed to send message
+
+لا توضح الفرق بين:
+
+* Model Removed
+* Free Tier Restricted
+* Authentication
+* Rate Limit
+* Credits
+
+### Acceptance Criteria
+
+تصنيف مستقل لكل حالة:
+
+* MODEL_REMOVED
+* MODEL_UNAVAILABLE
+* PLAN_RESTRICTED
+* AUTH_FAILED
+* RATE_LIMITED
+* CREDITS_EXHAUSTED
+* NETWORK_ERROR
+
+مع رسائل مناسبة لكل حالة.
+
+---
+
+# PR-05 — Runtime Provider Health Monitoring
+
+### Files
+
+* `lib/ai-orchestrator/src/provider-registry.ts`
+* `artifacts/api-server/src/routes/ai/providers.ts`
+
+### Problem
+
+النظام يستمر في اختيار Provider غير صحي رغم فشله المتكرر.
+
+### Evidence
+
+OpenRouter يبقى Active رغم تكرار الفشل.
+
+### Acceptance Criteria
+
+إضافة Health Score لكل Provider:
+
+* Success Rate
+* Failure Rate
+* Last Success
+* Last Failure
+* Consecutive Failures
+
+واستخدامها في ترتيب الأولوية.
+
+---
+
+# PR-06 — Synchronize UI with Runtime State
+
+### Files
+
+* `artifacts/dashboard/src/pages/AiChat.tsx`
+* `artifacts/api-server/src/routes/ai/providers.ts`
+
+### Problem
+
+الواجهة تعرض حالة حفظ المفتاح فقط، وليس حالة المزود الفعلية أثناء التشغيل.
+
+### Evidence
+
+البطاقة تظهر OpenRouter مفعلاً بينما التنفيذ يفشل.
+
+### Acceptance Criteria
+
+عرض:
+
+* API Key Status
+* Runtime Status
+* Selected Model
+* Provider Health
+* Last Successful Request
+* Last Failure Reason
+
+بدلاً من مجرد "Configured".
+
+---
+
+# PR-07 — Add Circuit Breaker for OpenRouter
+
+### Files
+
+* `lib/ai-orchestrator/src/provider-strategy.ts`
+* `lib/ai-orchestrator/src/openai-compatible-client.ts`
+
+### Problem
+
+النظام يكرر استخدام نفس المزود بعد فشل متكرر.
+
+### Evidence
+
+عدة رسائل متطابقة في Event Stream خلال فترة قصيرة.
+
+### Acceptance Criteria
+
+* بعد عدد محدد من الإخفاقات المتتالية:
+
+  * تعطيل OpenRouter مؤقتًا.
+  * التحول إلى Provider آخر.
+* إعادة المحاولة بعد فترة تهدئة (Cooldown).
+
+---
+
+# PR-08 — Add End-to-End Tests for OpenRouter Failure Scenarios
+
+### Files
+
+* `tests/ai/openrouter/*`
+* `tests/api/providers/*`
+
+### Problem
+
+لا توجد اختبارات تغطي سيناريوهات فشل OpenRouter بالكامل.
+
+### Evidence
+
+السيناريو الحالي وصل إلى واجهة المستخدم دون أن تتم معالجته تلقائيًا.
+
+### Acceptance Criteria
+
+إضافة اختبارات لـ:
+
+* Model Removed (404)
+* Free Tier Restricted
+* Invalid API Key
+* Rate Limit
+* Credits Exhausted
+* Empty Model Catalog
+* Provider Failover
+* Runtime Model Refresh
+* Circuit Breaker Activation
+
+---
+
+## الأولوية المقترحة
+
+| PR    | الأولوية    | التأثير                                      |
+| ----- | ----------- | -------------------------------------------- |
+| PR-01 | 🔴 Critical | يمنع اختيار نماذج غير صالحة.                 |
+| PR-02 | 🔴 Critical | يحسن التعافي داخل OpenRouter.                |
+| PR-03 | 🔴 Critical | يمنع فشل الطلب عند توفر مزودات أخرى.         |
+| PR-04 | 🟠 High     | يحسن التشخيص وسهولة الدعم.                   |
+| PR-05 | 🟠 High     | يجعل اختيار المزود يعتمد على الصحة الفعلية.  |
+| PR-06 | 🟡 Medium   | يزيل التضارب بين حالة الواجهة وحالة التشغيل. |
+| PR-07 | 🟡 Medium   | يمنع تكرار الفشل ويزيد الاستقرار.            |
+| PR-08 | 🟢 Medium   | يمنع عودة هذه المشاكل مستقبلًا.              |
+
+**الترتيب التنفيذي الموصى به:** PR-01 → PR-02 → PR-03 أولًا، لأنها تعالج السبب الجذري الذي تشير إليه الأخطاء (`MODEL_NOT_FOUND` و`selected model is unavailable`) قبل تحسينات المراقبة والواجهة والاختبارات.
