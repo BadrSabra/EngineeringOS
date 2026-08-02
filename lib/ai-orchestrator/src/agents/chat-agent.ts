@@ -40,13 +40,10 @@
  *   is returned in ChatOutput and must be approved by the user through the
  *   dashboard UI before anything is written.
  */
-import { completeRaw, completeStream, MODEL_POWERFUL, MODEL_FAST } from "../groq-client.js";
-import { deepseekCompleteRaw, deepseekCompleteStream } from "../deepseek-client.js";
-import { openrouterCompleteRaw, geminiCompleteRaw } from "../openai-compatible-client.js";
-import { PROVIDER_REGISTRY } from "../provider-registry.js";
+import { PROVIDER_REGISTRY, getStrategy } from "../provider-registry.js";
 import { GroqClientError } from "../errors.js";
 import type { AgentErrorCode } from "../errors.js";
-import type { RawMessage } from "../groq-client.js";
+import type { RawMessage, RawGroqResponse } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildChatSystemPrompt } from "../prompts/chat.prompt.js";
 import { ChatResponseSchema, ChatOutputSchema, PendingChangeSchema, type ChatOutput, type PendingChange } from "../schemas/chat.schema.js";
@@ -340,18 +337,12 @@ export async function chat(opts: {
 }): Promise<ChatResult> {
   const { message, history, projectContext, rootPath, apiKey, provider = "groq", onDelta, onStreamReset } = opts;
 
-  // Provider dispatch: complete-function references have distinct signatures so
-  // they remain an explicit map. Model names come from PROVIDER_REGISTRY so
-  // adding a new provider only requires a new entry there + one line below.
-  const COMPLETE_FN_BY_PROVIDER = {
-    groq:       completeRaw,
-    deepseek:   deepseekCompleteRaw,
-    openrouter: openrouterCompleteRaw,
-    gemini:     geminiCompleteRaw,
-  } as const satisfies Partial<Record<string, typeof completeRaw>>;
-  const callRaw  = (COMPLETE_FN_BY_PROVIDER as Record<string, typeof completeRaw>)[provider] ?? completeRaw;
-  const fastModel  = PROVIDER_REGISTRY[provider]?.defaultModels.fast     ?? MODEL_FAST;
-  const powerModel = PROVIDER_REGISTRY[provider]?.defaultModels.powerful ?? MODEL_POWERFUL;
+  // Look up the strategy for this provider — all provider-specific dispatch
+  // is hidden behind the ProviderStrategy interface. Adding a new provider
+  // requires only a strategy file + registry entry; nothing here changes.
+  const strategy   = getStrategy(provider);
+  const fastModel  = PROVIDER_REGISTRY[provider].defaultModels.fast;
+  const powerModel = PROVIDER_REGISTRY[provider].defaultModels.powerful;
 
   const pendingChanges: PendingChange[] = [];
 
@@ -440,17 +431,15 @@ export async function chat(opts: {
     // إصلاح #1 و #2: timeout ممتد + fallback تلقائي إلى MODEL_POWERFUL عند NON_200 من MODEL_FAST.
     // llama-3.1-8b-instant يفشل أحياناً بـNON_200 تحت حِمل tool-use ثقيل؛
     // إعادة المحاولة بالنموذج الأقوى تُنقذ الطلب بدل إرجاع 502 للمستخدم.
-    let result: Awaited<ReturnType<typeof completeRaw>>;
+    let result: RawGroqResponse;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      result = await (callRaw as any)(messages, { model, maxTokens: 4096, timeoutMs: 60_000, apiKey, ...(tools != null ? { tools } : {}) });
+      result = await strategy.call(messages, { model, maxTokens: 4096, timeoutMs: 60_000, apiKey, ...(tools != null ? { tools } : {}) });
     } catch (err) {
       if (err instanceof GroqClientError && err.code === "NON_200" && model !== powerModel) {
         console.warn(
           JSON.stringify({ scope: "chat-agent", code: "MODEL_FALLBACK", from: model, to: powerModel, provider, iter, reason: err.message }),
         );
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        result = await (callRaw as any)(messages, { model: powerModel, maxTokens: 4096, timeoutMs: 60_000, apiKey, ...(tools != null ? { tools } : {}) });
+        result = await strategy.call(messages, { model: powerModel, maxTokens: 4096, timeoutMs: 60_000, apiKey, ...(tools != null ? { tools } : {}) });
       } else {
         console.warn(
           JSON.stringify({ scope: "chat-agent", code: "MODEL_ERROR", provider, model, iter, errorCode: err instanceof GroqClientError ? err.code : "unknown", reason: err instanceof Error ? err.message : String(err) }),
@@ -603,7 +592,7 @@ export async function chat(opts: {
       // Strategy 1 — reuse the non-streaming result already in hand.
       // openrouter always uses this path; native providers fall through to SSE.
       const directContent = result.content;
-      if (directContent && (provider === "openrouter" || !["groq", "deepseek"].includes(provider))) {
+      if (directContent && !strategy.supportsNativeStream) {
         // AI-01: Parse through the unified normalization path before emitting.
         // OpenRouter (and other non-Groq/DeepSeek providers) may return a JSON
         // envelope such as {"response":"...","sources":[...]} even in the
@@ -660,10 +649,7 @@ export async function chat(opts: {
 
       let accumulated = "";
       try {
-        const streamGen =
-          provider === "deepseek"
-            ? deepseekCompleteStream(streamMessages, { model, apiKey: apiKey! })
-            : completeStream(streamMessages, { model, apiKey });
+        const streamGen = strategy.stream(streamMessages, { model, apiKey });
         for await (const delta of streamGen) {
           accumulated += delta;
           onDelta(delta);
@@ -711,11 +697,9 @@ export async function chat(opts: {
       messages.push({ role: "user", content: correctionPrompt });
       try {
         // إصلاح #3: response_format: json_object يُجبر النموذج على إرجاع JSON صالح.
-        // Use provider-aware `callRaw` (not the hardcoded `completeRaw`) so that
-        // DeepSeek correction calls hit api.deepseek.com with the DeepSeek key
-        // instead of failing with AUTH_ERROR against Groq's endpoint.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const retry = await (callRaw as any)(messages, {
+        // Use provider-aware strategy so DeepSeek correction calls hit
+        // api.deepseek.com, not Groq's endpoint.
+        const retry = await strategy.call(messages, {
           model,
           maxTokens: 4096,
           apiKey,

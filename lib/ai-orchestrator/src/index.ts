@@ -1,8 +1,9 @@
 export { complete, completeRaw, completeStream, MODEL_POWERFUL, MODEL_FAST } from "./groq-client.js";
 export { agentComplete, validateProviderKey } from "./agent-complete.js";
 export type { AgentCompleteOpts, ProviderId } from "./agent-complete.js";
-export { PROVIDER_REGISTRY, PROVIDER_PRIORITY, getProvider, loadProvider, discoverProvider, discoverProviders, registerProvider, getProviderCapabilities } from "./provider-registry.js";
+export { PROVIDER_REGISTRY, PROVIDER_PRIORITY, getProvider, loadProvider, discoverProvider, discoverProviders, registerProvider, getProviderCapabilities, getStrategy } from "./provider-registry.js";
 export type { ProviderConfig } from "./provider-registry.js";
+export type { ProviderStrategy, StrategyCallOptions, StrategyStreamOptions } from "./provider-strategy.js";
 export type { ProviderCapabilityHints, ProviderCapabilitySummary, ProviderCostTier } from "./provider-capabilities.js";
 export type { Message, GroqResponse, CompleteOptions, RawMessage, ToolCall, ToolDefinition, RawGroqResponse } from "./groq-client.js";
 

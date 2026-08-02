@@ -4,9 +4,21 @@
  * The static registry remains the compatibility surface used by the rest of
  * the workspace, while the helper functions below provide a path toward a
  * more declarative capability-driven registry.
+ *
+ * `getStrategy(id)` maps a ProviderId to its ProviderStrategy implementation.
+ * Adding a new provider requires:
+ *   1. A new strategy file in `strategies/`.
+ *   2. An entry in STRATEGY_MAP below.
+ *   3. An entry in PROVIDER_REGISTRY and PROVIDER_PRIORITY.
+ *   Nothing else changes.
  */
 
 import { DEFAULT_PROVIDER_CAPABILITIES, providerMatchesHints, scoreProviderCapabilities, type ProviderCapabilityHints, type ProviderCapabilitySummary } from "./provider-capabilities.js";
+import type { ProviderStrategy } from "./provider-strategy.js";
+import { groqStrategy } from "./strategies/groq.strategy.js";
+import { deepseekStrategy } from "./strategies/deepseek.strategy.js";
+import { openrouterStrategy } from "./strategies/openrouter.strategy.js";
+import { geminiStrategy } from "./strategies/gemini.strategy.js";
 
 export type ProviderId = "groq" | "deepseek" | "openrouter" | "gemini";
 
@@ -194,4 +206,24 @@ export function discoverProvider(hints?: ProviderCapabilityHints): ProviderConfi
 
 export function getProvider(id: ProviderId): ProviderConfig {
   return loadProvider(id);
+}
+
+// ─── Strategy registry ────────────────────────────────────────────────────────
+
+const STRATEGY_MAP = new Map<ProviderId, ProviderStrategy>([
+  ["groq",       groqStrategy],
+  ["deepseek",   deepseekStrategy],
+  ["openrouter", openrouterStrategy],
+  ["gemini",     geminiStrategy],
+]);
+
+/**
+ * Return the `ProviderStrategy` for `id`.
+ * Throws if no strategy is registered (only possible for providers added to
+ * PROVIDER_REGISTRY without a corresponding strategy entry — caught at dev time).
+ */
+export function getStrategy(id: ProviderId): ProviderStrategy {
+  const strategy = STRATEGY_MAP.get(id);
+  if (!strategy) throw new Error(`No ProviderStrategy registered for provider: ${id}`);
+  return strategy;
 }
