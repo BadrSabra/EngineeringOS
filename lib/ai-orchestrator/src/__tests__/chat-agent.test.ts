@@ -223,6 +223,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     // Mock the openai-compatible-client that the openrouter callRaw uses.
     vi.doMock("../openai-compatible-client.js", () => ({
       openrouterCompleteRaw: vi.fn().mockResolvedValue({ content: envelope, toolCalls: [] }),
+      openrouterCompleteWithFallback: vi.fn().mockResolvedValue({ content: envelope, toolCalls: [] }),
       openrouterCompleteStream: vi.fn(),
       geminiCompleteRaw: vi.fn(),
       geminiCompleteStream: vi.fn(),
@@ -262,6 +263,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     // Mock the openai-compatible-client to return plain prose.
     vi.doMock("../openai-compatible-client.js", () => ({
       openrouterCompleteRaw: vi.fn().mockResolvedValue({ content: plainProse, toolCalls: [] }),
+      openrouterCompleteWithFallback: vi.fn().mockResolvedValue({ content: plainProse, toolCalls: [] }),
       openrouterCompleteStream: vi.fn(),
       geminiCompleteRaw: vi.fn(),
       geminiCompleteStream: vi.fn(),
@@ -347,6 +349,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       geminiCompleteRaw: mockGemini,
       geminiCompleteStream: vi.fn(),
       openrouterCompleteRaw: vi.fn(),
+      openrouterCompleteWithFallback: vi.fn(),
       openrouterCompleteStream: vi.fn(),
     }));
 

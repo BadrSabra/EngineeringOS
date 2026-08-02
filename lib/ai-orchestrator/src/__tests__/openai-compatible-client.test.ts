@@ -6,7 +6,7 @@
  * when those fields are present.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { geminiCompleteRaw } from "../openai-compatible-client.js";
+import { geminiCompleteRaw, openrouterCompleteWithFallback } from "../openai-compatible-client.js";
 
 const baseMessages = [{ role: "user", content: "hello" } as const];
 
@@ -62,5 +62,53 @@ describe("geminiCompleteRaw", () => {
     expect(body).not.toHaveProperty("tools");
     expect(body).not.toHaveProperty("tool_choice");
     expect(body).not.toHaveProperty("response_format");
+  });
+});
+
+describe("openrouterCompleteWithFallback", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+        const model = String(body.model ?? "");
+
+        if (model === "meta-llama/llama-3.3-70b-instruct:free") {
+          return {
+            ok: false,
+            status: 400,
+            json: async () => ({}),
+            text: async () =>
+              '{"error":{"message":"deepseek/deepseek-v3-0324:free is not a valid model ID"}}',
+          } as Response;
+        }
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            choices: [{ message: { content: '{"response":"fallback-ok"}' } }],
+            model,
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+          }),
+          text: async () => "",
+        } as Response;
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("treats OpenRouter invalid model errors as fallback-worthy", async () => {
+    const result = await openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      maxTokens: 1,
+      model: "meta-llama/llama-3.3-70b-instruct:free",
+    });
+
+    expect(result.content).toBe('{"response":"fallback-ok"}');
   });
 });

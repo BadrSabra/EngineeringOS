@@ -185,6 +185,7 @@ const FALLBACK_TRIGGER_CODES = new Set<string>([
   "NON_200",
   "EMPTY_RESPONSE",
   "SERVER_ERROR",
+  "MODEL_NOT_FOUND",
 ]);
 
 /**
@@ -420,6 +421,13 @@ export function handleOrchestratorError(
         ...base,
         error: `${providerLabel} server error — this is a temporary infrastructure issue.`,
         hint: `Try again in a moment. If it persists, check ${providerStatus}.`,
+      });
+      return true;
+    case "MODEL_NOT_FOUND":
+      res.status(422).json({
+        ...base,
+        error: `${providerLabel} selected model is unavailable.`,
+        hint: `The configured model slug is no longer accepted by ${providerLabel}. Re-save the provider key or try again after the model catalog refreshes.`,
       });
       return true;
     case "NON_200":

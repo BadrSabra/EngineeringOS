@@ -104,14 +104,23 @@ function classifyStatus(
       `${providerName} API server error (${status}): ${body.slice(0, 200)}`,
     );
   }
+
+  const normalizedBody = body.toLowerCase();
+  const looksLikeMissingModel =
+    normalizedBody.includes("not a valid model id") ||
+    normalizedBody.includes("invalid model id") ||
+    normalizedBody.includes("unknown model") ||
+    normalizedBody.includes("model not found") ||
+    normalizedBody.includes("model unavailable");
+
   // STORY-03: OpenRouter returns 404 when a free model is discontinued or
   // temporarily unavailable.  Classify separately so the fallback engine
   // (openrouterCompleteWithFallback) can catch this code and advance to the
   // next model in the chain rather than bubbling as a hard failure.
-  if (status === 404 && providerName === "OpenRouter") {
+  if (providerName === "OpenRouter" && (status === 404 || (status === 400 && looksLikeMissingModel))) {
     return new GroqClientError(
       "MODEL_NOT_FOUND",
-      `OpenRouter model not found (404) — the model may have been discontinued or is temporarily unavailable. ${body.slice(0, 200)}`,
+      `OpenRouter model not found (${status}) — the model may have been discontinued or is temporarily unavailable. ${body.slice(0, 200)}`,
     );
   }
   return new GroqClientError(

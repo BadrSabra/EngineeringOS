@@ -53,7 +53,6 @@ const AiApiError = ApiError;
 const OR_MODEL_LABELS: Record<string, string> = {
   "meta-llama/llama-3.3-70b-instruct:free": "Llama 3.3 70B",
   "meta-llama/llama-3.1-8b-instruct:free":  "Llama 3.1 8B",
-  "deepseek/deepseek-v3-0324:free":          "DeepSeek V3",
   "deepseek/deepseek-r1:free":               "DeepSeek R1",
   "qwen/qwen3-235b-a22b:free":               "Qwen3 235B",
   "qwen/qwen3-8b:free":                      "Qwen3 8B",
@@ -76,6 +75,9 @@ function describeAiError(err: unknown): string {
       case 422:
         if (err.code === 'model_output_invalid') {
           return 'The AI returned an unexpected response format — try rephrasing your message.';
+        }
+        if (err.code === 'MODEL_NOT_FOUND') {
+          return err.errorMessage || err.hint || 'The selected AI model is unavailable — try again or switch providers.';
         }
         return err.errorMessage || err.hint || 'AI provider configuration is invalid. Re-save your API key.';
       case 428: return err.errorMessage || err.hint || 'No AI key configured — save an OpenRouter, DeepSeek, or Groq API key first.';

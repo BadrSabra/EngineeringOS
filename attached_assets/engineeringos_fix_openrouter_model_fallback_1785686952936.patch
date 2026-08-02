@@ -1,0 +1,170 @@
+--- a/lib/ai-orchestrator/src/openrouter/model-catalog.ts
++++ b/lib/ai-orchestrator/src/openrouter/model-catalog.ts
+@@ -53,11 +53,11 @@
+     quality: "powerful",
+   },
+   {
+-    id: "deepseek/deepseek-v3-0324:free",
+-    label: "DeepSeek V3",
+-    capabilities: ["chat", "coding", "reasoning", "json"],
++    id: "deepseek/deepseek-r1:free",
++    label: "DeepSeek R1",
++    capabilities: ["reasoning", "coding", "json"],
+     context: 65_536,
+-    supportsTools: true,
++    supportsTools: false,
+     supportsJson: true,
+     free: true,
+     quality: "powerful",
+@@ -71,16 +71,6 @@
+     supportsJson: true,
+     free: true,
+     quality: "powerful",
+-  },
+-  {
+-    id: "deepseek/deepseek-r1:free",
+-    label: "DeepSeek R1",
+-    capabilities: ["reasoning", "coding", "json"],
+-    context: 65_536,
+-    supportsTools: false,
+-    supportsJson: true,
+-    free: true,
+-    quality: "powerful",
+   },
+   {
+     id: "google/gemma-3-27b-it:free",
+--- a/lib/ai-orchestrator/src/openai-compatible-client.ts
++++ b/lib/ai-orchestrator/src/openai-compatible-client.ts
+@@ -104,14 +104,23 @@
+       `${providerName} API server error (${status}): ${body.slice(0, 200)}`,
+     );
+   }
++
++  const normalizedBody = body.toLowerCase();
++  const looksLikeMissingModel =
++    normalizedBody.includes("not a valid model id") ||
++    normalizedBody.includes("invalid model id") ||
++    normalizedBody.includes("unknown model") ||
++    normalizedBody.includes("model not found") ||
++    normalizedBody.includes("model unavailable");
++
+   // STORY-03: OpenRouter returns 404 when a free model is discontinued or
+   // temporarily unavailable.  Classify separately so the fallback engine
+   // (openrouterCompleteWithFallback) can catch this code and advance to the
+   // next model in the chain rather than bubbling as a hard failure.
+-  if (status === 404 && providerName === "OpenRouter") {
++  if (providerName === "OpenRouter" && (status === 404 || (status === 400 && looksLikeMissingModel))) {
+     return new GroqClientError(
+       "MODEL_NOT_FOUND",
+-      `OpenRouter model not found (404) — the model may have been discontinued or is temporarily unavailable. ${body.slice(0, 200)}`,
++      `OpenRouter model not found (${status}) — the model may have been discontinued or is temporarily unavailable. ${body.slice(0, 200)}`,
+     );
+   }
+   return new GroqClientError(
+--- a/artifacts/api-server/src/lib/ai-route-helpers.ts
++++ b/artifacts/api-server/src/lib/ai-route-helpers.ts
+@@ -185,6 +185,7 @@
+   "NON_200",
+   "EMPTY_RESPONSE",
+   "SERVER_ERROR",
++  "MODEL_NOT_FOUND",
+ ]);
+ 
+ /**
+@@ -422,6 +423,13 @@
+         hint: `Try again in a moment. If it persists, check ${providerStatus}.`,
+       });
+       return true;
++    case "MODEL_NOT_FOUND":
++      res.status(422).json({
++        ...base,
++        error: `${providerLabel} selected model is unavailable.`,
++        hint: `The configured model slug is no longer accepted by ${providerLabel}. Re-save the provider key or try again after the model catalog refreshes.`,
++      });
++      return true;
+     case "NON_200":
+       res.status(502).json({
+         ...base,
+--- a/artifacts/dashboard/src/pages/AiChat.tsx
++++ b/artifacts/dashboard/src/pages/AiChat.tsx
+@@ -53,7 +53,6 @@
+ const OR_MODEL_LABELS: Record<string, string> = {
+   "meta-llama/llama-3.3-70b-instruct:free": "Llama 3.3 70B",
+   "meta-llama/llama-3.1-8b-instruct:free":  "Llama 3.1 8B",
+-  "deepseek/deepseek-v3-0324:free":          "DeepSeek V3",
+   "deepseek/deepseek-r1:free":               "DeepSeek R1",
+   "qwen/qwen3-235b-a22b:free":               "Qwen3 235B",
+   "qwen/qwen3-8b:free":                      "Qwen3 8B",
+@@ -77,6 +76,9 @@
+         if (err.code === 'model_output_invalid') {
+           return 'The AI returned an unexpected response format — try rephrasing your message.';
+         }
++        if (err.code === 'MODEL_NOT_FOUND') {
++          return err.errorMessage || err.hint || 'The selected AI model is unavailable — try again or switch providers.';
++        }
+         return err.errorMessage || err.hint || 'AI provider configuration is invalid. Re-save your API key.';
+       case 428: return err.errorMessage || err.hint || 'No AI key configured — save an OpenRouter, DeepSeek, or Groq API key first.';
+       case 502: return err.errorMessage || err.hint || 'AI provider returned an error. Check your API key or try again.';
+--- a/lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts
++++ b/lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts
+@@ -6,7 +6,7 @@
+  * when those fields are present.
+  */
+ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+-import { geminiCompleteRaw } from "../openai-compatible-client.js";
++import { geminiCompleteRaw, openrouterCompleteWithFallback } from "../openai-compatible-client.js";
+ 
+ const baseMessages = [{ role: "user", content: "hello" } as const];
+ 
+@@ -64,3 +64,51 @@
+     expect(body).not.toHaveProperty("response_format");
+   });
+ });
++
++describe("openrouterCompleteWithFallback", () => {
++  beforeEach(() => {
++    vi.stubGlobal(
++      "fetch",
++      vi.fn(async (_url: string | URL, init?: RequestInit) => {
++        const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
++        const model = String(body.model ?? "");
++
++        if (model === "meta-llama/llama-3.3-70b-instruct:free") {
++          return {
++            ok: false,
++            status: 400,
++            json: async () => ({}),
++            text: async () =>
++              '{"error":{"message":"deepseek/deepseek-v3-0324:free is not a valid model ID"}}',
++          } as Response;
++        }
++
++        return {
++          ok: true,
++          status: 200,
++          json: async () => ({
++            choices: [{ message: { content: '{"response":"fallback-ok"}' } }],
++            model,
++            usage: { prompt_tokens: 1, completion_tokens: 1 },
++          }),
++          text: async () => "",
++        } as Response;
++      }),
++    );
++  });
++
++  afterEach(() => {
++    vi.unstubAllGlobals();
++    vi.restoreAllMocks();
++  });
++
++  it("treats OpenRouter invalid model errors as fallback-worthy", async () => {
++    const result = await openrouterCompleteWithFallback(baseMessages as any, {
++      apiKey: "test-key",
++      maxTokens: 1,
++      model: "meta-llama/llama-3.3-70b-instruct:free",
++    });
++
++    expect(result.content).toBe('{"response":"fallback-ok"}');
++  });
++});
