@@ -38,6 +38,47 @@ export type OpenAICompatibleStreamOptions = Omit<
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
+// ── OpenRouter free-tier helpers ──────────────────────────────────────────────
+
+/**
+ * OR-003: Conservative token cap for OpenRouter free-tier requests.
+ * Free models have tight per-request output limits; 2 048 keeps us well inside
+ * them while still allowing meaningful responses.
+ */
+const OPENROUTER_DEFAULT_MAX_TOKENS = 2_048;
+
+/**
+ * OR-003: Maximum number of non-system messages forwarded to OpenRouter.
+ * The system prompt is always kept; the most-recent messages are preferred.
+ * Trimming reduces token consumption without hurting conversational coherence.
+ */
+const OPENROUTER_MAX_MESSAGES = 20;
+
+/** Keep the system message and the most-recent `OPENROUTER_MAX_MESSAGES` turns. */
+function trimMessagesForOpenRouter(messages: RawMessage[]): RawMessage[] {
+  if (messages.length <= OPENROUTER_MAX_MESSAGES + 1) return messages;
+  const [system, ...rest] = messages;
+  const trimmed = rest.slice(-OPENROUTER_MAX_MESSAGES);
+  return system ? [system, ...trimmed] : trimmed;
+}
+
+/** Resolve after `ms` milliseconds (used for retry back-off). */
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * OR-005: True for transient OpenRouter errors that warrant a single retry.
+ * User errors (AUTH_ERROR, NON_200) and empty responses are not retried.
+ */
+function isTransientError(err: unknown): err is GroqClientError {
+  return (
+    err instanceof GroqClientError &&
+    (err.code === "RATE_LIMITED" ||
+      err.code === "SERVER_ERROR" ||
+      err.code === "TIMEOUT" ||
+      err.code === "NETWORK_ERROR")
+  );
+}
+
 /** Map HTTP status → GroqClientError with a provider-aware message. */
 function classifyStatus(
   status: number,
@@ -392,35 +433,79 @@ const OPENROUTER_EXTRA_HEADERS = { "X-Title": "EngineeringOS" };
 
 /**
  * Non-streaming completion via OpenRouter.
- * Signature matches deepseek-client's `deepseekCompleteRaw()` so chat-agent.ts
- * can select the correct function with a single `provider === "openrouter"` check.
+ *
+ * OR-003: trims context to `OPENROUTER_MAX_MESSAGES` non-system turns and
+ *         defaults `maxTokens` to `OPENROUTER_DEFAULT_MAX_TOKENS` (2 048).
+ * OR-005: retries once (after 1.5 s back-off) on transient errors (429, 5xx,
+ *         timeout, network) before propagating — avoids needless provider
+ *         fallback for brief free-tier blips.
  */
-export function openrouterCompleteRaw(
+export async function openrouterCompleteRaw(
   messages: RawMessage[],
   opts: Omit<OpenAICompatibleOptions, "baseUrl" | "providerName" | "extraHeaders">,
 ): Promise<RawGroqResponse> {
-  return oacCompleteRaw(messages, {
+  const trimmed = trimMessagesForOpenRouter(messages);
+  const fullOpts: OpenAICompatibleOptions = {
+    maxTokens: OPENROUTER_DEFAULT_MAX_TOKENS,
     ...opts,
     baseUrl: OPENROUTER_BASE_URL,
     providerName: "OpenRouter",
     extraHeaders: OPENROUTER_EXTRA_HEADERS,
-  });
+  };
+
+  try {
+    return await oacCompleteRaw(trimmed, fullOpts);
+  } catch (err) {
+    if (!isTransientError(err)) throw err;
+    // OR-005: one retry with a short back-off for transient free-tier errors.
+    console.warn(
+      JSON.stringify({
+        scope: "openrouter-client",
+        code: "TRANSIENT_RETRY",
+        errorCode: err.code,
+        backoffMs: 1500,
+      }),
+    );
+    await sleep(1500);
+    return oacCompleteRaw(trimmed, fullOpts);
+  }
 }
 
 /**
  * Streaming completion via OpenRouter.
- * Signature matches deepseek-client's `deepseekCompleteStream()`.
+ *
+ * OR-003: same context trim and conservative maxTokens as `openrouterCompleteRaw`.
+ * OR-005: retries the stream once on transient errors.
  */
-export function openrouterCompleteStream(
+export async function* openrouterCompleteStream(
   messages: RawMessage[],
   opts: Omit<OpenAICompatibleStreamOptions, "baseUrl" | "providerName" | "extraHeaders">,
 ): AsyncGenerator<string> {
-  return oacCompleteStream(messages, {
+  const trimmed = trimMessagesForOpenRouter(messages);
+  const fullOpts: OpenAICompatibleStreamOptions = {
+    maxTokens: OPENROUTER_DEFAULT_MAX_TOKENS,
     ...opts,
     baseUrl: OPENROUTER_BASE_URL,
     providerName: "OpenRouter",
     extraHeaders: OPENROUTER_EXTRA_HEADERS,
-  });
+  };
+
+  try {
+    yield* oacCompleteStream(trimmed, fullOpts);
+  } catch (err) {
+    if (!isTransientError(err)) throw err;
+    // OR-005: one retry on transient failure.
+    console.warn(
+      JSON.stringify({
+        scope: "openrouter-client",
+        code: "TRANSIENT_STREAM_RETRY",
+        errorCode: err.code,
+        backoffMs: 1500,
+      }),
+    );
+    await sleep(1500);
+    yield* oacCompleteStream(trimmed, fullOpts);
+  }
 }
 
 // ── Pre-built Gemini client functions ─────────────────────────────────────────

@@ -1,0 +1,277 @@
+Patch Manifest — AI-OPENROUTER-001 (Execution-Ready)
+
+Title: OpenRouter Free-First Optimization (Minimal Changes)
+
+Objective
+
+تعظيم الاستفادة من الخطة المجانية الخاصة بـ OpenRouter مع أقل قدر ممكن من التعديلات، ودون إعادة هيكلة طبقة الـ AI أو تغيير مسار التنفيذ الحالي.
+
+
+---
+
+Patch OR-001
+
+File
+
+lib/ai-orchestrator/src/provider-registry.ts
+
+Change
+
+مراجعة وضبط PROVIDER_PRIORITY بحيث يبقى:
+
+["openrouter", "deepseek", "groq", ...]
+
+مع التأكد من عدم وجود أي Override يعيد ترتيب المزودين أثناء التشغيل.
+
+Reason
+
+ضمان أن OpenRouter هو نقطة الدخول الافتراضية لجميع الطلبات.
+
+Risk
+
+منخفض جدًا.
+
+Test
+
+إرسال عدة Requests.
+
+التأكد من أن Provider المختار هو OpenRouter طالما أنه متاح.
+
+
+
+---
+
+Patch OR-002
+
+File
+
+lib/ai-orchestrator/src/provider-registry.ts
+
+Change
+
+جعل جميع الـ Default Models الخاصة بـ OpenRouter تشير إلى موديلات مجانية فقط.
+
+مثال:
+
+fast → Free Model
+
+balanced → Free Model
+
+powerful → أفضل Free Model متاح
+
+
+مع إزالة أي Default يشير إلى موديل مدفوع.
+
+Reason
+
+منع استهلاك الرصيد المدفوع بصورة غير مقصودة.
+
+Risk
+
+منخفض.
+
+Test
+
+مراجعة الـ Logs.
+
+التأكد أن جميع الطلبات تستخدم موديلات مجانية.
+
+
+
+---
+
+Patch OR-003
+
+File
+
+lib/ai-orchestrator/src/openai-compatible-client.ts
+
+Change
+
+تطبيق إعدادات محافظة لاستهلاك التوكنات عند استخدام OpenRouter فقط، مثل:
+
+تقليل max_tokens الافتراضي.
+
+عدم إرسال Context غير مستخدم.
+
+إزالة الرسائل القديمة غير الضرورية قبل الإرسال.
+
+
+Reason
+
+تقليل استهلاك الحصة المجانية.
+
+Risk
+
+منخفض إذا تم الحفاظ على الحد الأدنى اللازم من السياق.
+
+Test
+
+مقارنة متوسط عدد Tokens قبل وبعد التعديل.
+
+التأكد من عدم انخفاض جودة الإجابات بشكل ملحوظ.
+
+
+
+---
+
+Patch OR-004
+
+File
+
+lib/ai-orchestrator/src/provider-registry.ts
+
+Change
+
+عدم الانتقال إلى Provider آخر إلا إذا كان سبب الفشل:
+
+Timeout
+
+Rate Limit
+
+Provider Unavailable
+
+
+أما أخطاء المستخدم (Prompt، Validation، Bad Request) فلا تؤدي إلى Fallback.
+
+Reason
+
+منع استهلاك مجاني لدى أكثر من مزود لنفس الطلب.
+
+Risk
+
+منخفض.
+
+Test
+
+محاكاة Validation Error.
+
+التأكد من عدم تنفيذ Retry على مزود آخر.
+
+محاكاة Timeout والتأكد من نجاح الـ Fallback.
+
+
+
+---
+
+Patch OR-005
+
+File
+
+lib/ai-orchestrator/src/openai-compatible-client.ts
+
+Change
+
+إضافة Retry بسيط داخل OpenRouter نفسه (مرة واحدة فقط مع Backoff قصير) قبل الانتقال إلى مزود آخر.
+
+Reason
+
+كثير من أخطاء OpenRouter المجانية تكون مؤقتة، ويمكن تجاوزها دون استهلاك مزود احتياطي.
+
+Risk
+
+منخفض.
+
+Test
+
+محاكاة HTTP 429 أو 503.
+
+التأكد من نجاح Retry قبل تنفيذ Fallback.
+
+
+
+---
+
+Patch OR-006
+
+File
+
+lib/ai-orchestrator/src/chat-agent.ts
+
+Change
+
+عدم إجراء أي Refactor لمسار المحادثة أو الـ Pipeline، والاكتفاء باستخدام إعدادات Provider Registry الحالية.
+
+Reason
+
+المسار الحالي يعتمد بالفعل على طبقة التوجيه الموحدة، وأي إعادة هيكلة ستزيد المخاطر دون فائدة مباشرة.
+
+Risk
+
+لا يوجد.
+
+Test
+
+تشغيل جميع سيناريوهات المحادثة الحالية.
+
+التأكد من عدم وجود أي تغيّر في السلوك الوظيفي.
+
+
+
+---
+
+Patch OR-007
+
+File
+
+lib/ai-orchestrator/src/provider-registry.ts
+
+Change
+
+إضافة سجل (Telemetry) بسيط لكل Request يتضمن:
+
+Provider
+
+Model
+
+سبب الـ Fallback (إن وجد)
+
+عدد المحاولات
+
+Token Usage
+
+
+دون تغيير واجهة الـ API.
+
+Reason
+
+قياس الاستفادة الفعلية من الخطة المجانية وتحسينها لاحقًا.
+
+Risk
+
+منخفض جدًا.
+
+Test
+
+مراجعة السجلات بعد عدة طلبات.
+
+التأكد من تسجيل جميع البيانات المطلوبة.
+
+
+
+---
+
+Summary
+
+File	Change	Priority
+
+provider-registry.ts	تثبيت OpenRouter كأولوية أولى	High
+provider-registry.ts	استخدام موديلات Free فقط	High
+openai-compatible-client.ts	تقليل استهلاك Tokens	High
+provider-registry.ts	تحسين سياسة Fallback	High
+openai-compatible-client.ts	Retry داخلي قبل تغيير المزود	Medium
+chat-agent.ts	عدم إجراء Refactor	Low
+provider-registry.ts	إضافة Telemetry	Medium
+
+
+النتيجة المتوقعة
+
+استخدام OpenRouter في معظم الطلبات.
+
+عدم استهلاك أي موديل مدفوع افتراضيًا.
+
+تقليل استهلاك التوكنات مع الحفاظ على جودة النتائج.
+
+تقليل عمليات الـ Fallback غير الضرورية.
+
+تنفيذ جميع التحسينات بأقل تغييرات ممكنة على البنية الحالية ودون إعادة تصميم طبقة الذكاء الاصطناعي.

@@ -38,6 +38,7 @@ import type { ToolDefinitionLike } from "./tool-policy.js";
 import type { PendingChange } from "./schemas/chat.schema.js";
 import { FILE_TOOL_DEFINITIONS, executeFileTool } from "./tools/file-tools.js";
 import { GIT_TOOL_DEFINITIONS, executeGitTool } from "./tools/git-tools.js";
+import { recordProviderTelemetry } from "./provider-registry.js";
 
 // ── Defaults ──────────────────────────────────────────────────────────────────
 
@@ -215,6 +216,14 @@ export type ToolLoopOpts = {
 
   /** Maximum real (non-cached) tool executions (default: DEFAULT_MAX_TOOL_CALLS = 50). */
   maxToolCalls?: number;
+
+  /**
+   * OR-003: Max tokens per model call.
+   * When omitted the engine picks a conservative provider-aware default:
+   *   openrouter → 2 048  (free-tier output caps)
+   *   all others → 4 096
+   */
+  maxTokens?: number;
 };
 
 export type ToolLoopResult =
@@ -268,19 +277,42 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   const toolSources: string[] = [];
   let totalToolCalls = 0;
 
+  /**
+   * OR-003: Conservative token cap per model call.
+   * OpenRouter free-tier models impose tight per-request output limits;
+   * 2 048 keeps us well inside them. Other providers default to 4 096.
+   * The caller can override with an explicit `maxTokens` option.
+   */
+  const iterMaxTokens = opts.maxTokens ?? (provider === "openrouter" ? 2_048 : 4_096);
+
+  /**
+   * OR-004: Transient error codes that warrant a powerModel retry within
+   * the same provider. User/validation errors (NON_200, AUTH_ERROR) and
+   * empty responses are NOT retried — retrying them wastes quota.
+   */
+  const TRANSIENT_CODES = new Set<string>(["TIMEOUT", "NETWORK_ERROR", "RATE_LIMITED", "SERVER_ERROR"]);
+
   for (let iter = 0; iter < maxIterations; iter++) {
-    // ── Model call (with NON_200 fallback to powerModel) ────────────────────
+    // ── Model call (with transient-error fallback to powerModel) ────────────
     let result: RawGroqResponse;
+    let attemptCount = 1;
+    let fallbackReason: string | undefined;
+    const t0 = Date.now();
+
     try {
       result = await strategy.call(messages, {
         model,
-        maxTokens: 4096,
+        maxTokens: iterMaxTokens,
         timeoutMs: 60_000,
         apiKey,
         ...(tools != null ? { tools } : {}),
       });
     } catch (err) {
-      if (err instanceof GroqClientError && err.code === "NON_200" && model !== powerModel) {
+      // OR-004: only fall back to powerModel on transient infrastructure errors,
+      // not on user/validation errors like NON_200 or AUTH_ERROR.
+      if (err instanceof GroqClientError && TRANSIENT_CODES.has(err.code) && model !== powerModel) {
+        fallbackReason = err.code;
+        attemptCount = 2;
         console.warn(
           JSON.stringify({
             scope: "tool-execution-engine",
@@ -289,12 +321,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             to: powerModel,
             provider,
             iter,
+            errorCode: err.code,
             reason: err.message,
           }),
         );
         result = await strategy.call(messages, {
           model: powerModel,
-          maxTokens: 4096,
+          maxTokens: iterMaxTokens,
           timeoutMs: 60_000,
           apiKey,
           ...(tools != null ? { tools } : {}),
@@ -314,6 +347,17 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         throw err;
       }
     }
+
+    // OR-007: Emit per-call telemetry (model used, token usage, timing, fallback).
+    recordProviderTelemetry({
+      provider: provider as Parameters<typeof recordProviderTelemetry>[0]["provider"],
+      model: fallbackReason ? powerModel : model,
+      fallbackReason,
+      attemptCount,
+      promptTokens: result.usage?.promptTokens ?? 0,
+      completionTokens: result.usage?.completionTokens ?? 0,
+      durationMs: Date.now() - t0,
+    });
 
     // ── No tool calls → final response ──────────────────────────────────────
     if (!result.toolCalls || result.toolCalls.length === 0) {

@@ -60,8 +60,9 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
     supportsTools: true,
     supportsJsonMode: true,
     defaultModels: {
-      fast: "google/gemma-4-31b-it:free",
-      powerful: "nvidia/nemotron-3-ultra-550b-a55b:free",
+      // OR-002: all OpenRouter defaults must be free-tier models only.
+      fast: "google/gemma-2-9b-it:free",
+      powerful: "meta-llama/llama-3.3-70b-instruct:free",
     },
     capabilities: {
       supportsStreaming: true,
@@ -73,7 +74,7 @@ export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
       supportsThinking: false,
       maxContext: 128_000,
       maxOutput: 32_000,
-      costTier: "medium",
+      costTier: "low",
     },
   },
   deepseek: {
@@ -226,4 +227,35 @@ export function getStrategy(id: ProviderId): ProviderStrategy {
   const strategy = STRATEGY_MAP.get(id);
   if (!strategy) throw new Error(`No ProviderStrategy registered for provider: ${id}`);
   return strategy;
+}
+
+// ─── Provider telemetry (OR-007) ──────────────────────────────────────────────
+
+/**
+ * Structured record emitted after every model API call.
+ * Written to stdout as a JSON line so it can be ingested by any log processor.
+ */
+export type ProviderTelemetry = {
+  /** Provider that handled this request. */
+  provider: ProviderId;
+  /** Exact model slug used. */
+  model: string;
+  /** GroqErrorCode that triggered a model fallback, if any. */
+  fallbackReason?: string;
+  /** Total number of API attempts (1 = first try succeeded, 2 = one retry). */
+  attemptCount: number;
+  /** Prompt token count from usage metadata (0 when unavailable). */
+  promptTokens: number;
+  /** Completion token count from usage metadata (0 when unavailable). */
+  completionTokens: number;
+  /** Wall-clock time in ms from first attempt start to final response. */
+  durationMs: number;
+};
+
+/**
+ * Emit a single telemetry record to stdout.
+ * The scope field makes these log lines easy to grep or stream to analytics.
+ */
+export function recordProviderTelemetry(entry: ProviderTelemetry): void {
+  console.info(JSON.stringify({ scope: "provider-telemetry", ...entry }));
 }
