@@ -423,13 +423,20 @@ export function handleOrchestratorError(
         hint: `Try again in a moment. If it persists, check ${providerStatus}.`,
       });
       return true;
-    case "MODEL_NOT_FOUND":
+    case "MODEL_NOT_FOUND": {
+      // OpenRouter free-tier models return 404/402 "unavailable for free" when the
+      // account has no credit balance — give a more actionable hint than the
+      // generic "model slug rejected" message.
+      const isOpenRouter = providerId === "openrouter";
       res.status(422).json({
         ...base,
         error: `${providerLabel} selected model is unavailable.`,
-        hint: `The configured model slug is no longer accepted by ${providerLabel}. Re-save the provider key or try again after the model catalog refreshes.`,
+        hint: isOpenRouter
+          ? `All OpenRouter free-tier models are currently unavailable — this usually means the account needs a small credit balance (from ${providerConsole}). Alternatively, save a Groq or DeepSeek API key as a fallback provider.`
+          : `The configured model slug is no longer accepted by ${providerLabel}. Re-save the provider key or try again after the model catalog refreshes.`,
       });
       return true;
+    }
     case "NON_200":
       res.status(502).json({
         ...base,
