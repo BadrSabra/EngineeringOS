@@ -100,7 +100,32 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
         return;
       }
 
-      const ids = new Set(models.map((m) => m.id));
+      // PR-01 (root-cause fix): only keep models that are CURRENTLY FREE.
+      // A model is free when both prompt and completion pricing are "0".
+      // Without this filter we collected ALL model IDs (including paid ones),
+      // so models that moved from free → paid still passed the live-catalog
+      // check and were tried — causing chains of 404 "paid version available"
+      // errors until every model was exhausted.
+      const freeModels = models.filter(
+        (m) => m.pricing?.prompt === "0" && m.pricing?.completion === "0",
+      );
+
+      const ids = new Set(freeModels.map((m) => m.id));
+
+      if (ids.size === 0) {
+        // OpenRouter occasionally returns no free models (e.g. API auth issue
+        // or a temporary catalog gap) — keep previous catalog in that case.
+        console.warn(
+          JSON.stringify({
+            scope: "dynamic-catalog",
+            code: "NO_FREE_MODELS",
+            totalModels: models.length,
+            hint: "OpenRouter returned no free-priced models — keeping previous catalog",
+          }),
+        );
+        return;
+      }
+
       _availableIds = ids;
       _lastFetchMs  = Date.now();
 
@@ -108,7 +133,8 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
         JSON.stringify({
           scope: "dynamic-catalog",
           code: "REFRESHED",
-          modelCount: ids.size,
+          freeModelCount: ids.size,
+          totalModelCount: models.length,
         }),
       );
     } catch (err) {
