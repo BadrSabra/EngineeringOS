@@ -41,17 +41,15 @@
  *   dashboard UI before anything is written.
  */
 import { PROVIDER_REGISTRY, getStrategy } from "../provider-registry.js";
-import { GroqClientError } from "../errors.js";
 import type { AgentErrorCode } from "../errors.js";
-import type { RawMessage, RawGroqResponse } from "../groq-client.js";
+import type { RawMessage } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildChatSystemPrompt } from "../prompts/chat.prompt.js";
 import { ChatResponseSchema, ChatOutputSchema, PendingChangeSchema, type ChatOutput, type PendingChange } from "../schemas/chat.schema.js";
 import { parseAgentResponse } from "../parsing.js";
-import { FILE_TOOL_DEFINITIONS, executeFileTool } from "../tools/file-tools.js";
-import { GIT_TOOL_DEFINITIONS, executeGitTool } from "../tools/git-tools.js";
 import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
 import { speculativePrefetch } from "./speculative-prefetch.js";
+import { toolCacheKey, executeToolLoop } from "../tool-execution-engine.js";
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 export type { ChatOutput };
@@ -105,7 +103,7 @@ export type ChatResult = ChatOutput & {
   _parseError?: { code: AgentErrorCode; message: string; raw: string };
 };
 
-const MAX_TOOL_ITERATIONS = 20;
+// Iteration and call budgets are owned by the engine (DEFAULT_MAX_ITERATIONS / DEFAULT_MAX_TOOL_CALLS).
 
 /**
  * إصلاح #2 — اكتشاف نية التنفيذ الفعلي للأدوات.
@@ -158,28 +156,6 @@ function buildProviderTools(provider: keyof typeof PROVIDER_REGISTRY, rootPath: 
     return undefined;
   }
   return tools;
-}
-
-/**
- * Hard cap on total tool executions per request (across all iterations).
- * Prevents a single model response from requesting unbounded tool calls.
- * Duplicate calls do not count against this budget — they are free.
- */
-const MAX_TOOL_CALLS = 50;
-
-/**
- * Canonical cache key for a tool call.
- * Object keys are sorted so argument order differences produce the same key:
- * { path: "a", content: "b" } ≡ { content: "b", path: "a" }
- */
-function toolCacheKey(name: string, args: Record<string, string>): string {
-  const sorted = Object.keys(args)
-    .sort()
-    .reduce<Record<string, string>>((acc, k) => {
-      acc[k] = args[k];
-      return acc;
-    }, {});
-  return `${name}:${JSON.stringify(sorted)}`;
 }
 
 /**
@@ -347,31 +323,15 @@ export async function chat(opts: {
   const pendingChanges: PendingChange[] = [];
 
   /**
-   * Ground-truth access log: file paths and search terms used during the
-   * tool loop. Prepended to the model's self-reported sources on return so
-   * the caller always receives a record of what was actually accessed.
-   */
-  const toolSources: string[] = [];
-
-  /**
-   * Deduplication cache: maps a canonical tool-call key to the result string
-   * returned the first time it was executed. Subsequent identical calls get the
-   * cached result without re-executing and without consuming the tool budget.
+   * Deduplication cache shared between speculative-prefetch and the tool loop.
+   * Seeded here with prefetch results so the engine never re-reads them.
    */
   const toolCallCache = new Map<string, string>();
 
-  /** Running count of tool executions that hit the real filesystem/grep. */
-  let totalToolCalls = 0;
+  /** Ground-truth sources from speculative-prefetch (merged with engine sources later). */
+  const prefetchSources: string[] = [];
 
   const tools = buildProviderTools(provider, rootPath);
-
-  // PR-02: build explicit name Sets from the authoritative definition arrays.
-  // Replaces the startsWith("git_") prefix heuristic so any future tool whose
-  // name happens to start with "git_" is not silently misrouted to the git
-  // handler, and any unregistered name produces a loud error instead of falling
-  // through to the file handler with undefined behaviour.
-  const GIT_TOOL_NAMES  = new Set(GIT_TOOL_DEFINITIONS.map((t) => t.function.name));
-  const FILE_TOOL_NAMES = new Set(FILE_TOOL_DEFINITIONS.map((t) => t.function.name));
 
   // Use the more capable model when tools are involved — smaller models are
   // unreliable at following multi-step tool-calling protocols.
@@ -418,375 +378,242 @@ export async function chat(opts: {
     if (prefetch.injectedMessages.length > 0) {
       // Inject synthetic reads right after the initial user message
       messages.push(...prefetch.injectedMessages);
-      // Seed ground-truth sources from pre-fetched files
-      toolSources.push(...prefetch.sources);
-      // Seed dedup cache so the loop never re-reads these files
+      // Accumulate ground-truth sources from pre-fetched files
+      prefetchSources.push(...prefetch.sources);
+      // Seed dedup cache so the engine never re-reads these files
       for (const entry of prefetch.cacheEntries) {
         toolCallCache.set(entry.key, entry.content);
       }
     }
   }
 
-  for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
-    // إصلاح #1 و #2: timeout ممتد + fallback تلقائي إلى MODEL_POWERFUL عند NON_200 من MODEL_FAST.
-    // llama-3.1-8b-instant يفشل أحياناً بـNON_200 تحت حِمل tool-use ثقيل؛
-    // إعادة المحاولة بالنموذج الأقوى تُنقذ الطلب بدل إرجاع 502 للمستخدم.
-    let result: RawGroqResponse;
-    try {
-      result = await strategy.call(messages, { model, maxTokens: 4096, timeoutMs: 60_000, apiKey, ...(tools != null ? { tools } : {}) });
-    } catch (err) {
-      if (err instanceof GroqClientError && err.code === "NON_200" && model !== powerModel) {
-        console.warn(
-          JSON.stringify({ scope: "chat-agent", code: "MODEL_FALLBACK", from: model, to: powerModel, provider, iter, reason: err.message }),
-        );
-        result = await strategy.call(messages, { model: powerModel, maxTokens: 4096, timeoutMs: 60_000, apiKey, ...(tools != null ? { tools } : {}) });
-      } else {
-        console.warn(
-          JSON.stringify({ scope: "chat-agent", code: "MODEL_ERROR", provider, model, iter, errorCode: err instanceof GroqClientError ? err.code : "unknown", reason: err instanceof Error ? err.message : String(err) }),
-        );
-        throw err;
-      }
-    }
+  // ── Agentic tool loop ─────────────────────────────────────────────────────
+  // Delegates iteration budget, per-call budget, cache keying, tool dispatch,
+  // and model fallback to the self-contained ToolExecutionEngine.
+  const loopResult = await executeToolLoop({
+    messages,
+    strategy,
+    model,
+    powerModel,
+    provider,
+    apiKey,
+    tools,
+    rootPath: rootPath ?? "",
+    pendingChanges,
+    cache: toolCallCache,
+  });
 
-    // Model wants to call one or more tools → execute them and loop.
-    if (result.toolCalls && result.toolCalls.length > 0) {
-      // Add the assistant turn (with tool_calls) to the conversation history.
-      messages.push({
-        role: "assistant",
-        content: result.content,
-        tool_calls: result.toolCalls,
-      });
+  // Merge prefetch sources with the engine's ground-truth sources.
+  // Prefetch sources are prepended since they were resolved first.
+  const toolSources = [...prefetchSources, ...loopResult.toolSources];
 
-      for (const tc of result.toolCalls) {
-        let args: Record<string, string> = {};
-        try {
-          args = JSON.parse(tc.function.arguments) as Record<string, string>;
-        } catch {
-          // Malformed arguments — leave args empty; the handler returns an
-          // informative error string that the model can reason about.
-        }
-
-        // ── Guard 1: budget ──────────────────────────────────────────────────
-        // Duplicates are checked next and are free, so we only enforce the
-        // budget for fresh executions. Check budget BEFORE the cache so that
-        // a budget-exhausted request can still benefit from a cached result.
-        const key = toolCacheKey(tc.function.name, args);
-        const cached = toolCallCache.get(key);
-
-        if (cached !== undefined) {
-          // ── Guard 2: deduplication ─────────────────────────────────────────
-          // Identical call seen before — return cached result at no cost.
-          // إصلاح #4: نُعلم النموذج صراحةً أن هذه النتيجة مخزّنة مسبقاً حتى
-          // لا يتوهم أنه لم يتلقَّ ردًّا ويعيد طلب نفس الأداة مجدداً.
-          console.warn(
-            JSON.stringify({
-              scope: "chat-agent",
-              code: "DUPLICATE_TOOL_CALL",
-              tool: tc.function.name,
-              iter,
-            }),
-          );
-          messages.push({
-            role: "tool",
-            tool_call_id: tc.id,
-            content: `[cached — identical call already executed this request]\n${cached}`,
-          });
-          continue;
-        }
-
-        if (totalToolCalls >= MAX_TOOL_CALLS) {
-          // Budget exhausted for fresh calls. Tell the model to stop calling
-          // tools and synthesize its answer from what it already has.
-          console.warn(
-            JSON.stringify({
-              scope: "chat-agent",
-              code: "TOOL_CALL_LIMIT_REACHED",
-              tool: tc.function.name,
-              iter,
-              totalToolCalls,
-            }),
-          );
-          const budgetMsg =
-            "Tool call budget exhausted for this request. " +
-            "Synthesize your answer from the information already gathered — do not call further tools.";
-          messages.push({ role: "tool", tool_call_id: tc.id, content: budgetMsg });
-          continue;
-        }
-
-        // PR-02: registry assertion — reject names that don't match any
-        // registered handler before touching the tool budget counter.
-        const isGitTool  = GIT_TOOL_NAMES.has(tc.function.name);
-        const isFileTool = FILE_TOOL_NAMES.has(tc.function.name);
-        if (!isGitTool && !isFileTool) {
-          console.error(
-            JSON.stringify({
-              scope: "chat-agent",
-              code: "UNKNOWN_TOOL",
-              tool: tc.function.name,
-              iter,
-              knownGit:  [...GIT_TOOL_NAMES],
-              knownFile: [...FILE_TOOL_NAMES],
-            }),
-          );
-          messages.push({
-            role: "tool",
-            tool_call_id: tc.id,
-            content: `Error: Tool "${tc.function.name}" is not registered — use one of the tools listed in the system prompt.`,
-          });
-          continue;
-        }
-
-        // ── Execute ──────────────────────────────────────────────────────────
-        totalToolCalls++;
-        const output = isGitTool
-          ? await executeGitTool(tc.function.name, args, rootPath!)
-          : await executeFileTool(tc.function.name, args, rootPath!, pendingChanges);
-
-        // Cache result for deduplication on future iterations.
-        toolCallCache.set(key, output);
-
-        // Record ground-truth sources for file reads and searches.
-        // write_file is not a read source — it produces a pending change.
-        switch (tc.function.name) {
-          case "read_file":
-            if (args.path) toolSources.push(args.path);
-            break;
-          case "list_directory":
-            toolSources.push(`directory: ${args.path ?? "."}`);
-            break;
-          case "search_code":
-            if (args.pattern) toolSources.push(`search: ${args.pattern}`);
-            break;
-          case "git_status":
-            toolSources.push("git:status");
-            break;
-          case "git_diff":
-            toolSources.push(args.path ? `git:diff:${args.path}` : "git:diff");
-            break;
-          case "git_log":
-            toolSources.push("git:log");
-            break;
-        }
-
-        messages.push({ role: "tool", tool_call_id: tc.id, content: output });
-      }
-
-      continue; // send enriched history back to the model
-    }
-
-    // No tool calls — this is the final response.
-
-    // ── Streaming path ────────────────────────────────────────────────────────
-    // When the caller provided an onDelta callback, stream the final response
-    // so tokens arrive at the client in real time.
-    //
-    // Strategy:
-    //   1. If the tool-loop callRaw already produced plain text content (common
-    //      with OpenRouter free models that don't separate tool-use from the
-    //      final synthesis), emit it via onDelta word-by-word and return early.
-    //      This avoids a second network call which is slow, unreliable on free
-    //      tiers, and rejected by many models when the history contains
-    //      tool_calls messages but no `tools` parameter.
-    //   2. Otherwise make a fresh streaming call (Groq / DeepSeek native SSE).
-    if (onDelta) {
-      // Strategy 1 — reuse the non-streaming result already in hand.
-      // openrouter always uses this path; native providers fall through to SSE.
-      const directContent = result.content;
-      if (directContent && !strategy.supportsNativeStream) {
-        // AI-01: Parse through the unified normalization path before emitting.
-        // OpenRouter (and other non-Groq/DeepSeek providers) may return a JSON
-        // envelope such as {"response":"...","sources":[...]} even in the
-        // "direct content" path. Emitting that raw would expose the wrapper to
-        // the UI and store it verbatim in the DB.  Passing through
-        // parseAgentResponse strips the envelope and gives us the inner prose.
-        // Use ChatOutputSchema (not the strict ChatResponseSchema) so that
-        // parsedDirect.data.pendingChanges is typed and defaults to [] via Zod.
-        // The model never writes pendingChanges itself — they come from the tool
-        // loop — but using the full output schema keeps the type consistent with
-        // the return value and avoids a TS2339 on .pendingChanges below.
-        const parsedDirect = parseAgentResponse(directContent, ChatOutputSchema, fallbackChatOutput);
-        const responseText = parsedDirect.data.response.trim() || directContent.trim();
-
-        // Emit only the clean prose text word-by-word.
-        const words = responseText.split(/(\s+)/);
-        for (const chunk of words) {
-          if (chunk) onDelta(chunk);
-        }
-
-        // BUG-2 fix: sanitize model-reported sources before merging.
-        const parsedSources = sanitizeSources(parsedDirect.ok ? parsedDirect.data.sources : []);
-        const mergedSources =
-          toolSources.length > 0
-            ? [...toolSources, ...parsedSources.filter((s) => !toolSources.includes(s))]
-            : parsedSources;
-
-        // Prefer pending changes from parsed output (model may have proposed
-        // writes inside the envelope); fall back to tool-loop accumulated ones.
-        const parsedChanges = parsedDirect.ok ? (parsedDirect.data.pendingChanges ?? []) : [];
-        const finalChanges = parsedChanges.length > 0 ? parsedChanges : pendingChanges;
-
-        if (!parsedDirect.ok) {
-          console.warn(
-            JSON.stringify({
-              scope: "chat-agent",
-              code: "OPENROUTER_DIRECT_PARSE_FALLBACK",
-              parseCode: parsedDirect.code,
-              message: parsedDirect.message,
-            }),
-          );
-        }
-
-        return { response: responseText, sources: mergedSources, pendingChanges: finalChanges };
-      }
-
-      // Strategy 2 — native SSE streaming (Groq / DeepSeek).
-      // Replace system message with streaming-mode plain-markdown variant.
-      const streamMessages = messages.map((m, i) =>
-        i === 0 && m.role === "system"
-          ? { ...m, content: buildChatSystemPrompt(projectContext, tools != null, /* streamingMode= */ true, focusHint ?? undefined) }
-          : m,
-      );
-
-      let accumulated = "";
-      try {
-        const streamGen = strategy.stream(streamMessages, { model, apiKey });
-        for await (const delta of streamGen) {
-          accumulated += delta;
-          onDelta(delta);
-        }
-      } catch (streamErr) {
-        // Streaming failed — fall through to the non-streaming parse below.
-        console.warn(
-          JSON.stringify({ scope: "chat-agent", code: "STREAM_FALLBACK", provider, reason: String(streamErr) }),
-        );
-        // GAP-A2: If we already sent partial deltas to the caller, signal a
-        // reset so the client can discard the incomplete bubble before the
-        // full fallback response arrives in the return value below.
-        if (accumulated && onStreamReset) {
-          onStreamReset();
-        }
-        accumulated = "";
-      }
-
-      if (accumulated) {
-        // BUG-2/BUG-3 fix: streaming path has no model-reported sources —
-        // use only ground-truth toolSources (already clean); never fall back
-        // to a generic label.
-        const mergedSources = toolSources.length > 0 ? toolSources : [];
-        return { response: accumulated.trim(), sources: mergedSources, pendingChanges };
-      }
-      // Streaming failed — fall through to non-streaming path below.
-    }
-    // ── End streaming path ────────────────────────────────────────────────────
-
-    let content = result.content ?? "";
-    let parsed = parseAgentResponse(content, ChatResponseSchema, fallbackChatOutput);
-
-    // JSON format correction: when MODEL_FAST ignores the JSON output instruction
-    // (common with non-English responses), send one corrective follow-up that
-    // shows the model its own answer and asks it to reformat — without making
-    // another full tool loop iteration (iter budget is shared).
-    if (!parsed.ok && iter < MAX_TOOL_ITERATIONS - 1) {
-      console.warn(JSON.stringify({ scope: "chat-agent", code: parsed.code, message: parsed.message, action: "json_correction_retry" }));
-      const correctionPrompt =
-        "Your previous response was not valid JSON. " +
-        "Reformat it as required — output ONLY a valid JSON object with this exact shape, " +
-        "nothing before or after it:\n" +
-        `{"response":"<your full answer as a markdown string>","sources":["<entity or metric cited>"]}`;
-      messages.push({ role: "assistant", content });
-      messages.push({ role: "user", content: correctionPrompt });
-      try {
-        // إصلاح #3: response_format: json_object يُجبر النموذج على إرجاع JSON صالح.
-        // Use provider-aware strategy so DeepSeek correction calls hit
-        // api.deepseek.com, not Groq's endpoint.
-        const retry = await strategy.call(messages, {
-          model,
-          maxTokens: 4096,
-          apiKey,
-          responseFormat: { type: "json_object" },
-        });
-        const retryContent = retry.content ?? "";
-        const retryParsed = parseAgentResponse(retryContent, ChatResponseSchema, fallbackChatOutput);
-        if (retryParsed.ok) {
-          // Correction succeeded — use the reformatted response.
-          parsed = retryParsed;
-          content = retryContent;
-        } else {
-          // Correction also failed — the fallback already wraps raw text gracefully.
-          console.warn(JSON.stringify({ scope: "chat-agent", code: "JSON_CORRECTION_FAILED", original: parsed.code }));
-        }
-      } catch {
-        // Groq error during correction — keep the original fallback output.
-      }
-    } else if (!parsed.ok) {
-      console.warn(JSON.stringify({ scope: "chat-agent", code: parsed.code, message: parsed.message }));
-    }
-
-    // PR-E: capture parse failure after all correction retries so the route can
-    // surface it as 422 instead of silently returning degraded fallback content.
-    let parseError: { code: AgentErrorCode; message: string; raw: string } | undefined;
-    if (!parsed.ok) {
-      parseError = { code: parsed.code, message: parsed.message, raw: parsed.raw };
-    }
-
-    // Merge ground-truth tool sources with model-reported sources.
-    // Tool sources are prepended (they are factual); model sources follow and
-    // are deduplicated so the model's entity/metric references are preserved
-    // without repeating paths that are already in toolSources.
-    // BUG-2 fix: sanitize model-reported sources before merging — removes
-    // generic labels like "project name", "language", "branch", etc.
-    const cleanModelSources = sanitizeSources(parsed.data.sources);
-    const mergedSources =
-      toolSources.length > 0
-        ? [...toolSources, ...cleanModelSources.filter((s) => !toolSources.includes(s))]
-        : cleanModelSources;
-
-    const output = {
-      ...parsed.data,
-      sources: mergedSources,
+  // ── Exhausted iterations ──────────────────────────────────────────────────
+  if (loopResult.kind === "exhausted") {
+    // Bilingual exhaustion message: detect Arabic by checking if the original
+    // user message contains Arabic characters (Unicode block U+0600–U+06FF).
+    const isArabic = /[\u0600-\u06FF]/.test(message);
+    const exhaustionMessage = isArabic
+      ? "وصلت إلى الحد الأقصى من خطوات الأدوات. حاول طرح سؤال أكثر تحديداً أو تقسيمه إلى أجزاء أصغر."
+      : "I reached the maximum number of tool steps. Try asking a more specific question or break it into smaller parts.";
+    return {
+      response: exhaustionMessage,
+      sources: toolSources.length > 0 ? toolSources : [],
       pendingChanges,
     };
-    const check = ChatOutputSchema.safeParse(output);
-    if (!check.success) {
-      // Attempt to salvage individual pending changes that fully satisfy
-      // PendingChangeSchema (including the absolutePath.isAbsolute refinement
-      // and the .strict() guard that rejects extra properties). This is more
-      // precise than the previous manual type-checks, which passed a relative
-      // absolutePath or an extra field through the salvage path despite the
-      // schema forbidding both.
-      const validChanges = pendingChanges.filter(
-        (pc) => PendingChangeSchema.safeParse(pc).success,
-      );
-      console.error(
-        JSON.stringify({
-          scope: "chat-agent",
-          code: "CHAT_OUTPUT_INVALID",
-          issues: check.error.issues,
-          totalChanges: pendingChanges.length,
-          savedChanges: validChanges.length,
-          droppedChanges: pendingChanges.length - validChanges.length,
-        }),
-      );
-      return { ...parsed.data, sources: mergedSources, pendingChanges: validChanges, _parseError: parseError };
-    }
-    return parseError ? { ...check.data, _parseError: parseError } : check.data;
   }
 
-  // Exhausted iterations without a final text response.
-  console.warn(
-    JSON.stringify({ scope: "chat-agent", code: "TOOL_LOOP_EXHAUSTED", iterations: MAX_TOOL_ITERATIONS }),
-  );
-  // Bilingual exhaustion message: detect Arabic by checking if the original user
-  // message contains Arabic characters (Unicode block U+0600–U+06FF).
-  const isArabic = /[\u0600-\u06FF]/.test(message);
-  const exhaustionMessage = isArabic
-    ? "وصلت إلى الحد الأقصى من خطوات الأدوات. حاول طرح سؤال أكثر تحديداً أو تقسيمه إلى أجزاء أصغر."
-    : "I reached the maximum number of tool steps. Try asking a more specific question or break it into smaller parts.";
-  return {
-    response: exhaustionMessage,
-    // Use accumulated tool sources rather than the generic "tool-loop" string
-    // so the caller retains a record of what was actually accessed.
-    sources: toolSources.length > 0 ? toolSources : [],
+  // ── Final response from model ─────────────────────────────────────────────
+  const result = loopResult.result;
+
+  // ── Streaming path ────────────────────────────────────────────────────────
+  // When the caller provided an onDelta callback, stream the final response
+  // so tokens arrive at the client in real time.
+  //
+  // Strategy:
+  //   1. If the tool-loop callRaw already produced plain text content (common
+  //      with OpenRouter free models that don't separate tool-use from the
+  //      final synthesis), emit it via onDelta word-by-word and return early.
+  //      This avoids a second network call which is slow, unreliable on free
+  //      tiers, and rejected by many models when the history contains
+  //      tool_calls messages but no `tools` parameter.
+  //   2. Otherwise make a fresh streaming call (Groq / DeepSeek native SSE).
+  if (onDelta) {
+    // Strategy 1 — reuse the non-streaming result already in hand.
+    // openrouter always uses this path; native providers fall through to SSE.
+    const directContent = result.content;
+    if (directContent && !strategy.supportsNativeStream) {
+      // AI-01: Parse through the unified normalization path before emitting.
+      // OpenRouter (and other non-Groq/DeepSeek providers) may return a JSON
+      // envelope such as {"response":"...","sources":[...]} even in the
+      // "direct content" path. Emitting that raw would expose the wrapper to
+      // the UI and store it verbatim in the DB.  Passing through
+      // parseAgentResponse strips the envelope and gives us the inner prose.
+      // Use ChatOutputSchema (not the strict ChatResponseSchema) so that
+      // parsedDirect.data.pendingChanges is typed and defaults to [] via Zod.
+      // The model never writes pendingChanges itself — they come from the tool
+      // loop — but using the full output schema keeps the type consistent with
+      // the return value and avoids a TS2339 on .pendingChanges below.
+      const parsedDirect = parseAgentResponse(directContent, ChatOutputSchema, fallbackChatOutput);
+      const responseText = parsedDirect.data.response.trim() || directContent.trim();
+
+      // Emit only the clean prose text word-by-word.
+      const words = responseText.split(/(\s+)/);
+      for (const chunk of words) {
+        if (chunk) onDelta(chunk);
+      }
+
+      // BUG-2 fix: sanitize model-reported sources before merging.
+      const parsedSources = sanitizeSources(parsedDirect.ok ? parsedDirect.data.sources : []);
+      const mergedSources =
+        toolSources.length > 0
+          ? [...toolSources, ...parsedSources.filter((s) => !toolSources.includes(s))]
+          : parsedSources;
+
+      // Prefer pending changes from parsed output (model may have proposed
+      // writes inside the envelope); fall back to tool-loop accumulated ones.
+      const parsedChanges = parsedDirect.ok ? (parsedDirect.data.pendingChanges ?? []) : [];
+      const finalChanges = parsedChanges.length > 0 ? parsedChanges : pendingChanges;
+
+      if (!parsedDirect.ok) {
+        console.warn(
+          JSON.stringify({
+            scope: "chat-agent",
+            code: "OPENROUTER_DIRECT_PARSE_FALLBACK",
+            parseCode: parsedDirect.code,
+            message: parsedDirect.message,
+          }),
+        );
+      }
+
+      return { response: responseText, sources: mergedSources, pendingChanges: finalChanges };
+    }
+
+    // Strategy 2 — native SSE streaming (Groq / DeepSeek).
+    // Replace system message with streaming-mode plain-markdown variant.
+    const streamMessages = messages.map((m, i) =>
+      i === 0 && m.role === "system"
+        ? { ...m, content: buildChatSystemPrompt(projectContext, tools != null, /* streamingMode= */ true, focusHint ?? undefined) }
+        : m,
+    );
+
+    let accumulated = "";
+    try {
+      const streamGen = strategy.stream(streamMessages, { model, apiKey });
+      for await (const delta of streamGen) {
+        accumulated += delta;
+        onDelta(delta);
+      }
+    } catch (streamErr) {
+      // Streaming failed — fall through to the non-streaming parse below.
+      console.warn(
+        JSON.stringify({ scope: "chat-agent", code: "STREAM_FALLBACK", provider, reason: String(streamErr) }),
+      );
+      // GAP-A2: If we already sent partial deltas to the caller, signal a
+      // reset so the client can discard the incomplete bubble before the
+      // full fallback response arrives in the return value below.
+      if (accumulated && onStreamReset) {
+        onStreamReset();
+      }
+      accumulated = "";
+    }
+
+    if (accumulated) {
+      // BUG-2/BUG-3 fix: streaming path has no model-reported sources —
+      // use only ground-truth toolSources (already clean); never fall back
+      // to a generic label.
+      const mergedSources = toolSources.length > 0 ? toolSources : [];
+      return { response: accumulated.trim(), sources: mergedSources, pendingChanges };
+    }
+    // Streaming failed — fall through to non-streaming path below.
+  }
+  // ── End streaming path ────────────────────────────────────────────────────
+
+  let content = result.content ?? "";
+  let parsed = parseAgentResponse(content, ChatResponseSchema, fallbackChatOutput);
+
+  // JSON format correction: when MODEL_FAST ignores the JSON output instruction
+  // (common with non-English responses), send one corrective follow-up that
+  // shows the model its own answer and asks it to reformat.
+  if (!parsed.ok) {
+    console.warn(JSON.stringify({ scope: "chat-agent", code: parsed.code, message: parsed.message, action: "json_correction_retry" }));
+    const correctionPrompt =
+      "Your previous response was not valid JSON. " +
+      "Reformat it as required — output ONLY a valid JSON object with this exact shape, " +
+      "nothing before or after it:\n" +
+      `{"response":"<your full answer as a markdown string>","sources":["<entity or metric cited>"]}`;
+    messages.push({ role: "assistant", content });
+    messages.push({ role: "user", content: correctionPrompt });
+    try {
+      // إصلاح #3: response_format: json_object يُجبر النموذج على إرجاع JSON صالح.
+      // Use provider-aware strategy so DeepSeek correction calls hit
+      // api.deepseek.com, not Groq's endpoint.
+      const retry = await strategy.call(messages, {
+        model,
+        maxTokens: 4096,
+        apiKey,
+        responseFormat: { type: "json_object" },
+      });
+      const retryContent = retry.content ?? "";
+      const retryParsed = parseAgentResponse(retryContent, ChatResponseSchema, fallbackChatOutput);
+      if (retryParsed.ok) {
+        // Correction succeeded — use the reformatted response.
+        parsed = retryParsed;
+        content = retryContent;
+      } else {
+        // Correction also failed — the fallback already wraps raw text gracefully.
+        console.warn(JSON.stringify({ scope: "chat-agent", code: "JSON_CORRECTION_FAILED", original: parsed.code }));
+      }
+    } catch {
+      // Groq error during correction — keep the original fallback output.
+    }
+  }
+
+  // PR-E: capture parse failure after all correction retries so the route can
+  // surface it as 422 instead of silently returning degraded fallback content.
+  let parseError: { code: AgentErrorCode; message: string; raw: string } | undefined;
+  if (!parsed.ok) {
+    parseError = { code: parsed.code, message: parsed.message, raw: parsed.raw };
+  }
+
+  // Merge ground-truth tool sources with model-reported sources.
+  // Tool sources are prepended (they are factual); model sources follow and
+  // are deduplicated so the model's entity/metric references are preserved
+  // without repeating paths that are already in toolSources.
+  // BUG-2 fix: sanitize model-reported sources before merging — removes
+  // generic labels like "project name", "language", "branch", etc.
+  const cleanModelSources = sanitizeSources(parsed.data.sources);
+  const mergedSources =
+    toolSources.length > 0
+      ? [...toolSources, ...cleanModelSources.filter((s) => !toolSources.includes(s))]
+      : cleanModelSources;
+
+  const output = {
+    ...parsed.data,
+    sources: mergedSources,
     pendingChanges,
   };
+  const check = ChatOutputSchema.safeParse(output);
+  if (!check.success) {
+    // Attempt to salvage individual pending changes that fully satisfy
+    // PendingChangeSchema (including the absolutePath.isAbsolute refinement
+    // and the .strict() guard that rejects extra properties). This is more
+    // precise than the previous manual type-checks, which passed a relative
+    // absolutePath or an extra field through the salvage path despite the
+    // schema forbidding both.
+    const validChanges = pendingChanges.filter(
+      (pc) => PendingChangeSchema.safeParse(pc).success,
+    );
+    console.error(
+      JSON.stringify({
+        scope: "chat-agent",
+        code: "CHAT_OUTPUT_INVALID",
+        issues: check.error.issues,
+        totalChanges: pendingChanges.length,
+        savedChanges: validChanges.length,
+        droppedChanges: pendingChanges.length - validChanges.length,
+      }),
+    );
+    return { ...parsed.data, sources: mergedSources, pendingChanges: validChanges, _parseError: parseError };
+  }
+  return parseError ? { ...check.data, _parseError: parseError } : check.data;
 }
