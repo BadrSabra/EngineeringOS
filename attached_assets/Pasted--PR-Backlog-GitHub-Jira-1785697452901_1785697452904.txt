@@ -1,0 +1,989 @@
+تحقق من صحة البيانات التالية.
+
+فيما يلي **PR Backlog إصلاحي** بصيغة جاهزة للإضافة إلى GitHub أو Jira، مرتبة حسب الأولوية (P0 → P2)، مع نطاق كل PR، والأدلة، ومعايير القبول.
+
+
+
+---
+
+
+
+# Epic: AI Provider Reliability & OpenRouter Hardening
+
+
+
+**الحالة الحالية:** Partially Fixed
+
+
+
+---
+
+
+
+# PR-001 — Remove Stale Hardcoded Models (P0)
+
+
+
+### المشكلة
+
+
+
+الكتالوج المحلي يحتوي نماذج لم تعد متوفرة في OpenRouter.
+
+
+
+### الملفات
+
+
+
+```
+
+lib/ai-orchestrator/src/openrouter/model-catalog.ts
+
+```
+
+
+
+### الدليل
+
+
+
+وجود:
+
+
+
+```
+
+deepseek/deepseek-v3-0324:free
+
+```
+
+
+
+بينما OpenRouter يرجع:
+
+
+
+```
+
+MODEL_NOT_FOUND
+
+404
+
+selected model is unavailable
+
+```
+
+
+
+### المطلوب
+
+
+
+* إزالة جميع النماذج المتوقفة.
+
+* استخدام النماذج المدعومة فقط.
+
+* منع اختيار أي Model غير موجود.
+
+
+
+### Acceptance Criteria
+
+
+
+* لا يظهر MODEL_NOT_FOUND بسبب نموذج محلي.
+
+* جميع Default Models موجودة فعلاً داخل OpenRouter.
+
+
+
+---
+
+
+
+# PR-002 — Dynamic OpenRouter Model Catalog (P0)
+
+
+
+### المشكلة
+
+
+
+الكتالوج ثابت داخل الكود.
+
+
+
+أي تغيير لدى OpenRouter يكسر النظام.
+
+
+
+### الملفات
+
+
+
+```
+
+model-catalog.ts
+
+model-resolver.ts
+
+```
+
+
+
+### المطلوب
+
+
+
+* تحميل
+
+
+
+```
+
+GET /models
+
+```
+
+
+
+عند Startup.
+
+
+
+* Cache لمدة محددة.
+
+
+
+* Validation لكل Model.
+
+
+
+### Acceptance Criteria
+
+
+
+* لا توجد أسماء Models داخل الكود.
+
+* جميع النماذج تأتي من OpenRouter Runtime.
+
+
+
+---
+
+
+
+# PR-003 — Treat Invalid Model as Recoverable (P0)
+
+
+
+### المشكلة
+
+
+
+الـ fallback يعمل فقط مع:
+
+
+
+```
+
+404
+
+```
+
+
+
+بينما:
+
+
+
+```
+
+400 invalid model id
+
+422 selected model unavailable
+
+```
+
+
+
+لا يدخل fallback.
+
+
+
+### الملفات
+
+
+
+```
+
+openai-compatible-client.ts
+
+```
+
+
+
+### المطلوب
+
+
+
+اعتبار الحالات التالية:
+
+
+
+```
+
+400 invalid model
+
+
+
+404 model not found
+
+
+
+410 discontinued
+
+
+
+422 unavailable
+
+
+
+```
+
+
+
+كلها:
+
+
+
+```
+
+MODEL_NOT_FOUND
+
+```
+
+
+
+### Acceptance Criteria
+
+
+
+أي Model غير صالح ينتقل مباشرة للنموذج التالي.
+
+
+
+---
+
+
+
+# PR-004 — Complete Fallback Chain (P0)
+
+
+
+### المشكلة
+
+
+
+الفشل ينهي الطلب.
+
+
+
+### المطلوب
+
+
+
+```
+
+OpenRouter
+
+
+
+↓
+
+
+
+Gemini
+
+
+
+↓
+
+
+
+DeepSeek
+
+
+
+↓
+
+
+
+Groq
+
+
+
+↓
+
+
+
+Fail
+
+```
+
+
+
+### Acceptance Criteria
+
+
+
+إذا فشل Provider بالكامل يتم تجربة التالي.
+
+
+
+---
+
+
+
+# PR-005 — Provider Capability Matching (P0)
+
+
+
+### المشكلة
+
+
+
+قد يتم اختيار Provider لا يدعم المهمة.
+
+
+
+### المطلوب
+
+
+
+إضافة:
+
+
+
+```
+
+supportsChat
+
+
+
+supportsTools
+
+
+
+supportsJSON
+
+
+
+supportsStreaming
+
+
+
+supportsReasoning
+
+```
+
+
+
+قبل الاختيار.
+
+
+
+### Acceptance Criteria
+
+
+
+لا يتم اختيار Provider لا يدعم المهمة المطلوبة.
+
+
+
+---
+
+
+
+# PR-006 — Startup Health Validation (P1)
+
+
+
+### المشكلة
+
+
+
+لا يتم اكتشاف Models غير الصالحة إلا عند أول Request.
+
+
+
+### المطلوب
+
+
+
+عند Startup:
+
+
+
+```
+
+Validate Models
+
+
+
+Validate API Keys
+
+
+
+Validate Providers
+
+
+
+```
+
+
+
+### Acceptance Criteria
+
+
+
+أي Provider غير صالح يتم تعطيله قبل استقبال الطلبات.
+
+
+
+---
+
+
+
+# PR-007 — Preserve Provider Error Chain (P1)
+
+
+
+### المشكلة
+
+
+
+يفقد السبب الحقيقي.
+
+
+
+حالياً:
+
+
+
+```
+
+400
+
+
+
+↓
+
+
+
+NON_200
+
+
+
+↓
+
+
+
+502
+
+```
+
+
+
+### المطلوب
+
+
+
+تمرير:
+
+
+
+```
+
+provider
+
+
+
+model
+
+
+
+status
+
+
+
+providerCode
+
+
+
+providerMessage
+
+```
+
+
+
+حتى الواجهة.
+
+
+
+### Acceptance Criteria
+
+
+
+يمكن معرفة سبب الفشل الحقيقي من Event Stream.
+
+
+
+---
+
+
+
+# PR-008 — Better Error Classification (P1)
+
+
+
+### المطلوب
+
+
+
+إضافة:
+
+
+
+```
+
+MODEL_NOT_FOUND
+
+
+
+MODEL_UNAVAILABLE
+
+
+
+AUTH_ERROR
+
+
+
+RATE_LIMIT
+
+
+
+QUOTA
+
+
+
+SERVER_ERROR
+
+
+
+NETWORK_ERROR
+
+```
+
+
+
+بدلاً من
+
+
+
+```
+
+NON_200
+
+```
+
+
+
+### Acceptance Criteria
+
+
+
+كل خطأ يصنف بدقة.
+
+
+
+---
+
+
+
+# PR-009 — Dashboard UX Improvements (P1)
+
+
+
+### المشكلة
+
+
+
+الواجهة تعرض:
+
+
+
+```
+
+AI provider returned error
+
+```
+
+
+
+### المطلوب
+
+
+
+إظهار:
+
+
+
+```
+
+Provider
+
+
+
+Model
+
+
+
+Status
+
+
+
+Fallback Used
+
+
+
+Retryable
+
+
+
+Suggested Fix
+
+```
+
+
+
+### Acceptance Criteria
+
+
+
+لا توجد رسائل عامة مبهمة.
+
+
+
+---
+
+
+
+# PR-010 — AI Event Stream Improvements (P1)
+
+
+
+### المطلوب
+
+
+
+إضافة:
+
+
+
+```
+
+Provider
+
+
+
+Model
+
+
+
+Attempt #
+
+
+
+Fallback #
+
+
+
+Latency
+
+
+
+Retry Count
+
+
+
+```
+
+
+
+داخل Event Stream.
+
+
+
+### Acceptance Criteria
+
+
+
+يمكن تتبع رحلة الطلب بالكامل.
+
+
+
+---
+
+
+
+# PR-011 — Provider Metrics (P2)
+
+
+
+### المطلوب
+
+
+
+إضافة Metrics:
+
+
+
+```
+
+provider_requests_total
+
+
+
+provider_failures_total
+
+
+
+fallback_success_total
+
+
+
+invalid_model_total
+
+
+
+provider_latency_ms
+
+```
+
+
+
+### Acceptance Criteria
+
+
+
+ظهور Metrics داخل Dashboard.
+
+
+
+---
+
+
+
+# PR-012 — Regression Tests (P2)
+
+
+
+### المطلوب
+
+
+
+اختبارات لـ:
+
+
+
+*
+
+
+
+404
+
+
+
+*
+
+
+
+400
+
+
+
+*
+
+
+
+410
+
+
+
+*
+
+
+
+422
+
+
+
+*
+
+
+
+Quota
+
+
+
+*
+
+
+
+Rate Limit
+
+
+
+*
+
+
+
+Fallback
+
+
+
+*
+
+
+
+Provider Disable
+
+
+
+### Acceptance Criteria
+
+
+
+جميع حالات الفشل السابقة مغطاة باختبارات.
+
+
+
+---
+
+
+
+# PR-013 — Remove Hidden Technical Debt (P2)
+
+
+
+### المطلوب
+
+
+
+مراجعة كاملة لـ:
+
+
+
+```
+
+Provider Registry
+
+
+
+Resolver
+
+
+
+Fallback
+
+
+
+Prompt Routing
+
+
+
+AI Client
+
+
+
+```
+
+
+
+لإزالة:
+
+
+
+* magic strings
+
+* duplicated logic
+
+* duplicated retry
+
+* duplicated model selection
+
+
+
+### Acceptance Criteria
+
+
+
+وجود نقطة مركزية واحدة فقط لاختيار المزود والنموذج.
+
+
+
+---
+
+
+
+# ملخص الأولويات
+
+
+
+| Priority                           | PRs             | الهدف                                                          |
+
+| ---------------------------------- | --------------- | -------------------------------------------------------------- |
+
+| **P0 (حرجة)**                      | PR-001 → PR-005 | منع فشل الطلبات وضمان الانتقال التلقائي بين النماذج والمزودين. |
+
+| **P1 (تحسين الاعتمادية والتشخيص)** | PR-006 → PR-010 | تحسين الرصد، تصنيف الأخطاء، وتجربة المستخدم في التشخيص.        |
+
+| **P2 (الاستدامة والجودة)**         | PR-011 → PR-013 | إضافة القياسات، اختبارات الانحدار، وتقليل الدين التقني.        |
+
+
+
+## تقييم التنفيذ الحالي
+
+
+
+| PR     | الحالة                                                            |
+
+| ------ | ----------------------------------------------------------------- |
+
+| PR-001 | 🟡 جزئي (ما زال يحتاج التحقق من جميع النماذج القديمة)             |
+
+| PR-002 | ❌ غير منفذ                                                        |
+
+| PR-003 | 🟡 جزئي (تحسن، لكن ما زالت هناك حالات مثل 422 تحتاج معالجة موحدة) |
+
+| PR-004 | 🟡 جزئي                                                           |
+
+| PR-005 | ❌ غير منفذ                                                        |
+
+| PR-006 | ❌ غير منفذ                                                        |
+
+| PR-007 | 🟡 جزئي                                                           |
+
+| PR-008 | ❌ غير منفذ                                                        |
+
+| PR-009 | 🟡 جزئي                                                           |
+
+| PR-010 | ❌ غير منفذ                                                        |
+
+| PR-011 | ❌ غير منفذ                                                        |
+
+| PR-012 | ❌ غير منفذ                                                        |
+
+| PR-013 | ❌ غير منفذ                                                        |
