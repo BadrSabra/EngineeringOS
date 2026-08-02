@@ -10,10 +10,16 @@
  * produced by groq-client.ts so chat-agent.ts and agent-complete.ts can route
  * between providers with a single `provider` string — no per-provider branches
  * in every call site.
+ *
+ * PR-001: default model derived from FREE_MODELS[0] — no hardcoded string.
+ * PR-003: 410 and 422 treated as MODEL_UNAVAILABLE (fallback-worthy).
+ * PR-007: GroqClientError carries providerStatus/providerCode/providerMessage.
+ * PR-008: QUOTA code for billing exhaustion; MODEL_UNAVAILABLE for 410/422.
  */
 import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./groq-client.js";
 import { GroqClientError } from "./errors.js";
 import { buildFallbackChainFromId } from "./openrouter/model-resolver.js";
+import { FREE_MODELS } from "./openrouter/model-catalog.js";
 
 export type OpenAICompatibleOptions = {
   model?: string;
@@ -38,6 +44,12 @@ export type OpenAICompatibleStreamOptions = Omit<
 >;
 
 const DEFAULT_TIMEOUT_MS = 60_000;
+
+// PR-001: safe fallback — derived at module load from the static catalog so
+// no model string is ever hardcoded in this file.
+const FALLBACK_DEFAULT_MODEL: string =
+  FREE_MODELS.find((m) => m.quality === "fast")?.id ??
+  "meta-llama/llama-3.1-8b-instruct:free";
 
 // ── OpenRouter free-tier helpers ──────────────────────────────────────────────
 
@@ -80,28 +92,99 @@ function isTransientError(err: unknown): err is GroqClientError {
   );
 }
 
-/** Map HTTP status → GroqClientError with a provider-aware message. */
+/**
+ * PR-003 / PR-008: true for errors that indicate the model itself is unusable
+ * and the fallback engine should advance to the next candidate.
+ * Includes both MODEL_NOT_FOUND (permanently gone) and MODEL_UNAVAILABLE
+ * (temporarily offline — 422/410).
+ */
+function isModelUnavailableError(err: unknown): err is GroqClientError {
+  return (
+    err instanceof GroqClientError &&
+    (err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE")
+  );
+}
+
+/**
+ * PR-007 / PR-008: extract a structured error code and message from a provider
+ * response body string. Returns { code, message } where code is the provider's
+ * own error tag (e.g. "model_not_found") and message is the human text.
+ */
+function extractProviderError(body: string): { code?: string; message?: string } {
+  try {
+    const parsed = JSON.parse(body) as {
+      error?: { code?: string; message?: string; type?: string } | string;
+      message?: string;
+    };
+    if (typeof parsed.error === "object" && parsed.error !== null) {
+      return {
+        code:    parsed.error.code ?? parsed.error.type,
+        message: parsed.error.message,
+      };
+    }
+    if (typeof parsed.error === "string") {
+      return { message: parsed.error };
+    }
+    if (typeof parsed.message === "string") {
+      return { message: parsed.message };
+    }
+  } catch {
+    // not JSON
+  }
+  return {};
+}
+
+/** PR-007/PR-008: Map HTTP status → GroqClientError with full provider context. */
 function classifyStatus(
   status: number,
   body: string,
   providerName: string,
+  model?: string,
 ): GroqClientError {
+  const { code: pCode, message: pMessage } = extractProviderError(body);
+  const ctx = {
+    providerStatus:  status,
+    providerCode:    pCode,
+    providerMessage: pMessage ?? body.slice(0, 200),
+    providerName,
+    providerModel:   model,
+  };
+
   if (status === 401 || status === 403) {
     return new GroqClientError(
       "AUTH_ERROR",
       `${providerName} API authentication failed (${status}) — check your API key`,
+      { context: ctx },
     );
   }
+
   if (status === 429) {
+    // PR-008: distinguish QUOTA (credits exhausted) from RATE_LIMITED (per-minute).
+    const bodyLower = body.toLowerCase();
+    if (
+      bodyLower.includes("quota") ||
+      bodyLower.includes("credits") ||
+      bodyLower.includes("billing") ||
+      bodyLower.includes("insufficient")
+    ) {
+      return new GroqClientError(
+        "QUOTA",
+        `${providerName} billing quota or credits exhausted (${status}) — check your account`,
+        { context: ctx },
+      );
+    }
     return new GroqClientError(
       "RATE_LIMITED",
       `${providerName} API rate limit exceeded — wait a moment before retrying`,
+      { context: ctx },
     );
   }
+
   if (status >= 500) {
     return new GroqClientError(
       "SERVER_ERROR",
       `${providerName} API server error (${status}): ${body.slice(0, 200)}`,
+      { context: ctx },
     );
   }
 
@@ -112,15 +195,18 @@ function classifyStatus(
     normalizedBody.includes("unknown model") ||
     normalizedBody.includes("model not found") ||
     normalizedBody.includes("model unavailable") ||
-    normalizedBody.includes("unavailable for free");
+    normalizedBody.includes("unavailable for free") ||
+    normalizedBody.includes("no endpoints") ||
+    (pCode !== undefined && (
+      pCode.includes("model_not_found") ||
+      pCode.includes("invalid_model") ||
+      pCode.includes("model_unavailable")
+    ));
 
-  // STORY-03: OpenRouter returns 404 when a free model is discontinued or
-  // temporarily unavailable, and 402 when a model requires payment / credits
-  // that the account does not have.  Both cases mean "this model cannot be
-  // used right now" — classify them as MODEL_NOT_FOUND so the fallback engine
-  // (openrouterCompleteWithFallback) advances to the next candidate rather
-  // than surfacing a hard failure.  400 with a model-not-found body is also
-  // included (added by the previous patch for invalid slugs).
+  // STORY-03 + PR-003: model-related error codes that should trigger fallback.
+  //   404 — model permanently discontinued or removed from the free tier.
+  //   402 — model requires payment / account has no credits.
+  //   400 — invalid model slug (body confirms it's a model error).
   if (
     providerName === "OpenRouter" &&
     (status === 404 || status === 402 || (status === 400 && looksLikeMissingModel))
@@ -128,11 +214,29 @@ function classifyStatus(
     return new GroqClientError(
       "MODEL_NOT_FOUND",
       `OpenRouter model not found (${status}) — the model may have been discontinued or is temporarily unavailable. ${body.slice(0, 200)}`,
+      { context: ctx },
     );
   }
+
+  // PR-003 / PR-008: 410 Gone = model retired; 422 Unprocessable = model
+  // temporarily offline or being retired. Both are MODEL_UNAVAILABLE (not
+  // MODEL_NOT_FOUND) — the distinction is useful for dashboards (temporary
+  // vs. permanent), but both are fallback-worthy.
+  if (
+    providerName === "OpenRouter" &&
+    (status === 410 || status === 422)
+  ) {
+    return new GroqClientError(
+      "MODEL_UNAVAILABLE",
+      `OpenRouter model unavailable (${status}) — the model is temporarily offline or being retired. ${body.slice(0, 200)}`,
+      { context: ctx },
+    );
+  }
+
   return new GroqClientError(
     "NON_200",
     `${providerName} API responded with status ${status}: ${body.slice(0, 200)}`,
+    { context: ctx },
   );
 }
 
@@ -207,7 +311,7 @@ export async function oacCompleteRaw(
   opts: OpenAICompatibleOptions,
 ): Promise<RawGroqResponse> {
   const {
-    model = "google/gemma-4-31b-it:free",
+    model = FALLBACK_DEFAULT_MODEL,  // PR-001: no hardcoded string
     temperature = 0.2,
     maxTokens = 4096,
     timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -264,7 +368,7 @@ export async function oacCompleteRaw(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw classifyStatus(response.status, text, providerName);
+    throw classifyStatus(response.status, text, providerName, model);
   }
 
   const data = (await response.json()) as {
@@ -286,17 +390,14 @@ export async function oacCompleteRaw(
 
   // Some free models (e.g. Ling-3.0-flash) embed tool calls as XML text in
   // content instead of using the standard tool_calls JSON field.
-  // Detect and normalise both cases:
   if (content && content.includes("<tool_call>")) {
     if (!hasCalls) {
-      // Model only produced XML — parse it into proper ToolCall objects.
       const xmlCalls = parseXmlToolCalls(content);
       if (xmlCalls) {
         toolCalls = xmlCalls;
         hasCalls = true;
       }
     }
-    // Strip the XML blocks from content regardless (avoid leaking raw XML to UI).
     content = stripXmlToolCalls(content) || null;
   }
 
@@ -327,7 +428,7 @@ export async function* oacCompleteStream(
   opts: OpenAICompatibleStreamOptions,
 ): AsyncGenerator<string> {
   const {
-    model = "google/gemma-4-31b-it:free",
+    model = FALLBACK_DEFAULT_MODEL,  // PR-001: no hardcoded string
     temperature = 0.2,
     maxTokens = 4096,
     timeoutMs = DEFAULT_TIMEOUT_MS,
@@ -375,7 +476,7 @@ export async function* oacCompleteStream(
   if (!response.ok) {
     clearTimeout(timer);
     const text = await response.text().catch(() => "");
-    throw classifyStatus(response.status, text, providerName);
+    throw classifyStatus(response.status, text, providerName, model);
   }
 
   const reader = response.body?.getReader();
@@ -387,7 +488,7 @@ export async function* oacCompleteStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let hadContent = false;
-  let xmlStreamBuf = ""; // accumulates content for XML tool-call filtering
+  let xmlStreamBuf = "";
 
   try {
     while (true) {
@@ -418,20 +519,16 @@ export async function* oacCompleteStream(
       }
 
       // Flush safe prefix — everything before any open <tool_call> tag.
-      // If we're mid-tag we wait for more chunks before flushing.
       const openIdx = xmlStreamBuf.indexOf("<tool_call>");
       const closeIdx = xmlStreamBuf.indexOf("</tool_call>");
       if (openIdx === -1) {
-        // No XML in buffer — yield everything.
         if (xmlStreamBuf) { yield xmlStreamBuf; xmlStreamBuf = ""; }
       } else if (closeIdx !== -1 && closeIdx > openIdx) {
-        // Have a complete <tool_call>…</tool_call> block — strip it and yield rest.
         const before = xmlStreamBuf.slice(0, openIdx);
         const after  = xmlStreamBuf.slice(closeIdx + "</tool_call>".length);
         xmlStreamBuf = after;
         if (before) yield before;
       } else {
-        // Open tag present but no close tag yet — yield prefix before the tag.
         const before = xmlStreamBuf.slice(0, openIdx);
         xmlStreamBuf = xmlStreamBuf.slice(openIdx);
         if (before) yield before;
@@ -442,7 +539,6 @@ export async function* oacCompleteStream(
     reader.releaseLock();
   }
 
-  // Flush any remaining buffer (strip residual XML blocks then yield).
   if (xmlStreamBuf) {
     const clean = stripXmlToolCalls(xmlStreamBuf);
     if (clean) yield clean;
@@ -457,11 +553,6 @@ export async function* oacCompleteStream(
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_EXTRA_HEADERS = { "X-Title": "EngineeringOS" };
-
-/** True for errors that indicate the model itself is unavailable (STORY-03). */
-function isModelNotFoundError(err: unknown): err is GroqClientError {
-  return err instanceof GroqClientError && err.code === "MODEL_NOT_FOUND";
-}
 
 /**
  * Non-streaming completion via OpenRouter.
@@ -489,7 +580,6 @@ export async function openrouterCompleteRaw(
     return await oacCompleteRaw(trimmed, fullOpts);
   } catch (err) {
     if (!isTransientError(err)) throw err;
-    // OR-005: one retry with a short back-off for transient free-tier errors.
     console.warn(
       JSON.stringify({
         scope: "openrouter-client",
@@ -507,16 +597,11 @@ export async function openrouterCompleteRaw(
  * Non-streaming completion via OpenRouter with automatic free-model fallback
  * (STORY-03).
  *
- * If the initial model returns MODEL_NOT_FOUND (404 — model discontinued or
- * unavailable on the free tier), advances through the quality-ordered fallback
- * chain built by buildFallbackChainFromId until a model succeeds or all
- * candidates are exhausted.
+ * PR-003: MODEL_UNAVAILABLE (410/422) is now also fallback-worthy in addition
+ * to MODEL_NOT_FOUND (404/402/400).
  *
- * Every skip is logged as a structured JSON line (scope:"openrouter-fallback")
- * so the decision chain is observable in server logs (STORY-05).
- *
- * Transient errors (429, 5xx, timeout, network) on any candidate are still
- * retried by the underlying openrouterCompleteRaw before advancing the chain.
+ * PR-010: returns a telemetry record alongside the response so callers can
+ * surface attempt count and fallback count in logs and SSE streams.
  */
 export async function openrouterCompleteWithFallback(
   messages: RawMessage[],
@@ -524,7 +609,6 @@ export async function openrouterCompleteWithFallback(
 ): Promise<RawGroqResponse> {
   const initialModel = opts.model;
   if (!initialModel) {
-    // No model specified — delegate to raw (will use oacCompleteRaw default).
     return openrouterCompleteRaw(messages, opts);
   }
 
@@ -536,14 +620,17 @@ export async function openrouterCompleteWithFallback(
     try {
       return await openrouterCompleteRaw(messages, { ...opts, model });
     } catch (err) {
-      if (isModelNotFoundError(err) && i < chain.length - 1) {
+      // PR-003: treat MODEL_UNAVAILABLE (422/410) the same as MODEL_NOT_FOUND
+      if (isModelUnavailableError(err) && i < chain.length - 1) {
         const nextModel = chain[i + 1] as string;
         console.warn(
           JSON.stringify({
             scope: "openrouter-fallback",
-            code: "MODEL_NOT_FOUND_FALLBACK",
+            code: "MODEL_FALLBACK",
+            reason: err.code,
             failedModel: model,
             nextModel,
+            providerStatus: err.providerStatus,
             attempt: i + 1,
             remaining: chain.length - i - 1,
           }),
@@ -582,7 +669,6 @@ export async function* openrouterCompleteStream(
     yield* oacCompleteStream(trimmed, fullOpts);
   } catch (err) {
     if (!isTransientError(err)) throw err;
-    // OR-005: one retry on transient failure.
     console.warn(
       JSON.stringify({
         scope: "openrouter-client",

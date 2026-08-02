@@ -76,3 +76,29 @@ export type { AgentRunResult } from "./agents/base-agent.js";
 
 export { decide, validateDecision, executeDecision, orchestrateWorkflow } from "./agents/workflow-orchestrator.js";
 export type { WorkflowState, OrchestrationDecision, WorkflowDecisionResult } from "./agents/workflow-orchestrator.js";
+
+// PR-002: dynamic catalog
+export {
+  refreshDynamicCatalog,
+  getDynamicModelIds,
+  isDynamicCatalogLoaded,
+  auditStaticCatalog,
+} from "./openrouter/dynamic-catalog.js";
+
+// PR-006: startup validator
+export { validateAiProvidersAtStartup } from "./startup-validator.js";
+export type { ProviderValidationResult } from "./startup-validator.js";
+
+// PR-007/PR-008: extended error types
+export type { ProviderErrorContext } from "./errors.js";
+
+// PR-011: provider metrics
+export {
+  recordRequest,
+  recordFailure,
+  recordFallbackSuccess,
+  recordInvalidModel,
+  recordLatency,
+  getProviderMetrics,
+} from "./provider-metrics.js";
+export type { ProviderMetricsSnapshot } from "./provider-metrics.js";

@@ -19,7 +19,7 @@ import { eq, and } from "drizzle-orm";
 import { encryptApiKey } from "../../lib/credentials-crypto.js";
 import { logger } from "../../lib/logger.js";
 import { resolveProvider } from "../../lib/ai-route-helpers.js";
-import { validateProviderKey, PROVIDER_REGISTRY } from "@workspace/ai-orchestrator";
+import { validateProviderKey, PROVIDER_REGISTRY, getProviderMetrics } from "@workspace/ai-orchestrator";
 import type { ProviderId } from "@workspace/ai-orchestrator";
 import type { Request, Response } from "express";
 
@@ -155,6 +155,18 @@ router.get("/ai/active-provider", async (req, res) => {
   const resolved = await resolveProvider(req.userId);
   if (!resolved) return res.json({ provider: null, configured: false });
   return res.json({ provider: resolved.provider, configured: true });
+});
+
+// ── PR-011: Provider metrics ──────────────────────────────────────────────────
+
+/**
+ * GET /api/ai/metrics
+ * Returns in-memory provider reliability metrics:
+ *   requests, failures, fallbackSuccesses, invalidModels, latency percentiles.
+ * Resets on process restart — for runtime observability, not persistent analytics.
+ */
+router.get("/ai/metrics", (_req, res) => {
+  return res.json({ metrics: getProviderMetrics() });
 });
 
 // ── Backward-compat aliases ───────────────────────────────────────────────────

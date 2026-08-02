@@ -8,3 +8,11 @@ export {
   emitModelDecisionTrace,
 } from "./model-resolver.js";
 export type { ResolvedModel, ResolveModelOpts, ModelDecisionTrace } from "./model-resolver.js";
+
+// PR-002: dynamic catalog
+export {
+  refreshDynamicCatalog,
+  getDynamicModelIds,
+  isDynamicCatalogLoaded,
+  auditStaticCatalog,
+} from "./dynamic-catalog.js";

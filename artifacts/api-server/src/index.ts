@@ -8,6 +8,7 @@ import { pool } from "@workspace/db";
 import {
   setInvalidationNotifier,
   startContextInvalidationChannel,
+  validateAiProvidersAtStartup,
 } from "@workspace/ai-orchestrator";
 
 /**
@@ -83,6 +84,13 @@ process.once("SIGINT", () => {
 // DB-07: Fail fast if the Drizzle schema has not been pushed yet. This must
 // run before any other startup step that touches the database.
 await assertDatabaseSchema();
+
+// PR-006: validate AI providers before accepting traffic — checks key presence
+// and refreshes the dynamic OpenRouter model catalog so the resolver knows which
+// models are currently available. Never throws; logs actionable warnings.
+validateAiProvidersAtStartup().catch((err: unknown) => {
+  logger.warn({ err }, "AI provider startup validation failed — continuing without AI validation");
+});
 
 // Ensure the AI credential encryption key is available before accepting traffic.
 // Auto-generates and persists one if AI_CREDENTIALS_ENCRYPTION_KEY is not set.

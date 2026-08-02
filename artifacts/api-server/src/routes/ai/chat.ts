@@ -25,6 +25,11 @@ import {
   invalidateContextCache,
   chat,
   GroqClientError,
+  recordRequest,
+  recordFailure,
+  recordInvalidModel,
+  recordLatency,
+  recordFallbackSuccess,
 } from "@workspace/ai-orchestrator";
 import { logger } from "../../lib/logger.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
@@ -338,6 +343,10 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     sse({ type: "stage", stage: "calling-model" });
 
+    // PR-011: record the request and track latency start.
+    recordRequest(provider);
+    const chatStartMs = Date.now();
+
     // Collect deltas as they arrive and forward each one as a real-time SSE
     // delta event. The accumulated string is used below for DB persistence.
     let streamedContent = "";
@@ -386,26 +395,88 @@ router.post("/ai/chat/stream", async (req, res) => {
         onStreamReset,
       );
       result = chatOut.result;
+      // PR-011: record successful call latency.
+      const callLatency = Date.now() - chatStartMs;
+      recordLatency(provider, callLatency);
+      // effectiveProvider differs from `provider` when fallback occurred
+      if (chatOut.effectiveProvider && chatOut.effectiveProvider !== provider) {
+        recordFallbackSuccess(provider);
+      }
     } catch (err) {
+      // PR-011: record failure metrics before emitting the SSE error.
+      recordFailure(provider);
       if (err instanceof GroqClientError) {
+        if (err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE") {
+          recordInvalidModel(provider);
+        }
         logger.error(
-          { code: err.code, message: err.message, provider },
+          { code: err.code, message: err.message, provider,
+            providerStatus: err.providerStatus, providerModel: err.providerModel },
           "chat stream: all providers failed",
         );
-        const base = { type: "error", code: err.code };
+
+        // PR-009: structured error with provider context so the dashboard can
+        // show actionable diagnostics (model name, HTTP status, suggestedFix).
+        const providerCtx = err.toProviderContext() ?? {};
+        const base: Record<string, unknown> = {
+          type: "error",
+          code: err.code,
+          // PR-007: surface provider context on the wire.
+          ...(Object.keys(providerCtx).length > 0 ? { providerContext: providerCtx } : {}),
+        };
+
         switch (err.code) {
           case "RATE_LIMITED":
-            sse({ ...base, message: "Rate limit reached on all configured AI providers — wait 30–60 seconds and retry.", hint: err.message });
+            sse({
+              ...base,
+              message: "Rate limit reached on all configured AI providers — wait 30–60 seconds and retry.",
+              retryable: true,
+              suggestedFix: "Wait before retrying.",
+            });
+            break;
+          case "QUOTA":
+            sse({
+              ...base,
+              message: "AI provider billing quota or credits are exhausted.",
+              retryable: false,
+              suggestedFix: "Check your OpenRouter/provider account balance and top up credits.",
+            });
             break;
           case "AUTH_ERROR":
-            sse({ ...base, message: "AI provider key is invalid or unauthorized.", hint: "Delete your current key and save a valid one." });
+            sse({
+              ...base,
+              message: "AI provider key is invalid or unauthorized.",
+              retryable: false,
+              suggestedFix: "Delete your current provider key and save a valid one in Settings.",
+            });
+            break;
+          case "MODEL_NOT_FOUND":
+            sse({
+              ...base,
+              message: `All AI model fallbacks exhausted${err.providerModel ? ` (last tried: ${err.providerModel})` : ""} — no model was available.`,
+              retryable: false,
+              suggestedFix: "Check your OpenRouter API key and model availability on openrouter.ai/models.",
+            });
+            break;
+          case "MODEL_UNAVAILABLE":
+            sse({
+              ...base,
+              message: `AI model temporarily unavailable${err.providerModel ? ` (${err.providerModel})` : ""} — all fallbacks also unavailable.`,
+              retryable: true,
+              suggestedFix: "Try again in a few minutes; the model may be back online.",
+            });
             break;
           case "TIMEOUT":
           case "NETWORK_ERROR":
-            sse({ ...base, message: "AI provider is temporarily unreachable — try again in a moment." });
+            sse({
+              ...base,
+              message: "AI provider is temporarily unreachable — try again in a moment.",
+              retryable: true,
+              suggestedFix: "Check your network connection and retry.",
+            });
             break;
           default:
-            sse({ ...base, message: `AI provider error: ${err.message.slice(0, 200)}`, hint: err.message });
+            sse({ ...base, message: `AI provider error: ${err.message.slice(0, 200)}`, retryable: false });
         }
       } else {
         logger.error({ err }, "chat stream: unexpected non-GroqClientError");
@@ -506,6 +577,9 @@ router.post("/ai/chat/stream", async (req, res) => {
       return msg;
     });
 
+    // PR-010: surface latency and model info in done event.
+    const chatLatencyMs = Date.now() - chatStartMs;
+
     sse({
       type: "done",
       sessionId: session.id,
@@ -514,6 +588,11 @@ router.post("/ai/chat/stream", async (req, res) => {
       pendingChanges: result.pendingChanges ?? [],
       // STORY-04: surface the actual model used so the UI can display it accurately
       resolvedModel: result.resolvedModel,
+      // PR-010: telemetry fields for client observability
+      telemetry: {
+        latencyMs: chatLatencyMs,
+        provider,
+      },
       _meta: rootFallbackUsed
         ? { rootPathFallback: { used: true, original: rootOriginalPath } }
         : undefined,

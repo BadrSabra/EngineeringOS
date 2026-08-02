@@ -9,14 +9,20 @@
  *   buildFallbackChainFromId()  → fallback chain starting from a known model ID
  *   emitModelDecisionTrace()    → structured trace log (STORY-05)
  *
+ * PR-002: resolveFallbackChain and buildFallbackChainFromId now filter against
+ * the dynamic catalog (getDynamicModelIds) when it has been loaded. Models that
+ * are present in the static list but absent from OpenRouter's live /models
+ * response are silently skipped — the fallback engine advances automatically.
+ *
  * Fallback discipline (STORY-03):
  *   The chain is ordered so the preferred quality tier comes first, followed
  *   by the same tier's alternatives, then the other tier as last-resort.
  *   openrouterCompleteWithFallback() in openai-compatible-client.ts consumes
- *   the chain — a MODEL_NOT_FOUND (404) on model[i] advances to model[i+1]
- *   before giving up.
+ *   the chain — a MODEL_NOT_FOUND on model[i] advances to model[i+1] before
+ *   giving up.
  */
 import { FREE_MODELS, type ModelCapability, type OpenRouterFreeModel } from "./model-catalog.js";
+import { getDynamicModelIds } from "./dynamic-catalog.js";
 
 export type { ModelCapability, OpenRouterFreeModel };
 
@@ -45,6 +51,8 @@ export type ModelDecisionTrace = {
   candidates: string[];
   selected: string;
   fallbackChain: string[];
+  /** PR-002: models skipped because they are absent from the live catalog. */
+  skippedStale?: string[];
 };
 
 /** Emit a model-decision trace to stdout as a JSON log line. */
@@ -53,11 +61,33 @@ export function emitModelDecisionTrace(trace: ModelDecisionTrace): void {
 }
 
 /**
+ * PR-002: Filter the model pool against the live OpenRouter catalog.
+ * Returns [live, stale] — models still available and models that are gone.
+ */
+function partitionByLiveCatalog(
+  models: OpenRouterFreeModel[],
+): { live: OpenRouterFreeModel[]; stale: OpenRouterFreeModel[] } {
+  const dynamicIds = getDynamicModelIds();
+  if (!dynamicIds) return { live: models, stale: [] }; // catalog not loaded yet
+
+  const live:  OpenRouterFreeModel[] = [];
+  const stale: OpenRouterFreeModel[] = [];
+  for (const m of models) {
+    if (dynamicIds.has(m.id)) live.push(m);
+    else stale.push(m);
+  }
+  return { live, stale };
+}
+
+/**
  * Resolve an ordered fallback chain for a capability + quality intent.
  *
  * Index 0 is the primary (preferred) model. Subsequent entries are tried in
  * order when the primary returns MODEL_NOT_FOUND (STORY-03). The chain always
  * starts with the requested quality tier, then falls back to the other tier.
+ *
+ * PR-002: models absent from the live OpenRouter catalog are excluded from the
+ * returned chain (they are logged in the decision trace as skippedStale).
  *
  * Pure function — no logging. Call resolveModel() when you also want a trace.
  */
@@ -71,20 +101,27 @@ export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
       (!requireTools || m.supportsTools),
   );
 
-  const pool: OpenRouterFreeModel[] =
+  const rawPool: OpenRouterFreeModel[] =
     capable.length > 0
       ? [...capable]
       : // No exact capability match — degrade to tool-constraint-only filter.
         FREE_MODELS.filter((m) => !requireTools || m.supportsTools).slice() as OpenRouterFreeModel[];
 
+  // PR-002: remove models no longer available on OpenRouter.
+  const { live: pool } = partitionByLiveCatalog(rawPool);
+
+  // Fallback to raw pool if dynamic catalog filtered everything out — prevents
+  // a situation where a slow catalog refresh leaves us with zero candidates.
+  const effectivePool = pool.length > 0 ? pool : rawPool;
+
   // Prefer the requested quality tier, then the other tier (stable within each).
-  pool.sort((a, b) => {
+  effectivePool.sort((a, b) => {
     const aMatch = a.quality === quality ? 0 : 1;
     const bMatch = b.quality === quality ? 0 : 1;
     return aMatch - bMatch;
   });
 
-  return pool.map((m) => ({ id: m.id, label: m.label, free: true, capability }));
+  return effectivePool.map((m) => ({ id: m.id, label: m.label, free: true, capability }));
 }
 
 /**
@@ -93,23 +130,37 @@ export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
  * Throws only when the catalog is completely empty — never in practice.
  */
 export function resolveModel(opts: ResolveModelOpts): ResolvedModel {
+  const { capability, quality = "fast", requireTools = false } = opts;
+
+  // Compute stale list for trace (before filtering).
+  const rawCapable = FREE_MODELS.filter(
+    (m) =>
+      (m.capabilities as readonly string[]).includes(capability) &&
+      (!requireTools || m.supportsTools),
+  );
+  const rawPool = rawCapable.length > 0
+    ? rawCapable
+    : FREE_MODELS.filter((m) => !requireTools || m.supportsTools) as OpenRouterFreeModel[];
+  const { stale } = partitionByLiveCatalog([...rawPool]);
+
   const chain = resolveFallbackChain(opts);
   const first = chain[0];
   if (!first) {
     throw new Error(
-      `[model-resolver] No OpenRouter free model satisfies capability="${opts.capability}" requireTools=${opts.requireTools ?? false}`,
+      `[model-resolver] No OpenRouter free model satisfies capability="${capability}" requireTools=${requireTools}`,
     );
   }
 
   emitModelDecisionTrace({
     provider: "openrouter",
-    capability: opts.capability,
-    quality: opts.quality ?? "fast",
-    requireTools: opts.requireTools ?? false,
+    capability,
+    quality,
+    requireTools,
     preferFreeTier: opts.preferFreeTier ?? true,
     candidates: chain.map((m) => m.id),
     selected: first.id,
     fallbackChain: chain.slice(1).map((m) => m.id),
+    skippedStale: stale.length > 0 ? stale.map((m) => m.id) : undefined,
   });
 
   return first;
@@ -121,6 +172,10 @@ export function resolveModel(opts: ResolveModelOpts): ResolvedModel {
  * Used by openrouterCompleteWithFallback to determine what to try next when
  * the initial model returns MODEL_NOT_FOUND. The initial model is placed first;
  * then same-quality peers; then the opposite quality tier as last resort.
+ *
+ * PR-002: models absent from the live catalog are excluded from the chain
+ * (except the initial model itself — we let the API confirm it is gone).
+ *
  * If the model ID is not in the catalog (e.g. custom/paid), returns [id] with
  * no fallback — the caller retries once then fails cleanly.
  */
@@ -129,12 +184,18 @@ export function buildFallbackChainFromId(initialModelId: string): string[] {
   if (!initial) return [initialModelId];
 
   const quality = initial.quality;
-  const sameQuality = FREE_MODELS
-    .filter((m) => m.quality === quality && m.id !== initialModelId)
-    .map((m) => m.id);
-  const otherQuality = FREE_MODELS
-    .filter((m) => m.quality !== quality)
-    .map((m) => m.id);
+
+  const sameQualityRaw = FREE_MODELS
+    .filter((m) => m.quality === quality && m.id !== initialModelId);
+  const otherQualityRaw = FREE_MODELS
+    .filter((m) => m.quality !== quality);
+
+  // PR-002: filter peers against dynamic catalog; keep initial unconditionally.
+  const { live: sameLive } = partitionByLiveCatalog(sameQualityRaw);
+  const { live: otherLive } = partitionByLiveCatalog(otherQualityRaw);
+
+  const sameQuality = (sameLive.length > 0 ? sameLive : sameQualityRaw).map((m) => m.id);
+  const otherQuality = (otherLive.length > 0 ? otherLive : otherQualityRaw).map((m) => m.id);
 
   return [initialModelId, ...sameQuality, ...otherQuality];
 }
