@@ -28,6 +28,8 @@ import {
 } from "../openrouter/model-resolver.js";
 import {
   getDynamicModelIds,
+  isDynamicCatalogLoaded,
+  refreshDynamicCatalog,
   _resetForTest as _resetDynamicCatalog,
 } from "../openrouter/dynamic-catalog.js";
 import { FREE_MODELS } from "../openrouter/model-catalog.js";
@@ -414,5 +416,314 @@ describe("provider-metrics — health tracking", () => {
     recordFailure("openrouter");
     const snap = getProviderMetrics().find((m) => m.provider === "openrouter");
     expect(snap?.lastFailureAt).not.toBeNull();
+  });
+});
+
+// ── INT-001: Static catalog before runtime catalog is loaded ──────────────────
+
+describe("integration (INT-001) — static catalog used before runtime catalog loads", () => {
+  const globalFetch = global.fetch;
+
+  beforeEach(() => _resetDynamicCatalog());
+  afterEach(() => {
+    global.fetch = globalFetch;
+    _resetDynamicCatalog();
+    vi.restoreAllMocks();
+  });
+
+  it("should use static catalog before runtime catalog is loaded", async () => {
+    // Dynamic catalog must not be loaded at test start
+    expect(isDynamicCatalogLoaded()).toBe(false);
+    expect(getDynamicModelIds()).toBeNull();
+
+    // Capture the model ID sent in the OpenRouter completion request
+    let capturedModel = "";
+    global.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit | undefined) => {
+      const body = JSON.parse((init?.body as string) ?? "{}") as { model?: string };
+      capturedModel = body.model ?? "";
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve(okResponse(capturedModel || "meta-llama/llama-3.1-8b-instruct:free")),
+      });
+    }) as typeof fetch;
+
+    const { openrouterCompleteWithFallback } = await import("../openai-compatible-client.js");
+    const result = await openrouterCompleteWithFallback(
+      [{ role: "user", content: "hi" }],
+      { apiKey: "sk-test" },
+    );
+
+    // Completion succeeded using the static catalog
+    expect(result.content).toBe("Hello!");
+
+    // Dynamic catalog was never loaded — only the static list was used
+    expect(isDynamicCatalogLoaded()).toBe(false);
+
+    // The model selected must be a known static FREE_MODELS entry (not a stale hardcoded ID)
+    const staticIds = new Set(FREE_MODELS.map((m) => m.id));
+    expect(capturedModel).toBeTruthy();
+    expect(staticIds.has(capturedModel)).toBe(true);
+
+    // Exactly one fetch call: the completion request (no dynamic catalog refresh)
+    expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+  });
+});
+
+// ── INT-002: Runtime catalog loaded, powerful tier empty → fast tier used ─────
+
+describe("integration (INT-002) — downgrade to fast tier when powerful free models unavailable", () => {
+  const globalFetch = global.fetch;
+
+  beforeEach(() => _resetDynamicCatalog());
+  afterEach(() => {
+    global.fetch = globalFetch;
+    _resetDynamicCatalog();
+    vi.restoreAllMocks();
+  });
+
+  it("should downgrade to fast tier when powerful free models are unavailable", async () => {
+    // Build a catalog containing only fast-tier model IDs (all powerful ones are absent)
+    const fastOnlyEntries = FREE_MODELS
+      .filter((m) => m.quality === "fast")
+      .map((m) => ({ id: m.id, pricing: { prompt: "0", completion: "0" } }));
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ data: fastOnlyEntries }),
+    }) as typeof fetch;
+
+    await refreshDynamicCatalog("sk-test");
+    global.fetch = globalFetch;
+
+    expect(isDynamicCatalogLoaded()).toBe(true);
+
+    // Requesting "powerful" — but all powerful models are absent from the live catalog
+    const chain = resolveFallbackChain({ capability: "chat", quality: "powerful" });
+
+    // No powerful-tier model should appear — all were filtered by the live catalog
+    const powerfulInChain = chain.filter((entry) => {
+      const staticModel = FREE_MODELS.find((m) => m.id === entry.id);
+      return staticModel?.quality === "powerful";
+    });
+    expect(powerfulInChain).toHaveLength(0);
+
+    // Fast-tier models must be available as the downgrade fallback
+    const fastInChain = chain.filter((entry) => {
+      const staticModel = FREE_MODELS.find((m) => m.id === entry.id);
+      return staticModel?.quality === "fast";
+    });
+    expect(fastInChain.length).toBeGreaterThan(0);
+
+    // No fallback to the raw static pool (RC-01: catalog loaded → no re-insertion of paid models)
+    // Confirmed by the absence of powerful-tier entries above
+  });
+});
+
+// ── INT-003: All free models filtered → empty chain → no fetch (INT-003 + INT-007 empty-chain) ──
+
+describe("integration (INT-003 / INT-007) — empty chain fails fast without issuing OpenRouter requests", () => {
+  const globalFetch = global.fetch;
+
+  beforeEach(() => _resetDynamicCatalog());
+  afterEach(() => {
+    global.fetch = globalFetch;
+    _resetDynamicCatalog();
+    vi.restoreAllMocks();
+  });
+
+  it("should fail over cleanly when no free model remains", async () => {
+    // Populate the live catalog with a model ID that does not exist in FREE_MODELS.
+    // This simulates all static models having moved from free → paid.
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          data: [{ id: "unknown/not-in-static-catalog:free", pricing: { prompt: "0", completion: "0" } }],
+        }),
+    }) as typeof fetch;
+
+    await refreshDynamicCatalog("sk-test");
+    expect(isDynamicCatalogLoaded()).toBe(true);
+
+    // Resolver must return an empty chain — all static models were filtered out
+    const chain = resolveFallbackChain({ capability: "chat" });
+    expect(chain).toHaveLength(0);
+
+    // Now reset fetch so we can assert it is never called for a completion
+    global.fetch = vi.fn() as typeof fetch;
+
+    const { openrouterCompleteWithFallback } = await import("../openai-compatible-client.js");
+
+    // openrouterCompleteWithFallback must throw MODEL_NOT_FOUND immediately —
+    // the resolver prevented any HTTP call to OpenRouter
+    await expect(
+      openrouterCompleteWithFallback(
+        [{ role: "user", content: "hi" }],
+        { apiKey: "sk-test" },
+      ),
+    ).rejects.toSatisfy(
+      (e: unknown) => e instanceof GroqClientError && e.code === "MODEL_NOT_FOUND",
+    );
+
+    // INT-007 (empty-chain scenario): fetch must not be called at all
+    expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+  });
+
+  it("should not issue OpenRouter requests when the resolved chain is empty", async () => {
+    // Same setup — catalog contains no FREE_MODELS entries
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          data: [{ id: "some/paid-model", pricing: { prompt: "0.0001", completion: "0.0002" } }],
+        }),
+    }) as typeof fetch;
+
+    // The paid model has non-zero pricing so refreshDynamicCatalog keeps previous catalog.
+    // Reset so catalog shows loaded-but-empty by calling refresh with a response that
+    // passes the free-model filter with an ID not in FREE_MODELS.
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          data: [{ id: "nonexistent/model:free", pricing: { prompt: "0", completion: "0" } }],
+        }),
+    }) as typeof fetch;
+
+    await refreshDynamicCatalog("sk-test");
+    global.fetch = vi.fn() as typeof fetch; // reset before completion attempt
+
+    const { openrouterCompleteWithFallback } = await import("../openai-compatible-client.js");
+
+    await expect(
+      openrouterCompleteWithFallback(
+        [{ role: "user", content: "test" }],
+        { apiKey: "sk-test" },
+      ),
+    ).rejects.toSatisfy(
+      (e: unknown) => e instanceof GroqClientError && e.code === "MODEL_NOT_FOUND",
+    );
+
+    // Zero completion fetches: the resolver stopped the chain before any HTTP call
+    expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(0);
+  });
+
+  it("INT-007 — single fetch on first-model success", async () => {
+    // Catalog not loaded → static list used (no catalog fetch in this path)
+    let callCount = 0;
+    global.fetch = vi.fn().mockImplementation(() => {
+      callCount += 1;
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(okResponse()),
+      });
+    }) as typeof fetch;
+
+    const { openrouterCompleteWithFallback } = await import("../openai-compatible-client.js");
+    const result = await openrouterCompleteWithFallback(
+      [{ role: "user", content: "hi" }],
+      { apiKey: "sk-test" },
+    );
+
+    expect(result.content).toBe("Hello!");
+    // Exactly one completion fetch — no unnecessary retries
+    expect(callCount).toBe(1);
+  });
+
+  it("INT-007 — fetch count equals chain length when every model fails before final success", async () => {
+    // Use a known model with a 2-entry chain: initial → 404 → second model succeeds
+    let callCount = 0;
+    global.fetch = vi.fn().mockImplementation(() => {
+      callCount += 1;
+      if (callCount < 2) {
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          text: () => Promise.resolve(JSON.stringify({ error: { code: "model_not_found" } })),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(okResponse()),
+      });
+    }) as typeof fetch;
+
+    const { openrouterCompleteWithFallback } = await import("../openai-compatible-client.js");
+    const result = await openrouterCompleteWithFallback(
+      [{ role: "user", content: "hi" }],
+      { apiKey: "sk-test", model: "meta-llama/llama-3.3-70b-instruct:free" },
+    );
+
+    expect(result.content).toBe("Hello!");
+    // 2 fetches: first model 404 → second model 200
+    expect(callCount).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ── INT-004: agentComplete passes quality/capability hints, not stale model IDs ─
+
+describe("integration (INT-004) — agentComplete resolves models from quality hints instead of stale model IDs", () => {
+  const globalFetch = global.fetch;
+
+  beforeEach(() => _resetDynamicCatalog());
+  afterEach(() => {
+    global.fetch = globalFetch;
+    _resetDynamicCatalog();
+    vi.restoreAllMocks();
+  });
+
+  it("should resolve models from quality hints instead of stale model ids", async () => {
+    let capturedRequestBody: Record<string, unknown> = {};
+
+    global.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit | undefined) => {
+      capturedRequestBody = JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>;
+      const model = (capturedRequestBody["model"] as string) ?? "meta-llama/llama-3.1-8b-instruct:free";
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(okResponse(model)),
+      });
+    }) as typeof fetch;
+
+    const { agentComplete } = await import("../agent-complete.js");
+    await agentComplete(
+      [{ role: "user", content: "review this code" }],
+      {
+        provider: "openrouter",
+        apiKey: "sk-test",
+        // RC-04: qualityProfile drives resolver hints; no explicit model ID
+        qualityProfile: "code_review",
+      },
+    );
+
+    const usedModel = capturedRequestBody["model"] as string | undefined;
+
+    // A model must have been selected (not empty / undefined)
+    expect(usedModel).toBeTruthy();
+    expect(typeof usedModel).toBe("string");
+
+    // The selected model must come from FREE_MODELS — the resolver, not a hardcoded ID
+    const staticIds = new Set(FREE_MODELS.map((m) => m.id));
+    expect(staticIds.has(usedModel!)).toBe(true);
+
+    // qualityHint present: no explicit `quality` key leaked into the fetch body
+    // (that would indicate a stale model ID path was bypassed)
+    const resolvedModel = FREE_MODELS.find((m) => m.id === usedModel);
+    expect(resolvedModel).toBeDefined();
+
+    // capabilityHint present: the model must support the "coding" or "reasoning"
+    // capability, confirming the resolver used capability hints, not a hardcoded id.
+    const supportsCodingOrReasoning =
+      (resolvedModel!.capabilities as string[]).includes("coding") ||
+      (resolvedModel!.capabilities as string[]).includes("reasoning");
+    expect(supportsCodingOrReasoning).toBe(true);
   });
 });

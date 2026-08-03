@@ -1,0 +1,428 @@
+Patch Manifest — AI-OPENROUTER-INT-001 (Integration Validation Only)
+
+Title
+OpenRouter End-to-End Integration Validation
+
+Objective
+إضافة اختبارات Integration فقط للتحقق من أن إصلاحات RC-01 → RC-04 تعمل عبر مسار التنفيذ الكامل، دون تعديل منطق الإنتاج (Production Logic).
+
+
+---
+
+INT-001
+
+File
+
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts
+
+Change
+
+إضافة Integration-level test (mocked fetch) يغطي أول تشغيل قبل تحميل Catalog.
+
+Scenario
+
+Catalog = Not Loaded
+
+↓
+
+openrouter.strategy
+
+↓
+
+modelResolver()
+
+↓
+
+Static Free Catalog
+
+↓
+
+openrouterCompleteWithFallback()
+
+↓
+
+Mock Fetch
+
+↓
+
+200 OK
+
+Assertions
+
+يستخدم Static Catalog.
+
+لا يعتمد على Dynamic Catalog.
+
+أول طلب ينجح.
+
+يتم إرسال model صالح.
+
+لا يتم استخدام stale model id.
+
+
+Reason
+
+ضمان عدم كسر أول Request بعد تشغيل النظام.
+
+Risk
+
+None
+
+Test
+
+should use static catalog before runtime catalog is loaded
+
+
+---
+
+INT-002
+
+File
+
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts
+
+Change
+
+إضافة اختبار عندما يكون Runtime Catalog محملاً ولكن جميع نماذج الفئة القوية (Powerful Free Models) تمت تصفيتها.
+
+Scenario
+
+Runtime Catalog
+
+↓
+
+Powerful Tier Empty
+
+↓
+
+Resolver
+
+↓
+
+Fast Tier
+
+↓
+
+Completion Success
+
+Assertions
+
+Powerful Tier يتم تجاوزه.
+
+Fast Tier يصبح أول Chain.
+
+لا يتم الرجوع إلى Static Catalog.
+
+لا يحدث Provider Failure.
+
+
+Reason
+
+التحقق من منطق Tier Downgrade.
+
+Risk
+
+None
+
+Test
+
+should downgrade to fast tier when powerful free models are unavailable
+
+
+---
+
+INT-003
+
+File
+
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts
+
+Change
+
+إضافة اختبار Empty Chain الكامل.
+
+Scenario
+
+Runtime Catalog
+
+↓
+
+All Free Models Filtered
+
+↓
+
+Resolver
+
+↓
+
+Empty Chain
+
+↓
+
+chatWithFallback()
+
+↓
+
+Next Provider
+
+Assertions
+
+Resolver يرجع Empty Chain.
+
+لا يتم استدعاء OpenRouter.
+
+يتم تشغيل Provider Failover.
+
+لا يحدث Exception غير معالج.
+
+
+Reason
+
+هذا هو أكثر سيناريو معرض للانكسار بعد RC-01 وRC-02.
+
+Risk
+
+None
+
+Test
+
+should fail over cleanly when no free model remains
+
+
+---
+
+INT-004
+
+File
+
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts
+
+Change
+
+التحقق من أن agent-complete.ts يمرر Quality Hints إلى Resolver وليس Model ID ثابتًا.
+
+Assertions
+
+qualityHint موجود.
+
+capabilityHint موجود.
+
+resolver هو من يختار النموذج.
+
+لا يوجد stale model id.
+
+
+Reason
+
+التحقق من RC-04.
+
+Risk
+
+None
+
+Test
+
+should resolve models from quality hints instead of stale model ids
+
+
+---
+
+INT-005
+
+File
+
+artifacts/api-server/src/routes/ai.test.ts
+
+Change
+
+إضافة Supertest Integration يمر عبر Route الحقيقي باستخدام Express مع Mock لـ OpenRouter.
+
+Flow
+
+POST /api/ai/chat
+
+↓
+
+Express
+
+↓
+
+chat.ts
+
+↓
+
+agent-complete.ts
+
+↓
+
+openrouter.strategy
+
+↓
+
+openrouterCompleteWithFallback
+
+↓
+
+Mock Fetch
+
+↓
+
+SSE Response
+
+Assertions
+
+الاستجابة تبدأ كـ SSE.
+
+يتم بث Delta Events.
+
+يتم إنهاء Stream بصورة صحيحة.
+
+لا يحدث Internal Error.
+
+
+Reason
+
+إثبات أن كامل المسار يعمل وليس الطبقات المنفصلة فقط.
+
+Risk
+
+Low
+
+Test
+
+should stream successful OpenRouter completion over SSE
+
+
+---
+
+INT-006
+
+File
+
+artifacts/api-server/src/routes/ai.test.ts
+
+Change
+
+إضافة Supertest Integration لحالة Empty Chain.
+
+Flow
+
+POST /api/ai/chat
+
+↓
+
+Resolver
+
+↓
+
+Empty Chain
+
+↓
+
+chatWithFallback
+
+↓
+
+Provider Failover
+
+↓
+
+SSE Error
+
+Assertions
+
+لا يحدث Crash.
+
+لا يوجد Stack Trace في الاستجابة.
+
+يتم إرسال حدث خطأ منظم عبر SSE.
+
+يتم إغلاق الـ Stream بصورة سليمة.
+
+إذا لم يوجد Provider بديل متاح، تكون الاستجابة النهائية متوافقة مع سياسة المشروع (مثل 503 أو الخطأ الموحد المعتمد)، وليس استثناءً غير معالج.
+
+
+Reason
+
+التحقق من Error Surface الحقيقي.
+
+Risk
+
+Low
+
+Test
+
+should surface provider failover cleanly through the SSE stream
+
+
+---
+
+INT-007
+
+File
+
+artifacts/api-server/src/routes/ai.test.ts
+
+Change
+
+إضافة تحقق من عدد استدعاءات fetch.
+
+Assertions
+
+السيناريو الأول:
+
+Fetch = 1
+
+
+سيناريو Fallback:
+
+Fetch = عدد النماذج في الـ Chain
+
+
+Empty Chain:
+
+Fetch = 0
+
+
+
+Reason
+
+إثبات أن Resolver هو من يمنع الطلبات غير الضرورية.
+
+Risk
+
+None
+
+Test
+
+should not issue OpenRouter requests when the resolved chain is empty
+
+
+---
+
+Acceptance Criteria
+
+✅ جميع الاختبارات الحالية (291) تستمر بالنجاح دون تعديل.
+
+✅ لا يتم تعديل أي Production Code.
+
+✅ التغطية تشمل:
+
+Static Catalog عند أول تشغيل.
+
+Runtime Catalog مع Tier Downgrade.
+
+Empty Chain.
+
+Provider Failover.
+
+SSE Success Path.
+
+SSE Error Path.
+
+تمرير Quality Hints من agent-complete.ts.
+
+منع استخدام Model IDs قديمة.
+
+
+✅ جميع الاختبارات الجديدة تعتمد على Mocked Fetch وSupertest فقط، دون أي اتصال فعلي بخدمة OpenRouter أو أي مزود خارجي.
