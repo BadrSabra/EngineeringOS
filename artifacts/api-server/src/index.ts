@@ -10,6 +10,7 @@ import {
   startContextInvalidationChannel,
   validateAiProvidersAtStartup,
 } from "@workspace/ai-orchestrator";
+import { startCatalogRefreshScheduler } from "./lib/catalog-refresh-scheduler";
 
 /**
  * DB-07: Bootstrap guard — verify the Drizzle schema has been pushed before
@@ -76,14 +77,22 @@ const { stop: stopCacheChannel } = startContextInvalidationChannel(pool);
 // cleanly and the pool does not hang.
 process.once("SIGTERM", () => {
   stopCacheChannel();
+  stopCatalogRefresh();
 });
 process.once("SIGINT", () => {
   stopCacheChannel();
+  stopCatalogRefresh();
 });
 
 // DB-07: Fail fast if the Drizzle schema has not been pushed yet. This must
 // run before any other startup step that touches the database.
 await assertDatabaseSchema();
+
+// Start the background free-model catalog refresh scheduler.  Runs every 5
+// minutes so the resolver always has a fresh live list of free-tier models —
+// even when the server is idle between user sessions.  The first refresh
+// fires immediately (before traffic arrives) so the catalog is pre-warmed.
+const { stop: stopCatalogRefresh } = startCatalogRefreshScheduler();
 
 // PR-006: validate AI providers before accepting traffic — checks key presence
 // and refreshes the dynamic OpenRouter model catalog so the resolver knows which

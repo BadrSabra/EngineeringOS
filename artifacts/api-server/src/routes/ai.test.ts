@@ -125,6 +125,20 @@ vi.mock("@workspace/ai-orchestrator", () => ({
       this.code = code;
     }
   },
+  // PR-07: circuit breaker — collectAvailableProviders calls isCircuitOpen for
+  // every candidate provider. Must be in the mock or all routes that trigger
+  // provider selection throw "No isCircuitOpen export defined on the mock".
+  isCircuitOpen: vi.fn().mockReturnValue(false),
+  // PR-05/PR-11: metrics recording helpers called from chat.ts after each
+  // provider attempt.  Must be stubs so the recording calls are no-ops in tests.
+  recordRequest:        vi.fn(),
+  recordFailure:        vi.fn(),
+  recordSuccess:        vi.fn(),
+  recordFallbackSuccess: vi.fn(),
+  recordInvalidModel:   vi.fn(),
+  recordLatency:        vi.fn(),
+  // Used by collectAvailableProviders to sort providers by quality profile.
+  sortProviderIdsByQuality: vi.fn((ids: string[]) => ids),
 }));
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
