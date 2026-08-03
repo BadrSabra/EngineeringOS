@@ -40,8 +40,8 @@
  *   is returned in ChatOutput and must be approved by the user through the
  *   dashboard UI before anything is written.
  */
-import { PROVIDER_REGISTRY, getStrategy } from "../provider-registry.js";
-import { resolveFallbackChain } from "../openrouter/model-resolver.js";
+import { getStrategy } from "../provider-registry.js";
+import type { ProviderId } from "../provider-registry.js";
 import type { AgentErrorCode } from "../errors.js";
 import type { RawMessage } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
@@ -51,6 +51,7 @@ import { parseAgentResponse } from "../parsing.js";
 import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
 import { speculativePrefetch } from "./speculative-prefetch.js";
 import { toolCacheKey, executeToolLoop } from "../tool-execution-engine.js";
+import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 export type { ChatOutput };
@@ -131,7 +132,7 @@ function requiresToolExecution(message: string): boolean {
  * included, so we keep it in text-only mode and let it answer from context.
  * Other providers receive the full file + git tool suite.
  */
-function buildProviderTools(provider: keyof typeof PROVIDER_REGISTRY, rootPath: string | undefined) {
+function buildProviderTools(provider: ProviderId, rootPath: string | undefined) {
   const policy = resolveToolPolicy({ provider, rootPath, mode: "workspace" });
   if (!policy.enabled) {
     console.warn(
@@ -332,38 +333,16 @@ export async function chat(opts: {
 
   const tools = buildProviderTools(provider, rootPath);
 
-  // OpenRouter now resolves its model pair from the live free-tier catalog
-  // at call time so chat-agent never bootstraps from a dead static ID.
-  const openRouterModels =
-    provider === "openrouter"
-      ? resolveFallbackChain({
-          capability: "chat",
-          quality: (rootPath && requiresToolExecution(message)) ? "powerful" : "fast",
-          requireTools: !!tools,
-        })
-      : [];
-
-  const fastModel =
-    provider === "openrouter"
-      ? openRouterModels[0]?.id ?? PROVIDER_REGISTRY[provider].defaultModels.fast
-      : PROVIDER_REGISTRY[provider].defaultModels.fast;
-  const powerModel =
-    provider === "openrouter"
-      ? openRouterModels[1]?.id ?? openRouterModels[0]?.id ?? PROVIDER_REGISTRY[provider].defaultModels.powerful
-      : PROVIDER_REGISTRY[provider].defaultModels.powerful;
-
-  // Use the more capable model when tools are involved — smaller models are
-  // unreliable at following multi-step tool-calling protocols.
-  // Always use MODEL_FAST for the agentic chat loop — it handles multi-turn
-  // tool calls well and has significantly higher Groq rate limits than the
-  // powerful model, reducing 429 errors during the iterative tool-use phase.
-  // MODEL_POWERFUL is reserved for single-shot tasks (code review, analysis)
-  // that benefit from deeper reasoning but never loop.
-  // نوع string الصريح يمنع TypeScript من تضييق القيمة إلى literal ثابت،
-  // وهو ضروري لمقارنة model !== MODEL_POWERFUL عند fallback النموذج.
-  // إصلاح #2: استخدم MODEL_POWERFUL عندما يطلب المستخدم تنفيذاً فعلياً للأدوات
-  // (اختبر، نفّذ، run...) — يمنع MODEL_FAST من اختراع مسارات وهمية بدل قراءة الكود الحقيقي.
-  const model: string = (rootPath && requiresToolExecution(message)) ? powerModel : fastModel;
+  // Decision engine resolves the selected model tier and both fallback models
+  // from one place so the chat loop no longer reads provider defaults directly.
+  // Use the more capable tier when explicit tool execution is requested.
+  const executionDecision = resolveExecutionDecision({
+    provider,
+    selectedQuality: rootPath && requiresToolExecution(message) ? "powerful" : "fast",
+    capability: tools != null ? "tool_calling" : "chat",
+    requireTools: tools != null,
+  });
+  const { powerfulModel: powerModel, model } = executionDecision;
 
   // BUG-1 fix: pass `tools != null` (actual tool availability for THIS provider)
   // rather than `!!rootPath`. Gemini gets no tools even when rootPath is set,

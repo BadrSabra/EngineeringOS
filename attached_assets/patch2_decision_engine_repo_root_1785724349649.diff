@@ -1,0 +1,333 @@
+diff -ruN lib/ai-orchestrator/src/agent-complete.ts lib/ai-orchestrator/src/agent-complete.ts
+--- lib/ai-orchestrator/src/agent-complete.ts	2026-08-03 02:31:02.683930230 +0000
++++ lib/ai-orchestrator/src/agent-complete.ts	2026-08-03 02:30:30.879929610 +0000
+@@ -5,16 +5,15 @@
+  * the provider configuration itself now flows through the registry helpers so
+  * selection, defaults, and validation share one source of truth.
+  */
+-import { complete, completeRaw, MODEL_POWERFUL } from "./groq-client.js";
++import { complete, completeRaw } from "./groq-client.js";
+ import { deepseekCompleteRaw } from "./deepseek-client.js";
+ import { openrouterCompleteWithFallback, geminiCompleteRaw } from "./openai-compatible-client.js";
+-import { discoverProvider, loadProvider } from "./provider-registry.js";
+-import type { ModelCapability } from "./openrouter/model-catalog.js";
+-import { buildQualityHints, type QualityProfile } from "./quality-engine.js";
++import type { QualityProfile } from "./quality-engine.js";
+ import { GroqClientError } from "./errors.js";
+ import type { Message } from "./groq-client.js";
+-import type { ProviderConfig, ProviderId } from "./provider-registry.js";
++import { loadProvider, type ProviderConfig, type ProviderId } from "./provider-registry.js";
+ import type { ProviderCapabilityHints } from "./provider-capabilities.js";
++import { resolveExecutionDecision } from "./model-selection/decision-engine.js";
+ 
+ export type { ProviderId };
+ 
+@@ -52,22 +51,27 @@
+ 
+ async function probeProviderKey(provider: ProviderConfig, apiKey: string): Promise<void> {
+   const testMessages: Message[] = [{ role: "user", content: "hi" }];
++  const probeDecision = resolveExecutionDecision({
++    provider: provider.providerId,
++    selectedQuality: "powerful",
++    capability: provider.providerId === "openrouter" ? "coding" : "chat",
++  });
+ 
+   switch (provider.providerId) {
+     case "deepseek":
+-      await deepseekCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
++      await deepseekCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeDecision.model });
+       return;
+     case "openrouter":
+-      // Use fallback-aware client; a 404 on the probe just means the default
+-      // model is gone — fallback confirms whether the key itself is valid.
+-      await openrouterCompleteWithFallback(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
++      // Use the same decision engine as the main call path so the validation
++      // probe exercises the same model-selection rules.
++      await openrouterCompleteWithFallback(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeDecision.model });
+       return;
+     case "gemini":
+-      await geminiCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
++      await geminiCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeDecision.model });
+       return;
+     default:
+       // groq — uses high-level client with 10s timeout for the probe
+-      await completeRaw(testMessages, { apiKey, maxTokens: 1, timeoutMs: 10_000 });
++      await completeRaw(testMessages, { apiKey, maxTokens: 1, timeoutMs: 10_000, model: probeDecision.model });
+       return;
+   }
+ }
+@@ -110,15 +114,18 @@
+   messages: Message[],
+   opts: AgentCompleteOpts,
+ ): Promise<{ content: string }> {
+-  const qualityHints = opts.qualityHints ?? (opts.qualityProfile ? buildQualityHints(opts.qualityProfile) : undefined);
+-  const providerId = opts.provider ?? (qualityHints ? discoverProvider(qualityHints)?.providerId ?? "groq" : "groq");
+-  const provider = loadProvider(providerId);
++  const decision = resolveExecutionDecision({
++    provider: opts.provider,
++    qualityProfile: opts.qualityProfile,
++    qualityHints: opts.qualityHints,
++  });
++  const provider = decision.provider;
+   const apiKey = requireApiKey(provider, opts.apiKey);
+ 
+   switch (provider.providerId) {
+     case "deepseek": {
+       const result = await deepseekCompleteRaw(messages, {
+-        model: provider.defaultModels.powerful,
++        model: decision.model,
+         apiKey,
+       });
+       return { content: assertContent(provider, result.content) };
+@@ -132,37 +139,23 @@
+       //   • "powerful" when the quality hints ask for reasoning/thinking/context
+       //     (code-review, analysis) — tries larger models first in the chain.
+       //   • "fast" otherwise — lighter models with better free-tier availability.
+-      const wantPowerful =
+-        qualityHints?.requireReasoning ||
+-        qualityHints?.requireThinking ||
+-        (qualityHints?.minimumContext != null && qualityHints.minimumContext >= 32_000);
+-      const resolvedQuality: "fast" | "powerful" = wantPowerful ? "powerful" : "fast";
+-
+-      // Pick capability: reasoning profiles need the reasoning capability;
+-      // all others default to "coding" since agentComplete is used for code tasks.
+-      const resolvedCapability: ModelCapability =
+-        qualityHints?.requireReasoning ? "reasoning" : "coding";
+-
+       const result = await openrouterCompleteWithFallback(messages, {
+-        // No `model` — the resolver builds the chain from the live catalog.
+-        quality:    resolvedQuality,
+-        capability: resolvedCapability,
+-        requireTools: qualityHints?.requireTools,
+         apiKey,
++        model: decision.model,
+       });
+       return { content: assertContent(provider, result.content) };
+     }
+ 
+     case "gemini": {
+       const result = await geminiCompleteRaw(messages, {
+-        model: provider.defaultModels.powerful,
++        model: decision.model,
+         apiKey,
+       });
+       return { content: assertContent(provider, result.content) };
+     }
+ 
+     default: {
+-      const result = await complete(messages, { model: MODEL_POWERFUL, apiKey: apiKey || undefined });
++      const result = await complete(messages, { model: decision.model, apiKey: apiKey || undefined });
+       return { content: assertContent(provider, result.content) };
+     }
+   }
+diff -ruN lib/ai-orchestrator/src/agents/chat-agent.ts lib/ai-orchestrator/src/agents/chat-agent.ts
+--- lib/ai-orchestrator/src/agents/chat-agent.ts	2026-08-03 02:31:02.683930230 +0000
++++ lib/ai-orchestrator/src/agents/chat-agent.ts	2026-08-03 02:31:24.399930653 +0000
+@@ -40,7 +40,7 @@
+  *   is returned in ChatOutput and must be approved by the user through the
+  *   dashboard UI before anything is written.
+  */
+-import { PROVIDER_REGISTRY, getStrategy } from "../provider-registry.js";
++import { getStrategy } from "../provider-registry.js";
+ import type { AgentErrorCode } from "../errors.js";
+ import type { RawMessage } from "../groq-client.js";
+ import type { ProjectContext } from "../context-builder.js";
+@@ -50,6 +50,7 @@
+ import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
+ import { speculativePrefetch } from "./speculative-prefetch.js";
+ import { toolCacheKey, executeToolLoop } from "../tool-execution-engine.js";
++import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
+ 
+ export type ChatMessage = { role: "user" | "assistant"; content: string };
+ export type { ChatOutput };
+@@ -316,9 +317,7 @@
+   // Look up the strategy for this provider — all provider-specific dispatch
+   // is hidden behind the ProviderStrategy interface. Adding a new provider
+   // requires only a strategy file + registry entry; nothing here changes.
+-  const strategy   = getStrategy(provider);
+-  const fastModel  = PROVIDER_REGISTRY[provider].defaultModels.fast;
+-  const powerModel = PROVIDER_REGISTRY[provider].defaultModels.powerful;
++  const strategy = getStrategy(provider);
+ 
+   const pendingChanges: PendingChange[] = [];
+ 
+@@ -333,18 +332,16 @@
+ 
+   const tools = buildProviderTools(provider, rootPath);
+ 
+-  // Use the more capable model when tools are involved — smaller models are
+-  // unreliable at following multi-step tool-calling protocols.
+-  // Always use MODEL_FAST for the agentic chat loop — it handles multi-turn
+-  // tool calls well and has significantly higher Groq rate limits than the
+-  // powerful model, reducing 429 errors during the iterative tool-use phase.
+-  // MODEL_POWERFUL is reserved for single-shot tasks (code review, analysis)
+-  // that benefit from deeper reasoning but never loop.
+-  // نوع string الصريح يمنع TypeScript من تضييق القيمة إلى literal ثابت،
+-  // وهو ضروري لمقارنة model !== MODEL_POWERFUL عند fallback النموذج.
+-  // إصلاح #2: استخدم MODEL_POWERFUL عندما يطلب المستخدم تنفيذاً فعلياً للأدوات
+-  // (اختبر، نفّذ، run...) — يمنع MODEL_FAST من اختراع مسارات وهمية بدل قراءة الكود الحقيقي.
+-  const model: string = (rootPath && requiresToolExecution(message)) ? powerModel : fastModel;
++  // Decision engine resolves the selected model tier and both fallback models
++  // from one place so the chat loop no longer reads provider defaults directly.
++  // Use the more capable tier when explicit tool execution is requested.
++  const executionDecision = resolveExecutionDecision({
++    provider,
++    selectedQuality: rootPath && requiresToolExecution(message) ? "powerful" : "fast",
++    capability: tools != null ? "tool_calling" : "chat",
++    requireTools: tools != null,
++  });
++  const { powerfulModel: powerModel, model } = executionDecision;
+ 
+   // BUG-1 fix: pass `tools != null` (actual tool availability for THIS provider)
+   // rather than `!!rootPath`. Gemini gets no tools even when rootPath is set,
+diff -ruN lib/ai-orchestrator/src/index.ts lib/ai-orchestrator/src/index.ts
+--- lib/ai-orchestrator/src/index.ts	2026-08-03 02:31:02.683930230 +0000
++++ lib/ai-orchestrator/src/index.ts	2026-08-03 02:30:33.855929668 +0000
+@@ -11,6 +11,8 @@
+ 
+ export { buildQualityHints, buildQualityPlan, assessStructuredOutput, sortProviderIdsByQuality } from "./quality-engine.js";
+ export type { QualityAssessment, QualityPlan, QualityProfile, QualitySortOptions } from "./quality-engine.js";
++export { resolveExecutionDecision, resolveExecutionModel } from "./model-selection/decision-engine.js";
++export type { ExecutionModelDecision, ExecutionModelQuality, ResolveExecutionDecisionOptions } from "./model-selection/decision-engine.js";
+ 
+ export { buildExecutionPlan } from "./quality/quality-planner.js";
+ export type { ExecutionPlan } from "./quality/quality-planner.js";
+diff -ruN lib/ai-orchestrator/src/model-selection/decision-engine.ts lib/ai-orchestrator/src/model-selection/decision-engine.ts
+--- lib/ai-orchestrator/src/model-selection/decision-engine.ts	1970-01-01 00:00:00.000000000 +0000
++++ lib/ai-orchestrator/src/model-selection/decision-engine.ts	2026-08-03 02:30:03.759929081 +0000
+@@ -0,0 +1,135 @@
++/**
++ * Execution Decision Engine — single source of truth for provider/model choice.
++ *
++ * Callers pass their intent (provider preference, quality profile, capability
++ * hints, tool requirement). The engine resolves:
++ *   • which provider to use
++ *   • which model to run for the selected quality tier
++ *   • which fallback chain is valid for OpenRouter
++ *
++ * This keeps provider selection, model selection, and fallback policy in one
++ * place so the rest of the orchestrator no longer re-implements those rules.
++ */
++import { discoverProvider, loadProvider, type ProviderConfig, type ProviderId } from "../provider-registry.js";
++import { buildQualityHints, type QualityProfile } from "../quality-engine.js";
++import type { ProviderCapabilityHints } from "../provider-capabilities.js";
++import type { ModelCapability } from "../openrouter/model-catalog.js";
++import { resolveFallbackChain } from "../openrouter/model-resolver.js";
++
++export type ExecutionModelQuality = "fast" | "powerful";
++
++export type ExecutionModelDecision = {
++  providerId: ProviderId;
++  provider: ProviderConfig;
++  selectedQuality: ExecutionModelQuality;
++  capability: ModelCapability;
++  model: string;
++  fastModel: string;
++  powerfulModel: string;
++  fastFallbackChain: string[];
++  powerfulFallbackChain: string[];
++  source: "provider-registry" | "openrouter-model-resolver";
++};
++
++export type ResolveExecutionDecisionOptions = {
++  provider?: ProviderId;
++  qualityProfile?: QualityProfile;
++  qualityHints?: ProviderCapabilityHints;
++  selectedQuality?: ExecutionModelQuality;
++  capability?: ModelCapability;
++  requireTools?: boolean;
++};
++
++function inferSelectedQuality(
++  explicitQuality: ExecutionModelQuality | undefined,
++  qualityProfile: QualityProfile | undefined,
++  qualityHints: ProviderCapabilityHints | undefined,
++): ExecutionModelQuality {
++  if (explicitQuality) return explicitQuality;
++
++  switch (qualityProfile) {
++    case "analysis":
++    case "code_review":
++    case "task_execution":
++    case "workflow":
++      return "powerful";
++    case "tool_chat":
++      return qualityHints?.requireReasoning || qualityHints?.requireThinking ? "powerful" : "fast";
++    case "chat":
++    default:
++      if (qualityHints?.requireReasoning || qualityHints?.requireThinking) return "powerful";
++      if (qualityHints?.minimumContext != null && qualityHints.minimumContext >= 32_000) return "powerful";
++      return "fast";
++  }
++}
++
++function resolveOpenRouterTier(
++  capability: ModelCapability,
++  quality: ExecutionModelQuality,
++  requireTools: boolean,
++): { model: string; fallbackChain: string[] } {
++  const chain = resolveFallbackChain({ capability, quality, requireTools });
++  const model = chain[0]?.id;
++  if (!model) {
++    throw new Error(
++      `[decision-engine] No OpenRouter free model satisfies capability="${capability}" quality="${quality}" requireTools=${requireTools}`,
++    );
++  }
++  return {
++    model,
++    fallbackChain: chain.map((entry) => entry.id),
++  };
++}
++
++function resolveNonOpenRouterTier(provider: ProviderConfig): { fastModel: string; powerfulModel: string } {
++  return {
++    fastModel: provider.defaultModels.fast,
++    powerfulModel: provider.defaultModels.powerful,
++  };
++}
++
++export function resolveExecutionDecision(opts: ResolveExecutionDecisionOptions): ExecutionModelDecision {
++  const qualityHints = opts.qualityHints ?? (opts.qualityProfile ? buildQualityHints(opts.qualityProfile, { requireTools: opts.requireTools }) : undefined);
++  const provider = opts.provider
++    ? loadProvider(opts.provider)
++    : (qualityHints ? discoverProvider(qualityHints) ?? loadProvider("groq") : loadProvider("groq"));
++
++  const selectedQuality = inferSelectedQuality(opts.selectedQuality, opts.qualityProfile, qualityHints);
++  const capability = opts.capability ?? (qualityHints?.requireReasoning ? "reasoning" : qualityHints?.requireThinking ? "reasoning" : "coding");
++
++  if (provider.providerId === "openrouter") {
++    const fast = resolveOpenRouterTier(capability, "fast", !!opts.requireTools);
++    const powerful = resolveOpenRouterTier(capability, "powerful", !!opts.requireTools);
++
++    return {
++      providerId: provider.providerId,
++      provider,
++      selectedQuality,
++      capability,
++      model: selectedQuality === "powerful" ? powerful.model : fast.model,
++      fastModel: fast.model,
++      powerfulModel: powerful.model,
++      fastFallbackChain: fast.fallbackChain,
++      powerfulFallbackChain: powerful.fallbackChain,
++      source: "openrouter-model-resolver",
++    };
++  }
++
++  const { fastModel, powerfulModel } = resolveNonOpenRouterTier(provider);
++  return {
++    providerId: provider.providerId,
++    provider,
++    selectedQuality,
++    capability,
++    model: selectedQuality === "powerful" ? powerfulModel : fastModel,
++    fastModel,
++    powerfulModel,
++    fastFallbackChain: [fastModel],
++    powerfulFallbackChain: [powerfulModel],
++    source: "provider-registry",
++  };
++}
++
++export function resolveExecutionModel(opts: ResolveExecutionDecisionOptions): string {
++  return resolveExecutionDecision(opts).model;
++}

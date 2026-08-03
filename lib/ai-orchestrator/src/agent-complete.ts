@@ -5,16 +5,15 @@
  * the provider configuration itself now flows through the registry helpers so
  * selection, defaults, and validation share one source of truth.
  */
-import { complete, completeRaw, MODEL_POWERFUL } from "./groq-client.js";
+import { complete, completeRaw } from "./groq-client.js";
 import { deepseekCompleteRaw } from "./deepseek-client.js";
 import { openrouterCompleteWithFallback, geminiCompleteRaw } from "./openai-compatible-client.js";
-import { discoverProvider, loadProvider } from "./provider-registry.js";
-import type { ModelCapability } from "./openrouter/model-catalog.js";
-import { buildQualityHints, type QualityProfile } from "./quality-engine.js";
+import type { QualityProfile } from "./quality-engine.js";
 import { GroqClientError } from "./errors.js";
 import type { Message } from "./groq-client.js";
-import type { ProviderConfig, ProviderId } from "./provider-registry.js";
+import { loadProvider, type ProviderConfig, type ProviderId } from "./provider-registry.js";
 import type { ProviderCapabilityHints } from "./provider-capabilities.js";
+import { resolveExecutionDecision } from "./model-selection/decision-engine.js";
 
 export type { ProviderId };
 
@@ -52,22 +51,27 @@ function assertContent(provider: ProviderConfig, content: string | null | undefi
 
 async function probeProviderKey(provider: ProviderConfig, apiKey: string): Promise<void> {
   const testMessages: Message[] = [{ role: "user", content: "hi" }];
+  const probeDecision = resolveExecutionDecision({
+    provider: provider.providerId,
+    selectedQuality: "powerful",
+    capability: provider.providerId === "openrouter" ? "coding" : "chat",
+  });
 
   switch (provider.providerId) {
     case "deepseek":
-      await deepseekCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
+      await deepseekCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeDecision.model });
       return;
     case "openrouter":
-      // Use fallback-aware client; a 404 on the probe just means the default
-      // model is gone — fallback confirms whether the key itself is valid.
-      await openrouterCompleteWithFallback(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
+      // Use the same decision engine as the main call path so the validation
+      // probe exercises the same model-selection rules.
+      await openrouterCompleteWithFallback(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeDecision.model });
       return;
     case "gemini":
-      await geminiCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0 });
+      await geminiCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeDecision.model });
       return;
     default:
       // groq — uses high-level client with 10s timeout for the probe
-      await completeRaw(testMessages, { apiKey, maxTokens: 1, timeoutMs: 10_000 });
+      await completeRaw(testMessages, { apiKey, maxTokens: 1, timeoutMs: 10_000, model: probeDecision.model });
       return;
   }
 }
@@ -110,59 +114,43 @@ export async function agentComplete(
   messages: Message[],
   opts: AgentCompleteOpts,
 ): Promise<{ content: string }> {
-  const qualityHints = opts.qualityHints ?? (opts.qualityProfile ? buildQualityHints(opts.qualityProfile) : undefined);
-  const providerId = opts.provider ?? (qualityHints ? discoverProvider(qualityHints)?.providerId ?? "groq" : "groq");
-  const provider = loadProvider(providerId);
+  const decision = resolveExecutionDecision({
+    provider: opts.provider,
+    qualityProfile: opts.qualityProfile,
+    qualityHints: opts.qualityHints,
+  });
+  const provider = decision.provider;
   const apiKey = requireApiKey(provider, opts.apiKey);
 
   switch (provider.providerId) {
     case "deepseek": {
       const result = await deepseekCompleteRaw(messages, {
-        model: provider.defaultModels.powerful,
+        model: decision.model,
         apiKey,
       });
       return { content: assertContent(provider, result.content) };
     }
 
     case "openrouter": {
-      // RC-04: resolve model at call time from the live free-tier catalog, NOT
-      // from provider.defaultModels which was set at module-load before the
-      // dynamic catalog was populated.  Pass quality + capability hints so the
-      // resolver picks the best available model right now.
-      //   • "powerful" when the quality hints ask for reasoning/thinking/context
-      //     (code-review, analysis) — tries larger models first in the chain.
-      //   • "fast" otherwise — lighter models with better free-tier availability.
-      const wantPowerful =
-        qualityHints?.requireReasoning ||
-        qualityHints?.requireThinking ||
-        (qualityHints?.minimumContext != null && qualityHints.minimumContext >= 32_000);
-      const resolvedQuality: "fast" | "powerful" = wantPowerful ? "powerful" : "fast";
-
-      // Pick capability: reasoning profiles need the reasoning capability;
-      // all others default to "coding" since agentComplete is used for code tasks.
-      const resolvedCapability: ModelCapability =
-        qualityHints?.requireReasoning ? "reasoning" : "coding";
-
+      // RC-04: resolve model at call time from the live free-tier catalog via
+      // the decision engine — quality/capability/tool hints are all handled there.
       const result = await openrouterCompleteWithFallback(messages, {
-        // No `model` — the resolver builds the chain from the live catalog.
-        quality:    resolvedQuality,
-        capability: resolvedCapability,
-        requireTools: qualityHints?.requireTools,
         apiKey,
+        model: decision.model,
       });
       return { content: assertContent(provider, result.content) };
     }
 
     case "gemini": {
       const result = await geminiCompleteRaw(messages, {
-        model: provider.defaultModels.powerful,
+        model: decision.model,
         apiKey,
       });
       return { content: assertContent(provider, result.content) };
     }
 
     default: {
-      const result = await complete(messages, { model: MODEL_POWERFUL, apiKey: apiKey || undefined });
+      const result = await complete(messages, { model: decision.model, apiKey: apiKey || undefined });
       return { content: assertContent(provider, result.content) };
     }
   }

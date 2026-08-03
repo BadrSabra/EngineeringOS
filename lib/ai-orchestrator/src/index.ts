@@ -11,6 +11,8 @@ export type { PendingChange } from "./tools/file-tools.js";
 
 export { buildQualityHints, buildQualityPlan, assessStructuredOutput, sortProviderIdsByQuality } from "./quality-engine.js";
 export type { QualityAssessment, QualityPlan, QualityProfile, QualitySortOptions } from "./quality-engine.js";
+export { resolveExecutionDecision, resolveExecutionModel } from "./model-selection/decision-engine.js";
+export type { ExecutionModelDecision, ExecutionModelQuality, ResolveExecutionDecisionOptions } from "./model-selection/decision-engine.js";
 
 export { buildExecutionPlan } from "./quality/quality-planner.js";
 export type { ExecutionPlan } from "./quality/quality-planner.js";
