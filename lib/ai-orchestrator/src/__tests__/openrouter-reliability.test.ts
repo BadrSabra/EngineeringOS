@@ -47,7 +47,7 @@ function mockFetch(status: number, body: unknown) {
 }
 
 /** Build a successful OpenAI-compatible chat response. */
-function okResponse(model = "meta-llama/llama-3.1-8b-instruct:free") {
+function okResponse(model = "inclusionai/ling-3.0-flash:free") {
   return {
     choices: [{ message: { content: "Hello!", tool_calls: undefined } }],
     model,
@@ -131,7 +131,7 @@ describe("model-resolver — empty catalog fallback", () => {
   });
 
   it("buildFallbackChainFromId always includes the initial model first", () => {
-    const initial = "meta-llama/llama-3.3-70b-instruct:free";
+    const initial = "nvidia/nemotron-3-super-120b-a12b:free";
     const chain = buildFallbackChainFromId(initial);
     expect(chain[0]).toBe(initial);
     expect(chain.length).toBeGreaterThan(1);
@@ -191,7 +191,7 @@ describe("error classification", () => {
         apiKey: "sk-test",
         baseUrl: "https://openrouter.ai/api/v1",
         providerName: "OpenRouter",
-        model: "meta-llama/llama-3.1-8b-instruct:free",
+        model: "inclusionai/ling-3.0-flash:free",
       },
     );
   }
@@ -287,7 +287,7 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
 
     const result = await openrouterCompleteWithFallback(
       [{ role: "user", content: "hi" }],
-      { apiKey: "sk-test", model: "meta-llama/llama-3.3-70b-instruct:free" },
+      { apiKey: "sk-test", model: "nvidia/nemotron-3-super-120b-a12b:free" },
     );
     expect(result.content).toBe("Hello!");
     expect(callCount).toBeGreaterThan(1);
@@ -317,7 +317,7 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
 
     const result = await openrouterCompleteWithFallback(
       [{ role: "user", content: "hi" }],
-      { apiKey: "sk-test", model: "meta-llama/llama-3.3-70b-instruct:free" },
+      { apiKey: "sk-test", model: "nvidia/nemotron-3-super-120b-a12b:free" },
     );
     expect(result.content).toBe("Hello!");
     expect(callCount).toBeGreaterThan(1);
@@ -445,7 +445,7 @@ describe("integration (INT-001) — static catalog used before runtime catalog l
         ok: true,
         status: 200,
         json: () =>
-          Promise.resolve(okResponse(capturedModel || "meta-llama/llama-3.1-8b-instruct:free")),
+          Promise.resolve(okResponse(capturedModel || "inclusionai/ling-3.0-flash:free")),
       });
     }) as typeof fetch;
 
@@ -659,7 +659,7 @@ describe("integration (INT-003 / INT-007) — empty chain fails fast without iss
     const { openrouterCompleteWithFallback } = await import("../openai-compatible-client.js");
     const result = await openrouterCompleteWithFallback(
       [{ role: "user", content: "hi" }],
-      { apiKey: "sk-test", model: "meta-llama/llama-3.3-70b-instruct:free" },
+      { apiKey: "sk-test", model: "nvidia/nemotron-3-super-120b-a12b:free" },
     );
 
     expect(result.content).toBe("Hello!");
@@ -685,7 +685,7 @@ describe("integration (INT-004) — agentComplete resolves models from quality h
 
     global.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit | undefined) => {
       capturedRequestBody = JSON.parse((init?.body as string) ?? "{}") as Record<string, unknown>;
-      const model = (capturedRequestBody["model"] as string) ?? "meta-llama/llama-3.1-8b-instruct:free";
+      const model = (capturedRequestBody["model"] as string) ?? "inclusionai/ling-3.0-flash:free";
       return Promise.resolve({
         ok: true,
         status: 200,
