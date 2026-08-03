@@ -39,7 +39,7 @@ export const openrouterStrategy: ProviderStrategy = {
   supportsNativeStream: false,
 
   // PR-01 + PR-07: refresh catalog (fire-and-forget), check circuit, record outcome.
-  async call(messages: RawMessage[], opts: StrategyCallOptions): Promise<ReturnType<ProviderStrategy["call"]>> {
+  async call(messages: RawMessage[], opts: StrategyCallOptions): ReturnType<ProviderStrategy["call"]> {
     if (!opts.apiKey) {
       throw new GroqClientError(
         "INVALID_CONFIG",
@@ -58,7 +58,7 @@ export const openrouterStrategy: ProviderStrategy = {
     // PR-01: refresh the live model catalog so stale IDs are filtered before
     // the fallback chain is built.  Fire-and-forget — the resolver uses the
     // previous snapshot if the refresh hasn't completed yet.
-    void refreshDynamicCatalog(opts.apiKey);
+    await refreshDynamicCatalog(opts.apiKey);
 
     try {
       const result = await openrouterCompleteWithFallback(messages, { ...opts, apiKey: opts.apiKey });
@@ -89,7 +89,7 @@ export const openrouterStrategy: ProviderStrategy = {
     }
 
     // PR-01: fire-and-forget catalog refresh.
-    void refreshDynamicCatalog(opts.apiKey);
+    await refreshDynamicCatalog(opts.apiKey);
 
     try {
       yield* openrouterCompleteStream(messages, { ...opts, apiKey: opts.apiKey });

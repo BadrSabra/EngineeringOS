@@ -191,29 +191,30 @@ router.post("/ai/chat", async (req, res) => {
     invalidateContextCache(projectId);
 
     const msgNow = new Date();
-    let session: typeof aiChatSessionsTable.$inferSelect;
-    if (existingSession) {
-      session = existingSession;
-    } else {
-      const [created] = await db
-        .insert(aiChatSessionsTable)
-        .values({
-          id: randomUUID(),
-          projectId,
-          title: message.slice(0, 60),
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning();
-      session = created;
-    }
+    const sessionIdToUse = existingSession?.id ?? randomUUID();
 
-    // Atomic: user message + assistant message + session timestamp update in one
-    // transaction — prevents a half-saved conversation if one insert fails.
+    // Atomic: session creation (when needed) + user message + assistant message
+    // + session timestamp update in one transaction — prevents a half-saved
+    // conversation if one insert fails.
     const assistantMsg = await db.transaction(async (tx) => {
+      if (!existingSession) {
+        const [created] = await tx
+          .insert(aiChatSessionsTable)
+          .values({
+            id: sessionIdToUse,
+            projectId,
+            title: message.slice(0, 60),
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning();
+        if (!created) {
+          throw new Error("Failed to create chat session");
+        }
+      }
       await tx.insert(aiChatMessagesTable).values({
         id: randomUUID(),
-        sessionId: session.id,
+        sessionId: sessionIdToUse,
         role: "user",
         content: message,
         createdAt: now,
@@ -222,7 +223,7 @@ router.post("/ai/chat", async (req, res) => {
         .insert(aiChatMessagesTable)
         .values({
           id: randomUUID(),
-          sessionId: session.id,
+          sessionId: sessionIdToUse,
           role: "assistant",
           content: sanitizeResponseText(result.response),
           sources: JSON.stringify(result.sources),
@@ -232,12 +233,12 @@ router.post("/ai/chat", async (req, res) => {
       await tx
         .update(aiChatSessionsTable)
         .set({ updatedAt: msgNow })
-        .where(eq(aiChatSessionsTable.id, session.id));
+        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
       return msg;
     });
 
     return res.json({
-      sessionId: session.id,
+      sessionId: sessionIdToUse,
       message: assistantMsg,
       sources: result.sources,
       pendingChanges: result.pendingChanges ?? [],
@@ -534,38 +535,39 @@ router.post("/ai/chat/stream", async (req, res) => {
     })();
 
     const msgNow = new Date();
-    let session: typeof aiChatSessionsTable.$inferSelect;
-    if (existingSession) {
-      session = existingSession;
-    } else {
-      const [created] = await db
-        .insert(aiChatSessionsTable)
-        .values({
-          id: randomUUID(),
-          projectId,
-          // BUG-5 fix: don't use a bare greeting as the session title.
-          // "مرحبا", "Hello", "Hi" etc. give no context in the sessions list.
-          // Use the first 60 chars only when the opener is substantive.
-          title: (() => {
-            const trimmed = message.trim();
-            const isGreeting = /^(مرحبا|مرحبً?ا|أهلاً?|سلام|هلا|hi|hello|hey|greetings|سلاماً?|صباح الخير|مساء الخير|good (morning|afternoon|evening))[\s!.،,]*$/i.test(trimmed);
-            return (!isGreeting && trimmed.length > 10)
-              ? trimmed.slice(0, 60)
-              : `Session ${now.toISOString().slice(0, 16).replace("T", " ")}`;
-          })(),
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning();
-      session = created;
-    }
+    const sessionIdToUse = existingSession?.id ?? randomUUID();
 
-    // Atomic: user message + assistant message + session timestamp update in one
-    // transaction — prevents a half-saved conversation if one insert fails.
+    // Atomic: session creation (when needed) + user message + assistant message
+    // + session timestamp update in one transaction — prevents a half-saved
+    // conversation if one insert fails.
     const assistantMsg = await db.transaction(async (tx) => {
+      if (!existingSession) {
+        const [created] = await tx
+          .insert(aiChatSessionsTable)
+          .values({
+            id: sessionIdToUse,
+            projectId,
+            // BUG-5 fix: don't use a bare greeting as the session title.
+            // "مرحبا", "Hello", "Hi" etc. give no context in the sessions list.
+            // Use the first 60 chars only when the opener is substantive.
+            title: (() => {
+              const trimmed = message.trim();
+              const isGreeting = /^(مرحبا|مرحبً?ا|أهلاً?|سلام|هلا|hi|hello|hey|greetings|سلاماً?|صباح الخير|مساء الخير|good (morning|afternoon|evening))[\s!.،,]*$/i.test(trimmed);
+              return (!isGreeting && trimmed.length > 10)
+                ? trimmed.slice(0, 60)
+                : `Session ${now.toISOString().slice(0, 16).replace("T", " ")}`;
+            })(),
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning();
+        if (!created) {
+          throw new Error("Failed to create chat session");
+        }
+      }
       await tx.insert(aiChatMessagesTable).values({
         id: randomUUID(),
-        sessionId: session.id,
+        sessionId: sessionIdToUse,
         role: "user",
         content: message,
         createdAt: now,
@@ -574,7 +576,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         .insert(aiChatMessagesTable)
         .values({
           id: randomUUID(),
-          sessionId: session.id,
+          sessionId: sessionIdToUse,
           role: "assistant",
           content: sanitizeResponseText(result.response),
           sources: JSON.stringify(result.sources),
@@ -584,7 +586,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       await tx
         .update(aiChatSessionsTable)
         .set({ updatedAt: msgNow })
-        .where(eq(aiChatSessionsTable.id, session.id));
+        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
       return msg;
     });
 
@@ -593,7 +595,7 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     sse({
       type: "done",
-      sessionId: session.id,
+      sessionId: sessionIdToUse,
       message: assistantMsg,
       sources: result.sources,
       pendingChanges: result.pendingChanges ?? [],

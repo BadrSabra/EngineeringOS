@@ -19,17 +19,15 @@ import { groqStrategy } from "./strategies/groq.strategy.js";
 import { deepseekStrategy } from "./strategies/deepseek.strategy.js";
 import { openrouterStrategy } from "./strategies/openrouter.strategy.js";
 import { geminiStrategy } from "./strategies/gemini.strategy.js";
-// RC-03: do NOT import resolveFallbackChain here for startup-time resolution.
-// The dynamic free-tier catalog (dynamic-catalog.ts) is loaded AFTER this
-// module initialises, so any model ID resolved at module-load time comes from
-// the static catalog — which may contain models that have since moved to paid.
-//
-// Instead, agent-complete.ts (RC-04) calls resolveFallbackChain() at call time
-// so the live catalog is always consulted.  The IDs below are emergency
-// last-resort fallbacks used only by code paths that haven't been updated to
-// call the resolver dynamically.  They intentionally point to the smallest,
-// most reliably-free model in the static catalog.
-const OR_EMERGENCY_FALLBACK = "meta-llama/llama-3.1-8b-instruct:free";
+import { FREE_MODELS } from "./openrouter/model-catalog.js";
+// RC-03: avoid hardcoding a dead OpenRouter model ID at module-load time.
+// The emergency fallback is derived from the current static free-tier catalog
+// so the registry never points at a model that the local codebase no longer
+// considers valid.
+const OR_EMERGENCY_FALLBACK =
+  FREE_MODELS.find((m) => m.quality === "fast")?.id ??
+  FREE_MODELS[0]?.id ??
+  "inclusionai/ling-3.0-flash:free";
 
 export type ProviderId = "groq" | "deepseek" | "openrouter" | "gemini";
 

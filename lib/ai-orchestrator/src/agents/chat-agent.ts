@@ -41,6 +41,7 @@
  *   dashboard UI before anything is written.
  */
 import { PROVIDER_REGISTRY, getStrategy } from "../provider-registry.js";
+import { resolveFallbackChain } from "../openrouter/model-resolver.js";
 import type { AgentErrorCode } from "../errors.js";
 import type { RawMessage } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
@@ -317,8 +318,6 @@ export async function chat(opts: {
   // is hidden behind the ProviderStrategy interface. Adding a new provider
   // requires only a strategy file + registry entry; nothing here changes.
   const strategy   = getStrategy(provider);
-  const fastModel  = PROVIDER_REGISTRY[provider].defaultModels.fast;
-  const powerModel = PROVIDER_REGISTRY[provider].defaultModels.powerful;
 
   const pendingChanges: PendingChange[] = [];
 
@@ -332,6 +331,26 @@ export async function chat(opts: {
   const prefetchSources: string[] = [];
 
   const tools = buildProviderTools(provider, rootPath);
+
+  // OpenRouter now resolves its model pair from the live free-tier catalog
+  // at call time so chat-agent never bootstraps from a dead static ID.
+  const openRouterModels =
+    provider === "openrouter"
+      ? resolveFallbackChain({
+          capability: "chat",
+          quality: (rootPath && requiresToolExecution(message)) ? "powerful" : "fast",
+          requireTools: !!tools,
+        })
+      : [];
+
+  const fastModel =
+    provider === "openrouter"
+      ? openRouterModels[0]?.id ?? PROVIDER_REGISTRY[provider].defaultModels.fast
+      : PROVIDER_REGISTRY[provider].defaultModels.fast;
+  const powerModel =
+    provider === "openrouter"
+      ? openRouterModels[1]?.id ?? openRouterModels[0]?.id ?? PROVIDER_REGISTRY[provider].defaultModels.powerful
+      : PROVIDER_REGISTRY[provider].defaultModels.powerful;
 
   // Use the more capable model when tools are involved — smaller models are
   // unreliable at following multi-step tool-calling protocols.

@@ -1,0 +1,261 @@
+--- EngineeringOS-main/lib/ai-orchestrator/src/provider-registry.ts
++++ EngineeringOS-main/lib/ai-orchestrator/src/provider-registry.ts
+@@ -19,17 +19,15 @@
+ import { deepseekStrategy } from "./strategies/deepseek.strategy.js";
+ import { openrouterStrategy } from "./strategies/openrouter.strategy.js";
+ import { geminiStrategy } from "./strategies/gemini.strategy.js";
+-// RC-03: do NOT import resolveFallbackChain here for startup-time resolution.
+-// The dynamic free-tier catalog (dynamic-catalog.ts) is loaded AFTER this
+-// module initialises, so any model ID resolved at module-load time comes from
+-// the static catalog — which may contain models that have since moved to paid.
+-//
+-// Instead, agent-complete.ts (RC-04) calls resolveFallbackChain() at call time
+-// so the live catalog is always consulted.  The IDs below are emergency
+-// last-resort fallbacks used only by code paths that haven't been updated to
+-// call the resolver dynamically.  They intentionally point to the smallest,
+-// most reliably-free model in the static catalog.
+-const OR_EMERGENCY_FALLBACK = "meta-llama/llama-3.1-8b-instruct:free";
++import { FREE_MODELS } from "./openrouter/model-catalog.js";
++// RC-03: avoid hardcoding a dead OpenRouter model ID at module-load time.
++// The emergency fallback is derived from the current static free-tier catalog
++// so the registry never points at a model that the local codebase no longer
++// considers valid.
++const OR_EMERGENCY_FALLBACK =
++  FREE_MODELS.find((m) => m.quality === "fast")?.id ??
++  FREE_MODELS[0]?.id ??
++  "inclusionai/ling-3.0-flash:free";
+ 
+ export type ProviderId = "groq" | "deepseek" | "openrouter" | "gemini";
+ 
+--- EngineeringOS-main/lib/ai-orchestrator/src/strategies/openrouter.strategy.ts
++++ EngineeringOS-main/lib/ai-orchestrator/src/strategies/openrouter.strategy.ts
+@@ -58,7 +58,7 @@
+     // PR-01: refresh the live model catalog so stale IDs are filtered before
+     // the fallback chain is built.  Fire-and-forget — the resolver uses the
+     // previous snapshot if the refresh hasn't completed yet.
+-    void refreshDynamicCatalog(opts.apiKey);
++    await refreshDynamicCatalog(opts.apiKey);
+ 
+     try {
+       const result = await openrouterCompleteWithFallback(messages, { ...opts, apiKey: opts.apiKey });
+@@ -89,7 +89,7 @@
+     }
+ 
+     // PR-01: fire-and-forget catalog refresh.
+-    void refreshDynamicCatalog(opts.apiKey);
++    await refreshDynamicCatalog(opts.apiKey);
+ 
+     try {
+       yield* openrouterCompleteStream(messages, { ...opts, apiKey: opts.apiKey });
+--- EngineeringOS-main/lib/ai-orchestrator/src/agents/chat-agent.ts
++++ EngineeringOS-main/lib/ai-orchestrator/src/agents/chat-agent.ts
+@@ -41,6 +41,7 @@
+  *   dashboard UI before anything is written.
+  */
+ import { PROVIDER_REGISTRY, getStrategy } from "../provider-registry.js";
++import { resolveFallbackChain } from "../openrouter/model-resolver.js";
+ import type { AgentErrorCode } from "../errors.js";
+ import type { RawMessage } from "../groq-client.js";
+ import type { ProjectContext } from "../context-builder.js";
+@@ -317,8 +318,26 @@
+   // is hidden behind the ProviderStrategy interface. Adding a new provider
+   // requires only a strategy file + registry entry; nothing here changes.
+   const strategy   = getStrategy(provider);
+-  const fastModel  = PROVIDER_REGISTRY[provider].defaultModels.fast;
+-  const powerModel = PROVIDER_REGISTRY[provider].defaultModels.powerful;
++
++  // OpenRouter now resolves its model pair from the live free-tier catalog
++  // at call time so chat-agent never bootstraps from a dead static ID.
++  const openRouterModels =
++    provider === "openrouter"
++      ? resolveFallbackChain({
++          capability: "chat",
++          quality: (rootPath && requiresToolExecution(message)) ? "powerful" : "fast",
++          requireTools: !!tools,
++        })
++      : [];
++
++  const fastModel =
++    provider === "openrouter"
++      ? openRouterModels[0]?.id ?? PROVIDER_REGISTRY[provider].defaultModels.fast
++      : PROVIDER_REGISTRY[provider].defaultModels.fast;
++  const powerModel =
++    provider === "openrouter"
++      ? openRouterModels[1]?.id ?? openRouterModels[0]?.id ?? PROVIDER_REGISTRY[provider].defaultModels.powerful
++      : PROVIDER_REGISTRY[provider].defaultModels.powerful;
+ 
+   const pendingChanges: PendingChange[] = [];
+ 
+--- EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts
++++ EngineeringOS-main/artifacts/api-server/src/routes/ai/chat.ts
+@@ -191,29 +191,30 @@
+     invalidateContextCache(projectId);
+ 
+     const msgNow = new Date();
+-    let session: typeof aiChatSessionsTable.$inferSelect;
+-    if (existingSession) {
+-      session = existingSession;
+-    } else {
+-      const [created] = await db
+-        .insert(aiChatSessionsTable)
+-        .values({
+-          id: randomUUID(),
+-          projectId,
+-          title: message.slice(0, 60),
+-          createdAt: now,
+-          updatedAt: now,
+-        })
+-        .returning();
+-      session = created;
+-    }
+-
+-    // Atomic: user message + assistant message + session timestamp update in one
+-    // transaction — prevents a half-saved conversation if one insert fails.
++    const sessionIdToUse = existingSession?.id ?? randomUUID();
++
++    // Atomic: session creation (when needed) + user message + assistant message
++    // + session timestamp update in one transaction — prevents a half-saved
++    // conversation if one insert fails.
+     const assistantMsg = await db.transaction(async (tx) => {
++      if (!existingSession) {
++        const [created] = await tx
++          .insert(aiChatSessionsTable)
++          .values({
++            id: sessionIdToUse,
++            projectId,
++            title: message.slice(0, 60),
++            createdAt: now,
++            updatedAt: now,
++          })
++          .returning();
++        if (!created) {
++          throw new Error("Failed to create chat session");
++        }
++      }
+       await tx.insert(aiChatMessagesTable).values({
+         id: randomUUID(),
+-        sessionId: session.id,
++        sessionId: sessionIdToUse,
+         role: "user",
+         content: message,
+         createdAt: now,
+@@ -222,7 +223,7 @@
+         .insert(aiChatMessagesTable)
+         .values({
+           id: randomUUID(),
+-          sessionId: session.id,
++          sessionId: sessionIdToUse,
+           role: "assistant",
+           content: sanitizeResponseText(result.response),
+           sources: JSON.stringify(result.sources),
+@@ -232,12 +233,12 @@
+       await tx
+         .update(aiChatSessionsTable)
+         .set({ updatedAt: msgNow })
+-        .where(eq(aiChatSessionsTable.id, session.id));
++        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+       return msg;
+     });
+ 
+     return res.json({
+-      sessionId: session.id,
++      sessionId: sessionIdToUse,
+       message: assistantMsg,
+       sources: result.sources,
+       pendingChanges: result.pendingChanges ?? [],
+@@ -534,38 +535,39 @@
+     })();
+ 
+     const msgNow = new Date();
+-    let session: typeof aiChatSessionsTable.$inferSelect;
+-    if (existingSession) {
+-      session = existingSession;
+-    } else {
+-      const [created] = await db
+-        .insert(aiChatSessionsTable)
+-        .values({
+-          id: randomUUID(),
+-          projectId,
+-          // BUG-5 fix: don't use a bare greeting as the session title.
+-          // "مرحبا", "Hello", "Hi" etc. give no context in the sessions list.
+-          // Use the first 60 chars only when the opener is substantive.
+-          title: (() => {
+-            const trimmed = message.trim();
+-            const isGreeting = /^(مرحبا|مرحبً?ا|أهلاً?|سلام|هلا|hi|hello|hey|greetings|سلاماً?|صباح الخير|مساء الخير|good (morning|afternoon|evening))[\s!.،,]*$/i.test(trimmed);
+-            return (!isGreeting && trimmed.length > 10)
+-              ? trimmed.slice(0, 60)
+-              : `Session ${now.toISOString().slice(0, 16).replace("T", " ")}`;
+-          })(),
+-          createdAt: now,
+-          updatedAt: now,
+-        })
+-        .returning();
+-      session = created;
+-    }
+-
+-    // Atomic: user message + assistant message + session timestamp update in one
+-    // transaction — prevents a half-saved conversation if one insert fails.
++    const sessionIdToUse = existingSession?.id ?? randomUUID();
++
++    // Atomic: session creation (when needed) + user message + assistant message
++    // + session timestamp update in one transaction — prevents a half-saved
++    // conversation if one insert fails.
+     const assistantMsg = await db.transaction(async (tx) => {
++      if (!existingSession) {
++        const [created] = await tx
++          .insert(aiChatSessionsTable)
++          .values({
++            id: sessionIdToUse,
++            projectId,
++            // BUG-5 fix: don't use a bare greeting as the session title.
++            // "مرحبا", "Hello", "Hi" etc. give no context in the sessions list.
++            // Use the first 60 chars only when the opener is substantive.
++            title: (() => {
++              const trimmed = message.trim();
++              const isGreeting = /^(مرحبا|مرحبً?ا|أهلاً?|سلام|هلا|hi|hello|hey|greetings|سلاماً?|صباح الخير|مساء الخير|good (morning|afternoon|evening))[\s!.،,]*$/i.test(trimmed);
++              return (!isGreeting && trimmed.length > 10)
++                ? trimmed.slice(0, 60)
++                : `Session ${now.toISOString().slice(0, 16).replace("T", " ")}`;
++            })(),
++            createdAt: now,
++            updatedAt: now,
++          })
++          .returning();
++        if (!created) {
++          throw new Error("Failed to create chat session");
++        }
++      }
+       await tx.insert(aiChatMessagesTable).values({
+         id: randomUUID(),
+-        sessionId: session.id,
++        sessionId: sessionIdToUse,
+         role: "user",
+         content: message,
+         createdAt: now,
+@@ -574,7 +576,7 @@
+         .insert(aiChatMessagesTable)
+         .values({
+           id: randomUUID(),
+-          sessionId: session.id,
++          sessionId: sessionIdToUse,
+           role: "assistant",
+           content: sanitizeResponseText(result.response),
+           sources: JSON.stringify(result.sources),
+@@ -584,7 +586,7 @@
+       await tx
+         .update(aiChatSessionsTable)
+         .set({ updatedAt: msgNow })
+-        .where(eq(aiChatSessionsTable.id, session.id));
++        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+       return msg;
+     });
+ 
+@@ -593,7 +595,7 @@
+ 
+     sse({
+       type: "done",
+-      sessionId: session.id,
++      sessionId: sessionIdToUse,
+       message: assistantMsg,
+       sources: result.sources,
+       pendingChanges: result.pendingChanges ?? [],
