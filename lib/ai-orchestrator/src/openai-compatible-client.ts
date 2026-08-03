@@ -19,7 +19,7 @@
 import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./groq-client.js";
 import { GroqClientError } from "./errors.js";
 import { buildFallbackChainFromId, resolveFallbackChain } from "./openrouter/model-resolver.js";
-import { FREE_MODELS } from "./openrouter/model-catalog.js";
+import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
 
 export type OpenAICompatibleOptions = {
   model?: string;
@@ -609,26 +609,50 @@ export async function openrouterCompleteRaw(
 }
 
 /**
+ * Extended options for openrouterCompleteWithFallback.
+ *
+ * RC-04: when `model` is not provided, the resolver uses `quality` and
+ * `capability` to pick the best currently-free model from the live catalog.
+ * This avoids baking in a static model ID at call-site setup time (which would
+ * be stale by the time the first catalog refresh completes).
+ */
+export type OpenRouterFallbackOptions = Omit<
+  OpenAICompatibleOptions,
+  "baseUrl" | "providerName" | "extraHeaders"
+> & {
+  /** RC-04: quality tier hint used when `model` is undefined. Defaults to "fast". */
+  quality?: "fast" | "powerful";
+  /** RC-04: capability hint used when `model` is undefined. Defaults to "chat". */
+  capability?: ModelCapability;
+};
+
+/**
  * Non-streaming completion via OpenRouter with automatic free-model fallback
  * (STORY-03).
  *
  * PR-003: MODEL_UNAVAILABLE (410/422) is now also fallback-worthy in addition
  * to MODEL_NOT_FOUND (404/402/400).
  *
- * PR-010: returns a telemetry record alongside the response so callers can
- * surface attempt count and fallback count in logs and SSE streams.
+ * RC-04: when `model` is not provided, resolves the best available free model
+ * from the live catalog at call time using the `quality` + `capability` hints.
  */
 export async function openrouterCompleteWithFallback(
   messages: RawMessage[],
-  opts: Omit<OpenAICompatibleOptions, "baseUrl" | "providerName" | "extraHeaders">,
+  opts: OpenRouterFallbackOptions,
 ): Promise<RawGroqResponse> {
   const initialModel = opts.model;
 
-  // PR-01: when no model is specified, use the resolver to build a full
-  // fallback chain rather than using the static default with no fallback.
+  // RC-04 / PR-01: when no model is specified, use the resolver to build a full
+  // fallback chain from the live free-tier catalog at call time.
+  // `quality` and `capability` let callers express intent (e.g. "powerful" for
+  // code-review) without hardcoding a specific model ID that may become stale.
   const chain = initialModel
     ? buildFallbackChainFromId(initialModel)
-    : resolveFallbackChain({ capability: "chat", quality: "fast" }).map((m) => m.id);
+    : resolveFallbackChain({
+        capability: opts.capability ?? "chat",
+        quality:    opts.quality    ?? "fast",
+        requireTools: !!(opts.tools?.length),
+      }).map((m) => m.id);
   let lastError: GroqClientError | undefined;
 
   for (let i = 0; i < chain.length; i++) {

@@ -22,7 +22,7 @@
  *   giving up.
  */
 import { FREE_MODELS, type ModelCapability, type OpenRouterFreeModel } from "./model-catalog.js";
-import { getDynamicModelIds } from "./dynamic-catalog.js";
+import { getDynamicModelIds, isDynamicCatalogLoaded } from "./dynamic-catalog.js";
 
 export type { ModelCapability, OpenRouterFreeModel };
 
@@ -107,12 +107,20 @@ export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
       : // No exact capability match — degrade to tool-constraint-only filter.
         FREE_MODELS.filter((m) => !requireTools || m.supportsTools).slice() as OpenRouterFreeModel[];
 
-  // PR-002: remove models no longer available on OpenRouter.
+  // PR-002: remove models no longer available on OpenRouter (free tier only).
   const { live: pool } = partitionByLiveCatalog(rawPool);
 
-  // Fallback to raw pool if dynamic catalog filtered everything out — prevents
-  // a situation where a slow catalog refresh leaves us with zero candidates.
-  const effectivePool = pool.length > 0 ? pool : rawPool;
+  // RC-01: only fall back to rawPool when the catalog has NOT been loaded yet.
+  // If the catalog IS loaded and filtered everything out, those models have moved
+  // to paid — using rawPool would just replay the same "paid version" 404s.
+  // Return an empty pool instead; the caller (openrouterCompleteWithFallback or
+  // the outer provider chain) will handle it cleanly as "no candidates available".
+  const catalogLoaded = isDynamicCatalogLoaded();
+  const effectivePool = pool.length > 0
+    ? pool
+    : catalogLoaded
+      ? []      // catalog loaded, all candidates are paid → fail fast
+      : rawPool; // catalog not yet loaded → use static list as best-effort
 
   // Prefer the requested quality tier, then the other tier (stable within each).
   effectivePool.sort((a, b) => {
@@ -190,12 +198,17 @@ export function buildFallbackChainFromId(initialModelId: string): string[] {
   const otherQualityRaw = FREE_MODELS
     .filter((m) => m.quality !== quality);
 
-  // PR-002: filter peers against dynamic catalog; keep initial unconditionally.
+  // PR-002 / RC-02: filter peers against dynamic catalog (free-tier only).
+  // RC-02: if the catalog IS loaded but filtered a peer group to empty, don't
+  // re-insert raw peers — those models have moved to paid and will only
+  // generate "paid version available" 404s.  Only fall back to raw when the
+  // catalog hasn't loaded yet (best-effort static list on first request).
   const { live: sameLive } = partitionByLiveCatalog(sameQualityRaw);
   const { live: otherLive } = partitionByLiveCatalog(otherQualityRaw);
+  const catalogLoaded = isDynamicCatalogLoaded();
 
-  const sameQuality = (sameLive.length > 0 ? sameLive : sameQualityRaw).map((m) => m.id);
-  const otherQuality = (otherLive.length > 0 ? otherLive : otherQualityRaw).map((m) => m.id);
+  const sameQuality = (sameLive.length > 0 ? sameLive : (catalogLoaded ? [] : sameQualityRaw)).map((m) => m.id);
+  const otherQuality = (otherLive.length > 0 ? otherLive : (catalogLoaded ? [] : otherQualityRaw)).map((m) => m.id);
 
   return [initialModelId, ...sameQuality, ...otherQuality];
 }

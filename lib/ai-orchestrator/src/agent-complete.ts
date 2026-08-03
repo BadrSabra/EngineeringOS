@@ -9,6 +9,7 @@ import { complete, completeRaw, MODEL_POWERFUL } from "./groq-client.js";
 import { deepseekCompleteRaw } from "./deepseek-client.js";
 import { openrouterCompleteWithFallback, geminiCompleteRaw } from "./openai-compatible-client.js";
 import { discoverProvider, loadProvider } from "./provider-registry.js";
+import type { ModelCapability } from "./openrouter/model-catalog.js";
 import { buildQualityHints, type QualityProfile } from "./quality-engine.js";
 import { GroqClientError } from "./errors.js";
 import type { Message } from "./groq-client.js";
@@ -124,11 +125,29 @@ export async function agentComplete(
     }
 
     case "openrouter": {
-      // STORY-03: fallback-aware client automatically tries the next free model
-      // if the primary returns MODEL_NOT_FOUND. Model ID comes from the resolver
-      // via provider.defaultModels (STORY-07 — no hardcoded strings here).
+      // RC-04: resolve model at call time from the live free-tier catalog, NOT
+      // from provider.defaultModels which was set at module-load before the
+      // dynamic catalog was populated.  Pass quality + capability hints so the
+      // resolver picks the best available model right now.
+      //   • "powerful" when the quality hints ask for reasoning/thinking/context
+      //     (code-review, analysis) — tries larger models first in the chain.
+      //   • "fast" otherwise — lighter models with better free-tier availability.
+      const wantPowerful =
+        qualityHints?.requireReasoning ||
+        qualityHints?.requireThinking ||
+        (qualityHints?.minimumContext != null && qualityHints.minimumContext >= 32_000);
+      const resolvedQuality: "fast" | "powerful" = wantPowerful ? "powerful" : "fast";
+
+      // Pick capability: reasoning profiles need the reasoning capability;
+      // all others default to "coding" since agentComplete is used for code tasks.
+      const resolvedCapability: ModelCapability =
+        qualityHints?.requireReasoning ? "reasoning" : "coding";
+
       const result = await openrouterCompleteWithFallback(messages, {
-        model: provider.defaultModels.powerful,
+        // No `model` — the resolver builds the chain from the live catalog.
+        quality:    resolvedQuality,
+        capability: resolvedCapability,
+        requireTools: qualityHints?.requireTools,
         apiKey,
       });
       return { content: assertContent(provider, result.content) };
