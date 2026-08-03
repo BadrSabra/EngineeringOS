@@ -40,8 +40,10 @@
  *   is returned in ChatOutput and must be approved by the user through the
  *   dashboard UI before anything is written.
  */
-import { getStrategy } from "../provider-registry.js";
-import type { ProviderId } from "../provider-registry.js";
+import { getStrategy, type ProviderId } from "../provider-registry.js";
+import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
+import { resolveExecutionProvider } from "../model-selection/provider-strategy.js";
+import { resolveExecutionModel } from "../model-selection/model-resolver.js";
 import type { AgentErrorCode } from "../errors.js";
 import type { RawMessage } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
@@ -51,7 +53,6 @@ import { parseAgentResponse } from "../parsing.js";
 import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
 import { speculativePrefetch } from "./speculative-prefetch.js";
 import { toolCacheKey, executeToolLoop } from "../tool-execution-engine.js";
-import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 export type { ChatOutput };
@@ -315,10 +316,17 @@ export async function chat(opts: {
 }): Promise<ChatResult> {
   const { message, history, projectContext, rootPath, apiKey, provider = "groq", onDelta, onStreamReset } = opts;
 
-  // Look up the strategy for this provider — all provider-specific dispatch
-  // is hidden behind the ProviderStrategy interface. Adding a new provider
-  // requires only a strategy file + registry entry; nothing here changes.
-  const strategy   = getStrategy(provider);
+  const executionPlan = resolveExecutionDecision(
+    rootPath && requiresToolExecution(message) ? "task_execution" : "chat",
+    {
+      hasTools: !!rootPath,
+      requireTools: !!rootPath && requiresToolExecution(message),
+    },
+  );
+  const providerDecision = resolveExecutionProvider(executionPlan, provider);
+  const providerId = providerDecision.providerId;
+  const strategy = getStrategy(providerId);
+  const modelDecision = resolveExecutionModel(providerId, executionPlan);
 
   const pendingChanges: PendingChange[] = [];
 
@@ -331,18 +339,11 @@ export async function chat(opts: {
   /** Ground-truth sources from speculative-prefetch (merged with engine sources later). */
   const prefetchSources: string[] = [];
 
-  const tools = buildProviderTools(provider, rootPath);
+  const tools = buildProviderTools(providerId, rootPath);
 
-  // Decision engine resolves the selected model tier and both fallback models
-  // from one place so the chat loop no longer reads provider defaults directly.
   // Use the more capable tier when explicit tool execution is requested.
-  const executionDecision = resolveExecutionDecision({
-    provider,
-    selectedQuality: rootPath && requiresToolExecution(message) ? "powerful" : "fast",
-    capability: tools != null ? "tool_calling" : "chat",
-    requireTools: tools != null,
-  });
-  const { powerfulModel: powerModel, model } = executionDecision;
+  const model: string = (rootPath && requiresToolExecution(message)) ? modelDecision.powerModel : modelDecision.model;
+  const powerModel = modelDecision.powerModel;
 
   // BUG-1 fix: pass `tools != null` (actual tool availability for THIS provider)
   // rather than `!!rootPath`. Gemini gets no tools even when rootPath is set,
@@ -393,7 +394,7 @@ export async function chat(opts: {
     strategy,
     model,
     powerModel,
-    provider,
+    provider: providerId,
     apiKey,
     tools,
     rootPath: rootPath ?? "",
@@ -426,7 +427,7 @@ export async function chat(opts: {
   // STORY-04: capture actual model used — may differ from initial selection if
   // the fallback engine advanced to a different model mid-request.
   const resolvedModelInfo: ResolvedModelInfo | undefined = result.model
-    ? { id: result.model, provider, free: provider === "openrouter" }
+    ? { id: result.model, provider: providerId, free: providerId === "openrouter" }
     : undefined;
 
   // ── Streaming path ────────────────────────────────────────────────────────
@@ -510,7 +511,7 @@ export async function chat(opts: {
     } catch (streamErr) {
       // Streaming failed — fall through to the non-streaming parse below.
       console.warn(
-        JSON.stringify({ scope: "chat-agent", code: "STREAM_FALLBACK", provider, reason: String(streamErr) }),
+        JSON.stringify({ scope: "chat-agent", code: "STREAM_FALLBACK", provider: providerId, reason: String(streamErr) }),
       );
       // GAP-A2: If we already sent partial deltas to the caller, signal a
       // reset so the client can discard the incomplete bubble before the

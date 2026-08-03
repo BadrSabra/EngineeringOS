@@ -11,8 +11,14 @@ export type { PendingChange } from "./tools/file-tools.js";
 
 export { buildQualityHints, buildQualityPlan, assessStructuredOutput, sortProviderIdsByQuality } from "./quality-engine.js";
 export type { QualityAssessment, QualityPlan, QualityProfile, QualitySortOptions } from "./quality-engine.js";
-export { resolveExecutionDecision, resolveExecutionModel } from "./model-selection/decision-engine.js";
-export type { ExecutionModelDecision, ExecutionModelQuality, ResolveExecutionDecisionOptions } from "./model-selection/decision-engine.js";
+export { buildExecutionPlan as buildModelSelectionExecutionPlan } from "./model-selection/execution-plan.js";
+export type { ExecutionPlan as ModelSelectionExecutionPlan, ExecutionPlanOptions as ModelSelectionExecutionPlanOptions } from "./model-selection/execution-plan.js";
+export { resolveExecutionDecision } from "./model-selection/decision-engine.js";
+export type { ResolveExecutionDecisionOptions } from "./model-selection/decision-engine.js";
+export { resolveExecutionProvider } from "./model-selection/provider-strategy.js";
+export type { ExecutionProviderDecision } from "./model-selection/provider-strategy.js";
+export { resolveExecutionModel } from "./model-selection/model-resolver.js";
+export type { ExecutionModelDecision } from "./model-selection/model-resolver.js";
 
 export { buildExecutionPlan } from "./quality/quality-planner.js";
 export type { ExecutionPlan } from "./quality/quality-planner.js";

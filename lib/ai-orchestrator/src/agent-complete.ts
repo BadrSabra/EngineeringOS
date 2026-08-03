@@ -8,12 +8,15 @@
 import { complete, completeRaw } from "./groq-client.js";
 import { deepseekCompleteRaw } from "./deepseek-client.js";
 import { openrouterCompleteWithFallback, geminiCompleteRaw } from "./openai-compatible-client.js";
-import type { QualityProfile } from "./quality-engine.js";
+import { loadProvider } from "./provider-registry.js";
+import { buildQualityHints, type QualityProfile } from "./quality-engine.js";
 import { GroqClientError } from "./errors.js";
 import type { Message } from "./groq-client.js";
-import { loadProvider, type ProviderConfig, type ProviderId } from "./provider-registry.js";
+import type { ProviderConfig, ProviderId } from "./provider-registry.js";
 import type { ProviderCapabilityHints } from "./provider-capabilities.js";
 import { resolveExecutionDecision } from "./model-selection/decision-engine.js";
+import { resolveExecutionProvider } from "./model-selection/provider-strategy.js";
+import { resolveExecutionModel } from "./model-selection/model-resolver.js";
 
 export type { ProviderId };
 
@@ -49,29 +52,44 @@ function assertContent(provider: ProviderConfig, content: string | null | undefi
   throw new GroqClientError("EMPTY_RESPONSE", `${provider.label} returned no content for this request`);
 }
 
+function inferExecutionScope(
+  qualityProfile?: QualityProfile,
+  qualityHints?: ProviderCapabilityHints,
+): QualityProfile {
+  if (qualityProfile) return qualityProfile;
+  if (qualityHints?.requireTools) return "tool_chat";
+  if (
+    qualityHints?.requireThinking ||
+    qualityHints?.requireReasoning ||
+    (qualityHints?.minimumContext ?? 0) >= 16_000
+  ) {
+    return "analysis";
+  }
+  return "chat";
+}
+
 async function probeProviderKey(provider: ProviderConfig, apiKey: string): Promise<void> {
   const testMessages: Message[] = [{ role: "user", content: "hi" }];
-  const probeDecision = resolveExecutionDecision({
-    provider: provider.providerId,
-    selectedQuality: "powerful",
-    capability: provider.providerId === "openrouter" ? "coding" : "chat",
-  });
+  const probePlan = resolveExecutionDecision(
+    provider.providerId === "openrouter" ? "task_execution" : "chat",
+  );
+  const probeModelDecision = resolveExecutionModel(provider.providerId, probePlan);
 
   switch (provider.providerId) {
     case "deepseek":
-      await deepseekCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeDecision.model });
+      await deepseekCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeModelDecision.model });
       return;
     case "openrouter":
       // Use the same decision engine as the main call path so the validation
       // probe exercises the same model-selection rules.
-      await openrouterCompleteWithFallback(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeDecision.model });
+      await openrouterCompleteWithFallback(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeModelDecision.model });
       return;
     case "gemini":
-      await geminiCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeDecision.model });
+      await geminiCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeModelDecision.model });
       return;
     default:
       // groq — uses high-level client with 10s timeout for the probe
-      await completeRaw(testMessages, { apiKey, maxTokens: 1, timeoutMs: 10_000, model: probeDecision.model });
+      await completeRaw(testMessages, { apiKey, maxTokens: 1, timeoutMs: 10_000, model: probeModelDecision.model });
       return;
   }
 }
@@ -114,43 +132,46 @@ export async function agentComplete(
   messages: Message[],
   opts: AgentCompleteOpts,
 ): Promise<{ content: string }> {
-  const decision = resolveExecutionDecision({
-    provider: opts.provider,
-    qualityProfile: opts.qualityProfile,
-    qualityHints: opts.qualityHints,
+  const qualityHints = opts.qualityHints ?? (opts.qualityProfile ? buildQualityHints(opts.qualityProfile) : undefined);
+  const executionScope = inferExecutionScope(opts.qualityProfile, qualityHints);
+  const executionPlan = resolveExecutionDecision(executionScope, {
+    hasTools: !!qualityHints?.requireTools,
+    requireTools: !!qualityHints?.requireTools,
+    qualityProfile: opts.qualityProfile ?? executionScope,
   });
-  const provider = decision.provider;
+  const providerDecision = resolveExecutionProvider(executionPlan, opts.provider);
+  const providerId = providerDecision.providerId;
+  const provider = loadProvider(providerId);
+  const modelDecision = resolveExecutionModel(providerId, executionPlan);
   const apiKey = requireApiKey(provider, opts.apiKey);
 
   switch (provider.providerId) {
     case "deepseek": {
       const result = await deepseekCompleteRaw(messages, {
-        model: decision.model,
+        model: modelDecision.model,
         apiKey,
       });
       return { content: assertContent(provider, result.content) };
     }
 
     case "openrouter": {
-      // RC-04: resolve model at call time from the live free-tier catalog via
-      // the decision engine — quality/capability/tool hints are all handled there.
       const result = await openrouterCompleteWithFallback(messages, {
+        model: modelDecision.model,
         apiKey,
-        model: decision.model,
       });
       return { content: assertContent(provider, result.content) };
     }
 
     case "gemini": {
       const result = await geminiCompleteRaw(messages, {
-        model: decision.model,
+        model: modelDecision.model,
         apiKey,
       });
       return { content: assertContent(provider, result.content) };
     }
 
     default: {
-      const result = await complete(messages, { model: decision.model, apiKey: apiKey || undefined });
+      const result = await complete(messages, { model: modelDecision.model, apiKey: apiKey || undefined });
       return { content: assertContent(provider, result.content) };
     }
   }

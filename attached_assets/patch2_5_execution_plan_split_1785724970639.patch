@@ -1,0 +1,428 @@
+--- /mnt/data/original_patch25/EngineeringOS-main/lib/ai-orchestrator/src/agent-complete.ts	2026-08-03 02:41:30.015942465 +0000
++++ /mnt/data/engineeringos_patchwork/EngineeringOS-main/lib/ai-orchestrator/src/agent-complete.ts	2026-08-03 02:41:56.207942975 +0000
+@@ -5,16 +5,18 @@
+  * the provider configuration itself now flows through the registry helpers so
+  * selection, defaults, and validation share one source of truth.
+  */
+-import { complete, completeRaw, MODEL_POWERFUL } from "./groq-client.js";
++import { complete, completeRaw } from "./groq-client.js";
+ import { deepseekCompleteRaw } from "./deepseek-client.js";
+ import { openrouterCompleteWithFallback, geminiCompleteRaw } from "./openai-compatible-client.js";
+-import { discoverProvider, loadProvider } from "./provider-registry.js";
+-import type { ModelCapability } from "./openrouter/model-catalog.js";
++import { loadProvider } from "./provider-registry.js";
+ import { buildQualityHints, type QualityProfile } from "./quality-engine.js";
+ import { GroqClientError } from "./errors.js";
+ import type { Message } from "./groq-client.js";
+ import type { ProviderConfig, ProviderId } from "./provider-registry.js";
+ import type { ProviderCapabilityHints } from "./provider-capabilities.js";
++import { resolveExecutionDecision } from "./model-selection/decision-engine.js";
++import { resolveExecutionProvider } from "./model-selection/provider-strategy.js";
++import { resolveExecutionModel } from "./model-selection/model-resolver.js";
+ 
+ export type { ProviderId };
+ 
+@@ -50,6 +52,22 @@
+   throw new GroqClientError("EMPTY_RESPONSE", `${provider.label} returned no content for this request`);
+ }
+ 
++function inferExecutionScope(
++  qualityProfile?: QualityProfile,
++  qualityHints?: ProviderCapabilityHints,
++): QualityProfile {
++  if (qualityProfile) return qualityProfile;
++  if (qualityHints?.requireTools) return "tool_chat";
++  if (
++    qualityHints?.requireThinking ||
++    qualityHints?.requireReasoning ||
++    (qualityHints?.minimumContext ?? 0) >= 16_000
++  ) {
++    return "analysis";
++  }
++  return "chat";
++}
++
+ async function probeProviderKey(provider: ProviderConfig, apiKey: string): Promise<void> {
+   const testMessages: Message[] = [{ role: "user", content: "hi" }];
+ 
+@@ -111,42 +129,30 @@
+   opts: AgentCompleteOpts,
+ ): Promise<{ content: string }> {
+   const qualityHints = opts.qualityHints ?? (opts.qualityProfile ? buildQualityHints(opts.qualityProfile) : undefined);
+-  const providerId = opts.provider ?? (qualityHints ? discoverProvider(qualityHints)?.providerId ?? "groq" : "groq");
++  const executionScope = inferExecutionScope(opts.qualityProfile, qualityHints);
++  const executionPlan = resolveExecutionDecision(executionScope, {
++    hasTools: !!qualityHints?.requireTools,
++    requireTools: !!qualityHints?.requireTools,
++    qualityProfile: opts.qualityProfile ?? executionScope,
++  });
++  const providerDecision = resolveExecutionProvider(executionPlan, opts.provider);
++  const providerId = providerDecision.providerId;
+   const provider = loadProvider(providerId);
++  const modelDecision = resolveExecutionModel(providerId, executionPlan);
+   const apiKey = requireApiKey(provider, opts.apiKey);
+ 
+   switch (provider.providerId) {
+     case "deepseek": {
+       const result = await deepseekCompleteRaw(messages, {
+-        model: provider.defaultModels.powerful,
++        model: modelDecision.model,
+         apiKey,
+       });
+       return { content: assertContent(provider, result.content) };
+     }
+ 
+     case "openrouter": {
+-      // RC-04: resolve model at call time from the live free-tier catalog, NOT
+-      // from provider.defaultModels which was set at module-load before the
+-      // dynamic catalog was populated.  Pass quality + capability hints so the
+-      // resolver picks the best available model right now.
+-      //   • "powerful" when the quality hints ask for reasoning/thinking/context
+-      //     (code-review, analysis) — tries larger models first in the chain.
+-      //   • "fast" otherwise — lighter models with better free-tier availability.
+-      const wantPowerful =
+-        qualityHints?.requireReasoning ||
+-        qualityHints?.requireThinking ||
+-        (qualityHints?.minimumContext != null && qualityHints.minimumContext >= 32_000);
+-      const resolvedQuality: "fast" | "powerful" = wantPowerful ? "powerful" : "fast";
+-
+-      // Pick capability: reasoning profiles need the reasoning capability;
+-      // all others default to "coding" since agentComplete is used for code tasks.
+-      const resolvedCapability: ModelCapability =
+-        qualityHints?.requireReasoning ? "reasoning" : "coding";
+-
+       const result = await openrouterCompleteWithFallback(messages, {
+-        // No `model` — the resolver builds the chain from the live catalog.
+-        quality:    resolvedQuality,
+-        capability: resolvedCapability,
++        model: modelDecision.model,
+         requireTools: qualityHints?.requireTools,
+         apiKey,
+       });
+@@ -155,14 +161,14 @@
+ 
+     case "gemini": {
+       const result = await geminiCompleteRaw(messages, {
+-        model: provider.defaultModels.powerful,
++        model: modelDecision.model,
+         apiKey,
+       });
+       return { content: assertContent(provider, result.content) };
+     }
+ 
+     default: {
+-      const result = await complete(messages, { model: MODEL_POWERFUL, apiKey: apiKey || undefined });
++      const result = await complete(messages, { model: modelDecision.model, apiKey: apiKey || undefined });
+       return { content: assertContent(provider, result.content) };
+     }
+   }
+--- /mnt/data/original_patch25/EngineeringOS-main/lib/ai-orchestrator/src/agents/chat-agent.ts	2026-08-03 02:41:30.015942465 +0000
++++ /mnt/data/engineeringos_patchwork/EngineeringOS-main/lib/ai-orchestrator/src/agents/chat-agent.ts	2026-08-03 02:40:22.431941147 +0000
+@@ -40,7 +40,10 @@
+  *   is returned in ChatOutput and must be approved by the user through the
+  *   dashboard UI before anything is written.
+  */
+-import { PROVIDER_REGISTRY, getStrategy } from "../provider-registry.js";
++import { getStrategy, type ProviderId } from "../provider-registry.js";
++import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
++import { resolveExecutionProvider } from "../model-selection/provider-strategy.js";
++import { resolveExecutionModel } from "../model-selection/model-resolver.js";
+ import type { AgentErrorCode } from "../errors.js";
+ import type { RawMessage } from "../groq-client.js";
+ import type { ProjectContext } from "../context-builder.js";
+@@ -130,14 +133,14 @@
+  * included, so we keep it in text-only mode and let it answer from context.
+  * Other providers receive the full file + git tool suite.
+  */
+-function buildProviderTools(provider: keyof typeof PROVIDER_REGISTRY, rootPath: string | undefined) {
+-  const policy = resolveToolPolicy({ provider, rootPath, mode: "workspace" });
++function buildProviderTools(providerId: ProviderId, rootPath: string | undefined) {
++  const policy = resolveToolPolicy({ provider: providerId, rootPath, mode: "workspace" });
+   if (!policy.enabled) {
+     console.warn(
+       JSON.stringify({
+         scope: "chat-agent",
+         code: "TOOLS_DISABLED_FOR_PROVIDER",
+-        provider,
++        provider: providerId,
+         reason: policy.reason ?? "tool policy denied access",
+       }),
+     );
+@@ -149,7 +152,7 @@
+       JSON.stringify({
+         scope: "chat-agent",
+         code: "TOOLS_DISABLED_FOR_PROVIDER",
+-        provider,
++        provider: providerId,
+         reason: "tool policy produced no allowed tools",
+       }),
+     );
+@@ -313,12 +316,17 @@
+ }): Promise<ChatResult> {
+   const { message, history, projectContext, rootPath, apiKey, provider = "groq", onDelta, onStreamReset } = opts;
+ 
+-  // Look up the strategy for this provider — all provider-specific dispatch
+-  // is hidden behind the ProviderStrategy interface. Adding a new provider
+-  // requires only a strategy file + registry entry; nothing here changes.
+-  const strategy   = getStrategy(provider);
+-  const fastModel  = PROVIDER_REGISTRY[provider].defaultModels.fast;
+-  const powerModel = PROVIDER_REGISTRY[provider].defaultModels.powerful;
++  const executionPlan = resolveExecutionDecision(
++    rootPath && requiresToolExecution(message) ? "task_execution" : "chat",
++    {
++      hasTools: !!rootPath,
++      requireTools: !!rootPath && requiresToolExecution(message),
++    },
++  );
++  const providerDecision = resolveExecutionProvider(executionPlan, provider);
++  const providerId = providerDecision.providerId;
++  const strategy = getStrategy(providerId);
++  const modelDecision = resolveExecutionModel(providerId, executionPlan);
+ 
+   const pendingChanges: PendingChange[] = [];
+ 
+@@ -331,7 +339,7 @@
+   /** Ground-truth sources from speculative-prefetch (merged with engine sources later). */
+   const prefetchSources: string[] = [];
+ 
+-  const tools = buildProviderTools(provider, rootPath);
++  const tools = buildProviderTools(providerId, rootPath);
+ 
+   // Use the more capable model when tools are involved — smaller models are
+   // unreliable at following multi-step tool-calling protocols.
+@@ -344,7 +352,7 @@
+   // وهو ضروري لمقارنة model !== MODEL_POWERFUL عند fallback النموذج.
+   // إصلاح #2: استخدم MODEL_POWERFUL عندما يطلب المستخدم تنفيذاً فعلياً للأدوات
+   // (اختبر، نفّذ، run...) — يمنع MODEL_FAST من اختراع مسارات وهمية بدل قراءة الكود الحقيقي.
+-  const model: string = (rootPath && requiresToolExecution(message)) ? powerModel : fastModel;
++  const model: string = (rootPath && requiresToolExecution(message)) ? modelDecision.powerModel : modelDecision.model;
+ 
+   // BUG-1 fix: pass `tools != null` (actual tool availability for THIS provider)
+   // rather than `!!rootPath`. Gemini gets no tools even when rootPath is set,
+@@ -395,7 +403,7 @@
+     strategy,
+     model,
+     powerModel,
+-    provider,
++    provider: providerId,
+     apiKey,
+     tools,
+     rootPath: rootPath ?? "",
+@@ -428,7 +436,7 @@
+   // STORY-04: capture actual model used — may differ from initial selection if
+   // the fallback engine advanced to a different model mid-request.
+   const resolvedModelInfo: ResolvedModelInfo | undefined = result.model
+-    ? { id: result.model, provider, free: provider === "openrouter" }
++    ? { id: result.model, provider: providerId, free: providerId === "openrouter" }
+     : undefined;
+ 
+   // ── Streaming path ────────────────────────────────────────────────────────
+@@ -512,7 +520,7 @@
+     } catch (streamErr) {
+       // Streaming failed — fall through to the non-streaming parse below.
+       console.warn(
+-        JSON.stringify({ scope: "chat-agent", code: "STREAM_FALLBACK", provider, reason: String(streamErr) }),
++        JSON.stringify({ scope: "chat-agent", code: "STREAM_FALLBACK", provider: providerId, reason: String(streamErr) }),
+       );
+       // GAP-A2: If we already sent partial deltas to the caller, signal a
+       // reset so the client can discard the incomplete bubble before the
+--- /mnt/data/original_patch25/EngineeringOS-main/lib/ai-orchestrator/src/index.ts	2026-08-03 02:41:30.019942465 +0000
++++ /mnt/data/engineeringos_patchwork/EngineeringOS-main/lib/ai-orchestrator/src/index.ts	2026-08-03 02:40:09.547940895 +0000
+@@ -14,6 +14,14 @@
+ 
+ export { buildExecutionPlan } from "./quality/quality-planner.js";
+ export type { ExecutionPlan } from "./quality/quality-planner.js";
++export { buildExecutionPlan as buildModelSelectionExecutionPlan } from "./model-selection/execution-plan.js";
++export type { ExecutionPlan as ModelSelectionExecutionPlan, ExecutionPlanOptions as ModelSelectionExecutionPlanOptions } from "./model-selection/execution-plan.js";
++export { resolveExecutionDecision } from "./model-selection/decision-engine.js";
++export type { ResolveExecutionDecisionOptions } from "./model-selection/decision-engine.js";
++export { resolveExecutionProvider } from "./model-selection/provider-strategy.js";
++export type { ExecutionProviderDecision } from "./model-selection/provider-strategy.js";
++export { resolveExecutionModel } from "./model-selection/model-resolver.js";
++export type { ExecutionModelDecision } from "./model-selection/model-resolver.js";
+ export { buildTaskProfile, inferTaskType } from "./quality/task-profile.js";
+ export type { TaskProfile, TaskType } from "./quality/task-profile.js";
+ export { decideRetry } from "./quality/retry-controller.js";
+--- /dev/null	2026-08-03 02:04:42.323899408 +0000
++++ /mnt/data/engineeringos_patchwork/EngineeringOS-main/lib/ai-orchestrator/src/model-selection/decision-engine.ts	2026-08-03 02:40:09.547940895 +0000
+@@ -0,0 +1,10 @@
++import { buildExecutionPlan, type ExecutionPlan, type ExecutionPlanOptions } from "./execution-plan.js";
++
++export type ResolveExecutionDecisionOptions = ExecutionPlanOptions;
++
++export function resolveExecutionDecision(
++  scope: string,
++  options?: ResolveExecutionDecisionOptions,
++): ExecutionPlan {
++  return buildExecutionPlan(scope, options);
++}
+--- /dev/null	2026-08-03 02:04:42.323899408 +0000
++++ /mnt/data/engineeringos_patchwork/EngineeringOS-main/lib/ai-orchestrator/src/model-selection/execution-plan.ts	2026-08-03 02:40:09.547940895 +0000
+@@ -0,0 +1,30 @@
++import type { ExecutionPlan as QualityExecutionPlan, QualitySortOptions } from "../quality/quality-planner.js";
++import { buildExecutionPlan as buildQualityExecutionPlan } from "../quality/quality-planner.js";
++import type { QualityProfile } from "../quality-engine.js";
++import type { TaskProfile } from "../quality/task-profile.js";
++import type { ProviderCapabilityHints } from "../provider-capabilities.js";
++
++export type ExecutionPlan = QualityExecutionPlan;
++
++export type ExecutionPlanOptions = QualitySortOptions & {
++  hasTools?: boolean;
++  requireTools?: boolean;
++  qualityProfile?: QualityProfile;
++  retryLimit?: number;
++};
++
++export type ExecutionPlanContext = {
++  taskProfile: TaskProfile;
++  qualityProfile: QualityProfile;
++  promptProfile: QualityExecutionPlan["promptProfile"];
++  strictHints: ProviderCapabilityHints;
++  relaxedHints: ProviderCapabilityHints;
++  retryLimit: number;
++};
++
++export function buildExecutionPlan(
++  scope: string,
++  options?: ExecutionPlanOptions,
++): ExecutionPlan {
++  return buildQualityExecutionPlan(scope, options);
++}
+--- /dev/null	2026-08-03 02:04:42.323899408 +0000
++++ /mnt/data/engineeringos_patchwork/EngineeringOS-main/lib/ai-orchestrator/src/model-selection/model-resolver.ts	2026-08-03 02:40:09.547940895 +0000
+@@ -0,0 +1,86 @@
++import type { ModelCapability } from "../openrouter/model-catalog.js";
++import { resolveFallbackChain } from "../openrouter/model-resolver.js";
++import { loadProvider, type ProviderId } from "../provider-registry.js";
++import type { ExecutionPlan } from "./execution-plan.js";
++
++export type ExecutionModelDecision = {
++  providerId: ProviderId;
++  model: string;
++  powerModel: string;
++  fallbackChain: string[];
++  capability: ModelCapability;
++  source: "openrouter-catalog" | "provider-registry";
++};
++
++function wantsPowerfulModel(plan: ExecutionPlan): boolean {
++  const taskType = plan.taskProfile.taskType;
++  return (
++    taskType === "analysis" ||
++    taskType === "code_review" ||
++    taskType === "task_execution" ||
++    taskType === "workflow" ||
++    plan.strictHints.requireThinking === true ||
++    plan.strictHints.requireReasoning === true ||
++    plan.strictHints.requireTools === true ||
++    (plan.strictHints.minimumContext ?? 0) >= 16_000
++  );
++}
++
++function selectCapability(plan: ExecutionPlan): ModelCapability {
++  if (plan.strictHints.requireTools || plan.taskProfile.useTools) {
++    return "tool_calling";
++  }
++  if (
++    plan.taskProfile.taskType === "analysis" ||
++    plan.taskProfile.taskType === "code_review" ||
++    plan.taskProfile.taskType === "workflow" ||
++    plan.strictHints.requireThinking ||
++    plan.strictHints.requireReasoning
++  ) {
++    return "reasoning";
++  }
++  if ((plan.strictHints.minimumContext ?? 0) >= 16_000) {
++    return "long_context";
++  }
++  return plan.taskProfile.taskType === "task_execution" ? "coding" : "chat";
++}
++
++export function resolveExecutionModel(
++  providerId: ProviderId,
++  plan: ExecutionPlan,
++): ExecutionModelDecision {
++  const provider = loadProvider(providerId);
++  const wantPowerful = wantsPowerfulModel(plan);
++  const capability = selectCapability(plan);
++
++  if (providerId === "openrouter") {
++    const fallbackChain = resolveFallbackChain({
++      capability,
++      quality: wantPowerful ? "powerful" : "fast",
++      requireTools: plan.strictHints.requireTools ?? false,
++    }).map((model) => model.id);
++
++    const model = fallbackChain[0] ?? provider.defaultModels.fast;
++    const powerModel = fallbackChain[1] ?? fallbackChain[0] ?? provider.defaultModels.powerful;
++
++    return {
++      providerId,
++      model,
++      powerModel,
++      fallbackChain,
++      capability,
++      source: "openrouter-catalog",
++    };
++  }
++
++  const model = wantPowerful ? provider.defaultModels.powerful : provider.defaultModels.fast;
++
++  return {
++    providerId,
++    model,
++    powerModel: provider.defaultModels.powerful,
++    fallbackChain: [provider.defaultModels.fast, provider.defaultModels.powerful].filter((m, i, arr) => arr.indexOf(m) === i),
++    capability,
++    source: "provider-registry",
++  };
++}
+--- /dev/null	2026-08-03 02:04:42.323899408 +0000
++++ /mnt/data/engineeringos_patchwork/EngineeringOS-main/lib/ai-orchestrator/src/model-selection/provider-strategy.ts	2026-08-03 02:40:09.547940895 +0000
+@@ -0,0 +1,45 @@
++import { discoverProviders, type ProviderId } from "../provider-registry.js";
++import type { ExecutionPlan } from "./execution-plan.js";
++
++export type ExecutionProviderDecision = {
++  providerId: ProviderId;
++  candidates: ProviderId[];
++  source: "preferred" | "strict" | "relaxed" | "fallback";
++};
++
++export function resolveExecutionProvider(
++  plan: ExecutionPlan,
++  preferredProvider?: ProviderId,
++): ExecutionProviderDecision {
++  if (preferredProvider) {
++    return {
++      providerId: preferredProvider,
++      candidates: [preferredProvider],
++      source: "preferred",
++    };
++  }
++
++  const strictCandidates = discoverProviders(plan.strictHints).map((provider) => provider.providerId);
++  if (strictCandidates.length > 0) {
++    return {
++      providerId: strictCandidates[0],
++      candidates: strictCandidates,
++      source: "strict",
++    };
++  }
++
++  const relaxedCandidates = discoverProviders(plan.relaxedHints).map((provider) => provider.providerId);
++  if (relaxedCandidates.length > 0) {
++    return {
++      providerId: relaxedCandidates[0],
++      candidates: relaxedCandidates,
++      source: "relaxed",
++    };
++  }
++
++  return {
++    providerId: "groq",
++    candidates: ["groq"],
++    source: "fallback",
++  };
++}
