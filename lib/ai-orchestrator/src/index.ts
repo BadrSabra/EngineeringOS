@@ -42,7 +42,12 @@ export {
   setInvalidationNotifier,
   startContextInvalidationChannel,
 } from "./context-builder.js";
-export type { ProjectContext } from "./context-builder.js";
+export type { ProjectContext, BuildContextOptions } from "./context-builder.js";
+
+export type { SliceId, AdmissionDecision, ContextSlice, ContextPlan, ContextObject } from "./context-runtime/context-object.js";
+export { buildSlice, estimateTokens } from "./context-runtime/context-object.js";
+export { runAdmission } from "./context-runtime/context-admission.js";
+export type { SliceMetadata } from "./context-loader.js";
 
 export { buildContextCacheKey, getCachedContext, setCachedContext } from "./context-cache-manager.js";
 export type { NotifyPool, NotifyPoolClient } from "./context-cache-manager.js";

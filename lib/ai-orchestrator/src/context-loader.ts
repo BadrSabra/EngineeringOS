@@ -58,6 +58,26 @@ export type GraphRelationshipRow = Pick<
   | "isHeuristic"
 >;
 
+// ─── Slice metadata ───────────────────────────────────────────────────────────
+
+/**
+ * Lightweight metadata describing the load outcome for one context section.
+ * Consumed by the context runtime layer (context-builder, context-admission)
+ * to make budget and freshness decisions without re-reading raw DB rows.
+ */
+export type SliceMetadata = {
+  /** Origin label, e.g. "db:tasks", "db:graph_entities". */
+  source: string;
+  /** Whether the section yielded actual data or came back empty. */
+  freshness: "fresh" | "stale" | "missing";
+  /** Unix ms timestamp when this section was loaded. */
+  loadedAt: number;
+  /** Number of rows / items loaded (0 = missing). */
+  rowCount: number;
+  /** Related sections that must also be loaded to render this section fully. */
+  dependencyHints: ContextLoadSection[];
+};
+
 // ─── Section gating ───────────────────────────────────────────────────────────
 
 export type ContextLoadSection =
@@ -87,6 +107,8 @@ export type LoadedProjectContext = {
   scanVerified: boolean;
   wants(section: ContextLoadSection): boolean;
   requestedSections: Set<ContextLoadSection>;
+  /** Per-section load metadata for the context runtime layer. */
+  sliceMetadata: ReadonlyMap<ContextLoadSection | "project", SliceMetadata>;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -354,6 +376,17 @@ export async function loadProjectContext(
 
       const scanVerified = latestScanJob?.status === "completed";
 
+      const loadedAt = Date.now();
+      const _meta = new Map<ContextLoadSection | "project", SliceMetadata>();
+      _meta.set("project", { source: "db:projects", freshness: "fresh", loadedAt, rowCount: 1, dependencyHints: [] });
+      if (wants("tasks"))              _meta.set("tasks",              { source: "db:tasks",               freshness: rawTasks.length > 0 ? "fresh" : "missing",         loadedAt, rowCount: rawTasks.length,            dependencyHints: [] });
+      if (wants("metrics"))            _meta.set("metrics",            { source: "db:metrics",             freshness: latestMetric != null ? "fresh" : "missing",        loadedAt, rowCount: latestMetric != null ? 1 : 0, dependencyHints: [] });
+      if (wants("graphEntities"))      _meta.set("graphEntities",      { source: "db:graph_entities",      freshness: entities.length > 0 ? "fresh" : "missing",         loadedAt, rowCount: entities.length,           dependencyHints: ["graphRelationships"] });
+      if (wants("graphRelationships")) _meta.set("graphRelationships", { source: "db:graph_relationships", freshness: relationships.length > 0 ? "fresh" : "missing",    loadedAt, rowCount: relationships.length,       dependencyHints: ["graphEntities"] });
+      if (wants("events"))             _meta.set("events",             { source: "db:events",              freshness: recentEvents.length > 0 ? "fresh" : "missing",     loadedAt, rowCount: recentEvents.length,        dependencyHints: [] });
+      if (wants("workflows"))          _meta.set("workflows",          { source: "db:workflows",           freshness: rawWorkflows.length > 0 ? "fresh" : "missing",     loadedAt, rowCount: rawWorkflows.length,        dependencyHints: [] });
+      const sliceMetadata: ReadonlyMap<ContextLoadSection | "project", SliceMetadata> = _meta;
+
       return {
         project,
         rawTasks,
@@ -366,6 +399,7 @@ export async function loadProjectContext(
         scanVerified,
         wants,
         requestedSections,
+        sliceMetadata,
       };
     },
     { isolationLevel: "repeatable read" },
