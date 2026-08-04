@@ -15,7 +15,7 @@ import type { ProjectContext } from "../context-builder.js";
 import { agentComplete } from "../agent-complete.js";
 import type { ProviderId } from "../agent-complete.js";
 import { assessStructuredOutput } from "../quality-engine.js";
-import { buildExecutionPlan } from "../quality/quality-planner.js";
+import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
 import { decideRetry } from "../quality/retry-controller.js";
 import { buildWorkflowSystemPrompt, buildWorkflowUserPrompt } from "../prompts/workflow.prompt.js";
 import { WorkflowDecisionSchema, type WorkflowDecision, type WorkflowPhase } from "../schemas/workflow.schema.js";
@@ -68,7 +68,7 @@ export async function decide(opts: {
     { role: "user", content: buildWorkflowUserPrompt(opts) },
   ];
 
-  const executionPlan = buildExecutionPlan("workflow", { retryLimit: 2 });
+  const executionPlan = resolveExecutionDecision("workflow", { retryLimit: 2 });
   const parseResponse = (raw: string) => parseAgentResponse(raw, WorkflowDecisionSchema, fallbackDecision);
 
   const completionOpts = {

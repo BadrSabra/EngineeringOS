@@ -23,7 +23,7 @@ export type { ExecutionModelDecision } from "./model-selection/model-resolver.js
 export { buildExecutionPlan } from "./quality/quality-planner.js";
 export type { ExecutionPlan } from "./quality/quality-planner.js";
 export { buildTaskProfile, inferTaskType } from "./quality/task-profile.js";
-export type { TaskProfile, TaskType } from "./quality/task-profile.js";
+export type { TaskProfile, TaskType, ContextIntensity, MemoryMode, GraphMode, HistoryMode } from "./quality/task-profile.js";
 export { decideRetry } from "./quality/retry-controller.js";
 export type { RetryDecision } from "./quality/retry-controller.js";
 

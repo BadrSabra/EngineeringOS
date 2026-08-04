@@ -1,30 +1,22 @@
-import type { ExecutionPlan as QualityExecutionPlan } from "../quality/quality-planner.js";
-import { buildExecutionPlan as buildQualityExecutionPlan } from "../quality/quality-planner.js";
-import type { QualityProfile } from "../quality-engine.js";
-import type { TaskProfile } from "../quality/task-profile.js";
-import type { ProviderCapabilityHints } from "../provider-capabilities.js";
+/**
+ * Canonical re-export point for the ExecutionPlan contract.
+ *
+ * All layers outside lib/ai-orchestrator/src/quality/ must import the
+ * ExecutionPlan type and its builder from here — never directly from
+ * quality/quality-planner.ts. This makes model-selection/execution-plan.ts
+ * the single stable import surface for the plan and all its policy types.
+ */
+export type {
+  ExecutionPlan,
+  ExecutionPlanOptions,
+  CacheMode,
+} from "../quality/quality-planner.js";
 
-export type ExecutionPlan = QualityExecutionPlan;
+export type {
+  ContextIntensity,
+  MemoryMode,
+  GraphMode,
+  HistoryMode,
+} from "../quality/task-profile.js";
 
-export type ExecutionPlanOptions = {
-  hasTools?: boolean;
-  requireTools?: boolean;
-  qualityProfile?: QualityProfile;
-  retryLimit?: number;
-};
-
-export type ExecutionPlanContext = {
-  taskProfile: TaskProfile;
-  qualityProfile: QualityProfile;
-  promptProfile: QualityExecutionPlan["promptProfile"];
-  strictHints: ProviderCapabilityHints;
-  relaxedHints: ProviderCapabilityHints;
-  retryLimit: number;
-};
-
-export function buildExecutionPlan(
-  scope: string,
-  options?: ExecutionPlanOptions,
-): ExecutionPlan {
-  return buildQualityExecutionPlan(scope, options);
-}
+export { buildExecutionPlan } from "../quality/quality-planner.js";

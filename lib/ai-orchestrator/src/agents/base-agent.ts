@@ -13,7 +13,7 @@ import { GroqClientError, type AgentErrorCode } from "../errors.js";
 import { agentComplete, type AgentCompleteOpts } from "../agent-complete.js";
 import { parseAgentResponse } from "../parsing.js";
 import { assessStructuredOutput, type QualityProfile } from "../quality-engine.js";
-import { buildExecutionPlan } from "../quality/quality-planner.js";
+import { resolveExecutionDecision } from "../model-selection/decision-engine.js";
 import { decideRetry } from "../quality/retry-controller.js";
 import type { Message } from "../groq-client.js";
 import type { ZodType, ZodTypeDef } from "zod";
@@ -61,7 +61,7 @@ export abstract class BaseAgent<TInput, TOutput> {
 
   async run(input: TInput, opts?: AgentCompleteOpts): Promise<AgentRunResult<TOutput>> {
     const messages = this.buildMessages(input);
-    const executionPlan = buildExecutionPlan(this.scope, {
+    const executionPlan = resolveExecutionDecision(this.scope, {
       qualityProfile: opts?.qualityProfile ?? this.buildQualityProfile(input),
     });
     const qualityProfile = opts?.qualityProfile ?? this.buildQualityProfile(input) ?? executionPlan.qualityProfile;

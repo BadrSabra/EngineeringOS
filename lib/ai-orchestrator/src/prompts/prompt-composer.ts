@@ -5,15 +5,27 @@ export type PromptContextSection = keyof Pick<
   "project" | "latestMetrics" | "graphSummary" | "recentTasks" | "recentEvents" | "workflows"
 >;
 
-export type PromptContextProfile = "full" | "chat" | "task" | "scan" | "review" | "workflow";
+export type PromptContextProfile =
+  | "full"
+  | "chat-lite"    // minimal: project info only
+  | "chat-normal"  // standard: project + metrics + recent tasks
+  | "chat-deep"    // full: all sections (matches old "chat" / "full")
+  | "chat"         // legacy alias — new code should use chat-lite/normal/deep
+  | "task"
+  | "scan"
+  | "review"
+  | "workflow";
 
 const PROFILE_SECTIONS: Record<PromptContextProfile, readonly PromptContextSection[]> = {
-  full: ["project", "latestMetrics", "graphSummary", "workflows", "recentTasks", "recentEvents"],
-  chat: ["project", "latestMetrics", "graphSummary", "workflows", "recentTasks", "recentEvents"],
-  task: ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
-  scan: ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
-  review: ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
-  workflow: ["project", "latestMetrics", "workflows", "recentTasks", "recentEvents"],
+  full:          ["project", "latestMetrics", "graphSummary", "workflows", "recentTasks", "recentEvents"],
+  "chat-lite":   ["project"],
+  "chat-normal": ["project", "latestMetrics", "recentTasks"],
+  "chat-deep":   ["project", "latestMetrics", "graphSummary", "workflows", "recentTasks", "recentEvents"],
+  chat:          ["project", "latestMetrics", "recentTasks"],   // legacy; maps to chat-normal semantics
+  task:          ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
+  scan:          ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
+  review:        ["project", "latestMetrics", "graphSummary", "recentTasks", "recentEvents"],
+  workflow:      ["project", "latestMetrics", "workflows", "recentTasks", "recentEvents"],
 };
 
 export function composePrompt(...parts: Array<string | null | undefined | false>): string {
