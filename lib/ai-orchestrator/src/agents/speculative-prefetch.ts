@@ -39,6 +39,8 @@ const SOURCE_EXTENSIONS = new Set([
 const FILE_MENTION_RE = /(?:[`'"(]|\s|^)([\w\-./]+\.([a-zA-Z]{2,5}))(?:[`'")\s,]|$)/g;
 
 const MAX_PREFETCH_FILES = 3;
+/** Max files for plan-driven prefetch (higher cap than message-mention prefetch) */
+const MAX_PLAN_PREFETCH_FILES = 8;
 /** Per-file byte cap — enough to answer most questions without bloating the prompt */
 const MAX_PREFETCH_BYTES = 6_000;
 
@@ -166,6 +168,100 @@ export async function speculativePrefetch(opts: {
     JSON.stringify({
       scope: "speculative-prefetch",
       code: "PREFETCH_COMPLETE",
+      files: sources,
+      bytesLoaded: hits.reduce((sum, r) => sum + r.content.length, 0),
+    }),
+  );
+
+  return { injectedMessages, sources, cacheEntries };
+}
+
+// ── Plan-driven prefetch ──────────────────────────────────────────────────────
+
+/**
+ * Pre-fetch an explicit list of files identified by the query planner.
+ *
+ * Unlike speculativePrefetch (which extracts file names from the message text),
+ * this function accepts a pre-resolved file list from QueryPlan.targetFiles and
+ * reads up to MAX_PLAN_PREFETCH_FILES of them in parallel.
+ *
+ * The result uses the same synthetic assistant/tool message protocol as
+ * speculativePrefetch so the tool loop dedup cache is seeded identically.
+ */
+export async function prefetchFileList(opts: {
+  files: string[];
+  rootPath: string;
+  pendingChanges: PendingChange[];
+  toolCacheKeyFn: (name: string, args: Record<string, string>) => string;
+}): Promise<PrefetchResult> {
+  const { files, rootPath, pendingChanges, toolCacheKeyFn } = opts;
+
+  // Filter to recognized extensions and cap the list
+  const candidates = files
+    .filter((f) => {
+      const ext = f.split(".").pop()?.toLowerCase() ?? "";
+      return SOURCE_EXTENSIONS.has(ext) && f.length >= 4;
+    })
+    .slice(0, MAX_PLAN_PREFETCH_FILES);
+
+  if (candidates.length === 0) {
+    return { injectedMessages: [], sources: [], cacheEntries: [] };
+  }
+
+  const readResults = await Promise.all(
+    candidates.map(async (filePath) => {
+      try {
+        const raw = await executeFileTool("read_file", { path: filePath }, rootPath, pendingChanges);
+        if (raw.startsWith("Error:") || raw.toLowerCase().startsWith("file not found")) {
+          return { filePath, content: null };
+        }
+        const content =
+          raw.length > MAX_PREFETCH_BYTES
+            ? raw.slice(0, MAX_PREFETCH_BYTES) + "\n… [truncated — call read_file for the complete content]"
+            : raw;
+        return { filePath, content };
+      } catch {
+        return { filePath, content: null };
+      }
+    }),
+  );
+
+  const hits = readResults.filter(
+    (r): r is { filePath: string; content: string } => r.content !== null,
+  );
+  if (hits.length === 0) {
+    return { injectedMessages: [], sources: [], cacheEntries: [] };
+  }
+
+  const syntheticToolCalls = hits.map((r, idx) => ({
+    id: `plan_prefetch_${idx}`,
+    type: "function" as const,
+    function: { name: "read_file", arguments: JSON.stringify({ path: r.filePath }) },
+  }));
+
+  const injectedMessages: RawMessage[] = [
+    {
+      role: "assistant",
+      content: null as unknown as string,
+      tool_calls: syntheticToolCalls,
+    },
+    ...hits.map((r, idx) => ({
+      role: "tool" as const,
+      tool_call_id: `plan_prefetch_${idx}`,
+      content: r.content,
+    })),
+  ];
+
+  const sources = hits.map((r) => r.filePath);
+  const cacheEntries = hits.map((r) => ({
+    key: toolCacheKeyFn("read_file", { path: r.filePath }),
+    content: r.content,
+  }));
+
+  console.info(
+    JSON.stringify({
+      scope: "plan-prefetch",
+      code: "PLAN_PREFETCH_COMPLETE",
       files: sources,
       bytesLoaded: hits.reduce((sum, r) => sum + r.content.length, 0),
     }),

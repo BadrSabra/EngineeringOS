@@ -51,7 +51,8 @@ import { buildChatSystemPrompt } from "../prompts/chat.prompt.js";
 import { ChatResponseSchema, ChatOutputSchema, PendingChangeSchema, type ChatOutput, type PendingChange, type ResolvedModelInfo } from "../schemas/chat.schema.js";
 import { parseAgentResponse } from "../parsing.js";
 import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
-import { speculativePrefetch } from "./speculative-prefetch.js";
+import { speculativePrefetch, prefetchFileList } from "./speculative-prefetch.js";
+import { planQuery, type QueryPlan } from "./query-planner.js";
 import { toolCacheKey, executeToolLoop, BUDGET_BY_SCOPE } from "../tool-execution-engine.js";
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
@@ -386,13 +387,62 @@ export async function chat(opts: {
     }
   }
 
-  // ── Dynamic budget by task scope ─────────────────────────────────────────
-  // Select iteration / tool-call limits from the scope-keyed table so that a
-  // simple chat question gets a tight budget (fast + cheap) while broad
-  // analysis or task-execution queries get the headroom they actually need.
-  // Falls back to tool_chat defaults for any unrecognised task type.
+  // ── Query planner ─────────────────────────────────────────────────────────
+  // A single fast-model call (≤ 5 s) that estimates the query's scope, which
+  // files are most relevant, and how many iterations the tool loop will need.
+  // This eliminates random exploration: the engine starts with the right files
+  // pre-loaded and a budget matched to the actual complexity of the task.
+  //
+  // Research basis: arXiv:2511.02424 ReAcTree + arXiv:2504.16563 Global
+  // Planning reduce tool calls by 40-65 % vs. pure ReAct.
+  //
+  // Failures (timeout, parse error, model error) silently return null so the
+  // tool loop continues with base defaults — planning never blocks the request.
+  let queryPlan: QueryPlan | null = null;
+  if (tools != null && rootPath) {
+    queryPlan = await planQuery({
+      message,
+      projectContext,
+      model: modelDecision.model,
+      strategy,
+      apiKey: apiKey ?? undefined,
+    }).catch(() => null);
+
+    // Pre-seed the cache with files identified by the planner.
+    // These are read in parallel before the tool loop starts, so the model
+    // gets their content on the very first iteration — no tool call needed.
+    if (queryPlan?.targetFiles.length) {
+      const planPrefetch = await prefetchFileList({
+        files: queryPlan.targetFiles,
+        rootPath,
+        pendingChanges,
+        toolCacheKeyFn: toolCacheKey,
+      }).catch(() => ({ injectedMessages: [] as typeof messages, sources: [] as string[], cacheEntries: [] as Array<{ key: string; content: string }> }));
+
+      if (planPrefetch.injectedMessages.length > 0) {
+        messages.push(...planPrefetch.injectedMessages);
+        prefetchSources.push(...planPrefetch.sources);
+        for (const entry of planPrefetch.cacheEntries) {
+          toolCallCache.set(entry.key, entry.content);
+        }
+      }
+    }
+  }
+
+  // ── Dynamic budget by task scope + planner hint ───────────────────────────
+  // Base budget comes from the scope-keyed table; the planner's
+  // suggestedIterations overrides when available (clamped to 5–40).
+  // Broad-scope queries also get an expanded tool-call budget.
   const taskType = executionPlan.taskProfile.taskType;
-  const budget = BUDGET_BY_SCOPE[taskType as keyof typeof BUDGET_BY_SCOPE] ?? BUDGET_BY_SCOPE.tool_chat;
+  const baseBudget = BUDGET_BY_SCOPE[taskType as keyof typeof BUDGET_BY_SCOPE] ?? BUDGET_BY_SCOPE.tool_chat;
+  const budget = queryPlan?.suggestedIterations
+    ? {
+        maxIterations: Math.min(Math.max(queryPlan.suggestedIterations, 5), 40),
+        maxToolCalls: queryPlan.scopeEstimate === "broad"
+          ? BUDGET_BY_SCOPE.task_execution.maxToolCalls
+          : baseBudget.maxToolCalls,
+      }
+    : baseBudget;
 
   // ── Agentic tool loop ─────────────────────────────────────────────────────
   // Delegates iteration budget, per-call budget, cache keying, tool dispatch,
