@@ -45,6 +45,35 @@ import { recordProviderTelemetry } from "./provider-registry.js";
 export const DEFAULT_MAX_ITERATIONS = 20;
 export const DEFAULT_MAX_TOOL_CALLS = 50;
 
+/**
+ * Per-scope iteration and tool-call budgets.
+ *
+ * Research basis: arXiv:2607.01641 (2026) recommends dynamic budgets keyed to
+ * task complexity rather than a single hard constant.  A narrow "chat" scope
+ * needs far fewer iterations than "task_execution" or "analysis".
+ *
+ * Callers should select the entry that matches their ExecutionPlan.taskProfile
+ * and pass those values into executeToolLoop instead of relying on the
+ * DEFAULT_* constants.
+ */
+export const BUDGET_BY_SCOPE = {
+  chat:           { maxIterations: 12, maxToolCalls: 30  },
+  tool_chat:      { maxIterations: 20, maxToolCalls: 50  },
+  analysis:       { maxIterations: 25, maxToolCalls: 60  },
+  task_execution: { maxIterations: 40, maxToolCalls: 100 },
+  code_review:    { maxIterations: 20, maxToolCalls: 50  },
+  workflow:       { maxIterations: 30, maxToolCalls: 80  },
+} as const satisfies Record<string, { maxIterations: number; maxToolCalls: number }>;
+
+/**
+ * Fraction of maxIterations at which a "synthesise now" hint is injected into
+ * the message history.  The model is asked to stop calling tools and write a
+ * final answer from what it has gathered — avoiding a hard stop with no output.
+ *
+ * Basis: Agent Patterns Catalog — "Soft Limit + Synthesis" pattern.
+ */
+const SOFT_LIMIT_RATIO = 0.75;
+
 // ── Registry ──────────────────────────────────────────────────────────────────
 
 // Built once from the authoritative definition arrays.  Any name not in one
@@ -235,6 +264,17 @@ export type ToolLoopResult =
       toolSources: string[];
     }
   | {
+      /**
+       * Soft-limit hit: the iteration budget ran out but the model produced at
+       * least one text response during the loop.  The last such response is
+       * returned here so the caller can surface a useful (if partial) answer
+       * rather than a generic error message.
+       */
+      kind: "partial";
+      result: RawGroqResponse;
+      toolSources: string[];
+    }
+  | {
       kind: "exhausted";
       /** Ground-truth accesses accumulated before exhaustion. */
       toolSources: string[];
@@ -277,6 +317,12 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   const toolSources: string[] = [];
   let totalToolCalls = 0;
 
+  // Soft-limit state — tracks whether the synthesis hint has been injected and
+  // saves the last non-empty text response for the kind:"partial" return path.
+  const softLimitIter = Math.floor(maxIterations * SOFT_LIMIT_RATIO);
+  let synthesisTriggerSent = false;
+  let lastTextSeen: RawGroqResponse | undefined;
+
   /**
    * OR-003: Conservative token cap per model call.
    * OpenRouter free-tier models impose tight per-request output limits;
@@ -293,6 +339,31 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   const TRANSIENT_CODES = new Set<string>(["TIMEOUT", "NETWORK_ERROR", "RATE_LIMITED", "SERVER_ERROR"]);
 
   for (let iter = 0; iter < maxIterations; iter++) {
+    // ── Soft-limit synthesis hint ─────────────────────────────────────────────
+    // At 75 % of the iteration budget, inject a user-turn asking the model to
+    // wrap up from what it has already gathered.  This gives the model one or
+    // two more chances to produce a text response before the hard limit fires,
+    // converting a silent "exhausted" into a useful partial answer.
+    if (iter >= softLimitIter && !synthesisTriggerSent) {
+      synthesisTriggerSent = true;
+      const isArabicCtx = messages.some(
+        (m) => m.role === "user" && /[\u0600-\u06FF]/.test(String(m.content ?? "")),
+      );
+      const synthesisHint = isArabicCtx
+        ? "لقد جمعت معلومات كافية. الآن لخّص ما وجدته بشكل مفيد وشامل — لا تستدع أدوات إضافية."
+        : "You have gathered enough information. Please synthesize and summarize everything you have found so far — do not call additional tools.";
+      messages.push({ role: "user", content: synthesisHint });
+      console.warn(
+        JSON.stringify({
+          scope: "tool-execution-engine",
+          code: "SOFT_LIMIT_TRIGGER",
+          iter,
+          softLimitIter,
+          maxIterations,
+        }),
+      );
+    }
+
     // ── Model call (with transient-error fallback to powerModel) ────────────
     let result: RawGroqResponse;
     let attemptCount = 1;
@@ -358,6 +429,15 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       completionTokens: result.usage?.completionTokens ?? 0,
       durationMs: Date.now() - t0,
     });
+
+    // ── Track last text seen (for kind:"partial" fallback) ──────────────────
+    // Save any non-empty text content the model produced this iteration,
+    // even when it also requested tool calls.  If the hard limit is reached
+    // before the model emits a standalone text response, we return this instead
+    // of a generic error message.
+    if (result.content && result.content.trim().length > 0) {
+      lastTextSeen = result;
+    }
 
     // ── No tool calls → final response ──────────────────────────────────────
     if (!result.toolCalls || result.toolCalls.length === 0) {
@@ -452,13 +532,22 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     }
   }
 
-  // Iteration budget exhausted without a text response.
+  // Iteration budget exhausted.
   console.warn(
     JSON.stringify({
       scope: "tool-execution-engine",
       code: "TOOL_LOOP_EXHAUSTED",
       iterations: maxIterations,
+      hasPartialText: lastTextSeen !== undefined,
     }),
   );
+
+  // If the model produced any text during the loop (e.g. after the soft-limit
+  // synthesis hint fired), surface it as a kind:"partial" result so the caller
+  // can give the user a useful answer instead of a generic error message.
+  if (lastTextSeen !== undefined) {
+    return { kind: "partial", result: lastTextSeen, toolSources };
+  }
+
   return { kind: "exhausted", toolSources };
 }

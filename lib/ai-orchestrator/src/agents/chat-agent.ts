@@ -52,7 +52,7 @@ import { ChatResponseSchema, ChatOutputSchema, PendingChangeSchema, type ChatOut
 import { parseAgentResponse } from "../parsing.js";
 import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
 import { speculativePrefetch } from "./speculative-prefetch.js";
-import { toolCacheKey, executeToolLoop } from "../tool-execution-engine.js";
+import { toolCacheKey, executeToolLoop, BUDGET_BY_SCOPE } from "../tool-execution-engine.js";
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 export type { ChatOutput };
@@ -386,6 +386,14 @@ export async function chat(opts: {
     }
   }
 
+  // ── Dynamic budget by task scope ─────────────────────────────────────────
+  // Select iteration / tool-call limits from the scope-keyed table so that a
+  // simple chat question gets a tight budget (fast + cheap) while broad
+  // analysis or task-execution queries get the headroom they actually need.
+  // Falls back to tool_chat defaults for any unrecognised task type.
+  const taskType = executionPlan.taskProfile.taskType;
+  const budget = BUDGET_BY_SCOPE[taskType as keyof typeof BUDGET_BY_SCOPE] ?? BUDGET_BY_SCOPE.tool_chat;
+
   // ── Agentic tool loop ─────────────────────────────────────────────────────
   // Delegates iteration budget, per-call budget, cache keying, tool dispatch,
   // and model fallback to the self-contained ToolExecutionEngine.
@@ -400,20 +408,26 @@ export async function chat(opts: {
     rootPath: rootPath ?? "",
     pendingChanges,
     cache: toolCallCache,
+    maxIterations: budget.maxIterations,
+    maxToolCalls:  budget.maxToolCalls,
   });
 
   // Merge prefetch sources with the engine's ground-truth sources.
   // Prefetch sources are prepended since they were resolved first.
   const toolSources = [...prefetchSources, ...loopResult.toolSources];
 
-  // ── Exhausted iterations ──────────────────────────────────────────────────
+  // ── Exhausted with no text at all ────────────────────────────────────────
+  // kind:"partial" falls through to the normal result-processing path below —
+  // the model produced at least one text response (triggered by the soft-limit
+  // synthesis hint) that we can surface as a useful answer.
+  // Only the true kind:"exhausted" (zero text produced) gets the error message.
   if (loopResult.kind === "exhausted") {
     // Bilingual exhaustion message: detect Arabic by checking if the original
     // user message contains Arabic characters (Unicode block U+0600–U+06FF).
     const isArabic = /[\u0600-\u06FF]/.test(message);
     const exhaustionMessage = isArabic
-      ? "وصلت إلى الحد الأقصى من خطوات الأدوات. حاول طرح سؤال أكثر تحديداً أو تقسيمه إلى أجزاء أصغر."
-      : "I reached the maximum number of tool steps. Try asking a more specific question or break it into smaller parts.";
+      ? "وصلت إلى الحد الأقصى من خطوات التحليل ولم أتمكن من إنتاج إجابة كاملة. حاول طرح سؤال أكثر تحديداً."
+      : "The analysis budget was exhausted before I could produce a complete answer. Try a more specific question.";
     return {
       response: exhaustionMessage,
       sources: toolSources.length > 0 ? toolSources : [],
@@ -421,7 +435,7 @@ export async function chat(opts: {
     };
   }
 
-  // ── Final response from model ─────────────────────────────────────────────
+  // ── Final response from model (kind:"response" or kind:"partial") ─────────
   const result = loopResult.result;
 
   // STORY-04: capture actual model used — may differ from initial selection if
