@@ -92,14 +92,22 @@ export function extractMentionedFiles(message: string): string[] {
  * @param opts.rootPath       Absolute path to the project root
  * @param opts.pendingChanges Accumulated pending changes (passed through to executeFileTool)
  * @param opts.toolCacheKeyFn The same key function used by the tool loop cache
+ * @param opts.profileDepth   Optional context profile — "chat-lite" skips prefetch entirely
  */
 export async function speculativePrefetch(opts: {
   message: string;
   rootPath: string;
   pendingChanges: PendingChange[];
   toolCacheKeyFn: (name: string, args: Record<string, string>) => string;
+  profileDepth?: "chat-lite" | "chat-normal" | "chat-deep" | "chat";
 }): Promise<PrefetchResult> {
-  const { message, rootPath, pendingChanges, toolCacheKeyFn } = opts;
+  const { message, rootPath, pendingChanges, toolCacheKeyFn, profileDepth } = opts;
+
+  // Lite turns don't benefit from speculative prefetch — skip entirely to keep
+  // the context window lean.
+  if (profileDepth === "chat-lite") {
+    return { injectedMessages: [], sources: [], cacheEntries: [] };
+  }
 
   const mentionedFiles = extractMentionedFiles(message);
   if (mentionedFiles.length === 0) {

@@ -1,0 +1,154 @@
+Let me read the uploaded file to understand what Wave 3 requires.
+
+Let me read all the relevant files for Wave 3 in parallel before implementing.
+
+Let me read all the relevant files in parallel before implementing.
+
+Let me read the full chat-agent.ts file and the full chat.ts route file to understand the current state, since the previous reads were truncated. I also need to check the profile-classifier.ts file status and the query-planner.ts to understand what's already there.
+
+Need the full versions of chat-agent and the chat route — both were truncated. Let me get the complete files plus check what already exists.
+
+Now I have a complete picture of all the Wave 3 files. Let me plan the implementation:
+
+Wave 3 targets:
+
+prompt-composer.ts — Already has tiered profiles (chat-lite, chat-normal, chat-deep). The chat legacy alias maps to chat-normal. ✅ Already done.
+
+chat.prompt.ts — Needs to be split into: stable prefix + tool appendix + dynamic context appendix + streaming appendix. Currently it's a monolith.
+
+chat-agent.ts — Needs:
+
+Reduce raw history from history.slice(-10) to 2-4 turns
+Convert older turns to episode summaries
+Use plan/profile to choose context depth
+Read graph handles instead of re-parsing the long text
+speculative-prefetch.ts — Needs to be admission-aware and profile-aware, returning structured prefetch results without injection by default in lite turns.
+
+profile-classifier.ts (new) — Classify request into simple / code / architecture / workflow / deep_analysis and output unified hints.
+
+**artifacts...
+
+** — The chat route needs to pass the execution plan and profile to context building, choose history depth accordingly, and use selective cache invalidation on affected slices only.
+
+I'm planning the implementation in three patches: first, create the profile classifier to categorize messages with depth hints; second, split the chat prompt into stable prefix, tool appendix, dynamic context, and streaming sections; third, wire everything into the chat agent to reduce history replay based on profile, compress older turns into episode summaries, and integrate the classifier.
+
+Now I'm detailing the remaining patches: the speculative prefetch needs a profile depth parameter and should skip injection for lite profiles, while the chat route itself needs to use the classifier to determine the execution plan, pass it to context building, select history depth accordingly, and replace full cache invalidation with targeted slice invalidation.
+
+Writing the profile classifier... Now I'm refactoring the prompt builder to split the system prompt into reusable pieces — a static prefix that can be cached, then dynamic sections for tools, context, and rules that vary based on the profile. For the chat agent, I'm making history depth profile-aware so lite mode keeps just the last two turns, normal keeps four, and deep keeps six, with older turns converted to episode summaries for context preservation.
+
+I'm also updating the speculative prefetch to skip injection entirely for lite profiles, and then modifying the chat routes to use the model selection plan for determining history depth and switching from blanket cache invalidation to selective updates.
+
+For plain chat turns without file changes, I shouldn't invalidate the full context cache since the project data hasn't actually changed — only new events get logged. Full invalidation should only happen after apply-changes when the file graph might shift. For regular chat turns, I can just invalidate the recentEvents slice instead, and skip invalidation entirely if there were no file modifications. I need to classify the request using a profile to determine history depth, then pass that profile through to buildProjectContext. For the chat route, I'll need to export the classifier from the index file rather than importing it directly from the orchestrator package since it's new. Now I'm laying out the implementation: creating the profile classifier prompt, splitting the chat prompt into partials, integrating profile depth into the chat agent and speculative prefetch logic, and updating the chat route to pass the plan through while fixing the cache invalidation.
+
+Writing the profile classifier... Writing pattern matching rules... Now I'm updating the chat() function to accept an optional classification parameter that determines how many conversation turns to keep in history—2 for lite, 4 for normal, 6 for deep. When there are more turns than the history depth allows, I'll compress the older exchanges into a summary message that extracts the first 60 characters from each user message to capture the topics covered. This classification also gets passed to the system prompt builder, and I'm maintaining backward compatibility by defaulting to normal classification when not provided.
+
+For the speculative prefetch module, I'm adding a profile depth option that short-circuits the entire prefetch when set to lite, returning empty results immediately. Then in the chat API route, I need to classify the incoming request first, pass the resulting plan to the context builder, use the classification's history depth for database queries, and switch from blanket cache invalidation to selective invalidation based on the chat type. The chat routes don't actually modify any data, so I can safely remove the cache invalidation there and let the 30-second TTL handle staleness naturally. The /apply-changes route already correctly uses full invalidation since it writes files, so that stays as-is. I'll remove those invalidateContextCache calls from the chat routes since they're happening before the actual file writes anyway, and keep the invalidation logic in the apply-changes endpoint where it belongs. Now I'm setting up the pattern matching for the profile classifier, defining regex patterns to identify simple greetings across multiple languages and code-related messages.
+
+Adding more classification patterns...
+
+Now I'm thinking through the implementation strategy for chat-agent.ts. The main updates involve accepting a classification parameter, using it to determine how much conversation history to include, prepending episode summaries for older turns, and threading the profile information through to the system prompt and prefetch functions. Adding pattern matching rules... Adding more category patterns... Writing classification logic... Finalizing the categorization logic...
+
+For the chat prompt, I'm extracting the stable system prefix as a constant and making the dynamic sections configurable based on the profile parameter — context overview, focus hints, session memories, tool availability, and streaming mode rules will all adapt based on what's passed in.
+
+Now in chat-agent.ts, I'm refactoring how messages are constructed. Instead of always using the last 10 messages, I'm pulling the history depth from the classification result, then building an episode summary from any older turns that fall outside that window. The profile also comes from the classification to inform the system prompt.
+
+I'm also defining a helper function that extracts user messages from the older history to create a concise summary of prior conversation topics.
+
+For the speculative prefetch optimization, I'm adding a profile depth option that can skip expensive processing when set to "lite" mode. And in the chat route, I'm updating the imports to include new context invalidation and request classification utilities.
+
+In the route handler itself, I'm classifying the incoming message to determine how much conversation history to fetch—using the classification result to dynamically set the history limit instead of a hardcoded value. Then I'm building the project context with sections tailored to the classification's context profile, and removing the blanket context cache invalidation in favor of more selective invalidation.
+
+Defining the section mapping... Aligning these section mappings with the PROFILE_SECTIONS from prompt-composer.ts, where each profile specifies which context sections to include. For the plan parameter in buildProjectContext, I realize I don't need to explicitly construct one if I'm already controlling the sections through the profile — the plan is mainly used for admission decisions during context loading.
+
+However, the Wave 3 spec expects the execution plan to be passed through. Looking at how context-builder.ts resolves the plan internally, I need to classify the incoming message, resolve an appropriate execution plan based on that classification, and pass it along to buildProjectContext. For different intensity levels like chat-lite, I'd call resolveExecutionDecision with the corresponding context intensity override. I found the type definition for ContextIntensity which accepts "low" | "normal" | "high" | "deep", so I can map the chat variants accordingly: chat-lite uses "low", chat-normal uses "normal", and chat-deep uses "high".
+
+Now I'm deciding whether to control both the sections parameter and pass a plan with matching intensity, or just one of them. I think doing both makes sense—controlling sections determines what gets loaded from the database while the plan controls admission decisions within that loaded data, so both layers become profile-aware.
+
+I also confirmed that resolveExecutionDecision is already exported from the index, so I can use it directly. Now I'm ready to write all the patches.
+
+Here's what needs to change: I'm creating a new profile classifier prompt, updating the chat prompt to accept a profile parameter, modifying the chat agent to handle history depth and episode summaries with classification, adding a profile depth guard to speculative prefetch, exporting the classification functions from the main index, and updating the API chat route to use profile-aware context with selective history invalidation.
+
+Now I need to be careful about backward compatibility when updating the chat function signature. I'm adding an optional classification parameter to the opts object, which keeps existing calls working while allowing the new profile-aware flow to pass classification data through.
+
+Looking at how chatWithFallback is used in the route, I need to check whether it already passes options through to the underlying chat() function, or if I need to thread the classification parameter through that layer as well.
+
+Need to see ai-route-helpers.ts before writing the final patches.
+
+Now I have all the information I need to implement Wave 3. Let me also quickly check the chatWithFallback function to understand its signature, since I saw it got truncated.
+
+From what I've read in ai-route-helpers.ts, I can see chatWithFallback is defined there and calls chat() from @workspace/ai-orchestrator. Let me check if it has the full opts passthrough or if I need to look at it more carefully.
+
+Actually looking at the route code:
+
+const chatOut = await chatWithFallback(
+  req.userId,
+  {
+    message,
+    history: ...,
+    projectContext,
+    rootPath: validRootPath,
+    projectId,
+  },
+  { provider, apiKey },
+  undefined,
+  { requireTools: !!validRootPath, qualityProfile: validRootPath ? "tool_chat" : "chat" },
+);
+The second argument gets passed directly to chat(), so I can add classification to it and it should flow through as long as chatWithFallback passes it along. I have enough context to move forward with the implementation.
+
+Let me get the chatWithFallback full signature before writing:
+
+Now I have everything I need. Let me implement all Wave 3 patches in parallel. I'll write the files simultaneously where independent.
+
+Here's my implementation plan:
+
+Patch 3.1 — lib/ai-orchestrator/src/prompts/profile-classifier.ts (new) Pure sync classification of messages into categories with context/history depth hints.
+
+Patch 3.2 — lib/ai-orchestrator/src/prompts/chat.prompt.ts Add profile parameter to buildChatSystemPrompt, extract stable prefix as a constant.
+
+Patch 3.3 — lib/ai-orchestrator/src/agents/chat-agent.ts I'll add classification to the request options, use the history depth from classification to determine how many turns to include (2, 4, or 6), and add episode summaries for older turns. Then pass the profile depth to speculative-prefetch and feed the profile into the system prompt builder.
+
+Patch 3.4 — lib/ai-orchestrator/src/agents/speculative-prefetch.ts Add a profile depth guard that skips injection on lite turns.
+
+Patch 3.5 — lib/ai-orchestrator/src/index.ts Export the classification function and type.
+
+Now I have everything I need to implement Wave 3. Let me write all the patches in parallel:
+
+profile-classifier.ts (new)
+chat.prompt.ts (modify - add profile param)
+chat-agent.ts (modify - history depth + episode summary + classification)
+speculative-prefetch.ts (modify - profileDepth guard)
+index.ts (modify - export classifier)
+chat.ts route (modify - classification, sections, history limit, selective invalidation)
+I can write 1, 2, 4 in parallel since they don't depend on each other.
+
+Then 3 depends on 1 and 2 (imports). Then 5 depends on 1. Then 6 depends on 1.
+
+Actually I can do them all in parallel since I know exactly what I'm writing.
+
+Key design decisions:
+
+classifyRequest is pure sync, no LLM
+buildChatSystemPrompt gets a new optional profile parameter that defaults to "chat-normal"
+chat() gets a new optional classification field in opts
+speculativePrefetch gets a new optional profileDepth field
+Route: classify → determine sections + historyLimit → build context → remove blunt invalidation after chat
+Writing all patches...
+
+For chatWithFallback, I see it passes ...baseParams to chat(). The baseParams type doesn't include classification, so I need to decide whether to add it there or handle it at the route level. Option b is cleaner: the route classifies the request and adjusts history and sections before calling chatWithFallback, and the chat() function can derive the classification internally from the message if not provided. This way chatWithFallback doesn't need to change. I can derive the profile inside chat() from the message itself.
+
+The route will classify once to get the historyLimit and sections for context building, then pass those to chatWithFallback. Meanwhile, chat() will re-classify internally (a cheap, pure sync operation) to pick the prompt profile and prefetch behavior. Since classification is just regex matching, running it twice is fine.
+
+Now I'm writing the profile classifier module... Writing config mapping... Adding pattern entries for greeting detection and basic questions... Adding workflow and analysis categories... Writing pattern matching rules... Scoring each pattern category by counting regex matches weighted by importance, then boosting deep_analysis for longer messages that don't show strong code or architecture signals. Finally, I'm sorting the scores to find the winning category. Adding profile classification to the chat system...
+
+I'm updating speculativePrefetch to accept a profile depth option and skip processing for lite profiles. Then I'm exporting the classifier and its types from the main index, and importing additional utilities into the chat route handler.
+
+Now I need to add a helper function that maps profile classifications to the appropriate context sections to load, then update both chat endpoints to classify requests upfront, use the classification depth to determine how much history to fetch, and pass the plan to the context builder while removing the cache invalidation since no data changes during chat.
+
+For the /apply-changes route, I'll keep the cache invalidation since files are actually modified there. I should also make sure the classifyRequest function is properly imported and that TypeScript can infer the types correctly without needing explicit type annotations.
+
+Now I'm ready to write out all the patches across the different files.
+
+Writing the code patches...
+
+Now I have the full picture. Implementing all 6 Wave 3 patches in parallel:
+

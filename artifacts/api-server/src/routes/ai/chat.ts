@@ -33,6 +33,7 @@ import {
   recordFallbackSuccess,
   enrichContextWithMemories,
   writeSessionMemories,
+  classifyRequest,
 } from "@workspace/ai-orchestrator";
 import { logger } from "../../lib/logger.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
@@ -72,6 +73,19 @@ function sanitizeResponseText(raw: string): string {
     // Not valid JSON — leave as-is.
   }
   return raw;
+}
+
+// ── Profile → context sections mapping ──────────────────────────────────────
+// Maps the classifier's contextProfile to the DB sections buildProjectContext
+// should load. Lite turns load the minimum; deep turns load everything.
+type ContextSection = "tasks" | "metrics" | "graphEntities" | "graphRelationships" | "events" | "workflows";
+function profileContextSections(profile: "chat-lite" | "chat-normal" | "chat-deep" | "chat"): ContextSection[] {
+  switch (profile) {
+    case "chat-lite":   return ["tasks"];
+    case "chat-normal": return ["tasks", "metrics"];
+    case "chat-deep":   return ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"];
+    case "chat":        return ["tasks", "metrics"]; // legacy alias → chat-normal
+  }
 }
 
 const router = Router();
@@ -124,13 +138,16 @@ router.post("/ai/chat", async (req, res) => {
   const { validRootPath, fallbackUsed: rootFallbackUsed, originalPath: rootOriginalPath } =
     await resolveRootPath(project.rootPath, projectId);
 
+  // Classify the request upfront — pure sync, zero cost.
+  const chatClassification = classifyRequest(message);
+
   const historyRows = existingSession
     ? await db
         .select()
         .from(aiChatMessagesTable)
         .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
         .orderBy(desc(aiChatMessagesTable.createdAt))
-        .limit(10)
+        .limit(chatClassification.historyDepth)
     : [];
 
   const providerResolved = await requireProvider(req.userId, res, {
@@ -149,7 +166,7 @@ router.post("/ai/chat", async (req, res) => {
   }
   try {
     const projectContext = await buildProjectContext(projectId, {
-      sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
+      sections: profileContextSections(chatClassification.contextProfile),
     });
     // Enrich context with cross-session memories (outside cache; always fresh).
     // Failure is non-fatal — agent proceeds without memory context.
@@ -196,7 +213,8 @@ router.post("/ai/chat", async (req, res) => {
       );
     }
 
-    invalidateContextCache(projectId);
+    // Chat turns don't modify project data — no cache invalidation needed.
+    // Full invalidation happens only in /apply-changes when files are written.
 
     const msgNow = new Date();
     const sessionIdToUse = existingSession?.id ?? randomUUID();
@@ -342,18 +360,21 @@ router.post("/ai/chat/stream", async (req, res) => {
       existingSession = found;
     }
 
+    // Classify the request upfront — pure sync, zero cost.
+    const streamClassification = classifyRequest(message);
+
     const historyRows = existingSession
       ? await db
           .select()
           .from(aiChatMessagesTable)
           .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
           .orderBy(desc(aiChatMessagesTable.createdAt))
-          .limit(10)
+          .limit(streamClassification.historyDepth)
       : [];
 
     sse({ type: "stage", stage: "building-context" });
     const projectContext = await buildProjectContext(projectId, {
-      sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
+      sections: profileContextSections(streamClassification.contextProfile),
     });
     // Enrich with cross-session memories (outside cache; always fresh).
     await enrichContextWithMemories(projectContext, projectId).catch((err) => {

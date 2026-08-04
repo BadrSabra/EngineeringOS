@@ -48,6 +48,7 @@ import type { AgentErrorCode } from "../errors.js";
 import type { RawMessage } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildChatSystemPrompt } from "../prompts/chat.prompt.js";
+import { classifyRequest } from "../prompts/profile-classifier.js";
 import { ChatResponseSchema, ChatOutputSchema, PendingChangeSchema, type ChatOutput, type PendingChange, type ResolvedModelInfo } from "../schemas/chat.schema.js";
 import { parseAgentResponse } from "../parsing.js";
 import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
@@ -324,6 +325,12 @@ export async function chat(opts: {
 }): Promise<ChatResult> {
   const { message, history, projectContext, rootPath, projectId, apiKey, provider = "groq", onDelta, onStreamReset } = opts;
 
+  // ── Profile classification ────────────────────────────────────────────────
+  // Pure sync — classifies the message into simple/code/architecture/workflow/
+  // deep_analysis and derives context profile, history depth, and prefetch flag.
+  const classification = classifyRequest(message);
+  const { contextProfile, historyDepth, allowPrefetch } = classification;
+
   const executionPlan = resolveExecutionDecision(
     rootPath && requiresToolExecution(message) ? "task_execution" : "chat",
     {
@@ -364,9 +371,30 @@ export async function chat(opts: {
   // starts with the most relevant entities instead of exploring randomly.
   const focusHint = buildQueryFocusHint(projectContext.graphSummary, message);
 
+  // ── Profile-aware history windowing ──────────────────────────────────────
+  // Keep only the most recent `historyDepth` turns verbatim. Older turns are
+  // compressed into a single episode-summary system message so their topics
+  // remain visible without bloating the context window.
+  const recentHistory = history.slice(-historyDepth);
+  const olderHistory  = history.length > historyDepth ? history.slice(0, -historyDepth) : [];
+
+  const episodeSummaryMessage: RawMessage | null =
+    olderHistory.length > 0
+      ? {
+          role: "system",
+          content:
+            `[Earlier conversation — ${olderHistory.length} turn(s) compressed]: ` +
+            olderHistory
+              .filter((m) => m.role === "user")
+              .map((m) => m.content.slice(0, 60).replace(/\n/g, " "))
+              .join("; "),
+        }
+      : null;
+
   const messages: RawMessage[] = [
-    { role: "system", content: buildChatSystemPrompt(projectContext, tools != null, false, focusHint ?? undefined) },
-    ...history.slice(-10).map((m): RawMessage => ({ role: m.role, content: m.content })),
+    { role: "system", content: buildChatSystemPrompt(projectContext, tools != null, false, focusHint ?? undefined, contextProfile) },
+    ...(episodeSummaryMessage ? [episodeSummaryMessage] : []),
+    ...recentHistory.map((m): RawMessage => ({ role: m.role, content: m.content })),
     { role: "user", content: message },
   ];
 
@@ -374,12 +402,14 @@ export async function chat(opts: {
   // Pre-read files explicitly mentioned in the query (e.g. "what's wrong with
   // auth.ts?") and inject as synthetic tool exchange messages so the model gets
   // the content in its first iteration without spending a real tool call.
-  if (rootPath && tools != null) {
+  // Skipped for lite turns (allowPrefetch=false) and when the profile is lite.
+  if (rootPath && tools != null && allowPrefetch) {
     const prefetch = await speculativePrefetch({
       message,
       rootPath,
       pendingChanges,
       toolCacheKeyFn: toolCacheKey,
+      profileDepth: contextProfile,
     });
 
     if (prefetch.injectedMessages.length > 0) {
@@ -668,7 +698,7 @@ export async function chat(opts: {
     // Replace system message with streaming-mode plain-markdown variant.
     const streamMessages = messages.map((m, i) =>
       i === 0 && m.role === "system"
-        ? { ...m, content: buildChatSystemPrompt(projectContext, tools != null, /* streamingMode= */ true, focusHint ?? undefined) }
+        ? { ...m, content: buildChatSystemPrompt(projectContext, tools != null, /* streamingMode= */ true, focusHint ?? undefined, contextProfile) }
         : m,
     );
 

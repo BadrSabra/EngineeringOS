@@ -71,6 +71,9 @@ export * from "./schemas/index.js";
 export { chat } from "./agents/chat-agent.js";
 export type { ChatMessage, ChatResult } from "./agents/chat-agent.js";
 
+export { classifyRequest } from "./prompts/profile-classifier.js";
+export type { ClassifiedRequest, RequestCategory } from "./prompts/profile-classifier.js";
+
 export {
   resolveModel,
   resolveFallbackChain,

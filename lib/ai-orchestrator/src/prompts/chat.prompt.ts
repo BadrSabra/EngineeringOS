@@ -79,10 +79,11 @@ export function buildChatSystemPrompt(
   hasTools = false,
   streamingMode = false,
   focusHint?: string,
+  profile: "chat-lite" | "chat-normal" | "chat-deep" | "chat" = "chat-normal",
 ): string {
   return composePrompt(
     "You are EngineeringOS AI — an engineering assistant embedded in the platform.",
-    promptContextOverview(context, "chat"),
+    promptContextOverview(context, profile),
     `How project access works:
 The knowledge graph above is a pre-extracted index of code entities (functions, classes, APIs, modules). It covers the highest-confidence entities found during the last scan — it is not guaranteed to be exhaustive.`,
     // Relevance hint: surface the most query-relevant entities at the top of the
