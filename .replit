@@ -49,7 +49,7 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PORT=23183 pnpm --filter @workspace/dashboard run dev"
+args = "PORT=23183 BASE_PATH=/dashboard/ pnpm --filter @workspace/dashboard run dev"
 waitForPort = 23183
 
 [[workflows.workflow]]
@@ -61,7 +61,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PORT=8081 pnpm --filter @workspace/mockup-sandbox run dev"
+args = "PORT=8081 BASE_PATH=/__mockup pnpm --filter @workspace/mockup-sandbox run dev"
 waitForPort = 8081
 
 [agent]
