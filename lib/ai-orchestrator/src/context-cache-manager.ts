@@ -1,4 +1,6 @@
 import type { AgentContext as ProjectContext } from "./schemas/context.schema.js";
+import type { ExecutionPlan } from "./model-selection/execution-plan.js";
+import type { SliceId } from "./context-runtime/context-object.js";
 
 const CONTEXT_CACHE_TTL_MS = 30_000;
 const contextCache = new Map<string, { data: ProjectContext; expiresAt: number }>();
@@ -18,9 +20,66 @@ export type NotifyPool = {
   connect(): Promise<NotifyPoolClient>;
 };
 
-export function buildContextCacheKey(projectId: string, sections?: readonly string[]): string {
+/**
+ * Derive a short, stable hash from the budget-relevant fields of an ExecutionPlan.
+ * Used as the third segment of the cache key so plan changes bust the cache.
+ */
+export function hashExecutionPlan(
+  plan: Pick<ExecutionPlan, "contextBudget" | "graphBudget"> & {
+    contextIntensity?: string;
+    graphMode?: string;
+  },
+): string {
+  return [
+    plan.contextIntensity ?? "?",
+    plan.graphMode        ?? "?",
+    plan.contextBudget,
+    plan.graphBudget,
+  ].join(":");
+}
+
+export function buildContextCacheKey(
+  projectId: string,
+  sections?: readonly string[],
+  planHash?: string,
+): string {
   const normalized = [...new Set(sections && sections.length > 0 ? sections : [])].sort();
-  return `${projectId}::${normalized.join(",")}`;
+  const base = `${projectId}::${normalized.join(",")}`;
+  return planHash ? `${base}::plan:${planHash}` : base;
+}
+
+/** Maps each SliceId to the section name(s) stored in the cache key segments. */
+const SLICE_TO_SECTIONS: Record<SliceId, string[]> = {
+  project:       [],   // always present → full invalidation
+  recentTasks:   ["tasks"],
+  latestMetrics: ["metrics"],
+  graphSummary:  ["graphEntities", "graphRelationships"],
+  recentEvents:  ["events"],
+  workflows:     ["workflows"],
+};
+
+/**
+ * Selectively invalidate cache entries that include a specific slice.
+ * Avoids a full project cache bust when only one domain changes.
+ * Falls back to full invalidation for the "project" slice.
+ */
+export function invalidateContextSlice(projectId: string, sliceId: SliceId): void {
+  const targetSections = SLICE_TO_SECTIONS[sliceId];
+  if (targetSections.length === 0) {
+    // "project" appears in every entry → full bust
+    invalidateContextCache(projectId);
+    return;
+  }
+  const prefix = `${projectId}::`;
+  for (const key of contextCache.keys()) {
+    if (!key.startsWith(prefix)) continue;
+    const segments = key.slice(prefix.length).split("::");
+    const sectionPart = segments[0] ?? "";
+    const sections = sectionPart.split(",");
+    if (targetSections.some((s) => sections.includes(s))) {
+      contextCache.delete(key);
+    }
+  }
 }
 
 export function getCachedContext(cacheKey: string): { data: ProjectContext; expiresAt: number } | undefined {

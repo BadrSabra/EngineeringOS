@@ -66,14 +66,13 @@ export function trimContextToFit(
   const trimmed = { ...context } as Record<string, unknown>;
 
   // Prefer trimming these bulk sections first (most likely to be large).
+  // Field names must match AgentContext (context.schema.ts).
   const TRIM_PRIORITY = [
-    "codeGraph",
-    "relationships",
-    "entities",
-    "taskSummary",
-    "workflowSummary",
-    "eventSummary",
-    "metricSummary",
+    "graphSummary",
+    "workflows",
+    "recentTasks",
+    "recentEvents",
+    "latestMetrics",
   ];
 
   const MAX_PASSES = 20;
