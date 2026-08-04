@@ -165,8 +165,12 @@ describe("CodeIssueSchema", () => {
     expect(CodeIssueSchema.safeParse(validIssue).success).toBe(true);
   });
 
-  it("rejects extra fields", () => {
-    expect(CodeIssueSchema.safeParse({ ...validIssue, extra: 1 }).success).toBe(false);
+  it("strips (ignores) extra fields from generous models instead of rejecting them", () => {
+    // .strict() was removed so OpenRouter models adding extra fields (e.g. "line",
+    // "impact", "code") no longer cause SCHEMA_VALIDATION_FAILED → HTTP 422.
+    const result = CodeIssueSchema.safeParse({ ...validIssue, extra: 1, line: 42 });
+    expect(result.success).toBe(true);
+    if (result.success) expect((result.data as Record<string, unknown>)["extra"]).toBeUndefined();
   });
 
   it("rejects an empty suggestion", () => {
@@ -205,8 +209,16 @@ describe("CodeReviewResultSchema", () => {
     expect(CodeReviewResultSchema.safeParse({ ...valid, verdict: "yolo" }).success).toBe(false);
   });
 
-  it("rejects extra fields", () => {
-    expect(CodeReviewResultSchema.safeParse({ ...valid, extra: 1 }).success).toBe(false);
+  it("strips (ignores) extra fields from generous models instead of rejecting them", () => {
+    const result = CodeReviewResultSchema.safeParse({ ...valid, extra: 1 });
+    expect(result.success).toBe(true);
+    if (result.success) expect((result.data as Record<string, unknown>)["extra"]).toBeUndefined();
+  });
+
+  it("coerces overallScore from string to number", () => {
+    const result = CodeReviewResultSchema.safeParse({ ...valid, overallScore: "85" });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.overallScore).toBe(85);
   });
 
   it("rejects an empty summary", () => {
@@ -227,8 +239,10 @@ describe("ScanInsightSchema", () => {
     expect(ScanInsightSchema.safeParse(validInsight).success).toBe(true);
   });
 
-  it("rejects extra fields", () => {
-    expect(ScanInsightSchema.safeParse({ ...validInsight, extra: 1 }).success).toBe(false);
+  it("strips (ignores) extra fields from generous models instead of rejecting them", () => {
+    const result = ScanInsightSchema.safeParse({ ...validInsight, extra: 1, impact: "high" });
+    expect(result.success).toBe(true);
+    if (result.success) expect((result.data as Record<string, unknown>)["extra"]).toBeUndefined();
   });
 
   it("rejects an empty title", () => {
@@ -257,8 +271,10 @@ describe("ScanSummarySchema", () => {
     expect(ScanSummarySchema.safeParse(validSummary).success).toBe(true);
   });
 
-  it("rejects extra fields", () => {
-    expect(ScanSummarySchema.safeParse({ ...validSummary, extra: 1 }).success).toBe(false);
+  it("strips (ignores) extra fields from generous models instead of rejecting them", () => {
+    const result = ScanSummarySchema.safeParse({ ...validSummary, extra: 1 });
+    expect(result.success).toBe(true);
+    if (result.success) expect((result.data as Record<string, unknown>)["extra"]).toBeUndefined();
   });
 
   it("rejects an empty summary", () => {
