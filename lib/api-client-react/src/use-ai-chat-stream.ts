@@ -90,6 +90,8 @@ export type AiChatStreamCallbacks = {
   onStage?: (stage: string) => void;
   /** Called for each incremental text token from the model's streaming response. */
   onDelta?: (delta: string) => void;
+  /** Called when the SSE stream breaks mid-flight so callers can clear partial state. */
+  onStreamReset?: () => void;
   onDone?: (data: AiStreamDoneEvent) => void;
   onError?: (err: AiStreamErrorEvent) => void;
 };

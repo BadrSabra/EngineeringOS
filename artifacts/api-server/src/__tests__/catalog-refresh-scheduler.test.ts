@@ -54,7 +54,7 @@ import { logger } from "../lib/logger.js";
 const mockRefresh = refreshDynamicCatalog as ReturnType<typeof vi.fn>;
 const mockAudit   = auditStaticCatalog   as ReturnType<typeof vi.fn>;
 const mockDecrypt  = decryptApiKey        as ReturnType<typeof vi.fn>;
-const mockDb       = db                   as { select: ReturnType<typeof vi.fn> };
+const mockDb       = db                   as unknown as { select: ReturnType<typeof vi.fn> };
 
 function makeDbChain(row: unknown) {
   const chain = {
@@ -175,7 +175,7 @@ describe("startCatalogRefreshScheduler", () => {
     const getKey = vi.fn().mockResolvedValue("sk-or-test");
     const { stop } = startCatalogRefreshScheduler({ intervalMs: 1_000, getKey });
     // Flush the immediate async call
-    await vi.runAllMicrotasksAsync();
+    await vi.advanceTimersByTimeAsync(0);
     expect(mockRefresh).toHaveBeenCalledTimes(1);
     stop();
   });
@@ -183,15 +183,13 @@ describe("startCatalogRefreshScheduler", () => {
   it("fires again after each interval", async () => {
     const getKey = vi.fn().mockResolvedValue("sk-or-test");
     const { stop } = startCatalogRefreshScheduler({ intervalMs: 1_000, getKey });
-    await vi.runAllMicrotasksAsync(); // immediate call
+    await vi.advanceTimersByTimeAsync(0); // immediate call
     expect(mockRefresh).toHaveBeenCalledTimes(1);
 
-    vi.advanceTimersByTime(1_000);
-    await vi.runAllMicrotasksAsync();
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(mockRefresh).toHaveBeenCalledTimes(2);
 
-    vi.advanceTimersByTime(1_000);
-    await vi.runAllMicrotasksAsync();
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(mockRefresh).toHaveBeenCalledTimes(3);
 
     stop();
@@ -200,11 +198,10 @@ describe("startCatalogRefreshScheduler", () => {
   it("stop() prevents further refreshes", async () => {
     const getKey = vi.fn().mockResolvedValue("sk-or-test");
     const { stop } = startCatalogRefreshScheduler({ intervalMs: 1_000, getKey });
-    await vi.runAllMicrotasksAsync(); // immediate call
+    await vi.advanceTimersByTimeAsync(0); // immediate call
     stop();
 
-    vi.advanceTimersByTime(5_000);
-    await vi.runAllMicrotasksAsync();
+    await vi.advanceTimersByTimeAsync(5_000);
     // Only the initial call; no interval calls after stop
     expect(mockRefresh).toHaveBeenCalledTimes(1);
   });
@@ -212,7 +209,7 @@ describe("startCatalogRefreshScheduler", () => {
   it("logs startup and stop messages", async () => {
     const getKey = vi.fn().mockResolvedValue(undefined);
     const { stop } = startCatalogRefreshScheduler({ intervalMs: 1_000, getKey });
-    await vi.runAllMicrotasksAsync();
+    await vi.advanceTimersByTimeAsync(0);
     const startLog = (logger.info as ReturnType<typeof vi.fn>).mock.calls.find((c) =>
       JSON.stringify(c).includes("scheduler started"),
     );
