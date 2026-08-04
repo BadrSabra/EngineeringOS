@@ -31,6 +31,8 @@ import {
   recordInvalidModel,
   recordLatency,
   recordFallbackSuccess,
+  enrichContextWithMemories,
+  writeSessionMemories,
 } from "@workspace/ai-orchestrator";
 import { logger } from "../../lib/logger.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
@@ -149,6 +151,11 @@ router.post("/ai/chat", async (req, res) => {
     const projectContext = await buildProjectContext(projectId, {
       sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
     });
+    // Enrich context with cross-session memories (outside cache; always fresh).
+    // Failure is non-fatal — agent proceeds without memory context.
+    await enrichContextWithMemories(projectContext, projectId).catch((err) => {
+      logger.warn({ err, projectId }, "memory-enrich: failed to load session memories");
+    });
     let result: Awaited<ReturnType<typeof chat>>;
     try {
       const chatOut = await chatWithFallback(
@@ -235,6 +242,11 @@ router.post("/ai/chat", async (req, res) => {
         .set({ updatedAt: msgNow })
         .where(eq(aiChatSessionsTable.id, sessionIdToUse));
       return msg;
+    });
+
+    // Fire-and-forget memory write — must not block the JSON response.
+    writeSessionMemories(sessionIdToUse, projectId, result.sources, result.response).catch((err) => {
+      logger.warn({ err, projectId }, "memory-write: failed to persist session memories");
     });
 
     return res.json({
@@ -341,6 +353,10 @@ router.post("/ai/chat/stream", async (req, res) => {
     sse({ type: "stage", stage: "building-context" });
     const projectContext = await buildProjectContext(projectId, {
       sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events", "workflows"],
+    });
+    // Enrich with cross-session memories (outside cache; always fresh).
+    await enrichContextWithMemories(projectContext, projectId).catch((err) => {
+      logger.warn({ err, projectId }, "memory-enrich: failed to load session memories (stream)");
     });
 
     sse({ type: "stage", stage: "calling-model" });
@@ -588,6 +604,11 @@ router.post("/ai/chat/stream", async (req, res) => {
         .set({ updatedAt: msgNow })
         .where(eq(aiChatSessionsTable.id, sessionIdToUse));
       return msg;
+    });
+
+    // Fire-and-forget memory write — must not block the SSE done event.
+    writeSessionMemories(sessionIdToUse, projectId, result.sources, result.response).catch((err) => {
+      logger.warn({ err, projectId }, "memory-write: failed to persist session memories (stream)");
     });
 
     // PR-010: surface latency and model info in done event.

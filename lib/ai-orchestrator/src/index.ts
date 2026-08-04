@@ -71,6 +71,16 @@ export type {
   ModelDecisionTrace,
 } from "./openrouter/index.js";
 
+export {
+  fetchSessionMemories,
+  writeSessionMemories,
+  enrichContextWithMemories,
+  formatMemoriesForPrompt,
+  sweepExpiredMemories,
+  startMemorySweep,
+} from "./session-memory.js";
+export type { MemoryRow } from "./session-memory.js";
+
 export { analyzeScan } from "./agents/scan-analyst.js";
 export type { ScanAnalysisResult } from "./agents/scan-analyst.js";
 

@@ -88,6 +88,12 @@ The knowledge graph above is a pre-extracted index of code entities (functions, 
     // Relevance hint: surface the most query-relevant entities at the top of the
     // tool reasoning so the model starts focused rather than exploring broadly.
     focusHint ? `**Query focus — start here:** ${focusHint}` : null,
+    // Session memory: files and summaries from prior sessions — injected only
+    // when the project has recorded session memories.  Do not re-read cached
+    // files unless you need updated content; use the paths as starting hints.
+    context.sessionMemories
+      ? promptSection("Prior session memory (from previous chats)", context.sessionMemories)
+      : null,
     buildChatToolSection(hasTools),
     buildChatRulesBlock(streamingMode),
   );

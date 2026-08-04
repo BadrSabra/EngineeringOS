@@ -387,6 +387,41 @@ export async function chat(opts: {
     }
   }
 
+  // ── Memory-seeded prefetch ────────────────────────────────────────────────
+  // Parse file paths recorded in prior session memories and pre-load them so
+  // the model starts with cached content on the first iteration instead of
+  // spending real tool calls re-reading files it already analysed.
+  //
+  // File paths are embedded in projectContext.sessionMemories as bullet lines
+  // of the form "  • <path>" by session-memory.ts#formatMemoriesForPrompt.
+  if (rootPath && tools != null && projectContext.sessionMemories) {
+    const memoryPaths: string[] = [];
+    const bulletRe = /•\s+([\w\-./@]+\.[a-zA-Z]{2,8})/g;
+    let bm: RegExpExecArray | null;
+    while ((bm = bulletRe.exec(projectContext.sessionMemories)) !== null) {
+      if (bm[1]) memoryPaths.push(bm[1]);
+    }
+    if (memoryPaths.length > 0) {
+      const memPrefetch = await prefetchFileList({
+        files: memoryPaths,
+        rootPath,
+        pendingChanges,
+        toolCacheKeyFn: toolCacheKey,
+      }).catch(() => ({
+        injectedMessages: [] as typeof messages,
+        sources: [] as string[],
+        cacheEntries: [] as Array<{ key: string; content: string }>,
+      }));
+      if (memPrefetch.injectedMessages.length > 0) {
+        messages.push(...memPrefetch.injectedMessages);
+        prefetchSources.push(...memPrefetch.sources);
+        for (const entry of memPrefetch.cacheEntries) {
+          toolCallCache.set(entry.key, entry.content);
+        }
+      }
+    }
+  }
+
   // ── Query planner ─────────────────────────────────────────────────────────
   // A single fast-model call (≤ 5 s) that estimates the query's scope, which
   // files are most relevant, and how many iterations the tool loop will need.

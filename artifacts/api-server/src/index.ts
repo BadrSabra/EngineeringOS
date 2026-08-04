@@ -9,6 +9,7 @@ import {
   setInvalidationNotifier,
   startContextInvalidationChannel,
   validateAiProvidersAtStartup,
+  startMemorySweep,
 } from "@workspace/ai-orchestrator";
 import { startCatalogRefreshScheduler } from "./lib/catalog-refresh-scheduler";
 
@@ -133,4 +134,9 @@ app.listen(port, (err) => {
   // Handles scan jobs that get stuck while the process is running (not just
   // crash-recovery, which is covered by reconcileStuckJobs above).
   startStaleJobSweep();
+
+  // Start the session-memory sweep — prunes expired/decayed memory rows and
+  // applies daily relevance decay.  Runs every 6 hours; fires once immediately
+  // at startup to clear any backlog from a restart.
+  startMemorySweep();
 });

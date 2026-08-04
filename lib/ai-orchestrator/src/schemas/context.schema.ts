@@ -21,6 +21,12 @@ export const AgentContextSchema = z
     workflows: z.string().min(1),
     /** Structural flag: true only when a real scan has completed successfully. */
     metricsVerified: z.boolean(),
+    /**
+     * Optional: formatted text summarising files and findings from previous
+     * chat sessions for this project, injected via the session-memory layer.
+     * Present only when the project has prior session memories.
+     */
+    sessionMemories: z.string().optional(),
   })
   .strict();
 
