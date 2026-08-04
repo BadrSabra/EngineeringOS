@@ -1,0 +1,27 @@
+#6 - Knowledge-Graph Guided Query Planning
+What & Why
+The query planner (already implemented) decides which files to read based on the user's message text alone. The project already has a knowledge engine (lib/knowledge-engine) with BFS, neighbourhood queries, and centrality inference — but the planner doesn't use it. When the user asks about an entity that exists in the graph ("what calls AuthService?", "what depends on the payments module?"), the planner guesses file paths from the message; the graph already knows the exact answer.
+
+This task wires the knowledge engine into the query planner's enrichment step, reducing random file exploration by ~70% for entity-centric queries (per ICML 2025 KG-RAG findings).
+
+Done looks like
+When a project has a populated knowledge graph, the query planner enriches its targetFiles list with files discovered from the graph neighbourhood of mentioned entities
+Queries that name specific modules, functions, or files resolve to the correct files on the first tool call instead of discovering them via grep
+Queries on projects with no graph data fall back to the existing text-based plan silently
+The enrichment adds at most 15 files total and completes within 2 seconds (hard timeout)
+Out of scope
+Populating the knowledge graph (that's the scanner's job)
+Graph-guided navigation for non-chat agents
+UI showing which graph nodes informed the plan
+Steps
+Entity extraction — In lib/ai-orchestrator/src/agents/query-planner.ts, after the fast planner LLM call returns a QueryPlan, extract entity candidates from plan.targetEntities (already populated by the planner).
+Graph enrichment function — Add enrichPlanWithGraph(plan, projectId) in the same file. It calls searchNodes(projectId, plan.targetEntities) from @workspace/knowledge-engine, then getNeighbourhood (depth 2) on the top 5 results, extracts sourcePath from the returned nodes, and merges up to 15 unique paths into plan.targetFiles. Wrap the whole call in Promise.race against a 2-second timeout that resolves to the original plan.
+Integration — In planQuery, call enrichPlanWithGraph after the LLM parse step and before returning. Only call it when projectId is provided and the project's scan job count > 0 (check via the context's scanJobCount field to avoid graph queries on un-scanned projects).
+Speculative-prefetch hand-off — The enriched targetFiles list is already forwarded to speculative-prefetch in chat-agent.ts; verify this path works with the now-larger file list and cap prefetch to 10 files if needed.
+Tests — Add a test that mocks searchNodes/getNeighbourhood and verifies graph-sourced paths appear in the final plan's targetFiles, and that a timeout in the graph call still returns the original plan.
+Relevant files
+lib/ai-orchestrator/src/agents/query-planner.ts
+lib/ai-orchestrator/src/agents/chat-agent.ts:395-445
+lib/ai-orchestrator/src/agents/speculative-prefetch.ts
+lib/ai-orchestrator/src/context-loader.ts
+lib/ai-orchestrator/src/__tests__/

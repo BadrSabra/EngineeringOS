@@ -1,0 +1,34 @@
+#5 - Hierarchical Execution for Broad Tasks
+What & Why
+When a user asks something that spans many files — "summarise the backlog", "review the whole architecture", "what's the status of every open PR?" — the current agent runs a single tool loop that hits its iteration budget before finishing. The query planner (already implemented) correctly identifies these as scopeEstimate: "broad" and emits subQueries, but the chat agent currently ignores the sub-queries and runs one big loop anyway.
+
+This task wires up a hierarchical executor (inspired by ReAcTree, arXiv:2511.02424): each sub-query from the planner runs its own small, focused tool loop (5–8 iterations), then a final synthesiser pass combines all results into one answer — no single loop ever exhausts its budget.
+
+Done looks like
+A new HierarchicalExecutor runs when scopeEstimate === "broad" and subQueries.length >= 2
+Each sub-query completes in its own bounded loop; partial results are preserved even if one sub-loop hits its limit
+The final synthesised answer is coherent and cites sources from all sub-loops
+Simple/narrow queries are unaffected — the existing single-loop path is used as before
+The "summarise backlog" class of queries that previously returned exhausted now completes successfully
+Out of scope
+Recursive nesting (sub-queries spawning their own sub-queries)
+Parallel sub-loop execution (serial is fine for now; parallel is a future optimisation)
+UI progress streaming per sub-query
+Steps
+Hierarchical executor module — Create lib/ai-orchestrator/src/agents/hierarchical-executor.ts exporting executeHierarchical(tasks, opts). Each HierarchicalTask carries an intent string, a list of targetPaths, and a maxIter budget (5–8). The function runs each task's tool loop in series, collects {result, toolSources} per task, then runs one final synthesis call (no tools, just text) that receives all partial results and returns the combined answer.
+Chat-agent integration — In lib/ai-orchestrator/src/agents/chat-agent.ts, after planQuery returns, check plan.scopeEstimate === "broad" && plan.subQueries.length >= 2. When true, delegate to executeHierarchical instead of executeToolLoop. Map each SubQuery from the plan to a HierarchicalTask with maxIter = 7.
+Tool-source merging — Ensure the merged toolSources from all sub-loops are deduplicated and returned in the ChatOutput so the dashboard can show all file sources used.
+Fallback — If executeHierarchical itself throws, fall back to the standard single-loop path so broad queries never produce a hard error.
+Tests — Add a test in lib/ai-orchestrator/src/__tests__/ that mocks the tool loop and verifies the hierarchical path is taken for broad plans and that synthesiser is called with all sub-results.
+Relevant files
+lib/ai-orchestrator/src/agents/chat-agent.ts:400-480
+lib/ai-orchestrator/src/agents/query-planner.ts
+lib/ai-orchestrator/src/tool-execution-engine.ts
+lib/ai-orchestrator/src/index.ts
+lib/ai-orchestrator/src/__tests__/chat-agent.test.ts
+
+
+
+
+
+

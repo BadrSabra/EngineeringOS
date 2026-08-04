@@ -54,6 +54,7 @@ import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js"
 import { speculativePrefetch, prefetchFileList } from "./speculative-prefetch.js";
 import { planQuery, type QueryPlan } from "./query-planner.js";
 import { toolCacheKey, executeToolLoop, BUDGET_BY_SCOPE } from "../tool-execution-engine.js";
+import { executeHierarchical } from "./hierarchical-executor.js";
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 export type { ChatOutput };
@@ -478,6 +479,70 @@ export async function chat(opts: {
           : baseBudget.maxToolCalls,
       }
     : baseBudget;
+
+  // ── Hierarchical execution for broad queries ──────────────────────────────
+  // arXiv:2511.02424 ReAcTree: when the planner identifies ≥ 2 sub-queries,
+  // each runs in its own bounded tool loop (maxIter = 7) so no single loop
+  // exhausts its iteration budget on a codebase-wide question.
+  // The final synthesiser pass combines all sub-results into one answer.
+  // On any failure this block is skipped and the standard single-loop path
+  // continues — broad queries never hard-fail.
+  if (
+    queryPlan?.scopeEstimate === "broad" &&
+    queryPlan.subQueries.length >= 2 &&
+    tools != null &&
+    rootPath
+  ) {
+    try {
+      const hierarchicalTasks = queryPlan.subQueries.map((q) => ({
+        intent: q,
+        targetPaths: queryPlan.targetFiles,
+        maxIter: 7,
+      }));
+
+      const hierarchicalResult = await executeHierarchical(hierarchicalTasks, {
+        systemPrompt: messages[0].content as string,
+        strategy,
+        model,
+        powerModel,
+        provider: providerId,
+        apiKey: apiKey ?? undefined,
+        tools,
+        rootPath,
+        pendingChanges,
+        cache: toolCallCache,
+      });
+
+      const mergedSources = [
+        ...prefetchSources,
+        ...hierarchicalResult.toolSources,
+      ];
+
+      if (onDelta) {
+        const words = hierarchicalResult.response.split(/(\s+)/);
+        for (const chunk of words) {
+          if (chunk) onDelta(chunk);
+        }
+      }
+
+      return {
+        response:
+          hierarchicalResult.response ||
+          "The analysis was too broad to complete. Try breaking your question into more specific parts.",
+        sources: mergedSources,
+        pendingChanges,
+      };
+    } catch (hierarchicalErr) {
+      // Fall through to the standard single-loop path.
+      console.warn(
+        JSON.stringify({
+          scope: "chat-agent",
+          code: "HIERARCHICAL_EXECUTOR_FALLBACK",
+          reason: hierarchicalErr instanceof Error ? hierarchicalErr.message : String(hierarchicalErr),
+        }),
+      );
+    }
+  }
 
   // ── Agentic tool loop ─────────────────────────────────────────────────────
   // Delegates iteration budget, per-call budget, cache keying, tool dispatch,
