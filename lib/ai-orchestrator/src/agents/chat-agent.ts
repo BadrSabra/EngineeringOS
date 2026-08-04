@@ -297,6 +297,12 @@ export async function chat(opts: {
   projectContext: ProjectContext;
   /** Absolute path to the project root on disk. Activates file-system tools when provided. */
   rootPath?: string;
+  /**
+   * The project ID from the database.  When provided and the project has a
+   * completed scan (projectContext.metricsVerified = true), the query planner
+   * will enrich its targetFiles list with paths from the knowledge graph.
+   */
+  projectId?: string;
   /** Optional per-user API key for the selected provider. */
   apiKey?: string;
   /** AI provider to use. Defaults to "groq". */
@@ -316,7 +322,7 @@ export async function chat(opts: {
    */
   onStreamReset?: () => void;
 }): Promise<ChatResult> {
-  const { message, history, projectContext, rootPath, apiKey, provider = "groq", onDelta, onStreamReset } = opts;
+  const { message, history, projectContext, rootPath, projectId, apiKey, provider = "groq", onDelta, onStreamReset } = opts;
 
   const executionPlan = resolveExecutionDecision(
     rootPath && requiresToolExecution(message) ? "task_execution" : "chat",
@@ -442,6 +448,7 @@ export async function chat(opts: {
       model: modelDecision.model,
       strategy,
       apiKey: apiKey ?? undefined,
+      projectId,
     }).catch(() => null);
 
     // Pre-seed the cache with files identified by the planner.

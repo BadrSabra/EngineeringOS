@@ -266,6 +266,8 @@ export async function chatWithFallback(
     history: { role: "user" | "assistant"; content: string }[];
     projectContext: Awaited<ReturnType<typeof buildProjectContext>>;
     rootPath: string | undefined;
+    /** When provided (with a scanned project), enables knowledge-graph query planning. */
+    projectId?: string;
   },
   initialProvider: { provider: ProviderId; apiKey: string },
   onDelta?: (delta: string) => void,

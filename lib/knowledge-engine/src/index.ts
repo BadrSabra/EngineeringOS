@@ -40,6 +40,7 @@ export {
   getShortestPath,
   getNeighborhood,
   fetchProjectGraph,
+  searchNodes,
   // Knowledge Graph 2.0
   getEdgesByType,
   getEvidenceForNode,

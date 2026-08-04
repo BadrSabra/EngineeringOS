@@ -4,7 +4,7 @@
  * All functions are pure async — they take a db instance and return typed
  * results. No side effects, no writes. Safe to call from any context.
  */
-import { eq, inArray, and, gte, isNotNull, SQL } from "drizzle-orm";
+import { eq, inArray, and, gte, isNotNull, desc, SQL } from "drizzle-orm";
 import {
   db as DbType,
   graphEntitiesTable,
@@ -338,6 +338,46 @@ export async function getNeighborhood(
       ...new Map(allRelationships.map((r) => [r.id, r])).values(),
     ],
   };
+}
+
+// ─── Entity search ────────────────────────────────────────────────────────────
+
+/**
+ * Search for graph entities by name within a project.
+ *
+ * Fetches entities for the project (ordered by confidence desc) and returns
+ * those whose name case-insensitively contains any of the requested names, or
+ * vice-versa. Up to 20 results are returned.
+ *
+ * Used by the AI query planner to resolve entity names from the LLM's
+ * `targetEntities` list into real DB rows before neighbourhood traversal.
+ */
+export async function searchNodes(
+  db: Db,
+  projectId: string,
+  entityNames: string[],
+): Promise<GraphEntity[]> {
+  if (entityNames.length === 0) return [];
+
+  // Normalise candidates once — avoids repeated .toLowerCase() in the loop.
+  const lower = entityNames.map((n) => n.toLowerCase());
+
+  const rows = await db
+    .select()
+    .from(graphEntitiesTable)
+    .where(eq(graphEntitiesTable.projectId, projectId))
+    .orderBy(desc(graphEntitiesTable.confidence))
+    .limit(200);
+
+  const matches: GraphEntity[] = [];
+  for (const row of rows) {
+    if (matches.length >= 20) break;
+    const rowName = row.name.toLowerCase();
+    if (lower.some((n) => rowName.includes(n) || n.includes(rowName))) {
+      matches.push(row);
+    }
+  }
+  return matches;
 }
 
 // ─── Project-level graph query ────────────────────────────────────────────────

@@ -26,6 +26,8 @@
  *     all resolve to FALLBACK_PLAN.
  */
 
+import { db } from "@workspace/db";
+import { searchNodes, getNeighborhood } from "@workspace/knowledge-engine";
 import type { ProjectContext } from "../context-builder.js";
 import type { ProviderStrategy } from "../provider-strategy.js";
 import type { RawMessage } from "../groq-client.js";
@@ -58,6 +60,10 @@ const PLANNER_TIMEOUT_MS = 5_000;
 const MAX_GRAPH_CHARS = 3_000;
 const MAX_TARGET_FILES = 10;
 const MAX_SUBQUERIES = 5;
+/** Hard cap on files added by graph enrichment (task spec: ≤ 15 total). */
+const MAX_GRAPH_FILES = 15;
+/** Hard timeout for the graph enrichment step (task spec: ≤ 2 seconds). */
+const GRAPH_ENRICH_TIMEOUT_MS = 2_000;
 
 /**
  * Returned whenever planning fails (timeout, parse error, model error).
@@ -152,6 +158,103 @@ function parsePlannerResponse(raw: string | null): QueryPlan | null {
   }
 }
 
+// ── Graph enrichment ──────────────────────────────────────────────────────────
+
+/**
+ * Enrich a QueryPlan's targetFiles with paths discovered from the knowledge
+ * graph neighbourhood of the plan's targetEntities.
+ *
+ * Design:
+ *   1. Search the graph for entities matching the planner's targetEntities.
+ *   2. Run getNeighborhood (depth 2) on the top 5 matching entities.
+ *   3. Collect the `path` field from every neighbour entity.
+ *   4. Merge unique paths into targetFiles (total cap: MAX_GRAPH_FILES).
+ *   5. The whole call is raced against a 2-second hard timeout — if the graph
+ *      query is slow or the DB is unavailable the original plan is returned
+ *      unchanged, so enrichment never blocks the main request.
+ *
+ * Only called when projectId is provided AND the project has a completed scan
+ * (indicated by projectContext.metricsVerified).
+ */
+async function enrichPlanWithGraph(
+  plan: QueryPlan,
+  projectId: string,
+): Promise<QueryPlan> {
+  if (plan.targetEntities.length === 0) return plan;
+
+  const enrichAsync = async (): Promise<QueryPlan> => {
+    // Step 1: search the graph for matching entities.
+    const matches = await searchNodes(db, projectId, plan.targetEntities);
+    if (matches.length === 0) return plan;
+
+    // Step 2: neighbourhood traversal on the top 5 candidates.
+    const top5 = matches.slice(0, 5);
+    const neighbourResults = await Promise.all(
+      top5.map((entity) =>
+        getNeighborhood(db, entity.id, 2).catch(() => null),
+      ),
+    );
+
+    // Step 3: collect paths from all discovered entities.
+    const graphPaths = new Set<string>();
+
+    // Include root entities' own paths.
+    for (const entity of top5) {
+      if (entity.path) graphPaths.add(entity.path);
+    }
+
+    for (const result of neighbourResults) {
+      if (!result) continue;
+      if (result.root?.path) graphPaths.add(result.root.path);
+      for (const entity of result.entities) {
+        if (entity.path) graphPaths.add(entity.path);
+      }
+    }
+
+    if (graphPaths.size === 0) return plan;
+
+    // Step 4: merge with existing targetFiles, cap at MAX_GRAPH_FILES.
+    const existing = new Set(plan.targetFiles);
+    const merged = [...plan.targetFiles];
+
+    for (const p of graphPaths) {
+      if (merged.length >= MAX_GRAPH_FILES) break;
+      if (!existing.has(p)) {
+        merged.push(p);
+        existing.add(p);
+      }
+    }
+
+    console.info(
+      JSON.stringify({
+        scope: "query-planner",
+        code: "GRAPH_ENRICH_DONE",
+        projectId,
+        addedFiles: merged.length - plan.targetFiles.length,
+        totalFiles: merged.length,
+      }),
+    );
+
+    return { ...plan, targetFiles: merged };
+  };
+
+  const timeout = new Promise<QueryPlan>((resolve) =>
+    setTimeout(() => {
+      console.warn(
+        JSON.stringify({
+          scope: "query-planner",
+          code: "GRAPH_ENRICH_TIMEOUT",
+          projectId,
+          timeoutMs: GRAPH_ENRICH_TIMEOUT_MS,
+        }),
+      );
+      resolve(plan);
+    }, GRAPH_ENRICH_TIMEOUT_MS),
+  );
+
+  return Promise.race([enrichAsync().catch(() => plan), timeout]);
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 /**
@@ -168,8 +271,14 @@ export async function planQuery(opts: {
   model: string;
   strategy: ProviderStrategy;
   apiKey?: string;
+  /**
+   * When provided alongside a scanned project (metricsVerified = true),
+   * enrichPlanWithGraph() augments targetFiles with paths discovered from
+   * the knowledge graph neighbourhood of targetEntities.
+   */
+  projectId?: string;
 }): Promise<QueryPlan> {
-  const { message, projectContext, model, strategy, apiKey } = opts;
+  const { message, projectContext, model, strategy, apiKey, projectId } = opts;
 
   const plannerPrompt = buildPlannerPrompt(message, projectContext.graphSummary);
   const messages: RawMessage[] = [
@@ -224,17 +333,27 @@ export async function planQuery(opts: {
     return FALLBACK_PLAN;
   }
 
+  // ── Graph enrichment ───────────────────────────────────────────────────────
+  // Only enrich when we have a project ID and the project has a completed scan
+  // (metricsVerified = true).  Skipping on un-scanned projects avoids wasted
+  // DB queries against an empty graph.
+  const enriched =
+    projectId && projectContext.metricsVerified
+      ? await enrichPlanWithGraph(plan, projectId)
+      : plan;
+
   console.info(
     JSON.stringify({
       scope: "query-planner",
       code: "PLAN_READY",
-      scopeEstimate: plan.scopeEstimate,
-      suggestedIterations: plan.suggestedIterations,
-      targetFileCount: plan.targetFiles.length,
-      subQueryCount: plan.subQueries.length,
-      requiresToolUse: plan.requiresToolUse,
+      scopeEstimate: enriched.scopeEstimate,
+      suggestedIterations: enriched.suggestedIterations,
+      targetFileCount: enriched.targetFiles.length,
+      graphEnriched: enriched.targetFiles.length > plan.targetFiles.length,
+      subQueryCount: enriched.subQueries.length,
+      requiresToolUse: enriched.requiresToolUse,
     }),
   );
 
-  return plan;
+  return enriched;
 }
