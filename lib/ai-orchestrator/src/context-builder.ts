@@ -13,7 +13,7 @@
  * All budget enforcement is delegated to the Admission Engine.
  */
 import type { AgentContext } from "./schemas/context.schema.js";
-import { buildContextCacheKey, getCachedContext, setCachedContext } from "./context-cache-manager.js";
+import { buildContextCacheKey, getCachedContext, setCachedContext, hashExecutionPlan } from "./context-cache-manager.js";
 import { loadProjectContext, type BuildProjectContextOptions, type ContextLoadSection } from "./context-loader.js";
 import { buildProjectContextFromLoadedContext } from "./context-serializer.js";
 import { resolveExecutionDecision } from "./model-selection/decision-engine.js";
@@ -26,7 +26,7 @@ import {
 } from "./context-runtime/context-object.js";
 import { runAdmission } from "./context-runtime/context-admission.js";
 
-export { invalidateContextCache, setInvalidationNotifier, startContextInvalidationChannel } from "./context-cache-manager.js";
+export { invalidateContextCache, invalidateContextSlice, hashExecutionPlan, setInvalidationNotifier, startContextInvalidationChannel } from "./context-cache-manager.js";
 export type { BuildProjectContextOptions, ContextLoadSection } from "./context-loader.js";
 
 /** The context object every agent prompt is built from. Shape enforced by AgentContextSchema. */
@@ -101,15 +101,17 @@ export async function buildProjectContext(
   projectId: string,
   options: BuildContextOptions = {},
 ): Promise<ProjectContext> {
-  const cacheKey = buildContextCacheKey(projectId, options.sections);
-  const now = Date.now();
-  const cached = getCachedContext(cacheKey);
-  if (cached && cached.expiresAt > now) return cached.data;
-
-  // Resolve execution plan: use caller-supplied plan or fall back to normal intensity.
+  // Resolve execution plan first — its hash is part of the cache key so plan
+  // changes (e.g. switching context intensity) produce distinct cache entries.
   const effectivePlan = options.plan ?? resolveExecutionDecision("chat-agent", {
     contextIntensityOverride: "normal",
   });
+
+  const planHash = hashExecutionPlan(effectivePlan);
+  const cacheKey = buildContextCacheKey(projectId, options.sections, planHash);
+  const now = Date.now();
+  const cached = getCachedContext(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.data;
 
   // Load raw DB rows and serialize to prompt strings.
   const loaded = await loadProjectContext(projectId, options);

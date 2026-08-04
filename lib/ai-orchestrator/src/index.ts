@@ -39,6 +39,8 @@ export type { AgentParseResult } from "./parsing.js";
 export {
   buildProjectContext,
   invalidateContextCache,
+  invalidateContextSlice,
+  hashExecutionPlan,
   setInvalidationNotifier,
   startContextInvalidationChannel,
 } from "./context-builder.js";
@@ -51,6 +53,14 @@ export type { SliceMetadata } from "./context-loader.js";
 
 export { buildContextCacheKey, getCachedContext, setCachedContext } from "./context-cache-manager.js";
 export type { NotifyPool, NotifyPoolClient } from "./context-cache-manager.js";
+
+// Wave 2: context lifetime management
+export { applyLifetime, DEFAULT_LIFETIME_POLICY } from "./context-runtime/context-lifetime.js";
+export type { SliceLifetimePolicy, LifetimePolicy, SliceLifetimeState, LifetimeResult } from "./context-runtime/context-lifetime.js";
+
+// Wave 2: context snapshot & diff
+export { takeSnapshot, diffSnapshots, snapshotsContentEqual } from "./context-runtime/context-diff.js";
+export type { SliceFingerprint, ContextSnapshot, SliceChangeKind, SliceDelta, ContextDelta } from "./context-runtime/context-diff.js";
 export { loadProjectContext } from "./context-loader.js";
 export type { BuildProjectContextOptions, ContextLoadSection, LoadedProjectContext } from "./context-loader.js";
 export { buildProjectContextFromLoadedContext } from "./context-serializer.js";

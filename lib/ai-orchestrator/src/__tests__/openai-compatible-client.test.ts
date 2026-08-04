@@ -22,46 +22,6 @@ import { _resetForTest } from "../openrouter/dynamic-catalog.js";
 
 const baseMessages = [{ role: "user", content: "hello" } as const];
 
-// Helper: build a fake fetch that returns a fixed response for any model.
-function buildFetch(
-  responses: Array<{ model?: string; status: number; body?: string; ok?: boolean }>,
-) {
-  let callIndex = 0;
-  return vi.fn(async (_url: string | URL, init?: RequestInit) => {
-    const bodyObj = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
-    const requestModel = String(bodyObj.model ?? "");
-
-    // Find first matching entry
-    const match =
-      responses.find((r) => !r.model || r.model === requestModel) ??
-      responses[callIndex % responses.length];
-    callIndex++;
-
-    const status = match?.status ?? 200;
-    const body   = match?.body ?? "";
-    const ok     = match?.ok ?? (status >= 200 && status < 300);
-
-    if (ok) {
-      return {
-        ok: true,
-        status,
-        json: async () => ({
-          choices: [{ message: { content: '{"response":"ok"}' } }],
-          model: requestModel,
-          usage: { prompt_tokens: 1, completion_tokens: 1 },
-        }),
-        text: async () => "",
-      } as Response;
-    }
-
-    return {
-      ok: false,
-      status,
-      json: async () => ({}),
-      text: async () => body,
-    } as Response;
-  });
-}
 
 beforeEach(() => {
   _resetForTest(); // ensure dynamic catalog does not interfere
