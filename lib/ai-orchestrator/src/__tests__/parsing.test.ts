@@ -48,6 +48,28 @@ describe("extractJson", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe("MALFORMED_JSON");
   });
+
+  it("parses multiline JSON with structural newlines between tokens", () => {
+    // Regression: the old global \\n sanitizer converted structural newlines to
+    // literal backslash-n, making JSON.parse fail with "Expected property name
+    // or '}' at position 1".
+    const result = extractJson('{\n  "foo": "bar",\n  "count": 1\n}');
+    expect(result).toEqual({ ok: true, data: { foo: "bar", count: 1 } });
+  });
+
+  it("parses JSON where string values contain raw embedded newlines", () => {
+    // A string value containing a literal newline is not valid JSON on its own,
+    // but the second-pass sanitizer should fix it.
+    const raw = `{"foo": "line1\nline2","count":1}`;
+    const result = extractJson(raw);
+    expect(result).toEqual({ ok: true, data: { foo: "line1\nline2", count: 1 } });
+  });
+
+  it("parses multiline JSON wrapped in ```json fences (model output format)", () => {
+    const fenced = "```json\n{\n  \"foo\": \"bar\",\n  \"count\": 42\n}\n```";
+    const result = extractJson(fenced);
+    expect(result).toEqual({ ok: true, data: { foo: "bar", count: 42 } });
+  });
 });
 
 describe("parseAgentResponse", () => {

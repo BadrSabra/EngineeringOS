@@ -55,16 +55,31 @@ export function extractJson(raw: string): JsonExtractResult {
     candidate = candidate.slice(0, end + 1);
   }
 
-  // LLMs frequently embed bare control characters (newlines, tabs, carriage returns)
-  // inside JSON string values, which makes JSON.parse throw "Bad control character".
-  // JSON structural characters are all > \u001F, so replacing all control chars with
-  // their JSON escape sequences is safe and cannot break the JSON structure itself.
-  const sanitized = candidate.replace(/[\u0000-\u001F]/g, (ch) => {
-    if (ch === "\n") return "\\n";
-    if (ch === "\r") return "\\r";
-    if (ch === "\t") return "\\t";
-    return ""; // strip remaining non-printable control chars
-  });
+  // Pass 1: try JSON.parse directly. Structural whitespace (newlines, tabs) between
+  // tokens is valid JSON and must NOT be replaced — a global \n → \\n transform
+  // corrupts it (turning {↵ "key": ... } into {\\n "key": ... } which fails with
+  // "Expected property name or '}' at position 1").
+  try {
+    return { ok: true, data: JSON.parse(candidate) };
+  } catch {
+    // fall through — may be raw control chars embedded inside string values
+  }
+
+  // Pass 2: sanitize bare control characters that appear *inside JSON string literals*
+  // only. We match each string token and escape control chars within it; structural
+  // whitespace between tokens is left untouched.
+  //
+  // Pattern: "(?:[^"\\]|\\.)*"  matches a JSON string (quoted, with \" and \\ support).
+  // The 's' flag makes . match newlines so embedded literal newlines inside a string
+  // are captured and escaped, not left raw.
+  const sanitized = candidate.replace(/"(?:[^"\\]|\\.)*"/gs, (str) =>
+    str.replace(/[\u0000-\u001F]/g, (ch) => {
+      if (ch === "\n") return "\\n";
+      if (ch === "\r") return "\\r";
+      if (ch === "\t") return "\\t";
+      return ""; // strip remaining non-printable control chars
+    }),
+  );
 
   try {
     return { ok: true, data: JSON.parse(sanitized) };
