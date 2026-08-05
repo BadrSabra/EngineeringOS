@@ -1,0 +1,123 @@
+The user wants me to start the first task: "اعرض على المستخدم خطوات الوكيل مباشرةً أثناء تنفيذ المهام" (Show the user the agent's steps in real-time during task execution).
+
+The tasks were cancelled (not by an agent), so I need to work on this directly as a build task without an assigned task ref.
+
+Based on my earlier research, the plan is:
+
+Add onStep?: (step: AgentStep) => void to AgentCompleteOpts in agent-complete.ts
+Thread this callback through BaseAgent.run() → this.complete() → agentComplete() so each step gets reported
+Add SSE streaming to the task execution route or create a new SSE endpoint to push these steps to the frontend
+Add a progress indicator in the dashboard to display the agent's steps as they happen
+I need to examine the key files first to understand the current structure and where exactly to inject the callback mechanism.
+
+سأبدأ بقراءة الملفات الأساسية كلها معًا.
+
+Now I have a complete picture. Let me plan the implementation:
+
+Layer 1: lib/ai-orchestrator — Add onStep threading
+
+agent-complete.ts — Add onStep?: (step: AgentStep) => void to AgentCompleteOpts. But wait, agentComplete does single-shot completions, it doesn't call executeToolLoop. So onStep in agentComplete doesn't make sense for the single-shot path.
+Actually, looking more carefully: BaseAgent uses agentComplete which is a single-shot LLM call — no tool loop.
+
+The onStep callback is really for the tool execution loop in chat-agent.ts. Since the task agent does single-shot completions without a tool loop, I can't emit steps the same way. Instead, I should emit lifecycle events like "Building context", "Calling AI model" (with retry attempts), "Parsing response", and "Done" — these give meaningful progress signals without requiring a tool loop.
+
+Actually, there's a better approach: the backend already logs to taskLogsTable with messages like "AI agent execution started" and "Built project context — calling AI agent…". I can create an SSE endpoint that streams new log entries from taskLogsTable to the frontend in real-time. The frontend subscribes when a task is running and displays the logs as they arrive. This is cleaner than retrofitting onStep because the logging infrastructure already exists — I just need an SSE reader endpoint and can add more granular progress messages to the logging in tasks.ts. to quality checks, before model calls, and on retries. I'll add an onProgress callback to the agent's run options that writes these events to the task logs table. Then on the frontend, I need to create a live log viewer that connects to an SSE endpoint and displays messages as they stream in from the running task.
+
+Now I have everything I need. Let me quickly check the dashboard task pages before writing code.
+
+Now I have a complete picture. Let me look at the existing TaskLogsPanel in Tasks.tsx and the existing GET /api/tasks/:taskId/logs endpoint to understand what's already there, then plan the implementation.
+
+The dashboard already has:
+
+TaskLogsPanel component that polls taskLogsTable every 3 seconds
+useGetTaskLogs hook that calls the REST API
+The key missing piece: the polling approach means 3-second lag. I need to replace/enhance this with an SSE stream for real-time updates.
+
+Also looking at agent-complete.ts - it's purely single-shot.
+
+Since there's no tool loop, the AgentStep pattern doesn't apply here. What I actually need is an SSE endpoint for taskLogsTable to replace polling, plus more granular log entries during execution like "Calling AI model..." or "Retry attempt 2/3...". I can add an onProgress callback to AgentCompleteOpts that threads through BaseAgent.run() and writes to the logs, but the challenge is that BaseAgent.run() doesn't have direct access to taskLogsTable — the progress callback needs to be passed down from the route handler.
+
+The cleanest approach is adding onProgress to the options, calling it at key execution points like before model calls and retries, then having the route handler pass a callback that writes to taskLogsTable. For the SSE endpoint, I can use a simpler polling approach with a cursor tracking the last seen timestamp rather than relying on PostgreSQL's LISTEN/NOTIFY, which keeps things straightforward.
+
+Now I need to map out the changes: adding the callback to the agent options, instrumenting the base agent's run method, creating the SSE endpoint in the tasks route, and updating the frontend to subscribe to the stream instead of polling every three seconds. Let me check the existing tasks route structure first to see if there's already a logs endpoint I can build on.
+
+Now I have a complete picture. Let me plan the implementation:
+
+What exists already:
+
+TaskLogsPanel in Tasks.tsx polls every 3 seconds via useGetTaskLogs
+taskLogsTable already gets written to at key points in tasks.ts
+The SSE pattern exists in chat.ts (lines 335-656)
+AgentCompleteOpts has no onProgress callback
+BaseAgent.run() doesn't emit progress events
+What I'll build:
+
+Layer 1 — lib/ai-orchestrator — Add onProgress callback
+agent-complete.ts: Add onProgress?: (msg: string) => void to AgentCompleteOpts base-agent.ts: Thread onProgress through run() to emit status messages before the model call, before retries, and after successful parsing.
+
+Layer 2 — artifacts/api-server/src/routes/ai/tasks.ts
+Add SSE stream endpoint: GET /api/ai/tasks/:taskId/logs/stream that sets up server-sent events, sends existing logs from the table, and continues polling for new entries.
+
+The onProgress callback writes each message to taskLogsTable, while the SSE endpoint simply reads from that table — they're decoupled through the shared data store. When the task finishes or hits the 5-minute TTL, the stream closes.
+
+Layer 3 — artifacts/dashboard/src/pages/Tasks.tsx
+Update TaskLogsPanel to use the SSE stream while a task is running, then fall back to REST polling once it completes.
+
+Layer 4 — Export onProgress from @workspace/ai-orchestrator
+I need to verify that AgentCompleteOpts is exported from the main index, check the exact schema of task_logs, and review the existing logs endpoint to understand the query pattern.
+
+Now I'm ready to implement. The onProgress callback will be a simple (msg: string) => void, and the SSE endpoint will poll the database every 500ms using a cursor on createdAt.
+
+Now I have everything I need. Let me implement all the changes:
+
+Plan:
+
+Layer 1 — lib/ai-orchestrator/src/agent-complete.ts
+Add onProgress?: (msg: string) => void to AgentCompleteOpts
+
+Layer 2 — lib/ai-orchestrator/src/agents/base-agent.ts
+Thread onProgress through run():
+
+Before first model call: opts?.onProgress?.('Calling AI model…')
+Before retry: opts?.onProgress?.('Retrying — improving output quality…')
+Layer 3 — artifacts/api-server/src/routes/ai/tasks.ts
+I'm adding an SSE endpoint that streams task logs, checking auth and task existence first, then querying the logs table and sending updates as server-sent events.
+
+Layer 4 — artifacts/dashboard/src/pages/Tasks.tsx
+Replacing the polling mechanism with an SSE connection that listens for real-time updates while the task is running.
+
+Now I'll write all the code changes in parallel.
+
+Writing the SSE endpoint...
+
+Enough context — time to build. Four layers, all independent. Let me write them all in parallel.
+
+Now I have all the context I need. Let me implement all four layers:
+
+lib/ai-orchestrator/src/agent-complete.ts — Add onProgress?: (msg: string) => void to AgentCompleteOpts
+lib/ai-orchestrator/src/agents/base-agent.ts — Thread onProgress through run()
+artifacts/api-server/src/routes/ai/tasks.ts — Add SSE stream endpoint + pass onProgress
+artifacts/dashboard/src/pages/Tasks.tsx — Replace polling with SSE, and I need to check how the API URL is constructed in the frontend utilities first.
+Now I have all the context I need. Let me implement all the changes in parallel:
+
+Layer 1: lib/ai-orchestrator/src/agent-complete.ts
+
+Add onProgress?: (msg: string) => void to AgentCompleteOpts
+Layer 2: lib/ai-orchestrator/src/agents/base-agent.ts
+
+Thread onProgress through run() - emit before model call, before retry
+Layer 3: artifacts/api-server/src/routes/ai/tasks.ts
+
+Add SSE endpoint GET /api/ai/tasks/:taskId/logs/stream
+Pass onProgress to executeTask in both manual and auto-trigger paths
+Layer 4: artifacts/dashboard/src/pages/Tasks.tsx
+
+Replace polling with SSE when task is running, falling back to REST for historical logs
+For the SSE endpoint, I'm checking auth, setting proper headers, sending existing logs immediately, then polling every 500ms for new entries with a timestamp cursor while watching task status to close when complete, with a 5-minute TTL
+I need to check how the frontend determines the base path since api-fetch.ts uses relative paths
+, but clerk.ts shows the pattern of using import.meta.env.BASE_URL to construct full API URLs
+
+The SSE endpoint won't be in the OpenAPI spec since it's not standard REST, so I'll construct the URL directly in the component, following the pattern already used in AiChat.tsx for chat streaming
+I need to check how AiChat.tsx connects to the chat stream endpoint to match that URL format for the task logs stream
+One more check — how the existing chat SSE is consumed in the frontend.
+

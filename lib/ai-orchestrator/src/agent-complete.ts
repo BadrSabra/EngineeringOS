@@ -32,6 +32,13 @@ export type AgentCompleteOpts = {
   qualityProfile?: QualityProfile;
   /** Optional explicit capability hints override. */
   qualityHints?: ProviderCapabilityHints;
+  /**
+   * Optional progress callback. Called at key execution milestones (model call,
+   * retry) so callers can stream status updates to the user in real-time.
+   * The callback may be async; errors are silently swallowed to keep the agent
+   * pipeline stable.
+   */
+  onProgress?: (msg: string) => void | Promise<void>;
 };
 
 function requireApiKey(provider: ProviderConfig, apiKey?: string): string {

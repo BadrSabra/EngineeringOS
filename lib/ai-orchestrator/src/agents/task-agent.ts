@@ -7,7 +7,7 @@ import { buildTaskAgentSystemPrompt, buildTaskAgentUserPrompt } from "../prompts
 import { TaskRecommendationSchema, type TaskAgentOutput } from "../schemas/task.schema.js";
 import type { Message } from "../groq-client.js";
 import { BaseAgent, type AgentRunResult } from "./base-agent.js";
-import type { ProviderId } from "../agent-complete.js";
+import type { ProviderId, AgentCompleteOpts } from "../agent-complete.js";
 
 export type TaskAgentInput = {
   taskTitle: string;
@@ -59,6 +59,6 @@ class TaskAgent extends BaseAgent<TaskAgentInput, TaskAgentOutput> {
 
 const taskAgent = new TaskAgent();
 
-export async function executeTask(input: TaskAgentInput): Promise<TaskAgentResult> {
-  return taskAgent.run(input);
+export async function executeTask(input: TaskAgentInput, opts?: Pick<AgentCompleteOpts, 'onProgress'>): Promise<TaskAgentResult> {
+  return taskAgent.run(input, opts);
 }

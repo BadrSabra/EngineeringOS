@@ -130,6 +130,19 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
     correlationId,
   });
 
+  const writeProgress = async (msg: string) => {
+    try {
+      await db.insert(taskLogsTable).values({
+        id: randomUUID(),
+        taskId,
+        level: "info",
+        message: msg,
+        metadata: { stage: "progress", correlationId },
+        correlationId,
+      });
+    } catch { /* swallow — progress logs are best-effort */ }
+  };
+
   let agentResult: Awaited<ReturnType<typeof executeTask>>;
   let effectiveProvider = provider;
   try {
@@ -144,7 +157,7 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
         relatedFiles: (task.relatedFiles as string[]) ?? [],
         projectContext,
         ...opts,
-      }),
+      }, { onProgress: writeProgress }),
       { qualityProfile: "task_execution" },
     ));
   } catch (err) {
@@ -412,6 +425,19 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
         correlationId,
       });
 
+      const writeAutoProgress = async (msg: string) => {
+        try {
+          await db.insert(taskLogsTable).values({
+            id: randomUUID(),
+            taskId,
+            level: "info",
+            message: msg,
+            metadata: { stage: "progress", correlationId },
+            correlationId,
+          });
+        } catch { /* best-effort */ }
+      };
+
       let agentResult: Awaited<ReturnType<typeof executeTask>>;
       try {
         ({ result: agentResult } = await runAgentWithFallback(
@@ -425,7 +451,7 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
             relatedFiles: (task.relatedFiles as string[]) ?? [],
             projectContext,
             ...opts,
-          }),
+          }, { onProgress: writeAutoProgress }),
           { qualityProfile: "task_execution" },
         ));
       } catch (execErr) {

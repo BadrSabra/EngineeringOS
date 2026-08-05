@@ -17,7 +17,7 @@ import {
   GetTaskLogsParams,
   ListTasksQueryParams,
 } from "@workspace/api-zod";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, gt, asc, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { recordAudit } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
@@ -578,6 +578,87 @@ router.get("/tasks/:taskId/logs", async (req, res) => {
     .where(eq(taskLogsTable.taskId, taskId))
     .orderBy(desc(taskLogsTable.timestamp));
   return res.json(logs);
+});
+
+// SSE: stream task logs in real-time while a task is running
+// GET /tasks/:taskId/logs/stream
+router.get("/tasks/:taskId/logs/stream", async (req, res) => {
+  const { taskId } = GetTaskLogsParams.parse(req.params);
+
+  const [task] = await db
+    .select()
+    .from(tasksTable)
+    .where(eq(tasksTable.id, taskId))
+    .limit(1);
+  if (!task) return res.status(404).json({ error: "Task not found" });
+
+  const _project = await loadProjectByIdForUser(task.projectId, req.userId, res);
+  if (!_project) return;
+
+  // Set SSE headers
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-store");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  const send = (event: string, data: unknown) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  // Send all existing logs immediately (oldest first)
+  const existing = await db
+    .select()
+    .from(taskLogsTable)
+    .where(eq(taskLogsTable.taskId, taskId))
+    .orderBy(asc(taskLogsTable.timestamp));
+  for (const log of existing) send("log", log);
+
+  // Track cursor as the latest timestamp seen
+  let cursor: Date = existing.length > 0
+    ? existing[existing.length - 1].timestamp
+    : new Date(0);
+
+  let closed = false;
+  req.on("close", () => { closed = true; });
+
+  // 5-minute max stream lifetime
+  const ttl = setTimeout(() => {
+    if (!closed) { send("done", { reason: "timeout" }); res.end(); }
+  }, 5 * 60_000);
+
+  const interval = setInterval(async () => {
+    if (closed) { clearInterval(interval); clearTimeout(ttl); return; }
+    try {
+      // Fetch new log rows since cursor
+      const newLogs = await db
+        .select()
+        .from(taskLogsTable)
+        .where(and(eq(taskLogsTable.taskId, taskId), gt(taskLogsTable.timestamp, cursor)))
+        .orderBy(asc(taskLogsTable.timestamp));
+
+      for (const log of newLogs) {
+        send("log", log);
+        cursor = log.timestamp;
+      }
+
+      // Check task status — close stream when no longer running
+      const [current] = await db
+        .select({ status: tasksTable.status })
+        .from(tasksTable)
+        .where(eq(tasksTable.id, taskId))
+        .limit(1);
+
+      if (!current || current.status !== "running") {
+        clearInterval(interval);
+        clearTimeout(ttl);
+        send("done", { status: current?.status ?? "unknown" });
+        res.end();
+      }
+    } catch {
+      // Swallow transient DB errors — client will reconnect if needed
+    }
+  }, 500);
 });
 
 export default router;

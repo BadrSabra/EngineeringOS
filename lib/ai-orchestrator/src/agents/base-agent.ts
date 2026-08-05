@@ -67,6 +67,7 @@ export abstract class BaseAgent<TInput, TOutput> {
     const qualityProfile = opts?.qualityProfile ?? this.buildQualityProfile(input) ?? executionPlan.qualityProfile;
     const parseResponse = (raw: string) => parseAgentResponse(raw, this.schema, (fallbackRaw) => this.fallbackOutput(fallbackRaw));
 
+    opts?.onProgress?.("Calling AI model…");
     const response = await this.complete(messages, {
       ...this.buildCompleteOpts(input),
       ...(opts ?? {}),
@@ -94,6 +95,7 @@ export abstract class BaseAgent<TInput, TOutput> {
         }),
       );
 
+      opts?.onProgress?.("Retrying — improving output quality…");
       const retryResponse = await this.complete(messages, {
         ...this.buildCompleteOpts(input),
         ...(opts ?? {}),

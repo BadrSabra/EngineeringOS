@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   useListTasks,
   useExecuteTask,
@@ -47,14 +47,64 @@ function stepIcon(message: string, level: TaskLog['level']): string {
   return '·';
 }
 
-function TaskLogsPanel({ taskId }: { taskId: string }) {
-  const { data: logs, isLoading } = useGetTaskLogs(taskId, {
+function TaskLogsPanel({ taskId, taskStatus }: { taskId: string; taskStatus: string }) {
+  const isRunning = taskStatus === 'running';
+
+  // Live logs accumulated via SSE while the task is running
+  const [liveLogs, setLiveLogs] = useState<TaskLog[]>([]);
+  const [sseActive, setSseActive] = useState(false);
+  const seenIds = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!isRunning) {
+      setLiveLogs([]);
+      seenIds.current.clear();
+      setSseActive(false);
+      return;
+    }
+
+    const es = new EventSource(`/api/tasks/${taskId}/logs/stream`);
+    setSseActive(true);
+
+    es.addEventListener('log', (e) => {
+      try {
+        const log = JSON.parse(e.data) as TaskLog;
+        if (seenIds.current.has(log.id)) return;
+        seenIds.current.add(log.id);
+        setLiveLogs((prev) => [...prev, log]);
+      } catch { /* ignore malformed frames */ }
+    });
+
+    es.addEventListener('done', () => {
+      es.close();
+      setSseActive(false);
+    });
+
+    es.onerror = () => {
+      es.close();
+      setSseActive(false);
+    };
+
+    return () => {
+      es.close();
+      setSseActive(false);
+    };
+  }, [taskId, isRunning]);
+
+  // REST fallback: poll after task finishes or when SSE isn't active
+  const { data: polledLogs, isLoading } = useGetTaskLogs(taskId, {
     query: {
       queryKey: getGetTaskLogsQueryKey(taskId),
       staleTime: 5_000,
-      refetchInterval: 3_000, // poll while running
+      refetchInterval: isRunning ? false : 5_000,
+      enabled: !isRunning,
     },
   });
+
+  // While running show SSE stream (oldest-first); after done show REST result (reversed)
+  const logs: TaskLog[] = isRunning
+    ? liveLogs
+    : (polledLogs ? [...polledLogs].reverse() : []);
 
   const levelColor = (level: TaskLog['level']) => {
     switch (level) {
@@ -65,27 +115,29 @@ function TaskLogsPanel({ taskId }: { taskId: string }) {
     }
   };
 
-  const isRunning = logs && logs.length > 0 &&
-    !logs.some((l) => l.level === 'error' ||
-      l.message.toLowerCase().includes('completed') ||
-      l.message.toLowerCase().includes('confidence'));
-
   return (
     <div>
       <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
         <Terminal className="w-3.5 h-3.5" />
         Execution Logs
-        {isRunning && (
+        {isRunning && sseActive && (
           <span className="ml-auto flex items-center gap-1 text-primary animate-pulse font-normal normal-case tracking-normal">
-            <Activity className="w-3 h-3" /> Running…
+            <Activity className="w-3 h-3" /> Live
+          </span>
+        )}
+        {isRunning && !sseActive && (
+          <span className="ml-auto flex items-center gap-1 text-muted-foreground font-normal normal-case tracking-normal">
+            <Activity className="w-3 h-3" /> Connecting…
           </span>
         )}
       </h4>
       <div className="bg-background border border-border rounded-lg text-xs overflow-auto max-h-56 p-3 space-y-1">
-        {isLoading ? (
+        {!isRunning && isLoading ? (
           <span className="text-muted-foreground animate-pulse font-mono">Loading logs…</span>
-        ) : !logs || logs.length === 0 ? (
-          <span className="text-muted-foreground italic font-mono">No log entries yet.</span>
+        ) : logs.length === 0 ? (
+          <span className="text-muted-foreground italic font-mono">
+            {isRunning ? 'Waiting for agent to start…' : 'No log entries yet.'}
+          </span>
         ) : (
           logs.map((log) => (
             <div key={log.id} className="flex items-start gap-2 leading-5 group">
@@ -446,7 +498,7 @@ export default function Tasks() {
                         </div>
                       </div>
                     ) : (
-                      <TaskLogsPanel taskId={task.id} />
+                      <TaskLogsPanel taskId={task.id} taskStatus={task.status} />
                     )}
                   </div>
                 </div>
