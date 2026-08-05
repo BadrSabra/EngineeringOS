@@ -126,6 +126,27 @@ const TOOL_EXECUTION_PATTERNS: RegExp[] = [
   /\b(write|create|build|generate|implement|execute|run|try|perform|apply|check|verify|demonstrate|show\s+me|read|list|search|find|scan|inspect|analyze|analyse|review|explore|investigate|examine|look\s+at|open|browse|fix|patch|edit|modify|test)\b/i,
 ];
 
+/**
+ * Imperative-execution patterns — subset of TOOL_EXECUTION_PATTERNS where the
+ * user is commanding immediate action rather than asking a question or requesting
+ * a description.
+ *
+ * Matched messages trigger "immediate execution mode" in the system prompt:
+ * Rule 9 is replaced with a hard directive to skip any plan/description and
+ * call tools as the very first output.
+ *
+ * Rules for inclusion:
+ * - Must be a standalone imperative verb (or short phrase starting with one)
+ * - Must NOT match vague exploratory phrasing ("tell me about", "how would I")
+ * - Checked AFTER normalizing Arabic diacritics/punctuation
+ */
+const IMMEDIATE_EXECUTION_PATTERNS: RegExp[] = [
+  // Arabic: message starts with or IS a bare imperative execution verb
+  /^(نفذ|نفّذ|طبّق|طبق|اطبق|ابدأ\s*التعديل|ابدأ\s*التنفيذ|ابدأ\s*التطبيق|افعله|افعلها|افعل|قم\s+بتنفيذ|نفذها|نفذه|ابدأه|ابدأها|شغّله|شغله|شغّلها|شغلها|طبقها|طبقه)(\s|$)/,
+  // English: message starts with a bare imperative that means "do it now"
+  /^(implement|apply|execute|go\s+ahead|proceed|do\s+it|make\s+the\s+changes?|make\s+the\s+edits?|start\s+the\s+(edit|change|implementation|fix)|perform\s+the\s+(change|edit|fix)|carry\s+out|run\s+it|apply\s+(the\s+)?(change|fix|edit|patch))(\s|[,.]|$)/i,
+];
+
 function normalizeIntentText(message: string): string {
   return message
     .replace(/[\u064B-\u065F\u0670]/g, "")
@@ -137,6 +158,15 @@ function normalizeIntentText(message: string): string {
 function requiresToolExecution(message: string): boolean {
   const normalized = normalizeIntentText(message);
   return TOOL_EXECUTION_PATTERNS.some((p) => p.test(normalized));
+}
+
+/**
+ * Returns true when the message is a short imperative command demanding
+ * immediate tool execution — no planning sentence, no description first.
+ */
+function isImmediateExecution(message: string): boolean {
+  const normalized = normalizeIntentText(message);
+  return IMMEDIATE_EXECUTION_PATTERNS.some((p) => p.test(normalized));
 }
 
 /**

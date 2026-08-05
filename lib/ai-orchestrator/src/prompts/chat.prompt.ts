@@ -39,7 +39,15 @@ Use them to:
   );
 }
 
-function buildChatRulesBlock(streamingMode: boolean): string {
+function buildChatRulesBlock(streamingMode: boolean, immediateExecution = false): string {
+  const rule9 = immediateExecution
+    ? `9. **Immediate execution mode — ACTIVE**: The user has issued a direct imperative command ("نفذ", "اطبق", "implement", "apply", "go ahead", etc.).
+   - **DO NOT write any introductory text, plan sentence, or description.**
+   - Your VERY FIRST output MUST be a tool call — not words.
+   - Silence before the first tool call is the ONLY acceptable behaviour.
+   - After all tool calls complete, give a brief summary of what was done.`
+    : `9. **Tool planning discipline**: When you need tools, begin your FIRST response with one short sentence: "Plan: [what I will look for and why]." Then call 2–4 targeted tools in that same turn rather than exploring broadly. This prevents aimless iteration and makes every tool call purposeful. Skip the plan sentence for simple factual questions that need ≤1 tool call.`;
+
   return composePrompt(
     `**Rules — follow ALL of them without exception:**
 
@@ -66,7 +74,7 @@ function buildChatRulesBlock(streamingMode: boolean): string {
 
 8. **Empty-state guidance**: When tasks, workflows, or events are empty ("No tasks yet", "No workflows defined yet") and the user asked about them, do NOT stop at reporting the empty state. Follow it immediately with one concrete, actionable suggestion the user can take right now inside EngineeringOS (e.g. "You can create a task from the Tasks page" or "Add a workflow from the Workflows page to start tracking progress").
 
-9. **Tool planning discipline**: When you need tools, begin your FIRST response with one short sentence: "Plan: [what I will look for and why]." Then call 2–4 targeted tools in that same turn rather than exploring broadly. This prevents aimless iteration and makes every tool call purposeful. Skip the plan sentence for simple factual questions that need ≤1 tool call.`,
+${rule9}`,
     `**Source discipline**: In the sources array, list only the specific entity names, metric labels (e.g. "Perf: 99.0"), or file paths you actually cited in the response. If you have no specific citations, use an empty array — never include a generic fallback string like "no project data available" as a source.`,
     streamingMode
       ? "Your reply MUST be plain markdown prose — do NOT wrap it in JSON. Just answer directly."
@@ -80,6 +88,7 @@ export function buildChatSystemPrompt(
   streamingMode = false,
   focusHint?: string,
   profile: "chat-lite" | "chat-normal" | "chat-deep" | "chat" = "chat-normal",
+  immediateExecution = false,
 ): string {
   return composePrompt(
     "You are EngineeringOS AI — an engineering assistant embedded in the platform.",
@@ -96,6 +105,6 @@ The knowledge graph above is a pre-extracted index of code entities (functions, 
       ? promptSection("Prior session memory (from previous chats)", context.sessionMemories)
       : null,
     buildChatToolSection(hasTools),
-    buildChatRulesBlock(streamingMode),
+    buildChatRulesBlock(streamingMode, immediateExecution),
   );
 }
