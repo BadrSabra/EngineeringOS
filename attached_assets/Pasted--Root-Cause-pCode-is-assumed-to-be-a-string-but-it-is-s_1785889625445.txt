@@ -1,0 +1,178 @@
+## Root Cause
+
+`pCode` is assumed to be a string, but it is sourced from `extractProviderError(body)` without runtime validation. In `extractProviderError`, `parsed.error.code` / `parsed.error.type` are returned directly from parsed JSON, so a provider response like `code: 404`, `code: { ... }`, or `code: null` can flow through. Then `classifyStatus()` reaches `pCode.includes(...)` and crashes because `.includes()` only exists on strings.
+
+## Evidence
+
+Exact fault path in `lib/ai-orchestrator/src/openai-compatible-client.ts`:
+
+1. `extractProviderError(body)` returns `code: parsed.error.code ?? parsed.error.type` without checking the type.
+2. `classifyStatus()` copies that value into `pCode`.
+3. The crash happens here:
+
+   ```ts
+   pCode.includes("model_not_found")
+   pCode.includes("invalid_model")
+   pCode.includes("model_unavailable")
+   ```
+
+   This is the only `pCode.includes` use in the file.
+
+So the issue is a runtime type mismatch from provider JSON parsing, not the `body` string itself.
+
+## Fix
+
+Harden both layers, but keep the behavior unchanged:
+
+1. In `extractProviderError`, only accept real strings for `code` and `message`.
+2. In `classifyStatus`, add a local `providerCode` string guard and use optional chaining before `.includes()`.
+
+That stops the crash while preserving:
+
+* `looksLikeMissingModel`
+* 404/402/410/422 fallback behavior
+* existing classification rules
+
+## Patch
+
+```diff
+diff --git a/lib/ai-orchestrator/src/openai-compatible-client.ts b/lib/ai-orchestrator/src/openai-compatible-client.ts
+@@
+ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+ 
++/** Return the value only when it is a real string; otherwise ignore it. */
++function asString(value: unknown): string | undefined {
++  return typeof value === "string" ? value : undefined;
++}
++
+@@
+ function extractProviderError(body: string): { code?: string; message?: string } {
+   try {
+-    const parsed = JSON.parse(body) as {
+-      error?: { code?: string; message?: string; type?: string } | string;
+-      message?: string;
+-    };
+-    if (typeof parsed.error === "object" && parsed.error !== null) {
++    const parsed = JSON.parse(body) as Record<string, unknown>;
++    const error = parsed.error;
++
++    if (typeof error === "object" && error !== null) {
++      const errorObj = error as Record<string, unknown>;
+       return {
+-        code:    parsed.error.code ?? parsed.error.type,
+-        message: parsed.error.message,
++        code: asString(errorObj.code) ?? asString(errorObj.type),
++        message: asString(errorObj.message),
+       };
+     }
+-    if (typeof parsed.error === "string") {
+-      return { message: parsed.error };
++
++    if (typeof error === "string") {
++      return { message: error };
+     }
+-    if (typeof parsed.message === "string") {
+-      return { message: parsed.message };
++
++    const message = parsed.message;
++    if (typeof message === "string") {
++      return { message };
+     }
+   } catch {
+     // not JSON
+   }
+   return {};
+ }
+@@
+ ): GroqClientError {
+   const { code: pCode, message: pMessage } = extractProviderError(body);
++  const providerCode = asString(pCode);
+   const ctx = {
+     providerStatus:  status,
+-    providerCode:    pCode,
++    providerCode,
+     providerMessage: pMessage ?? body.slice(0, 200),
+     providerName,
+     providerModel:   model,
+   };
+@@
+   const looksLikeMissingModel =
+     normalizedBody.includes("not a valid model id") ||
+     normalizedBody.includes("invalid model id") ||
+     normalizedBody.includes("unknown model") ||
+     normalizedBody.includes("model not found") ||
+     normalizedBody.includes("model unavailable") ||
+     normalizedBody.includes("unavailable for free") ||
+     normalizedBody.includes("no endpoints") ||
+-    (pCode !== undefined && (
+-      pCode.includes("model_not_found") ||
+-      pCode.includes("invalid_model") ||
+-      pCode.includes("model_unavailable")
+-    ));
++    (providerCode?.includes("model_not_found") ||
++      providerCode?.includes("invalid_model") ||
++      providerCode?.includes("model_unavailable"));
+```
+
+Test addition in `lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts`:
+
+* string `code` still classifies correctly
+* object `code` does not crash
+* missing `code` does not crash
+* `providerCode` context is normalized to `string | undefined`
+
+## Tests
+
+Add one regression block like this:
+
+```ts
+it.each([
+  {
+    name: "string provider code",
+    body: '{"error":{"code":"model_not_found","message":"provider code only"}}',
+    expectedProviderCode: "model_not_found",
+  },
+  {
+    name: "object provider code",
+    body: '{"error":{"code":{"kind":"model_not_found"},"message":"model not found"}}',
+    expectedProviderCode: undefined,
+  },
+  {
+    name: "missing provider code",
+    body: '{"error":{"message":"model not found"}}',
+    expectedProviderCode: undefined,
+  },
+])("400 $name does not crash and still classifies as MODEL_NOT_FOUND", async ({ body, expectedProviderCode }) => {
+  vi.stubGlobal("fetch", vi.fn(async () => ({
+    ok: false,
+    status: 400,
+    json: async () => ({}),
+    text: async () => body,
+  } as Response)));
+
+  await expect(
+    oacCompleteRaw(baseMessages as any, {
+      apiKey: "test-key",
+      model: primaryModel,
+      maxTokens: 10,
+      baseUrl: "https://openrouter.ai/api/v1",
+      providerName: "OpenRouter",
+    }),
+  ).rejects.toSatisfy((err: unknown) =>
+    err instanceof GroqClientError &&
+    err.code === "MODEL_NOT_FOUND" &&
+    err.providerCode === expectedProviderCode
+  );
+});
+```
+
+## Risk of regression
+
+Low. The change is narrowly scoped to error classification:
+
+* no request payload changes
+* no fallback-chain changes
+* no model selection changes
+* no behavioral change for valid string provider codes
+
+The only functional difference is that malformed provider error payloads can no longer crash the orchestration path. The safer fix is both `classifyStatus()` and `extractProviderError()` together; `classifyStatus()` alone would stop the crash, but `extractProviderError()` also needs hardening so invalid provider data does not leak into error context.
