@@ -127,6 +127,41 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     expect(callCount).toBeGreaterThanOrEqual(2);
   });
 
+  it("400 with unsupported response_format body → MODEL_UNAVAILABLE → triggers fallback", async () => {
+    let callCount = 0;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      callCount++;
+      if (callCount === 1) {
+        return {
+          ok: false,
+          status: 400,
+          json: async () => ({}),
+          text: async () => '{"error":{"message":"unsupported parameter: response_format"}}',
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: '{"response":"fallback-after-400"}' } }],
+          model: String(body.model),
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+        text: async () => "",
+      } as Response;
+    }));
+
+    const result = await openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      model: primaryModel,
+      maxTokens: 10,
+    });
+
+    expect(result.content).toBe('{"response":"fallback-after-400"}');
+    expect(callCount).toBeGreaterThanOrEqual(2);
+  });
+
   it("404 → MODEL_NOT_FOUND → triggers fallback (PR-003)", async () => {
     let callCount = 0;
     vi.stubGlobal("fetch", vi.fn(async () => {

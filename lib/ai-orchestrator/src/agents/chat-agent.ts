@@ -52,6 +52,7 @@ import { classifyRequest } from "../prompts/profile-classifier.js";
 import { ChatResponseSchema, ChatOutputSchema, PendingChangeSchema, type ChatOutput, type PendingChange, type ResolvedModelInfo } from "../schemas/chat.schema.js";
 import { parseAgentResponse } from "../parsing.js";
 import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
+import type { StrategyCallOptions } from "../provider-strategy.js";
 import { speculativePrefetch, prefetchFileList } from "./speculative-prefetch.js";
 import { planQuery, type QueryPlan } from "./query-planner.js";
 import { toolCacheKey, executeToolLoop, BUDGET_BY_SCOPE, type AgentStep } from "../tool-execution-engine.js";
@@ -254,6 +255,31 @@ function normalizeAssistantText(raw: string): string {
     .replace(/[ \t]{2,}/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+/**
+ * Build the correction-call options used after a schema/JSON parse failure.
+ *
+ * OpenRouter free-tier models occasionally reject `response_format: json_object`
+ * with HTTP 400 even though the same model can still answer correctly in plain
+ * text. For that provider we keep the correction prompt but skip the hard
+ * response-format constraint so recovery never becomes a hard failure.
+ */
+function buildJsonCorrectionOptions(provider: ProviderId, model: string, apiKey?: string): StrategyCallOptions {
+  const base: StrategyCallOptions = {
+    model,
+    maxTokens: 4096,
+    apiKey,
+  };
+
+  if (provider === "openrouter") {
+    return base;
+  }
+
+  return {
+    ...base,
+    responseFormat: { type: "json_object" },
+  };
 }
 
 function fallbackChatOutput(raw: string): ChatOutput {
@@ -782,15 +808,7 @@ export async function chat(opts: {
     messages.push({ role: "assistant", content });
     messages.push({ role: "user", content: correctionPrompt });
     try {
-      // إصلاح #3: response_format: json_object يُجبر النموذج على إرجاع JSON صالح.
-      // Use provider-aware strategy so DeepSeek correction calls hit
-      // api.deepseek.com, not Groq's endpoint.
-      const retry = await strategy.call(messages, {
-        model,
-        maxTokens: 4096,
-        apiKey,
-        responseFormat: { type: "json_object" },
-      });
+      const retry = await strategy.call(messages, buildJsonCorrectionOptions(provider, model, apiKey));
       const retryContent = retry.content ?? "";
       const retryParsed = parseAgentResponse(retryContent, ChatResponseSchema, fallbackChatOutput);
       if (retryParsed.ok) {
@@ -799,10 +817,17 @@ export async function chat(opts: {
         content = retryContent;
       } else {
         // Correction also failed — the fallback already wraps raw text gracefully.
-        console.warn(JSON.stringify({ scope: "chat-agent", code: "JSON_CORRECTION_FAILED", original: parsed.code }));
+        console.warn(JSON.stringify({ scope: "chat-agent", code: "JSON_CORRECTION_FAILED", original: parsed.code, provider }));
       }
-    } catch {
-      // Groq error during correction — keep the original fallback output.
+    } catch (err) {
+      console.warn(JSON.stringify({
+        scope: "chat-agent",
+        code: "JSON_CORRECTION_RETRY_FAILED",
+        provider,
+        errorCode: err instanceof Error && "code" in err ? String((err as { code?: unknown }).code ?? "unknown") : "unknown",
+        reason: err instanceof Error ? err.message : String(err),
+      }));
+      // Keep the original fallback output — correction is best-effort only.
     }
   }
 

@@ -1,0 +1,539 @@
+--- EngineeringOS-main/lib/ai-orchestrator/src/openai-compatible-client.ts
++++ EngineeringOS-main/lib/ai-orchestrator/src/openai-compatible-client.ts
+@@ -144,6 +144,28 @@
+   return {};
+
+ }
+
+ 
+
++
+
++/**
+
++ * OpenRouter sometimes returns HTTP 400 for request-shape issues that are
+
++ * recoverable by trying another model in the fallback chain — for example,
+
++ * unsupported `response_format` / structured-output requests.
+
++ */
+
++function looksLikeRecoverableOpenRouterRequestError(body: string, providerCode?: string): boolean {
+
++  const normalizedBody = body.toLowerCase();
+
++  return (
+
++    normalizedBody.includes("response_format") ||
+
++    normalizedBody.includes("tool_choice") ||
+
++    normalizedBody.includes("structured output") ||
+
++    normalizedBody.includes("structured outputs") ||
+
++    normalizedBody.includes("unsupported parameter") ||
+
++    normalizedBody.includes("request parameter") ||
+
++    normalizedBody.includes("invalid request") ||
+
++    normalizedBody.includes("not supported") ||
+
++    (providerCode?.includes("invalid_request") ?? false) ||
+
++    (providerCode?.includes("unsupported") ?? false)
+
++  );
+
++}
+
++
+
+ /** PR-007/PR-008: Map HTTP status → GroqClientError with full provider context. */
+
+ function classifyStatus(
+
+   status: number,
+
+@@ -212,6 +234,7 @@
+       providerCode?.includes("invalid_model") ||
+
+       providerCode?.includes("model_unavailable"));
+
+ 
+
++
+
+   // PR-004: distinguish removed models (404) from plan-restricted (402).
+
+   //   404 — model permanently discontinued / removed.
+
+   //   402 — model requires a paid plan or the free quota is exhausted.
+
+@@ -232,12 +255,37 @@
+     );
+
+   }
+
+ 
+
+-  if (providerName === "OpenRouter" && status === 400 && looksLikeMissingModel) {
+
+-    return new GroqClientError(
+
+-      "MODEL_NOT_FOUND",
+
+-      `OpenRouter rejected the model slug (400) — the model ID may be invalid. ${body.slice(0, 200)}`,
+
+-      { context: ctx },
+
+-    );
+
++  if (providerName === "OpenRouter" && status === 400) {
+
++    if (looksLikeMissingModel) {
+
++      return new GroqClientError(
+
++        "MODEL_NOT_FOUND",
+
++        `OpenRouter rejected the model slug (400) — the model ID may be invalid. ${body.slice(0, 200)}`,
+
++        { context: ctx },
+
++      );
+
++    }
+
++
+
++    if (
+
++      normalizedBody.includes("unavailable for free") ||
+
++      normalizedBody.includes("free tier") ||
+
++      normalizedBody.includes("requires a paid plan") ||
+
++      normalizedBody.includes("paid plan") ||
+
++      normalizedBody.includes("credits") ||
+
++      normalizedBody.includes("billing")
+
++    ) {
+
++      return new GroqClientError(
+
++        "PLAN_RESTRICTED",
+
++        `OpenRouter rejected the request because the selected model requires a paid plan or free-tier credits (400). ${body.slice(0, 200)}`,
+
++        { context: ctx },
+
++      );
+
++    }
+
++
+
++    if (looksLikeRecoverableOpenRouterRequestError(body, providerCode)) {
+
++      return new GroqClientError(
+
++        "MODEL_UNAVAILABLE",
+
++        `OpenRouter rejected a request feature or parameter (400) — the selected model cannot satisfy this request shape. ${body.slice(0, 200)}`,
+
++        { context: ctx },
+
++      );
+
++    }
+
+   }
+
+ 
+
+   // PR-003 / PR-008: 410 Gone = model retired; 422 Unprocessable = model
+
+--- EngineeringOS-main/lib/ai-orchestrator/src/agents/chat-agent.ts
++++ EngineeringOS-main/lib/ai-orchestrator/src/agents/chat-agent.ts
+@@ -52,6 +52,7 @@
+ import { ChatResponseSchema, ChatOutputSchema, PendingChangeSchema, type ChatOutput, type PendingChange, type ResolvedModelInfo } from "../schemas/chat.schema.js";
+
+ import { parseAgentResponse } from "../parsing.js";
+
+ import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
+
++import type { StrategyCallOptions } from "../provider-strategy.js";
+
+ import { speculativePrefetch, prefetchFileList } from "./speculative-prefetch.js";
+
+ import { planQuery, type QueryPlan } from "./query-planner.js";
+
+ import { toolCacheKey, executeToolLoop, BUDGET_BY_SCOPE, type AgentStep } from "../tool-execution-engine.js";
+
+@@ -254,6 +255,32 @@
+     .replace(/[ \t]{2,}/g, " ")
+
+     .replace(/\n{3,}/g, "\n\n")
+
+     .trim();
+
++}
+
++
+
++
+
++/**
+
++ * Build the correction-call options used after a schema/JSON parse failure.
+
++ *
+
++ * OpenRouter free-tier models occasionally reject `response_format: json_object`
+
++ * with HTTP 400 even though the same model can still answer correctly in plain
+
++ * text. For that provider we keep the correction prompt but skip the hard
+
++ * response-format constraint so recovery never becomes a hard failure.
+
++ */
+
++function buildJsonCorrectionOptions(provider: ProviderId, model: string, apiKey?: string): StrategyCallOptions {
+
++  const base: StrategyCallOptions = {
+
++    model,
+
++    maxTokens: 4096,
+
++    apiKey,
+
++  };
+
++
+
++  if (provider === "openrouter") {
+
++    return base;
+
++  }
+
++
+
++  return {
+
++    ...base,
+
++    responseFormat: { type: "json_object" },
+
++  };
+
+ }
+
+ 
+
+ function fallbackChatOutput(raw: string): ChatOutput {
+
+@@ -782,15 +809,7 @@
+     messages.push({ role: "assistant", content });
+
+     messages.push({ role: "user", content: correctionPrompt });
+
+     try {
+
+-      // إصلاح #3: response_format: json_object يُجبر النموذج على إرجاع JSON صالح.
+
+-      // Use provider-aware strategy so DeepSeek correction calls hit
+
+-      // api.deepseek.com, not Groq's endpoint.
+
+-      const retry = await strategy.call(messages, {
+
+-        model,
+
+-        maxTokens: 4096,
+
+-        apiKey,
+
+-        responseFormat: { type: "json_object" },
+
+-      });
+
++      const retry = await strategy.call(messages, buildJsonCorrectionOptions(provider, model, apiKey));
+
+       const retryContent = retry.content ?? "";
+
+       const retryParsed = parseAgentResponse(retryContent, ChatResponseSchema, fallbackChatOutput);
+
+       if (retryParsed.ok) {
+
+@@ -799,10 +818,17 @@
+         content = retryContent;
+
+       } else {
+
+         // Correction also failed — the fallback already wraps raw text gracefully.
+
+-        console.warn(JSON.stringify({ scope: "chat-agent", code: "JSON_CORRECTION_FAILED", original: parsed.code }));
+
+-      }
+
+-    } catch {
+
+-      // Groq error during correction — keep the original fallback output.
+
++        console.warn(JSON.stringify({ scope: "chat-agent", code: "JSON_CORRECTION_FAILED", original: parsed.code, provider }));
+
++      }
+
++    } catch (err) {
+
++      console.warn(JSON.stringify({
+
++        scope: "chat-agent",
+
++        code: "JSON_CORRECTION_RETRY_FAILED",
+
++        provider,
+
++        errorCode: err instanceof Error && "code" in err ? String((err as { code?: unknown }).code ?? "unknown") : "unknown",
+
++        reason: err instanceof Error ? err.message : String(err),
+
++      }));
+
++      // Keep the original fallback output — correction is best-effort only.
+
+     }
+
+   }
+
+ 
+
+--- EngineeringOS-main/lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts
++++ EngineeringOS-main/lib/ai-orchestrator/src/__tests__/openai-compatible-client.test.ts
+@@ -127,6 +127,42 @@
+     expect(callCount).toBeGreaterThanOrEqual(2);
+
+   });
+
+ 
+
++
+
++  it("400 with unsupported response_format body → MODEL_UNAVAILABLE → triggers fallback", async () => {
+
++    let callCount = 0;
+
++    vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {
+
++      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+
++      callCount++;
+
++      if (callCount === 1) {
+
++        return {
+
++          ok: false,
+
++          status: 400,
+
++          json: async () => ({}),
+
++          text: async () => '{"error":{"message":"unsupported parameter: response_format"}}',
+
++        } as Response;
+
++      }
+
++      return {
+
++        ok: true,
+
++        status: 200,
+
++        json: async () => ({
+
++          choices: [{ message: { content: '{"response":"fallback-after-400"}' } }],
+
++          model: String(body.model),
+
++          usage: { prompt_tokens: 1, completion_tokens: 1 },
+
++        }),
+
++        text: async () => "",
+
++      } as Response;
+
++    }));
+
++
+
++    const result = await openrouterCompleteWithFallback(baseMessages as any, {
+
++      apiKey: "test-key",
+
++      model: primaryModel,
+
++      maxTokens: 10,
+
++    });
+
++
+
++    expect(result.content).toBe('{"response":"fallback-after-400"}');
+
++    expect(callCount).toBeGreaterThanOrEqual(2);
+
++  });
+
++
+
+   it("404 → MODEL_NOT_FOUND → triggers fallback (PR-003)", async () => {
+
+     let callCount = 0;
+
+     vi.stubGlobal("fetch", vi.fn(async () => {
+
+--- EngineeringOS-main/lib/ai-orchestrator/src/__tests__/chat-agent.test.ts
++++ EngineeringOS-main/lib/ai-orchestrator/src/__tests__/chat-agent.test.ts
+@@ -285,8 +285,65 @@
+     const allDeltas = deltas.join("");
+
+     expect(allDeltas).toContain("plain");
+
+     expect(result.response).toContain("plain");
+
++
+
+     // Must not have been wrapped in JSON.
+
+     expect(result.response).not.toMatch(/^\{/);
+
++  });
+
++
+
++  it("uses a soft JSON correction path for OpenRouter without response_format", async () => {
+
++    const calls: Array<{ responseFormat?: unknown }> = [];
+
++
+
++    const fakeStrategy = {
+
++      providerId: "openrouter",
+
++      supportsNativeStream: false,
+
++      call: vi.fn(async (_messages: unknown, opts: { responseFormat?: unknown }) => {
+
++        calls.push({ responseFormat: opts.responseFormat });
+
++        if (calls.length === 1) {
+
++          return {
+
++            content: "not valid JSON at first",
+
++            toolCalls: [],
+
++            model: "m",
+
++            usage: {},
+
++          };
+
++        }
+
++        return {
+
++          content: '{"response":"corrected","sources":[]}',
+
++          toolCalls: [],
+
++          model: "m",
+
++          usage: {},
+
++        };
+
++      }),
+
++      stream: vi.fn(),
+
++    };
+
++
+
++    vi.doMock("../provider-registry.js", () => ({
+
++      getStrategy: vi.fn(() => fakeStrategy),
+
++    }));
+
++
+
++    vi.doMock("../model-selection/decision-engine.js", () => ({
+
++      resolveExecutionDecision: vi.fn((scope: string) => ({ taskProfile: { taskType: scope } })),
+
++    }));
+
++
+
++    vi.doMock("../model-selection/provider-strategy.js", () => ({
+
++      resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
+
++    }));
+
++
+
++    vi.doMock("../model-selection/model-resolver.js", () => ({
+
++      resolveExecutionModel: vi.fn(() => ({ model: "llama-3.1-8b-instant", powerModel: "llama-3.3-70b-versatile" })),
+
++    }));
+
++
+
++    const { chat } = await import("../agents/chat-agent.js");
+
++    const result = await chat({
+
++      message: "hello",
+
++      history: [],
+
++      projectContext: makeContext(),
+
++      provider: "openrouter",
+
++      apiKey: "test-or-key",
+
++    });
+
++
+
++    expect(calls).toHaveLength(2);
+
++    expect(calls[1]?.responseFormat).toBeUndefined();
+
++    expect(result.response).toBe("corrected");
+
+   });
+
+ 
+
+   it("does not regress Groq behaviour — groq never uses the openrouter early-return path", async () => {
+

@@ -210,6 +210,10 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
   afterEach(() => {
     vi.doUnmock("groq-sdk");
     vi.doUnmock("../openai-compatible-client.js");
+    vi.doUnmock("../provider-registry.js");
+    vi.doUnmock("../model-selection/decision-engine.js");
+    vi.doUnmock("../model-selection/provider-strategy.js");
+    vi.doUnmock("../model-selection/model-resolver.js");
     if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
     else process.env.GROQ_API_KEY = originalApiKey;
   });
@@ -287,6 +291,53 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     expect(result.response).toContain("plain");
     // Must not have been wrapped in JSON.
     expect(result.response).not.toMatch(/^\{/);
+  });
+
+  it("uses a soft JSON correction path for OpenRouter without response_format", async () => {
+    const calls: Array<{ responseFormat?: unknown }> = [];
+
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      call: vi.fn(async (_messages: unknown, opts: { responseFormat?: unknown }) => {
+        calls.push({ responseFormat: opts.responseFormat });
+        if (calls.length === 1) {
+          return { content: "not valid JSON at first", toolCalls: [], model: "m", usage: {} };
+        }
+        return { content: '{"response":"corrected","sources":[]}', toolCalls: [], model: "m", usage: {} };
+      }),
+      stream: vi.fn(),
+    };
+
+    vi.doMock("../provider-registry.js", async () => {
+      const actual = await vi.importActual("../provider-registry.js") as Record<string, unknown>;
+      return { ...actual, getStrategy: vi.fn(() => fakeStrategy) };
+    });
+
+    vi.doMock("../model-selection/decision-engine.js", () => ({
+      resolveExecutionDecision: vi.fn((scope: string) => ({ taskProfile: { taskType: scope } })),
+    }));
+
+    vi.doMock("../model-selection/provider-strategy.js", () => ({
+      resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
+    }));
+
+    vi.doMock("../model-selection/model-resolver.js", () => ({
+      resolveExecutionModel: vi.fn(() => ({ model: "llama-3.1-8b-instant", powerModel: "llama-3.3-70b-versatile" })),
+    }));
+
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: "hello",
+      history: [],
+      projectContext: makeContext(),
+      provider: "openrouter",
+      apiKey: "test-or-key",
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.responseFormat).toBeUndefined();
+    expect(result.response).toBe("corrected");
   });
 
   it("does not regress Groq behaviour — groq never uses the openrouter early-return path", async () => {

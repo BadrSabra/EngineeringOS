@@ -144,6 +144,27 @@ function extractProviderError(body: string): { code?: string; message?: string }
   return {};
 }
 
+/**
+ * OpenRouter sometimes returns HTTP 400 for request-shape issues that are
+ * recoverable by trying another model in the fallback chain — for example,
+ * unsupported `response_format` / structured-output requests.
+ */
+function looksLikeRecoverableOpenRouterRequestError(body: string, providerCode?: string): boolean {
+  const normalizedBody = body.toLowerCase();
+  return (
+    normalizedBody.includes("response_format") ||
+    normalizedBody.includes("tool_choice") ||
+    normalizedBody.includes("structured output") ||
+    normalizedBody.includes("structured outputs") ||
+    normalizedBody.includes("unsupported parameter") ||
+    normalizedBody.includes("request parameter") ||
+    normalizedBody.includes("invalid request") ||
+    normalizedBody.includes("not supported") ||
+    (providerCode?.includes("invalid_request") ?? false) ||
+    (providerCode?.includes("unsupported") ?? false)
+  );
+}
+
 /** PR-007/PR-008: Map HTTP status → GroqClientError with full provider context. */
 function classifyStatus(
   status: number,
@@ -232,12 +253,37 @@ function classifyStatus(
     );
   }
 
-  if (providerName === "OpenRouter" && status === 400 && looksLikeMissingModel) {
-    return new GroqClientError(
-      "MODEL_NOT_FOUND",
-      `OpenRouter rejected the model slug (400) — the model ID may be invalid. ${body.slice(0, 200)}`,
-      { context: ctx },
-    );
+  if (providerName === "OpenRouter" && status === 400) {
+    if (looksLikeMissingModel) {
+      return new GroqClientError(
+        "MODEL_NOT_FOUND",
+        `OpenRouter rejected the model slug (400) — the model ID may be invalid. ${body.slice(0, 200)}`,
+        { context: ctx },
+      );
+    }
+
+    if (
+      normalizedBody.includes("unavailable for free") ||
+      normalizedBody.includes("free tier") ||
+      normalizedBody.includes("requires a paid plan") ||
+      normalizedBody.includes("paid plan") ||
+      normalizedBody.includes("credits") ||
+      normalizedBody.includes("billing")
+    ) {
+      return new GroqClientError(
+        "PLAN_RESTRICTED",
+        `OpenRouter rejected the request because the selected model requires a paid plan or free-tier credits (400). ${body.slice(0, 200)}`,
+        { context: ctx },
+      );
+    }
+
+    if (looksLikeRecoverableOpenRouterRequestError(body, providerCode)) {
+      return new GroqClientError(
+        "MODEL_UNAVAILABLE",
+        `OpenRouter rejected a request feature or parameter (400) — the selected model cannot satisfy this request shape. ${body.slice(0, 200)}`,
+        { context: ctx },
+      );
+    }
   }
 
   // PR-003 / PR-008: 410 Gone = model retired; 422 Unprocessable = model
