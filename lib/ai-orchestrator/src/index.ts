@@ -1,4 +1,5 @@
 export { complete, completeRaw, completeStream, MODEL_POWERFUL, MODEL_FAST } from "./groq-client.js";
+export type { AgentStep } from "./tool-execution-engine.js";
 export { agentComplete, validateProviderKey } from "./agent-complete.js";
 export type { AgentCompleteOpts, ProviderId } from "./agent-complete.js";
 export { PROVIDER_REGISTRY, PROVIDER_PRIORITY, getProvider, loadProvider, discoverProvider, discoverProviders, registerProvider, getProviderCapabilities, getStrategy } from "./provider-registry.js";

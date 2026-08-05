@@ -20,7 +20,7 @@ import {
   sortProviderIdsByQuality,
   isCircuitOpen,
 } from "@workspace/ai-orchestrator";
-import type { ProviderId, QualityProfile } from "@workspace/ai-orchestrator";
+import type { ProviderId, QualityProfile, AgentStep } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { decryptApiKey } from "./credentials-crypto.js";
 
@@ -273,6 +273,7 @@ export async function chatWithFallback(
   onDelta?: (delta: string) => void,
   options?: ProviderSelectionOptions,
   onStreamReset?: () => void,
+  onStep?: (step: AgentStep) => void,
 ): Promise<{ result: Awaited<ReturnType<typeof chat>>; effectiveProvider: ProviderId }> {
   const orderedProviders = await collectAvailableProviders(userId, options);
   if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
@@ -307,6 +308,7 @@ export async function chatWithFallback(
         provider: providerEntry.provider,
         onDelta,
         onStreamReset,
+        onStep,
       });
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {

@@ -121,6 +121,15 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
     });
   }
 
+  await db.insert(taskLogsTable).values({
+    id: randomUUID(),
+    taskId,
+    level: "info",
+    message: "Built project context — calling AI agent…",
+    metadata: { stage: "buildProjectContext", correlationId },
+    correlationId,
+  });
+
   let agentResult: Awaited<ReturnType<typeof executeTask>>;
   let effectiveProvider = provider;
   try {
@@ -394,6 +403,14 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
         });
         throw execErr;
       }
+
+      await db.insert(taskLogsTable).values({
+        id: randomUUID(),
+        taskId,
+        level: "info",
+        message: "Built project context — calling AI agent…",
+        correlationId,
+      });
 
       let agentResult: Awaited<ReturnType<typeof executeTask>>;
       try {

@@ -253,6 +253,14 @@ export type ToolLoopOpts = {
    *   all others → 4 096
    */
   maxTokens?: number;
+
+  /**
+   * Optional observer called at each significant step in the loop:
+   * iteration start, model call, each tool call/result, soft limit, and done.
+   * Never throws — errors inside onStep are silently swallowed so a buggy
+   * callback cannot break the agentic loop.
+   */
+  onStep?: (step: AgentStep) => void;
 };
 
 export type ToolLoopResult =
@@ -279,6 +287,21 @@ export type ToolLoopResult =
       /** Ground-truth accesses accumulated before exhaustion. */
       toolSources: string[];
     };
+
+// ── Agent step events ─────────────────────────────────────────────────────────
+
+/**
+ * Discriminated union of observable events emitted during executeToolLoop.
+ * Callers supply an onStep callback to receive these in real time — useful
+ * for streaming live tool-call progress to the UI without polling.
+ */
+export type AgentStep =
+  | { kind: "iteration_start"; iter: number; maxIterations: number }
+  | { kind: "model_call";      model: string; provider: string }
+  | { kind: "tool_call";       tool: string; args: Record<string, string>; cached: boolean }
+  | { kind: "tool_result";     tool: string; source?: string; cached: boolean; outputLength: number }
+  | { kind: "soft_limit";      iter: number }
+  | { kind: "done";            iterations: number; toolCalls: number };
 
 /**
  * Run the full agentic tool loop until the model stops requesting tools or
@@ -311,6 +334,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     pendingChanges,
     maxIterations = DEFAULT_MAX_ITERATIONS,
     maxToolCalls = DEFAULT_MAX_TOOL_CALLS,
+    onStep,
   } = opts;
 
   const toolCallCache = opts.cache ?? new Map<string, string>();
@@ -339,6 +363,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   const TRANSIENT_CODES = new Set<string>(["TIMEOUT", "NETWORK_ERROR", "RATE_LIMITED", "SERVER_ERROR"]);
 
   for (let iter = 0; iter < maxIterations; iter++) {
+    try { onStep?.({ kind: "iteration_start", iter, maxIterations }); } catch { /* ignore */ }
     // ── Soft-limit synthesis hint ─────────────────────────────────────────────
     // At 75 % of the iteration budget, inject a user-turn asking the model to
     // wrap up from what it has already gathered.  This gives the model one or
@@ -346,6 +371,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     // converting a silent "exhausted" into a useful partial answer.
     if (iter >= softLimitIter && !synthesisTriggerSent) {
       synthesisTriggerSent = true;
+      try { onStep?.({ kind: "soft_limit", iter }); } catch { /* ignore */ }
       const isArabicCtx = messages.some(
         (m) => m.role === "user" && /[\u0600-\u06FF]/.test(String(m.content ?? "")),
       );
@@ -429,6 +455,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       completionTokens: result.usage?.completionTokens ?? 0,
       durationMs: Date.now() - t0,
     });
+    try { onStep?.({ kind: "model_call", model: fallbackReason ? powerModel : model, provider }); } catch { /* ignore */ }
 
     // ── Track last text seen (for kind:"partial" fallback) ──────────────────
     // Save any non-empty text content the model produced this iteration,
@@ -441,6 +468,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
 
     // ── No tool calls → final response ──────────────────────────────────────
     if (!result.toolCalls || result.toolCalls.length === 0) {
+      try { onStep?.({ kind: "done", iterations: iter + 1, toolCalls: totalToolCalls }); } catch { /* ignore */ }
       return { kind: "response", result, toolSources };
     }
 
@@ -465,6 +493,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
 
       // Guard 1: Cache hit — identical call, return cached result for free.
       if (cached !== undefined) {
+        try { onStep?.({ kind: "tool_call", tool: tc.function.name, args, cached: true }); } catch { /* ignore */ }
+        try { onStep?.({ kind: "tool_result", tool: tc.function.name, cached: true, outputLength: cached.length }); } catch { /* ignore */ }
         console.warn(
           JSON.stringify({
             scope: "tool-execution-engine",
@@ -503,6 +533,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       }
 
       // Guard 3: Registry check + dispatch via executeSingleTool.
+      try { onStep?.({ kind: "tool_call", tool: tc.function.name, args, cached: false }); } catch { /* ignore */ }
       const toolResult = await executeSingleTool({ name: tc.function.name, args, rootPath, pendingChanges });
 
       if (toolResult.kind === "unknown_tool") {
@@ -528,6 +559,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       totalToolCalls++;
       toolCallCache.set(key, toolResult.output);
       if (toolResult.source) toolSources.push(toolResult.source);
+      try { onStep?.({ kind: "tool_result", tool: tc.function.name, source: toolResult.source, cached: false, outputLength: toolResult.output.length }); } catch { /* ignore */ }
       messages.push({ role: "tool", tool_call_id: tc.id, content: toolResult.output });
     }
   }
@@ -546,8 +578,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   // synthesis hint fired), surface it as a kind:"partial" result so the caller
   // can give the user a useful answer instead of a generic error message.
   if (lastTextSeen !== undefined) {
+    try { onStep?.({ kind: "done", iterations: maxIterations, toolCalls: totalToolCalls }); } catch { /* ignore */ }
     return { kind: "partial", result: lastTextSeen, toolSources };
   }
 
+  try { onStep?.({ kind: "done", iterations: maxIterations, toolCalls: totalToolCalls }); } catch { /* ignore */ }
   return { kind: "exhausted", toolSources };
 }

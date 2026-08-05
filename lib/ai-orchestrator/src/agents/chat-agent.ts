@@ -54,7 +54,7 @@ import { parseAgentResponse } from "../parsing.js";
 import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
 import { speculativePrefetch, prefetchFileList } from "./speculative-prefetch.js";
 import { planQuery, type QueryPlan } from "./query-planner.js";
-import { toolCacheKey, executeToolLoop, BUDGET_BY_SCOPE } from "../tool-execution-engine.js";
+import { toolCacheKey, executeToolLoop, BUDGET_BY_SCOPE, type AgentStep } from "../tool-execution-engine.js";
 import { executeHierarchical } from "./hierarchical-executor.js";
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
@@ -322,8 +322,14 @@ export async function chat(opts: {
    * Only called when `onDelta` was provided AND at least one delta was emitted.
    */
   onStreamReset?: () => void;
+  /**
+   * Called at each observable step in the agentic tool loop — iteration start,
+   * model call, each tool invocation and its result, soft limit, and loop done.
+   * Forwarded directly to executeToolLoop; never throws.
+   */
+  onStep?: (step: AgentStep) => void;
 }): Promise<ChatResult> {
-  const { message, history, projectContext, rootPath, projectId, apiKey, provider = "groq", onDelta, onStreamReset } = opts;
+  const { message, history, projectContext, rootPath, projectId, apiKey, provider = "groq", onDelta, onStreamReset, onStep } = opts;
 
   // ── Profile classification ────────────────────────────────────────────────
   // Pure sync — classifies the message into simple/code/architecture/workflow/
@@ -597,6 +603,7 @@ export async function chat(opts: {
     cache: toolCallCache,
     maxIterations: budget.maxIterations,
     maxToolCalls:  budget.maxToolCalls,
+    onStep,
   });
 
   // Merge prefetch sources with the engine's ground-truth sources.

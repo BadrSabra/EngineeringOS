@@ -31,12 +31,28 @@ import {
 // ─── Task logs sub-component ──────────────────────────────────────────────────
 // Separated so the hook always runs unconditionally within the mounted component.
 
+function stepIcon(message: string, level: TaskLog['level']): string {
+  if (level === 'error') return '❌';
+  if (level === 'warn')  return '⚠️';
+  const m = message.toLowerCase();
+  if (m.includes('read_file') || m.includes('list_dir'))   return '📂';
+  if (m.includes('search_code') || m.includes('search'))   return '🔍';
+  if (m.includes('write_file'))                             return '✏️';
+  if (m.includes('git_'))                                   return '🔀';
+  if (m.includes('calling ai') || m.includes('agent…') || m.includes('model')) return '🧠';
+  if (m.includes('project context') || m.includes('context')) return '📋';
+  if (m.includes('completed') || m.includes('confidence'))  return '✅';
+  if (m.includes('started') || m.includes('trigger'))       return '🚀';
+  if (m.includes('auto-execution') || m.includes('auto-trigger')) return '⚡';
+  return '·';
+}
+
 function TaskLogsPanel({ taskId }: { taskId: string }) {
   const { data: logs, isLoading } = useGetTaskLogs(taskId, {
     query: {
       queryKey: getGetTaskLogsQueryKey(taskId),
-      staleTime: 10_000,
-      refetchInterval: 5_000, // poll while running
+      staleTime: 5_000,
+      refetchInterval: 3_000, // poll while running
     },
   });
 
@@ -49,26 +65,39 @@ function TaskLogsPanel({ taskId }: { taskId: string }) {
     }
   };
 
+  const isRunning = logs && logs.length > 0 &&
+    !logs.some((l) => l.level === 'error' ||
+      l.message.toLowerCase().includes('completed') ||
+      l.message.toLowerCase().includes('confidence'));
+
   return (
     <div>
       <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-        <Terminal className="w-3.5 h-3.5" /> Execution Logs
+        <Terminal className="w-3.5 h-3.5" />
+        Execution Logs
+        {isRunning && (
+          <span className="ml-auto flex items-center gap-1 text-primary animate-pulse font-normal normal-case tracking-normal">
+            <Activity className="w-3 h-3" /> Running…
+          </span>
+        )}
       </h4>
-      <div className="bg-background border border-border rounded-lg font-mono text-xs overflow-auto max-h-48 p-3 space-y-0.5">
+      <div className="bg-background border border-border rounded-lg text-xs overflow-auto max-h-56 p-3 space-y-1">
         {isLoading ? (
-          <span className="text-muted-foreground animate-pulse">Loading logs…</span>
+          <span className="text-muted-foreground animate-pulse font-mono">Loading logs…</span>
         ) : !logs || logs.length === 0 ? (
-          <span className="text-muted-foreground italic">No log entries yet.</span>
+          <span className="text-muted-foreground italic font-mono">No log entries yet.</span>
         ) : (
           logs.map((log) => (
-            <div key={log.id} className="flex gap-2 leading-5">
-              <span className="text-muted-foreground shrink-0 select-none">
-                {new Date(log.timestamp).toLocaleTimeString('en', { hour12: false })}
+            <div key={log.id} className="flex items-start gap-2 leading-5 group">
+              <span className="text-base shrink-0 select-none leading-4 mt-0.5" title={log.level}>
+                {stepIcon(log.message, log.level)}
               </span>
-              <span className={`uppercase shrink-0 w-8 ${levelColor(log.level)}`}>
-                {log.level.slice(0, 4)}
-              </span>
-              <span className="text-foreground break-all">{log.message}</span>
+              <div className="flex-1 min-w-0">
+                <span className={`font-mono break-all ${levelColor(log.level)}`}>{log.message}</span>
+                <span className="ml-2 text-[10px] text-muted-foreground/60 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
+                  {new Date(log.timestamp).toLocaleTimeString('en', { hour12: false })}
+                </span>
+              </div>
             </div>
           ))
         )}

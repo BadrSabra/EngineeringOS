@@ -20,6 +20,10 @@ export type {
   AiStreamDeltaEvent,
   AiStreamDoneEvent,
   AiStreamErrorEvent,
+  AiStreamResetEvent,
+  AiStreamToolCallEvent,
+  AiStreamToolResultEvent,
+  AiStreamThinkingEvent,
 } from "./use-ai-chat-stream";
 export * from './generated/api';
 export * from './generated/api.schemas';

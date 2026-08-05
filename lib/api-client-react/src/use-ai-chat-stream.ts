@@ -76,7 +76,45 @@ export type AiStreamErrorEvent = {
   parseCode?: string;
 };
 
-export type AiStreamEvent = AiStreamStageEvent | AiStreamDeltaEvent | AiStreamDoneEvent | AiStreamErrorEvent;
+export type AiStreamResetEvent = {
+  type: 'stream_reset';
+};
+
+export type AiStreamToolCallEvent = {
+  type: 'tool_call';
+  /** Registered tool name, e.g. "read_file", "search_code". */
+  tool: string;
+  /** Parsed arguments for the tool call. */
+  args: Record<string, string>;
+  /** True when the result was served from the dedup cache (no real execution). */
+  cached: boolean;
+};
+
+export type AiStreamToolResultEvent = {
+  type: 'tool_result';
+  tool: string;
+  /** Ground-truth source label (e.g. file path) when available. */
+  source?: string;
+  cached: boolean;
+};
+
+export type AiStreamThinkingEvent = {
+  type: 'thinking';
+  /** Current iteration index (0-based). */
+  iter: number;
+  /** Maximum iterations for this request. */
+  max: number;
+};
+
+export type AiStreamEvent =
+  | AiStreamStageEvent
+  | AiStreamDeltaEvent
+  | AiStreamDoneEvent
+  | AiStreamErrorEvent
+  | AiStreamResetEvent
+  | AiStreamToolCallEvent
+  | AiStreamToolResultEvent
+  | AiStreamThinkingEvent;
 
 // ── Hook params ───────────────────────────────────────────────────────────────
 
@@ -94,6 +132,12 @@ export type AiChatStreamCallbacks = {
   onStreamReset?: () => void;
   onDone?: (data: AiStreamDoneEvent) => void;
   onError?: (err: AiStreamErrorEvent) => void;
+  /** Called when the agent starts executing a tool (before the actual call). */
+  onToolCall?: (event: AiStreamToolCallEvent) => void;
+  /** Called when a tool call completes and a result has been received. */
+  onToolResult?: (event: AiStreamToolResultEvent) => void;
+  /** Called at each agentic loop iteration after the first (iter > 0). */
+  onThinking?: (event: AiStreamThinkingEvent) => void;
 };
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -181,6 +225,18 @@ export function useAiChatStream() {
               break;
             case 'error':
               callbacks.onError?.(event);
+              break;
+            case 'stream_reset':
+              callbacks.onStreamReset?.();
+              break;
+            case 'tool_call':
+              callbacks.onToolCall?.(event);
+              break;
+            case 'tool_result':
+              callbacks.onToolResult?.(event);
+              break;
+            case 'thinking':
+              callbacks.onThinking?.(event);
               break;
           }
         }

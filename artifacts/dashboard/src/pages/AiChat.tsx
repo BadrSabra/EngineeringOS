@@ -882,6 +882,11 @@ export default function AiChat() {
   const [lastResolvedModel, setLastResolvedModel] = useState<{ id: string; provider: string; free: boolean } | undefined>(undefined);
   const { send: streamSend, isPending: isSending } = useAiChatStream();
 
+  // Live agent tool-step tracking — updated in real time via SSE callbacks.
+  type AgentToolStep = { tool: string; args?: Record<string, string>; done: boolean; cached?: boolean; source?: string };
+  const [agentSteps, setAgentSteps] = useState<AgentToolStep[]>([]);
+  const [agentIter, setAgentIter] = useState<{ iter: number; max: number } | null>(null);
+
   // GAP-2: dedicated analyze / review mutations — call specialized endpoints
   // directly instead of routing through the free-form chat agent.
   const analyzeMutation = useAiAnalyzeProject({
@@ -1125,6 +1130,8 @@ export default function AiChat() {
     setLocalMessages((prev) => [...prev, optimistic]);
     setAgentStage('Connecting…');
     setStreamingContent('');
+    setAgentSteps([]);
+    setAgentIter(null);
 
     void streamSend(
       { projectId: selectedProjectId, message: msg.trim(), sessionId },
@@ -1141,9 +1148,24 @@ export default function AiChat() {
           // cleanly without a flash of inconsistent partial content.
           setStreamingContent('');
         },
+        onToolCall: (event) => {
+          setAgentSteps((prev) => [...prev, { tool: event.tool, args: event.args, done: false, cached: event.cached }]);
+        },
+        onToolResult: (event) => {
+          setAgentSteps((prev) => prev.map((s) =>
+            s.tool === event.tool && !s.done
+              ? { ...s, done: true, source: event.source, cached: event.cached }
+              : s
+          ));
+        },
+        onThinking: (event) => {
+          setAgentIter({ iter: event.iter, max: event.max });
+        },
         onDone: (data) => {
           setAgentStage(null);
           setStreamingContent('');
+          setAgentSteps([]);
+          setAgentIter(null);
           setSessionId(data.sessionId);
           setLocalMessages((prev) => {
             const withoutOpt = prev.filter((m) => !m.id.startsWith('opt-'));
@@ -1157,6 +1179,8 @@ export default function AiChat() {
         onError: (err) => {
           setAgentStage(null);
           setStreamingContent('');
+          setAgentSteps([]);
+          setAgentIter(null);
           setLocalMessages((prev) => prev.filter((m) => !m.id.startsWith('opt-')));
           toast({ title: 'Failed to send message', description: describeStreamError(err), variant: 'destructive' });
         },
@@ -1407,16 +1431,57 @@ export default function AiChat() {
                   </div>
                 </div>
               ) : isSending ? (
-                /* Stage indicator — shown before first token arrives */
+                /* Stage indicator — shown before first token arrives.
+                   When the agent is using tools, shows a live scrolling list. */
                 <div className="flex gap-3 mb-4">
-                  <div className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center shrink-0 mt-0.5">
                     <Bot className="w-4 h-4 text-primary" />
                   </div>
-                  <div className="bg-secondary border border-border rounded-xl rounded-tl-sm px-4 py-3 flex items-center gap-2">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground transition-all duration-500">
-                      {agentStage ?? 'Thinking…'}
-                    </span>
+                  <div className="bg-secondary border border-border rounded-xl rounded-tl-sm px-4 py-3 flex flex-col gap-2 min-w-0 max-w-[75%]">
+                    {agentSteps.length > 0 ? (
+                      <>
+                        {/* Tool-call list — last 6 steps, most recent at bottom */}
+                        <div className="flex flex-col gap-1 text-xs font-mono">
+                          {agentSteps.slice(-6).map((step, i) => {
+                            const firstArg = step.args
+                              ? Object.values(step.args)[0]
+                              : undefined;
+                            const label = firstArg
+                              ? `${step.tool}(${String(firstArg).slice(0, 40)}${String(firstArg).length > 40 ? '…' : ''})`
+                              : step.tool;
+                            return (
+                              <div key={i} className="flex items-center gap-1.5 leading-5">
+                                {step.done ? (
+                                  <span className="text-green-400 shrink-0">✓</span>
+                                ) : (
+                                  <Loader2 className="w-3 h-3 animate-spin text-primary shrink-0" />
+                                )}
+                                <span className={step.done ? 'text-muted-foreground' : 'text-foreground'}>
+                                  {label}
+                                </span>
+                                {step.cached && (
+                                  <span className="text-[10px] text-muted-foreground/60">(cached)</span>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {/* Iter badge */}
+                        {agentIter && (
+                          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                            <Activity className="w-3 h-3" />
+                            Iteration {agentIter.iter + 1} / {agentIter.max}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+                        <span className="text-xs text-muted-foreground transition-all duration-500">
+                          {agentStage ?? 'Thinking…'}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : null}

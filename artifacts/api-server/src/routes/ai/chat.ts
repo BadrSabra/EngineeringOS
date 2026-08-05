@@ -35,6 +35,7 @@ import {
   writeSessionMemories,
   classifyRequest,
 } from "@workspace/ai-orchestrator";
+import type { AgentStep } from "@workspace/ai-orchestrator";
 import { logger } from "../../lib/logger.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
 import { tryAdvisoryLock, LockNamespace } from "../../lib/advisory-lock.js";
@@ -416,6 +417,20 @@ router.post("/ai/chat/stream", async (req, res) => {
       }
     }
 
+    // Emit agent tool-loop steps as SSE events so the client gets real-time
+    // visibility into what the agent is doing — which files it reads, which
+    // searches it runs, and how many iterations it has taken.
+    function onStep(step: AgentStep): void {
+      if (step.kind === "tool_call") {
+        sse({ type: "tool_call", tool: step.tool, args: step.args, cached: step.cached });
+      } else if (step.kind === "tool_result") {
+        sse({ type: "tool_result", tool: step.tool, source: step.source, cached: step.cached });
+      } else if (step.kind === "iteration_start" && step.iter > 0) {
+        // Skip iter 0 to avoid noise before any tools are called.
+        sse({ type: "thinking", iter: step.iter, max: step.maxIterations });
+      }
+    }
+
     let result: Awaited<ReturnType<typeof chat>>;
     try {
       const chatOut = await chatWithFallback(
@@ -434,6 +449,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         onDelta,
         { requireTools: !!validRootPath, qualityProfile: validRootPath ? "tool_chat" : "chat" },
         onStreamReset,
+        onStep,
       );
       result = chatOut.result;
       // PR-05/PR-011: record successful call latency and health.
