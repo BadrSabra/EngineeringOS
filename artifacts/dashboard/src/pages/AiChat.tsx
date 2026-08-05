@@ -886,6 +886,11 @@ export default function AiChat() {
   type AgentToolStep = { tool: string; args?: Record<string, string>; done: boolean; cached?: boolean; source?: string };
   const [agentSteps, setAgentSteps] = useState<AgentToolStep[]>([]);
   const [agentIter, setAgentIter] = useState<{ iter: number; max: number } | null>(null);
+  // Persists completed steps after `done` so they remain visible beneath the
+  // final assistant message until the next send clears them.
+  const [lastCompletedSteps, setLastCompletedSteps] = useState<AgentToolStep[]>([]);
+  const [lastCompletedIter, setLastCompletedIter] = useState<{ iter: number; max: number } | null>(null);
+  const [stepsExpanded, setStepsExpanded] = useState(false);
 
   // GAP-2: dedicated analyze / review mutations — call specialized endpoints
   // directly instead of routing through the free-form chat agent.
@@ -1132,6 +1137,9 @@ export default function AiChat() {
     setStreamingContent('');
     setAgentSteps([]);
     setAgentIter(null);
+    setLastCompletedSteps([]);
+    setLastCompletedIter(null);
+    setStepsExpanded(false);
 
     void streamSend(
       { projectId: selectedProjectId, message: msg.trim(), sessionId },
@@ -1164,8 +1172,17 @@ export default function AiChat() {
         onDone: (data) => {
           setAgentStage(null);
           setStreamingContent('');
-          setAgentSteps([]);
-          setAgentIter(null);
+          // Persist steps so they remain visible beneath the completed message.
+          // Use the functional form so we read the *current* state value, not
+          // the stale closure from when sendMessage was called.
+          setAgentSteps((currentSteps) => {
+            if (currentSteps.length > 0) setLastCompletedSteps(currentSteps);
+            return [];
+          });
+          setAgentIter((currentIter) => {
+            if (currentIter) setLastCompletedIter(currentIter);
+            return null;
+          });
           setSessionId(data.sessionId);
           setLocalMessages((prev) => {
             const withoutOpt = prev.filter((m) => !m.id.startsWith('opt-'));
@@ -1403,49 +1420,19 @@ export default function AiChat() {
               {messages.map((msg) => (
                 <MessageBubble key={msg.id} msg={msg} />
               ))}
-              {isSending && streamingContent ? (
-                /* Streaming bubble — shows live token deltas as they arrive */
-                <div className="flex gap-3 mb-4">
-                  <div className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center shrink-0">
-                    <Bot className="w-4 h-4 text-primary" />
-                  </div>
-                  <div className="bg-secondary border border-border rounded-xl rounded-tl-sm px-4 py-3 max-w-[75%] prose prose-sm prose-invert">
-                    <ReactMarkdown
-                      components={{
-                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                        ul: ({ children }) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
-                        ol: ({ children }) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
-                        li: ({ children }) => <li className="mb-0.5">{children}</li>,
-                        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                        code: ({ children }) => <code className="bg-black/20 rounded px-1 py-0.5 text-xs font-mono">{children}</code>,
-                        pre: ({ children }) => <pre className="bg-black/20 rounded p-2 overflow-x-auto text-xs font-mono mb-2">{children}</pre>,
-                        h1: ({ children }) => <h1 className="text-base font-bold mb-1">{children}</h1>,
-                        h2: ({ children }) => <h2 className="text-sm font-bold mb-1">{children}</h2>,
-                        h3: ({ children }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
-                      }}
-                    >
-                      {streamingContent}
-                    </ReactMarkdown>
-                    {/* Blinking cursor to signal live streaming */}
-                    <span className="inline-block w-0.5 h-3.5 bg-primary align-middle ml-0.5 animate-pulse" />
-                  </div>
-                </div>
-              ) : isSending ? (
-                /* Stage indicator — shown before first token arrives.
-                   When the agent is using tools, shows a live scrolling list. */
+              {isSending ? (
+                /* Single unified live bubble — steps always visible above streaming text */
                 <div className="flex gap-3 mb-4">
                   <div className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center shrink-0 mt-0.5">
                     <Bot className="w-4 h-4 text-primary" />
                   </div>
                   <div className="bg-secondary border border-border rounded-xl rounded-tl-sm px-4 py-3 flex flex-col gap-2 min-w-0 max-w-[75%]">
+                    {/* Tool-call trace — always shown while agent is working */}
                     {agentSteps.length > 0 ? (
                       <>
-                        {/* Tool-call list — last 6 steps, most recent at bottom */}
                         <div className="flex flex-col gap-1 text-xs font-mono">
-                          {agentSteps.slice(-6).map((step, i) => {
-                            const firstArg = step.args
-                              ? Object.values(step.args)[0]
-                              : undefined;
+                          {agentSteps.slice(-8).map((step, i) => {
+                            const firstArg = step.args ? Object.values(step.args)[0] : undefined;
                             const label = firstArg
                               ? `${step.tool}(${String(firstArg).slice(0, 40)}${String(firstArg).length > 40 ? '…' : ''})`
                               : step.tool;
@@ -1456,33 +1443,86 @@ export default function AiChat() {
                                 ) : (
                                   <Loader2 className="w-3 h-3 animate-spin text-primary shrink-0" />
                                 )}
-                                <span className={step.done ? 'text-muted-foreground' : 'text-foreground'}>
-                                  {label}
-                                </span>
-                                {step.cached && (
-                                  <span className="text-[10px] text-muted-foreground/60">(cached)</span>
-                                )}
+                                <span className={step.done ? 'text-muted-foreground' : 'text-foreground'}>{label}</span>
+                                {step.cached && <span className="text-[10px] text-muted-foreground/60">(cached)</span>}
                               </div>
                             );
                           })}
                         </div>
-                        {/* Iter badge */}
                         {agentIter && (
                           <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
                             <Activity className="w-3 h-3" />
                             Iteration {agentIter.iter + 1} / {agentIter.max}
                           </div>
                         )}
+                        {/* Divider before streaming text */}
+                        {streamingContent && <div className="border-t border-border/50 -mx-1" />}
                       </>
-                    ) : (
+                    ) : !streamingContent ? (
+                      /* Spinner shown before first tool call or delta */
                       <div className="flex items-center gap-2">
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
                         <span className="text-xs text-muted-foreground transition-all duration-500">
                           {agentStage ?? 'Thinking…'}
                         </span>
                       </div>
+                    ) : null}
+
+                    {/* Live streaming text */}
+                    {streamingContent && (
+                      <div className="prose prose-sm prose-invert">
+                        <ReactMarkdown
+                          components={{
+                            p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                            ul: ({ children }) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
+                            ol: ({ children }) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
+                            li: ({ children }) => <li className="mb-0.5">{children}</li>,
+                            strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                            code: ({ children }) => <code className="bg-black/20 rounded px-1 py-0.5 text-xs font-mono">{children}</code>,
+                            pre: ({ children }) => <pre className="bg-black/20 rounded p-2 overflow-x-auto text-xs font-mono mb-2">{children}</pre>,
+                            h1: ({ children }) => <h1 className="text-base font-bold mb-1">{children}</h1>,
+                            h2: ({ children }) => <h2 className="text-sm font-bold mb-1">{children}</h2>,
+                            h3: ({ children }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
+                          }}
+                        >
+                          {streamingContent}
+                        </ReactMarkdown>
+                        <span className="inline-block w-0.5 h-3.5 bg-primary align-middle ml-0.5 animate-pulse" />
+                      </div>
                     )}
                   </div>
+                </div>
+              ) : lastCompletedSteps.length > 0 ? (
+                /* Completed step trace — persists beneath the last assistant message */
+                <div className="flex gap-3 mb-3 ml-0">
+                  <div className="w-8 shrink-0" />
+                  <button
+                    type="button"
+                    onClick={() => setStepsExpanded((v) => !v)}
+                    className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Activity className="w-3 h-3" />
+                    Used {lastCompletedSteps.length} tool{lastCompletedSteps.length !== 1 ? 's' : ''}
+                    {lastCompletedIter && ` · ${lastCompletedIter.iter + 1} iteration${lastCompletedIter.iter > 0 ? 's' : ''}`}
+                    <ChevronRight className={`w-3 h-3 transition-transform ${stepsExpanded ? 'rotate-90' : ''}`} />
+                  </button>
+                  {stepsExpanded && (
+                    <div className="absolute mt-5 ml-8 bg-secondary border border-border rounded-lg px-3 py-2 flex flex-col gap-1 text-xs font-mono shadow-lg z-10 max-w-xs">
+                      {lastCompletedSteps.map((step, i) => {
+                        const firstArg = step.args ? Object.values(step.args)[0] : undefined;
+                        const label = firstArg
+                          ? `${step.tool}(${String(firstArg).slice(0, 40)}${String(firstArg).length > 40 ? '…' : ''})`
+                          : step.tool;
+                        return (
+                          <div key={i} className="flex items-center gap-1.5 leading-5">
+                            <span className="text-green-400 shrink-0">✓</span>
+                            <span className="text-muted-foreground">{label}</span>
+                            {step.cached && <span className="text-[10px] text-muted-foreground/60">(cached)</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               ) : null}
               {pendingChanges.length > 0 && (
