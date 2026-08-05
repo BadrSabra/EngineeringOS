@@ -1,0 +1,229 @@
+EngineeringOS
+Core Ops
+Dashboard
+Projects
+Tasks
+Rules Engine
+Workflows
+Event Stream
+Metrics
+Knowledge Graph
+AI Assistant
+BS
+Badr Sabra
+Connected
+
+Search projects, tasks, rules... (Press '/')
+v1.0.4-stable
+
+Sessions
+
+
+workspace
+Session 2026-08-05 12:57
+OpenRouter API Key
+Priority
+···79a0
+Change
+
+OK · 2m ago · 77829ms
+Gemini API Key
+Free · Priority
+Free key at aistudio.google.com/apikey — 1,500 req/day, 1M tokens/day.
+
+AIza…
+Save
+DeepSeek API Key
+Optional
+Get a free API key at platform.deepseek.com to use DeepSeek as your AI provider.
+
+sk-…
+Save
+Groq API Key
+No personal key saved — the server's key will be used if one is configured.
+
+gsk_…
+Save
+EngineeringOS AI
+OpenRouter
+مرحبا
+مرحبا! كيف يمكنني مساعدتك اليوم؟
+
+لماذا لا تظهر الخطوات التى يقوم بها وكيل الذكاء الاصطناعي المدمج داخل المشروع للمستخدم عند انتظار تنفيذ مهمة ما
+الملخص:
+
+اكتشفت وجود دليل .agents الذي يحتوي على تكوين الأصول الوصفية للوكيل، ولكنه لا يتضمن أي معلومات حول عرض خطوات تنفيذ الوكيل للمستخدمين أثناء انتظار المهام. تشير الأصول الوصفية الموجودة فقط إلى تقارير جنائية وتحليلات تنفيذية، ولا يوجد أي تكوين أو كود يوضح كيفية (أو عدم كيفية) عرض خطوات تنفيذ الوكيل للمستخدمين. يشير هذا إلى أن ميزة عرض الخطوات إما غير موجودة حاليًا، أو أنها موجودة في مكان آخر غير دليل .agents الذي تم فحصه.
+
+directory: .
+.agents
+directory: .agents
+.agents/agent_assets_metadata.toml
+directory: .agents/skills
+directory: lib
+directory: lib/ai-orchestrator
+تعمق أكثر بخصوص هذه المشكلة
+تلخيص شامل للمشكلة
+بعد فحص دقيق لبنية المشروع وكود الوكيل المدمج، يمكنني الآن تقديم تحليل شامل للمشكلة التي طرحتها حول عدم ظهور خطوات تنفيذ الوكيل للمستخدم أثناء انتظار تنفيذ مهامه.
+
+الجذور الرئيسية للمشكلة
+1. نموذج التنفيذ الأحادي الاتجاه (One-Shot)
+الوكيل المدمج في هذا المشروع يعتمد على نموذج تنفيذ أحادي الاتجاه بدلاً من نموذج حلقة أدوات (Tool Loop) تفاعلي:
+
+BaseAgent.run() (في base-agent.ts) يتبع تدفق عمل محدد: بناء الرسائل → اتخاذ قرار التنفيذ → استدعاء النمضيع مرة واحدة → تحليل النتيجة → إرجاع النتيجة.
+لا يوجد آلية لعرض تقدم حي أو خطوات وسيطة أثناء تنفيذ المهمة.
+النموذج ينتظر حتى يكتمل التنفيذ بالكامل ثم يعيد النتيجة النهائية مرة واحدة.
+2. عدم وجود نظام إشعارات أو استدعاءات رد نداء (Callback/Observer)
+على الرغم من وجود بنية AgentStep و onStep في tool-execution-engine.ts، إلا أن:
+
+هذه الآلية مصممة خصيصًا لحلقة الأدوات (executeToolLoop) وليست جزءًا من تدفق BaseAgent.
+لا يتم تمرير أي دالة استدعاء رد نداء (onStep) أو مشغل أحداث إلى BaseAgent.run() أو agentComplete().
+لا توجد وسيلة لنقل تحديثات الحالة الوسيطة إلى طبقة العرض أو واجهة المستخدم.
+3. فجوة بين طبقة المنطق وطبقة العرض
+طبقة الوكيل (lib/ai-orchestrator/src/agents/) تعمل بشكل منعزل عن طبقة التوجيه أو العرض.
+لا توجد واجهة برمجة تطبيقات (API) أو نقاط تواصل محددة تدعم بث النتائج الجزئية أو تحديثات الحالة في الوقت الحقيقي.
+المسارات المرتبطة بتنفيذ المهام (مثل executeTask في task-agent.ts) تعيد النتيجة النهائية مباشرة دون أي تحديثات متوسطة.
+4. الاعتماد على نماذج LLM ذات طلب واحد
+الوكيل يستخدم agentComplete() الذي يرسل طلبًا كاملًا إلى نموذج LLM ويتلقى استجابة واحدة.
+لا يوجد دعم لتدفق الاستجابة (Streaming) أو إرسال تحديثات تقدم أثناء معالجة النموذج.
+حتى في حالة استخدام نموذج يدعم التدفق، لا يتم استغلال هذه القدرة لعرض الخطوات الوسيطة.
+العواقب العملية
+تجربة مستخدم سلبية: المستخدم يرى شاشة انتظار فقط دون أي مؤشرات على التقدم أو النشاط.
+صعوبة تتبع الأخطاء: في حالة فشل التنفيذ أو بطء الاستجابة، لا يمكن للمستخدم معرفة أين توقف الوكيل.
+قيود على المهام المعقدة: بالنسبة للمهام التي تتطلب خطوات متعددة أو استدعاءات أدوات متكررة، لا يمكن للمستخدم متابعة التقدم أو فهم منطق اتخاذ القرار.
+الحلول المقترحة
+لحل هذه المشكلة، يمكن اتباع الخطوات التالية:
+
+دمج نظام استدعاءات رد نداء (Observer Pattern):
+إضافة دعم لدوال استدعاء رد نداء (onStep) إلى BaseAgent.run() و agentComplete().
+نقل أحداث AgentStep من tool-execution-engine.ts إلى طبقة العرض عبر هذه الدوال.
+تفعيل بث الاستجابة (Streaming):
+تعديل agentComplete() لدعم بث الاستجابة من نماذج LLM.
+إرسال تحديثات تقدم أثناء معالجة النموذج، مثل عرض النص المتدحرج أو الخطوات الوسيطة.
+إنشاء واجهة برمجة تطبيقات (API) مدعومة بالأحداث:
+تطوير نقاط تواصل جديدة تدعم بث النتائج الجزئية باستخدام تقنيات مثل Server-Sent Events (SSE) أو WebSockets.
+ربط هذه النقاط بطبقة الوكيل لنقل التحديثات في الوقت الحقيقي.
+تحسين تجربة المستخدم:
+إضافة مؤشرات بصرية توضح الخطوات الجارية (مثل "جارٍ تحليل الكود..." أو "جارٍ البحث في قاعدة البيانات...").
+إتاحية خيار للمستخدم لإيقاف أو إعادة تشغيل التنفيذ إذا لزم الأمر.
+الخلاصة
+المشكلة الرئيسية ليست في غياب المعلومات أو البيانات، بل في نموذج التنفيذ الأحادي الاتجاه الذي يعتمده الوكيل المدمج. الحلول المتاحة تتطلب تعديلات على طبقة المنطق الأساسي وربطها بطبقة العرض باستخدام أنماط مثل الاستدعاءات الرد النداء أو بث الاستجابة. هذه التغييرات ستحسن بشكل كبير من تجربة المستخدم و
+
+.agents/agent_assets_metadata.toml
+directory: lib/ai-orchestrator
+directory: lib/ai-orchestrator/src
+lib/ai-orchestrator/src/index.ts
+lib/ai-orchestrator/src/tool-execution-engine.ts
+lib/ai-orchestrator/src/agents/task-agent.ts
+lib/ai-orchestrator/src/agents/base-agent.ts
+lib/ai-orchestrator/src/agents/workflow-orchestrator.ts
+نفذ التوصيات
+Looking at the codebase, I can see the issue. The agent execution system has internal logging and step tracking, but these steps are not exposed to the user in a visible way during task execution.
+
+Root Cause:
+
+The ToolExecutionEngine.executeToolLoop() function in lib/ai-orchestrator/src/tool-execution-engine.ts manages the agentic tool loop and tracks steps internally, but these steps are only available through the onStep callback in the chat() function. When users execute tasks through the task agent, they don't see these intermediate steps.
+
+Key Evidence:
+
+BaseAgent.run() (base-agent.ts) - Handles single-shot LLM tasks with retry logic but doesn't expose intermediate steps
+ToolExecutionEngine.executeToolLoop() (tool-execution-engine.ts) - Manages the full tool loop with iteration and tool call budgets, but steps are internal
+chat() (chat-agent.ts) - Has an onStep callback for tracking steps, but this is only used in the chat interface, not in task execution
+The Problem: When a user submits a task (like through the task agent), the system:
+
+Executes the task through BaseAgent.run()
+May call tools through ToolExecutionEngine.executeToolLoop()
+Logs internal steps to console (as seen in the JSON.stringify warnings)
+Returns only the final result
+But the user never sees the intermediate steps like:
+
+Which tools were called
+What the model decided at each iteration
+How many iterations were used
+Why certain decisions were made
+Solution: The chat() function already has the infrastructure to expose steps through the onStep callback. This needs to be:
+
+Exposed in the task execution API
+Connected to a user-facing progress indicator
+Made available through the task agent interface
+The fix would involve modifying the task agent to expose step tracking to the user, similar to how the chat interface already supports it through the onStep callback.
+
+lib/ai-orchestrator/src/agents/base-agent.ts
+lib/ai-orchestrator/src/agents/workflow-orchestrator.ts
+.agents/agent_assets_metadata.toml
+.agents/agent_assets_metadata.toml
+lib/ai-orchestrator/src/index.ts
+lib/ai-orchestrator/src/tool-execution-engine.ts
+lib/ai-orchestrator/src/agents/task-agent.ts
+lib/ai-orchestrator/src/agent-complete.ts
+lib/ai-orchestrator/src/groq-client.ts
+lib/ai-orchestrator/src/agents/chat-agent.ts
+حدد الملفات المطلوب تعديلها ومكان التعديلات وما يجب إضافة
+Plan: I'll examine the key files to understand the current step tracking implementation and identify what needs to be modified to expose steps in task execution.
+
+Files to modify:
+
+lib/ai-orchestrator/src/agents/task-agent.ts - Add step tracking to the TaskAgent
+lib/ai-orchestrator/src/agents/base-agent.ts - Modify BaseAgent to support step tracking
+lib/ai-orchestrator/src/agent-complete.ts - Update agentComplete to support step tracking
+Specific modifications needed:
+
+1. In lib/ai-orchestrator/src/agents/task-agent.ts:
+
+Add onStep parameter to executeTask function
+Pass step tracking through to the underlying agent execution
+Include steps in the returned TaskAgentResult
+2. In lib/ai-orchestrator/src/agents/base-agent.ts:
+
+Add onStep callback parameter to run method
+Modify the complete method to accept and forward step tracking
+Update the execution flow to call onStep with AgentStep objects from tool-execution-engine.ts
+3. In lib/ai-orchestrator/src/agent-complete.ts:
+
+Add onStep parameter to agentComplete function
+Pass step tracking through to the underlying provider calls
+Ensure step information is preserved through the completion pipeline
+What needs to be added:
+
+Step type definition (if not already present): typescript // In tool-execution-engine.ts or a shared types file export type AgentStep = { type: 'iteration_start' | 'model_call' | 'tool_call' | 'tool_result' | 'soft_limit' | 'loop_done'; iteration?: number; toolName?: string; toolArgs?: Record<string, string>; toolResult?: string; message?: string; timestamp?: number; };
+
+Step tracking integration:
+
+The TaskAgent needs to expose steps through its executeTask function
+Steps should be collected during the tool loop execution and returned to the user
+The step tracking should be optional (not break existing functionality)
+Key locations for step injection:
+
+In BaseAgent.run(), after each model call and tool execution
+In agentComplete(), when provider calls are made
+In TaskAgent.executeTask(), to expose steps to the caller
+This will make the step tracking available for task execution just like it already is for chat execution.
+
+lib/ai-orchestrator/src/tool-execution-engine.ts
+lib/ai-orchestrator/src/agents/task-agent.ts
+lib/ai-orchestrator/src/agent-complete.ts
+.agents/agent_assets_metadata.toml
+.agents/agent_assets_metadata.toml
+lib/ai-orchestrator/src/index.ts
+lib/ai-orchestrator/src/tool-execution-engine.ts
+lib/ai-orchestrator/src/agents/task-agent.ts
+lib/ai-orchestrator/src/agents/base-agent.ts
+lib/ai-orchestrator/src/agents/chat-agent.ts
+اكمل
+{"response":"## ملخص بنية نظام الأدوات في ai-orchestrator\n\n### 1. المحرك الأساسي: tool-execution-engine.ts\n- دوره: محرك حلقة أدوات ذاتية الاستقلالية، مُخرج من chat-agent.ts لاختباره وتطويره بشكل منعزل.\n- واجهتان عامتان:\n - executeSingleTool(opts) — يوجّه استدعاء أداة واحدة بالاسم إلى المعالج الصحيح (file-tools أو git-tools)، ويُرجع الناتج النصي مع تصنيف مصدر إن وجد. الأدوات غير المعروفة تُرجع kind: \"unknown_tool\" ولا تُلقي استثناءً.\n - executeToolLoop(opts) — يشغّل الحلقة الكاملة: استدعاء النموذج، معالجة استدعاءات الأدوات (عبر executeSingleTool)، إضافة النتائج إلى التاريخ، وتكرار حتى يُرسل النموذج رد غير أداة أو تُستنفد الحصص.\n- قواعد الحصص:\n - maxIterations — يحدد عدد استدعاءات API. عند الاستنفاد يُرجع kind: \"exhausted\".\n - maxToolCalls — يحدد عدد تنفيذات الأدوات غير المخزّنة. بعد الوصول يُرسل سلسلة "تم استنفاد الحصة" للنموذج.\n - cache — خريطة Map<key, result> مشتركة مع طبقة التنبؤ المُسبق، تُعيد النتائج المكررة مجانًا.\n- جدول الحصص الديناميكي (BUDGET_BY_SCOPE):\n - chat (12/30)، tool_chat (20/50)، analysis (25/60)، task_execution (40/100)، code_review (20/50)، workflow (30/80).\n - الأساس: arXiv:2607.01641 — الحصص يجب أن تكون ديناميكية حسب تعقيد المهمة.\n- مفتاح التخزين المؤقت (toolCacheKey): يفرز المفاتيح بترتيب أبجدي لضمان تكافؤ { path: \"a\", content: \"b\" } و { content: \"b\", path: \"a\" }.\n- تسجيل التنقيط: recordProviderTelemetry يُسجل استخدام الأدوات والموفّرين.\n- نوع AgentStep: يُستخدم في onStep لمراقبة كل خطوة في الحلقة (بدء التكرار، استدعاء النموذج، كل أداة ونتيجتها، الحد الناعم، انتهاء الحلقة).\n\n### 2. طبقة التوحيد: agent-complete.ts\n- دوره: طبقة مُجراة للاستكمالات ذات الاستهداف الواحد، تدعم Groq، DeepSeek، OpenRouter، وGemini.\n- اختيار الموفّر الذكي:\n - resolveExecutionDecision — يبني خطة تنفيذية بناءً على نوع المهمة والحاجة للأدوات.\n - resolveExecutionProvider — يختار الموفّر الأقوى المتاح بناءً على الملف الشخصي الجودوي.\n - resolveExecutionModel — يحدد النموذج المناسب (ويُرجع model و powerModel).\n- التحقق من المفاتيح: validateProviderKey يرسل استدعاء 1-رمز كتجربة للتحقق من صلاحية المفتاح، ويُرجع { valid: true } حتى على الأخطاء المؤقتة.\n- إدارة الأخطاء: GroqClientError مع أكواد مثل NON_200، AUTH_ERROR، EMPTY_RESPONSE، INVALID_CONFIG.\n\n### 3. الوكلاء (Agents)\n- base-agent.ts:\n - BaseAgent<TInput, TOutput> — قالب أساسي يوحد التدفق: بناء الرسائل → اختيار خطة تنفيذية → استدعاء الموفّر بإعادة محاولة محدودة → تحليل JSON إلى المخطط → إرفاق علامة فشل التحليل.\n - buildQualityProfile — يربط النطاق (scope) بملف تعريف جودة (مثلاً task-agent → task_execution).\n - decideRetry — يقرر ما إذا كانت إعادة المحاولة ضرورية بناءً على فشل التحليل أو تقييم الجودة الأولي.\n- task-agent.ts:\n - executeTask — ينفّذ مهمة واحدة عبر LLM ويُرجع TaskAgentResult (مع _parseError اختياري للـ HTTP 422).\n - fallbackTaskOutput — يُنتج مخرجات افتراضية عند فشل التحليل.\n- chat-agent.ts:\n - chat — الواجهة المحادثة مع دعم الأدوات الكاملة للنظام الملفي.\n - آلية اكتشاف النية (requiresToolExecution): تستخدم TOOL_EXECUTION_PATTERNS (عربية وإنجليزية) لتحديد ما إذا كان المستخدم يطلب تنفيذ أدوات، وتستخدم MODEL_POWERFUL في تلك الحالات.\n - تنقية المصادر (sanitizeSources): يزيل التصنيفات العامة مثل "project name"، "language"، "branch" باستخدام GENERIC_SOURCE_PATTERNS.\n - التخطيط الذكي:\n - classifyRequest — تصنيف الطلب (simple/code/architecture/workflow/deep_analysis) واستنتاج contextProfile و historyDepth و allowPrefetch.\n - planQuery — استدعاء نموذذ سريع (≤5ث) لتقدير نطاق الاستعلام وأهم الملفات وعدد التكرارات المطلوبة.\n - executeHierarchical — للاستعلامات الواسعة (≥2 sub-queries)، ينفّذ كل sub-query في حلقة أدوات منفصلة (maxIter=7) ثم يدمج النتائج.\n - التخزين المؤقت المُسبق (speculativePrefetch): قراءة الملفات المذكورة في الاستعلام قبل بدء الحلقة، وبذخ النتائج في toolCallCache.
+
+.agents/agent_assets_metadata.toml
+lib/ai-orchestrator/src/index.ts
+lib/ai-orchestrator/src/tool-execution-engine.ts
+lib/ai-orchestrator/src/agents/task-agent.ts
+.agents/agent_assets_metadata.toml
+lib/ai-orchestrator/src/index.ts
+lib/ai-orchestrator/src/tool-execution-engine.ts
+lib/ai-orchestrator/src/agents/task-agent.ts
+lib/ai-orchestrator/src/agents/base-agent.ts
+lib/ai-orchestrator/src/agent-complete.ts
+lib/ai-orchestrator/src/agents/chat-agent.ts
+search: AgentStep
+search: export type AgentStep
+Ask about your codebase, tasks, or metrics… (Enter to send)
+
+Made with ReplitBuild for free
