@@ -12,16 +12,15 @@ import { SeveritySchema } from "./code-review.schema.js";
 export const ScanInsightSchema = z.object({
   category:       z.enum(["architecture", "security", "performance", "reliability", "maintainability"]).catch("maintainability"),
   severity:       SeveritySchema.catch("medium"),
-  title:          z.string().min(1).catch("Finding"),
-  description:    z.string().min(1).catch("See analysis above"),
-  recommendation: z.string().min(1).catch("Review and address as needed"),
+  title:          z.string().min(1),
+  description:    z.string().min(1),
+  recommendation: z.string().min(1),
 });
 
 export const ScanSummarySchema = z.object({
-  summary:           z.string().min(1).catch("Scan analysis completed"),
-  overallAssessment: z.string().min(1).catch("See findings below"),
+  summary:           z.string().min(1),
+  overallAssessment: z.string().min(1),
   // .catch([]) handles models that omit the field or return a non-array.
-  // Individual items now always succeed because every sub-field has .catch().
   insights:          z.array(ScanInsightSchema).catch([]),
   topPriority:       z.string().min(1).catch("Review the findings above"),
   estimatedImpact:   z.string().min(1).catch("Improved overall code quality"),

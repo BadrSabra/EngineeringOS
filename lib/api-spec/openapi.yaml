@@ -1885,6 +1885,24 @@ paths:
         "401":
           description: Not authenticated
 
+  /api/ai/metrics:
+    get:
+      operationId: getAiMetrics
+      summary: Get per-provider request metrics and circuit-breaker state
+      tags: [AI]
+      responses:
+        "200":
+          description: Provider metrics array
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrics:
+                    type: array
+                    items:
+                      type: object
+
   /api/ai/active-provider:
     get:
       operationId: getActiveProvider

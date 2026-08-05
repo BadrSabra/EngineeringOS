@@ -53,6 +53,7 @@ import type {
   Event,
   FailWorkflowPhaseInput,
   GeminiKeyStatus,
+  GetAiMetrics200,
   GetGraphEntityImpactParams,
   GetGraphEntityNeighbors200,
   GetGraphPathParams,
@@ -6249,6 +6250,83 @@ export const useDeleteProviderKey = <TError = ErrorType<void>,
       > => {
       return useMutation(getDeleteProviderKeyMutationOptions(options));
     }
+
+export const getGetAiMetricsUrl = () => {
+
+
+
+
+  return `/api/ai/metrics`
+}
+
+/**
+ * @summary Get per-provider request metrics and circuit-breaker state
+ */
+export const getAiMetrics = async ( options?: RequestInit): Promise<GetAiMetrics200> => {
+
+  return customFetch<GetAiMetrics200>(getGetAiMetricsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAiMetricsQueryKey = () => {
+    return [
+    `/api/ai/metrics`
+    ] as const;
+    }
+
+
+export const getGetAiMetricsQueryOptions = <TData = Awaited<ReturnType<typeof getAiMetrics>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAiMetricsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiMetrics>>> = ({ signal }) => getAiMetrics({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiMetrics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAiMetricsQueryResult = NonNullable<Awaited<ReturnType<typeof getAiMetrics>>>
+export type GetAiMetricsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get per-provider request metrics and circuit-breaker state
+ */
+
+export function useGetAiMetrics<TData = Awaited<ReturnType<typeof getAiMetrics>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAiMetricsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetActiveProviderUrl = () => {
 

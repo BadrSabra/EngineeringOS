@@ -2745,6 +2745,16 @@ export const DeleteProviderKeyResponse = zod.object({
 
 
 /**
+ * @summary Get per-provider request metrics and circuit-breaker state
+ */
+export const GetAiMetricsResponse = zod.object({
+  "metrics": zod.array(zod.object({
+
+})).optional()
+})
+
+
+/**
  * @summary Get which AI provider will be used for the authenticated user
  */
 export const GetActiveProviderResponse = zod.object({

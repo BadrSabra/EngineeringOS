@@ -139,6 +139,11 @@ vi.mock("@workspace/ai-orchestrator", () => ({
   recordLatency:        vi.fn(),
   // Used by collectAvailableProviders to sort providers by quality profile.
   sortProviderIdsByQuality: vi.fn((ids: string[]) => ids),
+  // classifyRequest is called by the chat route to determine prompt profile.
+  classifyRequest: vi.fn(() => ({ category: "code", contextDepth: "full", maxTokens: 4096, temperature: 0.2, qualityProfile: "code_review" })),
+  // enrichContextWithMemories and writeSessionMemories are called by the chat route.
+  enrichContextWithMemories: vi.fn(async (ctx: string) => ctx),
+  writeSessionMemories: vi.fn(async () => undefined),
 }));
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────

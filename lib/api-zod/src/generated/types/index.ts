@@ -70,6 +70,8 @@ export * from './eventPayload';
 export * from './eventSeverity';
 export * from './failWorkflowPhaseInput';
 export * from './geminiKeyStatus';
+export * from './getAiMetrics200';
+export * from './getAiMetrics200MetricsItem';
 export * from './getGraphEntityImpactParams';
 export * from './getGraphEntityNeighbors200';
 export * from './getGraphPathParams';

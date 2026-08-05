@@ -71,6 +71,11 @@ vi.mock("@workspace/ai-orchestrator", () => ({
   recordInvalidModel:      vi.fn(),
   recordLatency:           vi.fn(),
   sortProviderIdsByQuality: vi.fn((ids: string[]) => ids),
+  // classifyRequest is called by the chat/stream route to determine prompt profile.
+  classifyRequest: vi.fn(() => ({ category: "code", contextDepth: "full", maxTokens: 4096, temperature: 0.2, qualityProfile: "code_review" })),
+  // enrichContextWithMemories and writeSessionMemories are called by the chat route.
+  enrichContextWithMemories: vi.fn(async (ctx: string) => ctx),
+  writeSessionMemories: vi.fn(async () => undefined),
 }));
 
 // ─── ai-route-helpers mock ────────────────────────────────────────────────────

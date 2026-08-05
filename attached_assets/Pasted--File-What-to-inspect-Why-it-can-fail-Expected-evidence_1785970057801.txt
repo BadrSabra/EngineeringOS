@@ -1,0 +1,529 @@
+
+
+File → What to inspect → Why it can fail → Expected evidence → Failure signature
+
+
+---
+
+1) artifacts/api-server/src/routes/ai/chat.ts
+
+What to inspect:
+كيف يمر الطلب إلى chatWithFallback(...)، وهل يتم تسجيل provider, sessionId, projectId, messageCount, وstream قبل الاستدعاء.
+
+Why it can fail:
+لو فشل المسار هنا فلن يكون OpenRouter هو السبب؛ قد تكون المشكلة في تجهيز الطلب أو اختيار الـ provider أو context قبل الوصول له.
+
+Expected evidence:
+سجل route واضح قبل التنفيذ، ثم سجل بعد الاستدعاء يبيّن:
+
+provider
+
+projectId
+
+sessionId
+
+historyDepth/messageCount
+
+requireTools
+
+qualityProfile
+
+
+Failure signature:
+الطلب يدخل الـ route لكن لا يظهر trace كافٍ، ثم يصل الخطأ إلى العميل كرسالة عامة، مع فقدان سياق الطلب.
+
+
+---
+
+2) artifacts/api-server/src/lib/ai-route-helpers.ts
+
+What to inspect:
+منطق collectAvailableProviders(...) وresolveProvider(...) وresolveFallbackProvider(...)، خصوصًا:
+
+requireTools
+
+sortProviderIdsByQuality(...)
+
+isCircuitOpen(provider)
+
+
+Why it can fail:
+قد يتم استبعاد OpenRouter أو تقديم Provider آخر لأن الـ helper قرر أن OpenRouter لا يلبّي الطلب، أو لأن الـ circuit مفتوح.
+
+Expected evidence:
+سجل يوضح:
+
+أي Provider تم استبعاده
+
+سبب الاستبعاد
+
+هل كان requireTools=true
+
+هل كان qualityProfile يؤثر على الترتيب
+
+هل isCircuitOpen(openrouter) أعاد true
+
+
+Failure signature:
+OpenRouter لا يُختار أصلًا، أو يُتجاوز بصمت، ثم يبدو وكأن المشكلة في OpenRouter بينما السبب الفعلي هو قرار routing upstream.
+
+
+---
+
+3) lib/ai-orchestrator/src/model-selection/model-resolver.ts
+
+What to inspect:
+كيف يُستنتج:
+
+capability
+
+wantPowerful
+
+model
+
+powerModel
+
+fallbackChain
+
+
+Why it can fail:
+قد يختار resolver نموذجًا غير مناسب لنوع الطلب، خصوصًا عندما تكون requireTools=true أو minimumContext عالية، فينتج payload غير متوافق مع OpenRouter.
+
+Expected evidence:
+قرار واضح يبين:
+
+لماذا تم اختيار tool_calling أو reasoning أو chat
+
+ما هو fallbackChain
+
+ما هو model النهائي
+
+ما هو powerModel
+
+
+Failure signature:
+النموذج المختار “صحيح ظاهريًا” لكنه غير مناسب لقدرات الطلب، ثم يفشل OpenRouter ب400 أو 422 أو “unsupported request shape”.
+
+
+---
+
+4) lib/ai-orchestrator/src/openrouter/model-resolver.ts
+
+What to inspect:
+resolveFallbackChain(...), resolveModel(...), buildFallbackChainFromId(...), وemitModelDecisionTrace(...)، مع الانتباه إلى:
+
+skippedStale
+
+candidates
+
+selected
+
+fallbackChain
+
+
+Why it can fail:
+إذا كان الكتالوج الديناميكي stale أو لم يُحمّل بعد، قد يدخل نموذج غير صالح أو مدفوع أو غير متاح في السلسلة.
+
+Expected evidence:
+JSON trace صريح من:
+
+scope: "model-resolver"
+
+capability
+
+quality
+
+requireTools
+
+selected
+
+fallbackChain
+
+skippedStale
+
+
+Failure signature:
+المسار يختار model يبدو valid في static catalog، لكن OpenRouter يرده 400/404/402 لأن live catalog لا يطابق القائمة المحلية.
+
+
+---
+
+5) lib/ai-orchestrator/src/strategies/openrouter.strategy.ts
+
+What to inspect:
+الحراس قبل الاستدعاء:
+
+isCircuitOpen("openrouter")
+
+refreshDynamicCatalog(opts.apiKey)
+
+recordCircuitSuccess("openrouter")
+
+recordCircuitFailure("openrouter")
+
+
+Why it can fail:
+هذه الطبقة قد تمنع OpenRouter قبل الوصول للشبكة، أو قد تسجّل 400 كفشل provider عام وتؤدي إلى فتح circuit لاحقًا.
+
+Expected evidence:
+
+رفض مباشر إذا كان circuit مفتوحًا
+
+نجاح يغلق circuit
+
+فشل واحد يسجل failure
+
+فشل متكرر يفتح circuit
+
+
+Failure signature:
+OpenRouter يُعامل كأنه provider “معطّل” بعد سلسلة أخطاء request-shape، حتى لو كانت الأخطاء 400 client-side وليست provider outage.
+
+
+---
+
+6) lib/ai-orchestrator/src/openai-compatible-client.ts
+
+What to inspect:
+هذا هو أهم ملف في المسار. راقب:
+
+بناء body
+
+messages
+
+model
+
+temperature
+
+max_tokens
+
+tools
+
+tool_choice
+
+response_format
+
+stream
+
+fetch(${baseUrl}/chat/completions)
+
+response.ok
+
+response.text()
+
+classifyStatus(...)
+
+
+Why it can fail:
+هنا غالبًا يتولد 400 فعليًا بسبب:
+
+tool_choice أو tools غير متوافقين مع النموذج
+
+response_format غير مدعوم
+
+messages فيها role/content غير صحيح
+
+model slug غير صالح
+
+payload كبير أو غير منضبط
+
+
+Expected evidence:
+قبل الإرسال مباشرة يجب أن يظهر payload كامل أو على الأقل fingerprint واضح له.
+وعند الفشل يجب حفظ:
+
+response.status
+
+response.text() الخام
+
+providerName
+
+model
+
+request body JSON
+
+
+Failure signature:
+الرد يرجع 400، لكن السبب الحقيقي يضيع لأن النظام يحوله إلى error class مختصر بدل حفظ body الخام الكامل.
+
+
+---
+
+7) lib/ai-orchestrator/src/openai-compatible-client.ts — classifyStatus(...)
+
+What to inspect:
+كيف يتم تحويل:
+
+401/403 → AUTH_ERROR
+
+429 → RATE_LIMITED أو QUOTA
+
+400 → MODEL_NOT_FOUND أو PLAN_RESTRICTED أو MODEL_UNAVAILABLE أو NON_200
+
+
+Why it can fail:
+إذا كان body غامضًا أو غير كافٍ، قد يُصنّف الخطأ خطأً، فيذهب fallback إلى المسار غير الصحيح أو لا يذهب أصلاً.
+
+Expected evidence:
+
+providerStatus
+
+providerCode
+
+providerMessage
+
+providerModel
+
+نص body يطابق سبب التصنيف
+
+
+Failure signature:
+400 حقيقي لكن يُعامل كـ NON_200 عام، أو يُصنف كـ MODEL_NOT_FOUND بينما المشكلة فعلًا هي response_format أو tool_choice.
+
+
+---
+
+8) lib/ai-orchestrator/src/tool-policy.ts
+
+What to inspect:
+resolveToolPolicy(...) وenable/disable للأدوات، خصوصًا:
+
+provider.supportsTools
+
+hasRootPath
+
+toolNames
+
+enabled
+
+reason
+
+
+Why it can fail:
+لو tool schema مفروض أو ممنوع بشكل خاطئ، OpenRouter قد يرفض الطلب 400 حتى لو النموذج نفسه صحيح.
+
+Expected evidence:
+قرار واضح:
+هل الأدوات مفعلة أم لا؟
+ولماذا؟
+وما هي الأدوات المرسلة فعلًا؟
+
+Failure signature:
+الطلب يُرسل بأدوات لا يحتاجها، أو بلا أدوات رغم أن السياق يتطلبها، أو schema فيه حقول غير مطابقة لما يقبله OpenRouter.
+
+
+---
+
+9) lib/ai-orchestrator/src/context-builder.ts
+
+What to inspect:
+حجم السياق النهائي قبل البناء:
+
+totalEstimatedTokens
+
+عدد الـ slices
+
+budgetTokens
+
+graphBudgetTokens
+
+محتوى ProjectContext
+
+
+Why it can fail:
+إذا كان context ضخمًا جدًا، قد يرفضه provider أو يغير السلوك عند وجود tools/structured output.
+
+Expected evidence:
+
+token estimate
+
+عدد الرسائل/الأجزاء
+
+هل تم ADMIT / REFERENCE / DEFER / DROP
+
+ما الذي دخل فعليًا في prompt
+
+
+Failure signature:
+السياق يُبنى بنجاح داخليًا لكن OpenRouter يرد 400/422 بسبب الحجم أو التعقيد أو التوليفة مع tools.
+
+
+---
+
+10) lib/ai-orchestrator/src/openrouter/circuit-breaker.ts
+
+What to inspect:
+recordCircuitFailure(...), recordCircuitSuccess(...), isCircuitOpen(...), وعدّاد الفشل.
+
+Why it can fail:
+لو تم التعامل مع 400 كفشل عادي، فسيفتح circuit بعد التكرار، رغم أن السبب الحقيقي request-shape وليس provider outage.
+
+Expected evidence:
+
+consecutiveFailures
+
+openedAt
+
+halfOpen
+
+cooldownRemainingMs
+
+سجلات CIRCUIT_OPENED وCIRCUIT_CLOSED
+
+
+Failure signature:
+بعد عدة 400، يصبح OpenRouter “مغلقًا” بالكامل، ثم تختفي الحقيقة خلف رسالة circuit open بدل سبب 400 الأصلي.
+
+
+---
+
+11) lib/ai-orchestrator/src/quality/retry-controller.ts
+
+What to inspect:
+هل يعيد المحاولة فقط على الأخطاء القابلة للإعادة، وهل يتجنب 400.
+
+Why it can fail:
+إذا تم retry على 400، فأنت تضيع وقتًا وتضاعف الضجيج بدل الكشف عن الخطأ الحقيقي.
+
+Expected evidence:
+
+retry only on transient transport/server/rate limit
+
+no retry for client/request-shape errors
+
+
+Failure signature:
+نفس 400 يتكرر بلا فائدة، أو تتحول المشكلة إلى fallback cascade يخبّي السبب الأصلي.
+
+
+---
+
+12) artifacts/dashboard/src/pages/AiChat.tsx
+
+What to inspect:
+ما الذي يعرضه الـ UI عند خطأ OpenRouter:
+
+err.status
+
+err.code
+
+err.errorMessage
+
+providerContext
+
+model
+
+OpenRouter message
+
+
+Why it can fail:
+قد تكون الـ backend تعرف السبب، لكن الـ dashboard تختصره إلى “provider returned error”.
+
+Expected evidence:
+الواجهة تعرض:
+
+provider
+
+model
+
+status code
+
+provider context
+
+suggested fix
+
+
+Failure signature:
+المستخدم يرى رسالة عامة فقط، بينما السبب الحقيقي موجود في backend ولم يُمرَّر للواجهة.
+
+
+---
+
+التسلسل الجنائي الصحيح لمسار OpenRouter
+
+إذا أردت تتبع الخطأ بدقة، فالتسلسل العملي هو:
+
+1. chat.ts
+
+
+2. ai-route-helpers.ts
+
+
+3. model-selection/model-resolver.ts
+
+
+4. openrouter/model-resolver.ts
+
+
+5. tool-policy.ts
+
+
+6. context-builder.ts
+
+
+7. openrouter.strategy.ts
+
+
+8. openai-compatible-client.ts
+
+
+9. openrouter/circuit-breaker.ts
+
+
+10. retry-controller.ts
+
+
+11. AiChat.tsx
+
+
+
+
+---
+
+أكثر 4 بصمات فشل ترجّح السبب الحقيقي
+
+إذا ظهر أحد هذه، فغالبًا المشكلة ليست “OpenRouter عامة” بل واحدة من هذه:
+
+tool_choice / response_format غير متوافقين مع model
+
+model slug غير صالح أو stale من catalog
+
+tool schema غير صحيح
+
+400 تُعامل كفشل provider بدل request-shape error
+
+
+
+---
+
+الحد الأدنى من الأدلة التي يجب جمعها في كل طلب OpenRouter
+
+correlationId
+
+provider
+
+model
+
+fallbackChain
+
+requireTools
+
+messageCount
+
+toolCount
+
+payloadHash
+
+response.status
+
+response.body الخام
+
+providerCode
+
+providerMessage
+
+circuitStateBefore/After
+
+
+رتب هذا الآن إلى **Patch Manifest تنفيذي** بنفس الصيغة: File → Change → Reason → Risk → Test
+ومخصص فقط لإضافة logging وraw error capture وdecision trace لمسار OpenRouter.

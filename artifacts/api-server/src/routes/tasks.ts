@@ -659,6 +659,7 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
       // Swallow transient DB errors — client will reconnect if needed
     }
   }, 500);
+  return;
 });
 
 export default router;

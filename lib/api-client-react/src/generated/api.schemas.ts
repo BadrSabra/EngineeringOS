@@ -1463,3 +1463,9 @@ export type DeleteProviderKey200 = {
   configured: boolean;
 };
 
+export type GetAiMetrics200MetricsItem = { [key: string]: unknown };
+
+export type GetAiMetrics200 = {
+  metrics?: GetAiMetrics200MetricsItem[];
+};
+

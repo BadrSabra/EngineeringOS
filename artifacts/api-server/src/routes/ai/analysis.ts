@@ -67,17 +67,14 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
   if (result._parseError) {
     logger.warn(
       { projectId, parseCode: result._parseError.code, message: result._parseError.message, provider: effectiveProvider },
-      "scan-analyst: parse error — serving fallback data",
+      "scan-analyst: parse error",
     );
-    if (!result.summary) {
-      return res.status(422).json({
-        error: "model_output_invalid",
-        code: "model_output_invalid",
-        hint: "The AI model returned an unexpected response — try again in a moment.",
-        parseCode: result._parseError.code,
-      });
-    }
-    res.set("X-Parse-Degraded", "true");
+    return res.status(422).json({
+      error: "model_output_invalid",
+      code: "model_output_invalid",
+      hint: "The AI model returned an unexpected response — try again in a moment.",
+      parseCode: result._parseError.code,
+    });
   }
 
   invalidateContextCache(projectId);
@@ -166,17 +163,14 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
   if (result._parseError) {
     logger.warn(
       { projectId, parseCode: result._parseError.code, message: result._parseError.message, provider: effectiveProvider },
-      "code-reviewer: parse error — serving fallback data",
+      "code-reviewer: parse error",
     );
-    if (!result.summary) {
-      return res.status(422).json({
-        error: "model_output_invalid",
-        code: "model_output_invalid",
-        hint: "The AI model returned an unexpected response — try again in a moment.",
-        parseCode: result._parseError.code,
-      });
-    }
-    res.set("X-Parse-Degraded", "true");
+    return res.status(422).json({
+      error: "model_output_invalid",
+      code: "model_output_invalid",
+      hint: "The AI model returned an unexpected response — try again in a moment.",
+      parseCode: result._parseError.code,
+    });
   }
 
   invalidateContextCache(projectId);

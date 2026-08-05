@@ -13,22 +13,21 @@ export const CodeIssueSchema = z.object({
   type:        CodeIssueTypeSchema.catch("bug"),
   severity:    SeveritySchema.catch("medium"),
   file:        z.string().optional(),
-  title:       z.string().min(1).catch("Issue"),
-  description: z.string().min(1).catch("See analysis above"),
-  suggestion:  z.string().min(1).catch("Review and address as needed"),
+  title:       z.string().min(1),
+  description: z.string().min(1),
+  suggestion:  z.string().min(1),
 });
 
 export const CodeReviewResultSchema = z.object({
-  summary:                  z.string().min(1).catch("Code review completed"),
+  summary:                  z.string().min(1),
   // coerce handles models that return "85" (string) instead of 85 (number)
-  overallScore:             z.coerce.number().min(0).max(100).catch(50),
+  overallScore:             z.coerce.number().min(0).max(100),
   strengths:                z.array(z.string().min(1)).default([]),
   // .catch([]) handles models that omit the field or return a non-array.
-  // Individual items always succeed because every sub-field has .catch().
   issues:                   z.array(CodeIssueSchema).catch([]),
   refactoringOpportunities: z.array(z.string().min(1)).default([]),
   securityConcerns:         z.array(z.string().min(1)).default([]),
-  verdict:                  z.enum(["approved", "needs_changes", "major_rework"]).catch("needs_changes"),
+  verdict:                  z.enum(["approved", "needs_changes", "major_rework"]),
 });
 
 export type CodeIssue = z.infer<typeof CodeIssueSchema>;
