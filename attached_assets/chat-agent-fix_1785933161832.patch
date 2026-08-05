@@ -1,0 +1,183 @@
+--- lib/ai-orchestrator/src/agents/chat-agent.ts	2026-08-05 03:58:37.000000000 +0000
++++ /mnt/data/engos_patchwork/chat-agent.ts	2026-08-05 04:16:00.066926638 +0000
+@@ -119,14 +119,23 @@
+  * وصف الأدوات نظرياً بمسارات وهمية بدل استدعائها فعلياً (hallucination).
+  */
+ const TOOL_EXECUTION_PATTERNS: RegExp[] = [
+-  // العربية: أفعال التنفيذ والاختبار والتحقق والتحليل والفحص والاستعراض
+-  /اختبر|نفّذ|نفذ|جرّب|جرب|شغّل|شغل|طبّق|طبق|ابدأ|أقرأ|اقرأ|اعرض|أظهر|افحص|تحقق|افعل|حلّل|حلل|تحليل|فحص|استعرض|راجع|أرني|ابحث|ابحث عن|اكتشف|استكشف/,
+-  // الإنجليزية — analysis and exploration verbs added
+-  /\b(test|execute|run|try|perform|apply|check|verify|demonstrate|show\s+me|read|list|search|find|scan|inspect|analyze|analyse|review|explore|investigate|examine|look\s+at|open|browse)\b/i,
++  // العربية: أفعال الكتابة/التنفيذ/الإصلاح/التحقق التي تعني "ابدأ أدوات"
++  /(?:اكتب|كتابة|أنشئ|انشئ|إنشئ|كوّن|كون|ابن|ابني|نفّذ|نفذ|تنفيذ|شغّل|شغل|تشغيل|طبّق|طبق|تطبيق|عدّل|عدل|تعديل|أصلح|اصلح|تصحيح|صحّح|صحح|اختبر|فحص|افحص|تحقق|استعرض|راجع|حلّل|حلل|تحليل|ابحث|اكتشف|استكشف|افتح|اقرأ|أرني|اعرض|أظهر|اظهر)/,
++  // الإنجليزية — analysis, writing, and exploration verbs.
++  /\b(write|create|build|generate|implement|execute|run|try|perform|apply|check|verify|demonstrate|show\s+me|read|list|search|find|scan|inspect|analyze|analyse|review|explore|investigate|examine|look\s+at|open|browse|fix|patch|edit|modify|test)\b/i,
+ ];
+ 
++function normalizeIntentText(message: string): string {
++  return message
++    .replace(/[\u064B-\u065F\u0670]/g, "")
++    .replace(/[^0-9A-Za-z\u0600-\u06FF\s]+/g, " ")
++    .replace(/\s+/g, " ")
++    .trim();
++}
++
+ function requiresToolExecution(message: string): boolean {
+-  return TOOL_EXECUTION_PATTERNS.some((p) => p.test(message));
++  const normalized = normalizeIntentText(message);
++  return TOOL_EXECUTION_PATTERNS.some((p) => p.test(normalized));
+ }
+ 
+ /**
+@@ -235,11 +244,23 @@
+   return `Entities most relevant to this query: ${scored.map((e) => e.name).join(", ")}`;
+ }
+ 
++function normalizeAssistantText(raw: string): string {
++  return raw
++    .replace(/<think>[\s\S]*?<\/think>/gi, " ")
++    .replace(/```(?:json|text)?\s*([\s\S]*?)```/gi, "$1")
++    .replace(/[\u200B-\u200F\uFEFF]/g, "")
++    .replace(/\r\n/g, "\n")
++    .replace(/[ \t]+\n/g, "\n")
++    .replace(/[ \t]{2,}/g, " ")
++    .replace(/\n{3,}/g, "\n\n")
++    .trim();
++}
++
+ function fallbackChatOutput(raw: string): ChatOutput {
+-  const trimmed = raw.trim();
++  const normalized = normalizeAssistantText(raw);
+   // If raw is valid JSON with a non-empty "response" field, extract it.
+   try {
+-    const parsed = JSON.parse(trimmed) as unknown;
++    const parsed = JSON.parse(normalized) as unknown;
+     if (
+       parsed !== null &&
+       typeof parsed === "object" &&
+@@ -273,8 +294,9 @@
+         }
+       }
+ 
++      const normalizedResponse = normalizeAssistantText((parsed as Record<string, unknown>).response as string);
+       return {
+-        response: (parsed as Record<string, unknown>).response as string,
++        response: normalizedResponse || "I couldn't generate a response — please try again.",
+         // BUG-3 fix: empty array instead of generic "project context" string.
+         // Source discipline rule: if no specific citations exist, use [] not a fallback label.
+         sources: Array.isArray(sources) ? sanitizeSources(sources as string[]) : [],
+@@ -667,7 +689,10 @@
+       // loop — but using the full output schema keeps the type consistent with
+       // the return value and avoids a TS2339 on .pendingChanges below.
+       const parsedDirect = parseAgentResponse(directContent, ChatOutputSchema, fallbackChatOutput);
+-      const responseText = parsedDirect.data.response.trim() || directContent.trim();
++      const responseText =
++        normalizeAssistantText(parsedDirect.data.response) ||
++        normalizeAssistantText(directContent) ||
++        "I couldn't generate a response — please try again.";
+ 
+       // Emit only the clean prose text word-by-word.
+       const words = responseText.split(/(\s+)/);
+--- lib/ai-orchestrator/src/__tests__/chat-agent.test.ts	2026-08-05 03:58:37.000000000 +0000
++++ /mnt/data/engos_patchwork/chat-agent.test.ts	2026-08-05 04:16:00.067469262 +0000
+@@ -384,3 +384,100 @@
+     expect(logTool?.function.parameters).not.toHaveProperty("required");
+   });
+ });
++
++
++describe("chat agent — Arabic execution intent detection", () => {
++  beforeEach(() => {
++    vi.resetModules();
++    process.env.GROQ_API_KEY = "test-key";
++  });
++
++  afterEach(() => {
++    vi.doUnmock("../model-selection/decision-engine.js");
++    vi.doUnmock("../model-selection/provider-strategy.js");
++    vi.doUnmock("../model-selection/model-resolver.js");
++    vi.doUnmock("groq-sdk");
++    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
++    else process.env.GROQ_API_KEY = originalApiKey;
++  });
++
++  it("routes Arabic write/execute requests through task_execution", async () => {
++    const decisionCalls: Array<{ scope: string; opts: Record<string, unknown> }> = [];
++
++    vi.doMock("../model-selection/decision-engine.js", () => ({
++      resolveExecutionDecision: vi.fn((scope: string, opts: Record<string, unknown>) => {
++        decisionCalls.push({ scope, opts });
++        return { taskProfile: { taskType: scope } };
++      }),
++    }));
++
++    vi.doMock("../model-selection/provider-strategy.js", () => ({
++      resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
++    }));
++
++    vi.doMock("../model-selection/model-resolver.js", () => ({
++      resolveExecutionModel: vi.fn(() => ({ model: "llama-3.1-8b-instant", powerModel: "llama-3.3-70b-versatile" })),
++    }));
++
++    vi.doMock("groq-sdk", () => ({
++      default: class {
++        chat = {
++          completions: {
++            create: vi.fn().mockResolvedValue({
++              choices: [{ message: { content: '{"response":"ok","sources":[]}' } }],
++              model: "m",
++              usage: {},
++            }),
++          },
++        };
++      },
++    }));
++
++    const { chat } = await import("../agents/chat-agent.js");
++    const result = await chat({
++      message: "اكتب ملفات الاختبار المطلوبة وقم بتنفيذها",
++      history: [],
++      projectContext: makeContext(),
++      rootPath: "/tmp/project",
++    });
++
++    expect(decisionCalls).toHaveLength(1);
++    expect(decisionCalls[0]?.scope).toBe("task_execution");
++    expect(decisionCalls[0]?.opts).toMatchObject({ hasTools: true, requireTools: true });
++    expect(result.response).toBe("ok");
++  });
++});
++
++describe("chat agent — fallback output normalization", () => {
++  beforeEach(() => {
++    vi.resetModules();
++    process.env.GROQ_API_KEY = "test-key";
++  });
++
++  afterEach(() => {
++    vi.doUnmock("../openai-compatible-client.js");
++    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
++    else process.env.GROQ_API_KEY = originalApiKey;
++  });
++
++  it("strips markdown fences and normalizes fallback text", async () => {
++    vi.doMock("../openai-compatible-client.js", () => ({
++      openrouterCompleteRaw: vi.fn().mockResolvedValue({ content: "```text\n  Hello   world  \n```", toolCalls: [] }),
++      openrouterCompleteWithFallback: vi.fn().mockResolvedValue({ content: "```text\n  Hello   world  \n```", toolCalls: [] }),
++      openrouterCompleteStream: vi.fn(),
++      geminiCompleteRaw: vi.fn(),
++      geminiCompleteStream: vi.fn(),
++    }));
++
++    const { chat } = await import("../agents/chat-agent.js");
++    const result = await chat({
++      message: "hello",
++      history: [],
++      projectContext: makeContext(),
++      provider: "openrouter",
++      apiKey: "test-or-key",
++    });
++
++    expect(result.response).toBe("Hello world");
++  });
++});

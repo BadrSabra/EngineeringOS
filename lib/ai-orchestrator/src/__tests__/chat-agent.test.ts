@@ -384,3 +384,100 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     expect(logTool?.function.parameters).not.toHaveProperty("required");
   });
 });
+
+
+describe("chat agent — Arabic execution intent detection", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    process.env.GROQ_API_KEY = "test-key";
+  });
+
+  afterEach(() => {
+    vi.doUnmock("../model-selection/decision-engine.js");
+    vi.doUnmock("../model-selection/provider-strategy.js");
+    vi.doUnmock("../model-selection/model-resolver.js");
+    vi.doUnmock("groq-sdk");
+    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+    else process.env.GROQ_API_KEY = originalApiKey;
+  });
+
+  it("routes Arabic write/execute requests through task_execution", async () => {
+    const decisionCalls: Array<{ scope: string; opts: Record<string, unknown> }> = [];
+
+    vi.doMock("../model-selection/decision-engine.js", () => ({
+      resolveExecutionDecision: vi.fn((scope: string, opts: Record<string, unknown>) => {
+        decisionCalls.push({ scope, opts });
+        return { taskProfile: { taskType: scope } };
+      }),
+    }));
+
+    vi.doMock("../model-selection/provider-strategy.js", () => ({
+      resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
+    }));
+
+    vi.doMock("../model-selection/model-resolver.js", () => ({
+      resolveExecutionModel: vi.fn(() => ({ model: "llama-3.1-8b-instant", powerModel: "llama-3.3-70b-versatile" })),
+    }));
+
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              choices: [{ message: { content: '{"response":"ok","sources":[]}' } }],
+              model: "m",
+              usage: {},
+            }),
+          },
+        };
+      },
+    }));
+
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: "اكتب ملفات الاختبار المطلوبة وقم بتنفيذها",
+      history: [],
+      projectContext: makeContext(),
+      rootPath: "/tmp/project",
+    });
+
+    expect(decisionCalls).toHaveLength(1);
+    expect(decisionCalls[0]?.scope).toBe("task_execution");
+    expect(decisionCalls[0]?.opts).toMatchObject({ hasTools: true, requireTools: true });
+    expect(result.response).toBe("ok");
+  });
+});
+
+describe("chat agent — fallback output normalization", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    process.env.GROQ_API_KEY = "test-key";
+  });
+
+  afterEach(() => {
+    vi.doUnmock("../openai-compatible-client.js");
+    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+    else process.env.GROQ_API_KEY = originalApiKey;
+  });
+
+  it("strips markdown fences and normalizes fallback text", async () => {
+    vi.doMock("../openai-compatible-client.js", () => ({
+      openrouterCompleteRaw: vi.fn().mockResolvedValue({ content: "```text\n  Hello   world  \n```", toolCalls: [] }),
+      openrouterCompleteWithFallback: vi.fn().mockResolvedValue({ content: "```text\n  Hello   world  \n```", toolCalls: [] }),
+      openrouterCompleteStream: vi.fn(),
+      geminiCompleteRaw: vi.fn(),
+      geminiCompleteStream: vi.fn(),
+    }));
+
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: "hello",
+      history: [],
+      projectContext: makeContext(),
+      provider: "openrouter",
+      apiKey: "test-or-key",
+    });
+
+    expect(result.response).toBe("Hello world");
+  });
+});

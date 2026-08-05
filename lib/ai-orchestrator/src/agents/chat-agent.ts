@@ -119,14 +119,23 @@ export type ChatResult = ChatOutput & {
  * وصف الأدوات نظرياً بمسارات وهمية بدل استدعائها فعلياً (hallucination).
  */
 const TOOL_EXECUTION_PATTERNS: RegExp[] = [
-  // العربية: أفعال التنفيذ والاختبار والتحقق والتحليل والفحص والاستعراض
-  /اختبر|نفّذ|نفذ|جرّب|جرب|شغّل|شغل|طبّق|طبق|ابدأ|أقرأ|اقرأ|اعرض|أظهر|افحص|تحقق|افعل|حلّل|حلل|تحليل|فحص|استعرض|راجع|أرني|ابحث|ابحث عن|اكتشف|استكشف/,
-  // الإنجليزية — analysis and exploration verbs added
-  /\b(test|execute|run|try|perform|apply|check|verify|demonstrate|show\s+me|read|list|search|find|scan|inspect|analyze|analyse|review|explore|investigate|examine|look\s+at|open|browse)\b/i,
+  // العربية: أفعال الكتابة/التنفيذ/الإصلاح/التحقق التي تعني "ابدأ أدوات"
+  /(?:اكتب|كتابة|أنشئ|انشئ|إنشئ|كوّن|كون|ابن|ابني|نفّذ|نفذ|تنفيذ|شغّل|شغل|تشغيل|طبّق|طبق|تطبيق|عدّل|عدل|تعديل|أصلح|اصلح|تصحيح|صحّح|صحح|اختبر|فحص|افحص|تحقق|استعرض|راجع|حلّل|حلل|تحليل|ابحث|اكتشف|استكشف|افتح|اقرأ|أرني|اعرض|أظهر|اظهر)/,
+  // الإنجليزية — analysis, writing, and exploration verbs.
+  /\b(write|create|build|generate|implement|execute|run|try|perform|apply|check|verify|demonstrate|show\s+me|read|list|search|find|scan|inspect|analyze|analyse|review|explore|investigate|examine|look\s+at|open|browse|fix|patch|edit|modify|test)\b/i,
 ];
 
+function normalizeIntentText(message: string): string {
+  return message
+    .replace(/[\u064B-\u065F\u0670]/g, "")
+    .replace(/[^0-9A-Za-z\u0600-\u06FF\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function requiresToolExecution(message: string): boolean {
-  return TOOL_EXECUTION_PATTERNS.some((p) => p.test(message));
+  const normalized = normalizeIntentText(message);
+  return TOOL_EXECUTION_PATTERNS.some((p) => p.test(normalized));
 }
 
 /**
@@ -235,11 +244,23 @@ function buildQueryFocusHint(graphSummary: string, message: string): string | nu
   return `Entities most relevant to this query: ${scored.map((e) => e.name).join(", ")}`;
 }
 
+function normalizeAssistantText(raw: string): string {
+  return raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, " ")
+    .replace(/```(?:json|text)?\s*([\s\S]*?)```/gi, "$1")
+    .replace(/[\u200B-\u200F\uFEFF]/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function fallbackChatOutput(raw: string): ChatOutput {
-  const trimmed = raw.trim();
+  const normalized = normalizeAssistantText(raw);
   // If raw is valid JSON with a non-empty "response" field, extract it.
   try {
-    const parsed = JSON.parse(trimmed) as unknown;
+    const parsed = JSON.parse(normalized) as unknown;
     if (
       parsed !== null &&
       typeof parsed === "object" &&
@@ -273,8 +294,9 @@ function fallbackChatOutput(raw: string): ChatOutput {
         }
       }
 
+      const normalizedResponse = normalizeAssistantText((parsed as Record<string, unknown>).response as string);
       return {
-        response: (parsed as Record<string, unknown>).response as string,
+        response: normalizedResponse || "I couldn't generate a response — please try again.",
         // BUG-3 fix: empty array instead of generic "project context" string.
         // Source discipline rule: if no specific citations exist, use [] not a fallback label.
         sources: Array.isArray(sources) ? sanitizeSources(sources as string[]) : [],
@@ -285,7 +307,7 @@ function fallbackChatOutput(raw: string): ChatOutput {
     // Not JSON — use the raw text as-is.
   }
   return {
-    response: trimmed || "I couldn't generate a response — please try again.",
+    response: normalized || "I couldn't generate a response — please try again.",
     // BUG-3 fix: same — empty array, not a generic label.
     sources: [],
     pendingChanges: [],
@@ -667,7 +689,10 @@ export async function chat(opts: {
       // loop — but using the full output schema keeps the type consistent with
       // the return value and avoids a TS2339 on .pendingChanges below.
       const parsedDirect = parseAgentResponse(directContent, ChatOutputSchema, fallbackChatOutput);
-      const responseText = parsedDirect.data.response.trim() || directContent.trim();
+      const responseText =
+        normalizeAssistantText(parsedDirect.data.response) ||
+        normalizeAssistantText(directContent) ||
+        "I couldn't generate a response — please try again.";
 
       // Emit only the clean prose text word-by-word.
       const words = responseText.split(/(\s+)/);
