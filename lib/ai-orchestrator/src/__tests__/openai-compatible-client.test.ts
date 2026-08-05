@@ -303,6 +303,51 @@ describe("GroqClientError — provider context (PR-007)", () => {
   });
 });
 
+// ── Non-string provider code regression ──────────────────────────────────────
+
+describe("classifyStatus — non-string provider code does not crash (runtime type guard)", () => {
+  const primaryModel = FREE_MODELS[0]!.id;
+
+  it.each([
+    {
+      name: "string provider code",
+      body: '{"error":{"code":"model_not_found","message":"provider code only"}}',
+      expectedProviderCode: "model_not_found",
+    },
+    {
+      name: "object provider code",
+      body: '{"error":{"code":{"kind":"model_not_found"},"message":"model not found"}}',
+      expectedProviderCode: undefined,
+    },
+    {
+      name: "missing provider code",
+      body: '{"error":{"message":"model not found"}}',
+      expectedProviderCode: undefined,
+    },
+  ])("400 $name does not crash and still classifies as MODEL_NOT_FOUND", async ({ body, expectedProviderCode }) => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({}),
+      text: async () => body,
+    } as Response)));
+
+    await expect(
+      oacCompleteRaw(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxTokens: 10,
+        baseUrl: "https://openrouter.ai/api/v1",
+        providerName: "OpenRouter",
+      }),
+    ).rejects.toSatisfy((err: unknown) =>
+      err instanceof GroqClientError &&
+      err.code === "MODEL_NOT_FOUND" &&
+      err.providerCode === expectedProviderCode
+    );
+  });
+});
+
 // ── PR-008: error code completeness ──────────────────────────────────────────
 
 describe("GroqErrorCode completeness (PR-008)", () => {

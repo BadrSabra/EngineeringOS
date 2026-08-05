@@ -78,6 +78,11 @@ function trimMessagesForOpenRouter(messages: RawMessage[]): RawMessage[] {
 /** Resolve after `ms` milliseconds (used for retry back-off). */
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Return the value only when it is a real string; otherwise ignore it. */
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
 /**
  * OR-005: True for transient OpenRouter errors that warrant a single retry.
  * User errors (AUTH_ERROR, NON_200) and empty responses are not retried.
@@ -114,21 +119,24 @@ function isModelUnavailableError(err: unknown): err is GroqClientError {
  */
 function extractProviderError(body: string): { code?: string; message?: string } {
   try {
-    const parsed = JSON.parse(body) as {
-      error?: { code?: string; message?: string; type?: string } | string;
-      message?: string;
-    };
-    if (typeof parsed.error === "object" && parsed.error !== null) {
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    const error = parsed.error;
+
+    if (typeof error === "object" && error !== null) {
+      const errorObj = error as Record<string, unknown>;
       return {
-        code:    parsed.error.code ?? parsed.error.type,
-        message: parsed.error.message,
+        code:    asString(errorObj.code) ?? asString(errorObj.type),
+        message: asString(errorObj.message),
       };
     }
-    if (typeof parsed.error === "string") {
-      return { message: parsed.error };
+
+    if (typeof error === "string") {
+      return { message: error };
     }
-    if (typeof parsed.message === "string") {
-      return { message: parsed.message };
+
+    const message = parsed.message;
+    if (typeof message === "string") {
+      return { message };
     }
   } catch {
     // not JSON
@@ -144,9 +152,10 @@ function classifyStatus(
   model?: string,
 ): GroqClientError {
   const { code: pCode, message: pMessage } = extractProviderError(body);
+  const providerCode = asString(pCode);
   const ctx = {
     providerStatus:  status,
-    providerCode:    pCode,
+    providerCode,
     providerMessage: pMessage ?? body.slice(0, 200),
     providerName,
     providerModel:   model,
@@ -199,11 +208,9 @@ function classifyStatus(
     normalizedBody.includes("model unavailable") ||
     normalizedBody.includes("unavailable for free") ||
     normalizedBody.includes("no endpoints") ||
-    (pCode !== undefined && (
-      pCode.includes("model_not_found") ||
-      pCode.includes("invalid_model") ||
-      pCode.includes("model_unavailable")
-    ));
+    (providerCode?.includes("model_not_found") ||
+      providerCode?.includes("invalid_model") ||
+      providerCode?.includes("model_unavailable"));
 
   // PR-004: distinguish removed models (404) from plan-restricted (402).
   //   404 — model permanently discontinued / removed.
