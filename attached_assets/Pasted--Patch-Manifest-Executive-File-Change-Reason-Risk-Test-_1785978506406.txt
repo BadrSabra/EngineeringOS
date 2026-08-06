@@ -1,0 +1,46 @@
+ Patch Manifest Executive
+
+File → Change → Reason → Risk → Test
+
+1. artifacts/api-server/src/routes/ai/chat.ts Change: Add comprehensive request tracing before chatWithFallback call and capture provider/session/project context Reason: Current route lacks sufficient trace before execution; errors lose context when OpenRouter fails Risk: Low - adds non-blocking logging, no functional changes Test: Verify route logs provider, sessionId, projectId, messageCount, requireTools, qualityProfile before execution
+
+2. artifacts/api-server/src/lib/ai-route-helpers.ts Change: Add detailed provider selection logging to collectAvailableProviders, resolveProvider, and resolveFallbackProvider Reason: OpenRouter may be silently skipped due to tool requirements, circuit breaker, or quality profile bias Risk: Medium - modifies provider selection logic, could affect fallback behavior Test: Verify logs show which providers are skipped, why, and whether OpenRouter was excluded due to requireTools, circuit open, or quality ordering
+
+3. lib/ai-orchestrator/src/model-selection/model-resolver.ts Change: Add model decision trace to resolveExecutionModel with capability, wantPowerful, fallbackChain, and selected model details Reason: Model selection may choose incompatible models for OpenRouter (tool_calling vs reasoning vs chat) Risk: Low - adds read-only logging, no functional changes Test: Verify logs show why tool_calling/reasoning/long_context/chat was selected and the final model/powerModel chosen
+
+4. lib/ai-orchestrator/src/strategies/openrouter.strategy.ts Change: Add circuit breaker state logging before/after calls and catalog refresh status Reason: Circuit may block OpenRouter incorrectly due to 400 errors that aren't provider outages Risk: Low - adds monitoring, no functional changes Test: Verify logs show circuit open/close decisions and catalog refresh attempts
+
+5. lib/ai-orchestrator/src/openai-compatible-client.ts Change: Add raw payload capture before fetch and complete response capture including status, body, provider, model Reason: 400 errors lose context because system converts to error class instead of preserving raw body Risk: Medium - modifies error handling, could affect existing error classification Test: Verify logs capture full request body, response status, raw response text, provider name, and model for all calls
+
+6. lib/ai-orchestrator/src/openai-compatible-client.ts Change: Enhance classifyStatus to preserve more context and log classification decisions with provider details Reason: Error classification may mislabel 400 errors as generic NON_200 instead of specific MODEL_NOT_FOUND/PLAN_RESTRICTED Risk: Medium - modifies error classification logic Test: Verify logs show providerStatus, providerCode, providerMessage, and body text that led to classification
+
+7. lib/ai-orchestrator/src/tool-policy.ts Change: Add tool policy resolution logging with provider capabilities, rootPath, mode, and enabled/disabled decisions Reason: Tool schema mismatches may cause OpenRouter 400 even when model selection is correct Risk: Low - adds read-only logging Test: Verify logs show tool policy decisions, why tools are enabled/disabled, and which tools are actually sent
+
+8. lib/ai-orchestrator/src/context-builder.ts Change: Add context building trace with token estimates, slice counts, budget tokens, and admission decisions Reason: Context size/complexity may cause OpenRouter 400/422 even when internal validation passes Risk: Low - adds read-only logging Test: Verify logs show totalEstimatedTokens, slice counts, budgetTokens, graphBudgetTokens, and which items were ADMIT/REFERENCE/DEFER/DROP
+
+9. lib/ai-orchestrator/src/openrouter/circuit-breaker.ts Change: Add circuit state logging with consecutiveFailures, openedAt, halfOpen, cooldownRemainingMs Reason: Circuit may incorrectly open due to 400 errors that aren't provider outages Risk: Low - adds monitoring Test: Verify logs show CIRCUIT_OPENED/CIRCUIT_CLOSED events and failure counts
+
+10. lib/ai-orchestrator/src/quality/retry-controller.ts Change: Add retry decision logging showing which errors are retried and which are skipped (especially 400) Reason: Retrying 400 errors wastes time and masks real issues Risk: Low - adds read-only logging Test: Verify logs show retry decisions and that 400 errors are not retried
+
+11. artifacts/dashboard/src/pages/AiChat.tsx Change: Enhance error display to show provider, model, status code, provider context, and raw OpenRouter message Reason: Backend may know error cause but dashboard only shows generic "provider returned error" Risk: Medium - modifies UI error display Test: Verify UI now shows provider, model, status code, provider context, and suggested fixes for OpenRouter errors
+
+12. lib/ai-orchestrator/src/openrouter/model-resolver.ts Change: Add model resolution trace with skippedStale, candidates, selected, and fallbackChain details Reason: Stale catalog entries may be used that don't exist in live OpenRouter catalog Risk: Low - adds read-only logging Test: Verify logs show scope, capability, quality, requireTools, selected model, fallbackChain, and skippedStale entries
+
+Implementation Priority:
+
+Files 1, 2, 5, 6, 11 (core error capture and display)
+Files 3, 4, 7, 8, 9, 10, 12 (decision tracing and monitoring)
+Rollback Strategy: All changes are additive logging/monitoring; functional behavior remains unchanged. Remove logging statements if performance impact is observed.
+
+artifacts/api-server/src/routes/ai/chat.ts
+artifacts/api-server/src/lib/ai-route-helpers.ts
+lib/ai-orchestrator/src/model-selection/model-resolver.ts
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts
+artifacts/api-server/src/routes/ai/chat.ts
+lib/ai-orchestrator/src/tool-policy.ts
+artifacts/api-server/src/lib/ai-route-helpers.ts
+artifacts/api-server/src/lib/ai-route-helpers.ts
+lib/ai-orchestrator/src/model-selection/model-resolver.ts
+artifacts/api-server/src/lib/ai-route-helpers.ts
+artifacts/api-server/src/routes/ai/chat.ts
+ 
