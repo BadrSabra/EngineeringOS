@@ -182,6 +182,20 @@ function classifyStatus(
     providerModel:   model,
   };
 
+  // Log the classification decision so errors can be traced back to their root cause.
+  console.warn(
+    JSON.stringify({
+      scope: "openai-compatible-client",
+      action: "classify_status",
+      providerName,
+      model,
+      providerStatus: status,
+      providerCode,
+      providerMessage: pMessage ?? null,
+      bodyPreview: body.slice(0, 300),
+    }),
+  );
+
   if (status === 401 || status === 403) {
     return new GroqClientError(
       "AUTH_ERROR",
@@ -409,6 +423,22 @@ export async function oacCompleteRaw(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+  // Capture raw payload for diagnostics before the request is sent.
+  console.info(
+    JSON.stringify({
+      scope: "openai-compatible-client",
+      action: "pre_fetch",
+      providerName,
+      model,
+      baseUrl,
+      messageCount: messages.length,
+      hasTools: hasTools,
+      toolCount: hasTools && Array.isArray(tools) ? tools.length : 0,
+      maxTokens,
+      temperature,
+    }),
+  );
+
   let response: Response;
   try {
     response = await fetch(`${baseUrl}/chat/completions`, {
@@ -436,6 +466,17 @@ export async function oacCompleteRaw(
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
+    // Log the raw response before classifying so we never lose context.
+    console.warn(
+      JSON.stringify({
+        scope: "openai-compatible-client",
+        action: "non_ok_response",
+        providerName,
+        model,
+        status: response.status,
+        bodyPreview: text.slice(0, 400),
+      }),
+    );
     throw classifyStatus(response.status, text, providerName, model);
   }
 

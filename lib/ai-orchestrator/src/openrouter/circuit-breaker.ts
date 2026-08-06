@@ -48,8 +48,34 @@ export function isCircuitOpen(provider: string): boolean {
   if (elapsed >= COOLDOWN_MS) {
     // Transition to half-open — allow one probe request.
     s.halfOpen = true;
+    console.info(
+      JSON.stringify({
+        scope: "circuit-breaker",
+        code: "CIRCUIT_HALF_OPEN",
+        provider,
+        consecutiveFailures: s.consecutiveFailures,
+        openedAt: s.openedAt,
+        halfOpen: true,
+        cooldownRemainingMs: 0,
+        hint: `${provider} cooldown elapsed — entering half-open state, probing with one request`,
+      }),
+    );
     return false;
   }
+
+  const cooldownRemainingMs = COOLDOWN_MS - elapsed;
+  console.warn(
+    JSON.stringify({
+      scope: "circuit-breaker",
+      code: "CIRCUIT_STILL_OPEN",
+      provider,
+      consecutiveFailures: s.consecutiveFailures,
+      openedAt: s.openedAt,
+      halfOpen: s.halfOpen,
+      cooldownRemainingMs,
+      hint: `${provider} circuit still open — ${Math.ceil(cooldownRemainingMs / 1000)}s remaining before probe`,
+    }),
+  );
   return true;
 }
 

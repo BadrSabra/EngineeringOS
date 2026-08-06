@@ -53,6 +53,8 @@ export function resolveExecutionModel(
   const wantPowerful = wantsPowerfulModel(plan);
   const capability = selectCapability(plan);
 
+  let decision: ExecutionModelDecision;
+
   if (providerId === "openrouter") {
     const fallbackChain = resolveFallbackChain({
       capability,
@@ -63,7 +65,7 @@ export function resolveExecutionModel(
     const model = fallbackChain[0] ?? provider.defaultModels.fast;
     const powerModel = fallbackChain[1] ?? fallbackChain[0] ?? provider.defaultModels.powerful;
 
-    return {
+    decision = {
       providerId,
       model,
       powerModel,
@@ -71,16 +73,37 @@ export function resolveExecutionModel(
       capability,
       source: "openrouter-catalog",
     };
+  } else {
+    const model = wantPowerful ? provider.defaultModels.powerful : provider.defaultModels.fast;
+
+    decision = {
+      providerId,
+      model,
+      powerModel: provider.defaultModels.powerful,
+      fallbackChain: [provider.defaultModels.fast, provider.defaultModels.powerful].filter((m, i, arr) => arr.indexOf(m) === i),
+      capability,
+      source: "provider-registry",
+    };
   }
 
-  const model = wantPowerful ? provider.defaultModels.powerful : provider.defaultModels.fast;
+  console.info(
+    JSON.stringify({
+      scope: "model-resolver",
+      action: "resolve_execution_model",
+      providerId,
+      capability,
+      wantPowerful,
+      model: decision.model,
+      powerModel: decision.powerModel,
+      fallbackChain: decision.fallbackChain,
+      source: decision.source,
+      taskType: plan.taskProfile.taskType,
+      requireTools: plan.strictHints.requireTools ?? false,
+      requireThinking: plan.strictHints.requireThinking ?? false,
+      requireReasoning: plan.strictHints.requireReasoning ?? false,
+      minimumContext: plan.strictHints.minimumContext ?? 0,
+    }),
+  );
 
-  return {
-    providerId,
-    model,
-    powerModel: provider.defaultModels.powerful,
-    fallbackChain: [provider.defaultModels.fast, provider.defaultModels.powerful].filter((m, i, arr) => arr.indexOf(m) === i),
-    capability,
-    source: "provider-registry",
-  };
+  return decision;
 }

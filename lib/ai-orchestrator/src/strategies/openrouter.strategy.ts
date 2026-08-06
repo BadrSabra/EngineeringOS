@@ -49,11 +49,31 @@ export const openrouterStrategy: ProviderStrategy = {
 
     // PR-07: reject immediately when circuit is open (cooldown not elapsed).
     if (isCircuitOpen("openrouter")) {
+      console.warn(
+        JSON.stringify({
+          scope: "openrouter-strategy",
+          action: "circuit_blocked",
+          provider: "openrouter",
+          mode: "call",
+          hint: "circuit is open — skipping call",
+        }),
+      );
       throw new GroqClientError(
         "MODEL_NOT_FOUND",
         "OpenRouter is temporarily disabled — too many consecutive failures. It will be retried automatically after the cooldown.",
       );
     }
+
+    console.info(
+      JSON.stringify({
+        scope: "openrouter-strategy",
+        action: "pre_call",
+        provider: "openrouter",
+        model: opts.model,
+        hasTools: Array.isArray(opts.tools) && opts.tools.length > 0,
+        toolCount: Array.isArray(opts.tools) ? opts.tools.length : 0,
+      }),
+    );
 
     // PR-01: refresh the live model catalog so stale IDs are filtered before
     // the fallback chain is built.  Fire-and-forget — the resolver uses the
@@ -64,10 +84,28 @@ export const openrouterStrategy: ProviderStrategy = {
       const result = await openrouterCompleteWithFallback(messages, { ...opts, apiKey: opts.apiKey });
       // PR-07: successful call closes any open circuit.
       recordCircuitSuccess("openrouter");
+      console.info(
+        JSON.stringify({
+          scope: "openrouter-strategy",
+          action: "call_success",
+          provider: "openrouter",
+          model: opts.model,
+        }),
+      );
       return result;
     } catch (err) {
       // PR-07: record failure so the circuit opens after the threshold.
       recordCircuitFailure("openrouter");
+      console.warn(
+        JSON.stringify({
+          scope: "openrouter-strategy",
+          action: "call_failure",
+          provider: "openrouter",
+          model: opts.model,
+          errorCode: err instanceof GroqClientError ? err.code : "UNKNOWN",
+          errorMessage: err instanceof Error ? err.message : String(err),
+        }),
+      );
       throw err;
     }
   },
@@ -82,11 +120,29 @@ export const openrouterStrategy: ProviderStrategy = {
 
     // PR-07: same circuit check for streaming.
     if (isCircuitOpen("openrouter")) {
+      console.warn(
+        JSON.stringify({
+          scope: "openrouter-strategy",
+          action: "circuit_blocked",
+          provider: "openrouter",
+          mode: "stream",
+          hint: "circuit is open — skipping stream",
+        }),
+      );
       throw new GroqClientError(
         "MODEL_NOT_FOUND",
         "OpenRouter is temporarily disabled — too many consecutive failures.",
       );
     }
+
+    console.info(
+      JSON.stringify({
+        scope: "openrouter-strategy",
+        action: "pre_stream",
+        provider: "openrouter",
+        model: opts.model,
+      }),
+    );
 
     // PR-01: fire-and-forget catalog refresh.
     await refreshDynamicCatalog(opts.apiKey);
@@ -94,8 +150,26 @@ export const openrouterStrategy: ProviderStrategy = {
     try {
       yield* openrouterCompleteStream(messages, { ...opts, apiKey: opts.apiKey });
       recordCircuitSuccess("openrouter");
+      console.info(
+        JSON.stringify({
+          scope: "openrouter-strategy",
+          action: "stream_success",
+          provider: "openrouter",
+          model: opts.model,
+        }),
+      );
     } catch (err) {
       recordCircuitFailure("openrouter");
+      console.warn(
+        JSON.stringify({
+          scope: "openrouter-strategy",
+          action: "stream_failure",
+          provider: "openrouter",
+          model: opts.model,
+          errorCode: err instanceof GroqClientError ? err.code : "UNKNOWN",
+          errorMessage: err instanceof Error ? err.message : String(err),
+        }),
+      );
       throw err;
     }
   },

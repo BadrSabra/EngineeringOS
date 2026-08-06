@@ -93,6 +93,7 @@ function partitionByLiveCatalog(
  */
 export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
   const { capability, quality = "fast", requireTools = false } = opts;
+  // Emit resolution trace so stale catalog entries and empty chains are visible.
 
   // Filter: must support the capability; if tools required, must support them.
   const capable = FREE_MODELS.filter(
@@ -129,7 +130,28 @@ export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
     return aMatch - bMatch;
   });
 
-  return effectivePool.map((m) => ({ id: m.id, label: m.label, free: true, capability }));
+  const chain = effectivePool.map((m) => ({ id: m.id, label: m.label, free: true, capability }));
+
+  // Compute stale list for trace.
+  const { stale } = partitionByLiveCatalog(rawPool);
+
+  console.info(
+    JSON.stringify({
+      scope: "model-resolver",
+      action: "resolve_fallback_chain",
+      capability,
+      quality,
+      requireTools,
+      preferFreeTier: opts.preferFreeTier ?? true,
+      catalogLoaded,
+      candidates: chain.map((m) => m.id),
+      chainLength: chain.length,
+      skippedStale: stale.length > 0 ? stale.map((m) => m.id) : undefined,
+      poolFallback: pool.length === 0 && !catalogLoaded ? "static_list" : null,
+    }),
+  );
+
+  return chain;
 }
 
 /**

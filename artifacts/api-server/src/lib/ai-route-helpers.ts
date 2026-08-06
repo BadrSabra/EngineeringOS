@@ -45,23 +45,30 @@ async function collectAvailableProviders(
   options?: ProviderSelectionOptions,
 ): Promise<Array<{ provider: ProviderId; apiKey: string }>> {
   const available: Array<{ provider: ProviderId; apiKey: string }> = [];
+  const skipped: Array<{ provider: ProviderId; reason: string }> = [];
 
   for (const provider of PROVIDER_PRIORITY) {
     const key = await resolveProviderKey(userId, provider);
-    if (!key) continue;
+    if (!key) {
+      skipped.push({ provider, reason: "no_api_key" });
+      continue;
+    }
     if (!providerCanHandleRequest(provider, options)) {
+      const reason = options?.requireTools ? "no_tool_support" : "capability_mismatch";
       logger.info(
-        { provider, requireTools: !!options?.requireTools },
+        { provider, requireTools: !!options?.requireTools, reason },
         "Skipping provider that cannot satisfy the current request",
       );
+      skipped.push({ provider, reason });
       continue;
     }
     // PR-07: skip providers whose circuit breaker is open (cooldown not elapsed).
     if (isCircuitOpen(provider)) {
       logger.warn(
-        { provider },
+        { provider, reason: "circuit_open" },
         "Skipping provider — circuit is open due to consecutive failures",
       );
+      skipped.push({ provider, reason: "circuit_open" });
       continue;
     }
     available.push({ provider, apiKey: key });
@@ -74,11 +81,36 @@ async function collectAvailableProviders(
       { requireTools: options.requireTools },
     );
     const byProvider = new Map(available.map((candidate) => [candidate.provider, candidate.apiKey]));
-    return orderedIds
+    const reordered = orderedIds
       .map((provider) => ({ provider, apiKey: byProvider.get(provider) }))
       .filter((candidate): candidate is { provider: ProviderId; apiKey: string } => Boolean(candidate?.apiKey));
+
+    logger.info(
+      {
+        scope: "provider-selection",
+        action: "collect_available_providers",
+        qualityProfile: options.qualityProfile,
+        requireTools: !!options?.requireTools,
+        available: reordered.map((c) => c.provider),
+        skipped,
+        finalOrder: reordered.map((c) => c.provider),
+      },
+      "provider selection complete (quality-ordered)",
+    );
+    return reordered;
   }
 
+  logger.info(
+    {
+      scope: "provider-selection",
+      action: "collect_available_providers",
+      qualityProfile: options?.qualityProfile ?? null,
+      requireTools: !!options?.requireTools,
+      available: available.map((c) => c.provider),
+      skipped,
+    },
+    "provider selection complete",
+  );
   return available;
 }
 
@@ -155,7 +187,18 @@ export async function resolveProvider(
   options?: ProviderSelectionOptions,
 ): Promise<{ provider: ProviderId; apiKey: string } | undefined> {
   const available = await collectAvailableProviders(userId, options);
-  return available[0];
+  const selected = available[0];
+  logger.info(
+    {
+      scope: "provider-selection",
+      action: "resolve_provider",
+      selected: selected?.provider ?? null,
+      requireTools: !!options?.requireTools,
+      qualityProfile: options?.qualityProfile ?? null,
+    },
+    selected ? `resolved primary provider: ${selected.provider}` : "no provider available",
+  );
+  return selected;
 }
 
 /**
@@ -168,7 +211,19 @@ export async function resolveFallbackProvider(
   options?: ProviderSelectionOptions,
 ): Promise<{ provider: ProviderId; apiKey: string } | undefined> {
   const available = (await collectAvailableProviders(userId, options)).filter((candidate) => candidate.provider !== currentProvider);
-  return available[0];
+  const selected = available[0];
+  logger.info(
+    {
+      scope: "provider-selection",
+      action: "resolve_fallback_provider",
+      skipping: currentProvider,
+      selected: selected?.provider ?? null,
+      requireTools: !!options?.requireTools,
+      qualityProfile: options?.qualityProfile ?? null,
+    },
+    selected ? `resolved fallback provider: ${selected.provider}` : "no fallback provider available",
+  );
+  return selected;
 }
 
 const TOOL_REQUEST_PATTERNS = [

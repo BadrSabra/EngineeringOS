@@ -30,41 +30,63 @@ export function decideRetry(options: {
   assessment?: QualityAssessment;
   transportError?: unknown;
 }): RetryDecision {
+  let decision: RetryDecision;
+
   if (options.attempt >= options.limit) {
-    return {
+    decision = {
       shouldRetry: false,
       useRelaxedHints: false,
       reason: "retry budget exhausted",
     };
-  }
-
-  if (options.parseError) {
-    return {
+  } else if (options.parseError) {
+    decision = {
       shouldRetry: true,
       useRelaxedHints: true,
       reason: `parse failure (${options.parseError.code})`,
     };
-  }
-
-  if (options.assessment?.decision === "retry") {
-    return {
+  } else if (options.assessment?.decision === "retry") {
+    decision = {
       shouldRetry: true,
       useRelaxedHints: true,
       reason: describeAssessment(options.assessment),
     };
-  }
-
-  if (isRetryableTransportError(options.transportError)) {
-    return {
+  } else if (isRetryableTransportError(options.transportError)) {
+    decision = {
       shouldRetry: true,
       useRelaxedHints: true,
       reason: `transport error (${options.transportError.code})`,
     };
+  } else {
+    decision = {
+      shouldRetry: false,
+      useRelaxedHints: false,
+      reason: "no retry signal",
+    };
   }
 
-  return {
-    shouldRetry: false,
-    useRelaxedHints: false,
-    reason: "no retry signal",
-  };
+  // Log the retry decision so skipped/retried 400-class errors are visible in traces.
+  const transportCode =
+    options.transportError instanceof GroqClientError
+      ? options.transportError.code
+      : options.transportError instanceof Error
+        ? options.transportError.message
+        : null;
+  console.info(
+    JSON.stringify({
+      scope: "retry-controller",
+      action: "decide_retry",
+      attempt: options.attempt,
+      limit: options.limit,
+      shouldRetry: decision.shouldRetry,
+      useRelaxedHints: decision.useRelaxedHints,
+      reason: decision.reason,
+      parseErrorCode: options.parseError?.code ?? null,
+      assessmentDecision: options.assessment?.decision ?? null,
+      assessmentScore: options.assessment?.score ?? null,
+      transportErrorCode: transportCode,
+      isTransientTransport: isRetryableTransportError(options.transportError),
+    }),
+  );
+
+  return decision;
 }

@@ -20,6 +20,8 @@ export class ApiError extends Error {
     public readonly errorMessage: string,
     public readonly hint?: string,
     public readonly code?: string,
+    /** Provider context forwarded from the API for diagnostic display. */
+    public readonly providerContext?: Record<string, unknown>,
   ) {
     super(errorMessage);
     this.name = 'ApiError';
@@ -41,7 +43,7 @@ export async function apiFetch<T>(
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {
-    let parsed: { error?: string; hint?: string; code?: string } = {};
+    let parsed: { error?: string; hint?: string; code?: string; providerContext?: Record<string, unknown> } = {};
     try {
       parsed = (await res.json()) as typeof parsed;
     } catch {
@@ -52,6 +54,7 @@ export async function apiFetch<T>(
       parsed.error ?? `Request failed (${res.status})`,
       parsed.hint,
       parsed.code,
+      parsed.providerContext,
     );
   }
   return res.json() as Promise<T>;

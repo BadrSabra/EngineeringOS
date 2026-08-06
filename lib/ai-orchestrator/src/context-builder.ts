@@ -147,6 +147,26 @@ export async function buildProjectContext(
   const contextObject = runAdmission(contextPlan, effectivePlan);
   const sliceMap = new Map(contextObject.plan.slices.map((s) => [s.id, s]));
 
+  // Trace context admission decisions for diagnostics.
+  console.info(
+    JSON.stringify({
+      scope: "context-builder",
+      action: "admission_trace",
+      projectId,
+      totalEstimatedTokens: contextPlan.totalEstimatedTokens,
+      budgetTokens: contextPlan.budgetTokens,
+      graphBudgetTokens: contextPlan.graphBudgetTokens,
+      sliceCount: contextPlan.slices.length,
+      sections: options.sections ?? null,
+      decisions: contextObject.plan.slices.map((s) => ({
+        id: s.id,
+        decision: s.admissionDecision,
+        estimatedTokens: s.estimatedTokens,
+        freshness: s.freshness,
+      })),
+    }),
+  );
+
   // Assemble the final ProjectContext from admission decisions.
   const result: ProjectContext = {
     project:        applyDecision(sliceMap.get("project")!.content,       sliceMap.get("project")!.admissionDecision),

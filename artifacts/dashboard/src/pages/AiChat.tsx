@@ -128,25 +128,43 @@ function fmtModelId(id: string): string {
   return OR_MODEL_LABELS[id] ?? (id.split("/").pop()?.replace(/:free$/, "") ?? id);
 }
 
+/** Build a provider context suffix for error messages, showing model/status/raw hint. */
+function providerContextSuffix(err: ApiError): string {
+  const parts: string[] = [];
+  const ctx = err.providerContext as Record<string, unknown> | undefined;
+  if (ctx) {
+    if (ctx['providerName']) parts.push(`Provider: ${ctx['providerName']}`);
+    if (ctx['providerModel']) parts.push(`Model: ${fmtModelId(String(ctx['providerModel']))}`);
+    if (ctx['providerStatus']) parts.push(`Status: ${ctx['providerStatus']}`);
+    if (ctx['providerMessage'] && typeof ctx['providerMessage'] === 'string') {
+      // Include raw provider message (truncated) for OpenRouter debugging.
+      const raw = ctx['providerMessage'].slice(0, 120);
+      if (raw) parts.push(`Detail: ${raw}`);
+    }
+  }
+  return parts.length > 0 ? ` (${parts.join(' · ')})` : '';
+}
+
 function describeAiError(err: unknown): string {
   if (err instanceof AiApiError) {
+    const suffix = providerContextSuffix(err);
     switch (err.status) {
-      case 400: return err.errorMessage;
-      case 401: return err.errorMessage || err.hint || 'AI API key is invalid — delete it and save a valid key from your provider\'s dashboard.';
+      case 400: return err.errorMessage + suffix;
+      case 401: return (err.errorMessage || err.hint || 'AI API key is invalid — delete it and save a valid key from your provider\'s dashboard.') + suffix;
       case 403: return 'Access denied — you may not have permission on this project.';
-      case 429: return err.errorMessage || err.hint || 'AI rate limit reached — wait 30–60 seconds before retrying.';
+      case 429: return (err.errorMessage || err.hint || 'AI rate limit reached — wait 30–60 seconds before retrying.') + suffix;
       case 422:
         if (err.code === 'model_output_invalid') {
           return 'The AI returned an unexpected response format — try rephrasing your message.';
         }
         if (err.code === 'MODEL_NOT_FOUND') {
-          return err.errorMessage || err.hint || 'The selected AI model is unavailable — try again or switch providers.';
+          return (err.errorMessage || err.hint || 'The selected AI model is unavailable — try again or switch providers.') + suffix;
         }
-        return err.errorMessage || err.hint || 'AI provider configuration is invalid. Re-save your API key.';
+        return (err.errorMessage || err.hint || 'AI provider configuration is invalid. Re-save your API key.') + suffix;
       case 428: return err.errorMessage || err.hint || 'No AI key configured — save an OpenRouter, DeepSeek, or Groq API key first.';
-      case 502: return err.errorMessage || err.hint || 'AI provider returned an error. Check your API key or try again.';
+      case 502: return (err.errorMessage || err.hint || 'AI provider returned an error. Check your API key or try again.') + suffix;
       case 503: return 'AI provider is temporarily unreachable — try again in a moment.';
-      default:  return err.errorMessage || `Request failed (${err.status}).`;
+      default:  return (err.errorMessage || `Request failed (${err.status}).`) + suffix;
     }
   }
   if (err instanceof Error) return err.message;

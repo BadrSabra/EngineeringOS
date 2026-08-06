@@ -37,8 +37,10 @@ export function resolveToolPolicy(opts: {
   const provider = getProvider(opts.provider);
   const mode = opts.mode ?? "workspace";
 
+  let policy: ToolPolicy;
+
   if (!opts.rootPath) {
-    return {
+    policy = {
       provider: provider.providerId,
       rootPath: opts.rootPath,
       mode,
@@ -48,10 +50,8 @@ export function resolveToolPolicy(opts: {
       allowGit: false,
       reason: "tool policy requires a project root path",
     };
-  }
-
-  if (!provider.supportsTools) {
-    return {
+  } else if (!provider.supportsTools) {
+    policy = {
       provider: provider.providerId,
       rootPath: opts.rootPath,
       mode,
@@ -61,17 +61,35 @@ export function resolveToolPolicy(opts: {
       allowGit: false,
       reason: "provider registry marks this endpoint as text-only",
     };
+  } else {
+    policy = {
+      provider: provider.providerId,
+      rootPath: opts.rootPath,
+      mode,
+      enabled: true,
+      allowFileRead: true,
+      allowFileWrite: mode === "workspace",
+      allowGit: true,
+    };
   }
 
-  return {
-    provider: provider.providerId,
-    rootPath: opts.rootPath,
-    mode,
-    enabled: true,
-    allowFileRead: true,
-    allowFileWrite: mode === "workspace",
-    allowGit: true,
-  };
+  console.info(
+    JSON.stringify({
+      scope: "tool-policy",
+      action: "resolve_tool_policy",
+      provider: policy.provider,
+      rootPath: opts.rootPath ?? null,
+      mode,
+      enabled: policy.enabled,
+      allowFileRead: policy.allowFileRead,
+      allowFileWrite: policy.allowFileWrite,
+      allowGit: policy.allowGit,
+      reason: policy.reason ?? null,
+      supportsTools: provider.supportsTools,
+    }),
+  );
+
+  return policy;
 }
 
 export function isToolAllowed(policy: ToolPolicy, toolName: string): boolean {

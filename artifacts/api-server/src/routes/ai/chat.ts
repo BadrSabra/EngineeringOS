@@ -174,6 +174,18 @@ router.post("/ai/chat", async (req, res) => {
     await enrichContextWithMemories(projectContext, projectId).catch((err) => {
       logger.warn({ err, projectId }, "memory-enrich: failed to load session memories");
     });
+    logger.info({
+      scope: "chat-route",
+      action: "pre_chat_trace",
+      provider,
+      sessionId: existingSession?.id ?? sessionId ?? null,
+      projectId,
+      messageCount: historyRows.length,
+      requireTools: !!validRootPath,
+      qualityProfile: validRootPath ? "tool_chat" : "chat",
+      contextProfile: chatClassification.contextProfile,
+    }, "chat: dispatching chatWithFallback");
+
     let result: Awaited<ReturnType<typeof chat>>;
     try {
       const chatOut = await chatWithFallback(
@@ -383,6 +395,18 @@ router.post("/ai/chat/stream", async (req, res) => {
     });
 
     sse({ type: "stage", stage: "calling-model" });
+
+    logger.info({
+      scope: "chat-route",
+      action: "pre_stream_trace",
+      provider,
+      sessionId: existingSession?.id ?? sessionId ?? null,
+      projectId,
+      messageCount: historyRows.length,
+      requireTools: !!validRootPath,
+      qualityProfile: validRootPath ? "tool_chat" : "chat",
+      contextProfile: streamClassification.contextProfile,
+    }, "chat/stream: dispatching chatWithFallback");
 
     // PR-011: record the request and track latency start.
     recordRequest(provider);
