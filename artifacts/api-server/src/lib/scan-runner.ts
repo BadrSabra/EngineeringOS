@@ -29,6 +29,14 @@ import { logger } from "./logger.js";
 import { stat as fsStat } from "node:fs/promises";
 import { tryAdvisoryLock, LockNamespace } from "./advisory-lock.js";
 import { provenanceFromEntity, provenanceFromRelationship, manualProvenance } from "./graph-provenance.js";
+import {
+  claimScanJob,
+  heartbeatScanJob,
+  completeScanJob,
+  failScanJob,
+  SCAN_LEASE_MS,
+  SCAN_HEARTBEAT_INTERVAL_MS,
+} from "./job-lease.js";
 
 export interface ScanJobResult {
   projectId: string;

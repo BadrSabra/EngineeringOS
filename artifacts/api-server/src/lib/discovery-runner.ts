@@ -31,6 +31,14 @@ import {
 import { eq, and, isNull } from "drizzle-orm";
 import { logger } from "./logger.js";
 import { tryAdvisoryLock, LockNamespace } from "./advisory-lock.js";
+import { randomUUID } from "node:crypto";
+import {
+  claimDiscoverySession,
+  heartbeatDiscoverySession,
+  releaseDiscoverySessionLease,
+  DISCOVERY_LEASE_MS,
+  DISCOVERY_HEARTBEAT_INTERVAL_MS,
+} from "./job-lease.js";
 
 // ─── Step names ────────────────────────────────────────────────────────────────
 

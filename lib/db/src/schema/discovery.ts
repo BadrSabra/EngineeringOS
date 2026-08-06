@@ -135,6 +135,20 @@ export const discoverySessionsTable = pgTable("discovery_sessions", {
   importedProjectId: text("imported_project_id").references(() => projectsTable.id, {
     onDelete: "set null",
   }),
+  /**
+   * PR-01 (Durable Jobs): Worker ID that claimed and is running this session.
+   * Set atomically on claim (pending→discovering); cleared on completion/error.
+   */
+  workerId: text("worker_id"),
+  /**
+   * PR-01: Lease deadline for the current worker. Heartbeated periodically;
+   * if it falls behind now() the session is considered abandoned.
+   */
+  leaseUntil: timestamp("lease_until"),
+  /** PR-01: Timestamp of the last successful heartbeat from the worker. */
+  lastHeartbeatAt: timestamp("last_heartbeat_at"),
+  /** PR-01: Stable idempotency key (defaults to session ID) set at creation. */
+  idempotencyKey: text("idempotency_key"),
 }, (t) => [
   // Covers: reconciliation sweeps — WHERE status IN ('discovering', 'pending')
   index("idx_discovery_sessions_status").on(t.status),
@@ -142,6 +156,8 @@ export const discoverySessionsTable = pgTable("discovery_sessions", {
   index("idx_discovery_sessions_started_at").on(t.startedAt),
   // Covers: user-scoped listing — WHERE owner_id = ?
   index("idx_discovery_sessions_owner_id").on(t.ownerId),
+  // PR-01: Covers lease-expiry detection: WHERE status='discovering' AND lease_until < NOW()
+  index("idx_discovery_sessions_status_lease_until").on(t.status, t.leaseUntil),
   /**
    * DB-14: Temporal consistency — completedAt must come after startedAt.
    * Lifecycle state machine (enforced in app code; documented here):

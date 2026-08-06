@@ -47,7 +47,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { db, scanJobsTable, discoverySessionsTable, projectsTable, tasksTable, taskLogsTable } from "@workspace/db";
-import { and, eq, lt } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
@@ -101,6 +101,10 @@ async function reconcileScanJobs(): Promise<number> {
           error: null,
           startedAt: null,
           finishedAt: null,
+          // PR-01: clear lease so the recovering worker can claim cleanly
+          workerId: null,
+          leaseUntil: null,
+          lastHeartbeatAt: null,
         })
         .where(eq(scanJobsTable.id, job.id));
 
@@ -116,6 +120,10 @@ async function reconcileScanJobs(): Promise<number> {
           status: "failed",
           error: `${ORPHANED_RUNNING_MESSAGE} (retry limit of ${job.maxRetries} exceeded)`,
           finishedAt: now,
+          // PR-01: clear lease so the row doesn't appear as "in-flight"
+          workerId: null,
+          leaseUntil: null,
+          lastHeartbeatAt: null,
         })
         .where(eq(scanJobsTable.id, job.id));
 
@@ -200,7 +208,15 @@ async function reconcileDiscoverySessions(): Promise<number> {
   for (const session of discovering) {
     await db
       .update(discoverySessionsTable)
-      .set({ status: "error", error: ORPHANED_RUNNING_MESSAGE, completedAt: now })
+      .set({
+        status: "error",
+        error: ORPHANED_RUNNING_MESSAGE,
+        completedAt: now,
+        // PR-01: clear lease so the row no longer appears as "in-flight"
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+      })
       .where(eq(discoverySessionsTable.id, session.id));
   }
 
@@ -293,6 +309,7 @@ const STALE_JOB_SWEEP_INTERVAL_MS = Number(
  * does not race with legitimate fast-running jobs.
  */
 export async function failStaleRunningJobs(): Promise<number> {
+  const now = new Date();
   const cutoff = new Date(Date.now() - STALE_JOB_TIMEOUT_MS);
 
   let staleCount = 0;
@@ -303,7 +320,13 @@ export async function failStaleRunningJobs(): Promise<number> {
       .where(
         and(
           eq(scanJobsTable.status, "running"),
-          lt(scanJobsTable.startedAt, cutoff),
+          // PR-01: Two stale conditions:
+          //   (a) New rows with a lease: worker stopped heartbeating → lease expired.
+          //   (b) Legacy rows without a lease: fall back to startedAt time cutoff.
+          or(
+            lt(scanJobsTable.leaseUntil, now),
+            and(isNull(scanJobsTable.leaseUntil), lt(scanJobsTable.startedAt, cutoff)),
+          ),
         ),
       );
 
@@ -315,6 +338,10 @@ export async function failStaleRunningJobs(): Promise<number> {
         .set({
           status: "failed",
           error: `Timed out — job was still "running" after ${Math.round(STALE_JOB_TIMEOUT_MS / 60_000)} minutes`,
+          // PR-01: clear lease fields so the row no longer appears in-flight
+          workerId: null,
+          leaseUntil: null,
+          lastHeartbeatAt: null,
         })
         .where(
           and(eq(scanJobsTable.id, job.id), eq(scanJobsTable.status, "running")),
@@ -484,6 +511,10 @@ async function reconcileAiTasks(): Promise<number> {
           status: "verifying",
           retryCount: task.retryCount + 1,
           updatedAt: now,
+          // PR-01: clear lease so the task can be re-claimed on next execution
+          workerId: null,
+          leaseUntil: null,
+          lastHeartbeatAt: null,
         })
         .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running")))
         .returning({ id: tasksTable.id });
@@ -519,6 +550,10 @@ async function reconcileAiTasks(): Promise<number> {
           status: "failed",
           updatedAt: now,
           completedAt: now,
+          // PR-01: clear lease on permanent failure
+          workerId: null,
+          leaseUntil: null,
+          lastHeartbeatAt: null,
         })
         .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running")))
         .returning({ id: tasksTable.id });

@@ -58,6 +58,20 @@ export const tasksTable = pgTable("tasks", {
   /** Ties a task created by a scan/discovery run to that operation's trace
    *  (same value as the corresponding events/metrics/audit_logs rows). */
   correlationId: text("correlation_id"),
+  /**
+   * PR-01 (Durable Jobs): Worker ID that claimed and is executing this task.
+   * Set atomically when AI execution starts; cleared on completion/failure.
+   */
+  workerId: text("worker_id"),
+  /**
+   * PR-01: Lease deadline for the executing worker. Heartbeated during long
+   * AI agent calls; if it falls behind now() the task is considered abandoned.
+   */
+  leaseUntil: timestamp("lease_until"),
+  /** PR-01: Timestamp of the last successful heartbeat from the worker. */
+  lastHeartbeatAt: timestamp("last_heartbeat_at"),
+  /** PR-01: Stable idempotency key (defaults to task ID) set at creation. */
+  idempotencyKey: text("idempotency_key"),
 }, (t) => [
   index("idx_tasks_project_id").on(t.projectId),
   // Covers: WHERE project_id = ? ORDER BY created_at DESC (task list per project)
@@ -65,6 +79,8 @@ export const tasksTable = pgTable("tasks", {
   index("idx_tasks_status").on(t.status),
   index("idx_tasks_priority").on(t.priority),
   index("idx_tasks_correlation_id").on(t.correlationId),
+  // PR-01: Covers lease-expiry detection: WHERE status='running' AND lease_until < NOW()
+  index("idx_tasks_status_lease_until").on(t.status, t.leaseUntil),
 ]);
 
 export type InsertTask = typeof tasksTable.$inferInsert;
