@@ -102,35 +102,56 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
     return;
   }
 
-  // Everything below is inside one try/catch — including the very first
-  // status-flip update — because this function is invoked fire-and-forget
-  // (`void runScanJob(...)`) from the route. Any rejection that escapes here
-  // would be an unhandled promise rejection in a single-process Express
-  // deployment, which can crash the whole process. No await before try.
-  try {
-    await db
-      .update(scanJobsTable)
-      .set({ status: "running", startedAt: new Date() })
-      .where(eq(scanJobsTable.id, jobId));
+  // PR-01 (Durable Jobs): claim the job with a workerId + initial lease
+  // before starting any work. If the claim returns false, the job is no
+  // longer in "queued" state — either another worker already claimed it or
+  // reconciliation moved it to a terminal state. Bail out without touching
+  // the project row.
+  const workerId = randomUUID();
+  const claimed = await claimScanJob(jobId, workerId, SCAN_LEASE_MS);
+  if (!claimed) {
+    logger.warn(
+      { jobId, projectId },
+      "scan-runner: could not claim job — not in queued state; skipping",
+    );
+    if (lock?.acquired) {
+      await lock.release().catch((releaseErr) => {
+        logger.warn({ releaseErr, jobId }, "scan-runner: failed to release advisory lock after claim miss");
+      });
+    }
+    return;
+  }
 
+  // Heartbeat loop: extends lease_until every SCAN_HEARTBEAT_INTERVAL_MS so
+  // job-reconciliation does not reclaim this job while the scan is in
+  // progress. Cleared in the finally block as a safety net.
+  let heartbeatInterval: NodeJS.Timeout | undefined = setInterval(() => {
+    heartbeatScanJob(jobId, workerId, SCAN_LEASE_MS).catch((hbErr) => {
+      logger.warn({ hbErr, jobId }, "scan-runner: heartbeat failed");
+    });
+  }, SCAN_HEARTBEAT_INTERVAL_MS);
+
+  try {
     const result = await performScan(projectId);
-    await db
-      .update(scanJobsTable)
-      .set({
-        status: "completed",
-        result: result as unknown as Record<string, unknown>,
-        finishedAt: new Date(),
-      })
-      .where(eq(scanJobsTable.id, jobId));
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = undefined;
+    const finishedAt = new Date();
+    await completeScanJob(
+      jobId,
+      workerId,
+      result as unknown as Record<string, unknown>,
+      finishedAt,
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error({ err, projectId, jobId }, "scan job failed");
     try {
+      if (heartbeatInterval !== undefined) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = undefined;
+      }
       const failedAt = new Date();
-      await db
-        .update(scanJobsTable)
-        .set({ status: "failed", error: message, finishedAt: failedAt })
-        .where(eq(scanJobsTable.id, jobId));
+      await failScanJob(jobId, workerId, message, failedAt);
       // Guard with `status = "scanning"` so a newer job that has already
       // taken ownership of this project is not clobbered by this failure path.
       await db
@@ -162,6 +183,9 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
       logger.error({ cleanupErr, projectId, jobId }, "failed to record scan job failure");
     }
   } finally {
+    // Safety net: ensure heartbeat is cleared even if an unexpected path
+    // skips the explicit clearInterval calls above.
+    if (heartbeatInterval !== undefined) clearInterval(heartbeatInterval);
     // PR-3: Always release the advisory lock so other instances (or a
     // subsequent reconciliation run) can pick up the job if needed.
     if (lock?.acquired) {

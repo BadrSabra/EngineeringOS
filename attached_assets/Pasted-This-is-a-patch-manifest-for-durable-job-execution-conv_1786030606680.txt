@@ -1,0 +1,422 @@
+This is a patch manifest for durable job execution — converting in-memory job dispatch to a DB-backed claim/lease/idempotency pattern. Let me explore the relevant files before touching anything.
+
+
+
+Good picture of the landscape. Let me read the actual file contents for the files I'll be editing.
+
+
+
+Now I have a clear picture of the current infrastructure. Let me read a few more files before starting to implement the patch:
+
+
+
+lib/db/src/schema/discovery.ts - full contents
+
+lib/db/src/schema/tasks.ts - full contents
+
+artifacts/api-server/src/index.ts - startup sequence
+
+artifacts/api-server/src/lib/scan-runner.ts - key completion sections
+
+artifacts/api-server/src/lib/discovery-runner.ts - key completion sections
+
+I'm sketching out the implementation strategy: I'll need to add worker tracking fields like workerId, leaseUntil, lastHeartbeatAt, and idempotencyKey to the scan jobs, discovery sessions, and tasks tables with appropriate indexes. Then I'll create a job lease helper library to handle claiming, heartbeating, completing, and failing jobs, and update the job reconciliation logic to use these new lease-based mechanisms.
+
+
+
+For the runners, I'll add heartbeat loops during execution and use the new completion helpers for atomic operations. I'm also planning integration tests to cover job recovery, leasing, idempotency, and concurrency scenarios. Let me check the remaining files I need to review.
+
+
+
+Let me read the remaining files I need before implementing.
+
+
+
+Let me continue reading the scan-runner.ts to see the failure path and the rest of the file, plus get the discovery-runner.ts key sections.
+
+
+
+Now I have a clear picture. Let me implement the PR-01 Durable Jobs Fix patch. Here's my plan:
+
+
+
+Phase 1: Schema changes — add workerId, leaseUntil, lastHeartbeatAt, idempotencyKey to:
+
+
+
+lib/db/src/schema/scan_jobs.ts
+
+lib/db/src/schema/discovery.ts (discoverySessionsTable)
+
+lib/db/src/schema/tasks.ts
+
+Phase 2: New job-lease.ts helper — claimJob, heartbeatJob, completeJob, failJob Phase 3: Update job-reconciliation.ts — use leaseUntil for stale running detection in failStaleRunningJobs, update reconcileScanJobs to handle lease-expired running jobs
+
+
+
+Phase 4: Update scan-runner.ts — add heartbeat during execution, use lease release on completion/failure
+
+
+
+Phase 5: Update discovery-runner.ts — same as scan-runner
+
+
+
+Phase 6: New integration tests — 4 test files
+
+
+
+Now I'm starting to implement these phases in parallel, beginning with the schema modifications to add the necessary columns for tracking worker identity and lease information.
+
+
+
+Writing job-lease library... Now I'm thinking through the lease-based reconciliation strategy: instead of checking if a job started before a cutoff time, I can detect expired leases by comparing leaseUntil against the current time, which makes it easier to identify jobs that should be reclaimed or marked as failed. I'm adding the necessary schema fields across all three job tables—worker ID, lease expiration timestamp, last heartbeat time, and an idempotency key—plus a compound index on status and lease expiration for efficient queries. Then I'll create a generic job-lease module to handle the common lease logic. I'll organize the implementation across the schema files and create the job-lease helpers, then update the reconciliation logic and integrate it into the scan runner.
+
+
+
+Now I have everything I need. Let me implement the patch systematically. I'll work in parallel across independent phases.
+
+
+
+Now I have enough context to implement the full patch. Let me plan the exact changes:
+
+
+
+Phase 1: Schema additions (3 files)
+
+
+
+lib/db/src/schema/scan_jobs.ts — add workerId, leaseUntil, lastHeartbeatAt, idempotencyKey + index
+
+lib/db/src/schema/discovery.ts — same for discoverySessionsTable
+
+lib/db/src/schema/tasks.ts — same for tasksTable
+
+Phase 2: New job-lease.ts — unified claim/heartbeat/complete/fail helpers for scan_jobs, discovery_sessions, tasks Phase 3: Update scan-runner.ts — use claimScanJob, heartbeat loop, completeJob/failJob Phase 4: Update discovery-runner.ts — use claimDiscoverySession with lease Phase 5: Update job-reconciliation.ts — use leaseUntil-based detection in failStaleRunningJobs + reconcileScanJobs Phase 6: New integration tests (4 files)
+
+
+
+Now I'm ready to start writing the code. Let me begin with the schema changes, adding the lease tracking columns to scan_jobs first.
+
+
+
+For the idempotency key, I need to think through the semantics carefully. Since job IDs are already unique primary keys, the idempotencyKey is somewhat redundant for scan_jobs, but it becomes important for the AI task case where we're calling enqueueWithId with a task ID. The key should be set when the job is created in the route handler so that multiple claim attempts for the same job always reference the same idempotency key.
+
+
+
+Now I'm writing the claim helper function that attempts to transition a job from queued to running status, setting the worker ID, lease expiration time, and heartbeat timestamp in a single atomic update.
+
+
+
+For the heartbeat function, I'm extending the lease by updating the lease expiration and last heartbeat time while verifying the worker still owns the job.
+
+
+
+The complete and fail functions already exist but need the worker ID added to their WHERE clauses and should clear the lease when releasing the job back to the queue.
+
+
+
+For the reconciliation logic, I need to implement a function that detects stale running jobs by checking if their lease has expired (leaseUntil < now), which indicates the worker crashed without completing or heartbeating. I could also keep the original time-based check as a fallback — either the job has been running too long or its lease expired, whichever condition triggers first.
+
+
+
+For the startup reconciliation, since all running jobs will have stale leases after a restart, I just need to make sure I clear the workerId and leaseUntil fields when resetting jobs back to queued state.
+
+
+
+Now I'll write the implementation. I'll follow the existing colocated test pattern instead of creating a separate integration directory, then check the vitest configuration to understand how the tests should be structured.
+
+
+
+Good, I have everything I need. Let me implement the patch in parallel phases.
+
+
+
+Phase 1: Schema changes + new lease helper file — all independent.
+
+
+
+Let me continue with the implementation. I need to:
+
+
+
+Add lease columns to scan_jobs.ts (partially done - added constants, need to add actual columns)
+
+Add lease columns to discovery.ts
+
+Add lease columns to tasks.ts
+
+Create job-lease.ts
+
+Update job-reconciliation.ts
+
+Update scan-runner.ts
+
+Update discovery-runner.ts
+
+Write 4 test files
+
+Push DB schema
+
+First, I should check the current state of scan_jobs.ts to see what's already there and add the lease columns properly.
+
+Now I have full context. Let me implement all changes in parallel batches.
+
+
+
+Let me continue implementing the patch. I need to do all the remaining changes in parallel. Let me batch them:
+
+
+
+Add lease columns to lib/db/src/schema/discovery.ts
+
+Add lease columns to lib/db/src/schema/tasks.ts
+
+Create artifacts/api-server/src/lib/job-lease.ts
+
+Then: 4. Update artifacts/api-server/src/lib/job-reconciliation.ts 5. Update artifacts/api-server/src/lib/scan-runner.ts 6. Update artifacts/api-server/src/lib/discovery-runner.ts
+
+
+
+After that I'll push the DB schema and write the test files. Starting with the schema changes now—adding the same four lease-related columns and indexes to both the discovery sessions and tasks tables, then creating the job-lease module with functions to claim jobs, send heartbeats, and complete leases.
+
+
+
+For discovery sessions, the completion path is more involved since it needs to handle multiple state fields and progress tracking, so I'll keep the existing updateSession method for the success case and use the lease helpers just for the status and lease transitions. Writing lease helper functions...
+
+
+
+For discovery sessions, I'm realizing that doing the status update and lease release separately creates a brief window where the status is ready but the lease is still set. It's cleaner to just include the lease cleanup fields directly in the updateSession call—setting workerId, leaseUntil, and lastHeartbeatAt all to null atomically alongside the status change.
+
+
+
+For scan jobs, I'll stick with dedicated helper functions like completeScanJob and failScanJob that handle the atomic write in one go, since the status transitions are more straightforward there.
+
+
+
+Defining the lease helpers... Now I'm planning the specific schema updates needed across three files: adding workerId and leaseUntil columns to the discovery sessions table, doing the same for the tasks table, and creating a new job-lease utility file to handle the lease management logic. Writing schema definitions...
+
+
+
+Good. Now I'll write all remaining changes in parallel — schema additions for the other two tables, the new lease helper, updated reconciliation, updated runners, and tests.
+
+
+
+Let me continue with the remaining schema changes and new file creation, all in parallel.
+
+
+
+Let me continue with the implementation. I need to:
+
+
+
+Create artifacts/api-server/src/lib/job-lease.ts
+
+Update artifacts/api-server/src/lib/job-reconciliation.ts
+
+Update artifacts/api-server/src/lib/scan-runner.ts
+
+Update artifacts/api-server/src/lib/discovery-runner.ts
+
+Push DB schema
+
+Write test files
+
+Let me do these in parallel where possible. The job-lease.ts is independent, the reconciliation update needs the new schema columns, the scan-runner and discovery-runner both need job-lease.ts. The tests need everything. Now I'm starting with job-lease.ts, which provides atomic claim/heartbeat/complete/fail operations for database-backed background jobs. Each operation is a single DB write to avoid race conditions between status transitions and lease assignments.
+
+
+
+Writing job-lease helpers... Writing database update functions... Writing discovery session helpers... Completing the heartbeat function and then moving on to update the scan-runner.ts file to integrate the job lease management, replacing the status updates with the new claim, heartbeat, and fail functions. Writing error handling... Writing the catch and finally blocks...
+
+
+
+Let me read the scan-runner finally block and then write all remaining changes in parallel.
+
+
+
+Let me continue implementing the patch. I have all the context I need. Let me now write all remaining changes in parallel:
+
+
+
+Create artifacts/api-server/src/lib/job-lease.ts
+
+Update artifacts/api-server/src/lib/job-reconciliation.ts (update failStaleRunningJobs + clear lease fields in reconcile functions)
+
+Update artifacts/api-server/src/lib/scan-runner.ts (use claim/heartbeat/complete/fail)
+
+Update artifacts/api-server/src/lib/discovery-runner.ts (use claim/heartbeat for sessions)
+
+Push schema and write tests
+
+Now I'm writing the job-lease module with lease duration constants and functions to claim, heartbeat, complete, and fail both scan jobs and discovery sessions, along with the reconciliation updates to clear lease fields and handle stale jobs.
+
+
+
+For scan-runner, I'm adding the lease claim logic to replace the direct status update, setting up a worker ID and heartbeat interval, then using the completion and failure functions in the appropriate paths.
+
+
+
+For discovery-runner, I'm making similar changes: importing the discovery-specific lease functions, claiming the session instead of directly updating it, managing the heartbeat interval throughout the lifecycle, and ensuring the lease is released in both success and error paths.
+
+
+
+Now I'll write out all the code changes.
+
+
+
+For scan-runner.ts, I need to find the exact section where everything is wrapped in a try/catch block that handles the status update, the scan execution, and the completion update, with error handling that captures the message.
+
+
+
+Looking at the code structure, I can see that the entire operation—from the initial status flip to "running" through the scan execution and completion—is wrapped in one try/catch. The catch block logs the error and then attempts to update the job status to "failed" with the error message, while also resetting the project status back to "active" if it's still in the "scanning" state. There's also a comment about emitting a ProjectScanFailed event to keep the AI context's recent events in sync.
+
+
+
+Updating the job status to "failed" with the error message and timestamp, then resetting the project status back to "active" if it hasn't been claimed by another scan... Wrapping the cleanup in error handling so we don't throw from a fire-and-forget context, then ensuring the advisory lock is always released in the finally block so other instances can pick up the job if needed. Now I'm looking at the discovery-runner section around lines 342-345 where we transition the job state from pending to discovering. I need to replace the pending status transition with a proper claim operation that includes workerId and heartbeat management. The cleanest approach is to create a helper function that releases the discovery session lease by clearing the workerId, leaseUntil, and lastHeartbeatAt fields in one operation, then call that after the success path completes.
+
+
+
+For the discovery runner, I should add heartbeat logic since the pipeline has multiple slow steps — a 5-minute lease with 1-minute heartbeat extensions would be solid. The scan runner already has performScan as its long-running operation where the heartbeat loop will extend the lease.
+
+
+
+Before writing the code, I need to move those lease constants out of the schema file and into job-lease.ts where they belong.
+
+
+
+Now I'm checking the imports in scan-runner.ts to see what's already there...
+
+
+
+I need to add the job lease imports for claiming, heartbeating, completing, and failing scan jobs, along with the timing constants.
+
+
+
+Now I'm thinking through the scan-runner logic — when claiming a job, I need to handle the case where the claim fails because another process already claimed it. The key is structuring the flow so that an early return from a failed claim doesn't trigger the project side effects that belong in the catch block. I'll separate the claim check as an early exit, then start the heartbeat, run the scan, and complete the job, making sure the catch block only handles actual errors rather than failed claims.
+
+
+
+Writing the claim logic... Completing the scan job atomically, then handling errors by clearing the heartbeat interval, marking the job as failed, and resetting the project status back to active if it's still in the scanning state. Now I need to write out the actual implementation for discovery-runner.ts. I'll add the import for the lease functions at the top, then modify the runDiscovery function to declare the workerId and heartbeatInterval, replace the initial session update with a claim operation that returns early if the lease can't be acquired, start the heartbeat after a successful claim, call the release function after the status transitions to ready, handle cleanup in the catch block, and ensure the heartbeat stops in the finally block. Setting up the success and error paths... Finishing the error handling and lock release... I'm mapping out the refactoring strategy: replace the initial session update with a claim operation and start the heartbeat, then add heartbeat cleanup and lease release calls at the appropriate points—in the inner catch for error handling, after the success update, and in the outer finally as a safety net before releasing the lock.
+
+
+
+Now I need to write out the implementation across multiple files: creating the new job-lease module with the lease and heartbeat constants, removing those constants from the schema file, then updating the reconciliation and runner files with the new lease management logic.
+
+
+
+Now I'll write all remaining changes in parallel — the new lease helper file, reconciliation updates, and both runner updates.
+
+
+
+Let me fix the broken staleLeaseCondition helper and simultaneously push all remaining changes in parallel.
+
+
+
+Let me continue with the implementation. I need to:
+
+
+
+Remove the SCAN_LEASE_MS constants from scan_jobs.ts (they should be in job-lease.ts)
+
+Also remove unused imports from job-lease.ts (or, lt, isNull - some might still be used)
+
+Update job-reconciliation.ts
+
+Update scan-runner.ts
+
+Update discovery-runner.ts
+
+Push DB schema
+
+Write 4 test files
+
+Let me check what imports I have in job-lease.ts and clean up.
+
+
+
+Looking at job-lease.ts, I import or, lt, isNull but removed the function that used them. Let me check which are still needed... and and eq are used throughout, but isNull, or, and lt aren't needed anymore, so I'll remove those from the imports. I also need to strip out the SCAN_LEASE_MS constants from scan_jobs.ts and then tackle the remaining file updates.
+
+
+
+For job-reconciliation.ts, I need to add back or, isNull, and isNotNull to the imports, then update the three reconciliation functions to clear lease fields. The runner files will need more substantial changes—adding the workerId and heartbeat tracking, then using the claim/complete/fail helpers in scan-runner and the claim/heartbeat/release pattern in discovery-runner.
+
+
+
+Let me batch these changes together, starting with the smaller import and constant fixes, then moving through the reconciliation logic and runner implementations before pushing the schema and writing tests. Updating the reconciliation functions to clear the lease fields (workerId, leaseUntil, lastHeartbeatAt) when resetting jobs from running back to queued, marking them as failed, and handling orphaned discovery sessions and AI reconciliation tasks.
+
+
+
+Now I'm modifying the failStaleRunningJobs function to detect lease expiry in addition to the existing timeout check... Finishing the cutoff variable definition, then I need to replace a large section in scan-runner.ts starting from the try/catch comment through the end of the function, and update discovery-runner.ts to add the workerId and heartbeat logic plus swap out the initial session update for the claim operation. Checking if the lock is acquired, and if not, logging a warning and returning early. Then transitioning the session status to "discovering" so we can distinguish between queued and actively running sessions. At the end of the function, updating the session with final results including the completed status, progress, steps, and completion timestamp, with error handling for any failures. Writing the edits...
+
+
+
+Now let me do all remaining edits in parallel — clean up scan_jobs.ts constants, fix job-lease.ts imports, update reconciliation + both runners.
+
+
+
+Let me continue with the implementation. I need to do several more edits in parallel:
+
+
+
+Update job-reconciliation.ts - the reconcile functions need to clear lease fields, and failStaleRunningJobs needs lease-expiry detection
+
+Update scan-runner.ts - use claim/heartbeat/complete/fail helpers
+
+Update discovery-runner.ts - use claim/heartbeat/release helpers
+
+Push DB schema
+
+Write 4 test files
+
+Let me batch the reconciliation and runner edits together.
+
+
+
+For job-reconciliation.ts, I need to: 1. Updating the reconciliation functions to clear worker ID, lease expiry, and heartbeat timestamps when transitioning jobs between states (running→queued, running→failed for scan jobs; discovering→error for discovery sessions; running→verifying and running→failed for AI tasks), and modifying failStaleRunningJobs to detect expired leases and clear those fields. For scan-runner.ts, I'm switching to the claim/heartbeat/complete/fail helper functions in the main block.
+
+
+
+Now I'm applying similar changes to discovery-runner.ts—adding the import, updating the initial claim with worker ID and heartbeat tracking, adjusting the success and error paths, and refactoring the finally block.
+
+
+
+Continuing with all remaining edits in parallel — reconciliation cleanup, scan-runner integration, and discovery-runner integration.
+
+
+
+Let me continue with the remaining edits. I need to update the AI task reconciliation (clear lease fields), update failStaleRunningJobs to use lease expiry, update scan-runner.ts, update discovery-runner.ts, push schema, and write tests.
+
+
+
+Let me do all of these in parallel.
+
+
+
+Continuing with all remaining edits in parallel.
+
+
+
+Let me continue with the implementation. I need to:
+
+
+
+Update scan-runner.ts (add import + use claim/heartbeat/complete/fail)
+
+Update discovery-runner.ts (add import + use claim/heartbeat/release)
+
+Push DB schema
+
+Write 4 test files
+
+Let me do the scan-runner and discovery-runner updates in parallel.
+
+
+
+Good progress. Let me now update both runners and push the schema in parallel.
+
+
+
+You've reached your monthly free quota limit. It will reset on August 17, 2026.
+
+
+

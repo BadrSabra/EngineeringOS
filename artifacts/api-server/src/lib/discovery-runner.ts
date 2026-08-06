@@ -13,6 +13,7 @@
  * (discovering) on restart.
  */
 import { stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { db } from "@workspace/db";
 import {
   discoverySessionsTable,
@@ -31,7 +32,6 @@ import {
 import { eq, and, isNull } from "drizzle-orm";
 import { logger } from "./logger.js";
 import { tryAdvisoryLock, LockNamespace } from "./advisory-lock.js";
-import { randomUUID } from "node:crypto";
 import {
   claimDiscoverySession,
   heartbeatDiscoverySession,
@@ -347,10 +347,32 @@ export async function runDiscovery(sessionId: string, rootPath: string): Promise
     return;
   }
 
+  // PR-01 (Durable Jobs): claim the session atomically (pending → discovering
+  // + workerId + lease). This replaces the bare updateSession call so only
+  // one worker can ever own a session at a time.
+  const workerId = randomUUID();
+  const claimed = await claimDiscoverySession(sessionId, workerId, DISCOVERY_LEASE_MS);
+  if (!claimed) {
+    logger.warn(
+      { sessionId },
+      "discovery-runner: could not claim session — not in pending state; skipping",
+    );
+    if (lock?.acquired) {
+      await lock.release().catch((releaseErr) => {
+        logger.warn({ releaseErr, sessionId }, "discovery-runner: failed to release advisory lock after claim miss");
+      });
+    }
+    return;
+  }
+
+  // Heartbeat loop: keeps lease_until extended for long-running pipelines.
+  let heartbeatInterval: NodeJS.Timeout | undefined = setInterval(() => {
+    heartbeatDiscoverySession(sessionId, workerId, DISCOVERY_LEASE_MS).catch((hbErr) => {
+      logger.warn({ hbErr, sessionId }, "discovery-runner: heartbeat failed");
+    });
+  }, DISCOVERY_HEARTBEAT_INTERVAL_MS);
+
   try {
-  // Transition pending → discovering so reconciliation can distinguish
-  // "waiting in queue" from "actually started running".
-  await updateSession(sessionId, { status: "discovering" });
 
   const steps: DiscoveryStep[] = STEPS.map((name) => ({ name, status: "pending" as const }));
 
@@ -515,6 +537,9 @@ export async function runDiscovery(sessionId: string, rootPath: string): Promise
       result: partial,
       completedAt: new Date(),
     });
+    // PR-01: release lease fields now that the session has reached a
+    // terminal state. Clears workerId/leaseUntil/lastHeartbeatAt atomically.
+    await releaseDiscoverySessionLease(sessionId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error({ err, sessionId }, "Discovery pipeline error");
@@ -523,8 +548,12 @@ export async function runDiscovery(sessionId: string, rootPath: string): Promise
       error: message,
       completedAt: new Date(),
     }).catch(() => undefined);
+    await releaseDiscoverySessionLease(sessionId).catch(() => undefined);
   }
   } finally {
+    // Safety net: clear heartbeat even if an unexpected path skips the
+    // explicit clears in the success/error branches above.
+    if (heartbeatInterval !== undefined) clearInterval(heartbeatInterval);
     // PR-3: Release the advisory lock so other instances (or a subsequent
     // reconciliation run) can acquire it for a fresh attempt if needed.
     if (lock?.acquired) {
