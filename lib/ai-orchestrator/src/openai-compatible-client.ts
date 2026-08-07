@@ -67,13 +67,137 @@ const OPENROUTER_DEFAULT_MAX_TOKENS = 2_048;
  */
 const OPENROUTER_MAX_MESSAGES = 20;
 
-/** Keep the system message and the most-recent `OPENROUTER_MAX_MESSAGES` turns. */
-function trimMessagesForOpenRouter(messages: RawMessage[]): RawMessage[] {
-  if (messages.length <= OPENROUTER_MAX_MESSAGES + 1) return messages;
-  const [system, ...rest] = messages;
-  const trimmed = rest.slice(-OPENROUTER_MAX_MESSAGES);
-  return system ? [system, ...trimmed] : trimmed;
+/**
+ * An atomic message group:
+ *   - "single"     — a user, system, or assistant-without-tool-calls message.
+ *   - "tool_group" — an assistant turn that requested tool calls plus ALL of
+ *                    the immediately following tool-result messages that belong
+ *                    to it.  This group is never split: it is either kept whole
+ *                    or dropped whole.
+ */
+type MessageGroup =
+  | { kind: "single";     message:  RawMessage }
+  | { kind: "tool_group"; messages: RawMessage[] };
+
+/**
+ * Partition a flat message array into atomic groups.
+ *
+ * Walking forward:
+ *   - An assistant message that carries `tool_calls` opens a tool_group and
+ *     greedily absorbs the immediately following `tool` role messages whose
+ *     `tool_call_id` is in that assistant turn's declared IDs.
+ *   - Everything else becomes a "single" group.
+ *
+ * The result lets the trimmer drop or keep complete groups so the conversation
+ * reaching the model is always structurally valid.
+ */
+function groupMessages(messages: RawMessage[]): MessageGroup[] {
+  const groups: MessageGroup[] = [];
+  let i = 0;
+
+  while (i < messages.length) {
+    const m = messages[i];
+
+    if (
+      m.role === "assistant" &&
+      Array.isArray(m.tool_calls) &&
+      m.tool_calls.length > 0
+    ) {
+      // Collect the IDs this assistant turn declared.
+      const declaredIds = new Set<string>(
+        m.tool_calls.map((tc) => tc.id).filter((id): id is string => !!id),
+      );
+
+      // Greedily absorb the immediately following tool-result messages.
+      const groupMsgs: RawMessage[] = [m];
+      let j = i + 1;
+      while (j < messages.length && messages[j].role === "tool") {
+        const toolMsg = messages[j] as { role: "tool"; tool_call_id?: string };
+        if (toolMsg.tool_call_id && declaredIds.has(toolMsg.tool_call_id)) {
+          groupMsgs.push(messages[j]);
+          j++;
+        } else {
+          break; // tool result belongs to a different (later) assistant turn
+        }
+      }
+
+      groups.push({ kind: "tool_group", messages: groupMsgs });
+      i = j;
+    } else {
+      groups.push({ kind: "single", message: m });
+      i++;
+    }
+  }
+
+  return groups;
 }
+
+/**
+ * Keep the system message and enough of the most-recent message groups to
+ * stay within `OPENROUTER_MAX_MESSAGES` non-system messages.
+ *
+ * Groups are kept or dropped atomically: an assistant turn that requested
+ * tool calls is always sent together with all of its tool-result messages, or
+ * not at all.  This prevents Cohere and other strict providers from receiving
+ * a `tool` message whose `tool_call_id` has no matching entry in a preceding
+ * assistant turn — the structural violation that causes HTTP 400 responses.
+ *
+ * Overflow policy: a tool_group whose size exceeds the remaining budget is
+ * discarded in full (along with all earlier groups).  The outbound message
+ * count is always ≤ OPENROUTER_MAX_MESSAGES non-system messages, which keeps
+ * the request within typical provider context-window limits.  The result may
+ * be just [systemMsg] if all groups are oversized; this is structurally valid
+ * and preferable to sending a request that will return HTTP 400.
+ */
+function trimMessagesForOpenRouter(messages: RawMessage[]): RawMessage[] {
+  // Detect system message by role, not position, to handle callers that omit it.
+  const systemMsg = messages[0]?.role === "system" ? messages[0] : null;
+  const rest = systemMsg ? messages.slice(1) : messages;
+
+  // Fast path: non-system portion already fits within the budget.
+  if (rest.length <= OPENROUTER_MAX_MESSAGES) return messages;
+
+  const groups = groupMessages(rest);
+
+  // Walk from the end and accumulate whole groups until the budget is reached.
+  // An oversized group (size > budget) is always discarded — we never exceed
+  // OPENROUTER_MAX_MESSAGES even for groups that cannot be split.
+  let budget = OPENROUTER_MAX_MESSAGES;
+  let startIdx = groups.length; // nothing kept yet
+
+  for (let i = groups.length - 1; i >= 0; i--) {
+    // Store in a local so TypeScript can narrow the discriminated union.
+    const group = groups[i];
+    const size = group.kind === "tool_group" ? group.messages.length : 1;
+
+    if (size <= budget) {
+      budget -= size;
+      startIdx = i;
+    } else {
+      break; // oversized or no remaining budget — drop this and all earlier groups
+    }
+  }
+
+  const kept = groups
+    .slice(startIdx)
+    .flatMap((g): RawMessage[] =>
+      g.kind === "tool_group" ? g.messages : [g.message],
+    );
+
+  return systemMsg ? [systemMsg, ...kept] : kept;
+}
+
+/**
+ * @internal — exported for unit tests only.
+ * Do not import this from application code.
+ */
+export const _trimMessagesForOpenRouter = trimMessagesForOpenRouter;
+
+/**
+ * @internal — exported for unit tests only.
+ * Do not import this from application code.
+ */
+export const _groupMessages = groupMessages;
 
 /** Resolve after `ms` milliseconds (used for retry back-off). */
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));

@@ -187,6 +187,79 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
   return { kind: "ok", output, source };
 }
 
+// ── Message sanitisation ──────────────────────────────────────────────────────
+
+/**
+ * Strip orphaned tool-result messages from the conversation before sending it
+ * to the model.
+ *
+ * Some providers (notably Cohere via OpenRouter) enforce a strict rule: every
+ * `tool` role message must reference a `tool_call_id` that appears in the
+ * IMMEDIATELY PRECEDING assistant `tool_calls` array — not merely somewhere
+ * in history.  When the provider truncates the context window server-side it
+ * can remove the assistant turn that carried `tool_calls` while keeping the
+ * subsequent `tool` result — a structural violation that triggers a 400.
+ *
+ * This guard walks the messages array sequentially, tracking the tool-call IDs
+ * of the most recent assistant turn.  A `tool` message whose ID is absent from
+ * that turn's IDs is dropped.  The set resets on every assistant or user/system
+ * message so non-adjacent results are correctly identified as orphans.
+ *
+ * @internal - exported for unit tests only (_stripOrphanedToolMessages)
+ */
+function stripOrphanedToolMessages(messages: RawMessage[]): RawMessage[] {
+  const result: RawMessage[] = [];
+  let orphansRemoved = 0;
+
+  // IDs advertised by the most recent assistant turn that carried tool_calls.
+  // Resets on every assistant or non-tool message so non-adjacent tool results
+  // are treated as orphans even when their ID appears elsewhere in history.
+  let currentAssistantIds = new Set<string>();
+
+  for (const m of messages) {
+    if (m.role === "assistant") {
+      // Refresh the set from this assistant turn's tool_calls.
+      currentAssistantIds = new Set<string>();
+      if (Array.isArray(m.tool_calls)) {
+        for (const tc of m.tool_calls) {
+          if (tc.id) currentAssistantIds.add(tc.id);
+        }
+      }
+      result.push(m);
+    } else if (m.role === "tool") {
+      const id = (m as { tool_call_id?: string }).tool_call_id;
+      if (id && !currentAssistantIds.has(id)) {
+        orphansRemoved++;
+        continue; // drop — no matching tool_call in the preceding assistant turn
+      }
+      result.push(m);
+    } else {
+      // user / system — any tool messages after this can't belong to the
+      // previous assistant turn.
+      currentAssistantIds = new Set<string>();
+      result.push(m);
+    }
+  }
+
+  if (orphansRemoved > 0) {
+    console.warn(
+      JSON.stringify({
+        scope: "tool-execution-engine",
+        code: "ORPHANED_TOOL_MESSAGES_STRIPPED",
+        count: orphansRemoved,
+      }),
+    );
+  }
+
+  return result;
+}
+
+/**
+ * @internal — exported for unit tests only.
+ * Do not import this from application code.
+ */
+export const _stripOrphanedToolMessages = stripOrphanedToolMessages;
+
 // ── Tool loop ─────────────────────────────────────────────────────────────────
 
 export type ToolLoopOpts = {
@@ -396,8 +469,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     let fallbackReason: string | undefined;
     const t0 = Date.now();
 
+    // Sanitize before every model call: remove tool-result messages whose IDs
+    // no longer have a parent assistant turn (can happen when the provider
+    // silently truncates the context window and drops the assistant turn).
+    const safeMessages = stripOrphanedToolMessages(messages);
+
     try {
-      result = await strategy.call(messages, {
+      result = await strategy.call(safeMessages, {
         model,
         maxTokens: iterMaxTokens,
         timeoutMs: 60_000,
@@ -422,7 +500,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             reason: err.message,
           }),
         );
-        result = await strategy.call(messages, {
+        result = await strategy.call(safeMessages, {
           model: powerModel,
           maxTokens: iterMaxTokens,
           timeoutMs: 60_000,

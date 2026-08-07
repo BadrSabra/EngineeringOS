@@ -396,3 +396,219 @@ describe("GroqErrorCode completeness (PR-008)", () => {
     expect(err.code).toBe("QUOTA");
   });
 });
+
+// ── _trimMessagesForOpenRouter / _groupMessages — tool-call-aware trim ────────
+
+import type { RawMessage } from "../groq-client.js";
+import { _trimMessagesForOpenRouter, _groupMessages } from "../openai-compatible-client.js";
+
+function makeAssistantWithTools(ids: string[]): RawMessage {
+  return {
+    role: "assistant",
+    content: null,
+    tool_calls: ids.map((id) => ({
+      id,
+      type: "function" as const,
+      function: { name: "read_file", arguments: JSON.stringify({ path: "x.ts" }) },
+    })),
+  };
+}
+
+function makeToolResult(id: string): RawMessage {
+  return { role: "tool", tool_call_id: id, content: `result-${id}` } as RawMessage;
+}
+
+// ── _groupMessages ─────────────────────────────────────────────────────────
+
+describe("_groupMessages", () => {
+  it("wraps a user message as a single group", () => {
+    const groups = _groupMessages([{ role: "user", content: "hi" }]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].kind).toBe("single");
+  });
+
+  it("wraps an assistant-with-tool_calls + its tool results as one tool_group", () => {
+    const groups = _groupMessages([
+      makeAssistantWithTools(["id-1"]),
+      makeToolResult("id-1"),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].kind).toBe("tool_group");
+    if (groups[0].kind === "tool_group") {
+      expect(groups[0].messages).toHaveLength(2);
+    }
+  });
+
+  it("stops absorbing tool results when tool_call_id does not match the current assistant turn", () => {
+    // assistant(id-1) → tool(id-1) → tool(id-2-from-future) should produce:
+    //   tool_group[assistant(id-1), tool(id-1)], single[tool(id-2)]
+    const messages: RawMessage[] = [
+      makeAssistantWithTools(["id-1"]),
+      makeToolResult("id-1"),
+      makeToolResult("id-2"),   // id-2 is NOT in the preceding assistant's declared ids
+    ];
+    const groups = _groupMessages(messages);
+    expect(groups).toHaveLength(2);
+    expect(groups[0].kind).toBe("tool_group");
+    if (groups[0].kind === "tool_group") {
+      expect(groups[0].messages).toHaveLength(2);
+    }
+    // The stray tool result falls through as a single group
+    expect(groups[1].kind).toBe("single");
+  });
+
+  it("handles two consecutive tool_groups correctly", () => {
+    const messages: RawMessage[] = [
+      makeAssistantWithTools(["a"]),
+      makeToolResult("a"),
+      { role: "user", content: "next" },
+      makeAssistantWithTools(["b"]),
+      makeToolResult("b"),
+    ];
+    const groups = _groupMessages(messages);
+    expect(groups).toHaveLength(3);
+    expect(groups[0].kind).toBe("tool_group");
+    expect(groups[1].kind).toBe("single");
+    expect(groups[2].kind).toBe("tool_group");
+  });
+});
+
+// ── _trimMessagesForOpenRouter ─────────────────────────────────────────────
+
+describe("_trimMessagesForOpenRouter — atomic-group context trim", () => {
+  it("returns the full array unchanged when within the 20-message limit", () => {
+    const messages: RawMessage[] = [
+      { role: "system", content: "sys" },
+      { role: "user", content: "hello" },
+    ];
+    expect(_trimMessagesForOpenRouter(messages)).toHaveLength(2);
+  });
+
+  it("preserves the system message and keeps the most-recent turns", () => {
+    // 22 user messages → only 20 most recent survive, system is always kept
+    const messages: RawMessage[] = [
+      { role: "system", content: "sys" },
+      ...Array.from({ length: 22 }, (_, i) => ({
+        role: "user" as const,
+        content: `msg-${i}`,
+      })),
+    ];
+    const result = _trimMessagesForOpenRouter(messages);
+    expect(result).toHaveLength(21); // system + 20 user
+    expect(result[0]).toMatchObject({ role: "system" });
+    expect(result[result.length - 1]).toMatchObject({ content: "msg-21" });
+  });
+
+  it("drops the whole tool_group when the assistant fits but budget runs out — window starts with tool result", () => {
+    // Regression: the critical case where a naive slice(-20) would retain the
+    // tool result at the start of the window while cutting its parent assistant turn.
+    //
+    // rest = [assistant(cut-id), tool(cut-id), user-0 … user-18] = 21 entries
+    // groups: tool_group(2) + 19 singles — total 21 non-system messages
+    // budget = 20: walk backward, absorb 19 singles (budget → 1), then the
+    // tool_group costs 2 which exceeds the remaining budget → dropped whole.
+    //
+    // Result: system + 19 user messages (no tool result in window start).
+    const messages: RawMessage[] = [
+      { role: "system", content: "sys" },
+      makeAssistantWithTools(["cut-id"]),   // will be outside the kept window
+      makeToolResult("cut-id"),             // would be orphaned in a naive slice
+      ...Array.from({ length: 19 }, (_, i) => ({
+        role: "user" as const,
+        content: `filler-${i}`,
+      })),
+    ];
+    const result = _trimMessagesForOpenRouter(messages);
+    // Neither the assistant nor the tool result should appear
+    expect(result.every((m) => {
+      const tm = m as { tool_call_id?: string; tool_calls?: unknown[] };
+      return !tm.tool_call_id && !(Array.isArray(tm.tool_calls) && tm.tool_calls.length > 0);
+    })).toBe(true);
+    expect(result[0]).toMatchObject({ role: "system" });
+  });
+
+  it("keeps a complete tool_group when it fits atomically within the window", () => {
+    // 18 user messages + 1 assistant + 1 tool result = 20 non-system → fits exactly
+    const messages: RawMessage[] = [
+      { role: "system", content: "sys" },
+      ...Array.from({ length: 18 }, (_, i) => ({
+        role: "user" as const,
+        content: `msg-${i}`,
+      })),
+      makeAssistantWithTools(["keep-id"]),
+      makeToolResult("keep-id"),
+    ];
+    const result = _trimMessagesForOpenRouter(messages);
+    expect(result).toHaveLength(21); // system + 20
+    expect(result.some((m) => (m as { tool_call_id?: string }).tool_call_id === "keep-id")).toBe(true);
+  });
+
+  it("discards an oversized tool_group that exceeds the budget rather than forwarding it whole", () => {
+    // Overflow policy: a group larger than the budget is ALWAYS discarded.
+    // Here the only non-system content is a single oversized tool_group (26 messages).
+    // The trimmer must not forward it; the result is just [system].
+    const messages: RawMessage[] = [
+      { role: "system", content: "sys" },
+      makeAssistantWithTools(Array.from({ length: 25 }, (_, i) => `id-${i}`)),
+      ...Array.from({ length: 25 }, (_, i) => makeToolResult(`id-${i}`)),
+    ];
+    const result = _trimMessagesForOpenRouter(messages);
+    // Only the system message survives — the oversized group is dropped
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ role: "system" });
+    // Non-system count ≤ 20 (it is 0 here, still within budget)
+    const nonSystem = result.filter((m) => m.role !== "system");
+    expect(nonSystem.length).toBeLessThanOrEqual(20);
+  });
+
+  it("works correctly when there is no system message — does not treat the first user message as system", () => {
+    // 22 user messages, no system message.
+    // Old threshold (≤ 21) would have returned all 22 unchanged, exceeding the 20-message budget.
+    const messages: RawMessage[] = Array.from({ length: 22 }, (_, i) => ({
+      role: "user" as const,
+      content: `msg-${i}`,
+    }));
+    const result = _trimMessagesForOpenRouter(messages);
+    // Should keep exactly 20 most-recent user messages (no system message to preserve)
+    expect(result).toHaveLength(20);
+    expect(result[0]).toMatchObject({ content: "msg-2" });
+    expect(result[result.length - 1]).toMatchObject({ content: "msg-21" });
+    expect(result.every((m) => m.role === "user")).toBe(true);
+  });
+
+  it("never returns more than 20 non-system messages for any input (integration bound check)", () => {
+    // Build a history with mixed single messages and a multi-tool group, 30 non-system total.
+    const messages: RawMessage[] = [
+      { role: "system", content: "sys" },
+      ...Array.from({ length: 10 }, (_, i) => ({ role: "user" as const, content: `early-${i}` })),
+      makeAssistantWithTools(["a", "b", "c"]),
+      makeToolResult("a"),
+      makeToolResult("b"),
+      makeToolResult("c"),
+      ...Array.from({ length: 15 }, (_, i) => ({ role: "user" as const, content: `recent-${i}` })),
+    ];
+    const result = _trimMessagesForOpenRouter(messages);
+
+    // Structural validity: no tool result should be an orphan
+    const assistantIds = new Set<string>();
+    let lastAssistantIds = new Set<string>();
+    for (const m of result) {
+      if (m.role === "assistant" && Array.isArray(m.tool_calls)) {
+        lastAssistantIds = new Set(
+          m.tool_calls.map((tc: { id?: string }) => tc.id).filter((id): id is string => !!id),
+        );
+        m.tool_calls.forEach((tc: { id?: string }) => { if (tc.id) assistantIds.add(tc.id); });
+      } else if (m.role === "tool") {
+        const id = (m as { tool_call_id?: string }).tool_call_id;
+        // Every tool result must reference an id from the immediately preceding assistant
+        expect(id && lastAssistantIds.has(id)).toBe(true);
+      } else {
+        lastAssistantIds = new Set(); // reset on non-tool non-assistant
+      }
+    }
+
+    // Budget enforcement: at most 20 non-system messages
+    const nonSystem = result.filter((m) => m.role !== "system");
+    expect(nonSystem.length).toBeLessThanOrEqual(20);
+  });
+});

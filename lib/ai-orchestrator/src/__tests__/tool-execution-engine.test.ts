@@ -543,3 +543,85 @@ describe("executeToolLoop", () => {
     }
   });
 });
+
+// ── _stripOrphanedToolMessages ────────────────────────────────────────────────
+
+describe("_stripOrphanedToolMessages", () => {
+  it("passes through a well-formed assistant → tool chain unchanged", async () => {
+    const { _stripOrphanedToolMessages } = await import("../tool-execution-engine.js");
+    const messages: RawMessage[] = [
+      { role: "system", content: "sys" },
+      { role: "user", content: "q" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [makeToolCall("id-1", "read_file", { path: "a.ts" })],
+      },
+      { role: "tool", tool_call_id: "id-1", content: "file content" } as RawMessage,
+    ];
+
+    const result = _stripOrphanedToolMessages(messages);
+    expect(result).toHaveLength(4);
+    expect(result[3]).toMatchObject({ role: "tool", tool_call_id: "id-1" });
+  });
+
+  it("drops a tool message whose id is absent from the preceding assistant turn", async () => {
+    const { _stripOrphanedToolMessages } = await import("../tool-execution-engine.js");
+    const messages: RawMessage[] = [
+      { role: "system", content: "sys" },
+      // Tool result with no preceding assistant turn at all
+      { role: "tool", tool_call_id: "ghost-id", content: "orphan" } as RawMessage,
+      { role: "user", content: "q" },
+    ];
+
+    const result = _stripOrphanedToolMessages(messages);
+    expect(result).toHaveLength(2);
+    expect(result.every((m) => m.role !== "tool")).toBe(true);
+  });
+
+  it("drops a tool message that references an id from a NON-adjacent (earlier) assistant turn", async () => {
+    const { _stripOrphanedToolMessages } = await import("../tool-execution-engine.js");
+    // The tool result references id-1, but the PRECEDING assistant turn only has id-2.
+    // id-1 exists earlier in history — the sequential check must still reject it.
+    const messages: RawMessage[] = [
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [makeToolCall("id-1", "read_file", { path: "a.ts" })],
+      },
+      { role: "tool", tool_call_id: "id-1", content: "result-1" } as RawMessage,
+      { role: "user", content: "follow-up" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [makeToolCall("id-2", "read_file", { path: "b.ts" })],
+      },
+      // This should be DROPPED — id-1 belongs to the first assistant turn, not this one.
+      { role: "tool", tool_call_id: "id-1", content: "stale-orphan" } as RawMessage,
+      { role: "tool", tool_call_id: "id-2", content: "result-2" } as RawMessage,
+    ];
+
+    const result = _stripOrphanedToolMessages(messages);
+    expect(result).toHaveLength(5);
+    expect(result.find((m) => (m as { tool_call_id?: string }).tool_call_id === "id-1" && m.role === "tool" && (m as { content?: string }).content === "stale-orphan")).toBeUndefined();
+    expect(result.find((m) => (m as { tool_call_id?: string }).tool_call_id === "id-2")).toBeDefined();
+  });
+
+  it("resets the valid-id set after a user message (tool results after user are always orphans)", async () => {
+    const { _stripOrphanedToolMessages } = await import("../tool-execution-engine.js");
+    const messages: RawMessage[] = [
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [makeToolCall("id-1", "read_file", { path: "a.ts" })],
+      },
+      { role: "user", content: "interruption" },
+      // Tool result after a user message — orphan regardless of id
+      { role: "tool", tool_call_id: "id-1", content: "should be dropped" } as RawMessage,
+    ];
+
+    const result = _stripOrphanedToolMessages(messages);
+    expect(result).toHaveLength(2);
+    expect(result.every((m) => m.role !== "tool")).toBe(true);
+  });
+});
