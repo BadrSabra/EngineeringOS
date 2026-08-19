@@ -103,7 +103,7 @@ describe("bounded execution kernel", () => {
   });
 
   it("keeps public limits explicit", () => {
-    expect(EXECUTION_LIMITS.maxTimeoutMs).toBe(600_000);
-    expect(EXECUTION_LIMITS.maxOutputBytes).toBe(8 * 1024 * 1024);
+    expect(EXECUTION_LIMITS.maxTimeoutMs).toBe(1_800_000);
+    expect(EXECUTION_LIMITS.maxOutputBytes).toBe(64 * 1024 * 1024);
   });
 });

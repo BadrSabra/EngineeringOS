@@ -1220,10 +1220,17 @@ router.post("/ai/chat", async (req, res) => {
   // Classify the request upfront — pure sync, zero cost. Short continuation
   // messages reuse the verified contract stored on the session.
   const persistedActiveTaskState = resolveSessionTaskState(existingSession?.activeTaskState, projectId);
+  const initialClassification = classifyRequest(message);
+  // A greeting is a new conversational turn, never a continuation of a
+  // forensic execution. Do not let stale persisted evidence influence routing
+  // or get copied into the next session state.
+  const resumableStateForTurn = initialClassification.category === "simple"
+    ? null
+    : persistedActiveTaskState;
   const classificationResolution = resumeActiveTaskClassification(
     message,
-    classifyRequest(message),
-    persistedActiveTaskState,
+    initialClassification,
+    resumableStateForTurn,
   );
   const chatClassification = classificationResolution.classification;
   const immediateExecutionRequest = isImmediateExecutionRequest(message);
@@ -1319,7 +1326,7 @@ router.post("/ai/chat", async (req, res) => {
           projectContext,
           rootPath: validRootPath,
           projectId,
-          activeTaskState: persistedActiveTaskState,
+          activeTaskState: resumableStateForTurn,
           activeTask,
           productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat"),
           objective,
@@ -1395,7 +1402,7 @@ router.post("/ai/chat", async (req, res) => {
       rootPath: validRootPath,
     });
     const activeTaskState = nextSessionTaskState({
-      persisted: persistedActiveTaskState,
+      persisted: resumableStateForTurn,
       classification: chatClassification,
       resumed: classificationResolution.resumed,
       projectId,
@@ -2069,10 +2076,14 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     // Classify the request upfront — pure sync, zero cost. Short continuation
     // messages reuse the verified contract stored on the session.
+    const streamInitialClassification = classifyRequest(modelMessage);
+    const streamResumableStateForTurn = streamInitialClassification.category === "simple"
+      ? null
+      : persistedActiveTaskState;
     const streamClassificationResolution = resumeActiveTaskClassification(
       modelMessage,
-      classifyRequest(modelMessage),
-      persistedActiveTaskState,
+      streamInitialClassification,
+      streamResumableStateForTurn,
     );
     const streamClassification = streamClassificationResolution.classification;
     const immediateExecutionRequest = isImmediateExecutionRequest(modelMessage);
@@ -2430,7 +2441,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           projectContext,
           rootPath: validRootPath,
           projectId,
-          activeTaskState: persistedActiveTaskState,
+          activeTaskState: streamResumableStateForTurn,
           executionPlanOverride: executionPlanForRun ?? undefined,
           activeTask,
           productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat/stream"),
@@ -2668,7 +2679,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       rootPath: validRootPath,
     });
     const activeTaskState = nextSessionTaskState({
-      persisted: persistedActiveTaskState,
+      persisted: streamResumableStateForTurn,
       classification: streamClassification,
       resumed: streamClassificationResolution.resumed,
       projectId,
