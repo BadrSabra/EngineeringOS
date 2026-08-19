@@ -253,12 +253,12 @@ vi.mock('@workspace/api-client-react', () => {
   };
 });
 
-function renderAiChat() {
+function renderAiChat(isDesktop = true) {
   HTMLElement.prototype.scrollIntoView = vi.fn();
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     value: vi.fn(() => ({
-      matches: true,
+      matches: isDesktop,
       media: '(min-width: 768px)',
       onchange: null,
       addListener: vi.fn(),
@@ -532,6 +532,22 @@ describe('AiChat authenticated generated mutations', () => {
       description: 'provider rejected key',
       variant: 'destructive',
     }));
+  });
+
+  it('keeps the authenticated mobile chat focused on conversation and protects provider inputs', async () => {
+    renderAiChat(false);
+
+    expect(screen.queryByRole('generic', { name: 'Agent execution proof' })).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain('test-model');
+
+    expect(screen.queryByRole('button', { name: 'Open sessions' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Existing session' }).closest('div.absolute')).toHaveClass('hidden');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open sessions' }));
+    expect(await screen.findByRole('button', { name: 'Existing session' })).toBeInTheDocument();
+    expect(document.querySelectorAll('input[type="password"]')).toHaveLength(4);
+    fireEvent.click(screen.getByRole('button', { name: 'Close sidebar' }));
+    expect(screen.getByRole('button', { name: 'Existing session' }).closest('div.absolute')).toHaveClass('hidden');
   });
 
   it('applies a server-owned proposal with its project and proposal identity', async () => {
