@@ -98,7 +98,7 @@ describe("registerUpload", () => {
 describe("lookupUpload", () => {
   it("returns undefined when the DB has no matching row", async () => {
     mockSelect.mockResolvedValue([]);
-    const result = await lookupUpload("no-such-id");
+    const result = await lookupUpload("no-such-id", "user-1");
     expect(result).toBeUndefined();
   });
 
@@ -114,8 +114,9 @@ describe("lookupUpload", () => {
     }]);
     vi.mocked(access).mockResolvedValue(undefined); // dir exists
 
-    const result = await lookupUpload("upload-2");
+    const result = await lookupUpload("upload-2", "user-1");
     expect(result).toBeDefined();
+    expect(result?.ownerId).toBe("user-1");
     expect(result?.extractedDir).toBe("/tmp/eos-upload-2");
     expect(result?.originalName).toBe("repo.zip");
   });
@@ -132,7 +133,7 @@ describe("lookupUpload", () => {
     }]);
     mockDelete.mockResolvedValue(undefined);
 
-    const result = await lookupUpload("expired-id");
+    const result = await lookupUpload("expired-id", "user-1");
     expect(result).toBeUndefined();
     expect(mockDelete).toHaveBeenCalledOnce();
     expect(rm).toHaveBeenCalledOnce();
@@ -151,9 +152,26 @@ describe("lookupUpload", () => {
     vi.mocked(access).mockRejectedValue(new Error("ENOENT"));
     mockDelete.mockResolvedValue(undefined);
 
-    const result = await lookupUpload("missing-dir-id");
+    const result = await lookupUpload("missing-dir-id", "user-1");
     expect(result).toBeUndefined();
     expect(mockDelete).toHaveBeenCalledOnce();
+  });
+
+  it("does not reveal or delete an upload owned by another user", async () => {
+    const futureExpiry = new Date(Date.now() + 60_000);
+    mockSelect.mockResolvedValue([{
+      id: "private-upload",
+      ownerId: "owner-1",
+      extractedDir: "/tmp/eos-upload-private",
+      originalName: "private.zip",
+      createdAt: new Date(),
+      expiresAt: futureExpiry,
+    }]);
+
+    const result = await lookupUpload("private-upload", "different-user");
+    expect(result).toBeUndefined();
+    expect(access).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
   });
 });
 
@@ -164,12 +182,13 @@ describe("removeUpload", () => {
     // First select to get the extractedDir, then delete
     selectBuilder.limit.mockImplementationOnce(() =>
       Promise.resolve([{
+        ownerId: "user-1",
         extractedDir: "/tmp/eos-upload-rm",
       }]),
     );
     mockDelete.mockResolvedValue(undefined);
 
-    await removeUpload("upload-rm");
+    await removeUpload("upload-rm", "user-1");
     expect(mockDelete).toHaveBeenCalledOnce();
     expect(rm).toHaveBeenCalledWith("/tmp/eos-upload-rm", { recursive: true, force: true });
   });
@@ -178,8 +197,8 @@ describe("removeUpload", () => {
     selectBuilder.limit.mockImplementationOnce(() => Promise.resolve([]));
     mockDelete.mockResolvedValue(undefined);
 
-    await expect(removeUpload("nonexistent")).resolves.toBeUndefined();
-    expect(mockDelete).toHaveBeenCalledOnce();
+    await expect(removeUpload("nonexistent", "user-1")).resolves.toBeUndefined();
+    expect(mockDelete).not.toHaveBeenCalled();
     expect(rm).not.toHaveBeenCalled();
   });
 });

@@ -27,41 +27,44 @@ const BLOCKED_PATH_PREFIXES = new Set([
 ]);
 
 /**
- * Temp-dir prefix used exclusively by gitRepositoryAdapter.
- * These paths are always safe to scan — they are shallow git clones in a
- * uniquely-named UUID directory we created, never OS internals.
- * Bypass depth and environment constraints for them.
+ * Temp-dir prefix used by the legacy Git import path.
+ *
+ * The prefix is not a trust boundary: callers can create a directory with
+ * the same name. Generic validation rejects it. The only valid exception is
+ * an explicit allowManagedTempRoot option supplied by the Git discovery
+ * provenance path after canonicalization.
  */
 export const EOS_GIT_TEMP_PREFIX = "/tmp/eos-git-";
+
+export interface RootPathValidationOptions {
+  /**
+   * Allows a canonical, existing legacy Git clone root. This must only be
+   * passed by a caller that has independently established Git provenance.
+   */
+  allowManagedTempRoot?: boolean;
+}
 
 /**
  * Returns a rejection reason string if `rootPath` is unsafe, or null if OK.
  * Rules:
- *  0. Paths starting with EOS_GIT_TEMP_PREFIX are unconditionally allowed —
- *     they are controlled git-clone temp dirs, not OS paths.
  *  1. Must have at least 3 path segments (e.g. /home/runner/workspace).
  *  2. Must not be an exact match of a known system prefix.
  *  3. In Replit environments (REPLIT_DEV_DOMAIN set), must be under
  *     /home/runner/workspace so we never scan the host OS.
- *  4. Symlink escape check: for user-provided paths (non-temp-dir), resolve
- *     all symlinks with realpath() and re-run Rules 1-3 on the resolved path.
+ *  4. Symlink escape check: resolve all symlinks with realpath() and re-run
+ *     Rules 1-3 on the resolved path.
  *     This prevents a symlink at /home/runner/workspace/evil-link → /etc from
  *     bypassing the path-boundary checks. If realpath() fails (path does not
  *     exist yet), the string-only rules still apply and the downstream stat()
  *     in runDiscovery will surface a clear ENOENT error.
  */
-export async function validateRootPath(rootPath: string): Promise<string | null> {
+export async function validateRootPath(
+  rootPath: string,
+  options: RootPathValidationOptions = {},
+): Promise<string | null> {
   // Auto-prepend "/" so "home/runner/..." is treated the same as "/home/runner/..."
   const withSlash = rootPath.startsWith("/") ? rootPath : `/${rootPath}`;
   const normalized = withSlash.replace(/\/+$/, "") || "/";
-
-  // Rule 0 — managed git-clone temp dirs are always safe; skip all other checks.
-  // /tmp/eos-git-<uuid> has only 2 path segments, so it would fail Rule 1 without
-  // this early return. These paths are created exclusively by gitRepositoryAdapter
-  // and are safe to scan.
-  if (normalized.startsWith(EOS_GIT_TEMP_PREFIX)) {
-    return null;
-  }
 
   // Rule 4 — resolve symlinks before running string-based boundary checks.
   // This must happen before Rules 1-3 so that a symlink pointing outside the
@@ -74,10 +77,15 @@ export async function validateRootPath(rootPath: string): Promise<string | null>
     // lexical path. The downstream stat() in runDiscovery will surface ENOENT.
   }
 
-  // If the resolved path is a managed temp dir (unusual but theoretically
-  // possible if a symlink points at one), allow it unconditionally.
+  // A legacy Git clone is allowed only after the caller has explicitly
+  // established its provenance. Do this after realpath so a symlink cannot
+  // smuggle an unrelated directory through a lexical prefix.
   if (resolved.startsWith(EOS_GIT_TEMP_PREFIX)) {
-    return null;
+    if (options.allowManagedTempRoot) return null;
+    return (
+      `Temporary discovery clone paths cannot be scanned without verified Git ` +
+      `provenance: "${normalized}".`
+    );
   }
 
   // Run Rules 1-3 on the RESOLVED path, not the raw input.

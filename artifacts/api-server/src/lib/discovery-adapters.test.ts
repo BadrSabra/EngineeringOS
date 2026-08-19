@@ -13,9 +13,11 @@ import {
   ADAPTERS,
   resolveSource,
   cleanupResolveResult,
+  materializeResolveResult,
   isResolveError,
 } from "./discovery-adapters.js";
 import { logger } from "./logger.js";
+import { materializeProjectRoot, removeManagedProjectRoot } from "./project-materialization.js";
 
 // ─── isResolveError type guard ────────────────────────────────────────────────
 
@@ -361,6 +363,29 @@ describe("resolveSource", () => {
     }
   });
 
+  it("does not resolve an archive upload owned by another user", async () => {
+    const { db, uploadsTable } = await import("@workspace/db");
+    const { randomUUID } = await import("crypto");
+    const uploadId = randomUUID();
+    await db.insert(uploadsTable).values({
+      id: uploadId,
+      ownerId: OTHER_USER,
+      extractedDir: "/tmp/eos-upload-owned-by-other-user",
+      originalName: "private.zip",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    try {
+      const result = await resolveSource("ARCHIVE_UPLOAD", { uploadId }, TEST_USER);
+      expect(isResolveError(result)).toBe(true);
+      if (isResolveError(result)) {
+        expect(result.status).toBe(404);
+        expect(result.reason).toBe("not_found");
+      }
+    } finally {
+      await db.delete(uploadsTable).where(eq(uploadsTable.id, uploadId));
+    }
+  });
+
   it("returns 501 for REMOTE_FILESYSTEM", async () => {
     const result = await resolveSource("REMOTE_FILESYSTEM", {}, TEST_USER);
     expect(isResolveError(result)).toBe(true);
@@ -426,5 +451,30 @@ describe("cleanupResolveResult", () => {
       rootPath: "/tmp/eos-git-nonexistent",
       tempDir: "/tmp/eos-git-nonexistent",
     });
+  });
+});
+
+describe("materializeResolveResult", () => {
+  it("materializes a resolver-owned temporary result through its adapter hook", async () => {
+    const sourcePath = `/home/runner/workspace/.test-roots/materialize-adapter-${TEST_USER}`;
+    const { mkdir, writeFile, rm } = await import("node:fs/promises");
+    await mkdir(sourcePath, { recursive: true });
+    await writeFile(`${sourcePath}/package.json`, "{}\n");
+
+    const result = {
+      rootPath: sourcePath,
+      tempDir: sourcePath,
+      materializeTo: (sessionId: string) => materializeProjectRoot(sourcePath, sessionId),
+    };
+    const sessionId = `adapter-${Date.now()}`;
+    const durablePath = await materializeResolveResult(result, sessionId);
+
+    try {
+      expect(durablePath).not.toBe(sourcePath);
+      expect(durablePath).toContain(".engineeringos-projects");
+    } finally {
+      await removeManagedProjectRoot(durablePath);
+      await rm(sourcePath, { recursive: true, force: true });
+    }
   });
 });

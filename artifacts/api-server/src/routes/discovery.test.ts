@@ -12,8 +12,17 @@ import {
   graphEntitiesTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
+import { createServer, type Server } from "node:http";
 import { mkdirSync, rmSync } from "node:fs";
+import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import { promisify } from "node:util";
+import { execFile, spawn } from "node:child_process";
+import { join } from "node:path";
 import type { DiscoveryResultData } from "@workspace/db";
+import { MANAGED_PROJECT_ROOTS_DIR } from "../lib/project-materialization.js";
+import { EOS_GIT_TEMP_PREFIX } from "../lib/path-validation.js";
+
+const execFileAsync = promisify(execFile);
 
 // ─── Shared fixtures ──────────────────────────────────────────────────────────
 
@@ -212,6 +221,29 @@ describe("POST /projects/discover — path validation and session creation", () 
       .send({ sourceType: "LOCAL_FOLDER", sourceConfig: {} });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/path is required/i);
+  });
+
+  it("rejects a forged eos-git temp prefix for LOCAL_FOLDER before creating a session", async () => {
+    const forgedPath = `${EOS_GIT_TEMP_PREFIX}forged-${randomUUID()}`;
+    mkdirSync(forgedPath, { recursive: true });
+    const savedDomain = process.env.REPLIT_DEV_DOMAIN;
+    delete process.env.REPLIT_DEV_DOMAIN;
+    try {
+      const res = await request(app)
+        .post("/api/projects/discover")
+        .send({ sourceType: "LOCAL_FOLDER", sourceConfig: { path: forgedPath } });
+
+      expect(res.status).toBe(400);
+      expect(res.body.reason).toBe("invalid_source");
+      const sessions = await db
+        .select({ id: discoverySessionsTable.id })
+        .from(discoverySessionsTable)
+        .where(eq(discoverySessionsTable.rootPath, forgedPath));
+      expect(sessions).toHaveLength(0);
+    } finally {
+      if (savedDomain !== undefined) process.env.REPLIT_DEV_DOMAIN = savedDomain;
+      rmSync(forgedPath, { recursive: true, force: true });
+    }
   });
 
   it("rejects GIT_REPOSITORY missing the url field", async () => {
@@ -846,5 +878,133 @@ describe("POST /projects/import — transaction integrity", () => {
       .limit(1);
     expect(sessionB[0]?.status).toBe("ready");
     expect(sessionB[0]?.importedProjectId).toBeNull();
+  });
+});
+
+describe("Git discovery → durable import", () => {
+  let fixtureRoot: string | undefined;
+  let server: Server | undefined;
+
+  afterEach(async () => {
+    if (server) {
+      await new Promise<void>((resolve) => server!.close(() => resolve()));
+      server = undefined;
+    }
+    if (fixtureRoot) {
+      await rm(fixtureRoot, { recursive: true, force: true });
+      fixtureRoot = undefined;
+    }
+    await cleanupSessionAndProject();
+  });
+
+  it("materializes the clone before temp cleanup and removes it with the project", async () => {
+    fixtureRoot = `/home/runner/workspace/.test-roots/git-e2e-${randomUUID()}`;
+    const worktree = join(fixtureRoot, "worktree");
+    const bareRepo = join(fixtureRoot, "repo.git");
+    await mkdir(worktree, { recursive: true });
+    await execFileAsync("git", ["init", "-q", worktree]);
+    await execFileAsync("git", ["-C", worktree, "config", "user.email", "test@example.com"]);
+    await execFileAsync("git", ["-C", worktree, "config", "user.name", "EngineeringOS Test"]);
+    await writeFile(join(worktree, "package.json"), "{}\n");
+    await writeFile(join(worktree, "README.md"), "git durable fixture\n");
+    await execFileAsync("git", ["-C", worktree, "add", "."]);
+    await execFileAsync("git", ["-C", worktree, "commit", "-q", "-m", "fixture"]);
+    await execFileAsync("git", ["clone", "--bare", "-q", worktree, bareRepo]);
+    await execFileAsync("git", ["--git-dir", bareRepo, "update-server-info"]);
+
+    // Serve the bare repository through Git's real smart-HTTP CGI backend.
+    // The production adapter uses a shallow clone, which dumb HTTP cannot
+    // serve ("dumb http transport does not support shallow capabilities").
+    server = createServer(async (req, res) => {
+      const parsed = new URL(req.url ?? "/", "http://127.0.0.1");
+      const child = spawn("git", ["http-backend"], {
+        env: {
+          ...process.env,
+          GIT_PROJECT_ROOT: fixtureRoot!,
+          GIT_HTTP_EXPORT_ALL: "1",
+          PATH_INFO: parsed.pathname,
+          QUERY_STRING: parsed.searchParams.toString(),
+          REQUEST_METHOD: req.method ?? "GET",
+          CONTENT_TYPE: req.headers["content-type"] ?? "",
+          CONTENT_LENGTH: req.headers["content-length"] ?? "",
+          REMOTE_ADDR: "127.0.0.1",
+          SERVER_NAME: "127.0.0.1",
+          SERVER_PORT: String((server!.address() as { port: number }).port),
+          SERVER_PROTOCOL: "HTTP/1.1",
+        },
+      });
+      const output: Buffer[] = [];
+      child.stdout.on("data", (chunk: Buffer) => output.push(chunk));
+      child.stderr.resume();
+      child.on("close", () => {
+        const payload = Buffer.concat(output);
+        const separator = Buffer.from("\r\n\r\n");
+        const headerEnd = payload.indexOf(separator);
+        if (headerEnd < 0) {
+          res.statusCode = 502;
+          res.end("Invalid git backend response");
+          return;
+        }
+        const headerLines = payload.subarray(0, headerEnd).toString("utf8").split("\r\n");
+        let status = 200;
+        for (const line of headerLines) {
+          const separatorIndex = line.indexOf(":");
+          if (separatorIndex < 0) continue;
+          const name = line.slice(0, separatorIndex);
+          const value = line.slice(separatorIndex + 1).trim();
+          if (name.toLowerCase() === "status") {
+            status = Number.parseInt(value, 10) || 200;
+          } else {
+            res.setHeader(name, value);
+          }
+        }
+        res.statusCode = status;
+        res.end(payload.subarray(headerEnd + separator.length));
+      });
+      req.pipe(child.stdin);
+    });
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Git fixture server did not bind a port");
+
+    const start = await request(app)
+      .post("/api/projects/discover")
+      .send({
+        sourceType: "GIT_REPOSITORY",
+        sourceConfig: { url: `http://127.0.0.1:${address.port}/repo.git` },
+      });
+    expect(start.status).toBe(202);
+    const discoveryId = start.body.id as string;
+    sessionId = discoveryId;
+
+    let session: { status: string; rootPath: string } | undefined;
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      const statusResponse = await request(app).get(`/api/projects/discover/${discoveryId}`);
+      session = statusResponse.body;
+      if (session?.status === "ready" || session?.status === "error") break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    expect(session?.status).toBe("ready");
+    const [storedSession] = await db
+      .select({ rootPath: discoverySessionsTable.rootPath })
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, discoveryId))
+      .limit(1);
+    expect(storedSession?.rootPath.startsWith(`${MANAGED_PROJECT_ROOTS_DIR}/`)).toBe(true);
+    await expect(access(storedSession!.rootPath)).resolves.toBeUndefined();
+
+    const imported = await request(app)
+      .post("/api/projects/import")
+      .send({ discoveryId });
+    expect(imported.status).toBe(201);
+    projectId = imported.body.id;
+    expect(imported.body.rootPath).toBe(storedSession!.rootPath);
+    expect(imported.body.rootPath).toContain(MANAGED_PROJECT_ROOTS_DIR);
+
+    const deleted = await request(app).delete(`/api/projects/${projectId}`);
+    expect(deleted.status).toBe(204);
+    await expect(access(storedSession!.rootPath)).rejects.toThrow();
   });
 });

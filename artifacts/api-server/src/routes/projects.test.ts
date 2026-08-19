@@ -13,10 +13,12 @@ import {
 } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { mkdtempSync, rmdirSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as scanner from "@workspace/scanner";
 import { heavyJobQueue } from "../lib/job-queue.js";
+import { materializeProjectRoot } from "../lib/project-materialization.js";
 
 /** Create a real temp dir that `walkProject` can stat successfully. */
 function makeTempScanDir(): string {
@@ -495,6 +497,18 @@ describe("Project ownership scoping (PR-02/PR-03)", () => {
 
     const row = await db.select().from(projectsTable).where(eq(projectsTable.id, otherId)).limit(1);
     expect(row[0]).toBeDefined();
+  });
+
+  it("deletes an app-owned durable root with its imported project", async () => {
+    const sourceRoot = makeProjectRootDir();
+    const durableRoot = await materializeProjectRoot(sourceRoot, `delete-${randomUUID()}`);
+    removeProjectRootDir(sourceRoot);
+    const projectId = await insertProject(durableRoot);
+    cleanupQueue.push(projectId);
+
+    const res = await request(app).delete(`/api/projects/${projectId}`);
+    expect(res.status).toBe(204);
+    await expect(access(durableRoot)).rejects.toThrow();
   });
 
   it("POST scan on a project not owned by the requester returns 403 and never enqueues a job", async () => {

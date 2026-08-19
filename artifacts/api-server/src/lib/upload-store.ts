@@ -19,8 +19,8 @@
  * ## Public API (identical to the old in-memory store, all functions now async)
  *
  * - `registerUpload(uploadId, extractedDir, originalName, ownerId)` → `Promise<void>`
- * - `lookupUpload(uploadId)` → `Promise<UploadEntry | undefined>`
- * - `removeUpload(uploadId)` → `Promise<void>`
+ * - `lookupUpload(uploadId, ownerId)` → `Promise<UploadEntry | undefined>`
+ * - `removeUpload(uploadId, ownerId)` → `Promise<void>`
  * - `sweepExpiredUploads()` → `Promise<number>` (new — used by reconciliation sweep)
  *
  * ## TTL
@@ -43,6 +43,7 @@ export const UPLOAD_TTL_MS = Number(
 
 /** Shape returned by `lookupUpload` (unchanged from previous in-memory version). */
 export interface UploadEntry {
+  ownerId: string;
   extractedDir: string;
   originalName: string;
   createdAt: number;
@@ -78,15 +79,21 @@ export async function registerUpload(
  * Returns `undefined` when the ID is unknown, has expired, or its extracted
  * directory no longer exists on disk (covers full-host-reboot recovery).
  */
-export async function lookupUpload(uploadId: string): Promise<UploadEntry | undefined> {
+export async function lookupUpload(
+  uploadId: string,
+  ownerId: string,
+): Promise<UploadEntry | undefined> {
   const rows = await db
     .select()
     .from(uploadsTable)
-    .where(eq(uploadsTable.id, uploadId))
+    .where(and(eq(uploadsTable.id, uploadId), eq(uploadsTable.ownerId, ownerId)))
     .limit(1);
 
   const row = rows[0];
-  if (!row) return undefined;
+  // Keep an application-level check in addition to the DB predicate. This
+  // protects callers if a future storage adapter returns a broader row than
+  // the current SQL query.
+  if (!row || row.ownerId !== ownerId) return undefined;
 
   // Lazy expiry: if the row is past its TTL, clean it up and signal not-found.
   if (row.expiresAt.getTime() < Date.now()) {
@@ -109,6 +116,7 @@ export async function lookupUpload(uploadId: string): Promise<UploadEntry | unde
   }
 
   return {
+    ownerId: row.ownerId,
     extractedDir: row.extractedDir,
     originalName: row.originalName,
     createdAt: row.createdAt.getTime(),
@@ -119,14 +127,21 @@ export async function lookupUpload(uploadId: string): Promise<UploadEntry | unde
  * Remove an upload entry from the DB and delete its extracted directory.
  * Called by the ARCHIVE_UPLOAD adapter's cleanup hook after discovery finishes.
  */
-export async function removeUpload(uploadId: string): Promise<void> {
+export async function removeUpload(uploadId: string, ownerId: string): Promise<void> {
   const rows = await db
-    .select({ extractedDir: uploadsTable.extractedDir })
+    .select({
+      ownerId: uploadsTable.ownerId,
+      extractedDir: uploadsTable.extractedDir,
+    })
     .from(uploadsTable)
-    .where(eq(uploadsTable.id, uploadId))
+    .where(and(eq(uploadsTable.id, uploadId), eq(uploadsTable.ownerId, ownerId)))
     .limit(1);
 
-  await db.delete(uploadsTable).where(eq(uploadsTable.id, uploadId));
+  if (!rows[0] || rows[0].ownerId !== ownerId) return;
+
+  await db
+    .delete(uploadsTable)
+    .where(and(eq(uploadsTable.id, uploadId), eq(uploadsTable.ownerId, ownerId)));
 
   if (rows[0]) {
     await rm(rows[0].extractedDir, { recursive: true, force: true }).catch(() => {});

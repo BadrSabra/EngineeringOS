@@ -2,8 +2,8 @@
  * Unit tests for path-validation.ts
  *
  * Covers:
- *  - validateRootPath: EOS_GIT_TEMP_PREFIX bypass, depth rule, system-prefix
- *    block, Replit workspace constraint, and happy paths
+ *  - validateRootPath: EOS_GIT_TEMP_PREFIX rejection, depth rule,
+ *    system-prefix block, Replit workspace constraint, and happy paths
  *  - verifyProjectRoot: real temp-dir with a project marker (valid clone),
  *    and empty temp-dir (no project root)
  */
@@ -16,14 +16,26 @@ import { validateRootPath, verifyProjectRoot, EOS_GIT_TEMP_PREFIX } from "./path
 
 // ─── validateRootPath ─────────────────────────────────────────────────────────
 
-describe("validateRootPath — EOS_GIT_TEMP_PREFIX bypass (Rule 0)", () => {
-  it("allows /tmp/eos-git-<uuid> regardless of depth or environment", async () => {
+describe("validateRootPath — EOS_GIT_TEMP_PREFIX is not a trust boundary", () => {
+  it("rejects /tmp/eos-git-<uuid> by default", async () => {
     const path = `${EOS_GIT_TEMP_PREFIX}550e8400-e29b-41d4-a716-446655440000`;
-    expect(await validateRootPath(path)).toBeNull();
+    expect(await validateRootPath(path)).not.toBeNull();
   });
 
-  it("allows any path starting with the exact EOS_GIT_TEMP_PREFIX", async () => {
-    expect(await validateRootPath(`${EOS_GIT_TEMP_PREFIX}abc-def`)).toBeNull();
+  it("rejects any path starting with the exact EOS_GIT_TEMP_PREFIX by default", async () => {
+    expect(await validateRootPath(`${EOS_GIT_TEMP_PREFIX}abc-def`)).not.toBeNull();
+  });
+
+  it("rejects nested forged paths outside a Replit environment", async () => {
+    const saved = process.env.REPLIT_DEV_DOMAIN;
+    delete process.env.REPLIT_DEV_DOMAIN;
+    try {
+      expect(
+        await validateRootPath(`${EOS_GIT_TEMP_PREFIX}forged/subdir`),
+      ).not.toBeNull();
+    } finally {
+      if (saved !== undefined) process.env.REPLIT_DEV_DOMAIN = saved;
+    }
   });
 
   it("does NOT allow /tmp paths that don't start with the prefix", async () => {
@@ -101,9 +113,9 @@ describe("validateRootPath — Rule 3: Replit workspace constraint", () => {
     expect(await validateRootPath("/home/runner/workspace/my-project")).toBeNull();
   });
 
-  it("allows /tmp/eos-git-<uuid> even in Replit env (Rule 0 fires first)", async () => {
+  it("rejects /tmp/eos-git-<uuid> even in Replit env", async () => {
     const path = `${EOS_GIT_TEMP_PREFIX}test-uuid-1234`;
-    expect(await validateRootPath(path)).toBeNull();
+    expect(await validateRootPath(path)).not.toBeNull();
   });
 
   it("rejects /tmp/not-an-eos-git-path/with/depth in Replit env (Rule 3)", async () => {

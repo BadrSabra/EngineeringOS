@@ -23,6 +23,7 @@ import { db } from "@workspace/db";
 import { projectsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger.js";
+import { materializeProjectRoot } from "./project-materialization.js";
 
 /**
  * Redacts any embedded `user:password@` credentials from a URL string.
@@ -63,6 +64,11 @@ export type ResolveErrorReason =
 export type ResolveSuccess = {
   rootPath: string;
   tempDir?: string;
+  /**
+   * Materializes an adapter-owned temporary root into a durable app-owned
+   * destination. Only Git and archive adapters provide this hook.
+   */
+  materializeTo?: (sessionId: string) => Promise<string>;
   /**
    * Adapter-provided cleanup hook. When set, `cleanupResolveResult` delegates
    * to this function instead of calling `rm` directly, so cleanup logic lives
@@ -192,7 +198,12 @@ const gitRepositoryAdapter: SupportedAdapter = {
       await execFileAsync("git", cloneArgs, { timeout: 120_000 });
       // Attach the cleanup hook so callers (cleanupResolveResult) always
       // delegate here rather than calling rm directly.
-      return { rootPath: tempDir, tempDir, cleanup: doCleanup };
+      return {
+        rootPath: tempDir,
+        tempDir,
+        materializeTo: (sessionId) => materializeProjectRoot(tempDir, sessionId),
+        cleanup: doCleanup,
+      };
     } catch (err) {
       // Clean up the partial clone before returning the error — same fn.
       void doCleanup();
@@ -272,8 +283,11 @@ const archiveUploadAdapter: SupportedAdapter = {
     return null;
   },
 
-  async resolve(config) {
-    const entry = await lookupUpload(config.uploadId!);
+  async resolve(config, ctx) {
+    // Upload IDs are bearer-like values supplied by clients, so resolution
+    // must be scoped to the authenticated uploader before any filesystem
+    // path is returned or materialized.
+    const entry = await lookupUpload(config.uploadId!, ctx.userId);
     if (!entry) {
       return {
         error:
@@ -287,8 +301,9 @@ const archiveUploadAdapter: SupportedAdapter = {
     return {
       rootPath: entry.extractedDir,
       tempDir: entry.extractedDir,
+      materializeTo: (sessionId) => materializeProjectRoot(entry.extractedDir, sessionId),
       // Delegate cleanup to the store so it handles both Map removal and rm().
-      cleanup: async () => removeUpload(uploadId),
+      cleanup: async () => removeUpload(uploadId, ctx.userId),
     };
   },
 };
@@ -372,4 +387,15 @@ export async function cleanupResolveResult(result: ResolveResult): Promise<void>
   } else if (result.tempDir) {
     await rm(result.tempDir, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+/**
+ * Materialize a temporary adapter result when it supports durable storage.
+ * Non-temporary sources remain unchanged.
+ */
+export async function materializeResolveResult(
+  result: ResolveSuccess,
+  sessionId: string,
+): Promise<string> {
+  return result.materializeTo ? result.materializeTo(sessionId) : result.rootPath;
 }

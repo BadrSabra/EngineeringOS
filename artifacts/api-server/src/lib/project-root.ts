@@ -150,7 +150,9 @@ export async function establishProjectRoot(
 
   // 5. Safety policy on the canonical path (depth, blocked system paths,
   // workspace boundary, temp-clone allowance).
-  const unsafe = await validateRootPath(canonicalPath);
+  const unsafe = await validateRootPath(canonicalPath, {
+    allowManagedTempRoot: options.allowManagedTempRoot,
+  });
   if (unsafe) {
     return { ok: false, status: 422, reason: "root_unsafe", error: unsafe };
   }

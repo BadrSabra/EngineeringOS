@@ -25,6 +25,7 @@ import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { runScanJob } from "../lib/scan-runner.js";
 import { establishProjectRoot } from "../lib/project-root.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
+import { removeManagedProjectRoot } from "../lib/project-materialization.js";
 import {
   requireProjectAccess,
   requireProjectWriteAccess,
@@ -177,6 +178,24 @@ router.delete("/projects/:projectId", requireProjectWriteAccess, async (req, res
   const correlationId = randomUUID();
 
   await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+
+  // Imported Git/archive projects own their durable materialized root.
+  // Direct projects point at user-owned directories and are intentionally
+  // left untouched; the marker + managed-directory check makes this explicit.
+  try {
+    const removed = await removeManagedProjectRoot(before.rootPath);
+    if (removed) {
+      logger.info(
+        { projectId, rootPath: before.rootPath },
+        "Removed managed durable project root after project deletion",
+      );
+    }
+  } catch (err) {
+    logger.warn(
+      { err, projectId, rootPath: before.rootPath },
+      "Project deleted but managed durable root cleanup failed",
+    );
+  }
 
   // Fire-and-forget-but-logged: recordAudit is intentionally best-effort (see
   // lib/audit.ts) so an audit-write hiccup here never turns an already-

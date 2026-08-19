@@ -15,7 +15,7 @@ import {
   GetDiscoverySessionParams,
   GetDiscoverySummaryParams,
 } from "@workspace/api-zod";
-import { eq, and, lt } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, lt } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { logger } from "../lib/logger.js";
 import { recordAudit } from "../lib/audit.js";
@@ -24,10 +24,12 @@ import { heavyJobQueue } from "../lib/job-queue.js";
 import {
   resolveSource,
   cleanupResolveResult,
+  materializeResolveResult,
   isResolveError,
 } from "../lib/discovery-adapters.js";
 import { validateRootPath, verifyProjectRoot } from "../lib/path-validation.js";
 import { establishProjectRoot } from "../lib/project-root.js";
+import { removeManagedProjectRoot } from "../lib/project-materialization.js";
 import { runDiscovery, STEPS } from "../lib/discovery-runner.js";
 
 const router = Router();
@@ -58,9 +60,56 @@ function isUniqueViolation(err: unknown, constraintName: string): boolean {
 
 async function cleanupOldSessions(): Promise<void> {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const staleSessions = await db
+    .select({
+      id: discoverySessionsTable.id,
+      rootPath: discoverySessionsTable.rootPath,
+    })
+    .from(discoverySessionsTable)
+    .where(
+      and(
+        lt(discoverySessionsTable.startedAt, cutoff),
+        isNull(discoverySessionsTable.importedProjectId),
+      ),
+    );
+
+  // Retire each unimported session atomically before removing its filesystem
+  // root. If import claims the row first, the conditional delete returns no
+  // rows and the newly imported project's root is preserved. If GC wins,
+  // import's ready→imported claim rolls back and cannot create a project from
+  // a retired session.
+  for (const session of staleSessions) {
+    const retired = await db
+      .delete(discoverySessionsTable)
+      .where(
+        and(
+          eq(discoverySessionsTable.id, session.id),
+          lt(discoverySessionsTable.startedAt, cutoff),
+          isNull(discoverySessionsTable.importedProjectId),
+        ),
+      )
+      .returning({ rootPath: discoverySessionsTable.rootPath });
+
+    if (retired.length > 0) {
+      await removeManagedProjectRoot(retired[0].rootPath).catch((err) => {
+        logger.warn(
+          { err, rootPath: retired[0].rootPath },
+          "Could not remove expired discovery durable root",
+        );
+      });
+    }
+  }
+
+  // Imported sessions do not own their project's root and can be removed
+  // independently after the project import has committed.
   await db
     .delete(discoverySessionsTable)
-    .where(lt(discoverySessionsTable.startedAt, cutoff));
+    .where(
+      and(
+        lt(discoverySessionsTable.startedAt, cutoff),
+        isNotNull(discoverySessionsTable.importedProjectId),
+      ),
+    );
 }
 
 // ─── Routes ────────────────────────────────────────────────────────────────────
@@ -144,54 +193,85 @@ router.post("/projects/discover", async (req, res) => {
     return res.status(resolved.status).json({ error: resolved.error, reason: resolved.reason });
   }
 
-  const normalizedPath = resolved.rootPath;
+  const id = randomUUID();
+  let scanRootPath = resolved.rootPath;
+  let durableRootPath: string | undefined;
 
-  // Validate rootPath before doing anything — reject dangerous system paths
-  // and symlink escapes before enqueueing a job that could OOM the process.
-  const pathError = await validateRootPath(normalizedPath);
-  if (pathError) {
-    // Clean up any temp resources (e.g. a git clone dir) created during resolution.
-    cleanupResolveResult(resolved).catch(() => undefined);
-    return res.status(400).json({ error: pathError, reason: "invalid_source" });
-  }
-
-  // For GIT_REPOSITORY clones (and any source that produces a temp dir), verify
-  // the directory contains a recognisable project root before enqueuing a scan.
-  // This gives a fast, actionable 422 instead of a scan job that discovers nothing.
-  //
-  // LOCAL_FOLDER intentionally skips this check: the user is providing a path
-  // on the server they are assumed to control, and they may be scanning a project
-  // with an unconventional structure. validateRootPath() (above) is the appropriate
-  // safety boundary for those paths.
-  if (resolved.tempDir) {
-    const rootError = await verifyProjectRoot(normalizedPath);
+  // Git clones and archive extractions initially live in adapter-owned temp
+  // directories. Verify the source before copying it, then materialize it
+  // into an app-owned durable root keyed by this discovery session. The
+  // temporary source is still cleaned up after the scan; the durable copy is
+  // what the session and eventual project persist.
+  if (resolved.materializeTo) {
+    const rootError = await verifyProjectRoot(resolved.rootPath);
     if (rootError) {
-      cleanupResolveResult(resolved).catch(() => undefined);
+      await cleanupResolveResult(resolved);
       return res.status(422).json({ error: rootError, reason: "no_project_root" });
+    }
+
+    try {
+      durableRootPath = await materializeResolveResult(resolved, id);
+      const established = await establishProjectRoot(durableRootPath, {
+        requireMarkers: true,
+      });
+      if (!established.ok) {
+        await removeManagedProjectRoot(durableRootPath);
+        await cleanupResolveResult(resolved);
+        return res.status(established.status).json({
+          error: established.error,
+          reason: established.reason,
+        });
+      }
+      scanRootPath = established.canonicalPath;
+    } catch (err) {
+      logger.error(
+        { err, sessionId: id, sourceType: body.sourceType },
+        "Failed to materialize discovery source into a durable project root",
+      );
+      if (durableRootPath) await removeManagedProjectRoot(durableRootPath);
+      await cleanupResolveResult(resolved);
+      return res.status(422).json({
+        error: "The source could not be copied into durable project storage.",
+        reason: "resolution_failed",
+      });
+    }
+  } else {
+    // Validate non-materialized roots before enqueueing a job — reject
+    // dangerous system paths and symlink escapes before a walk can start.
+    // LOCAL_FOLDER intentionally keeps its existing marker-optional behavior.
+    const pathError = await validateRootPath(scanRootPath);
+    if (pathError) {
+      await cleanupResolveResult(resolved);
+      return res.status(400).json({ error: pathError, reason: "invalid_source" });
     }
   }
 
   // Cleanup stale sessions opportunistically
   cleanupOldSessions().catch(() => undefined);
 
-  const id = randomUUID();
   const initialSteps: DiscoveryStep[] = STEPS.map((name) => ({
     name,
     status: "pending",
   }));
 
-  await db.insert(discoverySessionsTable).values({
-    id,
-    ownerId: req.userId,
-    status: "pending",
-    rootPath: normalizedPath,
-    sourceType: body.sourceType as "LOCAL_FOLDER" | "WORKSPACE_PROJECT" | "GIT_REPOSITORY" | "ARCHIVE_UPLOAD" | "REMOTE_FILESYSTEM" | "DOCKER_VOLUME",
-    sourceConfig: body.sourceConfig,
-    progress: 0,
-    currentStep: STEPS[0],
-    steps: initialSteps,
-    startedAt: new Date(),
-  });
+  try {
+    await db.insert(discoverySessionsTable).values({
+      id,
+      ownerId: req.userId,
+      status: "pending",
+      rootPath: scanRootPath,
+      sourceType: body.sourceType as "LOCAL_FOLDER" | "WORKSPACE_PROJECT" | "GIT_REPOSITORY" | "ARCHIVE_UPLOAD" | "REMOTE_FILESYSTEM" | "DOCKER_VOLUME",
+      sourceConfig: body.sourceConfig,
+      progress: 0,
+      currentStep: STEPS[0],
+      steps: initialSteps,
+      startedAt: new Date(),
+    });
+  } catch (err) {
+    if (durableRootPath) await removeManagedProjectRoot(durableRootPath);
+    await cleanupResolveResult(resolved);
+    throw err;
+  }
 
   // Read the session back BEFORE enqueueing the background job so the HTTP
   // response always reflects the just-created "pending" state. Doing the
@@ -216,7 +296,7 @@ router.post("/projects/discover", async (req, res) => {
   // would race on the "discovering" status update — this prevents that entirely.
   heavyJobQueue.enqueueWithId(id, async () => {
     try {
-      await runDiscovery(id, normalizedPath);
+      await runDiscovery(id, scanRootPath);
     } catch (err) {
       logger.error({ err, sessionId: id }, "Unhandled discovery error");
     } finally {
