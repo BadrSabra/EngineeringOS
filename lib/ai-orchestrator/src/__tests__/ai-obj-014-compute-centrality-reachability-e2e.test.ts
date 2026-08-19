@@ -88,7 +88,7 @@ const REACHABILITY_REPORT = (graphFile: string, inferenceFile: string) =>
     "## 5) Validation Checklist",
     "- Trace completes: getGraphCentrality -> computeCentrality",
     "## 6) Final Judgment",
-    "PROVEN — production reachability established via direct invocation.",
+    "PROVEN — production reachability established via direct invocation. تم إثبات الوصول المباشر.",
   ].join("\n");
 
 /** A BEHAVIORAL-only answer: explains computeCentrality, proves nothing. */

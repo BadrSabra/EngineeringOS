@@ -449,9 +449,9 @@ describe("single-file forensic isolation", () => {
 
 const FORENSIC_SINGLE_MESSAGE = (target: string) =>
   [
-    "اختبر قدرة التحليل الجنائي لملف واحد فقط — ملف إنتاجي:", // single-file forensic classifier trigger
+    "Single-file forensic capability test — production file:", // single-file forensic classifier trigger
     target,
-    "ابحث عن ثغرات الحقن وأثبت وجود العيب.",
+    "Look for injection vulnerabilities and prove the defect.",
   ].join("\n");
 
 const FIVE_FILE_MANIFEST = [
@@ -829,9 +829,9 @@ describe("single-file coverage gates through the full chat pipeline", () => {
       // Must NOT start with an immediate-execution verb (نفّذ/ابدأ/…), which
       // would nullify structuredOutputMode and suppress the forensic_status step.
       message: [
-        "أنت وكيل تحليل جنائي.",
-        `اقرأ المجلد "${root}" فقط داخل المشروع،`,
-        "لا تقرأ أي شيء خارج هذا المجلد، وأخرج التقرير بالأدلة المباشرة.",
+        "You are a forensic analysis agent.",
+        `Read only the "${root}" directory inside the project.`,
+        "Do not read anything outside this directory, and produce a report grounded in direct evidence.",
       ].join("\n"),
       history: [],
       projectContext: {

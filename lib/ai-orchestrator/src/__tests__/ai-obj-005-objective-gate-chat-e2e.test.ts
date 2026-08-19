@@ -49,9 +49,9 @@ const FILE_CONTENT = [
 /** Single-file forensic classifier trigger, mirroring forensic-single-file-isolation. */
 const FORENSIC_SINGLE_MESSAGE = (target: string) =>
   [
-    "اختبر قدرة التحليل الجنائي لملف واحد فقط — ملف إنتاجي:",
+    "Single-file forensic capability test — production file:",
     target,
-    "ابحث عن استخدام غير آمن للدالة eval وأثبت وجود العيب.",
+    "Find unsafe eval usage and prove the defect.",
   ].join("\n");
 
 /** A FINDING_PROVEN forensic report citing ONLY the production evidence path. */
