@@ -2058,7 +2058,7 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.queryByRole('generic', { name: 'Validation details' })).toBeNull();
   });
 
-  it('keeps long paths inside the message width while preserving code-block scrolling', async () => {
+  it('redacts runtime paths while preserving code-block scrolling', async () => {
     mocks.serverProposal = { proposalId: 'long-message', changes: [] };
     mocks.proposalMessages[0].content = [
       'A long path: `src/routes/ai/projects/very-long-project-name/behavior-evidence-controller.ts`',
@@ -2072,12 +2072,11 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     await waitFor(() => {
-      expect(document.querySelector('pre code')?.textContent).toContain(
-        '/home/runner/workspace/lib/ai-orchestrator/src/tool-execution-engine.ts',
-      );
+      expect(document.querySelector('pre code')?.textContent).toContain('[project path]');
     });
     const code = document.querySelector('pre code');
     expect(code).not.toBeNull();
+    expect(document.body.textContent).not.toContain('/home/runner/workspace/');
     expect(code?.parentElement).toHaveClass('overflow-x-auto', 'max-w-full');
     expect(code?.closest('.prose')).toHaveClass('min-w-0', 'max-w-full', 'overflow-hidden');
   });
