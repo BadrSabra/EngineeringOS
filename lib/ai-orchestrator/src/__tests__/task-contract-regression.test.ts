@@ -119,6 +119,15 @@ describe("task contract regression matrix", () => {
     ).toBe(true);
   });
 
+  it("allows a code-only response for an Arabic extraction request", () => {
+    expect(
+      validateResponseLanguage(
+        "```ts\nreturn partialResult;\n```",
+        "ar",
+      ).valid,
+    ).toBe(true);
+  });
+
   it("rejects Arabic-only prose for an English request but allows neutral output", () => {
     expect(validateResponseLanguage("هذه إجابة عربية.", "en").valid).toBe(false);
     expect(validateResponseLanguage("42", "en").valid).toBe(true);

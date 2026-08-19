@@ -177,8 +177,15 @@ export function validateResponseLanguage(
   const trimmed = response.trim();
   if (!trimmed) return { valid: false, violations: ["response is empty"] };
 
-  const hasArabic = /[\u0600-\u06FF]/.test(trimmed);
-  const hasLatin = /[A-Za-z]/.test(trimmed);
+  // Source code and canonical identifiers are language-neutral. Evaluate the
+  // prose outside fenced/inline code so an Arabic request for a TypeScript
+  // snippet is not rejected merely because the snippet uses Latin keywords.
+  const prose = trimmed
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`[^`]*`/g, " ")
+    .trim();
+  const hasArabic = /[\u0600-\u06FF]/.test(prose);
+  const hasLatin = /[A-Za-z]/.test(prose);
   const violations: string[] = [];
 
   if (responseLanguage === "ar" && hasLatin && !hasArabic) {
