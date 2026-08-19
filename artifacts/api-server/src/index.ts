@@ -8,7 +8,7 @@ import {
 } from "./lib/job-reconciliation";
 import { reportDeadRootPaths, ensureEncryptionKey } from "./lib/startup-migrations";
 import { heavyJobQueue } from "./lib/job-queue";
-import { pool } from "@workspace/db";
+import { assertAuditOutboxSchema, pool } from "@workspace/db";
 import {
   setInvalidationNotifier,
   startContextInvalidationChannel,
@@ -107,6 +107,15 @@ process.once("SIGINT", () => {
 // DB-07: Fail fast if the Drizzle schema has not been pushed yet. This must
 // run before any other startup step that touches the database.
 await assertDatabaseSchema();
+try {
+  await assertAuditOutboxSchema();
+} catch (err) {
+  logger.error(
+    { err, fix: "pnpm --filter @workspace/db run push" },
+    "AUDIT OUTBOX SCHEMA CHECK FAILED — apply the Drizzle schema before starting the API",
+  );
+  process.exit(1);
+}
 
 // Start the background free-model catalog refresh scheduler.  Runs every 5
 // minutes so the resolver always has a fresh live list of free-tier models —
