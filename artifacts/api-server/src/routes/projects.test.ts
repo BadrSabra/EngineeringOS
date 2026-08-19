@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import app from "../app.js";
 import {
   db,
@@ -72,7 +72,11 @@ async function cleanupProject(id: string): Promise<void> {
   await db.delete(tasksTable).where(eq(tasksTable.projectId, id));
   await db.delete(metricsTable).where(eq(metricsTable.projectId, id));
   await db.delete(eventsTable).where(eq(eventsTable.projectId, id));
-  await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, id));
+  // Deletion audits intentionally survive the project row with project_id
+  // nulled by the FK, so clean them up by either relationship in tests.
+  await db.delete(auditLogsTable).where(
+    or(eq(auditLogsTable.projectId, id), eq(auditLogsTable.entityId, id)),
+  );
   await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, id));
   await db.delete(projectsTable).where(eq(projectsTable.id, id));
 }
@@ -274,6 +278,32 @@ describe("POST /api/projects — audit trail", () => {
     expect(audits[0].entityType).toBe("project");
     expect(audits[0].action).toBe("created");
     expect((audits[0].stateAfter as { name?: string } | null)?.name).toBe(res.body.name);
+  });
+
+  it("returns 204, removes the project, and preserves its deletion audit entry", async () => {
+    const projectId = await insertProject("/tmp/delete-audit-" + randomUUID());
+    cleanupQueue.push(projectId);
+
+    const res = await request(app).delete(`/api/projects/${projectId}`);
+
+    expect(res.status).toBe(204);
+
+    const projects = await db
+      .select()
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId));
+    expect(projects).toHaveLength(0);
+
+    const audits = await db
+      .select()
+      .from(auditLogsTable)
+      .where(eq(auditLogsTable.entityId, projectId));
+    const deletionAudit = audits.find(
+      (audit) => audit.entityType === "project" && audit.action === "deleted",
+    );
+    expect(deletionAudit).toBeDefined();
+    expect(deletionAudit?.projectId).toBeNull();
+    expect((deletionAudit?.stateBefore as { id?: string } | null)?.id).toBe(projectId);
   });
 });
 

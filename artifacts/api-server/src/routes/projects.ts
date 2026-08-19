@@ -177,6 +177,19 @@ router.delete("/projects/:projectId", requireProjectWriteAccess, async (req, res
   const before = req.project!;
   const correlationId = randomUUID();
 
+  // Record the deletion while the project still exists. The audit row's
+  // project_id foreign key is configured with ON DELETE SET NULL, so the
+  // historical record survives the project deletion without violating the
+  // foreign key constraint.
+  await recordAudit({
+    entityType: "project",
+    entityId: projectId,
+    action: "deleted",
+    projectId,
+    stateBefore: before,
+    correlationId,
+  });
+
   await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
 
   // Imported Git/archive projects own their durable materialized root.
@@ -196,18 +209,6 @@ router.delete("/projects/:projectId", requireProjectWriteAccess, async (req, res
       "Project deleted but managed durable root cleanup failed",
     );
   }
-
-  // Fire-and-forget-but-logged: recordAudit is intentionally best-effort (see
-  // lib/audit.ts) so an audit-write hiccup here never turns an already-
-  // committed delete into a request failure.
-  await recordAudit({
-    entityType: "project",
-    entityId: projectId,
-    action: "deleted",
-    projectId,
-    stateBefore: before,
-    correlationId,
-  });
 
   invalidateContextCache(projectId);
 
