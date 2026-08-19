@@ -378,6 +378,18 @@ function fmtModelId(id: string): string {
   return OR_MODEL_LABELS[id] ?? (id.split("/").pop()?.replace(/:free$/, "") ?? id);
 }
 
+/**
+ * Keep implementation details useful to the agent out of the normal chat
+ * transcript. Absolute runtime paths and opaque UUIDs can disclose deployment
+ * internals without helping the user understand the result.
+ */
+function redactInternalDetails(value: string): string {
+  return value
+    .replace(/\/home\/runner\/workspace(?:\/[^\s`"'<>),;]+)*/g, '[project path]')
+    .replace(/(?:\/tmp|\/workspace)\/[^\s`"'<>),;]+/g, '[runtime path]')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '[internal id]');
+}
+
 /** Build a provider context suffix for error messages, showing model/status/raw hint. */
 function providerContextSuffix(err: ApiError): string {
   const parts: string[] = [];
