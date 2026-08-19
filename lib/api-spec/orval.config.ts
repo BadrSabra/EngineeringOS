@@ -2,8 +2,18 @@ import { defineConfig, InputTransformerFn } from "orval";
 import path from "path";
 
 const root = path.resolve(__dirname, "..", "..");
-const apiClientReactSrc = path.resolve(root, "lib", "api-client-react", "src");
-const apiZodSrc = path.resolve(root, "lib", "api-zod", "src");
+// The drift check points codegen at a temporary output root so validation
+// never mutates the working tree. Normal codegen keeps the repository root.
+const outputRoot = process.env.CODEGEN_OUTPUT_ROOT
+  ? path.resolve(process.env.CODEGEN_OUTPUT_ROOT)
+  : root;
+const apiClientReactSrc = path.resolve(
+  outputRoot,
+  "lib",
+  "api-client-react",
+  "src",
+);
+const apiZodSrc = path.resolve(outputRoot, "lib", "api-zod", "src");
 
 // Our exports make assumptions about the title of the API being "Api" (i.e. generated output is `api.ts`).
 const titleTransformer: InputTransformerFn = (config) => {
@@ -58,7 +68,15 @@ export default defineConfig({
           includeHttpResponseReturnType: false,
         },
         mutator: {
-          path: path.resolve(apiClientReactSrc, "custom-fetch.ts"),
+          // The mutator is source code, not generated output, so it always
+          // remains in the repository even when output is redirected.
+          path: path.resolve(
+            root,
+            "lib",
+            "api-client-react",
+            "src",
+            "custom-fetch.ts",
+          ),
           name: "customFetch",
         },
       },
@@ -82,10 +100,10 @@ export default defineConfig({
       override: {
         zod: {
           coerce: {
-            query: ['boolean', 'number', 'string'],
-            param: ['boolean', 'number', 'string'],
-            body: ['bigint', 'date'],
-            response: ['bigint', 'date'],
+            query: ["boolean", "number", "string"],
+            param: ["boolean", "number", "string"],
+            body: ["bigint", "date"],
+            response: ["bigint", "date"],
           },
         },
         useDates: true,

@@ -16,13 +16,16 @@
  */
 
 import { execSync } from "child_process";
-import { resolve } from "path";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "fs";
+import { tmpdir } from "os";
+import { join, relative, resolve } from "path";
 
 const WORKSPACE_ROOT = resolve(import.meta.dirname, "..");
 
-function run(cmd: string): string {
-  return execSync(cmd, { cwd: WORKSPACE_ROOT, encoding: "utf-8" });
-}
+const GENERATED_PATHS = [
+  "lib/api-zod/src/generated",
+  "lib/api-client-react/src/generated",
+];
 
 // ─── 0. Parse-check the spec BEFORE codegen (PR-01) ──────────────────────────
 //
@@ -42,6 +45,48 @@ try {
 }
 
 // ─── 1. Regenerate from the current openapi.yaml ─────────────────────────────
+//
+// Generate into a temporary workspace instead of the checked-out generated
+// directories. A failed check must not leave codegen output in the worktree.
+
+const generatedRoot = mkdtempSync(join(tmpdir(), "api-codegen-drift-"));
+
+function listFiles(directory: string, root = directory): string[] {
+  try {
+    return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+      const entryPath = join(directory, entry.name);
+      return entry.isDirectory()
+        ? listFiles(entryPath, root)
+        : [relative(root, entryPath)];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function compareGeneratedPath(path: string): string[] {
+  const expectedPath = join(WORKSPACE_ROOT, path);
+  const actualPath = join(generatedRoot, path);
+  const files = new Set([...listFiles(expectedPath), ...listFiles(actualPath)]);
+
+  return [...files]
+    .filter((file) => {
+      const expectedFile = join(expectedPath, file);
+      const actualFile = join(actualPath, file);
+      try {
+        if (
+          !statSync(expectedFile).isFile() ||
+          !statSync(actualFile).isFile()
+        ) {
+          return true;
+        }
+        return !readFileSync(expectedFile).equals(readFileSync(actualFile));
+      } catch {
+        return true;
+      }
+    })
+    .map((file) => join(path, file));
+}
 
 console.log("⏳  Running codegen from lib/api-spec/openapi.yaml …");
 try {
@@ -49,33 +94,23 @@ try {
   execSync("pnpm --filter @workspace/api-spec run codegen", {
     cwd: WORKSPACE_ROOT,
     stdio: "pipe",
+    env: {
+      ...process.env,
+      CODEGEN_OUTPUT_ROOT: generatedRoot,
+    },
   });
 } catch (err: any) {
   console.error("❌  Codegen failed — fix the OpenAPI spec first:");
   console.error(err.stderr?.toString() ?? err.message);
+  rmSync(generatedRoot, { recursive: true, force: true });
   process.exit(1);
 }
 
 // ─── 2. Check for uncommitted changes in generated directories ───────────────
 
-const GENERATED_PATHS = [
-  "lib/api-zod/src/generated",
-  "lib/api-client-react/src/generated",
-];
-
 console.log("🔍  Checking for uncommitted changes in generated files …");
 
-const changed: string[] = [];
-
-for (const path of GENERATED_PATHS) {
-  // git diff --name-only shows tracked files that changed.
-  // git ls-files --others shows untracked new files.
-  const diff = run(`git diff --name-only -- "${path}"`).trim();
-  const untracked = run(`git ls-files --others --exclude-standard -- "${path}"`).trim();
-
-  if (diff) changed.push(...diff.split("\n").filter(Boolean));
-  if (untracked) changed.push(...untracked.split("\n").filter(Boolean));
-}
+const changed = GENERATED_PATHS.flatMap(compareGeneratedPath);
 
 // ─── 3. Report ───────────────────────────────────────────────────────────────
 
@@ -88,7 +123,10 @@ for (const path of GENERATED_PATHS) {
 console.log("🔍  Verifying codegen output has no looseObject remnants …");
 const generatedZodFile = "lib/api-zod/src/generated/api.ts";
 try {
-  const generatedContent = run(`cat "${generatedZodFile}"`);
+  const generatedContent = readFileSync(
+    join(generatedRoot, generatedZodFile),
+    "utf8",
+  );
   if (generatedContent.includes("looseObject")) {
     console.error("❌  Post-codegen verify failed:");
     console.error(
@@ -97,18 +135,22 @@ try {
     console.error(
       "    The sed substitution in lib/api-spec/package.json may need updating.",
     );
+    rmSync(generatedRoot, { recursive: true, force: true });
     process.exit(1);
   }
   console.log("✅  No looseObject remnants in generated Zod output.");
 } catch {
   // If the file doesn't exist yet (first run), skip the check.
-  console.warn(`⚠️   Could not verify ${generatedZodFile} — skipping looseObject check.`);
+  console.warn(
+    `⚠️   Could not verify ${generatedZodFile} — skipping looseObject check.`,
+  );
 }
 
 // ─── 4. Report ───────────────────────────────────────────────────────────────
 
 if (changed.length === 0) {
   console.log("✅  Generated files are in sync with openapi.yaml.");
+  rmSync(generatedRoot, { recursive: true, force: true });
   process.exit(0);
 } else {
   console.error("\n❌  Generated files are out of sync with openapi.yaml.");
@@ -121,5 +163,6 @@ if (changed.length === 0) {
   console.error(
     "\n    Fix: pnpm --filter @workspace/api-spec run codegen && git add lib/api-zod lib/api-client-react\n",
   );
+  rmSync(generatedRoot, { recursive: true, force: true });
   process.exit(1);
 }
