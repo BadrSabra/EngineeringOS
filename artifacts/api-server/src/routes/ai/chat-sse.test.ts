@@ -30,6 +30,7 @@ import {
 // message's `tool_trace` and `repair_plan_metadata` columns, so a scoped-run
 // test can parse them back and prove verdictScope/scopedFindingStatus survive.
 const chatCapture = vi.hoisted(() => ({
+  assistantContent: null as string | null,
   assistantToolTrace: null as string | null,
   assistantRepairPlanMetadata: null as string | null,
 }));
@@ -137,6 +138,7 @@ vi.mock("@workspace/db", () => {
               // the assistant message so the scoped-verdict tests can parse
               // them back (tool_trace + repair_plan_metadata).
               if (vals?.role === "assistant") {
+                chatCapture.assistantContent = (vals?.content as string | undefined) ?? null;
                 chatCapture.assistantToolTrace =
                   (vals?.toolTrace as string | null | undefined) ?? null;
                 chatCapture.assistantRepairPlanMetadata =
@@ -191,6 +193,11 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
 });
 
 vi.mock("../../lib/ai-route-helpers.js", () => ({
+  redactUserFacingText: (value: string) => value
+    .replace(/\/home\/runner\/workspace(?:\/[^\s`"'<>),;]+)*/g, "[project path]")
+    .replace(/(?:\/tmp|\/workspace)\/[^\s`"'<>),;]+/g, "[runtime path]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[internal id]"),
+  redactUserFacingValue: (value: unknown) => value,
   requireProvider:        vi.fn(),
   chatWithFallback:       vi.fn(),
   handleOrchestratorError: vi.fn().mockReturnValue(false),
@@ -403,6 +410,7 @@ beforeEach(() => {
   vi.mocked(requireProvider).mockResolvedValue({ provider: "openai" as never, apiKey: "test-key" });
   // Task #59: reset the captured persisted columns between tests.
   chatCapture.assistantToolTrace = null;
+  chatCapture.assistantContent = null;
   chatCapture.assistantRepairPlanMetadata = null;
 });
 
@@ -413,6 +421,34 @@ afterEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration)", () => {
+  it("redacts runtime paths and opaque IDs from JSON, SSE, and persisted assistant content", async () => {
+    const sensitive = "/home/runner/workspace/artifacts/api-server/src/chat.ts";
+    const internalId = "123e4567-e89b-12d3-a456-426614174000";
+    const responseText = `Read ${sensitive}; request ${internalId}.`;
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _provider, onDelta) => {
+        (onDelta as ((delta: string) => void) | undefined)?.(responseText);
+        return {
+          ...MOCK_CHAT_RESULT,
+          result: { ...MOCK_CHAT_RESULT.result, response: responseText },
+        };
+      },
+    );
+
+    const body = { projectId: "test-project-id", message: "Summarize the result." };
+    const json = await request(app).post("/api/ai/chat").send(body);
+    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+
+    expect(json.status).toBe(200);
+    expect(JSON.stringify(json.body)).not.toContain(sensitive);
+    expect(JSON.stringify(json.body)).not.toContain(internalId);
+    expect(stream.status).toBe(200);
+    expect(stream.text).not.toContain(sensitive);
+    expect(stream.text).not.toContain(internalId);
+    expect(chatCapture.assistantContent).not.toContain(sensitive);
+    expect(chatCapture.assistantContent).not.toContain(internalId);
+  });
+
   it("routes implementation-plan requests as read-only chat on JSON and SSE", async () => {
     const captured: Array<{
       turnIntent?: Record<string, unknown>;

@@ -136,7 +136,22 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
 // chatWithFallback and requireProvider are the two route-layer functions that
 // drive AI calls.  We stub them at the module level and override per test.
 
-vi.mock("../lib/ai-route-helpers.js", () => ({
+vi.mock("../lib/ai-route-helpers.js", () => {
+  const redactText = (value: string) => value
+    .replace(/\/home\/runner\/workspace(?:\/[^\s`"'<>),;]+)*/g, "[project path]")
+    .replace(/(?:\/tmp|\/workspace)\/[^\s`"'<>),;]+/g, "[runtime path]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[internal id]");
+  const redactValue = (value: unknown): unknown => {
+    if (typeof value === "string") return redactText(value);
+    if (Array.isArray(value)) return value.map(redactValue);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactValue(item)]));
+    }
+    return value;
+  };
+  return {
+  redactUserFacingText: redactText,
+  redactUserFacingValue: redactValue,
   requireProvider: vi.fn(async () => ({
     provider: "groq" as const,
     apiKey:   "test-dummy-key",
@@ -206,7 +221,8 @@ vi.mock("../lib/ai-route-helpers.js", () => ({
   handleOrchestratorError: vi.fn((err: unknown) => { throw err; }),
   resolveProvider:          vi.fn(async () => ({ provider: "groq", apiKey: "test-dummy-key" })),
   collectAvailableProviders: vi.fn(async () => [{ provider: "groq", apiKey: "test-dummy-key" }]),
-}));
+  };
+});
 
 // The cycle test uses a temporary fixture rather than the workspace root. The
 // route still runs the real validation gate, but the registered workspace

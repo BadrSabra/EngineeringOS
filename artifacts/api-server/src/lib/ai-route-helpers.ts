@@ -37,6 +37,30 @@ import { decryptApiKey } from "./credentials-crypto.js";
 
 export type { ProviderId };
 
+/**
+ * Remove deployment details from values that cross an AI route's user-facing
+ * boundary. Keep the original provider output for server-side diagnostics,
+ * but never persist or stream it verbatim.
+ */
+export function redactUserFacingText(value: string): string {
+  return value
+    .replace(/\/home\/runner\/workspace(?:\/[^\s`"'<>),;]+)*/g, "[project path]")
+    .replace(/(?:\/tmp|\/workspace)\/[^\s`"'<>),;]+/g, "[runtime path]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[internal id]");
+}
+
+/** Redact strings in user-facing JSON while preserving its shape. */
+export function redactUserFacingValue<T>(value: T): T {
+  if (typeof value === "string") return redactUserFacingText(value) as T;
+  if (Array.isArray(value)) return value.map((item) => redactUserFacingValue(item)) as T;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, redactUserFacingValue(item)]),
+    ) as T;
+  }
+  return value;
+}
+
 type ProviderSelectionOptions = {
   /** When true, skip providers that cannot handle the request's tool payloads. */
   requireTools?: boolean;

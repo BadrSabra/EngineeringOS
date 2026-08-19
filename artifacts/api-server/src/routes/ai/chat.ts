@@ -119,6 +119,8 @@ import {
   requireProvider,
   chatWithFallback,
   handleOrchestratorError,
+  redactUserFacingText,
+  redactUserFacingValue,
 } from "../../lib/ai-route-helpers.js";
 
 const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
@@ -173,7 +175,7 @@ function sanitizeResponseText(raw: string): string {
   const trimmed = raw.trim();
   // Only attempt extraction when the value looks like a JSON object that
   // wraps a string `response` field — not for ordinary markdown/text.
-  if (!trimmed.startsWith("{")) return raw;
+  if (!trimmed.startsWith("{")) return redactUserFacingText(raw);
   try {
     const parsed = JSON.parse(trimmed);
     if (
@@ -184,12 +186,12 @@ function sanitizeResponseText(raw: string): string {
     ) {
       const inner = ((parsed as Record<string, unknown>)["response"] as string).trim();
       logger.warn({ scope: "chat-route", action: "sanitize_envelope", preview: trimmed.slice(0, 120) }, "AI-02: stripped JSON envelope from response before storage");
-      return inner || raw;
+      return redactUserFacingText(inner || raw);
     }
   } catch {
     // Not valid JSON — leave as-is.
   }
-  return raw;
+  return redactUserFacingText(raw);
 }
 
 function parseRepairPlanMetadata(value: string | null): RepairPlanMetadata[] | undefined {
@@ -999,7 +1001,7 @@ function serializeToolTrace(steps: AgentStep[]): string | null {
         };
     }
   });
-  return JSON.stringify(entries);
+  return redactUserFacingText(JSON.stringify(entries));
 }
 
 // ── Profile → context sections mapping ──────────────────────────────────────
@@ -1375,7 +1377,6 @@ router.post("/ai/chat", async (req, res) => {
           error: "model_output_invalid",
           code: "model_output_invalid",
           hint: "The AI model returned an unexpected response — try rephrasing your message.",
-          raw: result._parseError.raw.slice(0, 500),
           parseCode: result._parseError.code,
         });
       }
@@ -1508,14 +1509,19 @@ router.post("/ai/chat", async (req, res) => {
       return msg;
     });
     // Fire-and-forget memory write — must not block the JSON response.
-    writeSessionMemories(sessionIdToUse, projectId, result.sources, result.response).catch((err) => {
+    writeSessionMemories(
+      sessionIdToUse,
+      projectId,
+      redactUserFacingValue(result.sources),
+      sanitizeResponseText(result.response),
+    ).catch((err) => {
       logger.warn({ err, projectId }, "memory-write: failed to persist session memories");
     });
 
     return res.json({
       sessionId: sessionIdToUse,
       message: { ...assistantMsg, taskResult: parseTaskResult(assistantMsg.taskResult) },
-      sources: result.sources,
+      sources: redactUserFacingValue(result.sources),
       toolTrace: assistantMsg.toolTrace,
       pendingChanges: proposalId
         ? proposalChanges
@@ -2237,8 +2243,9 @@ router.post("/ai/chat/stream", async (req, res) => {
         sse({ type: "stage", stage: "streaming" });
         streamingActive = true;
       }
-      streamedContent += delta;
-      sse({ type: "delta", delta });
+      const safeDelta = redactUserFacingText(delta);
+      streamedContent += safeDelta;
+      sse({ type: "delta", delta: safeDelta });
       if (streamedContent.length % 4096 < delta.length) {
         persistExecutionCheckpoint({
           stage: "model_call",
@@ -2597,11 +2604,19 @@ router.post("/ai/chat/stream", async (req, res) => {
         // PR-009: structured error with provider context so the dashboard can
         // show actionable diagnostics (model name, HTTP status, suggestedFix).
         const providerCtx = err.toProviderContext() ?? {};
+        // Provider messages can contain request IDs, file paths, or upstream
+        // diagnostics. They remain in the structured server log above, not on
+        // the user-facing stream.
+        const publicProviderCtx = Object.fromEntries(
+          Object.entries(providerCtx).filter(([key]) => key !== "providerMessage"),
+        );
         const base: Record<string, unknown> = {
           type: "error",
           code: err.code,
           // PR-007: surface provider context on the wire.
-          ...(Object.keys(providerCtx).length > 0 ? { providerContext: providerCtx } : {}),
+          ...(Object.keys(publicProviderCtx).length > 0
+            ? { providerContext: redactUserFacingValue(publicProviderCtx) }
+            : {}),
         };
 
         switch (err.code) {
@@ -2667,11 +2682,15 @@ router.post("/ai/chat/stream", async (req, res) => {
             });
             break;
           default:
-            sse({ ...base, message: `AI provider error: ${err.message.slice(0, 200)}`, retryable: false });
+            sse({ ...base, message: redactUserFacingText(`AI provider error: ${err.message.slice(0, 200)}`), retryable: false });
         }
       } else {
         logger.error({ err }, "chat stream: unexpected non-GroqClientError");
-        sse({ type: "error", code: "unknown", message: err instanceof Error ? err.message : String(err) });
+        sse({
+          type: "error",
+          code: "unknown",
+          message: redactUserFacingText(err instanceof Error ? err.message : String(err)),
+        });
       }
       res.end();
       return;
@@ -2683,7 +2702,6 @@ router.post("/ai/chat/stream", async (req, res) => {
           type: "error",
           code: "model_output_invalid",
           message: "The AI model returned an unexpected response — try rephrasing your message.",
-          raw: result._parseError.raw.slice(0, 500),
           parseCode: result._parseError.code,
         });
         res.end();
@@ -2891,7 +2909,12 @@ router.post("/ai/chat/stream", async (req, res) => {
     executionTerminal = true;
 
     // Fire-and-forget memory write — must not block the SSE done event.
-    writeSessionMemories(sessionIdToUse, projectId, result.sources, result.response).catch((err) => {
+    writeSessionMemories(
+      sessionIdToUse,
+      projectId,
+      redactUserFacingValue(result.sources),
+      sanitizeResponseText(result.response),
+    ).catch((err) => {
       logger.warn({ err, projectId }, "memory-write: failed to persist session memories (stream)");
     });
 
@@ -2909,7 +2932,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       type: "done",
       sessionId: sessionIdToUse,
       message: { ...assistantMsg, taskResult: parseTaskResult(assistantMsg.taskResult) },
-      sources: result.sources,
+      sources: redactUserFacingValue(result.sources),
       toolTrace: assistantMsg.toolTrace,
       pendingChanges: proposalId
         ? proposalChanges
