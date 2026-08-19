@@ -11,5 +11,6 @@ technical identifiers may remain English.
 objective-gate assertion that the scenario is intended to exercise.
 
 **How to apply:** Use English prompts for intentionally English forensic reports;
-reserve Arabic prompts and the Arabic fixture guard for fixtures that genuinely
-assert Arabic response behavior.
+reserve Arabic prompts and the Arabic forensic fixture guard for fixtures that
+genuinely assert Arabic response behavior. Validate both sides when constructing
+an Arabic forensic fixture so a prompt/report mismatch fails before assertions.

@@ -28,6 +28,23 @@ export function assertArabicFixtureResponse(
   return response;
 }
 
+/**
+ * Validate an intentionally Arabic forensic fixture at construction time.
+ * English forensic fixtures should not call this guard.
+ */
+export function assertArabicForensicFixture(
+  prompt: string,
+  response: string,
+  fixtureName: string,
+): string {
+  if (!/[\u0600-\u06ff]/u.test(prompt)) {
+    throw new Error(
+      `[AI fixture:${fixtureName}] expected an Arabic forensic prompt, but the fixture prompt is English-only`,
+    );
+  }
+  return assertArabicFixtureResponse(response, fixtureName);
+}
+
 export const REAL_TOOL_FIXTURES_ENV =
   "AI_ORCHESTRATOR_ALLOW_REAL_TOOL_FIXTURES";
 
