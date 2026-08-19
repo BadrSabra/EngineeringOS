@@ -4895,8 +4895,16 @@ export async function chat(opts: {
         ? "forensic"
         : undefined,
     executionTargetPaths: repairPlanExecution ? executionFilePaths : undefined,
-    allowedToolNames: singleFileForensicMode ? ["read_file"] : undefined,
-    allowedReadPaths: singleFileForensicMode ? singleFilePaths : undefined,
+    // A forensic request can be classified as single-file-shaped before a
+    // usable file path is actually extracted (for example, when the user names
+    // a directory such as `lib/knowledge-engine/`). An empty allow-list would
+    // block every read, including already-prefetched evidence, and leave the
+    // model looping on READ_PATH_POLICY_BLOCKED. Apply the isolated manifest
+    // only when it contains at least one concrete file.
+    allowedToolNames:
+      singleFileForensicMode && singleFilePaths.length > 0 ? ["read_file"] : undefined,
+    allowedReadPaths:
+      singleFileForensicMode && singleFilePaths.length > 0 ? singleFilePaths : undefined,
     objectiveScopePolicy: objective?.scopePolicy,
     firstEvidenceTargetPath: firstEvidenceTargetPath ?? undefined,
     orderedForensicRoots: orderedForensicRoots.length > 0 ? orderedForensicRoots : undefined,
