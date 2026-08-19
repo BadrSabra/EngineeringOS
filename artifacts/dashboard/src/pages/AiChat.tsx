@@ -7490,11 +7490,14 @@ export default function AiChat() {
   const isEmpty = messages.length === 0;
   const isAgentBusy = isSending || isTaskSending;
   const showExecutionProof = Boolean(
-    isAgentBusy ||
     activeExecution ||
     pendingChanges.length > 0 ||
     commitReadyPaths.length > 0 ||
-    pushReady,
+    pushReady ||
+    operationMode === 'DELIVERY' ||
+    agentSteps.length > 0 ||
+    liveEvidenceIntegrity ||
+    liveFixtureLocal,
   );
 
   useEffect(() => {
