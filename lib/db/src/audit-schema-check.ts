@@ -1,4 +1,5 @@
 import { pool } from "./index.js";
+import type { PoolClient, QueryResultRow } from "pg";
 
 const REQUIRED_COLUMNS = [
   "id",
@@ -22,8 +23,9 @@ export class AuditSchemaError extends Error {
  * This is intentionally read-only. Schema changes belong to the Drizzle push
  * step, not to API startup.
  */
-export async function assertAuditOutboxSchema(): Promise<void> {
-  const client = await pool.connect();
+export async function assertAuditOutboxSchemaWithClient(
+  client: Pick<PoolClient, "query">,
+): Promise<void> {
   try {
     const tableResult = await client.query<{ exists: boolean }>(
       `SELECT EXISTS (
@@ -70,6 +72,13 @@ export async function assertAuditOutboxSchema(): Promise<void> {
         `Stale public.pending_audit_logs schema (${missing.join("; ")}). Apply the database schema with \`pnpm --filter @workspace/db run push\`, then restart the API.`,
       );
     }
+  }
+}
+
+export async function assertAuditOutboxSchema(): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await assertAuditOutboxSchemaWithClient(client);
   } finally {
     client.release();
   }
