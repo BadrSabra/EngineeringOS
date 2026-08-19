@@ -205,8 +205,19 @@ function parseRepairPlanMetadata(value: string | null): RepairPlanMetadata[] | u
   }
 }
 
+function parseStoredJson(value: string | null | undefined): unknown {
+  if (!value) return undefined;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+}
+
 function serializeRepairPlanMetadata(value: RepairPlanMetadata[] | undefined): string | null {
-  return value && value.length > 0 ? JSON.stringify(value) : null;
+  return value && value.length > 0
+    ? JSON.stringify(redactUserFacingValue(value))
+    : null;
 }
 
 function parseBehaviorEvidence(value: string | null | undefined): EvidenceReference[] | undefined {
@@ -221,7 +232,9 @@ function parseBehaviorEvidence(value: string | null | undefined): EvidenceRefere
 }
 
 function serializeBehaviorEvidence(value: EvidenceReference[] | undefined): string | null {
-  return value && value.length > 0 ? JSON.stringify(value) : null;
+  return value && value.length > 0
+    ? JSON.stringify(redactUserFacingValue(value))
+    : null;
 }
 
 function parseTaskResult(value: string | null | undefined): ChatTaskResult | undefined {
@@ -236,7 +249,7 @@ function parseTaskResult(value: string | null | undefined): ChatTaskResult | und
 }
 
 function serializeTaskResult(value: ChatTaskResult | undefined): string | null {
-  return value ? JSON.stringify(value) : null;
+  return value ? JSON.stringify(redactUserFacingValue(value)) : null;
 }
 
 type ApprovedImplementationPlan = Extract<
@@ -1471,7 +1484,7 @@ router.post("/ai/chat", async (req, res) => {
           sessionId: sessionIdToUse,
           role: "assistant",
           content: sanitizeResponseText(result.response),
-          sources: JSON.stringify(result.sources),
+          sources: JSON.stringify(redactUserFacingValue(result.sources)),
           toolTrace: serializeToolTrace(traceSteps),
           repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
           behaviorEvidence: serializeBehaviorEvidence(result.behaviorEvidence),
@@ -1534,14 +1547,14 @@ router.post("/ai/chat", async (req, res) => {
         : undefined,
       // STORY-04: actual model used (may differ from default if fallback occurred)
       resolvedModel: result.resolvedModel,
-      repairPlan: result.repairPlan,
+      repairPlan: redactUserFacingValue(result.repairPlan),
       productionReachability: result.productionReachability,
-      crossFileTraces: result.crossFileTraces,
+      crossFileTraces: redactUserFacingValue(result.crossFileTraces),
       // Exact source line spans for each accepted behavior-evidence excerpt so the
       // dashboard can show where the proof comes from.
-      behaviorEvidence: result.behaviorEvidence,
+      behaviorEvidence: redactUserFacingValue(result.behaviorEvidence),
       // AI-008: per-task typed result discriminated on `kind` by forensicTaskType
-      taskResult: result.taskResult,
+      taskResult: redactUserFacingValue(result.taskResult),
       _meta: rootFallbackUsed
         ? { rootPathFallback: { used: true, original: rootOriginalPath } }
         : undefined,
@@ -2300,7 +2313,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         sse({
           type: "tool_call",
           tool: step.tool,
-          args: step.args,
+          args: redactUserFacingValue(step.args),
           cached: step.cached,
           ...("prefetched" in step && step.prefetched ? { prefetched: true } : {}),
         });
@@ -2308,7 +2321,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         sse({
           type: "tool_result",
           tool: step.tool,
-          source: step.source,
+          source: step.source ? redactUserFacingText(step.source) : step.source,
           cached: step.cached,
           ...("prefetched" in step && step.prefetched ? { prefetched: true } : {}),
         });
@@ -2651,7 +2664,9 @@ router.post("/ai/chat/stream", async (req, res) => {
           case "MODEL_NOT_FOUND":
             sse({
               ...base,
-              message: `All AI model fallbacks exhausted${err.providerModel ? ` (last tried: ${err.providerModel})` : ""} — no model was available.`,
+               message: redactUserFacingText(
+                 `All AI model fallbacks exhausted${err.providerModel ? ` (last tried: ${err.providerModel})` : ""} — no model was available.`,
+               ),
               retryable: false,
               suggestedFix: "Check your OpenRouter API key and model availability on openrouter.ai/models.",
             });
@@ -2667,7 +2682,9 @@ router.post("/ai/chat/stream", async (req, res) => {
           case "MODEL_UNAVAILABLE":
             sse({
               ...base,
-              message: `AI model temporarily unavailable${err.providerModel ? ` (${err.providerModel})` : ""} — all fallbacks also unavailable.`,
+               message: redactUserFacingText(
+                 `AI model temporarily unavailable${err.providerModel ? ` (${err.providerModel})` : ""} — all fallbacks also unavailable.`,
+               ),
               retryable: true,
               suggestedFix: "Try again in a few minutes; the model may be back online.",
             });
@@ -2816,7 +2833,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           sessionId: sessionIdToUse,
           role: "assistant",
           content: sanitizeResponseText(result.response),
-          sources: JSON.stringify(result.sources),
+          sources: JSON.stringify(redactUserFacingValue(result.sources)),
           toolTrace: serializeToolTrace(traceSteps),
           repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
           behaviorEvidence: serializeBehaviorEvidence(result.behaviorEvidence),
@@ -2947,14 +2964,14 @@ router.post("/ai/chat/stream", async (req, res) => {
         : undefined,
       // STORY-04: surface the actual model used so the UI can display it accurately
       resolvedModel: result.resolvedModel,
-      repairPlan: result.repairPlan,
+      repairPlan: redactUserFacingValue(result.repairPlan),
       productionReachability: result.productionReachability,
-      crossFileTraces: result.crossFileTraces,
+      crossFileTraces: redactUserFacingValue(result.crossFileTraces),
       // Exact source line spans for each accepted behavior-evidence excerpt so the
       // dashboard can show where the proof comes from.
-      behaviorEvidence: result.behaviorEvidence,
+      behaviorEvidence: redactUserFacingValue(result.behaviorEvidence),
       // AI-008: per-task typed result discriminated on `kind` by forensicTaskType
-      taskResult: result.taskResult,
+      taskResult: redactUserFacingValue(result.taskResult),
       // PR-010: telemetry fields for client observability
       telemetry: {
         latencyMs: chatLatencyMs,
@@ -3143,9 +3160,16 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
 
   return res.json(messages.map((message) => ({
     ...message,
-    repairPlan: parseRepairPlanMetadata(message.repairPlanMetadata),
-    behaviorEvidence: parseBehaviorEvidence(message.behaviorEvidence),
-    taskResult: parseTaskResult(message.taskResult),
+    content: redactUserFacingText(message.content),
+    sources: message.sources
+      ? JSON.stringify(redactUserFacingValue(parseStoredJson(message.sources)))
+      : message.sources,
+    toolTrace: message.toolTrace
+      ? redactUserFacingText(message.toolTrace)
+      : message.toolTrace,
+    repairPlan: redactUserFacingValue(parseRepairPlanMetadata(message.repairPlanMetadata)),
+    behaviorEvidence: redactUserFacingValue(parseBehaviorEvidence(message.behaviorEvidence)),
+    taskResult: redactUserFacingValue(parseTaskResult(message.taskResult)),
   })));
 });
 

@@ -192,17 +192,27 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
   };
 });
 
-vi.mock("../../lib/ai-route-helpers.js", () => ({
-  redactUserFacingText: (value: string) => value
-    .replace(/\/home\/runner\/workspace(?:\/[^\s`"'<>),;]+)*/g, "[project path]")
-    .replace(/(?:\/tmp|\/workspace)\/[^\s`"'<>),;]+/g, "[runtime path]")
-    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[internal id]"),
-  redactUserFacingValue: (value: unknown) => value,
-  requireProvider:        vi.fn(),
-  chatWithFallback:       vi.fn(),
-  handleOrchestratorError: vi.fn().mockReturnValue(false),
-  requestLooksToolBound:  vi.fn().mockReturnValue(false),
-}));
+vi.mock("../../lib/ai-route-helpers.js", () => {
+  const redactText = (value: string) => value
+    .replace(/\/(?:home\/runner(?:\/workspace)?|workspace|tmp|app|srv|var\/task|mnt\/data)\/[^\s`"'<>),;]+/g, "[runtime path]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[internal id]");
+  const redactValue = (value: unknown): unknown => {
+    if (typeof value === "string") return redactText(value);
+    if (Array.isArray(value)) return value.map(redactValue);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactValue(item)]));
+    }
+    return value;
+  };
+  return {
+    redactUserFacingText: redactText,
+    redactUserFacingValue: redactValue,
+    requireProvider:        vi.fn(),
+    chatWithFallback:       vi.fn(),
+    handleOrchestratorError: vi.fn().mockReturnValue(false),
+    requestLooksToolBound:  vi.fn().mockReturnValue(false),
+  };
+});
 
 vi.mock("../../middlewares/requireProjectAccess.js", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -447,6 +457,51 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
     expect(stream.text).not.toContain(internalId);
     expect(chatCapture.assistantContent).not.toContain(sensitive);
     expect(chatCapture.assistantContent).not.toContain(internalId);
+  });
+
+  it("redacts runtime paths and opaque IDs from sources and persisted tool traces in both exports", async () => {
+    const sensitive = "/app/runtime/artifacts/api-server/src/chat.ts";
+    const internalId = "123e4567-e89b-12d3-a456-426614174000";
+    const source = `${sensitive} (request ${internalId})`;
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _provider, onDelta, _options, _reset, onStep) => {
+        (onDelta as ((delta: string) => void) | undefined)?.("Answer without sensitive metadata.");
+        (onStep as ((step: AgentStep) => void) | undefined)?.({
+          kind: "tool_call",
+          tool: "read_file",
+          args: { path: source },
+          cached: false,
+        } as AgentStep);
+        (onStep as ((step: AgentStep) => void) | undefined)?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source,
+          cached: false,
+        } as AgentStep);
+        return {
+          ...MOCK_CHAT_RESULT,
+          result: {
+            ...MOCK_CHAT_RESULT.result,
+            sources: [source],
+            response: "Answer without sensitive metadata.",
+          },
+        };
+      },
+    );
+
+    const body = { projectId: "test-project-id", message: "Summarize the sources." };
+    const json = await request(app).post("/api/ai/chat").send(body);
+    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+
+    for (const exportBody of [JSON.stringify(json.body), stream.text, chatCapture.assistantToolTrace ?? ""]) {
+      expect(exportBody).not.toContain(sensitive);
+      expect(exportBody).not.toContain(internalId);
+    }
+    expect(json.body.sources).toEqual(["[runtime path] (request [internal id])"]);
+    expect(JSON.parse(chatCapture.assistantToolTrace!)).toEqual([
+      expect.objectContaining({ kind: "tool_call", args: { path: "[runtime path] (request [internal id])" } }),
+      expect.objectContaining({ kind: "tool_result", source: "[runtime path] (request [internal id])" }),
+    ]);
   });
 
   it("routes implementation-plan requests as read-only chat on JSON and SSE", async () => {

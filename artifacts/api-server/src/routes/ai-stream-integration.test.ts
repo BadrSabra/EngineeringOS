@@ -1751,8 +1751,14 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
     // Override chatWithFallback to throw MODEL_NOT_FOUND after all providers fail
     const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
     const { GroqClientError } = await import("@workspace/ai-orchestrator");
+    const sensitivePath = "/var/task/provider-runtime/chat.ts";
+    const internalId = "123e4567-e89b-12d3-a456-426614174000";
     vi.mocked(chatWithFallback).mockRejectedValueOnce(
-      new GroqClientError("MODEL_NOT_FOUND", "All AI model fallbacks exhausted — no model was available."),
+      new GroqClientError(
+        "MODEL_NOT_FOUND",
+        `All AI model fallbacks exhausted — no model was available (${sensitivePath}, ${internalId}).`,
+        { context: { providerModel: `model-${internalId}`, providerStatus: 422 } },
+      ),
     );
 
     const res = await request(app)
@@ -1778,6 +1784,8 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
     // No unhandled exception or stack trace leaked into the SSE body
     expect(res.text).not.toMatch(/at\s+\w+\s+\(/); // stack trace pattern
     expect(res.text).not.toContain("UnhandledPromiseRejection");
+    expect(res.text).not.toContain(sensitivePath);
+    expect(res.text).not.toContain(internalId);
 
     // No `done` event — the error path ends the stream without persisting a message
     const doneEvent = events.find((e) => e["type"] === "done");
