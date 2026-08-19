@@ -4762,16 +4762,6 @@ function LiveAgentActivity({
             <span className="text-foreground">{iter.iter + 1}/{iter.max}</span> pass
           </span>
         )}
-        {model && (
-          <code className="max-w-full truncate rounded border border-border/50 bg-background/30 px-1.5 py-0.5 text-[9px] text-foreground/80">
-            {fmtModelId(model)}
-          </code>
-        )}
-        {modelHistory.length > 1 && (
-          <span className="text-amber-300/90">
-            {modelHistory.length} model attempts
-          </span>
-        )}
         {diagnostics.length > 0 && (
           <span className="text-amber-300/90">
             {diagnostics.length} recovery notice{diagnostics.length === 1 ? '' : 's'}
@@ -4799,7 +4789,7 @@ function LiveAgentActivity({
                 </span>
                 <span className="min-w-0 break-words text-foreground/85">{event.label}</span>
                 {event.detail && (
-                  <code className="min-w-0 break-all text-muted-foreground">{event.detail}</code>
+                  <code className="min-w-0 break-all text-muted-foreground">{redactInternalDetails(event.detail)}</code>
                 )}
               </div>
             ))}
@@ -4817,20 +4807,10 @@ function LiveAgentActivity({
           <div className="mt-1 max-h-24 min-w-0 overflow-y-auto overflow-x-hidden rounded border border-border/40 bg-background/20 p-1">
             {sourcePaths.map((source) => (
               <code key={source} className="block min-w-0 break-all whitespace-normal rounded px-1 py-0.5 text-[9px] leading-4 text-muted-foreground">
-                {source}
+                {redactInternalDetails(source)}
               </code>
             ))}
           </div>
-        </div>
-      )}
-
-      {modelHistory.length > 0 && (
-        <div className={`mt-2 border-t ${isFixtureLocal ? 'border-violet-500/15' : 'border-primary/10'} pt-2 text-[10px] text-muted-foreground`}>
-          <span>Model path: </span>
-          <span className="break-words text-foreground">
-            {modelHistory.slice(-3).map((attempt) => fmtModelId(attempt.id)).join(' → ')}
-          </span>
-          {modelHistory.length > 3 && <span> (+{modelHistory.length - 3} earlier)</span>}
         </div>
       )}
 
