@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
     "benchmark:deterministic": "tsx src/benchmark/run-forensic-benchmark.ts",
     "benchmark:manifest": "tsx src/benchmark/run-code-agent-benchmark.ts",
     "benchmark:code-agent:deterministic": "tsx src/benchmark/run-code-agent-benchmark-deterministic.ts"
