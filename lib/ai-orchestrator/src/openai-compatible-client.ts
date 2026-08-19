@@ -347,12 +347,27 @@ function looksLikeRecoverableOpenRouterRequestError(body: string, providerCode?:
   );
 }
 
+const MAX_RETRY_AFTER_MS = 60_000;
+
+function parseRetryAfterMs(headers?: Headers): number | undefined {
+  const value = headers?.get("retry-after")?.trim();
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) {
+    return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, Math.ceil(seconds * 1000)));
+  }
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return undefined;
+  return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, timestamp - Date.now()));
+}
+
 /** PR-007/PR-008: Map HTTP status → GroqClientError with full provider context. */
 function classifyStatus(
   status: number,
   body: string,
   providerName: string,
   model?: string,
+  headers?: Headers,
 ): GroqClientError {
   const { code: pCode, message: pMessage } = extractProviderError(body);
   const providerCode = asString(pCode);
@@ -362,6 +377,7 @@ function classifyStatus(
     providerMessage: pMessage ?? body.slice(0, 200),
     providerName,
     providerModel:   model,
+    retryAfterMs:    status === 429 ? parseRetryAfterMs(headers) : undefined,
   };
 
   // Log the classification decision so errors can be traced back to their root cause.
@@ -727,7 +743,7 @@ export async function oacCompleteRaw(
         bodyPreview: text.slice(0, 400),
       }),
     );
-    throw classifyStatus(response.status, text, providerName, model);
+    throw classifyStatus(response.status, text, providerName, model, response.headers);
   }
 
   let data: {
@@ -902,7 +918,7 @@ export async function* oacCompleteStream(
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     cleanup();
-    throw classifyStatus(response.status, text, providerName, model);
+    throw classifyStatus(response.status, text, providerName, model, response.headers);
   }
 
   const reader = response.body?.getReader();
@@ -1023,6 +1039,13 @@ export async function openrouterCompleteRaw(
         }),
       );
       return oacCompleteRaw(trimmed, { ...fullOpts, responseFormat: undefined });
+    }
+    if (
+      err instanceof GroqClientError &&
+      err.code === "RATE_LIMITED" &&
+      err.retryAfterMs !== undefined
+    ) {
+      throw err;
     }
     if (!isTransientError(err) || opts.retryTransient === false) throw err;
     console.warn(
@@ -1188,6 +1211,13 @@ export async function* openrouterCompleteStream(
   try {
     yield* oacCompleteStream(trimmed, fullOpts);
   } catch (err) {
+    if (
+      err instanceof GroqClientError &&
+      err.code === "RATE_LIMITED" &&
+      err.retryAfterMs !== undefined
+    ) {
+      throw err;
+    }
     if (!isTransientError(err)) throw err;
     console.warn(
       JSON.stringify({
