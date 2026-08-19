@@ -27,11 +27,8 @@ import type { AgentStep } from "../tool-execution-engine.js";
 import type { RunLedger } from "../evidence-integrity.js";
 import {
   assertArabicForensicFixture,
-  realToolFixturesEnabled,
   takeFixture,
 } from "./fixture-guards.js";
-
-const originalApiKey = process.env.GROQ_API_KEY;
 
 function makeContext(): ProjectContext {
   return {
@@ -139,18 +136,9 @@ async function mockChatProviders(
   });
 }
 
-describe.skipIf(!realToolFixturesEnabled())(
-  "REAL TOOL — chat() resolves a production-source known-defect to PRODUCTION_PROVEN and unblocks repair (task #45)",
+describe(
+  "DETERMINISTIC FIXTURE — chat() resolves a production-source known-defect to PRODUCTION_PROVEN and unblocks repair (task #45)",
   () => {
-  beforeEach(() => {
-    process.env.GROQ_API_KEY = "test-key";
-  });
-
-  afterEach(() => {
-    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
-    else process.env.GROQ_API_KEY = originalApiKey;
-  });
-
   it("ends at PRODUCTION_PROVEN / PRODUCTION, is repair READY, and carries NO repairBlockReason", async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-ei045-chat-"));
     const fullFile = path.join(rootPath, FILE);
