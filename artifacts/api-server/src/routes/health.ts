@@ -9,8 +9,8 @@ router.get("/healthz", (_req, res) => {
   const data = GetHealthResponse.parse({
     status: "ok",
     jobQueue: heavyJobQueue.getStats(),
-    // PR-2: surface in-process operational counters so operators can detect
-    // degraded audit / rate-limiter subsystems without tailing logs.
+    // Surface operational counters so operators can see degraded subsystems
+    // and whether failed audit writes are still awaiting recovery.
     operationalCounters: getOperationalCounters(),
   });
   res.json(data);

@@ -16,6 +16,7 @@ import {
   startMemorySweep,
 } from "@workspace/ai-orchestrator";
 import { startCatalogRefreshScheduler } from "./lib/catalog-refresh-scheduler";
+import { drainPendingAudits } from "./lib/audit";
 
 /**
  * DB-07: Bootstrap guard — verify the Drizzle schema has been pushed before
@@ -165,4 +166,8 @@ app.listen(port, (err) => {
   // applies daily relevance decay.  Runs every 6 hours; fires once immediately
   // at startup to clear any backlog from a restart.
   startMemorySweep();
+
+  // Audit rows that failed after a successful business mutation are retried
+  // in the background; the worker keeps them visible through /healthz.
+  void drainPendingAudits();
 });
