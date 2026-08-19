@@ -1611,7 +1611,12 @@ router.post("/ai/chat/stream", async (req, res) => {
   let approvedImplementationExecutionPlan: ActiveTaskExecutionPlan | undefined;
   let implementationPlanScope: Set<string> | undefined;
   let modelMessage = message;
-  if (buildPlanMessageId) {
+  // Decide this from the validated user text before any Build handoff
+  // augmentation. A greeting must never inherit Build Mode state, even when
+  // the client retries with stale buildPlanMessageId metadata.
+  const greetingTurnForExecution = isSocialGreeting(message) && !isTaskContinuationRequest(message);
+  const effectiveBuildPlanMessageId = greetingTurnForExecution ? undefined : buildPlanMessageId;
+  if (effectiveBuildPlanMessageId) {
     if (!sessionId) {
       return res.status(400).json({
         error: "Build handoff requires the original chat session",
@@ -1635,7 +1640,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         aiChatSessionsTable,
         eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
       )
-      .where(eq(aiChatMessagesTable.id, buildPlanMessageId))
+      .where(eq(aiChatMessagesTable.id, effectiveBuildPlanMessageId))
       .limit(1);
 
     if (!planRow) {
@@ -1694,8 +1699,8 @@ router.post("/ai/chat/stream", async (req, res) => {
       projectId,
       severity: "info",
       message: "Build Mode started from the approved implementation plan",
-      correlationId: buildPlanMessageId,
-      payload: { messageId: buildPlanMessageId, approvedFiles: [...implementationPlanScope] },
+      correlationId: effectiveBuildPlanMessageId,
+      payload: { messageId: effectiveBuildPlanMessageId, approvedFiles: [...implementationPlanScope] },
     });
     modelMessage = [
       message,
@@ -1835,12 +1840,12 @@ router.post("/ai/chat/stream", async (req, res) => {
       message,
       modelMessage,
       ...(effectiveLinkedTaskId ? { linkedTaskId: effectiveLinkedTaskId } : {}),
-      ...(buildPlanMessageId ? { buildPlanMessageId } : {}),
+      ...(effectiveBuildPlanMessageId ? { buildPlanMessageId: effectiveBuildPlanMessageId } : {}),
       ...(objective ? { objective } : {}),
       validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
       proofRequired: Boolean(
         effectiveLinkedTaskId
-        || buildPlanMessageId
+        || effectiveBuildPlanMessageId
         || objective
         || (implementationPlanScope && implementationPlanScope.size > 0)
         || isImmediateExecutionRequest(message),
@@ -1938,7 +1943,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         projectId,
         sessionId: sessionIdToUse,
         linkedTaskId: effectiveLinkedTaskId,
-        buildPlanMessageId,
+        buildPlanMessageId: effectiveBuildPlanMessageId,
       });
       aiExecution = created.execution;
       executionResumeToken = created.resumeToken;
@@ -1957,9 +1962,8 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     let checkpointSequence = aiExecution.checkpointVersion;
     const persistedActiveTaskState = resolveSessionTaskState(existingSession?.activeTaskState, projectId);
-    const greetingTurnForExecution = isSocialGreeting(modelMessage) && !isTaskContinuationRequest(modelMessage);
     const resumableStateForExecution = greetingTurnForExecution ? null : persistedActiveTaskState;
-    const executionPlanForRun = approvedImplementationPlan
+    const executionPlanForRun = !greetingTurnForExecution && approvedImplementationPlan
       ? approvedImplementationExecutionPlan
         ?? buildActiveTaskExecutionPlan({
             implementationPlan: approvedImplementationPlan,
@@ -2082,7 +2086,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     // Classify the request upfront — pure sync, zero cost. Short continuation
     // messages reuse the verified contract stored on the session.
     const streamInitialClassification = classifyRequest(modelMessage);
-    const streamIsGreetingTurn = isSocialGreeting(modelMessage);
+    const streamIsGreetingTurn = greetingTurnForExecution;
     const streamResumableStateForTurn = streamIsGreetingTurn && !isTaskContinuationRequest(modelMessage)
       ? null
       : persistedActiveTaskState;
@@ -2455,7 +2459,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           allowValidationTools: Boolean(validationRunner),
           validationRunner,
           validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
-          buildHandoff: Boolean(approvedImplementationPlan && buildPlanMessageId),
+           buildHandoff: Boolean(!streamIsGreetingTurn && approvedImplementationPlan && effectiveBuildPlanMessageId),
           onExecutionNodes: publishExecutionNodes,
           signal: activeExecutionAbortController.signal,
         },
@@ -2489,7 +2493,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             {
               scope: "chat-route",
               code: "IMPLEMENTATION_PLAN_SCOPE_BLOCKED",
-              buildPlanMessageId,
+              buildPlanMessageId: effectiveBuildPlanMessageId,
               outOfScopeFiles: [...new Set(outOfScopeFiles)].slice(0, 12),
             },
             "Build Mode proposed a file outside the approved implementation plan",
@@ -2504,16 +2508,16 @@ router.post("/ai/chat/stream", async (req, res) => {
           return;
         }
       }
-      if (approvedImplementationPlan && buildPlanMessageId) {
+      if (approvedImplementationPlan && effectiveBuildPlanMessageId) {
         await db.insert(eventsTable).values({
           id: randomUUID(),
           type: "AiBuildCompleted",
           projectId,
           severity: "success",
           message: "Build Mode completed and produced a scoped proposal",
-          correlationId: buildPlanMessageId,
+          correlationId: effectiveBuildPlanMessageId,
           payload: {
-            messageId: buildPlanMessageId,
+            messageId: effectiveBuildPlanMessageId,
             proposedChanges: result.pendingChanges?.length ?? 0,
           },
         });
@@ -2697,7 +2701,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     });
 
     const aiExecutionId = aiExecution.id;
-    let assistantOperationId: string | undefined = aiExecution.operationId ?? buildPlanMessageId;
+    let assistantOperationId: string | undefined = aiExecution.operationId ?? effectiveBuildPlanMessageId;
     const assistantMsg = await db.transaction(async (tx) => {
       if (!existingSession) {
         const [created] = await tx
@@ -2749,7 +2753,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         })
         .returning();
       if (proposalId || result.repairPlan || result.taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT") {
-        const proposalMessageId = buildPlanMessageId ?? msg.id;
+        const proposalMessageId = effectiveBuildPlanMessageId ?? msg.id;
         const operationId = assistantOperationId ?? proposalMessageId;
         assistantOperationId = operationId;
         if (proposalId) {
@@ -2778,7 +2782,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             messageId: proposalMessageId,
             operationId,
             proposalId: proposalId ?? null,
-            buildPlanMessageId: buildPlanMessageId ?? null,
+            buildPlanMessageId: effectiveBuildPlanMessageId ?? null,
           },
         });
       }
@@ -2843,7 +2847,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       proposalId
       || result.repairPlan
       || result.taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT"
-      || Boolean(buildPlanMessageId)
+      || Boolean(effectiveBuildPlanMessageId)
         ? "DELIVERY"
         : streamClassification.analysisMode === "FORENSIC"
           ? "FORENSIC_AUDIT"
