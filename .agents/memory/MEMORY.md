@@ -1,2 +1,3 @@
 - [Clerk setup](clerk-setup.md) — Clerk provisioned via setupClerkWhitelabelAuth; proxy middleware already in api-server; all env vars auto-set.
 - [Project state](project-state.md) — All 5 documented gaps closed; 583 tests passing across 37 files; one P2 item remains open.
+- [Project root boundary](project-root-boundary.md) — all project roots must go through establishProjectRoot; eos-git prefix trusted only for discovery import; Git-import 409 is intentional interim.

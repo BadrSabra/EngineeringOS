@@ -27,6 +27,7 @@ import {
   isResolveError,
 } from "../lib/discovery-adapters.js";
 import { validateRootPath, verifyProjectRoot } from "../lib/path-validation.js";
+import { establishProjectRoot } from "../lib/project-root.js";
 import { runDiscovery, STEPS } from "../lib/discovery-runner.js";
 
 const router = Router();
@@ -304,6 +305,26 @@ router.post("/projects/import", async (req, res) => {
   const result = session.result;
   if (!result) return res.status(500).json({ error: "Discovery result missing" });
 
+  // Re-establish the session root immediately before import. The stored
+  // session path is only a claim from discovery time — the directory may
+  // have been deleted since (temporary git clones are cleaned up after the
+  // discovery pipeline finishes). Dead roots are rejected explicitly; they
+  // are never rebound to another directory.
+  // The managed /tmp/eos-git-* exemption is only provenance when this
+  // session was actually produced by the Git adapter — a LOCAL_FOLDER
+  // session pointing at such a path is a forged prefix, not a managed clone.
+  const rootResult = await establishProjectRoot(session.rootPath, {
+    allowManagedTempRoot: session.sourceType === "GIT_REPOSITORY",
+  });
+  if (!rootResult.ok) {
+    const status = rootResult.reason === "root_unavailable" ? 409 : rootResult.status;
+    return res.status(status).json({
+      error: rootResult.error,
+      reason: rootResult.reason,
+      hint: "Re-run discovery on the source and import again.",
+    });
+  }
+
   const overrides = body.overrides ?? {};
   const now = new Date();
   const projectId = randomUUID();
@@ -329,7 +350,9 @@ router.post("/projects/import", async (req, res) => {
           ownerId: req.userId,
           name: projectName,
           description: projectDescription,
-          rootPath: session.rootPath,
+          // Canonical (realpath-resolved) root established above — never the
+          // raw session string.
+          rootPath: rootResult.canonicalPath,
           language: projectLanguage,
           framework: projectFramework,
           status: "active",

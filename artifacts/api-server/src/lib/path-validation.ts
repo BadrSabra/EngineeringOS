@@ -103,7 +103,9 @@ export async function validateRootPath(rootPath: string): Promise<string | null>
   // Rule 3 — Replit environment: must be under /home/runner/workspace
   if (process.env.REPLIT_DEV_DOMAIN) {
     const WORKSPACE = "/home/runner/workspace";
-    if (!resolved.startsWith(WORKSPACE)) {
+    // Separator-aware containment: "/home/runner/workspace-evil" must NOT
+    // pass just because it shares a string prefix with the workspace.
+    if (resolved !== WORKSPACE && !resolved.startsWith(`${WORKSPACE}/`)) {
       return (
         `In this environment, the project path must be under ${WORKSPACE}. ` +
         `"${normalized}" resolves to "${resolved}".`

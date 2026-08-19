@@ -23,6 +23,7 @@ import { logger } from "../lib/logger.js";
 import { recordAudit } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { runScanJob } from "../lib/scan-runner.js";
+import { establishProjectRoot } from "../lib/project-root.js";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import {
   requireProjectAccess,
@@ -78,6 +79,18 @@ router.get("/projects", async (req, res) => {
 // never from the client body (CreateProjectBody has no ownerId field).
 router.post("/projects", async (req, res) => {
   const body = CreateProjectBody.parse(req.body);
+
+  // Establish a trustworthy canonical root BEFORE anything is persisted.
+  // The client-supplied rootPath is only a candidate — it must exist, be a
+  // readable directory, resolve (via realpath) inside the allowed boundary,
+  // and contain at least one recognisable project marker.
+  const rootResult = await establishProjectRoot(body.rootPath, { requireMarkers: true });
+  if (!rootResult.ok) {
+    return res
+      .status(rootResult.status)
+      .json({ error: rootResult.error, reason: rootResult.reason });
+  }
+
   const now = new Date();
   // One correlationId per mutation request — same convention as scans (see
   // scan-runner.ts) — written to both the event and the audit row so the
@@ -90,6 +103,8 @@ router.post("/projects", async (req, res) => {
       id: randomUUID(),
       ownerId: req.userId,
       ...body,
+      // Persist the canonical (realpath-resolved) root, never the raw input.
+      rootPath: rootResult.canonicalPath,
       status: "active",
       createdAt: now,
       updatedAt: now,

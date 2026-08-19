@@ -12,7 +12,7 @@ import {
   scanJobsTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
-import { mkdtempSync, rmdirSync } from "node:fs";
+import { mkdtempSync, rmdirSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as scanner from "@workspace/scanner";
@@ -26,6 +26,22 @@ function makeTempScanDir(): string {
 /** Remove a temp dir quietly (already gone = fine). */
 function removeTempDir(dir: string): void {
   try { rmdirSync(dir); } catch { /* already cleaned up */ }
+}
+
+/**
+ * Create a real project-root directory that passes establishProjectRoot:
+ * it must live under the workspace boundary and contain a project marker.
+ */
+const TEST_ROOTS_BASE = "/home/runner/workspace/.test-roots";
+function makeProjectRootDir(): string {
+  const dir = join(TEST_ROOTS_BASE, `proj-${randomUUID()}`);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "package.json"), "{}");
+  return dir;
+}
+
+function removeProjectRootDir(dir: string): void {
+  try { rmSync(dir, { recursive: true, force: true }); } catch { /* gone */ }
 }
 
 async function insertProject(rootPath: string, ownerId = "test-user"): Promise<string> {
@@ -233,11 +249,14 @@ describe("POST /api/projects — audit trail", () => {
   });
 
   it("records a project_created audit entry with stateAfter", async () => {
+    const rootDir = makeProjectRootDir();
     const res = await request(app)
       .post("/api/projects")
-      .send({ name: `audit-test-${randomUUID()}`, rootPath: "/tmp/audit-test", language: "typescript" });
+      .send({ name: `audit-test-${randomUUID()}`, rootPath: rootDir, language: "typescript" });
     expect(res.status).toBe(201);
+    expect(res.body.rootPath).toBe(rootDir);
     cleanupQueue.push(res.body.id);
+    removeProjectRootDir(rootDir);
 
     const audits = await db
       .select()
@@ -388,17 +407,50 @@ describe("Project ownership scoping (PR-02/PR-03)", () => {
   });
 
   it("stamps ownerId from the authenticated request on create, ignoring any client-supplied value", async () => {
+    const rootDir = makeProjectRootDir();
     const res = await request(app)
       .post("/api/projects")
       .send({
         name: `owner-stamp-test-${randomUUID()}`,
-        rootPath: `/tmp/owner-stamp-${randomUUID()}`,
+        rootPath: rootDir,
         language: "typescript",
         ownerId: "someone-else",
       });
     expect(res.status).toBe(201);
     cleanupQueue.push(res.body.id);
     expect(res.body.ownerId).toBe("test-user");
+    removeProjectRootDir(rootDir);
+  });
+
+  it("rejects a rootPath that does not exist with 422 root_not_found", async () => {
+    const res = await request(app)
+      .post("/api/projects")
+      .send({
+        name: `missing-root-${randomUUID()}`,
+        rootPath: `/home/runner/workspace/.test-roots/missing-${randomUUID()}`,
+        language: "typescript",
+      });
+    expect(res.status).toBe(422);
+    expect(res.body.reason).toBe("root_not_found");
+  });
+
+  it("rejects a directory without project markers with 422 root_no_project_markers", async () => {
+    const dir = join(TEST_ROOTS_BASE, `bare-${randomUUID()}`);
+    mkdirSync(dir, { recursive: true });
+    const res = await request(app)
+      .post("/api/projects")
+      .send({ name: `bare-root-${randomUUID()}`, rootPath: dir, language: "typescript" });
+    removeProjectRootDir(dir);
+    expect(res.status).toBe(422);
+    expect(res.body.reason).toBe("root_no_project_markers");
+  });
+
+  it("rejects blocked system paths with 422 root_unsafe", async () => {
+    const res = await request(app)
+      .post("/api/projects")
+      .send({ name: `sys-root-${randomUUID()}`, rootPath: "/etc", language: "typescript" });
+    expect(res.status).toBe(422);
+    expect(res.body.reason).toBe("root_unsafe");
   });
 
   it("GET /projects only lists projects owned by the requesting user", async () => {

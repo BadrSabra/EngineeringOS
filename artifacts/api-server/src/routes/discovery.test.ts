@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { eq } from "drizzle-orm";
 import app from "../app.js";
@@ -12,6 +12,7 @@ import {
   graphEntitiesTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
+import { mkdirSync, rmSync } from "node:fs";
 import type { DiscoveryResultData } from "@workspace/db";
 
 // ─── Shared fixtures ──────────────────────────────────────────────────────────
@@ -49,14 +50,37 @@ function fakeResult(overrides: Partial<DiscoveryResultData> = {}): DiscoveryResu
   };
 }
 
+/**
+ * Import now re-establishes the session root against the real filesystem, so
+ * ready-session fixtures need a directory that actually exists under the
+ * workspace boundary. Unique per session because projects.root_path is unique.
+ */
+const TEST_ROOTS_BASE = "/home/runner/workspace/.test-roots";
+const fixtureDirs: string[] = [];
+function makeSessionRootDir(): string {
+  const dir = `${TEST_ROOTS_BASE}/discovery-${randomUUID()}`;
+  mkdirSync(dir, { recursive: true });
+  fixtureDirs.push(dir);
+  return dir;
+}
+
+afterAll(() => {
+  for (const dir of fixtureDirs) {
+    try { rmSync(dir, { recursive: true, force: true }); } catch { /* gone */ }
+  }
+});
+
 /** Insert a pre-completed session in "ready" state, bypassing the pipeline. */
-async function insertReadySession(result: DiscoveryResultData): Promise<string> {
+async function insertReadySession(
+  result: DiscoveryResultData,
+  rootPathOverride?: string,
+): Promise<string> {
   const id = randomUUID();
   await db.insert(discoverySessionsTable).values({
     id,
     ownerId: "test-user",
     status: "ready",
-    rootPath: "/home/runner/workspace/test-fake-root",
+    rootPath: rootPathOverride ?? makeSessionRootDir(),
     sourceType: "LOCAL_FOLDER",
     progress: 100,
     currentStep: null,
@@ -402,6 +426,86 @@ describe("POST /projects/import — atomic claim", () => {
     expect(session[0]?.importedProjectId).toBe(winner.body.id);
   });
 
+  it("returns 409 root_unavailable when the session root is a dead temporary git clone", async () => {
+    const discoveryId = await insertReadySession(
+      fakeResult(),
+      `/tmp/eos-git-${randomUUID()}`,
+    );
+    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+    expect(res.status).toBe(409);
+    expect(res.body.reason).toBe("root_unavailable");
+    expect(res.body.hint).toMatch(/re-run discovery/i);
+
+    // Session must NOT be claimed or rebound to another root.
+    const session = await db
+      .select()
+      .from(discoverySessionsTable)
+      .where(eq(discoverySessionsTable.id, discoveryId))
+      .limit(1);
+    expect(session[0]?.status).toBe("ready");
+    expect(session[0]?.rootPath).toMatch(/^\/tmp\/eos-git-/);
+  });
+
+  it("rejects a LOCAL_FOLDER session whose root forges the managed /tmp/eos-git prefix, even when the directory exists", async () => {
+    const forged = `/tmp/eos-git-forged-${randomUUID()}`;
+    mkdirSync(forged, { recursive: true });
+    try {
+      const discoveryId = await insertReadySession(fakeResult(), forged);
+      const res = await request(app).post("/api/projects/import").send({ discoveryId });
+      expect(res.status).toBe(422);
+      expect(res.body.reason).toBe("root_unsafe");
+
+      // Session must not be claimed.
+      const session = await db
+        .select()
+        .from(discoverySessionsTable)
+        .where(eq(discoverySessionsTable.id, discoveryId))
+        .limit(1);
+      expect(session[0]?.status).toBe("ready");
+    } finally {
+      rmSync(forged, { recursive: true, force: true });
+    }
+  });
+
+  it("allows a GIT_REPOSITORY session whose managed clone directory still exists", async () => {
+    const cloneDir = `/tmp/eos-git-${randomUUID()}`;
+    mkdirSync(cloneDir, { recursive: true });
+    try {
+      const id = randomUUID();
+      await db.insert(discoverySessionsTable).values({
+        id,
+        ownerId: "test-user",
+        status: "ready",
+        rootPath: cloneDir,
+        sourceType: "GIT_REPOSITORY",
+        progress: 100,
+        currentStep: null,
+        steps: [],
+        result: fakeResult(),
+        startedAt: new Date(),
+        completedAt: new Date(),
+      });
+      sessionId = id;
+
+      const res = await request(app).post("/api/projects/import").send({ discoveryId: id });
+      expect(res.status).toBe(201);
+      expect(res.body.rootPath).toBe(cloneDir);
+      projectId = res.body.id;
+    } finally {
+      rmSync(cloneDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns 422 root_not_found when the session root directory was deleted after discovery", async () => {
+    const discoveryId = await insertReadySession(
+      fakeResult(),
+      `/home/runner/workspace/.test-roots/deleted-${randomUUID()}`,
+    );
+    const res = await request(app).post("/api/projects/import").send({ discoveryId });
+    expect(res.status).toBe(422);
+    expect(res.body.reason).toBe("root_not_found");
+  });
+
   it("returns 409 'Discovery not yet complete' when importing a discovering session", async () => {
     const discoveryId = await insertReadySession(fakeResult());
     await db
@@ -691,7 +795,7 @@ describe("POST /projects/import — transaction integrity", () => {
   // ── rootPath uniqueness — two different sessions, same rootPath ───────────
 
   it("rejects a second import when another project already occupies the same rootPath", async () => {
-    const sharedRoot = `/home/runner/workspace/test-shared-root-${randomUUID()}`;
+    const sharedRoot = makeSessionRootDir();
 
     // Session A
     const sidA = randomUUID();
