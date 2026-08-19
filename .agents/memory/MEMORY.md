@@ -10,3 +10,4 @@
 - [AI fixture determinism](ai-fixture-determinism.md) — injected AI validation and provider-turn fixtures must fail closed when queues are exhausted; real execution requires explicit opt-in.
 - [Arabic fixture guards](arabic-fixture-guards.md) — Arabic response fixtures must be checked at construction time so English-only regressions name the fixture before scenario assertions.
 - [Forensic fixture language](forensic-fixture-language.md) — deterministic forensic prompts and natural-language reports must use the same language.
+- [Preview port cleanup](preview-port-cleanup.md) — this environment provides lsof, not fuser; port cleanup must wait for listeners to disappear before startup.

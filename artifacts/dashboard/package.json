@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "fuser -k ${PORT:-23183}/tcp 2>/dev/null; vite --config vite.config.ts --host 0.0.0.0",
+    "dev": "node ./scripts/ensure-port-free.mjs && vite --config vite.config.ts --host 0.0.0.0",
+    "smoke:restart": "node ./scripts/smoke-restart.mjs",
     "build": "vite build --config vite.config.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
