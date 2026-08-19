@@ -34,7 +34,6 @@ import type { AgentStep } from "../tool-execution-engine.js";
 import type { RunLedger } from "../evidence-integrity.js";
 import {
   assertArabicFixtureResponse,
-  realToolFixturesEnabled,
   takeFixture,
 } from "./fixture-guards.js";
 
@@ -146,8 +145,8 @@ async function mockChatProviders(
   });
 }
 
-describe.skipIf(!realToolFixturesEnabled())(
-  "REAL TOOL — chat() resolves a fixture-only known-defect to a scoped verdict (task #41)",
+describe(
+  "FIXTURE — chat() resolves a fixture-only known-defect to a scoped verdict (task #41)",
   () => {
   beforeEach(() => {
     process.env.GROQ_API_KEY = "test-key";

@@ -38,7 +38,6 @@ import type { RunLedger } from "../evidence-integrity.js";
 import type { RawGroqResponse } from "../groq-client.js";
 import {
   assertArabicFixtureResponse,
-  realToolFixturesEnabled,
   takeFixture,
 } from "./fixture-guards.js";
 
@@ -281,8 +280,8 @@ const MESSAGE = [
   "## 6) Final Judgment",
 ].join("\n");
 
-describe.skipIf(!realToolFixturesEnabled())(
-  "REAL TOOL — chat() issues a targeted read that lands in the run ledger on recovery (task #36)",
+describe(
+  "FIXTURE — chat() issues a targeted read that lands in the run ledger on recovery (task #36)",
   () => {
   beforeEach(() => {
     process.env.GROQ_API_KEY = "test-key";
