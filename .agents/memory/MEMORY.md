@@ -1,0 +1,2 @@
+- [Clerk setup](clerk-setup.md) — Clerk provisioned via setupClerkWhitelabelAuth; proxy middleware already in api-server; all env vars auto-set.
+- [Project state](project-state.md) — All 5 documented gaps closed; 583 tests passing across 37 files; one P2 item remains open.
