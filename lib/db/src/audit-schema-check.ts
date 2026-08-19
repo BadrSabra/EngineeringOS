@@ -1,5 +1,5 @@
 import { pool } from "./index.js";
-import type { PoolClient, QueryResultRow } from "pg";
+import type { QueryResultRow } from "pg";
 
 type AuditSchemaQueryClient = {
   query<T extends QueryResultRow = QueryResultRow>(
