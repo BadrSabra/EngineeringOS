@@ -329,6 +329,33 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     );
   });
 
+  it("parses an HTTP-date Retry-After hint and keeps it bounded", async () => {
+    const retryAt = new Date(Date.now() + 5_000).toUTCString();
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: false,
+      status: 429,
+      headers: new Headers({ "Retry-After": retryAt }),
+      json: async () => ({}),
+      text: async () => '{"error":{"message":"temporarily rate limited"}}',
+    } as Response)));
+
+    await expect(
+      openrouterCompleteWithFallback(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxTokens: 10,
+        retryTransient: false,
+      }),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof GroqClientError &&
+        err.code === "RATE_LIMITED" &&
+        typeof err.retryAfterMs === "number" &&
+        err.retryAfterMs > 0 &&
+        err.retryAfterMs <= 60_000,
+    );
+  });
+
   it("skips transient retry when the caller owns bounded fallback", async () => {
     let callCount = 0;
     const seenModels: string[] = [];

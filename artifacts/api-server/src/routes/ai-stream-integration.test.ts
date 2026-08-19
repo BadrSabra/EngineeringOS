@@ -91,12 +91,26 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
     readonly code: string;
     readonly providerModel?: string;
     readonly providerStatus?: number;
-    constructor(code: string, message: string) {
+    readonly retryAfterMs?: number;
+    constructor(
+      code: string,
+      message: string,
+      options?: { context?: { providerModel?: string; providerStatus?: number; retryAfterMs?: number } },
+    ) {
       super(message);
       this.name  = "GroqClientError";
       this.code  = code;
+      this.providerModel = options?.context?.providerModel;
+      this.providerStatus = options?.context?.providerStatus;
+      this.retryAfterMs = options?.context?.retryAfterMs;
     }
-    toProviderContext() { return {}; }
+    toProviderContext() {
+      return {
+        providerModel: this.providerModel,
+        providerStatus: this.providerStatus,
+        retryAfterMs: this.retryAfterMs,
+      };
+    }
   },
   isCircuitOpen:           vi.fn().mockReturnValue(false),
   recordRequest:           vi.fn(),
