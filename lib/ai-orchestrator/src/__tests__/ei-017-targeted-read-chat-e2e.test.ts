@@ -36,7 +36,11 @@ import type { ProjectContext } from "../context-builder.js";
 import type { AgentStep } from "../tool-execution-engine.js";
 import type { RunLedger } from "../evidence-integrity.js";
 import type { RawGroqResponse } from "../groq-client.js";
-import { realToolFixturesEnabled, takeFixture } from "./fixture-guards.js";
+import {
+  assertArabicFixtureResponse,
+  realToolFixturesEnabled,
+  takeFixture,
+} from "./fixture-guards.js";
 
 const originalApiKey = process.env.GROQ_API_KEY;
 
@@ -123,6 +127,30 @@ interface StrategyRecord {
   messagesByCall: Record<number, unknown[]>;
 }
 function fakeStrategy(rec: StrategyRecord) {
+  const arabicForensicReport = [
+    "## 1) Executive Verdict",
+    "غير مثبت — الأدلة المتاحة غير كافية لإثبات وجود عيب.",
+    "## 2) Evidence Map",
+    "File: `src/loop.ts`",
+    "Role: implementation source",
+    "Evidence: `verifiedRead`",
+    "Risk: NOT PROVEN",
+    "Notes: حقيقة من المصدر",
+    "## 2) Evidence Map",
+    "## 3) Findings",
+    "لم يتم تحديد نتيجة مثبتة من الشيفرة المصدرية التي جرى فحصها.",
+    "## 4) Repair Plan",
+    "لم يتم تحديد مراحل إصلاح.",
+    "## 5) Validation Checklist",
+    "لا يوجد سيناريو تحقق متاح.",
+    "## 6) Final Judgment",
+    "غير مثبت — الأدلة غير كافية.",
+  ].join("\n");
+  assertArabicFixtureResponse(
+    arabicForensicReport,
+    "ei-017-arabic-forensic-report",
+  );
+
   const providerResponses: RawGroqResponse[] = [
     rawResponse("", [
       {
@@ -132,28 +160,7 @@ function fakeStrategy(rec: StrategyRecord) {
       },
     ]),
     rawResponse(
-      JSON.stringify({
-        response: [
-          "## 1) Executive Verdict",
-          "NOT PROVEN — the available evidence is insufficient.",
-          "## 2) Evidence Map",
-          "File: `src/loop.ts`",
-          "Role: implementation source",
-          "Evidence: `verifiedRead`",
-          "Risk: NOT PROVEN",
-          "Notes: FACT",
-          "## 2) Evidence Map",
-          "## 3) Findings",
-          "No verified finding identified from inspected source code.",
-          "## 4) Repair Plan",
-          "No repair phases identified.",
-          "## 5) Validation Checklist",
-          "No validation scenario available.",
-          "## 6) Final Judgment",
-          "NOT PROVEN — insufficient evidence.",
-        ].join("\n"),
-        sources: [FILE],
-      }),
+      JSON.stringify({ response: arabicForensicReport, sources: [FILE] }),
     ),
     rawResponse(rejectedFindingEnvelope(), null, "recovery-model"),
     rawResponse(rejectedFindingEnvelope(), null, "final-model"),
