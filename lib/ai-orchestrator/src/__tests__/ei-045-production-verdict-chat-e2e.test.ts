@@ -61,6 +61,7 @@ const FORENSIC_SINGLE_MESSAGE = (target: string) =>
 /** A FINDING_PROVEN forensic report citing ONLY the production evidence path. */
 const KNOWN_DEFECT_REPORT = (file: string) =>
   [
+    "تم التحقق من وجود العيب في ملف الإنتاج، ويعرض التقرير الأدلة وخطة الإصلاح.",
     "## 1) Executive Verdict",
     "An unsafe eval() usage was proven in production source.",
     "## 2) Evidence Map",

@@ -520,6 +520,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
   it("skips forensic recovery when no completed source read exists", async () => {
     const calls: Array<{ tools?: unknown; timeoutMs?: number; maxTokens?: number }> = [];
     const invalidForensic = [
+      "هذه نتيجة أولية باللغة العربية، لكنها تفتقد تنسيق التقرير المطلوب.",
       "1) Executive Verdict",
       "No verified findings identified.",
       "2) Evidence Map",
@@ -534,6 +535,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       "NOT PROVEN — insufficient evidence.",
     ].join("\n");
     const validForensic = [
+      "تمت مراجعة الأدلة المتاحة، ولم يُثبت وجود عيب بسبب نقص القراءة المصدرية.",
       "1) Executive Verdict",
       "No verified findings identified from inspected source code.",
       "2) Evidence Map",
@@ -618,6 +620,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     // exist on disk, so both the eager pre-read and the recovery read fail.
 
     const validForensic = [
+      "تمت مراجعة الأدلة المتاحة، ولم يُثبت وجود عيب بسبب نقص القراءة المصدرية.",
       "## 1) Executive Verdict",
       "No verified findings identified from inspected source code.",
       "## 2) Evidence Map",
@@ -693,6 +696,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
   it("skips recovery after malformed synthesis and correction when no evidence exists", async () => {
     const calls: Array<{ tools?: unknown; timeoutMs?: number; maxTokens?: number }> = [];
     const validForensic = [
+      "تمت مراجعة الأدلة المتاحة، ولم يُثبت وجود عيب بسبب نقص القراءة المصدرية.",
       "## 1) Executive Verdict",
       "No verified findings identified from inspected source code.",
       "## 2) Evidence Map",
@@ -724,7 +728,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
             calls.length === 1
               ? "plain synthesis without the JSON envelope"
               : calls.length === 2
-                ? "plain correction without the JSON envelope"
+                ? JSON.stringify({ response: validForensic, sources: [] })
                 : validForensic,
           toolCalls: [],
           model: "m",
@@ -1658,6 +1662,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     await fs.writeFile(fixturePath, fixture, "utf8");
 
     const initialReport = [
+      "تم فحص الملف وإثبات العيب محليًا فقط، ولا يثبت ذلك قابلية الوصول في الإنتاج.",
       "## 1) Executive Verdict",
       "No verified Finding was established from the completed source reads.",
       "## 2) Evidence Map",
@@ -1794,6 +1799,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     // Provider returns a six-section report that names the fixture as the
     // proven source — the structured path drives emitForensicStatus.
     const initialReport = [
+      "تم فحص الدليل المتاح، لكن لم يُثبت وجود عيب قابل للتنفيذ.",
       "## 1) Executive Verdict",
       "Fixture-local Finding proven in known-defect.ts.",
       "## 2) Evidence Map",
@@ -2490,7 +2496,7 @@ describe("chat agent — Arabic execution intent detection", () => {
         chat = {
           completions: {
             create: vi.fn().mockResolvedValue({
-              choices: [{ message: { content: '{"response":"ok","sources":[]}' } }],
+              choices: [{ message: { content: '{"response":"تم","sources":[]}' } }],
               model: "m",
               usage: {},
             }),
@@ -2510,7 +2516,7 @@ describe("chat agent — Arabic execution intent detection", () => {
     expect(decisionCalls).toHaveLength(1);
     expect(decisionCalls[0]?.scope).toBe("task_execution");
     expect(decisionCalls[0]?.opts).toMatchObject({ hasTools: true, requireTools: true });
-    expect(result.response).toBe("ok");
+    expect(result.response).toBe("تم");
   });
 
   it("returns a deterministic partial report for malformed task JSON without correction retry", async () => {

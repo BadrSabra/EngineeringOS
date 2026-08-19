@@ -68,6 +68,7 @@ const FORENSIC_SINGLE_MESSAGE = (target: string) =>
 /** A FINDING_PROVEN forensic report citing ONLY the fixture evidence path. */
 const KNOWN_DEFECT_REPORT = (file: string) =>
   [
+    "تم التحقق من وجود العيب، لكن الدليل محلي ضمن ملف الاختبار فقط.",
     "## 1) Executive Verdict",
     "An unsafe eval() usage was proven, but the evidence is fixture-local only.",
     "## 2) Evidence Map",
