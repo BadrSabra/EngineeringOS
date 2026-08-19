@@ -18,7 +18,7 @@
  *      NO repairBlockReason, and that telemetry stayed CONSISTENT.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
