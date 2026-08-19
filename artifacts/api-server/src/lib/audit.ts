@@ -1,5 +1,5 @@
-import { db } from "@workspace/db";
-import { auditLogsTable, auditEntityTypeEnum, auditActionEnum } from "@workspace/db";
+import { db, auditLogsTable, pendingAuditLogsTable, auditEntityTypeEnum, auditActionEnum } from "@workspace/db";
+import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { logger } from "./logger.js";
 import {
@@ -7,6 +7,7 @@ import {
   incrementAuditFailures,
   incrementPendingAudits,
   incrementRecoveredAudits,
+  setPendingAudits,
 } from "./operational-counters.js";
 
 // Derived from the DB enum so the schema stays the single source of truth —
@@ -43,7 +44,7 @@ let retryTimer: NodeJS.Timeout | undefined;
 let draining = false;
 
 async function insertAudit(row: typeof auditLogsTable.$inferInsert): Promise<void> {
-  await db.insert(auditLogsTable).values(row);
+  await db.insert(auditLogsTable).values(row).onConflictDoNothing();
 }
 
 function scheduleRetry(): void {
@@ -54,6 +55,53 @@ function scheduleRetry(): void {
     void drainPendingAudits();
   }, next);
   retryTimer.unref?.();
+}
+
+async function persistPendingAudit(pending: PendingAudit): Promise<void> {
+  await db
+    .insert(pendingAuditLogsTable)
+    .values({
+      id: pending.row.id!,
+      row: pending.row as Record<string, unknown>,
+      attempts: pending.attempts,
+      nextAttemptAt: new Date(pending.nextAttemptAt),
+    })
+    .onConflictDoUpdate({
+      target: pendingAuditLogsTable.id,
+      set: {
+        row: pending.row as Record<string, unknown>,
+        attempts: pending.attempts,
+        nextAttemptAt: new Date(pending.nextAttemptAt),
+      },
+    });
+}
+
+async function removePersistedAudit(id: string): Promise<void> {
+  await db.delete(pendingAuditLogsTable).where(eq(pendingAuditLogsTable.id, id));
+}
+
+/**
+ * Reload the durable outbox before accepting traffic. A temporary database
+ * outage must not make startup fail; the next process-local retry will still
+ * attempt to recover rows once the database is reachable.
+ */
+export async function loadPendingAudits(): Promise<void> {
+  try {
+    const rows = await db.select().from(pendingAuditLogsTable);
+    pendingAudits.clear();
+    for (const persisted of rows) {
+      pendingAudits.set(persisted.id, {
+        row: persisted.row as typeof auditLogsTable.$inferInsert,
+        attempts: persisted.attempts,
+        nextAttemptAt: persisted.nextAttemptAt.getTime(),
+      });
+    }
+    setPendingAudits(pendingAudits.size);
+    logger.info({ pendingAudits: pendingAudits.size }, "reloaded pending audit log entries");
+    scheduleRetry();
+  } catch (err) {
+    logger.error({ err }, "failed to reload pending audit log entries; continuing with an empty in-memory queue");
+  }
 }
 
 /**
@@ -75,12 +123,18 @@ export async function drainPendingAudits(): Promise<void> {
       try {
         await insertAudit(pending.row);
         pendingAudits.delete(id);
+        await removePersistedAudit(id);
         decrementPendingAudits();
         incrementRecoveredAudits();
         logger.info({ auditId: id, attempts: pending.attempts + 1 }, "recovered pending audit log entry");
       } catch (err) {
         pending.attempts++;
         pending.nextAttemptAt = Date.now() + retryDelaysMs[Math.min(pending.attempts - 1, retryDelaysMs.length - 1)]!;
+        try {
+          await persistPendingAudit(pending);
+        } catch (persistErr) {
+          logger.error({ err: persistErr, auditId: id }, "failed to update durable pending audit entry");
+        }
         incrementAuditFailures();
         logger.error({ err, auditId: id, attempts: pending.attempts }, "audit log retry failed; retaining entry for another retry");
       }
@@ -115,8 +169,14 @@ export async function recordAudit(params: RecordAuditParams): Promise<void> {
     await insertAudit(row);
   } catch (err) {
     incrementAuditFailures();
-    pendingAudits.set(row.id, { row, attempts: 0, nextAttemptAt: Date.now() });
+    const pending = { row, attempts: 0, nextAttemptAt: Date.now() };
+    pendingAudits.set(row.id, pending);
     incrementPendingAudits();
+    try {
+      await persistPendingAudit(pending);
+    } catch (persistErr) {
+      logger.error({ err: persistErr, auditId: row.id }, "failed to persist pending audit entry; keeping in memory until retry");
+    }
     logger.error(
       { err, auditId: row.id, entityType: params.entityType, entityId: params.entityId, action: params.action },
       "failed to record audit log entry; queued for retry",

@@ -32,6 +32,11 @@ export function incrementPendingAudits(): void {
   _auditWritesPending++;
 }
 
+/** Set the pending count after reloading the durable audit outbox. */
+export function setPendingAudits(count: number): void {
+  _auditWritesPending = Math.max(0, count);
+}
+
 export function decrementPendingAudits(): void {
   _auditWritesPending = Math.max(0, _auditWritesPending - 1);
 }

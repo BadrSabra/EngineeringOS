@@ -4,3 +4,4 @@
 - [Scan root fail-closed](scan-root-fail-closed.md) — scans re-establish the persisted root and fail root_unavailable; never rebind dead roots to the workspace; temp git prefix is never provenance at scan time.
 - [Broad forensic bootstrap](broad-forensic-bootstrap.md) — gap/root-cause audits without explicit paths bootstrap "." under the project root; explicit-file audits keep their narrower scope.
 - [Unified AI turn routing](ai-turn-routing.md) — resolve raw-message intent once and carry it through provider, tools, evidence, persistence, and UI state.
+- [Audit outbox durability](audit-outbox.md) — durable retries load before traffic and use idempotent destination writes to avoid duplicates.

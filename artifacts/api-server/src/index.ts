@@ -16,7 +16,7 @@ import {
   startMemorySweep,
 } from "@workspace/ai-orchestrator";
 import { startCatalogRefreshScheduler } from "./lib/catalog-refresh-scheduler";
-import { drainPendingAudits } from "./lib/audit";
+import { drainPendingAudits, loadPendingAudits } from "./lib/audit";
 
 /**
  * DB-07: Bootstrap guard — verify the Drizzle schema has been pushed before
@@ -135,6 +135,10 @@ await reconcileStuckJobs();
 // are never rewritten — scans of such projects fail with root_unavailable
 // until the project is re-imported via discovery. Never throws.
 await reportDeadRootPaths();
+
+// Reload audit writes that failed in a previous process before accepting
+// traffic, then let the normal retry worker drain them in the background.
+await loadPendingAudits();
 
 app.listen(port, (err) => {
   if (err) {
