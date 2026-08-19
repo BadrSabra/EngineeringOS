@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import type { ProjectContext } from "../context-builder.js";
 import type { AgentStep } from "../tool-execution-engine.js";
 import type { RunLedger } from "../evidence-integrity.js";
+import { realToolFixturesEnabled, takeFixture } from "./fixture-guards.js";
 
 const originalApiKey = process.env.GROQ_API_KEY;
 
@@ -133,7 +134,9 @@ async function mockChatProviders(
   });
 }
 
-describe("chat() resolves a production-source known-defect to PRODUCTION_PROVEN and unblocks repair (task #45)", () => {
+describe.skipIf(!realToolFixturesEnabled())(
+  "REAL TOOL — chat() resolves a production-source known-defect to PRODUCTION_PROVEN and unblocks repair (task #45)",
+  () => {
   beforeEach(() => {
     process.env.GROQ_API_KEY = "test-key";
   });
@@ -150,16 +153,17 @@ describe("chat() resolves a production-source known-defect to PRODUCTION_PROVEN 
     await fs.writeFile(fullFile, FILE_CONTENT, "utf8");
 
     const report = KNOWN_DEFECT_REPORT(FILE);
+    const providerResponses = [{
+      content: JSON.stringify({ response: report, sources: [FILE] }),
+      toolCalls: [],
+      model: "initial-model",
+      usage: {},
+    }];
     const fakeStrategy = {
       providerId: "openrouter",
       supportsNativeStream: false,
       ownsModelFallback: true,
-      call: vi.fn(async (_messages: unknown, opts: { model?: string }) => ({
-        content: JSON.stringify({ response: report, sources: [FILE] }),
-        toolCalls: [],
-        model: opts.model ?? "initial-model",
-        usage: {},
-      })),
+      call: vi.fn(async () => takeFixture(providerResponses, "ei-045-production-verdict-provider-turn")),
       stream: vi.fn(),
     };
 
@@ -227,4 +231,5 @@ describe("chat() resolves a production-source known-defect to PRODUCTION_PROVEN 
       await fs.rm(rootPath, { recursive: true, force: true });
     }
   });
-});
+  },
+);

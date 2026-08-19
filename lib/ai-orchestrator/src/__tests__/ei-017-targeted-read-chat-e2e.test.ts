@@ -36,6 +36,7 @@ import type { ProjectContext } from "../context-builder.js";
 import type { AgentStep } from "../tool-execution-engine.js";
 import type { RunLedger } from "../evidence-integrity.js";
 import type { RawGroqResponse } from "../groq-client.js";
+import { realToolFixturesEnabled, takeFixture } from "./fixture-guards.js";
 
 const originalApiKey = process.env.GROQ_API_KEY;
 
@@ -122,6 +123,42 @@ interface StrategyRecord {
   messagesByCall: Record<number, unknown[]>;
 }
 function fakeStrategy(rec: StrategyRecord) {
+  const providerResponses: RawGroqResponse[] = [
+    rawResponse("", [
+      {
+        id: "read-loop",
+        type: "function" as const,
+        function: { name: "read_file", arguments: JSON.stringify({ path: FILE }) },
+      },
+    ]),
+    rawResponse(
+      JSON.stringify({
+        response: [
+          "## 1) Executive Verdict",
+          "NOT PROVEN — the available evidence is insufficient.",
+          "## 2) Evidence Map",
+          "File: `src/loop.ts`",
+          "Role: implementation source",
+          "Evidence: `verifiedRead`",
+          "Risk: NOT PROVEN",
+          "Notes: FACT",
+          "## 2) Evidence Map",
+          "## 3) Findings",
+          "No verified finding identified from inspected source code.",
+          "## 4) Repair Plan",
+          "No repair phases identified.",
+          "## 5) Validation Checklist",
+          "No validation scenario available.",
+          "## 6) Final Judgment",
+          "NOT PROVEN — insufficient evidence.",
+        ].join("\n"),
+        sources: [FILE],
+      }),
+    ),
+    rawResponse(rejectedFindingEnvelope(), null, "recovery-model"),
+    rawResponse(rejectedFindingEnvelope(), null, "final-model"),
+  ];
+
   return {
     providerId: "openrouter",
     supportsNativeStream: false,
@@ -129,54 +166,7 @@ function fakeStrategy(rec: StrategyRecord) {
     call: vi.fn(async (messages: unknown[]) => {
       rec.count += 1;
       rec.messagesByCall[rec.count] = messages;
-      if (rec.count === 1) {
-        return rawResponse("", [
-          {
-            id: "read-loop",
-            type: "function" as const,
-            function: { name: "read_file", arguments: JSON.stringify({ path: FILE }) },
-          },
-        ]);
-      }
-      if (rec.count === 2) {
-        // A structurally broken report the deterministic repair-from-evidence
-        // pass cannot fix (a duplicated Evidence Map heading). This is the same
-        // unrepairable contract failure the chat-agent.test.ts recovery test
-        // uses to force `needsForensicRecovery = true`.
-        return rawResponse(
-          JSON.stringify({
-            response: [
-              "## 1) Executive Verdict",
-              "NOT PROVEN — the available evidence is insufficient.",
-              "## 2) Evidence Map",
-              "File: `src/loop.ts`",
-              "Role: implementation source",
-              "Evidence: `verifiedRead`",
-              "Risk: NOT PROVEN",
-              "Notes: FACT",
-              "## 2) Evidence Map",
-              "## 3) Findings",
-              "No verified finding identified from inspected source code.",
-              "## 4) Repair Plan",
-              "No repair phases identified.",
-              "## 5) Validation Checklist",
-              "No validation scenario available.",
-              "## 6) Final Judgment",
-              "NOT PROVEN — insufficient evidence.",
-            ].join("\n"),
-            sources: [FILE],
-          }),
-        );
-      }
-      // Recovery attempts. Return models that sit in the mocked fallback chain
-      // so the loop can advance to a real second attempt (recovery-model →
-      // final-model). Each attempt returns the same rejected FINDING_PROVEN
-      // envelope, so it triggers a targeted read on its own attempt.
-      return rawResponse(
-        rejectedFindingEnvelope(),
-        null,
-        rec.count === 3 ? "recovery-model" : "final-model",
-      );
+      return takeFixture(providerResponses, "ei-017-targeted-read-provider-turn");
     }),
     stream: vi.fn(),
   };
@@ -284,7 +274,9 @@ const MESSAGE = [
   "## 6) Final Judgment",
 ].join("\n");
 
-describe("chat() issues a targeted read that lands in the run ledger on recovery (task #36)", () => {
+describe.skipIf(!realToolFixturesEnabled())(
+  "REAL TOOL — chat() issues a targeted read that lands in the run ledger on recovery (task #36)",
+  () => {
   beforeEach(() => {
     process.env.GROQ_API_KEY = "test-key";
   });
@@ -416,4 +408,5 @@ describe("chat() issues a targeted read that lands in the run ledger on recovery
       await fs.rm(rootPath, { recursive: true, force: true });
     }
   });
-});
+  },
+);

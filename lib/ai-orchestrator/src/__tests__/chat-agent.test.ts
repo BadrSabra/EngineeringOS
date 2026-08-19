@@ -14,6 +14,7 @@ import { ChatOutputSchema } from "../schemas/chat.schema.js";
 import type { ProjectContext } from "../context-builder.js";
 import { GroqClientError } from "../errors.js";
 import type { AgentStep } from "../tool-execution-engine.js";
+import { realToolFixturesEnabled, takeFixture } from "./fixture-guards.js";
 
 // ── ChatOutputSchema unit tests ───────────────────────────────────────────────
 
@@ -1647,7 +1648,9 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }
   });
 
-  it("proves a fixture-local Finding when a capability audit provider returns no Finding", async () => {
+  it.skipIf(!realToolFixturesEnabled())(
+    "REAL TOOL — proves a fixture-local Finding when a capability audit provider returns no Finding",
+    async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-behavioral-recovery-"));
       const fixturePath = path.join(rootPath, "lib", "ai-orchestrator", "src", "__tests__", "fixtures", "known-defect.ts");
      await fs.mkdir(path.dirname(fixturePath), { recursive: true });
@@ -1673,6 +1676,38 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       "NO FINDING — no verified defect was established, so no Repair Plan is executable.",
     ].join("\n");
     const calls: Array<{ tools?: unknown; model?: string }> = [];
+    const providerResponses = [
+      {
+        content: "",
+        toolCalls: [{
+          id: "read-known-defect",
+          type: "function" as const,
+          function: {
+            name: "read_file",
+            arguments: JSON.stringify({ path: "lib/ai-orchestrator/src/__tests__/fixtures/known-defect.ts" }),
+          },
+        }],
+        model: "initial-model",
+        usage: {},
+      },
+      {
+        content: JSON.stringify({ response: initialReport, sources: ["lib/ai-orchestrator/src/__tests__/fixtures/known-defect.ts"] }),
+        toolCalls: [],
+        model: "initial-model",
+        usage: {},
+      },
+      {
+        content: JSON.stringify({
+          verdict: "NO_FINDING",
+          findings: [],
+          repairPlan: [],
+          validationChecklist: [],
+        }),
+        toolCalls: [],
+        model: "recovery-model",
+        usage: {},
+      },
+    ];
     const fakeStrategy = {
       providerId: "openrouter",
       supportsNativeStream: false,
@@ -1682,43 +1717,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
         opts: { tools?: unknown; model?: string },
       ) => {
         calls.push({ tools: opts.tools, model: opts.model });
-        if (calls.length === 1) {
-          return {
-            content: "",
-            toolCalls: [{
-              id: "read-known-defect",
-              type: "function" as const,
-              function: {
-                name: "read_file",
-                 arguments: JSON.stringify({ path: "lib/ai-orchestrator/src/__tests__/fixtures/known-defect.ts" }),
-              },
-            }],
-            model: "initial-model",
-            usage: {},
-          };
-        }
-        if (calls.length === 2) {
-          return {
-             content: JSON.stringify({
-               response: initialReport,
-                sources: ["lib/ai-orchestrator/src/__tests__/fixtures/known-defect.ts"],
-             }),
-            toolCalls: [],
-            model: "initial-model",
-            usage: {},
-          };
-        }
-        return {
-          content: JSON.stringify({
-            verdict: "NO_FINDING",
-            findings: [],
-            repairPlan: [],
-            validationChecklist: [],
-          }),
-          toolCalls: [],
-          model: opts.model ?? "recovery-model",
-          usage: {},
-        };
+        return takeFixture(providerResponses, "chat-agent-fixture-capability-provider-turn");
       }),
       stream: vi.fn(),
     };
@@ -1778,7 +1777,8 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }
-  });
+    },
+  );
 
   it("emits FIXTURE_LOCAL audit scope with NOT_PROVEN reachability for an explicit fixture audit", async () => {
     // Task #43: a fixture capability audit must surface its proof as
