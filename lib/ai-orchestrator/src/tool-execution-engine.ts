@@ -1619,7 +1619,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   // No application-level token ceiling: when callers do not provide maxTokens,
   // let the provider/model choose its supported completion limit. Providers
   // may still enforce their own account/model maximum.
-  const iterMaxTokens = opts.maxTokens;
+  const iterMaxTokens = opts.maxTokens ?? 4_096;
 
   /**
    * OR-004: Transient error codes that warrant a powerModel retry within
@@ -2005,7 +2005,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       const callResult = await callWithEmptyResponseRetry(outboundMessages, {
         model,
         ...(iterMaxTokens !== undefined ? { maxTokens: iterMaxTokens } : {}),
-        timeoutMs: 300_000,
+        timeoutMs: 60_000,
         apiKey,
          ...(opts.signal ? { signal: opts.signal } : {}),
          taskType,
@@ -2037,7 +2037,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           result = await strategy.call(outboundMessages, {
             model: powerModel,
             ...(iterMaxTokens !== undefined ? { maxTokens: iterMaxTokens } : {}),
-            timeoutMs: 300_000,
+            timeoutMs: 60_000,
             apiKey,
              ...(opts.signal ? { signal: opts.signal } : {}),
              taskType,

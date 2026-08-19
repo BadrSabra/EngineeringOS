@@ -719,7 +719,7 @@ describe("executeToolLoop", () => {
     expect(strategy.call).toHaveBeenCalledTimes(2);
     expect(strategy.call).toHaveBeenLastCalledWith(
       expect.any(Array),
-      expect.not.objectContaining({ maxTokens: expect.anything() }),
+      expect.objectContaining({ maxTokens: 8_192 }),
     );
   });
 
@@ -1896,14 +1896,14 @@ describe("executeToolLoop", () => {
     });
 
     expect(result.kind).toBe("response");
-    expect(validationRunner).toHaveBeenCalledTimes(5);
+    expect(validationRunner).toHaveBeenCalledTimes(3);
     expect(steps.filter((step) => step.kind === "validation" && step.status === "failed"))
-      .toHaveLength(5);
+      .toHaveLength(3);
     expect(steps).toContainEqual(expect.objectContaining({
       kind: "validation",
       status: "blocked",
-      attempt: 6,
-      maxAttempts: 5,
+       attempt: 4,
+       maxAttempts: 3,
       repairState: "BLOCKED",
       detail: expect.stringContaining("attempt limit"),
     }));

@@ -3820,7 +3820,7 @@ function MessageBubble({
             ? null
             : <ExecutionSummaryBanner summary={executionSummary} />}
         {isEngineeringExecution && repairRadar && <RepairRadar trace={toolTrace} />}
-        {!isUser && (
+        {!isUser && (isForensicRun || isEngineeringExecution) && (
           <PersistedExecutionProof
             summary={executionSummary}
             trace={toolTrace}

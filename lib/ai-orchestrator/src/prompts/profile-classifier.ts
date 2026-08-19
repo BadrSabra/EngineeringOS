@@ -413,12 +413,19 @@ const CATEGORY_CONFIG: Record<
 
 type PatternEntry = { category: RequestCategory; re: RegExp; weight: number };
 
+const SOCIAL_GREETING_RE =
+  /^[\s]*(?:hi|hello|hey|مرحبا|أهلا?|سلام|هلا|مرحباً|greetings|good\s+(?:morning|afternoon|evening)|صباح الخير|مساء الخير)[\s!.,،؟?]*$/iu;
+
+export function isSocialGreeting(message: string): boolean {
+  return SOCIAL_GREETING_RE.test(message.trim());
+}
+
 const PATTERNS: PatternEntry[] = [
   // ── simple ──────────────────────────────────────────────────────────────────
   // Pure greetings / social openers
   {
     category: "simple",
-    re: /^[\s]*(?:hi|hello|hey|مرحبا|أهلا?|سلام|هلا|مرحباً|greetings|good\s+(?:morning|afternoon|evening)|صباح الخير|مساء الخير)[\s!.,،؟?]*$/i,
+    re: SOCIAL_GREETING_RE,
     weight: 5,
   },
   // "what's your name", "how are you" and similar social questions

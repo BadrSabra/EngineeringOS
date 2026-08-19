@@ -55,8 +55,8 @@ export type CompleteOptions = {
   responseFormat?: { type: "json_object" };
 };
 
-const DEFAULT_TIMEOUT_MS = 180_000;
-const DEFAULT_MAX_RETRIES = 7;
+const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_RETRIES = 3;
 
 /**
  * Exponential backoff with full jitter for transient failures.

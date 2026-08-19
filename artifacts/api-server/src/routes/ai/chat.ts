@@ -38,7 +38,9 @@ import {
   enrichContextWithMemories,
   writeSessionMemories,
   classifyRequest,
+  isSocialGreeting,
   isImmediateExecutionRequest,
+  isTaskContinuationRequest,
   CONVERSATION_HISTORY_FETCH_MESSAGES,
   buildActiveTaskState,
   buildActiveTaskExecutionPlan,
@@ -1224,7 +1226,8 @@ router.post("/ai/chat", async (req, res) => {
   // A greeting is a new conversational turn, never a continuation of a
   // forensic execution. Do not let stale persisted evidence influence routing
   // or get copied into the next session state.
-  const resumableStateForTurn = initialClassification.category === "simple"
+  const isGreetingTurn = isSocialGreeting(message);
+  const resumableStateForTurn = isGreetingTurn && !isTaskContinuationRequest(message)
     ? null
     : persistedActiveTaskState;
   const classificationResolution = resumeActiveTaskClassification(
@@ -2077,7 +2080,8 @@ router.post("/ai/chat/stream", async (req, res) => {
     // Classify the request upfront — pure sync, zero cost. Short continuation
     // messages reuse the verified contract stored on the session.
     const streamInitialClassification = classifyRequest(modelMessage);
-    const streamResumableStateForTurn = streamInitialClassification.category === "simple"
+    const streamIsGreetingTurn = isSocialGreeting(modelMessage);
+    const streamResumableStateForTurn = streamIsGreetingTurn && !isTaskContinuationRequest(modelMessage)
       ? null
       : persistedActiveTaskState;
     const streamClassificationResolution = resumeActiveTaskClassification(

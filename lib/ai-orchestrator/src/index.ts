@@ -247,7 +247,7 @@ export {
 export type { ChatMessage, ChatResult } from "./agents/chat-agent.js";
 export type { ActiveTask } from "./prompts/chat.prompt.js";
 
-export { classifyRequest } from "./prompts/profile-classifier.js";
+export { classifyRequest, isSocialGreeting } from "./prompts/profile-classifier.js";
 export type { ClassifiedRequest, RequestCategory } from "./prompts/profile-classifier.js";
 export {
   AnalysisModeSchema,

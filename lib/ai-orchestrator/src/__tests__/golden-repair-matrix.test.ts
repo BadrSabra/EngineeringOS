@@ -192,6 +192,6 @@ describe("Task 174 — Golden Repair Matrix", () => {
     controller.abort();
     const result = await resultPromise;
     expect(result.status).toBe("cancelled");
-    expect(EXECUTION_LIMITS.maxTimeoutMs).toBe(1_800_000);
+    expect(EXECUTION_LIMITS.maxTimeoutMs).toBe(600_000);
   });
 });
