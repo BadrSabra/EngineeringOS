@@ -1783,6 +1783,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   // tool definitions. The state clears only when a permitted source read lands
   // or the model synthesizes, so a planner cannot resume orbiting.
   let forcedEvidenceActive = false;
+  let forcedNoProgressStreak = 0;
   const NO_PROGRESS_FORCE_THRESHOLD = 2;
   // A read (fresh or cached) that satisfies the forced-evidence mandate. A
   // blank / missing path is NOT permitted: while forced, a malformed read call
