@@ -26,7 +26,7 @@ import type { RepairVerificationResult } from "../lib/ai-repair-validation.js";
 const harness = vi.hoisted(() => {
   const responses: RawGroqResponse[] = [];
   const validationResults: RepairVerificationResult[] = [];
-  let allowRealValidation = false;
+  const options = { allowRealValidation: false };
   const calls: Array<{ toolNames: string[]; toolChoice?: string; messages: unknown[] }> = [];
 
   const toolResponse = (id: string, name: string, args: Record<string, unknown>): RawGroqResponse => ({
@@ -59,7 +59,13 @@ const harness = vi.hoisted(() => {
         toolChoice: options.toolChoice,
         messages,
       });
-      const response = responses.shift() ?? finalResponse("The approved repair is ready for review.");
+      const response = responses.shift();
+      if (!response) {
+        throw new Error(
+          "Repair-loop fixture exhausted its injected provider responses. "
+          + "Add the expected deterministic response before the next model turn.",
+        );
+      }
       return response;
     }),
     stream: vi.fn(async function* () {
@@ -70,7 +76,7 @@ const harness = vi.hoisted(() => {
   return {
     responses,
     validationResults,
-    allowRealValidation,
+    options,
     calls,
     strategy,
     toolResponse,
@@ -160,7 +166,7 @@ vi.mock("../lib/ai-repair-validation.js", async (importOriginal) => {
       if (fixtureResult) {
         return fixtureResult;
       }
-      if (!harness.allowRealValidation) {
+      if (!harness.options.allowRealValidation) {
         throw new Error(
           "Repair-loop fixture exhausted its injected validation results. "
           + "Add a deterministic result before invoking run_validation, or explicitly enable real validation.",
@@ -261,7 +267,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
   afterEach(async () => {
     harness.responses.length = 0;
     harness.validationResults.length = 0;
-    harness.allowRealValidation = false;
+    harness.options.allowRealValidation = false;
     harness.calls.length = 0;
     harness.strategy.call.mockClear();
     for (const projectId of projectIds.splice(0)) {

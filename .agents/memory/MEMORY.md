@@ -7,3 +7,4 @@
 - [Audit outbox durability](audit-outbox.md) — durable retries load before traffic and use idempotent destination writes to avoid duplicates.
 - [Chat model selection](chat-model-selection.md) — ordinary chat must not require reasoning; reasoning models can turn a greeting into chained minute-long timeouts.
 - [AI boundary redaction](chat-export-redaction.md) — sanitize provider-derived fields before every AI JSON/SSE or persisted user-facing record; raw diagnostics stay in server logs.
+- [AI fixture determinism](ai-fixture-determinism.md) — injected AI validation and provider-turn fixtures must fail closed when queues are exhausted; real execution requires explicit opt-in.

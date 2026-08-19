@@ -55,6 +55,7 @@ import {
 } from "../lib/ai-execution-state.js";
 
 const execFileAsync = promisify(execFile);
+const validationFixtures: Array<Record<string, unknown>> = [];
 
 // ─── Orchestrator mock ────────────────────────────────────────────────────────
 // Mirrors the module-level mock in ai.test.ts so all imports from
@@ -233,12 +234,16 @@ vi.mock("../lib/ai-repair-validation.js", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
     ...actual,
-    runRepairValidation: vi.fn(async (_rootPath: string, profile: string) => ({
-      status: "passed",
-      profile,
-      scenario: "Deterministic agent-cycle validation",
-      detail: "Validation passed in the integration fixture.",
-    })),
+    runRepairValidation: vi.fn(async (_rootPath: string, profile: string) => {
+      const fixtureResult = validationFixtures.shift();
+      if (!fixtureResult) {
+        throw new Error(
+          "SSE integration fixture exhausted its injected validation results. "
+          + `Add a deterministic result for profile ${profile} before invoking validation.`,
+        );
+      }
+      return fixtureResult;
+    }),
   };
 });
 
@@ -320,6 +325,7 @@ afterAll(() => {
 });
 
 afterEach(async () => {
+  validationFixtures.length = 0;
   vi.restoreAllMocks();
   for (const pid of projectIds.splice(0)) {
     await db.delete(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.projectId, pid)).catch(() => undefined);
@@ -829,6 +835,17 @@ describe("Implementation Plan Build handoff", () => {
     expect(pending.status).toBe(200);
     expect(pending.body.operationId).toBe(operationId);
 
+    validationFixtures.push({
+      status: "passed",
+      profile: "workspace-typecheck",
+      scenario: "Deterministic non-Build apply validation",
+      command: "fixture-validation",
+      stdout: "passed",
+      stderr: "",
+      failedTests: [],
+      changedFiles: ["src/non-build.ts"],
+      detail: "Validation passed in the integration fixture.",
+    });
     const apply = await request(app)
       .post("/api/ai/chat/apply-changes")
       .send({ projectId, proposalId, operationId, changes: [proposedChange] });
@@ -1044,6 +1061,12 @@ describe("Plan-to-push agent cycle", () => {
         pendingChanges: [proposedChange],
       },
       effectiveProvider: "groq",
+    });
+    validationFixtures.push({
+      status: "passed",
+      profile: "workspace-typecheck",
+      scenario: "Deterministic agent-cycle validation",
+      detail: "Validation passed in the integration fixture.",
     });
 
     const build = await request(app)
