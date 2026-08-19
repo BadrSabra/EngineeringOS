@@ -25,7 +25,7 @@ import {
   type RuleViolationSummary,
 } from "./plugin-runtime.js";
 import { logger } from "./logger.js";
-import { stat as fsStat } from "node:fs/promises";
+import { establishProjectRoot, type EstablishRootFailureReason } from "./project-root.js";
 import { tryAdvisoryLock, LockNamespace } from "./advisory-lock.js";
 import { provenanceFromEntity, provenanceFromRelationship, manualProvenance } from "./graph-provenance.js";
 import {
@@ -36,6 +36,24 @@ import {
   SCAN_LEASE_MS,
   SCAN_HEARTBEAT_INTERVAL_MS,
 } from "./job-lease.js";
+
+/**
+ * Thrown by performScan when the persisted project root cannot be
+ * re-established (missing, not a directory, unreadable, or unsafe).
+ * The scan fails explicitly with a `root_unavailable` outcome; the
+ * persisted root_path is never rebound to another directory.
+ */
+export class ScanRootUnavailableError extends Error {
+  readonly outcome = "root_unavailable" as const;
+  constructor(
+    readonly rootPath: string,
+    readonly reason: EstablishRootFailureReason,
+    detail: string,
+  ) {
+    super(`root_unavailable (${reason}): ${detail}`);
+    this.name = "ScanRootUnavailableError";
+  }
+}
 
 export interface ScanJobResult {
   projectId: string;
@@ -198,31 +216,29 @@ async function performScan(projectId: string): Promise<ScanJobResult> {
   ]);
   if (!project[0]) throw new Error(`Project ${projectId} not found`);
 
-  // ── 0. Heal stale temp rootPath before attempting to walk ───────────────
-  // Projects imported via a GitHub discovery clone get a rootPath under
-  // /tmp/eos-git-<uuid>. That directory is deleted after discovery completes,
-  // so any subsequent scan would fail immediately. If the stored path looks
-  // like a temp clone AND the workspace root is accessible, update it in-place
-  // before continuing. This mirrors fixDeadRootPaths() (startup-migrations.ts)
-  // but fires on-demand so a project imported between two server restarts is
-  // still scannable without waiting for the next restart.
-  const WORKSPACE_ROOT = process.env.WORKSPACE_PATH ?? "/home/runner/workspace";
-  let effectiveRootPath = project[0].rootPath;
-  if (effectiveRootPath.startsWith("/tmp/eos-git-")) {
-    let workspaceAccessible = false;
-    try { await fsStat(WORKSPACE_ROOT); workspaceAccessible = true; } catch { /* skip */ }
-    if (workspaceAccessible) {
-      await db
-        .update(projectsTable)
-        .set({ rootPath: WORKSPACE_ROOT, updatedAt: new Date() })
-        .where(eq(projectsTable.id, projectId));
-      logger.info(
-        { scope: "scan-runner", fn: "performScan", projectId, oldPath: effectiveRootPath, newPath: WORKSPACE_ROOT },
-        "Healed stale temp rootPath before scan",
-      );
-      effectiveRootPath = WORKSPACE_ROOT;
-    }
+  // ── 0. Re-establish the persisted project root before any walk ──────────
+  // The persisted root_path is only trustworthy at the moment it is walked.
+  // A managed durable root can be deleted, a user directory can disappear,
+  // and a legacy /tmp/eos-git-* clone is gone after discovery cleanup. The
+  // scan must go through the same canonical boundary as project creation:
+  // establishProjectRoot resolves symlinks, enforces the safety policy, and
+  // fails with a structured reason instead of walking anything else.
+  //
+  // Critically, a dead root is NEVER rebound to another directory (the old
+  // behaviour silently swapped in /home/runner/workspace, which walked
+  // unrelated code and published its findings to the wrong project). The
+  // persisted root_path is left untouched so the user can re-import.
+  //
+  // No allowManagedTempRoot here: the scan runner cannot verify discovery
+  // provenance from the projects row alone, and anyone can create a
+  // /tmp/eos-git-* directory. A legacy temp root — dead OR alive — therefore
+  // fails closed (root_unavailable / root_unsafe) and must be re-imported
+  // through discovery, which materializes to a durable workspace root.
+  const rootResult = await establishProjectRoot(project[0].rootPath);
+  if (!rootResult.ok) {
+    throw new ScanRootUnavailableError(project[0].rootPath, rootResult.reason, rootResult.error);
   }
+  const effectiveRootPath = rootResult.canonicalPath;
 
   const now = new Date();
 

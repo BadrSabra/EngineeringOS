@@ -12,22 +12,28 @@ import {
   scanJobsTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
-import { mkdtempSync, rmdirSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { access } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as scanner from "@workspace/scanner";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { materializeProjectRoot } from "../lib/project-materialization.js";
 
-/** Create a real temp dir that `walkProject` can stat successfully. */
+/**
+ * Create a real scan-root dir that passes establishProjectRoot: scans now
+ * re-establish the persisted root through the canonical boundary, which (in
+ * Replit environments) requires roots under /home/runner/workspace — so a
+ * plain os.tmpdir() path would be rejected as root_unsafe.
+ */
 function makeTempScanDir(): string {
-  return mkdtempSync(join(tmpdir(), "eng-os-test-"));
+  const dir = join(TEST_ROOTS_BASE, `scan-${randomUUID()}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 /** Remove a temp dir quietly (already gone = fine). */
 function removeTempDir(dir: string): void {
-  try { rmdirSync(dir); } catch { /* already cleaned up */ }
+  try { rmSync(dir, { recursive: true, force: true }); } catch { /* already cleaned up */ }
 }
 
 /**
@@ -548,6 +554,130 @@ describe("Project ownership scoping (PR-02/PR-03)", () => {
   it("returns 404 (not 403) for a projectId that does not exist at all", async () => {
     const res = await request(app).get(`/api/projects/${randomUUID()}`);
     expect(res.status).toBe(404);
+  });
+});
+
+describe("Scan root safety — no rebinding of dead roots", () => {
+  const cleanupQueue: string[] = [];
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+    while (tempDirs.length > 0) {
+      const dir = tempDirs.pop();
+      if (dir) removeTempDir(dir);
+    }
+  });
+
+  it("fails the scan with root_unavailable when the project root was deleted, without changing rootPath", async () => {
+    const scanDir = makeTempScanDir();
+    const projectId = await insertProject(scanDir);
+    cleanupQueue.push(projectId);
+
+    // Delete the root BEFORE the scan starts.
+    removeTempDir(scanDir);
+
+    const res = await request(app).post(`/api/projects/${projectId}/scan`);
+    expect(res.status).toBe(202);
+    const job = await waitForScanJob(res.body.id);
+
+    expect(job.status).toBe("failed");
+    expect(job.error).toContain("root_unavailable");
+
+    await new Promise((r) => setTimeout(r, 100));
+    const project = await db
+      .select()
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    // Root must NOT be rebound to the workspace or anything else.
+    expect(project[0]?.rootPath).toBe(scanDir);
+    expect(project[0]?.status).toBe("active");
+
+    // Explicit failure event, no metrics row.
+    const events = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    expect(events.find((e) => e.type === "ProjectScanFailed")).toBeDefined();
+    const metrics = await db
+      .select()
+      .from(metricsTable)
+      .where(eq(metricsTable.projectId, projectId));
+    expect(metrics).toHaveLength(0);
+  });
+
+  it("fails a scan of a dead legacy /tmp/eos-git-* root with root_unavailable instead of rebinding to the workspace", async () => {
+    const deadGitRoot = `/tmp/eos-git-${randomUUID()}`; // never created on disk
+    const projectId = await insertProject(deadGitRoot);
+    cleanupQueue.push(projectId);
+
+    const res = await request(app).post(`/api/projects/${projectId}/scan`);
+    expect(res.status).toBe(202);
+    const job = await waitForScanJob(res.body.id);
+
+    expect(job.status).toBe("failed");
+    expect(job.error).toContain("root_unavailable");
+
+    await new Promise((r) => setTimeout(r, 100));
+    const project = await db
+      .select()
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    expect(project[0]?.rootPath).toBe(deadGitRoot);
+    expect(project[0]?.status).toBe("active");
+  });
+
+  it("rejects a scan of an EXISTING forged /tmp/eos-git-* root — the temp prefix is not provenance at scan time", async () => {
+    // Anyone can create a directory with the managed prefix; the scan runner
+    // cannot verify discovery provenance, so even a live temp root must fail
+    // closed instead of being walked.
+    const forgedRoot = `/tmp/eos-git-forged-${randomUUID()}`;
+    mkdirSync(forgedRoot, { recursive: true });
+    writeFileSync(join(forgedRoot, "package.json"), "{}");
+    tempDirs.push(forgedRoot);
+    const projectId = await insertProject(forgedRoot);
+    cleanupQueue.push(projectId);
+
+    const res = await request(app).post(`/api/projects/${projectId}/scan`);
+    expect(res.status).toBe(202);
+    const job = await waitForScanJob(res.body.id);
+
+    expect(job.status).toBe("failed");
+    expect(job.error).toContain("root_unavailable");
+
+    await new Promise((r) => setTimeout(r, 100));
+    const project = await db
+      .select()
+      .from(projectsTable)
+      .where(eq(projectsTable.id, projectId))
+      .limit(1);
+    expect(project[0]?.rootPath).toBe(forgedRoot);
+    expect(project[0]?.status).toBe("active");
+
+    // No scan output may exist for the forged root.
+    const metrics = await db
+      .select()
+      .from(metricsTable)
+      .where(eq(metricsTable.projectId, projectId));
+    expect(metrics).toHaveLength(0);
+  });
+
+  it("still scans a valid root successfully after the root-establishment gate", async () => {
+    const scanDir = makeTempScanDir();
+    tempDirs.push(scanDir);
+    const projectId = await insertProject(scanDir);
+    cleanupQueue.push(projectId);
+
+    const res = await request(app).post(`/api/projects/${projectId}/scan`);
+    expect(res.status).toBe(202);
+    const job = await waitForScanJob(res.body.id);
+    expect(job.status).toBe("completed");
   });
 });
 

@@ -1,3 +1,4 @@
 - [Clerk setup](clerk-setup.md) — Clerk provisioned via setupClerkWhitelabelAuth; proxy middleware already in api-server; all env vars auto-set.
 - [Project root boundary](project-root-boundary.md) — all project roots must go through establishProjectRoot; eos-git prefix trusted only for discovery import; Git-import 409 is intentional interim.
 - [Discovery materialization](discovery-materialization.md) — Git/archive sources use managed durable roots; upload lookup and cleanup stay owner-scoped; stale-session GC retires rows before deleting roots.
+- [Scan root fail-closed](scan-root-fail-closed.md) — scans re-establish the persisted root and fail root_unavailable; never rebind dead roots to the workspace; temp git prefix is never provenance at scan time.

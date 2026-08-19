@@ -12,7 +12,7 @@ import fs from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { db } from "@workspace/db";
 import { projectsTable } from "@workspace/db";
-import { eq, like } from "drizzle-orm";
+import { like } from "drizzle-orm";
 import { logger } from "./logger";
 
 /** Canonical workspace root used in both dev and Replit production containers. */
@@ -72,68 +72,51 @@ export async function ensureEncryptionKey(): Promise<void> {
 }
 
 /**
- * Projects imported via a temporary git clone (e.g. GitHub discovery) get a
- * root_path like `/tmp/eos-git-<uuid>`. That directory is deleted as soon as
- * discovery completes, leaving the project permanently inaccessible to the
- * file-system tools and the scanner.
+ * Projects imported via a legacy temporary git clone (GitHub discovery before
+ * durable materialization) have a root_path like `/tmp/eos-git-<uuid>`. That
+ * directory is deleted after discovery completes, so such a project can no
+ * longer be scanned or read.
  *
- * On startup, if WORKSPACE_ROOT exists on disk, update every such project to
- * point at the real workspace instead of the deleted temp path.
+ * This function ONLY reports these projects. It deliberately does NOT rewrite
+ * root_path — the previous behaviour rebound dead roots to the workspace,
+ * which made subsequent scans walk unrelated code and publish findings to the
+ * wrong project. The persisted root is left untouched; a scan against it
+ * fails explicitly with `root_unavailable` (see scan-runner.ts /
+ * project-root.ts), and the user recovers by re-importing via discovery.
+ *
+ * Idempotent and read-only: safe to run on every restart.
  */
-export async function fixDeadRootPaths(): Promise<void> {
+export async function reportDeadRootPaths(): Promise<void> {
   try {
-    // Verify the workspace root is accessible before updating anything.
-    await fs.access(WORKSPACE_ROOT);
-  } catch {
-    logger.warn({ scope: "startup-migrations", fn: "fixDeadRootPaths", WORKSPACE_ROOT },
-      "Workspace root not accessible — skipping dead-root-path fix");
-    return;
-  }
-
-  try {
-    const existingWorkspaceProject = await db
-      .select({ id: projectsTable.id, name: projectsTable.name })
+    const legacyTempProjects = await db
+      .select({ id: projectsTable.id, name: projectsTable.name, rootPath: projectsTable.rootPath })
       .from(projectsTable)
-      .where(eq(projectsTable.rootPath, WORKSPACE_ROOT))
-      .limit(1);
-    const deadProjects = await db
-      .select({ id: projectsTable.id, name: projectsTable.name, oldPath: projectsTable.rootPath })
-      .from(projectsTable)
-      .where(like(projectsTable.rootPath, "/tmp/eos-git-%"))
-      .limit(2);
+      .where(like(projectsTable.rootPath, "/tmp/eos-git-%"));
 
-    if (deadProjects.length === 0) return;
+    if (legacyTempProjects.length === 0) return;
 
-    // root_path is unique. Never rewrite multiple dead imports to the same
-    // workspace root, and never displace an existing canonical project.
-    if (existingWorkspaceProject.length > 0 || deadProjects.length > 1) {
-      logger.warn(
-        {
-          scope: "startup-migrations",
-          fn: "fixDeadRootPaths",
-          deadProjectCount: deadProjects.length,
-          existingWorkspaceProject: existingWorkspaceProject[0] ?? null,
-          newPath: WORKSPACE_ROOT,
-        },
-        "Skipped dead root_path fix because the unique workspace root is already claimed or has multiple stale projects",
-      );
-      return;
+    const dead: typeof legacyTempProjects = [];
+    for (const p of legacyTempProjects) {
+      try {
+        await fs.access(p.rootPath);
+      } catch {
+        dead.push(p);
+      }
     }
 
-    const updated = await db
-      .update(projectsTable)
-      .set({ rootPath: WORKSPACE_ROOT })
-      .where(eq(projectsTable.id, deadProjects[0].id))
-      .returning({ id: projectsTable.id, name: projectsTable.name, oldPath: projectsTable.rootPath });
+    if (dead.length === 0) return;
 
-    if (updated.length > 0) {
-      logger.info(
-        { scope: "startup-migrations", fn: "fixDeadRootPaths", count: updated.length, newPath: WORKSPACE_ROOT, projects: updated.map((p) => p.id) },
-        `Fixed ${updated.length} project(s) with dead temp root_path → ${WORKSPACE_ROOT}`,
-      );
-    }
+    logger.warn(
+      {
+        scope: "startup-migrations",
+        fn: "reportDeadRootPaths",
+        count: dead.length,
+        projects: dead.map((p) => ({ id: p.id, rootPath: p.rootPath })),
+      },
+      `${dead.length} project(s) point at dead temporary clone roots — scans will fail with root_unavailable until they are re-imported via discovery`,
+    );
   } catch (err) {
-    logger.error({ scope: "startup-migrations", fn: "fixDeadRootPaths", err },
-      "Failed to fix dead root_paths — continuing startup");
+    logger.error({ scope: "startup-migrations", fn: "reportDeadRootPaths", err },
+      "Failed to report dead root_paths — continuing startup");
   }
 }
