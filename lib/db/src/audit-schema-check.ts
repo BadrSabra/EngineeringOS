@@ -1,6 +1,13 @@
 import { pool } from "./index.js";
 import type { PoolClient, QueryResultRow } from "pg";
 
+type AuditSchemaQueryClient = {
+  query<T extends QueryResultRow = QueryResultRow>(
+    text: string,
+    values?: unknown[],
+  ): Promise<{ rows: T[]; rowCount: number | null }>;
+};
+
 const REQUIRED_COLUMNS = [
   "id",
   "row",
@@ -24,10 +31,9 @@ export class AuditSchemaError extends Error {
  * step, not to API startup.
  */
 export async function assertAuditOutboxSchemaWithClient(
-  client: Pick<PoolClient, "query">,
+  client: AuditSchemaQueryClient,
 ): Promise<void> {
-  try {
-    const tableResult = await client.query<{ exists: boolean }>(
+  const tableResult = await client.query<{ exists: boolean }>(
       `SELECT EXISTS (
          SELECT 1
          FROM information_schema.tables
@@ -72,7 +78,6 @@ export async function assertAuditOutboxSchemaWithClient(
         `Stale public.pending_audit_logs schema (${missing.join("; ")}). Apply the database schema with \`pnpm --filter @workspace/db run push\`, then restart the API.`,
       );
     }
-  }
 }
 
 export async function assertAuditOutboxSchema(): Promise<void> {

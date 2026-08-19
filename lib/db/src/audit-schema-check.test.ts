@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { QueryResultRow } from "pg";
 import {
   AuditSchemaError,
   assertAuditOutboxSchemaWithClient,
@@ -16,12 +17,13 @@ type Fixture = {
 
 function clientFor(fixture: Fixture) {
   return {
-    async query<T extends Record<string, unknown>>(
+    async query<T extends QueryResultRow = QueryResultRow>(
       sql: string,
+      _values?: unknown[],
     ): Promise<{ rows: T[]; rowCount: number }> {
       if (sql.includes("information_schema.tables")) {
         return {
-          rows: [{ exists: fixture.tableExists ?? true } as T],
+          rows: [{ exists: fixture.tableExists ?? true } as unknown as T],
           rowCount: 1,
         };
       }
@@ -33,13 +35,13 @@ function clientFor(fixture: Fixture) {
             "attempts",
             "next_attempt_at",
             "created_at",
-          ]).map((column_name) => ({ column_name }) as T),
+          ]).map((column_name) => ({ column_name }) as unknown as T),
           rowCount: fixture.columns?.length ?? 5,
         };
       }
       if (sql.includes("pg_indexes")) {
         return {
-          rows: fixture.indexExists === false ? [] : [{ indexname: "idx_pending_audit_logs_next_attempt_at" } as T],
+          rows: fixture.indexExists === false ? [] : [{ indexname: "idx_pending_audit_logs_next_attempt_at" } as unknown as T],
           rowCount: fixture.indexExists === false ? 0 : 1,
         };
       }
