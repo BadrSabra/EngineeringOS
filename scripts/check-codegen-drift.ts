@@ -26,7 +26,7 @@ import {
   statSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join, relative, resolve } from "path";
+import { dirname, join, relative, resolve, sep } from "path";
 
 const WORKSPACE_ROOT = resolve(import.meta.dirname, "..");
 
@@ -105,6 +105,63 @@ function compareGeneratedPath(path: string): string[] {
     .map((file) => join(path, file));
 }
 
+// ─── 2. Verify the temporary mutator import is deterministic ────────────────
+//
+// Orval resolves the mutator from the configured output root. When that root
+// changes, the generated import must still be relative to the generated file,
+// not an absolute path containing the temporary directory. This check keeps a
+// future Orval/mutator change from producing output that only works in the
+// drift-check sandbox (or differs from the committed client).
+function verifyCustomFetchImport(): void {
+  const generatedApiPath = join(
+    generatedRoot,
+    "lib/api-client-react/src/generated/api.ts",
+  );
+  const generatedMutatorPath = join(
+    generatedRoot,
+    "lib/api-client-react/src/custom-fetch.ts",
+  );
+  const expectedImport = relative(
+    dirname(generatedApiPath),
+    generatedMutatorPath,
+  )
+    .replace(/\.ts$/, "")
+    .split(sep)
+    .join("/");
+
+  let content: string;
+  try {
+    content = readFileSync(generatedApiPath, "utf8");
+  } catch {
+    throw new Error(
+      "Generated React client is missing lib/api-client-react/src/generated/api.ts.",
+    );
+  }
+
+  const imports = [
+    ...content.matchAll(
+      /import(?:\s+type)?\s*(?:\{[^}]*\}|\*\s+as\s+\w+|\w+)\s+from\s+['"]([^'"]*custom-fetch[^'"]*)['"]/g,
+    ),
+  ].map((match) => match[1]);
+
+  if (imports.length === 0) {
+    throw new Error(
+      "Generated React client does not import custom-fetch; the Orval mutator may no longer be configured.",
+    );
+  }
+
+  const unexpected = imports.filter((specifier) => specifier !== expectedImport);
+  if (unexpected.length > 0 || imports.length !== 2) {
+    throw new Error(
+      [
+        "Generated React client has a non-deterministic custom-fetch import.",
+        `Expected both type and runtime imports to be '${expectedImport}', but found: ${imports.join(", ") || "(none)"}.`,
+        "Keep the Orval mutator path rooted at CODEGEN_OUTPUT_ROOT and use a relative import from generated/api.ts.",
+      ].join("\n"),
+    );
+  }
+}
+
 console.log("⏳  Running codegen from lib/api-spec/openapi.yaml …");
 try {
   // Suppress stdout from codegen unless it fails (we only care about drift)
@@ -123,7 +180,17 @@ try {
   process.exit(1);
 }
 
-// ─── 2. Check for uncommitted changes in generated directories ───────────────
+try {
+  verifyCustomFetchImport();
+  console.log("✅  custom-fetch mutator imports are deterministic.");
+} catch (err) {
+  console.error("❌  Mutator import verification failed:");
+  console.error(err instanceof Error ? err.message : String(err));
+  rmSync(generatedRoot, { recursive: true, force: true });
+  process.exit(1);
+}
+
+// ─── 3. Check for uncommitted changes in generated directories ──────────────
 
 console.log("🔍  Checking for uncommitted changes in generated files …");
 
