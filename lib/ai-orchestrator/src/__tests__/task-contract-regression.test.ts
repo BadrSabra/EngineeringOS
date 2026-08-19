@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildResponseLanguageFallback,
   type ForensicTaskType,
+  validateResponseLanguage,
   validateTaskResponse,
 } from "../task-contracts.js";
 
@@ -94,5 +96,43 @@ describe("task contract regression matrix", () => {
         { responseLanguage: "ar" },
       ).valid,
     ).toBe(true);
+  });
+
+  it("rejects an English-only safety refusal for an Arabic request", () => {
+    const result = validateResponseLanguage(
+      "I’m sorry, but I can’t help with that.",
+      "ar",
+    );
+    expect(result.valid).toBe(false);
+    expect(result.violations).toContain(
+      "response used English prose for an Arabic request",
+    );
+    expect(buildResponseLanguageFallback("ar")).toContain("لغة الطلب");
+  });
+
+  it("accepts mixed Arabic prose containing canonical technical identifiers", () => {
+    expect(
+      validateResponseLanguage(
+        "تم تنفيذ الدالة `resolveProvider` بنجاح في API route.",
+        "ar",
+      ).valid,
+    ).toBe(true);
+  });
+
+  it("rejects Arabic-only prose for an English request but allows neutral output", () => {
+    expect(validateResponseLanguage("هذه إجابة عربية.", "en").valid).toBe(false);
+    expect(validateResponseLanguage("42", "en").valid).toBe(true);
+  });
+
+  it("applies the language contract to every task response, not only behavior answers", () => {
+    const result = validateTaskResponse(
+      "REPAIR_ANALYSIS",
+      "Repair plan: the change is ready.",
+      { responseLanguage: "ar" },
+    );
+    expect(result.valid).toBe(false);
+    expect(result.violations).toContain(
+      "response used English prose for an Arabic request",
+    );
   });
 });

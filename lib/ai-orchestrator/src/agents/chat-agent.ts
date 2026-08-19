@@ -57,12 +57,14 @@ import { classifyRequest } from "../prompts/profile-classifier.js";
 import { resolveTurnIntent, type TurnIntent } from "../turn-intent.js";
 import {
   buildSemanticBehaviorAnswer,
+  buildResponseLanguageFallback,
   buildTaskValidationFallback,
   capBudgetForTask,
   isExplicitBehaviorQueryRequest,
   isProductionReachabilityRequest,
   routeTask,
   validateBehaviorEvidence,
+  validateResponseLanguage,
   validateTaskResponse,
   type EvidenceReference,
   type ForensicTaskType,
@@ -3549,15 +3551,24 @@ export async function chat(opts: {
     ? "FORENSIC_REPORT"
     : turnIntent.outputContract;
   const validateResponseForTask = (response: string): string => {
+    const languageValidation = validateResponseLanguage(response, responseLanguage);
+    if (!languageValidation.valid) {
+      console.warn(
+        JSON.stringify({
+          scope: "chat-agent",
+          code: "RESPONSE_LANGUAGE_MISMATCH",
+          responseLanguage,
+          violations: languageValidation.violations.slice(0, 2),
+        }),
+      );
+      return buildResponseLanguageFallback(responseLanguage);
+    }
     if (!turnIntent.requiresEvidence && turnIntent.kind === "CHAT") return response;
     const validationTaskType = forensicOutputMode
       ? "FULL_FORENSIC_AUDIT"
       : forensicTaskType;
     const validation = validateTaskResponse(validationTaskType, response, {
-      responseLanguage:
-        validationTaskType === "BEHAVIOR_QUERY"
-          ? behaviorAnswerLanguage
-          : undefined,
+      responseLanguage: responseLanguage,
     });
     const capabilityViolations = capabilityProbeRequest
       ? validateCapabilityProbeResponse(response)

@@ -164,6 +164,38 @@ export type TaskValidationResult = {
   violations: string[];
 };
 
+/**
+ * Validate the natural-language portion of a model response against the
+ * language selected from the user's raw message. Technical identifiers,
+ * source code, numbers, and mixed Arabic/English terminology are allowed;
+ * a response containing alphabetic prose only in the opposite script is not.
+ */
+export function validateResponseLanguage(
+  response: string,
+  responseLanguage: "ar" | "en",
+): TaskValidationResult {
+  const trimmed = response.trim();
+  if (!trimmed) return { valid: false, violations: ["response is empty"] };
+
+  const hasArabic = /[\u0600-\u06FF]/.test(trimmed);
+  const hasLatin = /[A-Za-z]/.test(trimmed);
+  const violations: string[] = [];
+
+  if (responseLanguage === "ar" && hasLatin && !hasArabic) {
+    violations.push("response used English prose for an Arabic request");
+  } else if (responseLanguage === "en" && hasArabic && !hasLatin) {
+    violations.push("response used Arabic prose for an English request");
+  }
+
+  return { valid: violations.length === 0, violations };
+}
+
+export function buildResponseLanguageFallback(responseLanguage: "ar" | "en"): string {
+  return responseLanguage === "ar"
+    ? "تعذر عرض الاستجابة لأنها لم تلتزم بلغة الطلب. يرجى إعادة صياغة السؤال أو المحاولة مرة أخرى."
+    : "The response did not match the requested language. Please rephrase your question or try again.";
+}
+
 export type BehaviorEvidenceValidation = TaskValidationResult & {
   evidence: EvidenceReference[];
 };
@@ -324,6 +356,9 @@ export function validateTaskResponse(
     trimmed.includes(header),
   );
   const violations: string[] = [];
+  if (options.responseLanguage) {
+    violations.push(...validateResponseLanguage(trimmed, options.responseLanguage).violations);
+  }
 
   switch (taskType) {
     case "CODE_EXTRACTION":

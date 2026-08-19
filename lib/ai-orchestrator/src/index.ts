@@ -258,6 +258,7 @@ export type {
 export {
   AnalysisModeSchema,
   BehaviorAnswerSchema,
+  buildResponseLanguageFallback,
   capBudgetForTask,
   CodeExtractionSchema,
   EvidenceReferenceSchema,
@@ -273,6 +274,7 @@ export {
   scoreEvidenceRelevance,
   SemanticBehaviorAnswerSchema,
   validateTaskResponse,
+  validateResponseLanguage,
 } from "./task-contracts.js";
 export type {
   AnalysisMode,
