@@ -1,36 +1,5672 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
-  title: Api
-  version: 0.1.0
-  description: API specification
-servers:
-  - url: /api
-    description: Base API path
-tags:
-  - name: health
-    description: Health operations
+  title: api
+  version: 1.0.0
+  description: EngineeringOS - Autonomous AI Engineering Platform API
+
+# PR-02: Global security default — all /api/* routes require a valid Clerk
+# session unless an operation explicitly overrides with `security: []`.
+# This ensures new routes are protected by default without having to remember
+# to add a per-operation security declaration.
+security:
+  - ClerkSession: []
+
 paths:
-  /healthz:
+  /api/healthz:
     get:
-      operationId: healthCheck
-      tags: [health]
+      operationId: getHealth
       summary: Health check
-      description: Returns server health status
+      tags: [Health]
+      # PR-02: Public — no Clerk session required. The deployment platform's
+      # health probe and uptime monitors hit this without any auth cookie.
+      security: []
       responses:
         "200":
-          description: Healthy
+          description: OK
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ─── Projects ────────────────────────────────────────────────────────────────
+  /api/projects:
+    get:
+      operationId: listProjects
+      summary: List all projects
+      tags: [Projects]
+      responses:
+        "200":
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      operationId: createProject
+      summary: Register a new project
+      tags: [Projects]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectInput"
+      responses:
+        "201":
+          description: Created project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  /api/projects/{projectId}:
+    get:
+      operationId: getProject
+      summary: Get a project by ID
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+    patch:
+      operationId: updateProject
+      summary: Update project config
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProjectInput"
+      responses:
+        "200":
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+    delete:
+      operationId: deleteProject
+      summary: Delete a project
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /api/projects/{projectId}/scan:
+    post:
+      operationId: scanProject
+      summary: Enqueue a project scan (runs in the background; poll the returned job)
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Scan job queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanJob"
+
+  /api/projects/{projectId}/scan-jobs/{jobId}:
+    get:
+      operationId: getScanJob
+      summary: Get the status/result of a background scan job
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Scan job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScanJob"
+
+  /api/projects/{projectId}/summary:
+    get:
+      operationId: getProjectSummary
+      summary: Get project quality summary (scores, task counts, recent events)
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectSummary"
+
+  # ─── Tasks ───────────────────────────────────────────────────────────────────
+  /api/tasks:
+    get:
+      operationId: listTasks
+      summary: List tasks with optional filters
+      tags: [Tasks]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/TaskStatus"
+        - name: priority
+          in: query
+          schema:
+            $ref: "#/components/schemas/TaskPriority"
+      responses:
+        "200":
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+    post:
+      operationId: createTask
+      summary: Create a new task
+      tags: [Tasks]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskInput"
+      responses:
+        "201":
+          description: Created task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /api/tasks/{taskId}:
+    get:
+      operationId: getTask
+      summary: Get task by ID
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+    patch:
+      operationId: updateTask
+      summary: Update task status or fields
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTaskInput"
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+    delete:
+      operationId: deleteTask
+      summary: Delete a task
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /api/tasks/{taskId}/execute:
+    post:
+      operationId: executeTask
+      summary: Execute a task through the AI pipeline
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Task execution started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /api/tasks/{taskId}/retry:
+    post:
+      operationId: retryTask
+      summary: Retry a failed task
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Task queued for retry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /api/tasks/{taskId}/rollback:
+    post:
+      operationId: rollbackTask
+      summary: Roll back a task's changes
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task rolled back
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /api/tasks/{taskId}/logs:
+    get:
+      operationId: getTaskLogs
+      summary: Get execution logs for a task
+      tags: [Tasks]
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TaskLog"
+
+  # ─── Rules ───────────────────────────────────────────────────────────────────
+  /api/rules:
+    get:
+      operationId: listRules
+      summary: List all rules
+      tags: [Rules]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: severity
+          in: query
+          schema:
+            $ref: "#/components/schemas/RuleSeverity"
+      responses:
+        "200":
+          description: List of rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Rule"
+    post:
+      operationId: createRule
+      summary: Create a new rule
+      tags: [Rules]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRuleInput"
+      responses:
+        "201":
+          description: Created rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rule"
+
+  /api/rules/{ruleId}:
+    get:
+      operationId: getRule
+      summary: Get rule by ID
+      tags: [Rules]
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rule"
+    patch:
+      operationId: updateRule
+      summary: Update a rule
+      tags: [Rules]
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRuleInput"
+      responses:
+        "200":
+          description: Updated rule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rule"
+    delete:
+      operationId: deleteRule
+      summary: Delete a rule
+      tags: [Rules]
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /api/rules/{ruleId}/evaluate:
+    post:
+      operationId: evaluateRule
+      summary: Run rule evaluation against a project
+      tags: [Rules]
+      parameters:
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvaluateRuleRequest"
+      responses:
+        "200":
+          description: Rule evaluation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuleEvaluationResult"
+
+  # ─── Workflows ────────────────────────────────────────────────────────────────
+  /api/workflows:
+    get:
+      operationId: listWorkflows
+      summary: List workflow definitions
+      tags: [Workflows]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of workflows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Workflow"
+    post:
+      operationId: createWorkflow
+      summary: Create a workflow definition
+      tags: [Workflows]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkflowInput"
+      responses:
+        "201":
+          description: Created workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+
+  /api/workflows/{workflowId}:
+    get:
+      operationId: getWorkflow
+      summary: Get workflow by ID
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+    delete:
+      operationId: deleteWorkflow
+      summary: Delete a workflow
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+
+  /api/workflows/{workflowId}/start:
+    post:
+      operationId: startWorkflow
+      summary: Start a workflow execution
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Workflow started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecution"
+
+  /api/workflows/{workflowId}/stop:
+    post:
+      operationId: stopWorkflow
+      summary: Stop an active workflow execution
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecution"
+
+  /api/workflows/{workflowId}/executions:
+    get:
+      operationId: listWorkflowExecutions
+      summary: List past executions of a workflow
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Workflow executions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkflowExecution"
+
+  /api/workflows/{workflowId}/advance:
+    post:
+      operationId: advanceWorkflow
+      summary: Advance the running execution to its next phase (or complete it if on the last phase)
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Execution advanced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecution"
+        "404":
+          description: Workflow not found
+        "409":
+          description: No running execution to advance, or a concurrent state change
+
+  /api/workflows/{workflowId}/fail-phase:
+    post:
+      operationId: failWorkflowPhase
+      summary: Mark the running execution's current phase as failed
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FailWorkflowPhaseInput"
+      responses:
+        "200":
+          description: Execution marked failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecution"
+        "404":
+          description: Workflow not found
+        "409":
+          description: No running execution to fail, or a concurrent state change
+
+  /api/workflows/{workflowId}/executions/{executionId}/retry-phase:
+    post:
+      operationId: retryWorkflowPhase
+      summary: Retry a failed execution's current phase in place
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Execution retrying
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecution"
+        "404":
+          description: Workflow or execution not found
+        "409":
+          description: Execution is not in a failed state
+
+  /api/workflows/{workflowId}/executions/{executionId}/rollback-phase:
+    post:
+      operationId: rollbackWorkflowPhase
+      summary: Roll a workflow execution back to a previously completed phase
+      tags: [Workflows]
+      parameters:
+        - name: workflowId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RollbackWorkflowPhaseInput"
+      responses:
+        "200":
+          description: Execution rolled back
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowExecution"
+        "400":
+          description: Target phase is missing
+        "404":
+          description: Workflow or execution not found
+        "409":
+          description: Target phase is invalid or execution state changed
+
+  # ─── Events ──────────────────────────────────────────────────────────────────
+  /api/events:
+    get:
+      operationId: listEvents
+      summary: List system events
+      tags: [Events]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: correlationId
+          in: query
+          schema:
+            type: string
+          description: Return only events belonging to one logical operation.
+      responses:
+        "200":
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Event"
+
+  # ─── Metrics ─────────────────────────────────────────────────────────────────
+  /api/metrics:
+    get:
+      operationId: listMetrics
+      summary: Get time-series quality metrics
+      tags: [Metrics]
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        "200":
+          description: Metrics time series
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MetricRecord"
+
+  /api/metrics/latest:
+    get:
+      operationId: getLatestMetrics
+      summary: Get the latest metric record per project
+      tags: [Metrics]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Latest metrics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MetricRecord"
+
+  # ─── Knowledge Graph ─────────────────────────────────────────────────────────
+  /api/graph/entities:
+    get:
+      operationId: listGraphEntities
+      summary: List knowledge graph entities
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            $ref: "#/components/schemas/EntityType"
+      responses:
+        "200":
+          description: List of entities
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GraphEntity"
+
+  /api/graph/relationships:
+    get:
+      operationId: listGraphRelationships
+      summary: List knowledge graph relationships
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: sourceId
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of relationships
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GraphRelationship"
+
+  /api/graph/impact:
+    get:
+      operationId: getGraphEntityImpact
+      summary: Compute the transitive downstream impact of an entity
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: entityId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: maxDepth
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 6
+            default: 4
+      responses:
+        "200":
+          description: Impact analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphImpactResult"
+        "404":
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/graph/path:
+    get:
+      operationId: getGraphPath
+      summary: Find the shortest directed path between two graph entities
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: fromId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: toId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: maxDepth
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 8
+            default: 5
+      responses:
+        "200":
+          description: Path result (found or not found)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphPathResult"
+
+  /api/graph/summary/{projectId}:
+    get:
+      operationId: getGraphSummary
+      summary: Get aggregated knowledge graph statistics for a project
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Graph summary statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphSummary"
+
+  /api/graph/entities/{entityId}/neighbors:
+    get:
+      operationId: getGraphEntityNeighbors
+      summary: Get a graph entity's direct incoming and outgoing relationships plus neighboring entities
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: entityId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The entity, its direct relationships, and neighboring entities
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entity, outgoing, incoming, neighbors]
+                properties:
+                  entity:
+                    $ref: "#/components/schemas/GraphEntity"
+                  outgoing:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/GraphRelationship"
+                  incoming:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/GraphRelationship"
+                  neighbors:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/GraphEntity"
+        "404":
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/graph/subgraph:
+    get:
+      operationId: getGraphSubgraph
+      summary: Get a filtered, layered view of the knowledge graph for a project
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: relationType
+          in: query
+          schema:
+            type: string
+        - name: minConfidence
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: sourceType
+          in: query
+          schema:
+            type: string
+        - name: semanticTag
+          in: query
+          schema:
+            type: string
+        - name: observedOnly
+          in: query
+          schema:
+            type: boolean
+        - name: heuristicOnly
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Combined filtered graph with per-layer counts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphSubgraph"
+        "400":
+          description: Missing or invalid projectId
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Project belongs to another user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/graph/semantic-neighborhood:
+    get:
+      operationId: getGraphSemanticNeighborhood
+      summary: Return entities within N hops from a given entity, with optional KG 2.0 filters
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: entityId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: depth
+          in: query
+          schema:
+            type: integer
+            default: 2
+            maximum: 4
+        - name: relationType
+          in: query
+          schema:
+            type: string
+        - name: minConfidence
+          in: query
+          schema:
+            type: number
+            format: float
+        - name: sourceType
+          in: query
+          schema:
+            type: string
+        - name: semanticTag
+          in: query
+          schema:
+            type: string
+        - name: observedOnly
+          in: query
+          schema:
+            type: boolean
+        - name: heuristicOnly
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Root entity plus neighborhood closure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphSemanticNeighborhood"
+        "400":
+          description: entityId is required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "403":
+          description: Entity belongs to another user's project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/graph/evidence/{entityId}:
+    get:
+      operationId: getGraphEvidence
+      summary: Return all evidence records attached to outgoing relationships from an entity
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: entityId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Entity with its evidence bundles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphEvidenceResponse"
+        "403":
+          description: Entity belongs to another user's project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Entity not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/graph/runtime-subgraph/{projectId}:
+    get:
+      operationId: getGraphRuntimeSubgraph
+      summary: Return only the runtime-observed subgraph for a project
+      tags: [KnowledgeGraph]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Runtime-observed entities and relationships
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GraphRuntimeSubgraph"
+        "403":
+          description: Project belongs to another user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Project not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  # ─── Plugins ─────────────────────────────────────────────────────────────────
+  /api/plugins:
+    get:
+      operationId: listPlugins
+      summary: List all registered plugins
+      tags: [Plugins]
+      responses:
+        "200":
+          description: List of plugins
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Plugin"
+
+  /api/plugins/{pluginId}/enable:
+    post:
+      operationId: enablePlugin
+      summary: Enable a plugin for a project
+      tags: [Plugins]
+      parameters:
+        - name: pluginId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PluginProjectRequest"
+      responses:
+        "200":
+          description: Plugin enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plugin"
+
+  /api/plugins/{pluginId}/disable:
+    post:
+      operationId: disablePlugin
+      summary: Disable a plugin for a project
+      tags: [Plugins]
+      parameters:
+        - name: pluginId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PluginProjectRequest"
+      responses:
+        "200":
+          description: Plugin disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Plugin"
+
+  # ─── Discovery ───────────────────────────────────────────────────────────────
+  /api/discovery/sources:
+    get:
+      operationId: listDiscoverySources
+      summary: List supported discovery source types and their capabilities
+      tags: [Discovery]
+      responses:
+        "200":
+          description: List of source capabilities
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DiscoverySourceCapability"
+
+  /api/projects/discover:
+    post:
+      operationId: startDiscovery
+      summary: Start autonomous project discovery
+      tags: [Discovery]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartDiscoveryInput"
+      responses:
+        "202":
+          description: Discovery session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoverySessionStatus"
+
+  /api/projects/discover/{discoveryId}:
+    get:
+      operationId: getDiscoverySession
+      summary: Get discovery session status and progress
+      tags: [Discovery]
+      parameters:
+        - name: discoveryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Discovery session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoverySessionStatus"
+        "404":
+          description: Session not found
+
+  /api/projects/discover/{discoveryId}/summary:
+    get:
+      operationId: getDiscoverySummary
+      summary: Get full discovery report (only when status=ready)
+      tags: [Discovery]
+      parameters:
+        - name: discoveryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full discovery report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryReport"
+        "404":
+          description: Session not found
+        "409":
+          description: Discovery not yet complete
+
+  /api/projects/import:
+    post:
+      operationId: importProject
+      summary: Import a project from a completed discovery session
+      tags: [Discovery]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportProjectInput"
+      responses:
+        "201":
+          description: Imported project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+
+  # ─── Upload ──────────────────────────────────────────────────────────────────
+  /api/upload/archive:
+    post:
+      operationId: uploadArchive
+      summary: Upload a .zip or .tar.gz archive for ARCHIVE_UPLOAD discovery
+      tags: [Upload]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/ArchiveUploadInput"
+      responses:
+        "201":
+          description: Archive uploaded and extracted successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArchiveUploadOutput"
+        "400":
+          description: Missing file or unsupported archive format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: Archive extraction failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  # ─── Dashboard aggregate ─────────────────────────────────────────────────────
+  /api/dashboard:
+    get:
+      operationId: getDashboard
+      summary: Aggregated dashboard data (projects, active tasks, recent events, scores)
+      tags: [Dashboard]
+      responses:
+        "200":
+          description: Dashboard overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardOverview"
+
+  /api/ai/chat:
+    post:
+      operationId: aiChat
+      summary: Send a message to the AI assistant
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiChatRequest"
+      responses:
+        "200":
+          description: AI response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiChatOutput"
+
+  /api/ai/executions/{executionId}:
+    get:
+      operationId: getAiExecution
+      summary: Get durable AI execution status and checkpoint
+      tags: [AI]
+      parameters:
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+            description: UUID of the AI execution
+      responses:
+        "200":
+          description: Durable execution status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status, flightState, evidenceVerdict, proofRequired, checkpoint, checkpointVersion, resumable]
+                properties:
+                  id: { type: string, description: UUID of the AI execution }
+                  projectId: { type: string }
+                  sessionId: { type: string, description: UUID of the chat session }
+                  objective:
+                    type: object
+                    nullable: true
+                    additionalProperties: true
+                    description: Server-retained objective contract used to scope this execution
+                  linkedTaskId: { type: string, nullable: true }
+                  buildPlanMessageId: { type: string, nullable: true }
+                  status:
+                    type: string
+                    enum: [queued, running, paused, cancelling, cancelled, completed, failed]
+                  flightState:
+                    type: string
+                    enum: [BUILDING, VALIDATING, REPAIRING, READY_FOR_REVIEW, BLOCKED, APPLIED, COMMITTED, PUSHED, CANCELLED, COMPLETED]
+                    description: Unified server-derived Code Flight Deck lifecycle state
+                  evidenceVerdict:
+                    type: string
+                    enum: [PROVEN, PARTIAL, UNAVAILABLE, BLOCKED, NOT_RECORDED]
+                    description: Evidence confidence for the durable execution; absence of proof never implies success
+                  proofRequired:
+                    type: boolean
+                    description: Whether this execution is a Code Flight Deck operation that requires accepted engineering evidence
+                  evidenceReason:
+                    type: string
+                    nullable: true
+                    description: Bounded explanation for the current evidence verdict
+                  checkpoint: { type: object, additionalProperties: true }
+                  checkpointVersion: { type: integer }
+                  finalMessageId: { type: string, nullable: true }
+                  proposalId: { type: string, nullable: true }
+                  operationId: { type: string, nullable: true, description: Stable operation trace identity used by Apply, Commit, and Push }
+                  error: { type: string, nullable: true }
+                  resumable: { type: boolean }
+                  createdAt: { type: string, format: date-time }
+                  updatedAt: { type: string, format: date-time }
+                  startedAt: { type: string, format: date-time, nullable: true }
+                  completedAt: { type: string, format: date-time, nullable: true }
+        "404":
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/ai/executions/{executionId}/cancel:
+    post:
+      operationId: cancelAiExecutionById
+      summary: Request cancellation of a durable AI execution
+      tags: [AI]
+      parameters:
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+            description: UUID of the AI execution
+      responses:
+        "200":
+          description: Cancellation requested
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status]
+                properties:
+                  id: { type: string, description: UUID of the AI execution }
+                  status: { type: string, enum: [cancelling, cancelled] }
+        "404":
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/ai/benchmark/scorecard:
+    get:
+      operationId: getAiBenchmarkScorecard
+      summary: Get the bounded live Code Agent benchmark scorecard
+      tags: [AI]
+      responses:
+        "200":
+          description: Bounded benchmark metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiBenchmarkScorecard"
+        "404":
+          description: No live benchmark scorecard is available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: Benchmark scorecard is malformed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/ai/mission-control:
+    get:
+      operationId: getAiMissionControl
+      summary: Get the bounded AI execution ledger and benchmark posture
+      tags: [AI]
+      responses:
+        "200":
+          description: Mission Control execution and benchmark metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiMissionControl"
+        "500":
+          description: Mission Control data could not be read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/ai/chat/stream:
+    post:
+      operationId: aiChatStream
+      summary: Send a message to the AI assistant (SSE streaming)
+      description: >
+        Server-Sent Events variant of the chat endpoint. Emits a sequence of
+        typed events over `text/event-stream`. This endpoint is NOT auto-generated
+        by Orval — SSE responses cannot be represented in standard OpenAPI.
+        Use the handwritten `useAiChatStream` hook exported from
+        `@workspace/api-client-react` instead.
+
+        The boundary between the generated client and this hand-written hook is
+        intentional and documented. Do not move this endpoint into the generated
+        surface without first confirming Orval supports SSE. See PR-06.
+
+        Event shapes — each SSE frame is `data: <JSON>\n\n`:
+
+          { "type": "stage", "stage": "building-context" | "calling-model" | "streaming" }
+            — Phase transition; update the UI progress indicator.
+
+          { "type": "delta", "delta": "<token>" }
+            — Incremental model token for real-time streaming display.
+            Accumulate deltas until the "done" event to reconstruct the full response.
+
+           { "type": "session_started", "sessionId": "...", "title": "...", "updatedAt": "..." }
+             — The server reserved the conversation before model work starts. Persist this
+               session identity immediately; the final "done" event carries the saved messages.
+
+           { "type": "execution_started", "executionId": "...", "status": "running",
+             "resumeToken": "..." | undefined, "resumable": true }
+             — Durable execution identity. Store the executionId and resumeToken outside
+             the conversation content. An SSE disconnect is not cancellation; use the
+             execution status endpoint and explicitly resume with the token after a
+             server restart. The token is only returned on the initial claim.
+
+           { "type": "execution_nodes", "executionId": "...", "nodes": [
+             { "id": "...", "title": "...", "status": "queued" | "running" | "passed" | "failed" | "blocked",
+               "allowedFiles": ["..."], "dependencies": ["..."],
+               "validationProfile": "...", "attempts": 0 }
+           ] }
+             — Bounded server-owned execution tree snapshot for Mission Control.
+               File paths and node metadata are exposed for progress visibility;
+               source contents are never included. The same snapshot is stored in
+               the durable execution checkpoint.
+
+            { "type": "done", "sessionId": "...", "message": { "id": "...", "role": "assistant",
+             "content": "...", "sources": "...", "toolTrace": "...", "createdAt": "..." }, "sources": [...],
+            "pendingChanges": [{ "path": "...", "absolutePath": "...", "newContent": "...",
+             "originalContent": "..." | null, "reason": "...", "validationProfile": "..." }],
+              "proposalId": "..." | undefined, "proposalUnavailable": "..." | undefined,
+             "taskResult": { "kind": "CODE_EXTRACTION_RESULT", "extractedCode": "..." }
+               | { "kind": "BEHAVIOR_ANSWER_RESULT", "answer": { ... } }
+               | { "kind": "FINDING_RESULT", "finding": { ... } }
+               | { "kind": "FORENSIC_REPORT_RESULT", "report": "...", "evidence": [...] }
+               | { "kind": "WORKSPACE_REVIEW_RESULT", "report": "...", "evidence": [...] }
+               | { "kind": "REPAIR_RESULT", "phases": [...], "readiness": "READY" | "BLOCKED" | "NOT_PROVEN" }
+               | undefined,
+             "execution": { "iterations": 24, "maxIterations": 24, "toolCalls": 35,
+             "prefetchToolCalls": 8, "loopToolCalls": 27,
+             "stopReason": "iteration_budget" | "provider_timeout", "synthesisStarted": true,
+             "recoveryStarted": false,
+              "diagnosticCodes": ["FORENSIC_CONTRACT_RECOVERY_REJECTED"],
+              "diagnosticDetails": ["Evidence Map: missing current source record"] } }
+            — Final assembled response. sources is a string[] of referenced file paths.
+              taskResult is a discriminated union keyed on `kind` (one of CODE_EXTRACTION_RESULT,
+               BEHAVIOR_ANSWER_RESULT, FINDING_RESULT, FORENSIC_REPORT_RESULT, WORKSPACE_REVIEW_RESULT, REPAIR_RESULT);
+              absent for generic chat turns. Narrow on `kind` before accessing task-specific fields.
+              The persisted toolTrace JSON may include `forensic_status` entries with
+              `isFixtureLocal: true` when the proven Finding is supported only by
+              fixture/test/spec evidence (not production source). Such entries also carry
+              `productionReachability: "NOT_PROVEN"` and `repairReadiness: "BLOCKED"`.
+              Repair execution is blocked when isFixtureLocal is true — caller and
+              input-path evidence from non-fixture production source is required.
+
+           { "type": "error", "code": "...", "message": "...", "executionId"?: "...",
+             "hint"?: "...",
+            "raw"?: "...", "parseCode"?: "..." }
+            — Terminal error; the stream will close after this event.
+
+          { "type": "execution_guard", "code": "REPEATED_TOOL_CALL", "tool": "...",
+            "message": "..." }
+            — Deterministic Repair Plan safety stop after repeated identical tool calls.
+
+           { "type": "tool_call", "tool": "...", "args": { "...": "..." }, "cached": false }
+             — A tool invocation started by the agent.
+
+           { "type": "tool_result", "tool": "...", "source"?: "...", "cached": false }
+             — A tool invocation completed; source is a bounded file label when available.
+
+            { "type": "repair_state",
+              "state": "VALIDATING" | "REPAIRING" | "READY_FOR_REVIEW" | "BLOCKED",
+              "detail"?: "..." }
+              — Named state of the approval-gated Verified Repair Loop. VALIDATING
+              means a registered profile is running; REPAIRING means a failed
+              validation still has bounded correction attempts remaining;
+              READY_FOR_REVIEW means validation passed while changes remain pending;
+              BLOCKED means validation was unavailable, exhausted, or otherwise
+              cannot establish a safe repair.
+
+             { "type": "validation",
+               "validation": { "$ref": "#/components/schemas/ValidationResult" },
+               "repairState": "VALIDATING" | "REPAIRING" | "READY_FOR_REVIEW" | "BLOCKED",
+               "attempt": 1, "maxAttempts": 3 }
+               — Structured server-owned validation evidence. Every result carries
+               a stable evidenceId, observedAt timestamp, and artifactRef. A passed
+               result without all three evidence fields is not proof and must remain
+               blocked by approval gates. The command and registered profile are
+               bounded by the server; arbitrary commands are not accepted.
+
+           { "type": "model_call", "model": "...", "provider": "..." }
+             — Bounded metadata for the model that actually returned this loop response.
+               This may be a fallback model; it contains no prompt, source, or model text.
+
+            { "type": "production_trace", "status": "PROVEN" | "NOT_PROVEN" | "OUT_OF_SCOPE",
+              "nodes": [...], "edges": [...] }
+              — Runtime-observed route/orchestrator/provider/output provenance. It is
+                PROVEN only when every supplied link has runtime evidence.
+
+            { "type": "cross_file_trace", "status": "PROVEN" | "NOT_PROVEN" | "OUT_OF_SCOPE",
+              "maxDepth": 1, "nodes": [...], "edges": [...] }
+              — Bounded graph-grounded provenance for explicit file scope. Edges may
+                include an exact sourceSpan with file, line, column, and snippet.
+
+            { "type": "evidence_integrity",
+             "code": "TELEMETRY_CONSISTENT" | "TELEMETRY_INCONSISTENT",
+             "consistent": true | false, "violations": ["bounded content-free reason"],
+             "readAttempts"?: 12, "uniqueFilesRead"?: 8, "evidenceFileCount"?: 6,
+              "acceptedEvidenceCount"?: 4,
+              "evidenceSourceCoverage"?: {
+                "status": "COMPLETE" | "PARTIAL" | "NONE",
+                "requestedFiles"?: ["src/a.ts", "src/b.ts"],
+                "roots": [...]
+              } }
+             — EI-011/012 run-ledger telemetry reconciliation. consistent=false means
+               the verdict failed closed on TELEMETRY_INCONSISTENT; violations are
+                bounded, content-free reason labels (never source contents). For a
+                file-scoped audit, requestedFiles is the ordered canonical manifest
+                and must match the forensic_status manifest and per-file root coverage.
+
+           { "type": "decision_trace",
+             "taskType": "BEHAVIOR_QUERY", "evidenceSelected": 1, "validator": "behavior-answer",
+             "recoveryAttempt": 0, "recoveryFailureKind"?: "...",
+             "finalState": "VERIFIED" | "NOT_PROVEN" | "RECOVERY_REQUIRED" | "FAILED",
+             "rejectionReason": ["..."],
+             "verdictScope"?: "PRODUCTION" | "FIXTURE_LOCAL" | "TEST_LOCAL" | "SPEC_LOCAL" | "MIXED" | "NOT_PROVEN",
+             "scopedFindingStatus"?: "PRODUCTION_PROVEN" | "FIXTURE_PROVEN" | "TEST_PROVEN" | "MIXED_EVIDENCE" | "NOT_PROVEN" }
+             — Task-router trace emitted live as the verdict is decided. Carries
+               the verdict's proof scope so a watcher sees whether the proven
+               Finding is fixture-local before the report lands.
+
+           { "type": "thinking", "iter": 1, "max": 28 }
+             — Agent loop progress metadata.
+
+           { "type": "synthesis_start", "iter": 20, "max": 24 }
+             — The final no-tool synthesis window started; subsequent tool calls
+               are rejected and the model must write from gathered evidence.
+
+           { "type": "execution_diagnostic",
+             "code": "FORENSIC_CONTRACT_RECOVERY_REJECTED" | "FORENSIC_CONTRACT_RECOVERY_PARSE_FAILED" |
+               "FORENSIC_CONTRACT_RECOVERY_FAILED" | "EXECUTION_RESPONSE_FORMAT_INVALID" |
+               "EXECUTION_JSON_CORRECTION_FAILED" | "EXECUTION_JSON_CORRECTION_RETRY_FAILED" |
+               "EXECUTION_PROVIDER_FAILURE" | "EXECUTION_NO_EDIT_TOOL",
+              "details"?: ["bounded contract violation"] }
+               — Bounded execution/recovery metadata; details are optional,
+               limited failure labels/codes, and are not report content or evidence.
+
+           { "type": "stream_reset" }
+             — The provider stream broke and the server switched to a buffered fallback.
+
+        The full TypeScript event union is exported as `AiStreamEvent` from
+        `@workspace/api-client-react`. Treat that type definition as the
+        authoritative schema — it must stay in sync with this description.
+
+          The `done` event may also include `toolTrace`, `resolvedModel`,
+          `operationMode: "FORENSIC_AUDIT" | "DELIVERY" | "CHAT"` — the
+          read-only audit mode must not be rendered as a missing Plan/Apply/Commit/Push
+          delivery trace,
+         `telemetry: { "latencyMs": 123, "provider": "..." }`, and
+          `execution: { "iterations": 24, "maxIterations": 24, "toolCalls": 35,
+          "prefetchToolCalls": 8, "loopToolCalls": 27,
+          "stopReason": "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout",
+            "synthesisStarted": true, "recoveryStarted": false,
+            "diagnosticCodes": ["..."],
+             "diagnosticDetails"?: ["bounded contract violation"],
+             "modelsUsed"?: ["provider/model-id"],
+             "evidenceConsistent"?: true | false }`, and
+         `_meta.rootPathFallback: { "used": true, "original": "..." }`.
+         `execution.evidenceConsistent` (EI-012) is true when this turn's
+         run-ledger telemetry reconciled with its cited evidence, and
+         false/absent when the reconciliation gate blocked the verdict.
+         Provider errors may include `providerContext`, `retryable`, and
+         `suggestedFix`; these are diagnostics and are separate from report content.
+      tags: [AI]
+      # PR-02: SSE endpoint is authenticated — Clerk session required.
+      # Previously missing from the per-operation security declarations.
+      security:
+        - ClerkSession: []
+      # PR-06: Marks this endpoint as intentionally outside codegen scope.
+      # The hand-written hook @workspace/api-client-react#useAiChatStream is the
+      # only sanctioned consumer. Any new SSE consumers must use that hook.
+      x-no-codegen: true
+      x-sse-hook: "@workspace/api-client-react#useAiChatStream"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiChatRequest"
+      responses:
+        "200":
+          description: SSE stream of typed progress, validation, done, and error events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: >
+                  Server-Sent Events stream. Each event is `data: <JSON>\n\n`.
+                  See endpoint description for event shapes.
+        "400":
+          description: Invalid request body
+        "401":
+          description: Unauthorized
+        "428":
+          description: No Groq API key configured
+        "429":
+          description: Rate limit exceeded
+
+  /api/ai/chat/apply-changes:
+    post:
+      operationId: aiApplyChanges
+      summary: Apply AI-proposed file changes approved by the user
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiApplyChangesRequest"
+      responses:
+        "200":
+          description: All changes applied successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiApplyChangesResult"
+        "207":
+          description: Partial success — some changes applied, some failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiApplyChangesResult"
+        "400":
+          description: Invalid request body
+        "404":
+          description: Project or proposal not found
+        "409":
+          description: Proposal missing approval, already consumed, or payload mismatch
+
+  /api/ai/chat/rebase-changes:
+    post:
+      operationId: aiRebaseChanges
+      summary: Rebase a stale AI patch onto the current workspace without writing files
+      description: >
+        Attempts a deterministic Patch Lab rebase. Every expected hunk must
+        match exactly once in the current file. A successful rebase updates the
+        still-pending proposal and requires the user to review and approve the
+        returned changes again. Conflicts leave both the workspace and proposal
+        unchanged.
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiRebaseChangesRequest"
+      responses:
+        "200":
+          description: Patch rebased successfully; user approval is required again
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiRebaseChangesResult"
+        "400":
+          description: Invalid request body
+        "404":
+          description: Project or proposal not found
+        "409":
+          description: Proposal mismatch, concurrent apply, consumed proposal, or unsafe hunk conflict
+
+  /api/ai/chat/proposals/{proposalId}/approve:
+    post:
+      operationId: approveAiRebasedProposal
+      summary: Approve a rebased AI patch revision for apply
+      description: >
+        Approves exactly one server-owned rebased proposal revision. The
+        revision compare-and-set fails closed if the proposal changed again.
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      parameters:
+        - in: path
+          name: proposalId
+          required: true
+          schema:
+            type: string
+            description: UUID of the pending rebased proposal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiApproveRebasedProposalRequest"
+      responses:
+        "200":
+          description: Rebased proposal revision approved for apply
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiApproveRebasedProposalResult"
+        "400":
+          description: Invalid approval request
+        "404":
+          description: Project or proposal not found
+        "409":
+          description: Proposal was consumed, already approved, or changed concurrently
+
+  /api/ai/chat/{sessionId}/pending-proposal:
+    get:
+      operationId: getAiPendingProposal
+      summary: Restore the pending server-owned change proposal for a chat session
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+            description: UUID of the chat session
+      responses:
+        "200":
+          description: Pending proposal, or an empty proposal when none is pending
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiPendingProposal"
+        "404":
+          description: Chat session not found
+
+  /api/ai/chat/proposals/{proposalId}:
+    delete:
+      operationId: rejectAiChangeProposal
+      summary: Reject a pending AI change proposal without applying it
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      parameters:
+        - in: path
+          name: proposalId
+          required: true
+          schema:
+            type: string
+            description: UUID of the change proposal
+      responses:
+        "204":
+          description: Proposal rejected
+        "404":
+          description: Proposal not found
+        "409":
+          description: Proposal has already been consumed
+
+  /api/ai/chat/plans/{messageId}/decision:
+    post:
+      operationId: decideAiImplementationPlan
+      summary: Approve or reject an AI implementation plan
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+            description: UUID of the assistant message containing the plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiPlanDecisionRequest"
+      responses:
+        "200":
+          description: Updated implementation plan
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [taskResult]
+                properties:
+                  taskResult:
+                    type: object
+                    additionalProperties: true
+        "400":
+          description: Invalid plan or decision
+        "404":
+          description: Plan not found
+        "409":
+          description: Plan was already decided
+
+  /api/ai/chat/sessions:
+    get:
+      operationId: listAiChatSessions
+      summary: List chat sessions for a project
+      tags: [AI]
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of sessions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AiChatSession"
+
+  /api/ai/chat/{sessionId}/messages:
+    get:
+      operationId: listAiChatMessages
+      summary: Get messages in a chat session
+      tags: [AI]
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AiChatMessage"
+
+  /api/ai/chat/file-content:
+    get:
+      operationId: getAiChatFileContent
+      summary: Get the real source lines behind a behavior-evidence span
+      description: >
+        Project-authorized file-content read. Given a project-relative path and
+        a 1-indexed line window, returns the ACTUAL source lines (never a model
+        excerpt) so analysts can verify the exact code a claim cites. The
+        response is "available:false" (with a reason) when the project root or
+        file is unreachable rather than an HTTP error, so clients can degrade
+        gracefully.
+      tags: [AI]
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: path
+          required: true
+          schema:
+            type: string
+          description: Project-relative file path (rejects absolute and parent-traversal inputs)
+        - in: query
+          name: startLine
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - in: query
+          name: endLine
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: File content window (or an availability notice when the file cannot be read)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiFileContent"
+        "400":
+          description: Missing or invalid path
+
+  /api/ai/projects/{projectId}/analyze:
+    post:
+      operationId: aiAnalyzeProject
+      summary: Run AI scan analysis on a project
+      tags: [AI]
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Scan analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiScanAnalysis"
+
+  /api/ai/projects/{projectId}/review:
+    post:
+      operationId: aiReviewCode
+      summary: Run AI code review on a project
+      tags: [AI]
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiReviewRequest"
+      responses:
+        "200":
+          description: Code review result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiCodeReview"
+
+  /api/ai/projects/{projectId}/analyze/stream:
+    post:
+      operationId: aiAnalyzeProjectStream
+      summary: Stream AI scan analysis progress and result
+      description: >
+        Handwritten SSE variant of the structured scan-analysis endpoint.
+        Each frame is `data: <JSON>\n\n` and uses the shared `AiStreamEvent`
+        contract. It emits `task_started`, `stage`, `task_progress`,
+        `task_done`, or `error`. The result in `task_done.result` is an
+        `AiScanAnalysis` object. This endpoint exposes operational progress
+        only; it never exposes chain-of-thought or raw model output.
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+      x-no-codegen: true
+      x-sse-hook: "@workspace/api-client-react#useAiTaskStream"
+      responses:
+        "200":
+          description: Structured scan-analysis SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /api/ai/projects/{projectId}/review/stream:
+    post:
+      operationId: aiReviewCodeStream
+      summary: Stream AI code-review progress and result
+      description: >
+        Handwritten SSE variant of the structured code-review endpoint.
+        Each frame is `data: <JSON>\n\n` and uses the shared `AiStreamEvent`
+        contract. It emits `task_started`, `stage`, `task_progress`,
+        `task_done`, or `error`. The result in `task_done.result` is an
+        `AiCodeReview` object. This endpoint exposes operational progress
+        only; it never exposes chain-of-thought or raw model output.
+      tags: [AI]
+      security:
+        - ClerkSession: []
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiReviewRequest"
+      x-no-codegen: true
+      x-sse-hook: "@workspace/api-client-react#useAiTaskStream"
+      responses:
+        "200":
+          description: Structured code-review SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /api/ai/workflows/{workflowId}/orchestrate:
+    post:
+      operationId: aiOrchestrateWorkflow
+      summary: Get AI orchestration decision for a workflow
+      tags: [AI]
+      parameters:
+        - in: path
+          name: workflowId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiOrchestrateRequest"
+      responses:
+        "200":
+          description: Orchestration decision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiOrchestrationDecision"
+
+  /api/ai/tasks/{taskId}/execute:
+    post:
+      operationId: aiExecuteTask
+      summary: Execute a task via AI agent
+      tags: [AI]
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Task executed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /api/ai/groq-key:
+    get:
+      operationId: getGroqKeyStatus
+      summary: Get Groq API key configuration status (never returns the key itself)
+      tags: [AI]
+      responses:
+        "200":
+          description: Key status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroqKeyStatus"
+        "401":
+          description: Not authenticated
+    put:
+      operationId: saveGroqKey
+      summary: Save or update the authenticated user's Groq API key
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveGroqKeyInput"
+      responses:
+        "200":
+          description: Key saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroqKeyStatus"
+        "400":
+          description: Invalid key (too short or missing)
+        "401":
+          description: Not authenticated
+        "500":
+          description: Encryption not configured — AI_CREDENTIALS_ENCRYPTION_KEY missing
+    delete:
+      operationId: deleteGroqKey
+      summary: Remove the authenticated user's saved Groq API key
+      tags: [AI]
+      responses:
+        "200":
+          description: Key removed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [configured]
+                properties:
+                  configured:
+                    type: boolean
+        "401":
+          description: Not authenticated
+
+  /api/ai/deepseek-key:
+    get:
+      operationId: getDeepSeekKeyStatus
+      summary: Get DeepSeek API key configuration status (never returns the key itself)
+      tags: [AI]
+      responses:
+        "200":
+          description: Key status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeepSeekKeyStatus"
+        "401":
+          description: Not authenticated
+    put:
+      operationId: saveDeepSeekKey
+      summary: Save or update the authenticated user's DeepSeek API key
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveDeepSeekKeyInput"
+      responses:
+        "200":
+          description: Key saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeepSeekKeyStatus"
+        "400":
+          description: Invalid key (too short or missing)
+        "401":
+          description: Not authenticated
+        "500":
+          description: Encryption not configured — AI_CREDENTIALS_ENCRYPTION_KEY missing
+    delete:
+      operationId: deleteDeepSeekKey
+      summary: Remove the authenticated user's saved DeepSeek API key
+      tags: [AI]
+      responses:
+        "200":
+          description: Key removed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [configured]
+                properties:
+                  configured:
+                    type: boolean
+        "401":
+          description: Not authenticated
+
+  /api/ai/openrouter-key:
+    get:
+      operationId: getOpenRouterKeyStatus
+      summary: Get OpenRouter API key configuration status (alias for /providers/openrouter/key)
+      tags: [AI]
+      responses:
+        "200":
+          description: Key status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenRouterKeyStatus"
+        "401":
+          description: Not authenticated
+    put:
+      operationId: saveOpenRouterKey
+      summary: Save or update the authenticated user's OpenRouter API key
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveOpenRouterKeyInput"
+      responses:
+        "200":
+          description: Key saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenRouterKeyStatus"
+        "400":
+          description: Invalid key (too short or missing)
+        "401":
+          description: Not authenticated
+        "422":
+          description: Key rejected by OpenRouter API
+        "500":
+          description: Encryption not configured
+    delete:
+      operationId: deleteOpenRouterKey
+      summary: Remove the authenticated user's saved OpenRouter API key
+      tags: [AI]
+      responses:
+        "200":
+          description: Key removed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [configured]
+                properties:
+                  configured:
+                    type: boolean
+        "401":
+          description: Not authenticated
+
+  /api/ai/gemini-key:
+    get:
+      operationId: getGeminiKeyStatus
+      summary: Get Gemini API key configuration status (alias for /providers/gemini/key)
+      tags: [AI]
+      responses:
+        "200":
+          description: Key status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiKeyStatus"
+        "401":
+          description: Not authenticated
+    put:
+      operationId: saveGeminiKey
+      summary: Save or update the authenticated user's Gemini API key
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveGeminiKeyInput"
+      responses:
+        "200":
+          description: Key saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeminiKeyStatus"
+        "400":
+          description: Invalid key (too short or missing)
+        "401":
+          description: Not authenticated
+        "422":
+          description: Key rejected by Gemini API
+        "500":
+          description: Encryption not configured
+    delete:
+      operationId: deleteGeminiKey
+      summary: Remove the authenticated user's saved Gemini API key
+      tags: [AI]
+      responses:
+        "200":
+          description: Key removed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [configured]
+                properties:
+                  configured:
+                    type: boolean
+        "401":
+          description: Not authenticated
+
+  /api/ai/providers/{provider}/key:
+    parameters:
+      - in: path
+        name: provider
+        required: true
+        schema:
+          type: string
+          enum: [groq, deepseek, openrouter, gemini]
+        description: AI provider identifier
+    get:
+      operationId: getProviderKeyStatus
+      summary: Get API key status for any provider (canonical generic endpoint)
+      tags: [AI]
+      responses:
+        "200":
+          description: Key status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderKeyStatus"
+        "400":
+          description: Unknown provider
+        "401":
+          description: Not authenticated
+    put:
+      operationId: saveProviderKey
+      summary: Save or update an API key for any provider
+      tags: [AI]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveGroqKeyInput"
+      responses:
+        "200":
+          description: Key saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProviderKeyStatus"
+        "400":
+          description: Unknown provider or invalid key
+        "401":
+          description: Not authenticated
+        "422":
+          description: Key rejected by the provider's API
+        "500":
+          description: Encryption not configured
+    delete:
+      operationId: deleteProviderKey
+      summary: Remove a saved API key for any provider
+      tags: [AI]
+      responses:
+        "200":
+          description: Key removed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [configured]
+                properties:
+                  configured:
+                    type: boolean
+        "400":
+          description: Unknown provider
+        "401":
+          description: Not authenticated
+
+  /api/ai/metrics:
+    get:
+      operationId: getAiMetrics
+      summary: Get per-provider request metrics and circuit-breaker state
+      tags: [AI]
+      responses:
+        "200":
+          description: Provider metrics array
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [metrics, behavioralScorecards]
+                properties:
+                  metrics:
+                    type: array
+                    items:
+                      type: object
+                  behavioralScorecards:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BehavioralModelScorecard"
+
+  /api/ai/active-provider:
+    get:
+      operationId: getActiveProvider
+      summary: Get which AI provider will be used for the authenticated user
+      tags: [AI]
+      responses:
+        "200":
+          description: Active provider
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActiveProviderStatus"
+        "401":
+          description: Not authenticated
+
+  /api/ai/github-token:
+    get:
+      operationId: getGitHubTokenStatus
+      summary: Get GitHub PAT configuration status (never returns the token itself)
+      tags: [Git]
+      responses:
+        "200":
+          description: Token status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubTokenStatus"
+        "401":
+          description: Not authenticated
+    put:
+      operationId: saveGitHubToken
+      summary: Save or update the authenticated user's GitHub Personal Access Token
+      tags: [Git]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveGitHubTokenInput"
+      responses:
+        "200":
+          description: Token saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubTokenStatus"
+        "400":
+          description: Token is missing or empty
+        "401":
+          description: Not authenticated
+    delete:
+      operationId: deleteGitHubToken
+      summary: Remove the authenticated user's saved GitHub PAT
+      tags: [Git]
+      responses:
+        "200":
+          description: Token removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitHubTokenStatus"
+        "401":
+          description: Not authenticated
+
+  /api/projects/{projectId}/git/config:
+    get:
+      operationId: getGitConfig
+      summary: Get git remote URL and default branch for a project
+      tags: [Git]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Git configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitConfig"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Access denied
+        "404":
+          description: Project not found
+    patch:
+      operationId: updateGitConfig
+      summary: Update git remote URL and/or default branch for a project
+      tags: [Git]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateGitConfigInput"
+      responses:
+        "200":
+          description: Updated git configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitConfig"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Access denied
+        "404":
+          description: Project not found
+
+  /api/projects/{projectId}/git/status:
+    get:
+      operationId: getGitStatus
+      summary: Get git working-tree status for a project
+      tags: [Git]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Git status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitStatus"
+        "400":
+          description: Project directory is not a git repository
+        "401":
+          description: Not authenticated
+        "403":
+          description: Access denied
+        "404":
+          description: Project not found
+
+  /api/projects/{projectId}/git/log:
+    get:
+      operationId: getGitLog
+      summary: Get recent git commit history for a project (last 20 commits)
+      tags: [Git]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Git commit log
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitLog"
+        "400":
+          description: Project directory is not a git repository
+        "401":
+          description: Not authenticated
+        "403":
+          description: Access denied
+        "404":
+          description: Project not found
+
+  /api/projects/{projectId}/git/commit:
+    post:
+      operationId: gitCommit
+      summary: Stage all changes and create a git commit
+      tags: [Git]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitCommitInput"
+      responses:
+        "200":
+          description: Commit created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitOperationResult"
+        "400":
+          description: Commit message is missing
+        "401":
+          description: Not authenticated
+        "403":
+          description: Access denied
+        "404":
+          description: Project not found
+        "409":
+          description: Nothing to commit — working tree is clean
+
+  /api/projects/{projectId}/git/push:
+    post:
+      operationId: gitPush
+      summary: Push the current branch to the configured remote using the stored GitHub token
+      tags: [Git]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GitPushInput"
+      responses:
+        "200":
+          description: Push succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitPushResult"
+        "400":
+          description: No remote URL configured or remote URL is not HTTPS
+        "401":
+          description: Not authenticated
+        "403":
+          description: Access denied
+        "404":
+          description: Project not found
+        "428":
+          description: GitHub token not configured
+
+  /api/projects/{projectId}/export:
+    get:
+      operationId: exportProject
+      summary: Download a gzipped tar archive of the project root
+      tags: [Projects]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project archive streamed as application/gzip
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+        "401":
+          description: Not authenticated
+        "403":
+          description: Access denied
+        "404":
+          description: Project not found
+
 components:
+  securitySchemes:
+    ClerkSession:
+      type: apiKey
+      in: cookie
+      name: __session
+      description: >
+        Clerk session cookie. All /api/* routes (except /api/healthz) require a
+        valid Clerk session. The cookie is set automatically by the Clerk frontend
+        SDK after sign-in — no manual header injection is needed.
+
   schemas:
-    HealthStatus:
+    ValidationResult:
       type: object
+      additionalProperties: false
+      description: >
+        Canonical registered-validation result shared by the validator,
+        repair loop, API trace/SSE, and dashboard. Evidence metadata identifies
+        the bounded validation artifact that can be inspected again.
+      required:
+        - profile
+        - status
+        - scenario
+        - exitCode
+        - command
+        - stdout
+        - stderr
+        - failedTests
+        - changedFiles
+        - evidence
+      properties:
+        profile:
+          type: string
+        status:
+          type: string
+          enum: [passed, failed, skipped, unavailable, blocked]
+        scenario:
+          type: string
+        exitCode:
+          type: [integer, "null"]
+        command:
+          type: string
+        stdout:
+          type: string
+        stderr:
+          type: string
+        failedTests:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationFailure"
+        changedFiles:
+          type: array
+          items:
+            type: string
+        evidence:
+          $ref: "#/components/schemas/ValidationEvidence"
+        detail:
+          type: string
+    ValidationFailure:
+      type: object
+      additionalProperties: false
+      required: [name, message]
+      properties:
+        name:
+          type: string
+        file:
+          type: string
+        line:
+          type: integer
+        message:
+          type: string
+    ValidationEvidence:
+      type: object
+      additionalProperties: false
+      required: [evidenceId, observedAt, artifactRef]
+      properties:
+        evidenceId:
+          type: string
+        observedAt:
+          type: string
+          format: date-time
+        artifactRef:
+          type: string
+
+    AiBenchmarkScorecard:
+      type: object
+      additionalProperties: false
+      description: >
+        Bounded live Code Agent benchmark metadata. Rollout is allowed only
+        when the complete live run passes its explicit approved baseline gate.
+        Provider-unavailable cases remain visible as U and block rollout without
+        being counted as agent-quality failures.
+      properties:
+        suiteVersion:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+        provider:
+          type: string
+        model:
+          type: [string, "null"]
+        metrics:
+          $ref: "#/components/schemas/AiBenchmarkMetrics"
+        rolloutAllowed:
+          type: boolean
+        rolloutBlockers:
+          type: array
+          items:
+            type: string
+        baseline:
+          $ref: "#/components/schemas/AiBenchmarkBaselineRef"
+        baselineComparison:
+          $ref: "#/components/schemas/AiBenchmarkBaselineComparison"
+
+    AiBenchmarkMetrics:
+      type: object
+      additionalProperties: false
+      properties:
+        observedCases:
+          type: integer
+        totalCases:
+          type: integer
+        gradeCounts:
+          type: object
+          additionalProperties:
+            type: integer
+        providerUnavailableCount:
+          type: integer
+        falseSuccessRate:
+          type: number
+        scopeEscapeRate:
+          type: number
+        correctCompletionRate:
+          type: number
+
+    AiBenchmarkBaselineRef:
+      type: object
+      additionalProperties: false
+      properties:
+        baselineId:
+          type: string
+        suiteVersion:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+
+    AiBenchmarkBaselineComparison:
+      type: object
+      additionalProperties: false
       properties:
         status:
           type: string
-      required:
-        - status
+          enum: [missing, incompatible, regressed, passed]
+        baselineId:
+          type: string
+        baselineGeneratedAt:
+          type: string
+          format: date-time
+        metricDeltas:
+          type: object
+          additionalProperties:
+            type: number
+        blockers:
+          type: array
+          items:
+            type: string
 
+    AiBenchmarkBaselineSnapshot:
+      type: object
+      additionalProperties: false
+      properties:
+        baselineId:
+          type: string
+        suiteVersion:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+        metrics:
+          $ref: "#/components/schemas/AiBenchmarkMetrics"
+
+    AiMissionControlEvidence:
+      type: object
+      additionalProperties: false
+      required: [verdict, validationEvents, readEvents]
+      properties:
+        verdict:
+          type: string
+        reason:
+          type: ["string", "null"]
+        validationEvents:
+          type: integer
+        readEvents:
+          type: integer
+
+    AiMissionControlRecorderEvent:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind:
+          type: string
+        status:
+          type: string
+        tool:
+          type: string
+        provider:
+          type: string
+        model:
+          type: string
+        detail:
+          type: string
+
+    AiMissionControlExecution:
+      type: object
+      additionalProperties: false
+      required:
+        [id, projectId, state, executionStatus, objective, attempts,
+         validationFailures, evidence, checkpointVersion, eventCount,
+         completedNodes, totalNodes, recentEvents, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        state:
+          type: string
+        executionStatus:
+          type: string
+        objective:
+          type: string
+        provider:
+          type: ["string", "null"]
+        model:
+          type: ["string", "null"]
+        attempts:
+          type: integer
+        validationFailures:
+          type: integer
+        evidence:
+          $ref: "#/components/schemas/AiMissionControlEvidence"
+        checkpointVersion:
+          type: integer
+        eventCount:
+          type: integer
+        completedNodes:
+          type: integer
+        totalNodes:
+          type: integer
+        recentEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiMissionControlRecorderEvent"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: ["string", "null"]
+          format: date-time
+        completedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    AiMissionControl:
+      type: object
+      additionalProperties: false
+      required: [updatedAt, executions]
+      properties:
+        updatedAt:
+          type: string
+          format: date-time
+        benchmark:
+          type: ["object", "null"]
+          additionalProperties: false
+          properties:
+            scorecard:
+              $ref: "#/components/schemas/AiBenchmarkScorecard"
+            baseline:
+              $ref: "#/components/schemas/AiBenchmarkBaselineSnapshot"
+        executions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiMissionControlExecution"
+
+    AiPlanDecisionRequest:
+      type: object
+      additionalProperties: false
+      required: [decision]
+      properties:
+        decision:
+          type: string
+          enum: [approve, reject]
+
+    ApiError:
+      type: object
+      description: >
+        Standard error envelope returned by all non-2xx JSON responses.
+        Clients should always check for this shape before attempting to
+        read a success body.
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Human-readable error summary.
+
+    ValidationError:
+      type: object
+      description: >
+        PR-03: Returned with HTTP 400 when the request body fails Zod schema
+        validation in the Express error handler (`app.ts`). Extends the base
+        ApiError envelope with a structured `issues` array so clients can
+        surface per-field errors without string-parsing the `error` message.
+        The `issues` entries follow the ZodIssue shape.
+      required: [error, issues]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+          example: "Validation error"
+        issues:
+          type: array
+          items:
+            type: object
+            required: [code, path, message]
+            properties:
+              code:
+                type: string
+                description: Zod error code (e.g. "invalid_type", "too_small").
+              path:
+                type: array
+                items:
+                  oneOf:
+                    - type: string
+                    - type: integer
+                description: Path segments from the root of the validated object.
+              message:
+                type: string
+                description: Human-readable description of the validation failure.
+
+    ArchiveUploadInput:
+      type: object
+      required: [archive]
+      properties:
+        archive:
+          type: string
+          format: binary
+          description: Archive file (.zip or .tar.gz), max 50 MB
+
+    ArchiveUploadOutput:
+      type: object
+      required: [uploadId, originalName]
+      properties:
+        uploadId:
+          type: string
+          description: >
+            Opaque ID referencing the extracted upload. Pass this as
+            `sourceConfig.uploadId` when starting an ARCHIVE_UPLOAD discovery session.
+        originalName:
+          type: string
+          description: Original filename as reported by the browser.
+
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        jobQueue:
+          $ref: "#/components/schemas/JobQueueStats"
+        operationalCounters:
+          $ref: "#/components/schemas/OperationalCounters"
+
+    JobQueueStats:
+      type: object
+      required: [running, queued, concurrency]
+      description: >
+        Current state of the in-process job queue (scan + discovery jobs).
+        ⚠️ This queue is process-local — jobs in flight are lost on restart.
+        The reconciliation layer marks orphaned DB rows as `failed` on startup,
+        but the work must be re-submitted by the caller.
+      properties:
+        running:
+          type: integer
+          description: Number of jobs currently executing
+        queued:
+          type: integer
+          description: Number of jobs waiting for a free concurrency slot
+        concurrency:
+          type: integer
+          description: Maximum number of jobs that can run simultaneously
+
+    OperationalCounters:
+      type: object
+      required: [auditWriteFailures, rateLimiterFailOpenCount]
+      description: >
+        PR-2: In-process counters for degraded subsystems. Resets to zero on
+        process restart. A non-zero value means a best-effort or fail-open
+        fallback was triggered and should be investigated via logs.
+      properties:
+        auditWriteFailures:
+          type: integer
+          description: >
+            Number of audit_logs insert failures since last startup.
+            Non-zero means state changes went unrecorded in the traceability trail.
+        rateLimiterFailOpenCount:
+          type: integer
+          description: >
+            Number of times the LLM rate limiter failed open due to a DB error.
+            Non-zero means the per-project call budget was not enforced for those calls.
+
+    # ─── AI ────────────────────────────────────────────────────────────────────
+    GroqKeyStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured:
+          type: boolean
+        last4:
+          type: ["string", "null"]
+          description: Last 4 characters of the saved key — shown in UI for confirmation
+        updatedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    SaveGroqKeyInput:
+      type: object
+      required: [apiKey]
+      additionalProperties: false
+      properties:
+        apiKey:
+          type: string
+          minLength: 10
+          description: The Groq API key to save. Must not be logged or returned.
+
+    DeepSeekKeyStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured:
+          type: boolean
+        last4:
+          type: ["string", "null"]
+          description: Last 4 characters of the saved key — shown in UI for confirmation
+        updatedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    SaveDeepSeekKeyInput:
+      type: object
+      required: [apiKey]
+      additionalProperties: false
+      properties:
+        apiKey:
+          type: string
+          minLength: 10
+          description: The DeepSeek API key to save. Must not be logged or returned.
+
+    OpenRouterKeyStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured:
+          type: boolean
+        last4:
+          type: ["string", "null"]
+          description: Last 4 characters of the saved key — shown in UI for confirmation
+        updatedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    SaveOpenRouterKeyInput:
+      type: object
+      required: [apiKey]
+      additionalProperties: false
+      properties:
+        apiKey:
+          type: string
+          minLength: 10
+          description: The OpenRouter API key to save. Must not be logged or returned.
+
+    GeminiKeyStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured:
+          type: boolean
+        last4:
+          type: ["string", "null"]
+          description: Last 4 characters of the saved key — shown in UI for confirmation
+        updatedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    SaveGeminiKeyInput:
+      type: object
+      required: [apiKey]
+      additionalProperties: false
+      properties:
+        apiKey:
+          type: string
+          minLength: 10
+          description: The Gemini API key to save. Must not be logged or returned.
+
+    ProviderKeyStatus:
+      type: object
+      required: [configured]
+      description: Generic key status response for any AI provider.
+      properties:
+        configured:
+          type: boolean
+        last4:
+          type: ["string", "null"]
+          description: Last 4 characters of the saved key
+        updatedAt:
+          type: ["string", "null"]
+          format: date-time
+
+    ActiveProviderStatus:
+      type: object
+      required: [configured]
+      properties:
+        provider:
+          type: ["string", "null"]
+          enum: [groq, deepseek, openrouter, gemini, "null"]
+          description: The AI provider that will be used, or null if none is configured
+        configured:
+          type: boolean
+          description: True if at least one provider key is available (personal or server-wide)
+
+    BehavioralModelScorecard:
+      type: object
+      required:
+        - model
+        - windowMs
+        - sampleCount
+        - loopCount
+        - softLimitCount
+        - malformedJsonCount
+        - loopRate
+        - softLimitRate
+        - malformedJsonRate
+        - demoted
+        - lastEventAt
+      properties:
+        model:
+          type: string
+        windowMs:
+          type: integer
+          description: Rolling behavioral observation window in milliseconds
+        sampleCount:
+          type: integer
+        loopCount:
+          type: integer
+        softLimitCount:
+          type: integer
+        malformedJsonCount:
+          type: integer
+        loopRate:
+          type: number
+          format: double
+        softLimitRate:
+          type: number
+          format: double
+        malformedJsonRate:
+          type: number
+          format: double
+        demoted:
+          type: boolean
+          description: True when recent loop rate exceeds the task-execution demotion threshold
+        lastEventAt:
+          type: string
+          format: date-time
+
+    # ─── Git ───────────────────────────────────────────────────────────────────
+    GitHubTokenStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured:
+          type: boolean
+        last4:
+          type: string
+          nullable: true
+          description: Last 4 characters of the saved token — shown in UI for confirmation
+        updatedAt:
+          type: string
+          nullable: true
+          format: date-time
+
+    SaveGitHubTokenInput:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: GitHub Personal Access Token. Must not be logged or returned.
+
+    GitConfig:
+      type: object
+      required: [branch]
+      properties:
+        remoteUrl:
+          type: string
+          nullable: true
+          description: HTTPS remote URL (e.g. https://github.com/owner/repo.git), or null if not set
+        branch:
+          type: string
+          description: Default branch name (e.g. main)
+
+    UpdateGitConfigInput:
+      type: object
+      properties:
+        remoteUrl:
+          type: string
+          description: HTTPS remote URL. Pass an empty string to clear it.
+        branch:
+          type: string
+          description: Default branch name. Defaults to "main" if cleared.
+
+    GitStatusFile:
+      type: object
+      required: [status, path]
+      properties:
+        status:
+          type: string
+          description: Two-character git porcelain status code (e.g. "M ", " M", "??")
+        path:
+          type: string
+          description: File path relative to the project root
+
+    GitStatus:
+      type: object
+      required: [clean, files]
+      properties:
+        clean:
+          type: boolean
+          description: True when there are no uncommitted changes
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/GitStatusFile"
+
+    GitCommitEntry:
+      type: object
+      required: [hash, shortHash, date, author, subject]
+      properties:
+        hash:
+          type: string
+          description: Full 40-character commit SHA
+        shortHash:
+          type: string
+          description: Abbreviated commit SHA
+        date:
+          type: string
+          description: Commit date in YYYY-MM-DD format
+        author:
+          type: string
+          description: Author name
+        subject:
+          type: string
+          description: First line of the commit message
+
+    GitLog:
+      type: object
+      required: [commits]
+      properties:
+        commits:
+          type: array
+          items:
+            $ref: "#/components/schemas/GitCommitEntry"
+
+    GitCommitInput:
+      type: object
+      required: [message]
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+          minLength: 1
+          description: Commit message.
+        proposalId:
+          type: string
+          description: Optional server-owned AI proposal. When provided, only its verified applied paths are staged.
+        operationId:
+          type: string
+          description: Optional plan message ID used as the root of the end-to-end operation trace.
+
+    GitOperationResult:
+      type: object
+      required: [ok, output, correlationId]
+      properties:
+        ok:
+          type: boolean
+        output:
+          type: string
+          description: Combined stdout/stderr from git, with any embedded credentials redacted
+        correlationId:
+          type: string
+          description: Logical operation identifier used to retrieve the end-to-end event trace
+        commitHash:
+          type: string
+          description: Commit SHA created by a successful commit or pushed by a successful push
+        committedPaths:
+          type: array
+          items:
+            type: string
+          description: Files included in a successful commit
+
+    GitPushInput:
+      type: object
+      additionalProperties: false
+      properties:
+        proposalId:
+          type: string
+          description: Optional applied AI proposal whose operation trace should include this push
+        operationId:
+          type: string
+          description: Optional plan message ID used as the root of the end-to-end operation trace
+
+    GitPushResult:
+      type: object
+      required: [ok, branch, output, correlationId, commitHash]
+      properties:
+        ok:
+          type: boolean
+        branch:
+          type: string
+          description: Branch that was pushed
+        output:
+          type: string
+          description: Combined stdout/stderr from git push, with any embedded credentials redacted
+        correlationId:
+          type: string
+          description: Logical operation identifier used to retrieve the end-to-end event trace
+        commitHash:
+          type: string
+          description: Commit SHA proven to exist locally immediately before the push
+        remoteCommitHash:
+          type: string
+          description: Commit SHA created or confirmed on the GitHub remote
+
+    AiChatRequest:
+      type: object
+      required: [projectId, message]
+      additionalProperties: false
+      properties:
+        projectId:
+          type: string
+        message:
+          type: string
+        sessionId:
+          type: string
+        linkedTaskId:
+          type: string
+          description: Optional task to associate with the chat session
+        buildPlanMessageId:
+          type: string
+          description: Build handoff for a previously approved implementation-plan message; the server enforces its declared file scope
+
+    AiChatSession:
+      type: object
+      required: [id, projectId, title, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        linkedTaskId:
+          type: string
+          nullable: true
+          description: Task associated with this chat session, when present
+        title:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AiChatMessage:
+      type: object
+      required: [id, sessionId, role, content, createdAt]
+      properties:
+        id:
+          type: string
+        sessionId:
+          type: string
+        role:
+          type: string
+          enum: [user, assistant, system]
+        content:
+          type: string
+        sources:
+          type: string
+          nullable: true
+        toolTrace:
+          type: string
+          nullable: true
+        behaviorEvidence:
+          description: Parsed accepted behavior-evidence references, each with an optional exact source line span
+          type: array
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/BehaviorEvidence"
+        taskResult:
+          description: AI-008 — persisted per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns.
+          oneOf:
+            - $ref: "#/components/schemas/AiCodeExtractionResult"
+            - $ref: "#/components/schemas/AiBehaviorAnswerResult"
+            - $ref: "#/components/schemas/AiFindingResult"
+            - $ref: "#/components/schemas/AiForensicReportResult"
+            - $ref: "#/components/schemas/AiWorkspaceReviewResult"
+            - $ref: "#/components/schemas/AiRepairResult"
+          discriminator:
+            propertyName: kind
+            mapping:
+              CODE_EXTRACTION_RESULT: "#/components/schemas/AiCodeExtractionResult"
+              BEHAVIOR_ANSWER_RESULT: "#/components/schemas/AiBehaviorAnswerResult"
+              FINDING_RESULT: "#/components/schemas/AiFindingResult"
+              FORENSIC_REPORT_RESULT: "#/components/schemas/AiForensicReportResult"
+              WORKSPACE_REVIEW_RESULT: "#/components/schemas/AiWorkspaceReviewResult"
+              REPAIR_RESULT: "#/components/schemas/AiRepairResult"
+        createdAt:
+          type: string
+          format: date-time
+
+    BehaviorEvidence:
+      type: object
+      required: [source, supportsClaim]
+      properties:
+        source:
+          type: string
+        excerpt:
+          type: string
+        supportsClaim:
+          type: boolean
+        directness:
+          type: string
+          enum: [DIRECT, INDIRECT]
+        sourceType:
+          type: string
+        evidenceClass:
+          type: string
+        sourceSpan:
+          $ref: "#/components/schemas/SourceSpan"
+
+    SourceSpan:
+      type: object
+      required: [startLine, endLine]
+      properties:
+        startLine:
+          type: integer
+          minimum: 1
+        endLine:
+          type: integer
+          minimum: 1
+
+    AiFileContentLine:
+      type: object
+      required: [line, text]
+      properties:
+        line:
+          type: integer
+        text:
+          type: string
+
+    AiFileContent:
+      type: object
+      required: [available]
+      properties:
+        available:
+          type: boolean
+        reason:
+          type: string
+          description: Reason code when available=false (project_root_unavailable, file_not_found, file_unreadable, outside_project_root)
+        path:
+          type: string
+        startLine:
+          type: integer
+        endLine:
+          type: integer
+        fileLines:
+          type: integer
+        truncated:
+          type: boolean
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiFileContentLine"
+
+    AiReviewRequest:
+      type: object
+      properties:
+        fileContents:
+          type: object
+          additionalProperties:
+            type: string
+
+    AiOrchestrateRequest:
+      type: object
+      properties:
+        additionalContext:
+          type: string
+
+    AiPendingChange:
+      type: object
+      required: [path, absolutePath, newContent, reason]
+      properties:
+        path:
+          type: string
+          description: Normalized relative path within the project root
+        absolutePath:
+          type: string
+          description: Absolute filesystem path; must be inside the project root
+        newContent:
+          type: string
+          description: Full new content to write to the file
+        originalContent:
+          type: string
+          nullable: true
+          description: Original content before the change, or null for new files
+        baseHash:
+          type: string
+          pattern: "^[a-f0-9]{64}$"
+          description: SHA-256 hash of the source content observed when the patch was generated
+        hunks:
+          type: array
+          maxItems: 100
+          description: Line-scoped expected and replacement text used for Patch Lab conflict detection
+          items:
+            $ref: "#/components/schemas/AiFilePatchHunk"
+        reason:
+          type: string
+          description: One-sentence explanation of why this change is proposed
+        validationProfile:
+          type: string
+          enum: [ai-orchestrator-tests, knowledge-engine-tests, api-ai-tests, workspace-typecheck]
+          description: Registered behavioral validation profile when the change is eligible for approval
+        risk:
+          type: string
+          enum: [low, medium, high]
+          description: Server-derived change risk shown in Patch Lab
+        evidence:
+          type: array
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/AiPatchEvidenceLink"
+
+    AiApplyChangesRequest:
+      type: object
+      additionalProperties: false
+      required: [projectId, proposalId, changes]
+      properties:
+        projectId:
+          type: string
+        proposalId:
+          type: string
+          description: Server-owned approval proposal that must match the submitted changes exactly
+        operationId:
+          type: string
+          description: Plan message ID used as the root of the end-to-end operation trace
+        changes:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [path, absolutePath, newContent, originalContent, reason, validationProfile]
+            properties:
+              path:
+                type: string
+              absolutePath:
+                type: string
+              newContent:
+                type: string
+              originalContent:
+                type: string
+                nullable: true
+                description: Original content observed when the AI proposed the change; used to reject stale approvals
+              baseHash:
+                type: string
+                pattern: "^[a-f0-9]{64}$"
+                description: SHA-256 hash of the source content observed when the patch was generated
+              hunks:
+                type: array
+                maxItems: 100
+                items:
+                  $ref: "#/components/schemas/AiFilePatchHunk"
+              reason:
+                type: string
+                description: One-sentence explanation of why this change is proposed
+              validationProfile:
+                type: string
+                enum: [ai-orchestrator-tests, knowledge-engine-tests, api-ai-tests, workspace-typecheck]
+                description: Registered behavioral validation profile; arbitrary commands are not accepted
+              risk:
+                type: string
+                enum: [low, medium, high]
+              evidence:
+                type: array
+                maxItems: 4
+                items:
+                  $ref: "#/components/schemas/AiPatchEvidenceLink"
+
+    AiRebaseChangesRequest:
+      type: object
+      additionalProperties: false
+      required: [projectId, proposalId, changes]
+      properties:
+        projectId:
+          type: string
+        proposalId:
+          type: string
+          description: Server-owned pending proposal to rebase
+        changes:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/AiPendingChange"
+
+    AiRebaseChangesResult:
+      type: object
+      required: [proposalId, changes, rebasedFiles, approvalRequired, revision]
+      properties:
+        proposalId:
+          type: string
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiPendingChange"
+        rebasedFiles:
+          type: array
+          items:
+            type: string
+        approvalRequired:
+          type: boolean
+          description: Always true because the rebased diff must be reviewed again
+        revision:
+          type: integer
+          minimum: 0
+          description: Server-owned proposal revision that must be approved before apply
+
+    AiApproveRebasedProposalRequest:
+      type: object
+      additionalProperties: false
+      required: [projectId, revision]
+      properties:
+        projectId:
+          type: string
+        revision:
+          type: integer
+          minimum: 0
+
+    AiApproveRebasedProposalResult:
+      type: object
+      required: [proposalId, approvalRequired, revision]
+      properties:
+        proposalId:
+          type: string
+        approvalRequired:
+          type: boolean
+          description: False after the requested rebased revision is approved
+        revision:
+          type: integer
+          minimum: 0
+
+    AiPendingProposal:
+      type: object
+      required: [proposalId, operationId, changes, approvalRequired, revision]
+      properties:
+        proposalId:
+          type: string
+          nullable: true
+        operationId:
+          type: string
+          nullable: true
+          description: Plan message ID used as the root of the end-to-end operation trace
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiPendingChange"
+        approvalRequired:
+          type: boolean
+          description: True when a rebased proposal must be reviewed and approved again
+        revision:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: Current server-owned proposal revision, or null when no pending proposal exists
+
+    AiFilePatchHunk:
+      type: object
+      additionalProperties: false
+      required: [startLine, endLine, expectedText, replacementText, reason]
+      properties:
+        startLine:
+          type: integer
+          minimum: 1
+        endLine:
+          type: integer
+          minimum: 1
+        expectedText:
+          type: string
+        replacementText:
+          type: string
+        reason:
+          type: string
+          minLength: 1
+        risk:
+          type: string
+          enum: [low, medium, high]
+        evidence:
+          type: array
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/AiPatchEvidenceLink"
+
+    AiPatchEvidenceLink:
+      type: object
+      additionalProperties: false
+      required: [kind, id, label]
+      properties:
+        kind:
+          type: string
+          enum: [finding, source, validation]
+        id:
+          type: string
+          minLength: 1
+        label:
+          type: string
+          minLength: 1
+          maxLength: 240
+        file:
+          type: string
+          minLength: 1
+        line:
+          type: integer
+          minimum: 1
+
+    AiApplyChangesResult:
+      type: object
+      required: [results, correlationId]
+      properties:
+        correlationId:
+          type: string
+          description: Logical operation identifier shared with the proposal's plan and later Git operations
+        results:
+          type: array
+          items:
+            type: object
+            required: [path, ok]
+            properties:
+              path:
+                type: string
+              ok:
+                type: boolean
+              code:
+                type: string
+              error:
+                type: string
+              conflict:
+                type: object
+                additionalProperties: false
+                properties:
+                  kind:
+                    type: string
+                    enum: [base_hash_mismatch, hunk_mismatch]
+                  expectedHash:
+                    type: string
+                  actualHash:
+                    type: string
+                  hunkIndex:
+                    type: integer
+              writeStatus:
+                type: string
+                enum: [written, not_written]
+                description: "`not_written` also covers a guarded rollback when mandatory behavioral verification does not pass."
+              persistenceVerified:
+                type: boolean
+                description: True only when the new bytes remain persisted after the behavioral gate passes.
+              behavioralVerification:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [passed, failed, skipped, unavailable]
+                  profile:
+                    type: string
+                  scenario:
+                    type: string
+                  detail:
+                    type: string
+                description: Registered behavioral verification runs after the guarded write. Any status other than `passed` rolls the change back and leaves its approval proposal pending.
+
+    AiChatOutput:
+      type: object
+      required: [sessionId, message, sources, pendingChanges]
+      properties:
+        sessionId:
+          type: string
+        message:
+          $ref: "#/components/schemas/AiChatMessage"
+        sources:
+          type: array
+          items:
+            type: string
+        pendingChanges:
+          type: array
+          description: File changes proposed by the AI agent; populated only when a server-owned approval proposal was created
+          items:
+            $ref: "#/components/schemas/AiPendingChange"
+        proposalId:
+          type: string
+          description: Server-owned approval proposal ID, when the pending changes are eligible for approval
+        proposalUnavailable:
+          type: string
+          description: Bounded explanation when proposed changes could not receive an approval proposal
+        repairPlan:
+          type: array
+          description: Server-verified structured Repair Plan metadata
+          items:
+            type: object
+            additionalProperties: true
+        productionReachability:
+          $ref: "#/components/schemas/ProductionReachabilityTrace"
+        crossFileTraces:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/CrossFileSemanticTrace"
+        taskResult:
+          description: AI-008 — per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns.
+          oneOf:
+            - $ref: "#/components/schemas/AiCodeExtractionResult"
+            - $ref: "#/components/schemas/AiBehaviorAnswerResult"
+            - $ref: "#/components/schemas/AiFindingResult"
+            - $ref: "#/components/schemas/AiForensicReportResult"
+            - $ref: "#/components/schemas/AiWorkspaceReviewResult"
+            - $ref: "#/components/schemas/AiRepairResult"
+          discriminator:
+            propertyName: kind
+            mapping:
+              CODE_EXTRACTION_RESULT: "#/components/schemas/AiCodeExtractionResult"
+              BEHAVIOR_ANSWER_RESULT: "#/components/schemas/AiBehaviorAnswerResult"
+              FINDING_RESULT: "#/components/schemas/AiFindingResult"
+              FORENSIC_REPORT_RESULT: "#/components/schemas/AiForensicReportResult"
+              WORKSPACE_REVIEW_RESULT: "#/components/schemas/AiWorkspaceReviewResult"
+              REPAIR_RESULT: "#/components/schemas/AiRepairResult"
+
+    AiCodeExtractionResult:
+      type: object
+      required: [kind, extractedCode]
+      properties:
+        kind:
+          type: string
+          enum: [CODE_EXTRACTION_RESULT]
+        extractedCode:
+          type: string
+        source:
+          type: string
+
+    AiBehaviorAnswerResult:
+      type: object
+      required: [kind, answer]
+      properties:
+        kind:
+          type: string
+          enum: [BEHAVIOR_ANSWER_RESULT]
+        answer:
+          type: object
+          description: Semantic behavior answer with evidence and coverage metadata
+          additionalProperties: true
+
+    AiFindingResult:
+      type: object
+      required: [kind, finding]
+      properties:
+        kind:
+          type: string
+          enum: [FINDING_RESULT]
+        finding:
+          type: object
+          description: Finding analysis with severity and evidence
+          additionalProperties: true
+
+    AiForensicReportResult:
+      type: object
+      required: [kind, report, evidence]
+      properties:
+        kind:
+          type: string
+          enum: [FORENSIC_REPORT_RESULT]
+        report:
+          type: string
+          minLength: 1
+        evidence:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: true
+
+    AiWorkspaceReviewResult:
+      type: object
+      required: [kind, report, evidence]
+      properties:
+        kind:
+          type: string
+          enum: [WORKSPACE_REVIEW_RESULT]
+        report:
+          type: string
+          minLength: 1
+        evidence:
+          type: array
+          maxItems: 20
+          items:
+            type: object
+            additionalProperties: true
+
+    AiRepairResult:
+      type: object
+      required: [kind, phases, readiness]
+      properties:
+        kind:
+          type: string
+          enum: [REPAIR_RESULT]
+        phases:
+          type: array
+          maxItems: 12
+          items:
+            type: object
+            additionalProperties: true
+        readiness:
+          type: string
+          enum: [READY, BLOCKED, NOT_PROVEN]
+
+    SemanticTraceSourceSpan:
+      type: object
+      required: [file, line]
+      properties:
+        file:
+          type: string
+        line:
+          type: integer
+          minimum: 1
+        column:
+          type: integer
+          minimum: 0
+        snippet:
+          type: string
+
+    SemanticTraceNode:
+      type: object
+      required: [id, name, stage]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        path:
+          type: string
+        stage:
+          type: string
+          enum: [ENTRY_POINT, API_ROUTE, ORCHESTRATOR, TOOL_PROVIDER, PERSISTENCE_OUTPUT, OTHER]
+
+    SemanticTraceEdge:
+      type: object
+      required: [from, to, relation, status, runtimeObserved]
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+        relation:
+          type: string
+        status:
+          type: string
+          enum: [PROVEN, NOT_PROVEN, OUT_OF_SCOPE]
+        source:
+          type: string
+        evidence:
+          type: string
+        sourceSpan:
+          $ref: "#/components/schemas/SemanticTraceSourceSpan"
+        runtimeObserved:
+          type: boolean
+
+    CrossFileSemanticTrace:
+      type: object
+      required: [status, nodes, edges, maxDepth]
+      properties:
+        status:
+          type: string
+          enum: [PROVEN, NOT_PROVEN, OUT_OF_SCOPE]
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SemanticTraceNode"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/SemanticTraceEdge"
+        maxDepth:
+          type: integer
+          minimum: 1
+          maximum: 8
+        reason:
+          type: string
+
+    ProductionReachabilityTrace:
+      type: object
+      required: [status, nodes, edges]
+      properties:
+        status:
+          type: string
+          enum: [PROVEN, NOT_PROVEN, OUT_OF_SCOPE]
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SemanticTraceNode"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/SemanticTraceEdge"
+        reason:
+          type: string
+
+    AiScanInsight:
+      type: object
+      required: [category, severity, title, description, recommendation]
+      properties:
+        category:
+          type: string
+          enum: [architecture, security, performance, reliability, maintainability]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        title:
+          type: string
+        description:
+          type: string
+        recommendation:
+          type: string
+
+    AiScanAnalysis:
+      type: object
+      required: [summary, overallAssessment, insights, topPriority, estimatedImpact]
+      properties:
+        summary:
+          type: string
+        overallAssessment:
+          type: string
+        insights:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiScanInsight"
+        topPriority:
+          type: string
+        estimatedImpact:
+          type: string
+
+    AiCodeIssue:
+      type: object
+      required: [type, severity, title, description, suggestion]
+      properties:
+        type:
+          type: string
+          enum: [bug, security, performance, style, architecture]
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        file:
+          type: string
+          nullable: true
+        title:
+          type: string
+        description:
+          type: string
+        suggestion:
+          type: string
+
+    AiCodeReview:
+      type: object
+      required: [summary, overallScore, strengths, issues, refactoringOpportunities, securityConcerns, verdict]
+      properties:
+        summary:
+          type: string
+        overallScore:
+          type: number
+        strengths:
+          type: array
+          items:
+            type: string
+        issues:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiCodeIssue"
+        refactoringOpportunities:
+          type: array
+          items:
+            type: string
+        securityConcerns:
+          type: array
+          items:
+            type: string
+        verdict:
+          type: string
+          enum: [approved, needs_changes, major_rework]
+
+    AiOrchestrationDecision:
+      type: object
+      required: [action, reasoning]
+      properties:
+        action:
+          type: string
+          enum: [advance, wait, fail, complete]
+        reasoning:
+          type: string
+        nextPhase:
+          type: string
+          nullable: true
+        blockers:
+          type: array
+          items:
+            type: string
+        suggestions:
+          type: array
+          items:
+            type: string
+
+    # ─── Enums ─────────────────────────────────────────────────────────────────
+    TaskStatus:
+      type: string
+      enum: [pending, queued, running, verifying, completed, failed, cancelled]
+
+    TaskPriority:
+      type: string
+      enum: [p0, p1, p2, p3]
+
+    RuleSeverity:
+      type: string
+      enum: [critical, high, medium, low, info]
+
+    WorkflowStatus:
+      type: string
+      enum: [idle, running, completed, failed, stopped]
+
+    EntityType:
+      type: string
+      enum: [file, function, class, api, task, rule, phase, module]
+
+    # ─── Project ───────────────────────────────────────────────────────────────
+    Project:
+      type: object
+      required: [id, ownerId, name, rootPath, language, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        ownerId:
+          type: string
+          description: Clerk user id of the project owner. Access to this project is scoped to this user.
+        name:
+          type: string
+        description:
+          type: string
+        rootPath:
+          type: string
+        language:
+          type: string
+        framework:
+          type: string
+        status:
+          type: string
+          enum: [active, scanning, paused, archived]
+        qualityScore:
+          type: number
+        lastScanAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateProjectInput:
+      type: object
+      required: [name, rootPath, language]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        rootPath:
+          type: string
+        language:
+          type: string
+        framework:
+          type: string
+
+    UpdateProjectInput:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [active, scanning, paused, archived]
+
+    ScanResult:
+      type: object
+      required: [projectId, scannedAt, filesFound, issuesDetected, tasksCreated]
+      properties:
+        projectId:
+          type: string
+        scannedAt:
+          type: string
+          format: date-time
+        filesFound:
+          type: integer
+        issuesDetected:
+          type: integer
+        tasksCreated:
+          type: integer
+        summary:
+          type: string
+
+    ScanJob:
+      type: object
+      description: >
+        Background scan job. Scanning a project (file walk + rule matching +
+        graph extraction + metrics) is heavy, so POST .../scan only enqueues
+        it and returns this record immediately with status "queued"; poll
+        GET .../scan-jobs/{jobId} until status is "completed" or "failed".
+      required: [id, projectId, status, createdAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, completed, failed]
+        result:
+          $ref: "#/components/schemas/ScanResult"
+        error:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+
+    ProjectSummary:
+      type: object
+      required: [projectId, qualityScore, taskCounts, recentEvents, latestMetrics]
+      properties:
+        projectId:
+          type: string
+        qualityScore:
+          type: number
+        taskCounts:
+          type: object
+          required: [total, pending, running, completed, failed]
+          properties:
+            total:
+              type: integer
+            pending:
+              type: integer
+            running:
+              type: integer
+            completed:
+              type: integer
+            failed:
+              type: integer
+        recentEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+        latestMetrics:
+          $ref: "#/components/schemas/MetricRecord"
+
+    # ─── Task ──────────────────────────────────────────────────────────────────
+    Task:
+      type: object
+      required: [id, projectId, title, status, priority, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        ruleId:
+          type: string
+        workflowId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        relatedFiles:
+          type: array
+          items:
+            type: string
+        dependsOn:
+          type: array
+          items:
+            type: string
+        retryCount:
+          type: integer
+        maxRetries:
+          type: integer
+        phase:
+          type: string
+        prompt:
+          type: string
+        agentResponse:
+          type: string
+        verificationResult:
+          $ref: "#/components/schemas/VerificationResult"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+
+    CreateTaskInput:
+      type: object
+      required: [projectId, title, priority]
+      additionalProperties: false
+      properties:
+        projectId:
+          type: string
+        ruleId:
+          type: string
+        workflowId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        relatedFiles:
+          type: array
+          items:
+            type: string
+        dependsOn:
+          type: array
+          items:
+            type: string
+        phase:
+          type: string
+
+    UpdateTaskInput:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+
+    TaskLog:
+      type: object
+      required: [id, taskId, level, message, timestamp]
+      properties:
+        id:
+          type: string
+        taskId:
+          type: string
+        level:
+          type: string
+          enum: [debug, info, warn, error]
+        message:
+          type: string
+        metadata:
+          type: object
+        timestamp:
+          type: string
+          format: date-time
+
+    VerificationResult:
+      type: object
+      required: [passed, steps]
+      properties:
+        passed:
+          type: boolean
+        steps:
+          type: array
+          items:
+            type: object
+            required: [name, passed]
+            properties:
+              name:
+                type: string
+              passed:
+                type: boolean
+              output:
+                type: string
+
+    # ─── Rule ──────────────────────────────────────────────────────────────────
+    Rule:
+      type: object
+      required: [id, code, title, severity, enabled, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        code:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          $ref: "#/components/schemas/RuleSeverity"
+        pattern:
+          type: string
+        fixDescription:
+          type: string
+        verifySteps:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+        hitCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CreateRuleInput:
+      type: object
+      required: [code, title, severity]
+      additionalProperties: false
+      properties:
+        projectId:
+          type: string
+        code:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          $ref: "#/components/schemas/RuleSeverity"
+        pattern:
+          type: string
+        fixDescription:
+          type: string
+        verifySteps:
+          type: array
+          items:
+            type: string
+
+    UpdateRuleInput:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        severity:
+          $ref: "#/components/schemas/RuleSeverity"
+        pattern:
+          type: string
+        fixDescription:
+          type: string
+        enabled:
+          type: boolean
+
+    RuleEvaluationResult:
+      type: object
+      required: [ruleId, projectId, matched, matchCount, matches]
+      properties:
+        ruleId:
+          type: string
+        projectId:
+          type: string
+        matched:
+          type: boolean
+        matchCount:
+          type: integer
+        matches:
+          type: array
+          items:
+            type: object
+            required: [file, line, snippet]
+            properties:
+              file:
+                type: string
+              line:
+                type: integer
+              snippet:
+                type: string
+
+    # ─── Workflow ──────────────────────────────────────────────────────────────
+    Workflow:
+      type: object
+      required: [id, projectId, name, status, phases, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: "#/components/schemas/WorkflowStatus"
+        phases:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowPhase"
+        currentPhase:
+          type: string
+        executionCount:
+          type: integer
+        lastExecutedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    WorkflowPhase:
+      type: object
+      required: [name, steps]
+      properties:
+        name:
+          type: string
+        steps:
+          type: array
+          items:
+            type: string
+        condition:
+          type: string
+
+    CreateWorkflowInput:
+      type: object
+      required: [projectId, name, phases]
+      additionalProperties: false
+      properties:
+        projectId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        phases:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowPhase"
+
+    FailWorkflowPhaseInput:
+      type: object
+      properties:
+        error:
+          type: string
+
+    RollbackWorkflowPhaseInput:
+      type: object
+      required: [targetPhase]
+      additionalProperties: false
+      properties:
+        targetPhase:
+          type: string
+          description: Name of a phase already completed by this execution
+
+    WorkflowExecution:
+      type: object
+      required: [id, workflowId, status, startedAt]
+      properties:
+        id:
+          type: string
+        workflowId:
+          type: string
+        status:
+          $ref: "#/components/schemas/WorkflowStatus"
+        currentPhase:
+          type: string
+        completedPhases:
+          type: array
+          items:
+            type: string
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        errorMessage:
+          type: string
+
+    # ─── Event ─────────────────────────────────────────────────────────────────
+    Event:
+      type: object
+      required: [id, type, projectId, timestamp]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        projectId:
+          type: string
+        taskId:
+          type: string
+        workflowId:
+          type: string
+        payload:
+          type: object
+        severity:
+          type: string
+          enum: [info, warning, error, success]
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        correlationId:
+          type: string
+          description: >
+            Ties this event to a logical operation (scan, task execute, workflow
+            advance). All records sharing the same correlationId were produced
+            by a single call — filter by this to see the full trace.
+
+    # ─── Metrics ───────────────────────────────────────────────────────────────
+    MetricRecord:
+      type: object
+      required: [id, projectId, timestamp, overallScore]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        overallScore:
+          type: number
+        architectureScore:
+          type: number
+        securityScore:
+          type: number
+        performanceScore:
+          type: number
+        reliabilityScore:
+          type: number
+        maintainabilityScore:
+          type: number
+        testCoverage:
+          type: number
+        lintIssues:
+          type: integer
+        testsPassed:
+          type: integer
+        testsTotal:
+          type: integer
+        technicalDebt:
+          type: number
+        buildStatus:
+          type: string
+          enum: [passing, failing, unknown]
+
+    # ─── Knowledge Graph ───────────────────────────────────────────────────────
+    GraphProvenance:
+      type: object
+      # KG-02: all fields are optional for backwards compatibility — rows from
+      # before KG 2.0 may omit some fields. The old `extractor` field has been
+      # renamed to `sourceType` to match the DB schema and runtime shape.
+      description: >
+        Provenance record for a graph entity or relationship. All fields are
+        optional for backwards compatibility.
+      properties:
+        sourceType:
+          type: string
+          description: >
+            Broad extraction category: typescript-ast | python-ast |
+            regex-fallback | manual | discovery-import |
+            provenance-registry-import. Replaces the old `extractor` field.
+        method:
+          type: string
+          description: Specific mechanism (e.g. ts-compiler-api, api-route-detection)
+        extractedAt:
+          type: string
+          format: date-time
+        evidence:
+          type: array
+          description: Source location records that justify this element
+          items:
+            $ref: "#/components/schemas/GraphEvidence"
+
+    GraphEdgeType:
+      type: string
+      description: Typed relationship category for Knowledge Graph 2.0
+      enum:
+        - imports
+        - calls
+        - extends
+        - implements
+        - uses
+        - emits
+        - observes
+        - produces
+        - depends_on
+
+    GraphEvidence:
+      type: object
+      description: A single piece of evidence that justifies a graph entity or relationship
+      required: [file, kind]
+      properties:
+        file:
+          type: string
+        line:
+          type: integer
+        column:
+          type: integer
+        snippet:
+          type: string
+          description: Source code snippet at the evidence location
+        kind:
+          type: string
+          enum: [import-statement, call-site, class-definition, interface-definition, jsdoc, heuristic]
+
+    GraphEntity:
+      type: object
+      required: [id, projectId, type, name, createdAt]
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        scanJobId:
+          type: string
+          description: The scan job that produced this entity, if any
+        type:
+          $ref: "#/components/schemas/EntityType"
+        name:
+          type: string
+        path:
+          type: string
+        metadata:
+          type: object
+        # ── Knowledge Graph 2.0 semantic fields ────────────────────────────
+        kind:
+          type: string
+          description: Sub-kind within the entity type (e.g. arrow-function, class-method, decorator)
+        sourceType:
+          type: string
+          description: "Extraction source — typescript-ast | python-ast | regex-fallback | manual"
+        isDocumented:
+          type: boolean
+          description: True when the entity has JSDoc, a docstring, or equivalent documentation
+        semanticTags:
+          type: array
+          items:
+            type: string
+          description: Free-form semantic classification tags (e.g. auth, public-api, deprecated)
+        description:
+          type: string
+          description: Short description from doc comment or declaration signature
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: "Extraction confidence — 1.0 = AST certainty, 0.5 = heuristic, 0.0 = unknown"
+        domain:
+          type: string
+          description: Business domain (e.g. auth, payments, infra)
+        lifecycle:
+          type: string
+          description: "Lifecycle stage — stable | experimental | deprecated | internal"
+        provenance:
+          $ref: "#/components/schemas/GraphProvenance"
+        createdAt:
+          type: string
+          format: date-time
+
+    GraphRelationship:
+      type: object
+      required: [id, sourceId, targetId, relation, createdAt]
+      properties:
+        id:
+          type: string
+        sourceId:
+          type: string
+        targetId:
+          type: string
+        projectId:
+          type: string
+          description: Project this relationship belongs to (denormalised for efficient filtering)
+        relation:
+          type: string
+          description: Raw relation string preserved from the extractor
+        scanJobId:
+          type: string
+          description: The scan job that produced this relationship, if any
+        # ── Knowledge Graph 2.0 semantic fields ────────────────────────────
+        relationType:
+          $ref: "#/components/schemas/GraphEdgeType"
+        relationSubtype:
+          type: string
+          description: Fine-grained sub-classification (e.g. static-import, type-only-import)
+        weight:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: Edge weight for weighted graph algorithms (typically equals confidence)
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: "Extraction confidence [0,1] — lower values indicate heuristic inference"
+        isHeuristic:
+          type: boolean
+          description: True when inferred by heuristic rules rather than direct parse evidence
+        isRuntimeObserved:
+          type: boolean
+          description: True when observed at runtime, not inferred by static analysis
+        evidenceJson:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEvidence"
+          description: Structured evidence records that justify this relationship
+        evidenceCount:
+          type: integer
+          description: Number of evidence items (indexed separately for fast cardinality queries)
+        evidenceSummary:
+          type: string
+          description: Human-readable summary of the evidence
+        semanticTags:
+          type: array
+          items:
+            type: string
+        sourceType:
+          type: string
+          description: Which extractor produced this relationship
+        metadata:
+          type: object
+        provenance:
+          $ref: "#/components/schemas/GraphProvenance"
+        createdAt:
+          type: string
+          format: date-time
+
+    GraphImpactHop:
+      type: object
+      required: [entity, viaRelationship, depth]
+      properties:
+        entity:
+          $ref: "#/components/schemas/GraphEntity"
+        viaRelationship:
+          $ref: "#/components/schemas/GraphRelationship"
+        depth:
+          type: integer
+          description: How many hops from the root entity
+
+    GraphImpactResult:
+      type: object
+      required: [root, impacted, maxDepthReached]
+      properties:
+        root:
+          $ref: "#/components/schemas/GraphEntity"
+        impacted:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphImpactHop"
+        maxDepthReached:
+          type: integer
+
+    GraphPathStep:
+      type: object
+      required: [entity]
+      properties:
+        entity:
+          $ref: "#/components/schemas/GraphEntity"
+        relationship:
+          $ref: "#/components/schemas/GraphRelationship"
+
+    GraphPathResult:
+      type: object
+      required: [found]
+      properties:
+        found:
+          type: boolean
+        path:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphPathStep"
+        length:
+          type: integer
+
+    GraphCentralityScore:
+      type: object
+      required: [entityId, entityName, entityType, inDegree, outDegree, totalDegree]
+      properties:
+        entityId:
+          type: string
+        entityName:
+          type: string
+        entityType:
+          type: string
+        inDegree:
+          type: integer
+        outDegree:
+          type: integer
+        totalDegree:
+          type: integer
+
+    # KG-03: per-layer stats shape used inside LayeredGraphSummary
+    GraphSummaryLayer:
+      type: object
+      required: [entityCount, relationshipCount, avgConfidence]
+      properties:
+        entityCount:
+          type: integer
+        relationshipCount:
+          type: integer
+        avgConfidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+
+    # KG-03: full layered provenance summary returned alongside GraphSummary
+    LayeredGraphSummary:
+      type: object
+      required: [byLayer, byEdgeType, avgConfidenceOverall, documentedEntityCount, undocumentedEntityCount]
+      properties:
+        byLayer:
+          type: object
+          required: [structural, heuristic, runtime]
+          properties:
+            structural:
+              $ref: "#/components/schemas/GraphSummaryLayer"
+            heuristic:
+              $ref: "#/components/schemas/GraphSummaryLayer"
+            runtime:
+              $ref: "#/components/schemas/GraphSummaryLayer"
+        byEdgeType:
+          type: object
+          description: >-
+            Edge-type distribution across the graph (e.g. imports=12, calls=4).
+          additionalProperties:
+            type: integer
+        avgConfidenceOverall:
+          type: number
+          format: float
+        documentedEntityCount:
+          type: integer
+        undocumentedEntityCount:
+          type: integer
+
+    GraphSummary:
+      type: object
+      required: [projectId, entityCount, relationshipCount, entitiesByType, relationsByType, topConnected, avgDegree, isolatedCount, clusterCount]
+      properties:
+        projectId:
+          type: string
+        entityCount:
+          type: integer
+        relationshipCount:
+          type: integer
+        entitiesByType:
+          type: object
+          additionalProperties:
+            type: integer
+        relationsByType:
+          type: object
+          additionalProperties:
+            type: integer
+        topConnected:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphCentralityScore"
+        avgDegree:
+          type: number
+          format: float
+        isolatedCount:
+          type: integer
+        clusterCount:
+          type: integer
+        # KG-03: provenance-layered breakdown — always present on GET /graph/summary
+        layered:
+          $ref: "#/components/schemas/LayeredGraphSummary"
+
+    # ─── Knowledge Graph 2.0 — layered/neighborhood/evidence schemas ──────────
+
+    GraphSubgraphFilters:
+      type: object
+      properties:
+        edgeTypes:
+          type: array
+          items:
+            type: string
+        minConfidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        sourceTypes:
+          type: array
+          items:
+            type: string
+        semanticTags:
+          type: array
+          items:
+            type: string
+        observedOnly:
+          type: boolean
+        heuristicOnly:
+          type: boolean
+
+    GraphLayerCounts:
+      type: object
+      required: [entityCount, relationshipCount]
+      properties:
+        entityCount:
+          type: integer
+        relationshipCount:
+          type: integer
+
+    GraphSubgraph:
+      type: object
+      required: [entities, relationships, filters, layered]
+      properties:
+        entities:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEntity"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphRelationship"
+        filters:
+          $ref: "#/components/schemas/GraphSubgraphFilters"
+        layered:
+          type: object
+          required: [structural, heuristic, runtime]
+          properties:
+            structural:
+              $ref: "#/components/schemas/GraphLayerCounts"
+            heuristic:
+              $ref: "#/components/schemas/GraphLayerCounts"
+            runtime:
+              $ref: "#/components/schemas/GraphLayerCounts"
+
+    GraphSemanticNeighborhood:
+      type: object
+      required: [root, entities, relationships]
+      properties:
+        root:
+          $ref: "#/components/schemas/GraphEntity"
+        entities:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEntity"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphRelationship"
+
+    GraphEvidenceBundle:
+      type: object
+      required: [relationship, evidence]
+      properties:
+        relationship:
+          $ref: "#/components/schemas/GraphRelationship"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEvidence"
+
+    GraphEvidenceResponse:
+      type: object
+      required: [entity, evidence]
+      properties:
+        entity:
+          $ref: "#/components/schemas/GraphEntity"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEvidenceBundle"
+
+    GraphRuntimeSubgraph:
+      type: object
+      required: [entities, relationships]
+      properties:
+        entities:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEntity"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphRelationship"
+
+    # ─── Plugin request bodies ─────────────────────────────────────────────────
+    PluginProjectRequest:
+      type: object
+      required: [projectId]
+      properties:
+        projectId:
+          type: string
+
+    EvaluateRuleRequest:
+      type: object
+      required: [projectId]
+      properties:
+        projectId:
+          type: string
+
+    # ─── Plugin ────────────────────────────────────────────────────────────────
+    Plugin:
+      type: object
+      required: [id, name, version, enabled, capabilities]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        version:
+          type: string
+        enabled:
+          type: boolean
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum: [analyzer, rules, prompts, verifier, reporter]
+        supportedLanguages:
+          type: array
+          items:
+            type: string
+
+    # ─── Discovery ─────────────────────────────────────────────────────────────
+    SourceType:
+      type: string
+      enum:
+        - LOCAL_FOLDER
+        - WORKSPACE_PROJECT
+        - GIT_REPOSITORY
+        - ARCHIVE_UPLOAD
+        - REMOTE_FILESYSTEM
+        - DOCKER_VOLUME
+
+    DiscoverySourceConfig:
+      type: object
+      description: Source-specific configuration. Required fields depend on sourceType.
+      properties:
+        path:
+          type: string
+          description: Absolute path to the project directory (LOCAL_FOLDER)
+        url:
+          type: string
+          description: Git repository URL (GIT_REPOSITORY)
+        branch:
+          type: string
+          description: Branch to checkout; defaults to the remote HEAD (GIT_REPOSITORY)
+        credentials:
+          type: object
+          description: Repository credentials for private repos (GIT_REPOSITORY)
+          required:
+            - username
+            - token
+          properties:
+            username:
+              type: string
+            token:
+              type: string
+        uploadId:
+          type: string
+          description: Upload session ID from a prior file upload (ARCHIVE_UPLOAD)
+        projectId:
+          type: string
+          description: ID of an existing registered project (WORKSPACE_PROJECT)
+
+    DiscoveryOptions:
+      type: object
+      properties:
+        skipRules:
+          type: boolean
+          default: false
+        skipGraph:
+          type: boolean
+          default: false
+        maxDepth:
+          type: integer
+          minimum: 1
+          maximum: 20
+        includeTests:
+          type: boolean
+          default: true
+
+    DiscoverySourceCapability:
+      type: object
+      required: [sourceType, label, description, available]
+      properties:
+        sourceType:
+          $ref: "#/components/schemas/SourceType"
+        label:
+          type: string
+        description:
+          type: string
+        available:
+          type: boolean
+        icon:
+          type: string
+        requiredConfig:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+
+    StartDiscoveryInput:
+      type: object
+      required: [sourceType, sourceConfig]
+      additionalProperties: false
+      properties:
+        sourceType:
+          $ref: "#/components/schemas/SourceType"
+        sourceConfig:
+          $ref: "#/components/schemas/DiscoverySourceConfig"
+        options:
+          $ref: "#/components/schemas/DiscoveryOptions"
+
+    ImportProjectInput:
+      type: object
+      required: [discoveryId]
+      additionalProperties: false
+      properties:
+        discoveryId:
+          type: string
+        overrides:
+          type: object
+          properties:
+            name:
+              type: string
+            language:
+              type: string
+            framework:
+              type: string
+            description:
+              type: string
+
+    DiscoveryStepItem:
+      type: object
+      required: [name, status]
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, done, error]
+        durationMs:
+          type: ["integer", "null"]
+
+    DiscoverySessionStatus:
+      type: object
+      required: [id, status, progress, steps, startedAt]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [pending, discovering, ready, imported, error]
+        progress:
+          type: integer
+        currentStep:
+          type: ["string", "null"]
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoveryStepItem"
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: ["string", "null"]
+          format: date-time
+        error:
+          type: ["string", "null"]
+        importedProjectId:
+          type: ["string", "null"]
+
+    DiscoveryRuleViolationItem:
+      type: object
+      required: [code, title, severity, count]
+      properties:
+        code:
+          type: string
+        title:
+          type: string
+        severity:
+          type: string
+        count:
+          type: integer
+
+    DiscoveryGraphSummaryData:
+      type: object
+      required: [entityCount, relationshipCount, entitiesByType, filesByLanguage]
+      properties:
+        entityCount:
+          type: integer
+        relationshipCount:
+          type: integer
+        entitiesByType:
+          type: object
+          additionalProperties:
+            type: integer
+        filesByLanguage:
+          type: object
+          additionalProperties:
+            type: integer
+
+    DiscoveryReport:
+      type: object
+      required:
+        - id
+        - detectedName
+        - detectedLanguage
+        - detectedLanguages
+        - isMonorepo
+        - hasDocker
+        - hasOpenApi
+        - packageCount
+        - moduleCount
+        - repoSizeBytes
+        - detectedApis
+        - detectedRisks
+        - qualityScore
+        - confidenceScore
+        - graphSummary
+        - ruleViolations
+      properties:
+        id:
+          type: string
+        detectedName:
+          type: string
+        detectedLanguage:
+          type: string
+        detectedLanguages:
+          type: array
+          items:
+            type: string
+        detectedFramework:
+          type: ["string", "null"]
+        detectedRuntime:
+          type: ["string", "null"]
+        detectedPackageManager:
+          type: ["string", "null"]
+        detectedArchitecture:
+          type: ["string", "null"]
+        detectedDb:
+          type: ["string", "null"]
+        detectedOrm:
+          type: ["string", "null"]
+        detectedTestFramework:
+          type: ["string", "null"]
+        detectedBuildTool:
+          type: ["string", "null"]
+        detectedCi:
+          type: ["string", "null"]
+        isMonorepo:
+          type: boolean
+        hasDocker:
+          type: boolean
+        hasOpenApi:
+          type: boolean
+        packageCount:
+          type: integer
+        moduleCount:
+          type: integer
+        repoSizeBytes:
+          type: integer
+        detectedApis:
+          type: array
+          items:
+            type: string
+        detectedRisks:
+          type: array
+          items:
+            type: string
+        qualityScore:
+          type: number
+        confidenceScore:
+          type: number
+        graphSummary:
+          $ref: "#/components/schemas/DiscoveryGraphSummaryData"
+        ruleViolations:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoveryRuleViolationItem"
+
+    # ─── Dashboard ─────────────────────────────────────────────────────────────
+    DashboardOverview:
+      type: object
+      required: [projectCount, activeTaskCount, completedTaskCount, failedTaskCount, recentEvents, projectScores]
+      properties:
+        projectCount:
+          type: integer
+        activeTaskCount:
+          type: integer
+        completedTaskCount:
+          type: integer
+        failedTaskCount:
+          type: integer
+        recentEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+        projectScores:
+          type: array
+          items:
+            type: object
+            required: [projectId, projectName, score, trend]
+            properties:
+              projectId:
+                type: string
+              projectName:
+                type: string
+              score:
+                type: number
+              trend:
+                type: string
+                enum: [improving, stable, declining]
+        taskStatusBreakdown:
+          type: object
+          additionalProperties:
+            type: integer
+        topRules:
+          type: array
+          items:
+            type: object
+            required: [ruleId, code, title, hitCount]
+            properties:
+              ruleId:
+                type: string
+              code:
+                type: string
+              title:
+                type: string
+              hitCount:
+                type: integer

@@ -1,45 +1,46 @@
-# [Project name]
+# EngineeringOS
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
-
-## Run & Operate
-
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+An engineering operations platform — one console for how your code actually moves. Scan projects, extract dependency graphs, enforce rules, and trace every workflow end-to-end.
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- **API server**: Express + TypeScript, Clerk auth, Drizzle ORM + PostgreSQL, pino logging
+- **Dashboard**: React + Vite + Tailwind v4, Wouter routing, TanStack Query, Clerk React
+- **AI orchestrator**: Groq / OpenRouter / Gemini / DeepSeek via provider registry with fallback
+- **Knowledge engine**: BFS graph queries, centrality/cluster inference
+- **Scanner**: TS compiler API AST extraction, Python AST subprocess for Python files
 
-## Where things live
+## How to run
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+All services start automatically via the configured workflows:
 
-## Architecture decisions
+| Service | Workflow |
+|---|---|
+| API server | `artifacts/api-server: API Server` |
+| Dashboard | `artifacts/dashboard: web` |
+| Mockup sandbox | `artifacts/mockup-sandbox: Component Preview Server` |
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+## Post-import setup (already done)
 
-## Product
+1. `pnpm install` — restores node_modules
+2. `pnpm --filter @workspace/db run push` — pushes Drizzle schema to the DB
+3. `setupClerkWhitelabelAuth()` — provisions Clerk keys
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+## Required secrets (already provisioned)
+
+- `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY`, `VITE_CLERK_PUBLISHABLE_KEY` — auto-provisioned by Replit Clerk
+- `SESSION_SECRET` — session signing key
+- `DATABASE_URL` — runtime-managed by Replit
+
+## Optional secrets (AI features)
+
+AI features return HTTP 428 until at least one key is saved via the dashboard:
+
+- `GROQ_API_KEY`
+- `OPENROUTER_API_KEY`
+- `GEMINI_API_KEY`
+- `DEEPSEEK_API_KEY`
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
-
-## Gotchas
-
-_Populate as you build — sharp edges, "always run X before Y" rules._
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- Keep the project's existing structure and stack; do not restructure or migrate.

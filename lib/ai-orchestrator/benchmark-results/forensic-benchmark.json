@@ -1,0 +1,192 @@
+{
+  "kind": "forensic-ai-benchmark",
+  "version": 1,
+  "generatedAt": "2026-08-10T02:10:29.613Z",
+  "mode": "deterministic",
+  "cases": [
+    {
+      "caseId": "source-inspection",
+      "title": "Source inspection with a cited completed read",
+      "status": "passed",
+      "responseChars": 603,
+      "evidenceSetMatches": true,
+      "rawContractValid": true,
+      "finalContractValid": true,
+      "evidenceCitationAccuracy": 1,
+      "unsupportedClaimBlocked": true,
+      "recoverySucceeded": true,
+      "repairPlanBlocked": true,
+      "trace": {
+        "toolCalls": 1,
+        "sourceReads": 1,
+        "uniqueFiles": 1,
+        "cachedRepeats": 0,
+        "unattributedResults": 0,
+        "budgetExceeded": false,
+        "diagnosticCodes": [],
+        "stopReason": "response"
+      },
+      "notes": []
+    },
+    {
+      "caseId": "dependency-tracing",
+      "title": "Dependency tracing with an evidence map",
+      "status": "passed",
+      "responseChars": 742,
+      "evidenceSetMatches": true,
+      "rawContractValid": true,
+      "finalContractValid": true,
+      "evidenceCitationAccuracy": 1,
+      "unsupportedClaimBlocked": true,
+      "recoverySucceeded": true,
+      "repairPlanBlocked": true,
+      "trace": {
+        "toolCalls": 1,
+        "sourceReads": 2,
+        "uniqueFiles": 2,
+        "cachedRepeats": 0,
+        "unattributedResults": 0,
+        "budgetExceeded": false,
+        "diagnosticCodes": [],
+        "stopReason": "response"
+      },
+      "notes": []
+    },
+    {
+      "caseId": "unsupported-finding",
+      "title": "Contradictory finding must be downgraded",
+      "status": "passed",
+      "responseChars": 836,
+      "evidenceSetMatches": true,
+      "rawContractValid": true,
+      "finalContractValid": true,
+      "evidenceCitationAccuracy": 1,
+      "unsupportedClaimBlocked": true,
+      "recoverySucceeded": true,
+      "repairPlanBlocked": true,
+      "trace": {
+        "toolCalls": 1,
+        "sourceReads": 1,
+        "uniqueFiles": 1,
+        "cachedRepeats": 0,
+        "unattributedResults": 0,
+        "budgetExceeded": false,
+        "diagnosticCodes": [],
+        "stopReason": "response"
+      },
+      "notes": []
+    },
+    {
+      "caseId": "malformed-output",
+      "title": "Malformed provider output recovery",
+      "status": "passed",
+      "responseChars": 64,
+      "evidenceSetMatches": true,
+      "rawContractValid": false,
+      "finalContractValid": true,
+      "evidenceCitationAccuracy": 1,
+      "unsupportedClaimBlocked": true,
+      "recoverySucceeded": true,
+      "repairPlanBlocked": true,
+      "trace": {
+        "toolCalls": 1,
+        "sourceReads": 1,
+        "uniqueFiles": 1,
+        "cachedRepeats": 0,
+        "unattributedResults": 0,
+        "budgetExceeded": false,
+        "diagnosticCodes": [
+          "FORENSIC_CONTRACT_RECOVERY_PARSE_FAILED"
+        ],
+        "stopReason": "response"
+      },
+      "notes": []
+    },
+    {
+      "caseId": "empty-synthesis",
+      "title": "Empty synthesis preserves evidence",
+      "status": "passed",
+      "responseChars": 745,
+      "evidenceSetMatches": true,
+      "rawContractValid": true,
+      "finalContractValid": true,
+      "evidenceCitationAccuracy": 1,
+      "unsupportedClaimBlocked": true,
+      "recoverySucceeded": true,
+      "repairPlanBlocked": true,
+      "trace": {
+        "toolCalls": 1,
+        "sourceReads": 1,
+        "uniqueFiles": 1,
+        "cachedRepeats": 0,
+        "unattributedResults": 0,
+        "budgetExceeded": false,
+        "diagnosticCodes": [
+          "FORENSIC_EVIDENCE_ONLY_FALLBACK"
+        ],
+        "stopReason": "empty_response"
+      },
+      "notes": []
+    },
+    {
+      "caseId": "repair-plan-safety",
+      "title": "Unproven repair phase remains blocked",
+      "status": "passed",
+      "responseChars": 828,
+      "evidenceSetMatches": true,
+      "rawContractValid": true,
+      "finalContractValid": true,
+      "evidenceCitationAccuracy": 1,
+      "unsupportedClaimBlocked": true,
+      "recoverySucceeded": true,
+      "repairPlanBlocked": true,
+      "trace": {
+        "toolCalls": 1,
+        "sourceReads": 1,
+        "uniqueFiles": 1,
+        "cachedRepeats": 0,
+        "unattributedResults": 0,
+        "budgetExceeded": false,
+        "diagnosticCodes": [],
+        "stopReason": "response"
+      },
+      "notes": []
+    }
+  ],
+  "metrics": {
+    "validReportRate": 1,
+    "rawFormatComplianceRate": 0.8333333333333334,
+    "evidenceCitationAccuracy": 1,
+    "unsupportedClaimBlockRate": 1,
+    "recoveryRate": 1,
+    "repairPlanSafetyRate": 1,
+    "reasoningScore": 1,
+    "toolUseScore": 1,
+    "formatComplianceScore": 0.9444444444444445,
+    "safetyScore": 1,
+    "overallScore": 0.9861111111111112,
+    "averageLatencyMs": null,
+    "averageToolCalls": 1,
+    "averageSourceReads": 1.1666666666666667,
+    "maxSourceReads": 2,
+    "budgetViolationRate": 0
+  },
+  "skippedProviders": [
+    {
+      "provider": "openrouter",
+      "reason": "OPENROUTER_API_KEY is not configured"
+    },
+    {
+      "provider": "gemini",
+      "reason": "GEMINI_API_KEY is not configured"
+    },
+    {
+      "provider": "deepseek",
+      "reason": "DEEPSEEK_API_KEY is not configured"
+    },
+    {
+      "provider": "groq",
+      "reason": "GROQ_API_KEY is not configured"
+    }
+  ]
+}

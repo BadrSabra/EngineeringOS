@@ -1,0 +1,98 @@
+import { describe, expect, it } from "vitest";
+import {
+  type ForensicTaskType,
+  validateTaskResponse,
+} from "../task-contracts.js";
+
+const FULL_FORENSIC_SHAPE = [
+  "## 1) Executive Verdict",
+  "## 2) Evidence Map",
+  "## 3) Findings",
+  "## 4) Repair Plan",
+  "## 5) Validation Checklist",
+  "## 6) Final Judgment",
+].join("\n");
+
+const VALID_RESPONSES: Record<ForensicTaskType, string> = {
+  CODE_EXTRACTION: [
+    "Branch A:",
+    "```ts",
+    "return partial;",
+    "```",
+    "Branch B:",
+    "```ts",
+    "return exhausted;",
+    "```",
+  ].join("\n"),
+  BEHAVIOR_QUERY:
+    "The loop returns the partial result when the provider stops before completion.",
+  FINDING_ANALYSIS:
+    "Finding: the loop drops partial output. Evidence: `return partial`. Severity: HIGH.",
+  FULL_FORENSIC_AUDIT: FULL_FORENSIC_SHAPE,
+  WORKSPACE_REVIEW: FULL_FORENSIC_SHAPE,
+  REPAIR_ANALYSIS:
+    "Repair plan: preserve the partial result before returning. Readiness: READY.",
+};
+
+const INVALID_RESPONSES: Record<ForensicTaskType, string> = {
+  CODE_EXTRACTION: FULL_FORENSIC_SHAPE,
+  BEHAVIOR_QUERY: FULL_FORENSIC_SHAPE,
+  FINDING_ANALYSIS: "The implementation looks interesting.",
+  FULL_FORENSIC_AUDIT: "## 1) Executive Verdict\nOnly one section was returned.",
+  WORKSPACE_REVIEW: "Project overview: package.json and src/.",
+  REPAIR_ANALYSIS: "The implementation looks interesting.",
+};
+
+describe("task contract regression matrix", () => {
+  it.each(Object.keys(VALID_RESPONSES) as ForensicTaskType[] )(
+    "%s accepts its own output shape",
+    (taskType) => {
+      const result = validateTaskResponse(taskType, VALID_RESPONSES[taskType]);
+      expect(result).toEqual({ valid: true, violations: [] });
+    },
+  );
+
+  it.each(Object.keys(INVALID_RESPONSES) as ForensicTaskType[] )(
+    "%s rejects a mismatched or incomplete output shape",
+    (taskType) => {
+      const result = validateTaskResponse(taskType, INVALID_RESPONSES[taskType]);
+      expect(result.valid).toBe(false);
+      expect(result.violations.length).toBeGreaterThan(0);
+    },
+  );
+
+  it("keeps the six-section audit contract exclusive to FULL_FORENSIC_AUDIT", () => {
+    for (const taskType of [
+      "BEHAVIOR_QUERY",
+      "CODE_EXTRACTION",
+      "FINDING_ANALYSIS",
+      "REPAIR_ANALYSIS",
+    ] as const) {
+      const result = validateTaskResponse(taskType, FULL_FORENSIC_SHAPE);
+      expect(result.valid, taskType).toBe(false);
+    }
+    expect(validateTaskResponse("FULL_FORENSIC_AUDIT", FULL_FORENSIC_SHAPE).valid).toBe(true);
+  });
+
+  it("rejects an English response to an Arabic BEHAVIOR_QUERY", () => {
+    const result = validateTaskResponse(
+      "BEHAVIOR_QUERY",
+      "The model returned a partial response.",
+      { responseLanguage: "ar" },
+    );
+    expect(result.valid).toBe(false);
+    expect(result.violations).toContain(
+      "BEHAVIOR_QUERY response did not use the Arabic language requested by the user",
+    );
+  });
+
+  it("accepts an Arabic response to an Arabic BEHAVIOR_QUERY", () => {
+    expect(
+      validateTaskResponse(
+        "BEHAVIOR_QUERY",
+        "الاستجابة تتوقف عند النتيجة الجزئية.",
+        { responseLanguage: "ar" },
+      ).valid,
+    ).toBe(true);
+  });
+});

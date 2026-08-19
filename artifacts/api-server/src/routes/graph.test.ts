@@ -1,0 +1,1310 @@
+import { afterEach, describe, expect, it } from "vitest";
+import request from "supertest";
+import { eq } from "drizzle-orm";
+import app from "../app.js";
+import {
+  db,
+  projectsTable,
+  graphEntitiesTable,
+  graphRelationshipsTable,
+} from "@workspace/db";
+import { randomUUID } from "crypto";
+
+async function insertProject(): Promise<string> {
+  const id = randomUUID();
+  const now = new Date();
+  await db.insert(projectsTable).values({
+    id,
+    ownerId: "test-user",
+    name: `graph-test-project-${id.slice(0, 8)}`,
+    rootPath: "/tmp/graph-test",
+    language: "typescript",
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
+}
+
+async function cleanupProject(id: string): Promise<void> {
+  const entities = await db
+    .select()
+    .from(graphEntitiesTable)
+    .where(eq(graphEntitiesTable.projectId, id));
+  for (const entity of entities) {
+    await db
+      .delete(graphRelationshipsTable)
+      .where(eq(graphRelationshipsTable.sourceId, entity.id));
+    await db
+      .delete(graphRelationshipsTable)
+      .where(eq(graphRelationshipsTable.targetId, entity.id));
+  }
+  await db
+    .delete(graphEntitiesTable)
+    .where(eq(graphEntitiesTable.projectId, id));
+  await db.delete(projectsTable).where(eq(projectsTable.id, id));
+}
+
+// ─── Seed helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Seeds a triangle graph: A→B (A depends on B), C→A (C depends on A).
+ * Impact from A: reaches B (depth 1).
+ * Impact from C: reaches A (depth 1), then B (depth 2).
+ */
+async function seedTriangle(projectId: string) {
+  const a = randomUUID();
+  const b = randomUUID();
+  const c = randomUUID();
+  const now = new Date();
+
+  await db.insert(graphEntitiesTable).values([
+    { id: a, projectId, type: "module", name: "moduleA", createdAt: now },
+    { id: b, projectId, type: "module", name: "moduleB", createdAt: now },
+    { id: c, projectId, type: "module", name: "moduleC", createdAt: now },
+  ]);
+
+  await db.insert(graphRelationshipsTable).values([
+    {
+      id: randomUUID(),
+      sourceId: a,
+      targetId: b,
+      relation: "imports",
+      createdAt: now,
+    },
+    {
+      id: randomUUID(),
+      sourceId: c,
+      targetId: a,
+      relation: "imports",
+      createdAt: now,
+    },
+  ]);
+
+  return { a, b, c };
+}
+
+// ─── Direct neighbors ─────────────────────────────────────────────────────────
+
+describe("GET /api/graph/entities/:entityId/neighbors", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("returns outgoing and incoming relationships plus neighbor entities", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const { a, b, c } = await seedTriangle(projectId);
+
+    const res = await request(app).get(`/api/graph/entities/${a}/neighbors`);
+    expect(res.status).toBe(200);
+    expect(res.body.entity.id).toBe(a);
+    expect(res.body.outgoing).toHaveLength(1);
+    expect(res.body.outgoing[0].targetId).toBe(b);
+    expect(res.body.incoming).toHaveLength(1);
+    expect(res.body.incoming[0].sourceId).toBe(c);
+    const neighborIds = res.body.neighbors.map((n: { id: string }) => n.id).sort();
+    expect(neighborIds).toEqual([b, c].sort());
+  });
+
+  it("returns empty arrays for an isolated entity", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const id = randomUUID();
+    await db.insert(graphEntitiesTable).values({
+      id,
+      projectId,
+      type: "file",
+      name: "isolated.ts",
+      createdAt: new Date(),
+    });
+
+    const res = await request(app).get(`/api/graph/entities/${id}/neighbors`);
+    expect(res.status).toBe(200);
+    expect(res.body.outgoing).toEqual([]);
+    expect(res.body.incoming).toEqual([]);
+    expect(res.body.neighbors).toEqual([]);
+  });
+
+  it("returns 404 for a nonexistent entity", async () => {
+    const res = await request(app).get(
+      `/api/graph/entities/${randomUUID()}/neighbors`,
+    );
+    expect(res.status).toBe(404);
+  });
+});
+
+// ─── Impact analysis ─────────────────────────────────────────────────────────
+
+describe("GET /api/graph/impact", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("returns the root entity and its transitive downstream dependants", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    // Chain: C→A→B (C imports A, A imports B)
+    const { a, b, c } = await seedTriangle(projectId);
+
+    // Impact from C: A (depth 1), B (depth 2)
+    const res = await request(app)
+      .get("/api/graph/impact")
+      .query({ entityId: c, maxDepth: 3 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.root.id).toBe(c);
+    const impactedIds = res.body.impacted.map(
+      (h: { entity: { id: string } }) => h.entity.id,
+    );
+    expect(impactedIds).toContain(a);
+    expect(impactedIds).toContain(b);
+    expect(res.body.maxDepthReached).toBe(2);
+  });
+
+  it("returns empty impacted list for an entity with no outgoing edges", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const { b } = await seedTriangle(projectId);
+
+    // B has no outgoing edges in the triangle
+    const res = await request(app)
+      .get("/api/graph/impact")
+      .query({ entityId: b });
+
+    expect(res.status).toBe(200);
+    expect(res.body.root.id).toBe(b);
+    expect(res.body.impacted).toHaveLength(0);
+    expect(res.body.maxDepthReached).toBe(0);
+  });
+
+  it("returns 404 for a nonexistent entity", async () => {
+    const res = await request(app)
+      .get("/api/graph/impact")
+      .query({ entityId: randomUUID() });
+    expect(res.status).toBe(404);
+  });
+
+  it("respects maxDepth — depth 1 only returns direct dependants", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const { a, b, c } = await seedTriangle(projectId);
+
+    // C→A→B; with maxDepth=1, starting from C only A is reachable
+    const res = await request(app)
+      .get("/api/graph/impact")
+      .query({ entityId: c, maxDepth: 1 });
+
+    expect(res.status).toBe(200);
+    const impactedIds = res.body.impacted.map(
+      (h: { entity: { id: string } }) => h.entity.id,
+    );
+    expect(impactedIds).toContain(a);
+    expect(impactedIds).not.toContain(b);
+  });
+});
+
+// ─── Shortest path ────────────────────────────────────────────────────────────
+
+describe("GET /api/graph/path", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("finds a direct 1-hop path between connected entities", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const { a, b } = await seedTriangle(projectId);
+
+    const res = await request(app)
+      .get("/api/graph/path")
+      .query({ fromId: a, toId: b });
+
+    expect(res.status).toBe(200);
+    expect(res.body.found).toBe(true);
+    expect(res.body.length).toBe(1);
+    expect(res.body.path).toHaveLength(2);
+    expect(res.body.path[0].entity.id).toBe(a);
+    expect(res.body.path[1].entity.id).toBe(b);
+  });
+
+  it("finds a 2-hop path between indirectly connected entities", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const { b, c } = await seedTriangle(projectId);
+
+    // C→A→B; path from C to B should have length 2
+    const res = await request(app)
+      .get("/api/graph/path")
+      .query({ fromId: c, toId: b });
+
+    expect(res.status).toBe(200);
+    expect(res.body.found).toBe(true);
+    expect(res.body.length).toBe(2);
+  });
+
+  it("returns found:false when no path exists", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const { b, c } = await seedTriangle(projectId);
+
+    // There is no path from B to C (B has no outgoing edges in the triangle)
+    const res = await request(app)
+      .get("/api/graph/path")
+      .query({ fromId: b, toId: c });
+
+    expect(res.status).toBe(200);
+    expect(res.body.found).toBe(false);
+  });
+
+  it("returns a trivial path of length 0 for fromId === toId", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const { a } = await seedTriangle(projectId);
+
+    const res = await request(app)
+      .get("/api/graph/path")
+      .query({ fromId: a, toId: a });
+
+    expect(res.status).toBe(200);
+    expect(res.body.found).toBe(true);
+    expect(res.body.length).toBe(0);
+  });
+});
+
+// ─── Graph summary ────────────────────────────────────────────────────────────
+
+describe("GET /api/graph/summary/:projectId", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("returns correct counts and centrality for a triangle graph", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const { a, b: _b, c: _c } = await seedTriangle(projectId);
+
+    const res = await request(app).get(`/api/graph/summary/${projectId}`);
+    expect(res.status).toBe(200);
+
+    const s = res.body;
+    expect(s.projectId).toBe(projectId);
+    expect(s.entityCount).toBe(3);
+    expect(s.relationshipCount).toBe(2);
+    expect(s.entitiesByType.module).toBe(3);
+    expect(s.relationsByType.imports).toBe(2);
+    // No isolated nodes in a triangle where everyone is connected
+    expect(s.isolatedCount).toBe(0);
+    // All 3 nodes are in one connected component
+    expect(s.clusterCount).toBe(1);
+    // A has the highest degree (1 incoming from C, 1 outgoing to B)
+    expect(s.topConnected[0].entityId).toBe(a);
+    expect(s.topConnected[0].totalDegree).toBe(2);
+  });
+
+  it("returns zero counts for a project with no graph data", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+
+    const res = await request(app).get(`/api/graph/summary/${projectId}`);
+    expect(res.status).toBe(200);
+    expect(res.body.entityCount).toBe(0);
+    expect(res.body.relationshipCount).toBe(0);
+    expect(res.body.clusterCount).toBe(0);
+  });
+});
+
+// ─── Subgraph (layered view) ───────────────────────────────────────────────────
+
+describe("GET /api/graph/subgraph", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  async function seedLayeredEdges(projectId: string) {
+    const a = randomUUID();
+    const b = randomUUID();
+    const c = randomUUID();
+    const now = new Date();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: a, projectId, type: "module", name: "modA", createdAt: now },
+      { id: b, projectId, type: "module", name: "modB", createdAt: now },
+      { id: c, projectId, type: "module", name: "modC", createdAt: now },
+    ]);
+
+    // structural edge A→B
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(),
+      projectId,
+      sourceId: a,
+      targetId: b,
+      relation: "imports",
+      isHeuristic: false,
+      isRuntimeObserved: false,
+      createdAt: now,
+    });
+    // heuristic edge A→C
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(),
+      projectId,
+      sourceId: a,
+      targetId: c,
+      relation: "imports",
+      isHeuristic: true,
+      isRuntimeObserved: false,
+      createdAt: now,
+    });
+    // runtime edge B→C
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(),
+      projectId,
+      sourceId: b,
+      targetId: c,
+      relation: "calls",
+      isHeuristic: false,
+      isRuntimeObserved: true,
+      createdAt: now,
+    });
+
+    return { a, b, c };
+  }
+
+  it("returns entities and relationships with per-layer counts", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    await seedLayeredEdges(projectId);
+
+    const res = await request(app)
+      .get("/api/graph/subgraph")
+      .query({ projectId });
+
+    expect(res.status).toBe(200);
+    expect(res.body.entities.length).toBeGreaterThanOrEqual(2);
+    expect(res.body.relationships.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.layered.structural).toBeDefined();
+    expect(res.body.layered.heuristic).toBeDefined();
+    expect(res.body.layered.runtime).toBeDefined();
+    expect(typeof res.body.layered.structural.entityCount).toBe("number");
+    expect(typeof res.body.layered.structural.relationshipCount).toBe("number");
+  });
+
+  it("structural layer contains only non-heuristic, non-runtime edges", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    await seedLayeredEdges(projectId);
+
+    const res = await request(app)
+      .get("/api/graph/subgraph")
+      .query({ projectId });
+
+    expect(res.status).toBe(200);
+    expect(res.body.layered.structural.relationshipCount).toBe(1);
+    expect(res.body.layered.heuristic.relationshipCount).toBe(1);
+    expect(res.body.layered.runtime.relationshipCount).toBe(1);
+  });
+
+  it("filters object mirrors parsed query values", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+
+    const res = await request(app)
+      .get("/api/graph/subgraph")
+      .query({ projectId, observedOnly: "true" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.filters).toBeDefined();
+    expect(res.body.filters.observedOnly).toBe(true);
+  });
+
+  it("returns 400 when projectId is missing", async () => {
+    const res = await request(app).get("/api/graph/subgraph");
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 403 when projectId belongs to another user", async () => {
+    const id = randomUUID();
+    await db.insert(projectsTable).values({
+      id,
+      ownerId: "other-user",
+      name: `other-subgraph-${id.slice(0, 8)}`,
+      rootPath: "/tmp/other",
+      language: "typescript",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    cleanupQueue.push(id);
+
+    const res = await request(app)
+      .get("/api/graph/subgraph")
+      .query({ projectId: id });
+    expect(res.status).toBe(403);
+  });
+});
+
+// ─── Semantic neighborhood ─────────────────────────────────────────────────────
+
+describe("GET /api/graph/semantic-neighborhood", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("returns root entity plus neighborhood within depth", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const { a, b } = await seedTriangle(projectId);
+
+    const res = await request(app)
+      .get("/api/graph/semantic-neighborhood")
+      .query({ entityId: a, depth: 1 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.root.id).toBe(a);
+    const neighborIds = res.body.entities.map((e: { id: string }) => e.id);
+    expect(neighborIds).toContain(b);
+  });
+
+  it("returns 400 when entityId is missing", async () => {
+    const res = await request(app).get("/api/graph/semantic-neighborhood");
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 404 for a nonexistent entityId", async () => {
+    const res = await request(app)
+      .get("/api/graph/semantic-neighborhood")
+      .query({ entityId: randomUUID() });
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when entity belongs to another user's project", async () => {
+    const otherProjectId = randomUUID();
+    await db.insert(projectsTable).values({
+      id: otherProjectId,
+      ownerId: "other-user",
+      name: `other-nbr-${otherProjectId.slice(0, 8)}`,
+      rootPath: "/tmp/other-nbr",
+      language: "typescript",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    cleanupQueue.push(otherProjectId);
+
+    const entityId = randomUUID();
+    await db.insert(graphEntitiesTable).values({
+      id: entityId,
+      projectId: otherProjectId,
+      type: "module",
+      name: "hidden.ts",
+      createdAt: new Date(),
+    });
+
+    const res = await request(app)
+      .get("/api/graph/semantic-neighborhood")
+      .query({ entityId });
+    expect(res.status).toBe(403);
+  });
+});
+
+// ─── Evidence ─────────────────────────────────────────────────────────────────
+
+describe("GET /api/graph/evidence/:entityId", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("returns entity and evidence bundles for outgoing relationships", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const now = new Date();
+
+    const srcId = randomUUID();
+    const tgtId = randomUUID();
+    await db.insert(graphEntitiesTable).values([
+      { id: srcId, projectId, type: "module", name: "src.ts", createdAt: now },
+      { id: tgtId, projectId, type: "module", name: "tgt.ts", createdAt: now },
+    ]);
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(),
+      projectId,
+      sourceId: srcId,
+      targetId: tgtId,
+      relation: "imports",
+      evidenceJson: [{ file: "src.ts", line: 1, snippet: "import tgt", kind: "import-statement" }],
+      evidenceCount: 1,
+      createdAt: now,
+    });
+
+    const res = await request(app).get(`/api/graph/evidence/${srcId}`);
+    expect(res.status).toBe(200);
+    expect(res.body.entity.id).toBe(srcId);
+    expect(Array.isArray(res.body.evidence)).toBe(true);
+    expect(res.body.evidence.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.evidence[0].relationship).toBeDefined();
+    expect(Array.isArray(res.body.evidence[0].evidence)).toBe(true);
+  });
+
+  it("returns 404 for a nonexistent entity", async () => {
+    const res = await request(app).get(`/api/graph/evidence/${randomUUID()}`);
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 403 when entity belongs to another user's project", async () => {
+    const otherProjectId = randomUUID();
+    await db.insert(projectsTable).values({
+      id: otherProjectId,
+      ownerId: "other-user",
+      name: `other-ev-${otherProjectId.slice(0, 8)}`,
+      rootPath: "/tmp/other-ev",
+      language: "typescript",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    cleanupQueue.push(otherProjectId);
+
+    const entityId = randomUUID();
+    await db.insert(graphEntitiesTable).values({
+      id: entityId,
+      projectId: otherProjectId,
+      type: "module",
+      name: "hidden-ev.ts",
+      createdAt: new Date(),
+    });
+
+    const res = await request(app).get(`/api/graph/evidence/${entityId}`);
+    expect(res.status).toBe(403);
+  });
+});
+
+// ─── Runtime subgraph ─────────────────────────────────────────────────────────
+
+describe("GET /api/graph/runtime-subgraph/:projectId", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("returns only runtime-observed relationships", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const now = new Date();
+
+    const a = randomUUID();
+    const b = randomUUID();
+    await db.insert(graphEntitiesTable).values([
+      { id: a, projectId, type: "module", name: "rtA.ts", createdAt: now },
+      { id: b, projectId, type: "module", name: "rtB.ts", createdAt: now },
+    ]);
+    // runtime edge
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(),
+      projectId,
+      sourceId: a,
+      targetId: b,
+      relation: "calls",
+      isRuntimeObserved: true,
+      createdAt: now,
+    });
+    // non-runtime edge (should be excluded)
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(),
+      projectId,
+      sourceId: b,
+      targetId: a,
+      relation: "imports",
+      isRuntimeObserved: false,
+      createdAt: now,
+    });
+
+    const res = await request(app).get(
+      `/api/graph/runtime-subgraph/${projectId}`,
+    );
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.entities)).toBe(true);
+    expect(Array.isArray(res.body.relationships)).toBe(true);
+    for (const rel of res.body.relationships) {
+      expect(rel.isRuntimeObserved).toBe(true);
+    }
+  });
+
+  it("returns empty arrays for a project with no runtime edges", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+
+    const res = await request(app).get(
+      `/api/graph/runtime-subgraph/${projectId}`,
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.entities).toEqual([]);
+    expect(res.body.relationships).toEqual([]);
+  });
+
+  it("returns 403 when project belongs to another user", async () => {
+    const otherProjectId = randomUUID();
+    await db.insert(projectsTable).values({
+      id: otherProjectId,
+      ownerId: "other-user",
+      name: `other-rt-${otherProjectId.slice(0, 8)}`,
+      rootPath: "/tmp/other-rt",
+      language: "typescript",
+      status: "active",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    cleanupQueue.push(otherProjectId);
+
+    const res = await request(app).get(
+      `/api/graph/runtime-subgraph/${otherProjectId}`,
+    );
+    expect(res.status).toBe(403);
+  });
+});
+
+// ─── PR-03: provenance-aware API responses ────────────────────────────────────
+
+describe("GET /api/graph/evidence/:entityId — PR-03 provenance bundles", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("evidence bundles include confidence, sourceType, and provenanceSummary", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const now = new Date();
+    const srcId = randomUUID();
+    const tgtId = randomUUID();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: srcId, projectId, type: "module", name: "src.ts", createdAt: now },
+      { id: tgtId, projectId, type: "module", name: "tgt.ts", createdAt: now },
+    ]);
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(),
+      projectId,
+      sourceId: srcId,
+      targetId: tgtId,
+      relation: "imports",
+      confidence: 0.85,
+      sourceType: "typescript-ast",
+      isHeuristic: false,
+      isRuntimeObserved: false,
+      evidenceJson: [{ file: "src.ts", line: 5, kind: "import-statement", snippet: "import tgt" }],
+      evidenceCount: 1,
+      createdAt: now,
+    });
+
+    const res = await request(app).get(`/api/graph/evidence/${srcId}`);
+    expect(res.status).toBe(200);
+
+    // Backward-compat fields still present
+    expect(res.body.entity.id).toBe(srcId);
+    expect(Array.isArray(res.body.evidence)).toBe(true);
+    expect(res.body.evidence[0].relationship).toBeDefined();
+    expect(Array.isArray(res.body.evidence[0].evidence)).toBe(true);
+
+    // PR-03: entityProvenance lifted to top level
+    expect("entityProvenance" in res.body).toBe(true);
+
+    // PR-03: enriched bundle fields
+    const b = res.body.evidence[0];
+    expect(b.confidence).toBe(0.85);
+    expect(b.sourceType).toBe("typescript-ast");
+    expect(b.isHeuristic).toBe(false);
+    expect(b.isRuntimeObserved).toBe(false);
+    expect(b.provenanceSummary).not.toBeNull();
+    expect(b.provenanceSummary.sourceType).toBe("typescript-ast");
+    expect(b.provenanceSummary.evidenceCount).toBe(1);
+  });
+});
+
+describe("GET /api/graph/subgraph — PR-03 provenance stats per layer", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  async function seedLayeredWithProvenance(projectId: string) {
+    const a = randomUUID();
+    const b = randomUUID();
+    const c = randomUUID();
+    const now = new Date();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: a, projectId, type: "module", name: "pA", createdAt: now },
+      { id: b, projectId, type: "module", name: "pB", createdAt: now },
+      { id: c, projectId, type: "module", name: "pC", createdAt: now },
+    ]);
+    // structural edge with known confidence + sourceType + evidence
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(), projectId, sourceId: a, targetId: b, relation: "imports",
+      isHeuristic: false, isRuntimeObserved: false,
+      confidence: 0.9, sourceType: "typescript-ast", evidenceCount: 2,
+      createdAt: now,
+    });
+    // heuristic edge
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(), projectId, sourceId: a, targetId: c, relation: "imports",
+      isHeuristic: true, isRuntimeObserved: false,
+      confidence: 0.5, sourceType: "regex-fallback", evidenceCount: 0,
+      createdAt: now,
+    });
+    return { a, b, c };
+  }
+
+  it("layered response includes avgConfidence, sourceTypeBreakdown, totalEvidenceCount per layer", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    await seedLayeredWithProvenance(projectId);
+
+    const res = await request(app)
+      .get("/api/graph/subgraph")
+      .query({ projectId });
+
+    expect(res.status).toBe(200);
+
+    // Original fields still present
+    expect(res.body.layered.structural.entityCount).toBeDefined();
+    expect(res.body.layered.structural.relationshipCount).toBe(1);
+
+    // PR-03: provenance stats merged into each layer
+    expect(typeof res.body.layered.structural.avgConfidence).toBe("number");
+    expect(typeof res.body.layered.structural.totalEvidenceCount).toBe("number");
+    expect(res.body.layered.structural.sourceTypeBreakdown).toBeDefined();
+    expect(res.body.layered.structural.sourceTypeBreakdown["typescript-ast"]).toBe(1);
+    expect(res.body.layered.structural.avgConfidence).toBeCloseTo(0.9);
+    expect(res.body.layered.structural.totalEvidenceCount).toBe(2);
+    expect(res.body.layered.heuristic.sourceTypeBreakdown["regex-fallback"]).toBe(1);
+
+    // Empty runtime layer → avgConfidence = 0
+    expect(res.body.layered.runtime.avgConfidence).toBe(0);
+    expect(res.body.layered.runtime.totalEvidenceCount).toBe(0);
+  });
+});
+
+describe("GET /api/graph/path — PR-03 annotated steps", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("path response always includes annotated steps with confidence and evidence arrays", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const { a, b } = await seedTriangle(projectId);
+
+    // shortest path (no minConfidence)
+    const res = await request(app)
+      .get("/api/graph/path")
+      .query({ fromId: a, toId: b });
+
+    expect(res.status).toBe(200);
+    expect(res.body.found).toBe(true);
+    // Root step
+    expect(res.body.path[0].entity.id).toBe(a);
+    expect(res.body.path[0].confidence).toBeNull();
+    expect(res.body.path[0].relationship).toBeNull();
+    expect(res.body.path[0].evidence).toEqual([]);
+    // Hop step
+    expect(res.body.path[1].entity.id).toBe(b);
+    expect(res.body.path[1].relationship).toBeDefined();
+    expect(typeof res.body.path[1].isHeuristic).toBe("boolean");
+    expect(Array.isArray(res.body.path[1].evidence)).toBe(true);
+    expect(res.body.path[1].provenanceSummary).not.toBeNull();
+  });
+
+  it("high-confidence path includes minConfidenceApplied and annotated steps", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const now = new Date();
+    const xId = randomUUID();
+    const yId = randomUUID();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: xId, projectId, type: "module", name: "x.ts", createdAt: now },
+      { id: yId, projectId, type: "module", name: "y.ts", createdAt: now },
+    ]);
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(), projectId, sourceId: xId, targetId: yId,
+      relation: "imports", confidence: 0.9, sourceType: "typescript-ast",
+      evidenceJson: [{ file: "x.ts", line: 5, kind: "import-statement" }],
+      evidenceCount: 1, createdAt: now,
+    });
+
+    const res = await request(app)
+      .get("/api/graph/path")
+      .query({ fromId: xId, toId: yId, minConfidence: "0.8" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.found).toBe(true);
+    expect(res.body.minConfidenceApplied).toBe(0.8);
+    // Root step
+    expect(res.body.path[0].confidence).toBeNull();
+    // Hop step: carries real confidence and evidence
+    expect(res.body.path[1].confidence).toBe(0.9);
+    expect(res.body.path[1].edgeSourceType).toBe("typescript-ast");
+    expect(Array.isArray(res.body.path[1].evidence)).toBe(true);
+    expect(res.body.path[1].evidence[0].kind).toBe("import-statement");
+    expect(res.body.path[1].provenanceSummary.sourceType).toBe("typescript-ast");
+    expect(res.body.path[1].provenanceSummary.evidenceCount).toBe(1);
+  });
+});
+
+// ─── Ownership isolation ───────────────────────────────────────────────────────
+
+describe("Ownership isolation — graph", () => {
+  const isolationCleanup: string[] = [];
+
+  afterEach(async () => {
+    while (isolationCleanup.length > 0) {
+      const id = isolationCleanup.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  async function insertOtherUserProject(): Promise<string> {
+    const id = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id,
+      ownerId: "other-user",
+      name: `other-user-project-${id.slice(0, 8)}`,
+      rootPath: "/tmp/other-user-graph",
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    return id;
+  }
+
+  it("GET /graph/entities returns 403 when projectId belongs to another user", async () => {
+    const otherProjectId = await insertOtherUserProject();
+    isolationCleanup.push(otherProjectId);
+
+    const res = await request(app).get("/api/graph/entities").query({ projectId: otherProjectId });
+    expect(res.status).toBe(403);
+  });
+
+  it("GET /graph/summary/:projectId returns 403 when projectId belongs to another user", async () => {
+    const otherProjectId = await insertOtherUserProject();
+    isolationCleanup.push(otherProjectId);
+
+    const res = await request(app).get(`/api/graph/summary/${otherProjectId}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("GET /graph/entities/:entityId/neighbors returns 403 when entity belongs to another user's project", async () => {
+    const otherProjectId = await insertOtherUserProject();
+    isolationCleanup.push(otherProjectId);
+
+    const entityId = randomUUID();
+    await db.insert(graphEntitiesTable).values({
+      id: entityId,
+      projectId: otherProjectId,
+      type: "module",
+      name: "hidden.ts",
+      createdAt: new Date(),
+    });
+
+    const res = await request(app).get(`/api/graph/entities/${entityId}/neighbors`);
+    expect(res.status).toBe(403);
+  });
+});
+
+// ─── KG-07: regression — filter propagation through routes ───────────────────
+
+describe("GET /api/graph/subgraph — KG-01/04 filter propagation (sourceType)", () => {
+  const cleanupQueue: string[] = [];
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("sourceType filter is not dropped silently — only matching edges returned", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const a = randomUUID(), b = randomUUID(), c = randomUUID();
+    const now = new Date();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: a, projectId, type: "module", name: "a.ts", createdAt: now },
+      { id: b, projectId, type: "module", name: "b.ts", createdAt: now },
+      { id: c, projectId, type: "module", name: "c.ts", createdAt: now },
+    ]);
+    // typescript-ast edge (should pass filter)
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(), projectId, sourceId: a, targetId: b,
+      relation: "imports", isHeuristic: false, isRuntimeObserved: false,
+      sourceType: "typescript-ast", createdAt: now,
+    });
+    // regex-fallback edge (should be excluded)
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(), projectId, sourceId: a, targetId: c,
+      relation: "imports", isHeuristic: true, isRuntimeObserved: false,
+      sourceType: "regex-fallback", createdAt: now,
+    });
+
+    const res = await request(app)
+      .get("/api/graph/subgraph")
+      .query({ projectId, sourceType: "typescript-ast" });
+
+    expect(res.status).toBe(200);
+    // Only the typescript-ast edge should be present
+    for (const r of res.body.relationships) {
+      expect(r.sourceType).toBe("typescript-ast");
+    }
+    // sourceType should be reflected in filters object
+    expect(res.body.filters.sourceTypes).toContain("typescript-ast");
+  });
+
+  it("observedOnly filter returns only runtime-observed edges", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const a = randomUUID(), b = randomUUID(), c = randomUUID();
+    const now = new Date();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: a, projectId, type: "module", name: "a.ts", createdAt: now },
+      { id: b, projectId, type: "module", name: "b.ts", createdAt: now },
+      { id: c, projectId, type: "module", name: "c.ts", createdAt: now },
+    ]);
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(), projectId, sourceId: a, targetId: b,
+      relation: "imports", isHeuristic: false, isRuntimeObserved: true, createdAt: now,
+    });
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(), projectId, sourceId: a, targetId: c,
+      relation: "imports", isHeuristic: false, isRuntimeObserved: false, createdAt: now,
+    });
+
+    const res = await request(app)
+      .get("/api/graph/subgraph")
+      .query({ projectId, observedOnly: "true" });
+
+    expect(res.status).toBe(200);
+    for (const r of res.body.relationships) {
+      expect(r.isRuntimeObserved).toBe(true);
+    }
+    expect(res.body.filters.observedOnly).toBe(true);
+  });
+
+  it("subgraph response includes meta.truncated field (KG-05)", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+
+    const res = await request(app)
+      .get("/api/graph/subgraph")
+      .query({ projectId });
+
+    expect(res.status).toBe(200);
+    expect(res.body.meta).toBeDefined();
+    expect(typeof res.body.meta.truncated).toBe("boolean");
+  });
+});
+
+describe("GET /api/graph/semantic-neighborhood — KG-01/04 filter propagation", () => {
+  const cleanupQueue: string[] = [];
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("sourceType filter is not dropped silently — only matching edges traversed", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const a = randomUUID(), b = randomUUID(), c = randomUUID();
+    const now = new Date();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: a, projectId, type: "module", name: "a.ts", createdAt: now },
+      { id: b, projectId, type: "module", name: "b.ts", createdAt: now },
+      { id: c, projectId, type: "module", name: "c.ts", createdAt: now },
+    ]);
+    // typescript-ast edge A→B (should be traversed)
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(), projectId, sourceId: a, targetId: b,
+      relation: "imports", isHeuristic: false, isRuntimeObserved: false,
+      sourceType: "typescript-ast", createdAt: now,
+    });
+    // regex-fallback edge A→C (should be excluded by sourceType filter)
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(), projectId, sourceId: a, targetId: c,
+      relation: "imports", isHeuristic: true, isRuntimeObserved: false,
+      sourceType: "regex-fallback", createdAt: now,
+    });
+
+    const res = await request(app)
+      .get("/api/graph/semantic-neighborhood")
+      .query({ entityId: a, depth: 1, sourceType: "typescript-ast" });
+
+    expect(res.status).toBe(200);
+    const neighborIds = res.body.entities.map((e: { id: string }) => e.id);
+    expect(neighborIds).toContain(b);
+    expect(neighborIds).not.toContain(c);
+  });
+
+  it("response includes meta.effectiveDepth and meta.depthCapped (KG-05)", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const { a } = await (async () => {
+      const aId = randomUUID();
+      await db.insert(graphEntitiesTable).values({
+        id: aId, projectId, type: "module", name: "a.ts", createdAt: new Date(),
+      });
+      return { a: aId };
+    })();
+
+    // depth=2 (below cap): depthCapped should be false
+    const res = await request(app)
+      .get("/api/graph/semantic-neighborhood")
+      .query({ entityId: a, depth: 2 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.meta).toBeDefined();
+    expect(res.body.meta.effectiveDepth).toBe(2);
+    expect(res.body.meta.depthCapped).toBe(false);
+    expect(res.body.meta.maxDepth).toBe(4);
+  });
+
+  it("depthCapped is true when requested depth exceeds cap of 4", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const aId = randomUUID();
+    await db.insert(graphEntitiesTable).values({
+      id: aId, projectId, type: "module", name: "a.ts", createdAt: new Date(),
+    });
+
+    const res = await request(app)
+      .get("/api/graph/semantic-neighborhood")
+      .query({ entityId: aId, depth: 10 });
+
+    expect(res.status).toBe(200);
+    expect(res.body.meta.effectiveDepth).toBe(4);
+    expect(res.body.meta.depthCapped).toBe(true);
+  });
+});
+
+// ─── KG-07: regression — summary layered field (KG-03) ───────────────────────
+
+describe("GET /api/graph/summary/:projectId — KG-03 layered field", () => {
+  const cleanupQueue: string[] = [];
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("response includes layered field with byLayer, byEdgeType, avgConfidenceOverall", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+
+    const res = await request(app).get(`/api/graph/summary/${projectId}`);
+    expect(res.status).toBe(200);
+
+    expect(res.body.layered).toBeDefined();
+    expect(res.body.layered.byLayer).toBeDefined();
+    expect(res.body.layered.byLayer.structural).toBeDefined();
+    expect(res.body.layered.byLayer.heuristic).toBeDefined();
+    expect(res.body.layered.byLayer.runtime).toBeDefined();
+    expect(typeof res.body.layered.byLayer.structural.entityCount).toBe("number");
+    expect(typeof res.body.layered.byLayer.structural.relationshipCount).toBe("number");
+    expect(typeof res.body.layered.byLayer.structural.avgConfidence).toBe("number");
+    expect(typeof res.body.layered.avgConfidenceOverall).toBe("number");
+    expect(typeof res.body.layered.documentedEntityCount).toBe("number");
+    expect(typeof res.body.layered.undocumentedEntityCount).toBe("number");
+  });
+
+  it("runtime.entityCount in layered reflects entities from runtime edges (KG-06)", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const now = new Date();
+    const aId = randomUUID(), bId = randomUUID();
+
+    await db.insert(graphEntitiesTable).values([
+      { id: aId, projectId, type: "module", name: "a.ts", createdAt: now },
+      { id: bId, projectId, type: "module", name: "b.ts", createdAt: now },
+    ]);
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(), projectId, sourceId: aId, targetId: bId,
+      relation: "calls", isHeuristic: false, isRuntimeObserved: true, createdAt: now,
+    });
+
+    const res = await request(app).get(`/api/graph/summary/${projectId}`);
+    expect(res.status).toBe(200);
+    // a and b both appear in the runtime edge → entityCount = 2
+    expect(res.body.layered.byLayer.runtime.entityCount).toBe(2);
+    expect(res.body.layered.byLayer.runtime.relationshipCount).toBe(1);
+  });
+});
+
+// ─── KG-07: regression — GraphProvenance contract (KG-02) ────────────────────
+
+describe("GET /api/graph/evidence/:entityId — KG-02 provenance contract", () => {
+  const cleanupQueue: string[] = [];
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("entity provenance uses sourceType not extractor", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const now = new Date();
+    const srcId = randomUUID(), tgtId = randomUUID();
+
+    await db.insert(graphEntitiesTable).values([
+      {
+        id: srcId, projectId, type: "module", name: "src.ts", createdAt: now,
+        provenance: {
+          sourceType: "typescript-ast",
+          method: "ts-compiler-api",
+          extractedAt: now.toISOString(),
+        },
+      },
+      { id: tgtId, projectId, type: "module", name: "tgt.ts", createdAt: now },
+    ]);
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(), projectId, sourceId: srcId, targetId: tgtId,
+      relation: "imports",
+      confidence: 0.9, sourceType: "typescript-ast",
+      isHeuristic: false, isRuntimeObserved: false,
+      evidenceJson: [{ file: "src.ts", line: 1, kind: "import-statement" }],
+      evidenceCount: 1, createdAt: now,
+    });
+
+    const res = await request(app).get(`/api/graph/evidence/${srcId}`);
+    expect(res.status).toBe(200);
+
+    // KG-02: provenance must use sourceType, not extractor
+    const prov = res.body.entityProvenance as Record<string, unknown> | null;
+    expect(prov).not.toBeNull();
+    expect(prov!.sourceType).toBe("typescript-ast");
+    expect("extractor" in (prov ?? {})).toBe(false);
+
+    // KG-02: relationship's provenanceSummary also uses sourceType
+    expect(res.body.evidence[0].provenanceSummary.sourceType).toBe("typescript-ast");
+  });
+});
+
+// ─── KG-07: regression — impact + path depth limit metadata (KG-05) ──────────
+
+describe("GET /api/graph/impact — KG-05 depthLimit metadata", () => {
+  const cleanupQueue: string[] = [];
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("response includes meta.depthLimit = 6", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const { a } = await (async () => {
+      const aId = randomUUID();
+      await db.insert(graphEntitiesTable).values({
+        id: aId, projectId, type: "module", name: "a.ts", createdAt: new Date(),
+      });
+      return { a: aId };
+    })();
+
+    const res = await request(app).get("/api/graph/impact").query({ entityId: a });
+    expect(res.status).toBe(200);
+    expect(res.body.meta).toBeDefined();
+    expect(res.body.meta.depthLimit).toBe(6);
+  });
+});
+
+describe("GET /api/graph/path — KG-05 depthLimit metadata", () => {
+  const cleanupQueue: string[] = [];
+  afterEach(async () => {
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("found path response includes meta.depthLimit = 8", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const { a, b } = await seedTriangle(projectId);
+
+    const res = await request(app).get("/api/graph/path").query({ fromId: a, toId: b });
+    expect(res.status).toBe(200);
+    expect(res.body.found).toBe(true);
+    expect(res.body.meta).toBeDefined();
+    expect(res.body.meta.depthLimit).toBe(8);
+  });
+
+  it("not-found path response also includes meta.depthLimit = 8", async () => {
+    const projectId = await insertProject();
+    cleanupQueue.push(projectId);
+    const { b, c } = await seedTriangle(projectId);
+
+    const res = await request(app).get("/api/graph/path").query({ fromId: b, toId: c });
+    expect(res.status).toBe(200);
+    expect(res.body.found).toBe(false);
+    expect(res.body.meta.depthLimit).toBe(8);
+  });
+});

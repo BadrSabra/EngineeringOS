@@ -1,0 +1,821 @@
+/**
+ * Task 53 — server-side proof
+ *
+ * Integration test for the `onStep` closure inside the
+ * `POST /api/ai/chat/stream` route in `artifacts/api-server/src/routes/ai/chat.ts`.
+ *
+ * Strategy:
+ *   - Mock `chatWithFallback` (via `../../lib/ai-route-helpers.js`) so that it
+ *     immediately calls the `onStep` callback it receives with a
+ *     `forensic_status` AgentStep.
+ *   - Hit the actual Express route via supertest.
+ *   - Assert that the SSE response contains the expected `forensic_status`
+ *     event written by the real `onStep` closure in chat.ts.
+ *
+ * If the `forensic_status` branch in `onStep` is deleted or broken, the event
+ * will be absent from the SSE stream and these tests will fail — proving
+ * end-to-end coverage of the actual route code.
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import request from "supertest";
+import { z } from "zod";
+import {
+  RepairPlanMetadataSchema,
+  type AgentStep,
+  type EvidenceReference,
+} from "@workspace/ai-orchestrator";
+
+// Task #59: capture the exact serialized values written to the assistant
+// message's `tool_trace` and `repair_plan_metadata` columns, so a scoped-run
+// test can parse them back and prove verdictScope/scopedFindingStatus survive.
+const chatCapture = vi.hoisted(() => ({
+  assistantToolTrace: null as string | null,
+  assistantRepairPlanMetadata: null as string | null,
+}));
+
+// ── Mocks — hoisted before any import ────────────────────────────────────────
+// vi.mock() calls are hoisted to the top of the file by vitest, so they run
+// before the dynamic `import app` call even though they appear after it here.
+
+vi.mock("@workspace/db", () => {
+  const now = new Date("2026-01-01T00:00:00.000Z");
+  const MOCK_SESSION = {
+    id: "test-session-id",
+    projectId: "test-project-id",
+    title: "Test session",
+    linkedTaskId: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const MOCK_MSG = {
+    id: "test-msg-id",
+    sessionId: "test-session-id",
+    role: "assistant",
+    content: "Test response",
+    sources: "[]",
+    toolTrace: null,
+    repairPlanMetadata: null,
+    createdAt: now,
+  };
+  const MOCK_EXECUTION = {
+    id: "test-execution-id",
+    projectId: "test-project-id",
+    sessionId: "test-session-id",
+    linkedTaskId: null,
+    buildPlanMessageId: null,
+    userId: "test-user",
+    idempotencyKey: "test-idempotency-key",
+    resumeTokenHash: "test-token-hash",
+    request: JSON.stringify({
+      projectId: "test-project-id",
+      sessionId: "test-session-id",
+      message: "test",
+      modelMessage: "test",
+      validationTargetPaths: [],
+    }),
+    checkpoint: "{}",
+    checkpointVersion: 0,
+    status: "queued",
+    workerId: "test-worker",
+    leaseUntil: now,
+    lastHeartbeatAt: now,
+    cancelRequestedAt: null,
+    error: null,
+    finalMessageId: null,
+    proposalId: null,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: now,
+    completedAt: null,
+  };
+
+  /**
+   * Returns an object that is:
+   *   - directly awaitable (thenable) → resolves to `rows` (for inserts without .returning())
+   *   - has a .returning() method → resolves to `rows` (for inserts with .returning())
+   */
+  function insertResult(rows: unknown[]) {
+    return {
+      then: (resolve: (v: unknown) => void, reject?: (e: unknown) => void) =>
+        Promise.resolve(rows).then(resolve, reject),
+      returning: () => Promise.resolve(rows),
+    };
+  }
+
+  let txInsertIdx = 0;
+  const updateResult = () => {
+    const promise = Promise.resolve();
+    return Object.assign(promise, {
+      returning: () => Promise.resolve([MOCK_EXECUTION]),
+    });
+  };
+
+  return {
+    db: {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: () => Promise.resolve([]),
+            orderBy: () => ({ limit: () => Promise.resolve([]) }),
+          }),
+        }),
+      }),
+      insert: () => ({
+        values: (vals?: Record<string, unknown>) =>
+          insertResult(vals && "idempotencyKey" in vals ? [MOCK_EXECUTION] : [MOCK_SESSION]),
+      }),
+      update: () => ({
+        set: () => ({
+          where: () => updateResult(),
+        }),
+      }),
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+        txInsertIdx = 0;
+        const tx = {
+          insert: () => ({
+            values: (vals?: Record<string, unknown>) => {
+              // 0 = user message (awaited directly, return value ignored)
+              // 1 = assistant message (.returning() is called)
+              const idx = txInsertIdx++;
+              // Task #59: capture the exact serialized DB columns written for
+              // the assistant message so the scoped-verdict tests can parse
+              // them back (tool_trace + repair_plan_metadata).
+              if (idx === 1) {
+                chatCapture.assistantToolTrace =
+                  (vals?.toolTrace as string | null | undefined) ?? null;
+                chatCapture.assistantRepairPlanMetadata =
+                  (vals?.repairPlanMetadata as string | null | undefined) ?? null;
+              }
+              return insertResult(idx === 1 ? [MOCK_MSG] : []);
+            },
+          }),
+          update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+        };
+        return fn(tx);
+      },
+    },
+    // Drizzle table references — used as opaque args to the mocked db methods,
+    // which ignore them.  Give each a unique marker so vi's call logs are clear.
+    aiChatSessionsTable:   { _tag: "aiChatSessionsTable" },
+    aiChatMessagesTable:   { _tag: "aiChatMessagesTable" },
+    aiChangeProposalsTable: { _tag: "aiChangeProposalsTable" },
+    auditLogsTable:        { _tag: "auditLogsTable" },
+    eventsTable:           { _tag: "eventsTable" },
+    tasksTable:            { _tag: "tasksTable" },
+    aiExecutionsTable:     { _tag: "aiExecutionsTable" },
+    // drizzle-orm re-exports from @workspace/db — return no-ops so they never
+    // throw when called with our mock table objects.
+    eq:      () => ({}),
+    desc:    () => ({}),
+    and:     () => ({}),
+    inArray: () => ({}),
+  };
+});
+
+// Override only the functions we need to control; keep everything else real
+// (classifyRequest, isImmediateExecutionRequest, GroqClientError, etc.).
+vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    buildProjectContext:       vi.fn().mockResolvedValue({ tasks: [], metrics: [] }),
+    invalidateContextCache:    vi.fn(),
+    enrichContextWithMemories: vi.fn().mockResolvedValue(undefined),
+    writeSessionMemories:      vi.fn().mockResolvedValue(undefined),
+    recordRequest:             vi.fn(),
+    recordFailure:             vi.fn(),
+    recordSuccess:             vi.fn(),
+    recordInvalidModel:        vi.fn(),
+    recordLatency:             vi.fn(),
+    recordFallbackSuccess:     vi.fn(),
+  };
+});
+
+vi.mock("../../lib/ai-route-helpers.js", () => ({
+  requireProvider:        vi.fn(),
+  chatWithFallback:       vi.fn(),
+  handleOrchestratorError: vi.fn().mockReturnValue(false),
+  requestLooksToolBound:  vi.fn().mockReturnValue(false),
+}));
+
+vi.mock("../../middlewares/requireProjectAccess.js", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    // Override the DB-hitting helper so tests never touch a real database.
+    loadProjectByIdForUser: vi.fn(),
+  };
+});
+
+vi.mock("../../lib/db-rate-limiter.js", () => ({
+  checkProjectRateLimitDb: vi.fn().mockResolvedValue({ allowed: true }),
+  LLM_RATE_LIMIT: 30,
+}));
+
+vi.mock("../../lib/rootpath-validator.js", () => ({
+  resolveRootPath: vi.fn().mockResolvedValue({
+    validRootPath: null,
+    fallbackUsed: false,
+    originalPath: null,
+  }),
+}));
+
+vi.mock("../../lib/advisory-lock.js", () => ({
+  tryAdvisoryLock: vi.fn().mockResolvedValue({
+    acquired: true,
+    release: vi.fn().mockResolvedValue(undefined),
+  }),
+  LockNamespace: { APPLY: "apply" },
+}));
+
+// ── Imports — after mocks so mocked modules are resolved first ────────────────
+// (vitest hoists vi.mock() above all static imports automatically, but dynamic
+// imports still need to come after the vi.mock calls in source order.)
+import app from "../../app.js";
+import { chatWithFallback, requireProvider } from "../../lib/ai-route-helpers.js";
+import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+
+// ── Fixtures ──────────────────────────────────────────────────────────────────
+
+const FAKE_PROJECT = {
+  id: "test-project-id",
+  name: "Test Project",
+  rootPath: "/tmp/test-project",
+  ownerId: "test-user",
+  status: "active",
+  language: "typescript",
+};
+
+/** Forensic status step with isFixtureLocal:true — the one under test. */
+const FIXTURE_LOCAL_STEP: Extract<AgentStep, { kind: "forensic_status" }> = {
+  kind: "forensic_status",
+  auditScope: "FIXTURE_LOCAL",
+  isFixtureLocal: true,
+  sourceCoverage: "COMPLETE",
+  behavioralAssessment: "COMPLETE",
+  findingStatus: "PROVEN",
+  repairReadiness: "BLOCKED",
+  productionReachability: "NOT_PROVEN",
+  implementationFiles: 1,
+  contextFiles: 0,
+  generatedFiles: 0,
+};
+
+/** Forensic status step without isFixtureLocal (production audit). */
+const PRODUCTION_STEP: Extract<AgentStep, { kind: "forensic_status" }> = {
+  kind: "forensic_status",
+  auditScope: "PRODUCTION",
+  sourceCoverage: "COMPLETE",
+  behavioralAssessment: "COMPLETE",
+  findingStatus: "PROVEN",
+  repairReadiness: "READY",
+  productionReachability: "NOT_PROVEN",
+  implementationFiles: 2,
+  contextFiles: 1,
+  generatedFiles: 0,
+};
+
+const CROSS_FILE_STEP: Extract<AgentStep, { kind: "cross_file_trace" }> = {
+  kind: "cross_file_trace",
+  trace: {
+    status: "PROVEN",
+    maxDepth: 1,
+    nodes: [
+      { id: "file-chat", name: "chat.ts", path: "src/chat.ts", stage: "OTHER" },
+      { id: "on-step", name: "onStep", path: "src/chat.ts", stage: "OTHER" },
+    ],
+    edges: [{
+      from: "file-chat",
+      to: "on-step",
+      relation: "contains",
+      status: "PROVEN",
+      source: "src/chat.ts",
+      evidence: "src/chat.ts:932:11 — function onStep(step) {",
+      sourceSpan: {
+        file: "src/chat.ts",
+        line: 932,
+        column: 11,
+        snippet: "function onStep(step) {",
+      },
+      runtimeObserved: false,
+    }],
+  },
+};
+
+/** Standard chatWithFallback return value — no pending changes so no proposal. */
+const MOCK_CHAT_RESULT = {
+  result: {
+    response: "Audit complete.",
+    sources: [] as string[],
+    pendingChanges: [] as unknown[],
+    repairPlan: undefined,
+    resolvedModel: { id: "test-model", provider: "openai", free: false },
+    _parseError: undefined,
+  },
+  effectiveProvider: "openai",
+};
+
+/**
+ * Accepted behavior-evidence with exact line spans. Mirrors what the
+ * orchestrator returns so the SSE route must forward it verbatim as a parsed
+ * array (never a serialized string), preserving each sourceSpan.
+ */
+const BEHAVIOR_EVIDENCE_STEP_RESULT = {
+  result: {
+    ...MOCK_CHAT_RESULT.result,
+    behaviorEvidence: [
+      {
+        source: "src/loop.ts",
+        excerpt: "const result = await chat(...)",
+        sourceSpan: { startLine: 1396, endLine: 1426 },
+        supportsClaim: true,
+        evidenceClass: "BEHAVIOR_PROVEN",
+      },
+      {
+        source: "src/config/app.ts",
+        excerpt: "const LIMIT = 5",
+        sourceSpan: { startLine: 12, endLine: 12 },
+        supportsClaim: true,
+        evidenceClass: "READ_CONFIRMED",
+      },
+    ] as EvidenceReference[],
+  },
+  effectiveProvider: "openai",
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Parse all SSE events from a text/event-stream response body. */
+function parseSseFrames(text: string): unknown[] {
+  return text
+    .split("\n\n")
+    .filter(Boolean)
+    .flatMap((chunk) => {
+      const dataLine = chunk.split("\n").find((l) => l.startsWith("data: "));
+      if (!dataLine) return [];
+      try {
+        return [JSON.parse(dataLine.slice("data: ".length))];
+      } catch {
+        return [];
+      }
+    });
+}
+
+/** Decision trace step — proves the task router reached the client. */
+const DECISION_TRACE_STEP: Extract<AgentStep, { kind: "decision_trace" }> = {
+  kind: "decision_trace",
+  trace: {
+    taskType: "BEHAVIOR_QUERY",
+    allowedFiles: ["src/a.ts"],
+    filesRead: ["src/a.ts"],
+    evidenceSelected: 1,
+    claim: "claim",
+    validator: "behavior-answer",
+    rejectionReason: [],
+    recoveryAttempt: 0,
+    finalState: "VERIFIED",
+  },
+};
+
+/** Fixture-local verdict trace — carries the proof scope fields under test. */
+const FIXTURE_VERDICT_STEP: Extract<AgentStep, { kind: "decision_trace" }> = {
+  kind: "decision_trace",
+  trace: {
+    taskType: "FINDING",
+    allowedFiles: ["test/fixture.ts"],
+    filesRead: ["test/fixture.ts"],
+    evidenceSelected: 1,
+    claim: "claim",
+    validator: "finding",
+    rejectionReason: [],
+    recoveryAttempt: 0,
+    finalState: "VERIFIED",
+    verdictScope: "FIXTURE_LOCAL",
+    scopedFindingStatus: "FIXTURE_PROVEN",
+  },
+};
+
+// ── Test setup ────────────────────────────────────────────────────────────────
+
+beforeEach(() => {
+  // Return the fake project for any project lookup in the stream route.
+  vi.mocked(loadProjectByIdForUser).mockResolvedValue(FAKE_PROJECT as never);
+  vi.mocked(requireProvider).mockResolvedValue({ provider: "openai" as never, apiKey: "test-key" });
+  // Task #59: reset the captured persisted columns between tests.
+  chatCapture.assistantToolTrace = null;
+  chatCapture.assistantRepairPlanMetadata = null;
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration)", () => {
+  it("emits a forensic_status SSE event when chatWithFallback calls onStep with an isFixtureLocal:true step", async () => {
+    // Arrange: mock chatWithFallback to call the real onStep closure with a
+    // fixture-local forensic_status step.  The real onStep in chat.ts will then
+    // call sse({ type: 'forensic_status', auditScope, isFixtureLocal }).
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+        (onStep as ((s: AgentStep) => void) | undefined)?.(FIXTURE_LOCAL_STEP);
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    // Act: hit the actual stream route.
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "audit this codebase" });
+
+    // Assert: the route returned a valid SSE response.
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/event-stream/);
+
+    // Assert: exactly one forensic_status frame is present.
+    const frames = parseSseFrames(res.text);
+    const forensicFrames = frames.filter(
+      (f): f is Record<string, unknown> =>
+        typeof f === "object" && f !== null && (f as Record<string, unknown>).type === "forensic_status",
+    );
+    expect(forensicFrames).toHaveLength(1);
+  });
+
+  it("forensic_status event carries isFixtureLocal:true when the step has it", async () => {
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+        (onStep as ((s: AgentStep) => void) | undefined)?.(FIXTURE_LOCAL_STEP);
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "audit this codebase" });
+
+    const frames = parseSseFrames(res.text);
+    const forensicFrame = frames.find(
+      (f): f is Record<string, unknown> =>
+        typeof f === "object" && f !== null && (f as Record<string, unknown>).type === "forensic_status",
+    );
+
+    expect(forensicFrame).toBeDefined();
+    expect(forensicFrame!.isFixtureLocal).toBe(true);
+    expect(forensicFrame!.auditScope).toBe("FIXTURE_LOCAL");
+  });
+
+  it("isFixtureLocal is absent from the forensic_status event when the step has a production scope", async () => {
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+        (onStep as ((s: AgentStep) => void) | undefined)?.(PRODUCTION_STEP);
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "audit this codebase" });
+
+    const frames = parseSseFrames(res.text);
+    const forensicFrame = frames.find(
+      (f): f is Record<string, unknown> =>
+        typeof f === "object" && f !== null && (f as Record<string, unknown>).type === "forensic_status",
+    );
+
+    expect(forensicFrame).toBeDefined();
+    expect(forensicFrame!.auditScope).toBe("PRODUCTION");
+    // JSON.stringify drops undefined — key must be absent in the wire frame.
+    expect(forensicFrame).not.toHaveProperty("isFixtureLocal");
+  });
+
+  it("forensic_status event arrives before the done event in the SSE stream", async () => {
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+        (onStep as ((s: AgentStep) => void) | undefined)?.(FIXTURE_LOCAL_STEP);
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "audit this codebase" });
+
+    const frames = parseSseFrames(res.text);
+    const types = frames.map((f) =>
+      typeof f === "object" && f !== null ? (f as Record<string, unknown>).type : null,
+    );
+
+    const forensicIdx = types.indexOf("forensic_status");
+    const doneIdx     = types.indexOf("done");
+
+    expect(forensicIdx).toBeGreaterThanOrEqual(0);
+    expect(doneIdx).toBeGreaterThanOrEqual(0);
+    expect(forensicIdx).toBeLessThan(doneIdx);
+  });
+
+  it("the done event is still emitted after the forensic_status event", async () => {
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+        (onStep as ((s: AgentStep) => void) | undefined)?.(FIXTURE_LOCAL_STEP);
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "audit this codebase" });
+
+    const frames = parseSseFrames(res.text);
+    const doneFrame = frames.find(
+      (f): f is Record<string, unknown> =>
+        typeof f === "object" && f !== null && (f as Record<string, unknown>).type === "done",
+    );
+
+    expect(doneFrame).toBeDefined();
+  });
+
+  it("emits a cross_file_trace event with its exact source span", async () => {
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+        (onStep as ((s: AgentStep) => void) | undefined)?.(CROSS_FILE_STEP);
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "inspect chat.ts" });
+
+    const frames = parseSseFrames(res.text);
+    const traceFrame = frames.find(
+      (f): f is Record<string, unknown> =>
+        typeof f === "object" && f !== null && (f as Record<string, unknown>).type === "cross_file_trace",
+    );
+
+    expect(traceFrame).toMatchObject({
+      type: "cross_file_trace",
+      status: "PROVEN",
+      edges: [{
+        sourceSpan: {
+          file: "src/chat.ts",
+          line: 932,
+          column: 11,
+        },
+      }],
+    });
+  });
+
+  it("emits a decision_trace event proving the task router reached the client", async () => {
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+        (onStep as ((s: AgentStep) => void) | undefined)?.(DECISION_TRACE_STEP);
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "how does maxIterations behave?" });
+
+    const frames = parseSseFrames(res.text);
+    const decisionFrame = frames.find(
+      (f): f is Record<string, unknown> =>
+        typeof f === "object" && f !== null && (f as Record<string, unknown>).type === "decision_trace",
+    );
+
+    expect(decisionFrame).toMatchObject({
+      type: "decision_trace",
+      taskType: "BEHAVIOR_QUERY",
+      finalState: "VERIFIED",
+      validator: "behavior-answer",
+    });
+    expect(decisionFrame).toHaveProperty("evidenceSelected", 1);
+  });
+
+  it("forwards verdictScope + scopedFindingStatus when the decision_trace step has them", async () => {
+    // Task #58: a fixture-local verdict's proof scope must be visible live in
+    // the audit panel — the SSE decision_trace event carries the fields the
+    // persisted trace stores.
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+        (onStep as ((s: AgentStep) => void) | undefined)?.(FIXTURE_VERDICT_STEP);
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "audit the fixture" });
+
+    const frames = parseSseFrames(res.text);
+    const decisionFrame = frames.find(
+      (f): f is Record<string, unknown> =>
+        typeof f === "object" && f !== null && (f as Record<string, unknown>).type === "decision_trace",
+    );
+
+    expect(decisionFrame).toMatchObject({
+      type: "decision_trace",
+      taskType: "FINDING",
+      finalState: "VERIFIED",
+    });
+    expect(decisionFrame!.verdictScope).toBe("FIXTURE_LOCAL");
+    expect(decisionFrame!.scopedFindingStatus).toBe("FIXTURE_PROVEN");
+  });
+
+  it("omits verdictScope + scopedFindingStatus when the step has none", async () => {
+    // A step without a proof scope must not invent one on the wire.
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+        (onStep as ((s: AgentStep) => void) | undefined)?.(DECISION_TRACE_STEP);
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "how does maxIterations behave?" });
+
+    const frames = parseSseFrames(res.text);
+    const decisionFrame = frames.find(
+      (f): f is Record<string, unknown> =>
+        typeof f === "object" && f !== null && (f as Record<string, unknown>).type === "decision_trace",
+    );
+
+    expect(decisionFrame).toMatchObject({ type: "decision_trace" });
+    expect(decisionFrame).not.toHaveProperty("verdictScope");
+    expect(decisionFrame).not.toHaveProperty("scopedFindingStatus");
+  });
+
+  it("done event forwards behaviorEvidence as a parsed array with exact source spans", async () => {
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, _onStep) =>
+        BEHAVIOR_EVIDENCE_STEP_RESULT,
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "how does maxIterations behave?" });
+
+    const frames = parseSseFrames(res.text);
+    const doneFrame = frames.find(
+      (f): f is Record<string, unknown> =>
+        typeof f === "object" && f !== null && (f as Record<string, unknown>).type === "done",
+    );
+
+    expect(doneFrame).toBeDefined();
+    // The wire frame carries a parsed array — never a JSON-encoded string.
+    const rawEvidence = doneFrame!.behaviorEvidence;
+    expect(Array.isArray(rawEvidence)).toBe(true);
+    const evidence = rawEvidence as Array<Record<string, unknown>>;
+    expect(evidence).toHaveLength(2);
+    expect(evidence[0]).toMatchObject({
+      source: "src/loop.ts",
+      excerpt: "const result = await chat(...)",
+      supportsClaim: true,
+      evidenceClass: "BEHAVIOR_PROVEN",
+      sourceSpan: { startLine: 1396, endLine: 1426 },
+    });
+    expect(evidence[1].sourceSpan).toEqual({ startLine: 12, endLine: 12 });
+  });
+});
+
+// ── Task #59 — scoped verdict survives serialization into persisted columns ──
+//
+// The dashboard re-hydrates the audit panel's proof scope from the stored
+// assistant message, so a scoped run must persist verdictScope/scopedFindingStatus
+// into BOTH the tool_trace column (via serializeToolTrace's decision_trace case)
+// and the repair_plan_metadata column (via serializeRepairPlanMetadata), and those
+// values must survive a JSON round-trip back through parseRepairPlanMetadata. If a
+// future refactor drops the scope at serialization time, these tests fail rather
+// than degrading silently.
+
+describe("POST /api/ai/chat/stream — scoped verdict persists into tool_trace/repair_plan_metadata", () => {
+  /** Standard result carrying a scoped RepairPlanMetadata phase. */
+  const SCOPED_REPAIR_RESULT = {
+    result: {
+      response: "Audit complete.",
+      sources: [] as string[],
+      pendingChanges: [] as unknown[],
+      repairPlan: [{
+        findingId: "F-1",
+        files: ["test/fixture.ts"],
+        steps: ["Verify the fixture-local verdict scope survives persistence."],
+        validationProfile: "api-ai-tests",
+        verdictScope: "FIXTURE_LOCAL",
+        scopedFindingStatus: "FIXTURE_PROVEN",
+      }],
+      resolvedModel: { id: "test-model", provider: "openai", free: false },
+      _parseError: undefined,
+    },
+    effectiveProvider: "openai",
+  };
+
+  it("persists verdictScope + scopedFindingStatus into tool_trace for a scoped decision_trace step", async () => {
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+        (onStep as ((s: AgentStep) => void) | undefined)?.(FIXTURE_VERDICT_STEP);
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "audit the fixture" });
+
+    expect(res.status).toBe(200);
+    // A step was collected, so a non-null tool_trace column must have been written.
+    expect(chatCapture.assistantToolTrace).not.toBeNull();
+
+    const trace = JSON.parse(chatCapture.assistantToolTrace!) as Array<Record<string, unknown>>;
+    const decision = trace.find((entry) => entry.kind === "decision_trace");
+    expect(decision).toBeDefined();
+    expect(decision!.verdictScope).toBe("FIXTURE_LOCAL");
+    expect(decision!.scopedFindingStatus).toBe("FIXTURE_PROVEN");
+  });
+
+  it("persists verdictScope + scopedFindingStatus into repair_plan_metadata for a scoped scenario", async () => {
+    // Drive a run whose result carries a scoped RepairPlanMetadata phase; the
+    // route serializes result.repairPlan into the repair_plan_metadata column.
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async () => SCOPED_REPAIR_RESULT,
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "propose a scoped repair plan" });
+
+    expect(res.status).toBe(200);
+    expect(chatCapture.assistantRepairPlanMetadata).not.toBeNull();
+
+    // Round-trip the persisted column back through the same schema the route's
+    // parseRepairPlanMetadata uses; the scope must survive parse, not be lost.
+    const parsed = JSON.parse(chatCapture.assistantRepairPlanMetadata!) as unknown;
+    const result = z.array(RepairPlanMetadataSchema).max(12).safeParse(parsed);
+    expect(result.success).toBe(true);
+    expect(result.data![0]).toMatchObject({
+      findingId: "F-1",
+      verdictScope: "FIXTURE_LOCAL",
+      scopedFindingStatus: "FIXTURE_PROVEN",
+    });
+  });
+
+  it("omits scope fields from the persisted tool_trace when the step has none", async () => {
+    // A step without a proof scope must not invent one in the persisted column.
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+        (onStep as ((s: AgentStep) => void) | undefined)?.(DECISION_TRACE_STEP);
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "how does maxIterations behave?" });
+
+    expect(res.status).toBe(200);
+    expect(chatCapture.assistantToolTrace).not.toBeNull();
+
+    const trace = JSON.parse(chatCapture.assistantToolTrace!) as Array<Record<string, unknown>>;
+    const decision = trace.find((entry) => entry.kind === "decision_trace");
+    expect(decision).toBeDefined();
+    expect(decision).not.toHaveProperty("verdictScope");
+    expect(decision).not.toHaveProperty("scopedFindingStatus");
+  });
+
+  it("omits scope fields from the persisted repair_plan_metadata when the plan has none", async () => {
+    // A repair plan without a scope must round-trip as-is — no scope invented.
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, _onStep) => ({
+        result: {
+          response: "Audit complete.",
+          sources: [] as string[],
+          pendingChanges: [] as unknown[],
+          repairPlan: [{
+            findingId: "F-1",
+            files: ["test/fixture.ts"],
+            steps: ["Unscoped phase."],
+            validationProfile: "api-ai-tests",
+          }],
+          resolvedModel: { id: "test-model", provider: "openai", free: false },
+          _parseError: undefined,
+        },
+        effectiveProvider: "openai",
+      }),
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "propose an unscoped repair plan" });
+
+    expect(res.status).toBe(200);
+    expect(chatCapture.assistantRepairPlanMetadata).not.toBeNull();
+
+    const parsed = JSON.parse(chatCapture.assistantRepairPlanMetadata!) as unknown;
+    const result = z.array(RepairPlanMetadataSchema).max(12).safeParse(parsed);
+    expect(result.success).toBe(true);
+    expect(result.data![0]).not.toHaveProperty("verdictScope");
+    expect(result.data![0]).not.toHaveProperty("scopedFindingStatus");
+  });
+});
