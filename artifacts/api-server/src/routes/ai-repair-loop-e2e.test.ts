@@ -279,6 +279,18 @@ describe("verified repair loop through the real SSE route and chat engine", () =
     projectIds.push(projectId);
     const plan = await insertApprovedPlan(projectId, targetPath);
 
+    harness.validationResults.push({
+      status: "passed",
+      profile: "workspace-typecheck",
+      scenario: "Run the workspace TypeScript typecheck.",
+      command: "pnpm run typecheck",
+      exitCode: 0,
+      stdout: "typecheck passed",
+      stderr: "",
+      failedTests: [],
+      affectedFiles: [],
+      detail: "The bounded repair passes validation.",
+    });
     harness.responses.push(
       harness.toolResponse("read-1", "read_file", { path: targetPath }),
       harness.toolResponse("write-1", "write_file", {
