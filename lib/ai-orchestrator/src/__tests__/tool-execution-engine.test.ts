@@ -719,7 +719,7 @@ describe("executeToolLoop", () => {
     expect(strategy.call).toHaveBeenCalledTimes(2);
     expect(strategy.call).toHaveBeenLastCalledWith(
       expect.any(Array),
-      expect.objectContaining({ maxTokens: 16_384 }),
+      expect.not.objectContaining({ maxTokens: expect.anything() }),
     );
   });
 

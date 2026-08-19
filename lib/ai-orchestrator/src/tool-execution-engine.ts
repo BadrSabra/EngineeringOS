@@ -1616,7 +1616,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     * default to 4 096.
    * The caller can override with an explicit `maxTokens` option.
    */
-  const iterMaxTokens = opts.maxTokens ?? (provider === "openrouter" ? 8_192 : 8_192);
+  // No application-level token ceiling: when callers do not provide maxTokens,
+  // let the provider/model choose its supported completion limit. Providers
+  // may still enforce their own account/model maximum.
+  const iterMaxTokens = opts.maxTokens;
 
   /**
    * OR-004: Transient error codes that warrant a powerModel retry within
@@ -2001,7 +2004,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     try {
       const callResult = await callWithEmptyResponseRetry(outboundMessages, {
         model,
-        maxTokens: iterMaxTokens,
+        ...(iterMaxTokens !== undefined ? { maxTokens: iterMaxTokens } : {}),
         timeoutMs: 300_000,
         apiKey,
          ...(opts.signal ? { signal: opts.signal } : {}),
@@ -2033,7 +2036,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         try {
           result = await strategy.call(outboundMessages, {
             model: powerModel,
-            maxTokens: iterMaxTokens,
+            ...(iterMaxTokens !== undefined ? { maxTokens: iterMaxTokens } : {}),
             timeoutMs: 300_000,
             apiKey,
              ...(opts.signal ? { signal: opts.signal } : {}),
@@ -2283,7 +2286,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       (!result.toolCalls || result.toolCalls.length === 0)
     ) {
       const truncatedContent = result.content.trim();
-      const retryMaxTokens = Math.max(iterMaxTokens * 2, 8_192);
+      const retryMaxTokens = iterMaxTokens === undefined ? undefined : iterMaxTokens * 2;
       const retryMessages = compactModelMessages([
         ...safeMessages,
         { role: "assistant", content: truncatedContent },
@@ -2298,7 +2301,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       try {
         const retry = await strategy.call(retryMessages, {
           model: result.model || model,
-          maxTokens: retryMaxTokens,
+          ...(retryMaxTokens !== undefined ? { maxTokens: retryMaxTokens } : {}),
           timeoutMs: 60_000,
           apiKey,
            ...(opts.signal ? { signal: opts.signal } : {}),
@@ -2387,7 +2390,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           const synthesisStartedAt = Date.now();
           const synthesisCall = await callSynthesisWithFallback(synthesisMessages, {
             model: result.model || model,
-            maxTokens: iterMaxTokens,
+            ...(iterMaxTokens !== undefined ? { maxTokens: iterMaxTokens } : {}),
             timeoutMs: 60_000,
             apiKey,
             responseFormat: opts.responseFormat,
