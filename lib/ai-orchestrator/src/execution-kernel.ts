@@ -3,8 +3,8 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 
 export const EXECUTION_LIMITS = {
-  maxTimeoutMs: 10 * 60 * 1000,
-  maxOutputBytes: 8 * 1024 * 1024,
+  maxTimeoutMs: 30 * 60 * 1000,
+  maxOutputBytes: 64 * 1024 * 1024,
 } as const;
 
 export type BoundedCommandSpec = {

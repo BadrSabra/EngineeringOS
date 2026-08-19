@@ -55,8 +55,8 @@ export type CompleteOptions = {
   responseFormat?: { type: "json_object" };
 };
 
-const DEFAULT_TIMEOUT_MS = 60_000;
-const DEFAULT_MAX_RETRIES = 5;
+const DEFAULT_TIMEOUT_MS = 180_000;
+const DEFAULT_MAX_RETRIES = 7;
 
 /**
  * Exponential backoff with full jitter for transient failures.
@@ -71,7 +71,7 @@ const DEFAULT_MAX_RETRIES = 5;
  * is almost always better than hammering the endpoint again in under a second.
  */
 function retryDelayMs(attempt: number, code: GroqErrorCode): number {
-  const base = code === "RATE_LIMITED" ? 5_000 : 2_000;
+  const base = code === "RATE_LIMITED" ? 8_000 : 1_000;
   const exponential = base * Math.pow(2, attempt);
   // full jitter: uniform random in [0, exponential]
   return Math.floor(Math.random() * exponential);
