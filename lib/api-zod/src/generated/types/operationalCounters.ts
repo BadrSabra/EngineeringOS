@@ -12,10 +12,6 @@
 export interface OperationalCounters {
   /** Number of audit_logs insert failures since last startup. Non-zero means state changes went unrecorded in the traceability trail. */
   auditWriteFailures: number;
-  /** Number of failed audit rows awaiting automatic retry. */
-  auditWritesPending: number;
-  /** Number of failed audit rows successfully written by retry. */
-  auditWritesRecovered: number;
   /** Number of times the LLM rate limiter failed open due to a DB error. Non-zero means the per-project call budget was not enforced for those calls. */
   rateLimiterFailOpenCount: number;
 }

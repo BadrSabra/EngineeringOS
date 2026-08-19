@@ -16,7 +16,15 @@
  */
 
 import { execSync } from "child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join, relative, resolve } from "path";
 
@@ -50,6 +58,15 @@ try {
 // directories. A failed check must not leave codegen output in the worktree.
 
 const generatedRoot = mkdtempSync(join(tmpdir(), "api-codegen-drift-"));
+const temporaryMutator = join(
+  generatedRoot,
+  "lib/api-client-react/src/custom-fetch.ts",
+);
+mkdirSync(join(generatedRoot, "lib/api-client-react/src"), { recursive: true });
+copyFileSync(
+  join(WORKSPACE_ROOT, "lib/api-client-react/src/custom-fetch.ts"),
+  temporaryMutator,
+);
 
 function listFiles(directory: string, root = directory): string[] {
   try {

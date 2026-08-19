@@ -14,6 +14,13 @@ const apiClientReactSrc = path.resolve(
   "src",
 );
 const apiZodSrc = path.resolve(outputRoot, "lib", "api-zod", "src");
+const apiClientReactMutator = path.resolve(
+  outputRoot,
+  "lib",
+  "api-client-react",
+  "src",
+  "custom-fetch.ts",
+);
 
 // Our exports make assumptions about the title of the API being "Api" (i.e. generated output is `api.ts`).
 const titleTransformer: InputTransformerFn = (config) => {
@@ -69,14 +76,9 @@ export default defineConfig({
         },
         mutator: {
           // The mutator is source code, not generated output, so it always
-          // remains in the repository even when output is redirected.
-          path: path.resolve(
-            root,
-            "lib",
-            "api-client-react",
-            "src",
-            "custom-fetch.ts",
-          ),
+          // remains available at the same relative path when output is
+          // redirected for the non-mutating drift check.
+          path: apiClientReactMutator,
           name: "customFetch",
         },
       },
