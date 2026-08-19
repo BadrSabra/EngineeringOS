@@ -15,8 +15,8 @@ import type { ProjectContext } from "../context-builder.js";
 import { GroqClientError } from "../errors.js";
 import type { AgentStep } from "../tool-execution-engine.js";
 import {
+  assertArabicForensicFixture,
   assertArabicFixtureResponse,
-  realToolFixturesEnabled,
   takeFixture,
 } from "./fixture-guards.js";
 
@@ -1671,8 +1671,8 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     }
   });
 
-  it.skipIf(!realToolFixturesEnabled())(
-    "REAL TOOL — proves a fixture-local Finding when a capability audit provider returns no Finding",
+  it(
+    "proves a fixture-local Finding when a capability audit provider returns no Finding",
     async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-behavioral-recovery-"));
       const fixturePath = path.join(rootPath, "lib", "ai-orchestrator", "src", "__tests__", "fixtures", "known-defect.ts");
@@ -1699,7 +1699,11 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       "## 6) Final Judgment",
       "NO FINDING — no verified defect was established, so no Repair Plan is executable.",
     ].join("\n");
-    assertArabicFixtureResponse(initialReport, "chat-agent-fixture-capability-arabic-report");
+    assertArabicForensicFixture(
+      "اختبر قدرة التحليل الجنائي على هذا الملف فقط",
+      initialReport,
+      "chat-agent-fixture-capability-arabic-report",
+    );
     const calls: Array<{ tools?: unknown; model?: string }> = [];
     const providerResponses = [
       {
