@@ -506,10 +506,35 @@ export function classifyRequest(message: string): ClassifiedRequest {
   // probes that say "Inspect ONLY these two files" and "X/5 capabilities")
   // must not also route into ordered-directory roots — subordinating ordered
   // roots to single-file mode keeps the named-file scope authoritative.
-  const orderedForensicRoots =
+  const detectedOrderedForensicRoots =
     implementationTaskMode || implementationPlanMode || singleFileForensicMode
       ? []
       : detectOrderedForensicRoots(trimmed);
+  const hasExplicitSourceTarget = SOURCE_FILE_EXTENSIONS.test(trimmed) ||
+    /(?:^|[\s`"'(])(?:src|lib|artifacts|packages|apps|tests?)\//i.test(trimmed);
+  const requestsBroadDiscovery =
+    /(?:\b(?:source\s+code|root\s+cause|root\s+causes|gaps?|missing)\b|الفجوات|الأسباب\s+الجذرية|الكود\s+(?:الفعلي|المصدري))/iu.test(
+      trimmed,
+    );
+  // Broad audits must bootstrap source discovery even when the user did not
+  // name a directory. Previously these requests entered forensic mode with no
+  // ordered roots, leaving the model responsible for deciding whether to call
+  // a source tool; a provider could then stop after prose/planning and the
+  // evidence gate correctly reported zero reads. "." is the project root, not
+  // an unrestricted filesystem path — prefetchForensicRoots resolves it below
+  // the authenticated rootPath and applies the normal source-file filters and
+  // read budget.
+  const orderedForensicRoots =
+    detectedOrderedForensicRoots.length > 0
+      ? detectedOrderedForensicRoots
+      : !implementationTaskMode &&
+          !implementationPlanMode &&
+          !singleFileForensicMode &&
+          !hasExplicitSourceTarget &&
+          requestsBroadDiscovery &&
+          (taskType === "FULL_FORENSIC_AUDIT" || taskType === "WORKSPACE_REVIEW")
+        ? ["."]
+        : [];
   const fixtureAuditMode =
     !implementationTaskMode &&
     !implementationPlanMode &&

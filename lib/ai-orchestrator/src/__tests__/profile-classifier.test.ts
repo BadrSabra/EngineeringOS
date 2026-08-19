@@ -15,6 +15,30 @@ describe("classifyRequest — simple greetings", () => {
   });
 });
 
+describe("classifyRequest — broad forensic requests bootstrap source discovery", () => {
+  it("assigns the project root when a full audit names no directory", () => {
+    const result = classifyRequest("تحقق من الكود الفعلي واكتشف الفجوات وحدد الأسباب الجذرية");
+
+    expect(result.taskType).toBe("FULL_FORENSIC_AUDIT");
+    expect(result.orderedForensicRoots).toEqual(["."]);
+    expect(result.structuredOutputMode).toBe(true);
+  });
+
+  it("assigns the project root for an English whole-workspace review without paths", () => {
+    const result = classifyRequest("Review the entire repository and identify the root causes");
+
+    expect(result.taskType).toBe("WORKSPACE_REVIEW");
+    expect(result.orderedForensicRoots).toEqual(["."]);
+    expect(result.structuredOutputMode).toBe(true);
+  });
+
+  it("preserves explicitly ordered roots", () => {
+    const result = classifyRequest("Audit lib/ai-orchestrator and artifacts/api-server");
+
+    expect(result.orderedForensicRoots).not.toContain(".");
+  });
+});
+
 // ─── extractOrderedForensicRoots ─────────────────────────────────────────────
 
 describe("extractOrderedForensicRoots — prose pseudo-path rejection", () => {

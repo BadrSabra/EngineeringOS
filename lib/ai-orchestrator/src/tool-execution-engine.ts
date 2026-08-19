@@ -1590,7 +1590,16 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
 
   const rootIndexForPath = (value: string): number => {
     const normalized = value.replaceAll("\\", "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
-    return orderedRoots.findIndex((root) => normalized === root || normalized.startsWith(`${root}/`));
+    // "." is the explicit project-root scope. Normalization above removes the
+    // dot, so it becomes an empty root and must admit every project-relative
+    // path; otherwise automatic broad-audit bootstrap would pre-read files but
+    // then reject the same paths in the model tool loop.
+    return orderedRoots.findIndex((root) =>
+      root === "" ||
+      root === "." ||
+      normalized === root ||
+      normalized.startsWith(`${root}/`),
+    );
   };
 
   // Soft-limit state — tracks whether the synthesis hint has been injected and
