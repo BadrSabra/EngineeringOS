@@ -24,7 +24,11 @@ import { logger } from "../../lib/logger.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
 import { tryAdvisoryLock, LockNamespace } from "../../lib/advisory-lock.js";
 import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
-import { requireProvider, handleOrchestratorError } from "../../lib/ai-route-helpers.js";
+import {
+  requireProvider,
+  handleOrchestratorError,
+  redactUserFacingValue,
+} from "../../lib/ai-route-helpers.js";
 
 const router = Router();
 
@@ -119,7 +123,6 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
       error: "model_output_invalid",
       code: "model_output_invalid",
       hint: "The AI model returned an unexpected response — try again in a moment.",
-      raw: decision._parseError.raw.slice(0, 500),
       parseCode: decision._parseError.code,
     });
   }
@@ -127,6 +130,7 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
   logger.info({ workflowId, decision }, "AI workflow orchestration decision");
 
   invalidateContextCache(workflow.projectId);
+  const safeDecision = redactUserFacingValue(decision);
 
   await Promise.all([
     recordAudit({
@@ -142,11 +146,11 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
       type: "AiWorkflowOrchestration",
       projectId: workflow.projectId,
       severity: "info",
-      message: `AI orchestrator decision for "${workflow.name}": ${decision.action} — ${decision.reasoning.slice(0, 100)}`,
+      message: `AI orchestrator decision for "${workflow.name}": ${safeDecision.action} — ${safeDecision.reasoning.slice(0, 100)}`,
     }),
   ]);
 
-  return res.json(decision);
+  return res.json(safeDecision);
 });
 
 export default router;

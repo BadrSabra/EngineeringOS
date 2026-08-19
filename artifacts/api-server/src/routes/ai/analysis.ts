@@ -18,7 +18,13 @@ import {
 import { logger } from "../../lib/logger.js";
 import { requireProjectAccess } from "../../middlewares/requireProjectAccess.js";
 import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
-import { requireProvider, handleOrchestratorError, runAgentWithFallback } from "../../lib/ai-route-helpers.js";
+import {
+  requireProvider,
+  handleOrchestratorError,
+  runAgentWithFallback,
+  redactUserFacingText,
+  redactUserFacingValue,
+} from "../../lib/ai-route-helpers.js";
 
 const router = Router();
 
@@ -79,7 +85,9 @@ function emitTaskFailure(
   emit({
     type: "error",
     code: typeof candidate.code === "string" ? candidate.code : "task_failed",
-    message: typeof candidate.message === "string" ? candidate.message : "AI task failed",
+    message: typeof candidate.message === "string"
+      ? redactUserFacingText(candidate.message)
+      : "AI task failed",
   });
   close();
 }
@@ -161,7 +169,7 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
     });
   });
 
-  return res.json(result);
+  return res.json(redactUserFacingValue(result));
 });
 
 // ── POST /api/ai/projects/:projectId/review ──────────────────────────────────
@@ -257,7 +265,7 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
     });
   });
 
-  return res.json(result);
+  return res.json(redactUserFacingValue(result));
 });
 
 // ── POST /api/ai/projects/:projectId/analyze/stream ──────────────────────────
@@ -307,7 +315,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
         type: "error",
         code: "model_output_invalid",
         message: "The AI model returned an unexpected response.",
-        hint: result._parseError.message,
+        hint: redactUserFacingText(result._parseError.message),
       });
       close();
       return;
@@ -336,7 +344,11 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
     });
 
     emit({ type: "stage", stage: "completed" });
-    emit({ type: "task_done", task: "analyze", result: result as unknown as Record<string, unknown> });
+    emit({
+      type: "task_done",
+      task: "analyze",
+      result: redactUserFacingValue(result) as Record<string, unknown>,
+    });
     close();
     logger.info({ projectId, provider: effectiveProvider }, "AI scan analysis stream completed");
   } catch (err) {
@@ -413,7 +425,7 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
         type: "error",
         code: "model_output_invalid",
         message: "The AI model returned an unexpected response.",
-        hint: result._parseError.message,
+        hint: redactUserFacingText(result._parseError.message),
       });
       close();
       return;
@@ -442,7 +454,11 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     });
 
     emit({ type: "stage", stage: "completed" });
-    emit({ type: "task_done", task: "review", result: result as unknown as Record<string, unknown> });
+    emit({
+      type: "task_done",
+      task: "review",
+      result: redactUserFacingValue(result) as Record<string, unknown>,
+    });
     close();
     logger.info({ projectId, provider: effectiveProvider }, "AI code review stream completed");
   } catch (err) {

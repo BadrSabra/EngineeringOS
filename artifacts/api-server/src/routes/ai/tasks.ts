@@ -28,6 +28,7 @@ import {
   resolveProvider,
   handleOrchestratorError,
   runAgentWithFallback,
+  redactUserFacingText,
 } from "../../lib/ai-route-helpers.js";
 
 const router = Router();
@@ -98,6 +99,7 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
     });
   } catch (err) {
+    logger.error({ err, taskId, correlationId }, "AI execution failed while building project context");
     const [rolledBack] = await db
       .update(tasksTable)
       .set({ status: task.status, updatedAt: new Date() })
@@ -110,8 +112,8 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       id: randomUUID(),
       taskId,
       level: "error",
-      message: err instanceof Error ? err.message : String(err),
-      metadata: { error: String(err), stage: "buildProjectContext", correlationId },
+      message: "AI execution failed while building project context",
+      metadata: { stage: "buildProjectContext", correlationId },
       correlationId,
     });
     if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution", provider })) return;
@@ -162,6 +164,7 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
     ));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    logger.error({ err, taskId, correlationId }, "AI execution failed while running agent");
 
     const [execRolledBack] = await db
       .update(tasksTable)
@@ -176,8 +179,8 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       id: randomUUID(),
       taskId,
       level: "error",
-      message: `AI execution failed: ${message}`,
-      metadata: { error: message, stage: "runAgentWithFallback", correlationId },
+      message: "AI execution failed while running agent",
+      metadata: { stage: "runAgentWithFallback", correlationId },
       correlationId,
     });
 
@@ -187,9 +190,9 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       projectId: task.projectId,
       taskId,
       severity: "error",
-      message: `AI execution of "${task.title}" failed: ${message}`,
+      message: `AI execution of "${task.title}" failed`,
       correlationId,
-      payload: { error: message, status: task.status },
+      payload: { status: task.status },
     });
 
     await recordAudit({
@@ -199,14 +202,16 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       projectId: task.projectId,
       stateBefore: { status: "running" },
       stateAfter: { status: task.status },
-      changedFields: { error: message },
       correlationId,
     });
 
     invalidateContextCache(task.projectId);
 
     if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution", provider: effectiveProvider })) return;
-    return res.status(500).json({ error: "task_execution_failed", reason: message });
+    return res.status(500).json({
+      error: "task_execution_failed",
+      reason: redactUserFacingText(message),
+    });
   }
 
   if (agentResult._parseError) {
@@ -222,15 +227,18 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       id: randomUUID(),
       taskId,
       level: "error",
-      message: `AI agent parse failure [${agentResult._parseError.code}]: ${agentResult._parseError.message}`,
-      metadata: { parseError: agentResult._parseError, correlationId },
+      message: `AI agent parse failure [${agentResult._parseError.code}]`,
+      metadata: { parseCode: agentResult._parseError.code, correlationId },
       correlationId,
     });
+    logger.error(
+      { err: agentResult._parseError, taskId, correlationId },
+      "AI agent output parsing failed",
+    );
     return res.status(422).json({
       error: "model_output_invalid",
       code: "model_output_invalid",
       hint: "The AI model returned an unexpected response — try executing the task again.",
-      raw: agentResult._parseError.raw.slice(0, 500),
       parseCode: agentResult._parseError.code,
     });
   }
@@ -399,6 +407,7 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
           sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
         });
       } catch (execErr) {
+        logger.error({ err: execErr, taskId, correlationId }, "AI auto-execution failed while building context");
         const [ctxRolledBack] = await db
           .update(tasksTable)
           .set({ status: "verifying", updatedAt: new Date() })
@@ -411,7 +420,7 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
           id: randomUUID(),
           taskId,
           level: "error",
-          message: `AI auto-execution failed while building context: ${execErr instanceof Error ? execErr.message : String(execErr)}`,
+          message: "AI auto-execution failed while building context",
           correlationId,
         });
         throw execErr;
@@ -455,7 +464,7 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
           { qualityProfile: "task_execution" },
         ));
       } catch (execErr) {
-        const message = execErr instanceof Error ? execErr.message : String(execErr);
+        logger.error({ err: execErr, taskId, correlationId }, "AI auto-execution failed");
 
         const [autoRolledBack] = await db
           .update(tasksTable)
@@ -470,7 +479,7 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
           id: randomUUID(),
           taskId,
           level: "error",
-          message: `AI auto-execution failed: ${message}`,
+          message: "AI auto-execution failed",
           correlationId,
         });
 
@@ -480,9 +489,9 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
           projectId: task.projectId,
           taskId,
           severity: "error",
-          message: `AI auto-execution of "${task.title}" failed: ${message}`,
+          message: `AI auto-execution of "${task.title}" failed`,
           correlationId,
-          payload: { error: message, status: "verifying" },
+          payload: { status: "verifying" },
         });
 
         await recordAudit({
