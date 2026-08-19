@@ -3223,12 +3223,6 @@ export async function chat(opts: {
   const repairPlanExecution =
     (immediateIntent && isRepairPlanExecutionRequest(message)) ||
     (buildHandoff && storedExecutionPlan != null);
-  const behaviorAnswerLanguage = resolveBehaviorAnswerLanguage(
-    message,
-    classification.taskType,
-    immediateIntent,
-    classification.implementationTaskMode,
-  );
   const responseLanguage = resolveResponseLanguage(message);
   const executionDiagnosticDetails: string[] = [];
   const recordExecutionDiagnostic = (
