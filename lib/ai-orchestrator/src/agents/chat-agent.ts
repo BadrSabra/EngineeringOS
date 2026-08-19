@@ -53,7 +53,7 @@ import { GroqClientError, type AgentErrorCode } from "../errors.js";
 import type { RawMessage, ToolDefinition } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildChatSystemPrompt, type ActiveTask } from "../prompts/chat.prompt.js";
-import { classifyRequest } from "../prompts/profile-classifier.js";
+import { classifyRequest, isSocialGreeting } from "../prompts/profile-classifier.js";
 import {
   buildSemanticBehaviorAnswer,
   buildTaskValidationFallback,
@@ -3613,13 +3613,15 @@ export async function chat(opts: {
   // forensic answer that can terminate before its first source read is not a
   // valid answer; the evidence gate will fail closed, but only after wasting a
   // model turn and showing a misleading incomplete result.
-  const toolExecutionRequested = userToolExecutionRequested || evidenceReadRequested;
+  const toolExecutionRequested =
+    !isSocialGreeting(message) && (userToolExecutionRequested || evidenceReadRequested);
   const immediateExecution = rootPath !== undefined && immediateIntent;
   const agentScope = rootPath && toolExecutionRequested ? "task_execution" : "chat";
+  const modelHasTools = !!rootPath && toolExecutionRequested;
 
   const executionPlan = resolveExecutionDecision(agentScope, {
-    hasTools: !!rootPath,
-    requireTools: !!rootPath && toolExecutionRequested,
+    hasTools: modelHasTools,
+    requireTools: modelHasTools,
     ...(capabilityProbeRequest
       ? {
           qualityProfile: "capability_probe" as const,
@@ -3812,14 +3814,16 @@ export async function chat(opts: {
   const prefetchExcludeFiles = (): Set<string> =>
     new Set(prefetchFileContents.keys());
 
-  const tools = buildProviderTools(
-    providerId,
-    rootPath,
-    repairPlanExecution ? "repair_plan" : undefined,
-    singleFileForensicMode,
-    orderedForensicRoots,
-    allowValidationTools,
-  );
+  const tools = modelHasTools
+    ? buildProviderTools(
+        providerId,
+        rootPath,
+        repairPlanExecution ? "repair_plan" : undefined,
+        singleFileForensicMode,
+        orderedForensicRoots,
+        allowValidationTools,
+      )
+    : [];
 
   if (singleFileForensicMode) {
     console.info(

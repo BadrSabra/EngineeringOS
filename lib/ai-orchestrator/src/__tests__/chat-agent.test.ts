@@ -164,7 +164,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
 
     expect(decisionCalls).toHaveLength(1);
     expect(decisionCalls[0]?.scope).toBe("chat");
-    expect(decisionCalls[0]?.opts).toMatchObject({ hasTools: true, requireTools: false });
+    expect(decisionCalls[0]?.opts).toMatchObject({ hasTools: false, requireTools: false });
     expect(result.response).toBe("أهلًا بك!");
   });
 
