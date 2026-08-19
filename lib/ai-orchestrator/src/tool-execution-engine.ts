@@ -3557,8 +3557,17 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       }
       if (iterationMadeProgress) {
         noProgressStreak = 0;
+        forcedNoProgressStreak = 0;
       } else {
         noProgressStreak += 1;
+        if (forcedEvidenceActive) {
+          forcedNoProgressStreak += 1;
+          if (forcedNoProgressStreak >= NO_PROGRESS_FORCE_THRESHOLD) {
+            // Preserve one bounded chance to satisfy the forced read; if the
+            // model still cannot progress, the next turn is synthesis-only.
+            forceSynthesisNext = true;
+          }
+        }
         if (
           noProgressStreak >= NO_PROGRESS_FORCE_THRESHOLD &&
           !forcedPrimaryEvidence
