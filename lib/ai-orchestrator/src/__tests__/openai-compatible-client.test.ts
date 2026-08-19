@@ -277,6 +277,58 @@ describe("openrouterCompleteWithFallback — error classification", () => {
     ).rejects.toSatisfy((err: unknown) => err instanceof GroqClientError && err.code === "RATE_LIMITED");
   });
 
+  it("preserves a bounded Retry-After hint and avoids retrying the same model", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 429,
+      headers: new Headers({ "Retry-After": "120" }),
+      json: async () => ({}),
+      text: async () => '{"error":{"message":"temporarily rate limited"}}',
+    } as Response));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      oacCompleteRaw(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxTokens: 10,
+        retryTransient: true,
+        baseUrl: "https://example.test/v1",
+        providerName: "OpenRouter",
+      }),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof GroqClientError &&
+        err.code === "RATE_LIMITED" &&
+        err.retryAfterMs === 60_000,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a short Retry-After hint precise for fallback callers", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: false,
+      status: 429,
+      headers: new Headers({ "Retry-After": "2" }),
+      json: async () => ({}),
+      text: async () => '{"error":{"message":"temporarily rate limited"}}',
+    } as Response)));
+
+    await expect(
+      openrouterCompleteWithFallback(baseMessages as any, {
+        apiKey: "test-key",
+        model: primaryModel,
+        maxTokens: 10,
+        retryTransient: false,
+      }),
+    ).rejects.toSatisfy(
+      (err: unknown) =>
+        err instanceof GroqClientError &&
+        err.code === "RATE_LIMITED" &&
+        err.retryAfterMs === 2_000,
+    );
+  });
+
   it("skips transient retry when the caller owns bounded fallback", async () => {
     let callCount = 0;
     const seenModels: string[] = [];
