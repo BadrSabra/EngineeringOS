@@ -3792,7 +3792,7 @@ export async function chat(opts: {
   // Structured forensic scans have one shared read budget. Prefetch is part
   // of evidence collection, so it must consume the same budget as the main
   // tool loop instead of getting a separate unlimited allowance.
-  const STRUCTURED_OUTPUT_MAX_TOOL_CALLS = 420;
+  const STRUCTURED_OUTPUT_MAX_TOOL_CALLS = 640;
   // Explicit ordered forensic roots are discovered deterministically; if the
   // 36-call loop cap is smaller than a root's real source file count the root
   // gets marked PARTIAL/BUDGET_EXHAUSTED and every verdict is forced NOT PROVEN

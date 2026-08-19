@@ -141,11 +141,11 @@ export type TaskExecutionBudget = {
  */
 export const FORENSIC_TASK_BUDGETS: Record<ForensicTaskType, TaskExecutionBudget> = {
   CODE_EXTRACTION: { maxIterations: 16, maxToolCalls: 12 },
-  BEHAVIOR_QUERY: { maxIterations: 96, maxToolCalls: 192 },
-  FINDING_ANALYSIS: { maxIterations: 96, maxToolCalls: 240 },
-  FULL_FORENSIC_AUDIT: { maxIterations: 120, maxToolCalls: 420 },
-  WORKSPACE_REVIEW: { maxIterations: 96, maxToolCalls: 300 },
-  REPAIR_ANALYSIS: { maxIterations: 96, maxToolCalls: 240 },
+  BEHAVIOR_QUERY: { maxIterations: 120, maxToolCalls: 260 },
+  FINDING_ANALYSIS: { maxIterations: 128, maxToolCalls: 320 },
+  FULL_FORENSIC_AUDIT: { maxIterations: 180, maxToolCalls: 640 },
+  WORKSPACE_REVIEW: { maxIterations: 144, maxToolCalls: 480 },
+  REPAIR_ANALYSIS: { maxIterations: 128, maxToolCalls: 320 },
 };
 
 export function capBudgetForTask(

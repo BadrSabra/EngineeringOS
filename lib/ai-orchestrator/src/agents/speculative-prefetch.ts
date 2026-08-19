@@ -57,7 +57,7 @@ const MAX_PREFETCH_BYTES = 6_000;
  * falsifies the whole verdict. 128 gives headroom for a largest single root plus
  * a sibling while keeping collection bounded.
  */
-export const MAX_FORENSIC_DISCOVERY_FILES = 128;
+export const MAX_FORENSIC_DISCOVERY_FILES = 256;
 const FORENSIC_SKIP_DIRS = new Set([
   "node_modules",
   "dist",

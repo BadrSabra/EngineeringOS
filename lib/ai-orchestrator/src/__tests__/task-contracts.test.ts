@@ -55,13 +55,13 @@ describe("task-aware contracts", () => {
     ).toEqual({ maxIterations: 16, maxToolCalls: 12 });
     expect(
       capBudgetForTask("BEHAVIOR_QUERY", { maxIterations: 150, maxToolCalls: 500 }),
-    ).toEqual({ maxIterations: 96, maxToolCalls: 192 });
+    ).toEqual({ maxIterations: 120, maxToolCalls: 260 });
     expect(
-      capBudgetForTask("FULL_FORENSIC_AUDIT", { maxIterations: 150, maxToolCalls: 500 }),
-    ).toEqual({ maxIterations: 120, maxToolCalls: 420 });
+      capBudgetForTask("FULL_FORENSIC_AUDIT", { maxIterations: 220, maxToolCalls: 800 }),
+    ).toEqual({ maxIterations: 180, maxToolCalls: 640 });
     expect(
       capBudgetForTask("WORKSPACE_REVIEW", { maxIterations: 150, maxToolCalls: 500 }),
-    ).toEqual({ maxIterations: 96, maxToolCalls: 300 });
+    ).toEqual({ maxIterations: 144, maxToolCalls: 480 });
   });
 
   it("validates independent result shapes", () => {

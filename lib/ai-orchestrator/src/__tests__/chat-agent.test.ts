@@ -1400,8 +1400,8 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       "utf8",
     );
     // The ordered forensic prefetch has a bounded shared budget. More files
-    // than that budget make root-b partial while root-a remains complete.
-    for (let index = 0; index < 140; index += 1) {
+    // than the raised budget make root-b partial while root-a remains complete.
+    for (let index = 0; index < 280; index += 1) {
       await fs.writeFile(
         path.join(rootPath, "root-b", `source-${index}.ts`),
         `export const source${index} = ${index};\n`,

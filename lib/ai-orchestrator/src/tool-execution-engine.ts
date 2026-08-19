@@ -53,8 +53,8 @@ import type { ValidationResult } from "./validation-result.js";
 
 // ── Defaults ────────────────────────
 
-export const DEFAULT_MAX_ITERATIONS = 96;
-export const DEFAULT_MAX_TOOL_CALLS = 360;
+export const DEFAULT_MAX_ITERATIONS = 128;
+export const DEFAULT_MAX_TOOL_CALLS = 480;
 export const DEFAULT_SEARCH_NOVELTY_BUDGET = 8;
 
 /**
@@ -62,12 +62,12 @@ export const DEFAULT_SEARCH_NOVELTY_BUDGET = 8;
  * Callers pass the entry for their taskProfile instead of DEFAULT_*.
  */
 export const BUDGET_BY_SCOPE = {
-  chat:           { maxIterations: 48, maxToolCalls: 140 },
-  tool_chat:      { maxIterations: 72, maxToolCalls: 220 },
-  analysis:       { maxIterations: 120, maxToolCalls: 420 },
-  task_execution: { maxIterations: 144, maxToolCalls: 500 },
-  code_review:    { maxIterations: 72, maxToolCalls: 220 },
-  workflow:       { maxIterations: 120, maxToolCalls: 420 },
+  chat:           { maxIterations: 64, maxToolCalls: 180 },
+  tool_chat:      { maxIterations: 96, maxToolCalls: 300 },
+  analysis:       { maxIterations: 180, maxToolCalls: 640 },
+  task_execution: { maxIterations: 192, maxToolCalls: 720 },
+  code_review:    { maxIterations: 96, maxToolCalls: 300 },
+  workflow:       { maxIterations: 160, maxToolCalls: 560 },
 } as const satisfies Record<string, { maxIterations: number; maxToolCalls: number }>;
 
 /**
