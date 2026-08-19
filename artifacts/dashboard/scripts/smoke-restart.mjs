@@ -2,6 +2,10 @@ import { execFileSync, spawn } from 'node:child_process';
 import { createConnection } from 'node:net';
 
 const port = Number(process.env.SMOKE_PORT || 23991);
+if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+  throw new Error(`Invalid SMOKE_PORT value: "${process.env.SMOKE_PORT || ''}"`);
+}
+
 const env = { ...process.env, PORT: String(port), BASE_PATH: '/dashboard/' };
 const processes = [];
 
@@ -48,6 +52,14 @@ async function waitForPort(expected, timeoutMs = 10000) {
   throw new Error(`Timed out waiting for port ${port} to be ${expected ? 'open' : 'closed'}.`);
 }
 
+async function waitForExit(child, timeoutMs = 10000) {
+  const deadline = Date.now() + timeoutMs;
+  while (child.exitCode === null && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return child.exitCode !== null;
+}
+
 function stop(child) {
   if (!child || child.exitCode !== null) return;
   try {
@@ -61,13 +73,28 @@ try {
   const first = start();
   await waitForPort(true);
   const second = start();
-  await waitForPort(true);
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  if (second.exitCode !== null) {
-    throw new Error(`The replacement Dashboard process exited with code ${second.exitCode}.`);
+  if (!(await waitForExit(first))) {
+    throw new Error(
+      `The old Dashboard listener was not stopped on port ${port}; restart left the original process running.`,
+    );
   }
-  if (listeningUsers().length !== 1) {
-    throw new Error(`Expected one Dashboard listener after restart, found ${listeningUsers().length}.`);
+  if (second.exitCode !== null) {
+    throw new Error(
+      `The replacement Dashboard process failed to bind port ${port} (exited with code ${second.exitCode}).`,
+    );
+  }
+  try {
+    await waitForPort(true);
+  } catch (error) {
+    throw new Error(
+      `The replacement Dashboard process failed to bind port ${port}: ${error.message}`,
+    );
+  }
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  if (second.exitCode !== null || listeningUsers().length !== 1) {
+    throw new Error(
+      `The replacement Dashboard process failed to bind port ${port}; expected one listener, found ${listeningUsers().length}.`,
+    );
   }
   console.log('Dashboard restart smoke check passed.');
 } finally {

@@ -28,6 +28,10 @@ args = "artifacts/dashboard: web"
 task = "workflow.run"
 args = "artifacts/mockup-sandbox: Component Preview Server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "dashboard-restart-smoke"
+
 [[workflows.workflow]]
 name = "artifacts/api-server: API Server"
 author = "agent"
@@ -63,6 +67,17 @@ outputType = "console"
 task = "shell.exec"
 args = "PORT=8081 BASE_PATH=/__mockup pnpm --filter @workspace/mockup-sandbox run dev"
 waitForPort = 8081
+
+[[workflows.workflow]]
+name = "dashboard-restart-smoke"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm run validate:dashboard-restart"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [agent]
 stack = "PNPM_WORKSPACE"
