@@ -25,7 +25,11 @@ import { tmpdir } from "node:os";
 import type { ProjectContext } from "../context-builder.js";
 import type { AgentStep } from "../tool-execution-engine.js";
 import type { RunLedger } from "../evidence-integrity.js";
-import { realToolFixturesEnabled, takeFixture } from "./fixture-guards.js";
+import {
+  assertArabicFixtureResponse,
+  realToolFixturesEnabled,
+  takeFixture,
+} from "./fixture-guards.js";
 
 const originalApiKey = process.env.GROQ_API_KEY;
 
@@ -154,6 +158,7 @@ describe.skipIf(!realToolFixturesEnabled())(
     await fs.writeFile(fullFile, FILE_CONTENT, "utf8");
 
     const report = KNOWN_DEFECT_REPORT(FILE);
+    assertArabicFixtureResponse(report, "ei-045-production-verdict-arabic-report");
     const providerResponses = [{
       content: JSON.stringify({ response: report, sources: [FILE] }),
       toolCalls: [],

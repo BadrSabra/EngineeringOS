@@ -14,7 +14,11 @@ import { ChatOutputSchema } from "../schemas/chat.schema.js";
 import type { ProjectContext } from "../context-builder.js";
 import { GroqClientError } from "../errors.js";
 import type { AgentStep } from "../tool-execution-engine.js";
-import { realToolFixturesEnabled, takeFixture } from "./fixture-guards.js";
+import {
+  assertArabicFixtureResponse,
+  realToolFixturesEnabled,
+  takeFixture,
+} from "./fixture-guards.js";
 
 // ── ChatOutputSchema unit tests ───────────────────────────────────────────────
 
@@ -92,6 +96,17 @@ describe("chat agent — ChatOutputSchema validation", () => {
     vi.doUnmock("../tools/file-tools.js");
     if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
     else process.env.GROQ_API_KEY = originalApiKey;
+  });
+
+  it("identifies an English-only Arabic fixture by name", () => {
+    expect(() =>
+      assertArabicFixtureResponse(
+        "The provider returned an English-only response.",
+        "chat-agent-arabic-response",
+      ),
+    ).toThrow(
+      "[AI fixture:chat-agent-arabic-response] expected an Arabic response, but the fixture is English-only",
+    );
   });
 
   it("returns valid pendingChanges unchanged when all fields are correct", async () => {
@@ -534,6 +549,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       "6) Final Judgment",
       "NOT PROVEN — insufficient evidence.",
     ].join("\n");
+    assertArabicFixtureResponse(invalidForensic, "chat-agent-invalid-forensic-arabic");
     const validForensic = [
       "تمت مراجعة الأدلة المتاحة، ولم يُثبت وجود عيب بسبب نقص القراءة المصدرية.",
       "1) Executive Verdict",
@@ -549,6 +565,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       "6) Final Judgment",
       "NOT PROVEN — insufficient evidence.",
     ].join("\n");
+    assertArabicFixtureResponse(validForensic, "chat-agent-valid-forensic-arabic");
 
     const fakeStrategy = {
       providerId: "openrouter",
@@ -634,6 +651,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       "## 6) Final Judgment",
       "NOT PROVEN — insufficient evidence.",
     ].join("\n");
+    assertArabicFixtureResponse(validForensic, "chat-agent-recovery-forensic-arabic");
 
     const fakeStrategy = {
       providerId: "openrouter",
@@ -710,6 +728,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       "## 6) Final Judgment",
       "NOT PROVEN — insufficient evidence.",
     ].join("\n");
+    assertArabicFixtureResponse(validForensic, "chat-agent-structured-forensic-arabic");
 
     const fakeStrategy = {
       providerId: "openrouter",
@@ -1680,6 +1699,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       "## 6) Final Judgment",
       "NO FINDING — no verified defect was established, so no Repair Plan is executable.",
     ].join("\n");
+    assertArabicFixtureResponse(initialReport, "chat-agent-fixture-capability-arabic-report");
     const calls: Array<{ tools?: unknown; model?: string }> = [];
     const providerResponses = [
       {
@@ -1822,6 +1842,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
       "## 6) Final Judgment",
       "FIXTURE-LOCAL — the Finding is proven only inside the fixture.",
     ].join("\n");
+    assertArabicFixtureResponse(initialReport, "chat-agent-fixture-local-arabic-report");
 
     const calls: Array<{ model?: string }> = [];
     const fakeStrategy = {
