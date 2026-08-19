@@ -2002,7 +2002,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       const callResult = await callWithEmptyResponseRetry(outboundMessages, {
         model,
         maxTokens: iterMaxTokens,
-        timeoutMs: 60_000,
+        timeoutMs: 120_000,
         apiKey,
          ...(opts.signal ? { signal: opts.signal } : {}),
          taskType,
@@ -2034,7 +2034,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           result = await strategy.call(outboundMessages, {
             model: powerModel,
             maxTokens: iterMaxTokens,
-            timeoutMs: 60_000,
+            timeoutMs: 120_000,
             apiKey,
              ...(opts.signal ? { signal: opts.signal } : {}),
              taskType,
