@@ -28,7 +28,6 @@ import {
   resolveProvider,
   handleOrchestratorError,
   runAgentWithFallback,
-  redactUserFacingText,
 } from "../../lib/ai-route-helpers.js";
 
 const router = Router();
@@ -163,7 +162,6 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       { qualityProfile: "task_execution" },
     ));
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     logger.error({ err, taskId, correlationId }, "AI execution failed while running agent");
 
     const [execRolledBack] = await db
@@ -210,7 +208,7 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
     if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution", provider: effectiveProvider })) return;
     return res.status(500).json({
       error: "task_execution_failed",
-      reason: redactUserFacingText(message),
+      reason: "The AI task could not be completed. Try again in a moment.",
     });
   }
 
@@ -506,6 +504,51 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
 
         invalidateContextCache(task.projectId);
         throw execErr;
+      }
+
+      if (agentResult._parseError) {
+        const [parseRolledBack] = await db
+          .update(tasksTable)
+          .set({ status: "verifying", updatedAt: new Date() })
+          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+          .returning();
+        if (!parseRolledBack) {
+          logger.warn({ taskId, correlationId }, "AI auto-execution parse failure occurred, but task state changed concurrently — rollback skipped");
+        }
+
+        await db.insert(taskLogsTable).values({
+          id: randomUUID(),
+          taskId,
+          level: "error",
+          message: `AI auto-execution parse failure [${agentResult._parseError.code}]`,
+          metadata: { parseCode: agentResult._parseError.code, correlationId },
+          correlationId,
+        });
+        logger.error(
+          { err: agentResult._parseError, taskId, correlationId },
+          "AI auto-execution output parsing failed",
+        );
+        await db.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "TaskAutoExecutionFailed",
+          projectId: task.projectId,
+          taskId,
+          severity: "error",
+          message: `AI auto-execution of "${task.title}" failed`,
+          correlationId,
+          payload: { status: "verifying", code: "model_output_invalid" },
+        });
+        await recordAudit({
+          entityType: "task",
+          entityId: taskId,
+          action: "ai_auto_execution_failed",
+          projectId: task.projectId,
+          stateBefore: { status: "running" },
+          stateAfter: { status: "verifying" },
+          correlationId,
+        });
+        invalidateContextCache(task.projectId);
+        return;
       }
 
       invalidateContextCache(task.projectId);

@@ -528,6 +528,11 @@ export function handleOrchestratorError(
 ): boolean {
   if (!(err instanceof GroqClientError)) return false;
 
+  logger.error(
+    { err, projectId: ctx?.projectId, operation: ctx?.operation, provider: ctx?.provider },
+    "AI orchestrator request failed",
+  );
+
   if (ctx?.projectId) {
     void db
       .insert(eventsTable)
@@ -536,7 +541,10 @@ export function handleOrchestratorError(
         type: "AiOrchestratorError",
         projectId: ctx.projectId,
         severity: "error",
-        message: `AI request failed [${err.code}]${ctx.operation ? ` during ${ctx.operation}` : ""}${ctx.provider ? ` (provider: ${ctx.provider})` : ""}: ${err.message.slice(0, 180)}`,
+        // Provider details stay in the server log below. Events are exposed
+        // through the user-facing activity feed and must not contain raw
+        // provider messages, request IDs, or runtime paths.
+        message: `AI request failed [${err.code}]${ctx.operation ? ` during ${ctx.operation}` : ""}${ctx.provider ? ` (provider: ${ctx.provider})` : ""}`,
       })
       .catch(() => {});
   }
@@ -643,7 +651,7 @@ export function handleOrchestratorError(
       });
       return true;
     default:
-      res.status(502).json({ ...base, error: `${providerLabel} provider error.`, hint: err.message });
+      res.status(502).json({ ...base, error: `${providerLabel} provider error.`, hint: "Try again in a moment." });
       return true;
   }
 }

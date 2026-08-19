@@ -27,6 +27,7 @@ import {
 import { buildPatchHunks, hashPatchBase } from "@workspace/ai-orchestrator";
 import * as repairValidation from "../lib/ai-repair-validation.js";
 import { canCreateProposal } from "./ai/chat.js";
+import { scheduleAiTaskExecution } from "./ai/tasks.js";
 
 describe("verified repair proposal gate", () => {
   const change = {
@@ -765,7 +766,7 @@ describe("POST /api/ai/chat", () => {
     expect(res.body.error).toBe("model_output_invalid");
     expect(res.body.code).toBe("model_output_invalid");
     expect(typeof res.body.hint).toBe("string");
-    expect(res.body.raw).toBe("bad model output");
+    expect(res.body.raw).toBeUndefined();
     expect(res.body.parseCode).toBe("SCHEMA_VALIDATION_FAILED");
   });
 
@@ -1326,7 +1327,11 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
       insights: [],
       topPriority: "fallback",
       estimatedImpact: "fallback",
-      _parseError: { code: "MALFORMED_JSON", message: "JSON parse error", raw: "not json" },
+      _parseError: {
+        code: "MALFORMED_JSON",
+        message: "JSON parse error from /tmp/parser-output.txt (request req-analysis-123)",
+        raw: "not json",
+      },
     });
 
     const projectId = await insertProject();
@@ -1338,6 +1343,12 @@ describe("POST /api/ai/projects/:projectId/analyze", () => {
     expect(res.body.code).toBe("model_output_invalid");
     expect(res.body.parseCode).toBe("MALFORMED_JSON");
     expect(typeof res.body.hint).toBe("string");
+    const serialized = JSON.stringify(res.body);
+    expect(serialized).not.toContain("not json");
+    expect(serialized).not.toContain("JSON parse error");
+    expect(serialized).not.toContain("req-analysis-123");
+    expect(serialized).not.toContain("/tmp/");
+    expect(serialized).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
   });
 
   it("streams the structured analysis lifecycle and result", async () => {
@@ -1474,7 +1485,11 @@ describe("POST /api/ai/workflows/:workflowId/orchestrate", () => {
     vi.mocked(mockOrchestrate).mockResolvedValueOnce({
       action: "wait",
       reasoning: "fallback — model output could not be parsed",
-      _parseError: { code: "EMPTY_MODEL_RESPONSE", message: "Model returned an empty response", raw: "" },
+      _parseError: {
+        code: "EMPTY_MODEL_RESPONSE",
+        message: "Model returned an empty response from /var/task/workflow-parser.log (request req-workflow-456)",
+        raw: "provider raw workflow output",
+      },
     });
 
     const projectId = await insertProject();
@@ -1488,6 +1503,12 @@ describe("POST /api/ai/workflows/:workflowId/orchestrate", () => {
     expect(res.body.code).toBe("model_output_invalid");
     expect(res.body.parseCode).toBe("EMPTY_MODEL_RESPONSE");
     expect(typeof res.body.hint).toBe("string");
+    const serialized = JSON.stringify(res.body);
+    expect(serialized).not.toContain("Model returned an empty response");
+    expect(serialized).not.toContain("provider raw workflow output");
+    expect(serialized).not.toContain("req-workflow-456");
+    expect(serialized).not.toContain("/var/task/");
+    expect(serialized).not.toContain("/tmp/");
   });
 });
 
@@ -2711,7 +2732,11 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
       confidence: "low",
       steps: [],
       needsHumanReview: true,
-      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "required field missing", raw: "{ bad json }" },
+      _parseError: {
+        code: "SCHEMA_VALIDATION_FAILED",
+        message: "required field missing at /srv/app/task-parser.ts (request req-task-789)",
+        raw: "{ bad json }",
+      },
     });
 
     const projectId = await insertProject();
@@ -2724,6 +2749,12 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     expect(res.body.code).toBe("model_output_invalid");
     expect(res.body.parseCode).toBe("SCHEMA_VALIDATION_FAILED");
     expect(typeof res.body.hint).toBe("string");
+    const serialized = JSON.stringify(res.body);
+    expect(serialized).not.toContain("{ bad json }");
+    expect(serialized).not.toContain("required field missing");
+    expect(serialized).not.toContain("req-task-789");
+    expect(serialized).not.toContain("/srv/app/");
+    expect(serialized).not.toContain("/tmp/");
 
     // Task must be rolled back to its original status — not stuck in "running".
     const [task] = await db
@@ -2737,6 +2768,11 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     const logs = await db.select().from(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
     const errLog = logs.find((l) => l.level === "error");
     expect(errLog).toBeDefined();
+    const persistedUserFacing = JSON.stringify(logs);
+    expect(persistedUserFacing).not.toContain("{ bad json }");
+    expect(persistedUserFacing).not.toContain("required field missing");
+    expect(persistedUserFacing).not.toContain("req-task-789");
+    expect(persistedUserFacing).not.toContain("/srv/app/");
   });
 
   it("returns 500 and restores task status when buildProjectContext fails", async () => {
@@ -2759,7 +2795,109 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
     expect(task?.status).toBe("pending");
 
     const logs = await db.select().from(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
-    expect(logs.some((l) => l.level === "error" && typeof l.message === "string" && l.message.includes("context build failed"))).toBe(true);
+    expect(logs.some((l) =>
+      l.level === "error" &&
+      l.message === "AI execution failed while building project context",
+    )).toBe(true);
+    expect(JSON.stringify(logs)).not.toContain("context build failed");
+  });
+
+  it("keeps raw provider diagnostics out of manual task JSON and persisted records", async () => {
+    const { executeTask: mockExecuteTask, GroqClientError } = await import("@workspace/ai-orchestrator");
+    const rawMessage = "provider request req-raw-task-123 failed at /srv/app/task.ts";
+    vi.mocked(mockExecuteTask).mockRejectedValue(
+      new GroqClientError("SERVER_ERROR", rawMessage),
+    );
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "pending");
+
+    const res = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+    expect(res.status).toBe(502);
+    const responseJson = JSON.stringify(res.body);
+    expect(responseJson).not.toContain(rawMessage);
+    expect(responseJson).not.toContain("req-raw-task-123");
+    expect(responseJson).not.toContain("/srv/app/");
+
+    const [event] = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    const persisted = JSON.stringify(event);
+    expect(persisted).not.toContain(rawMessage);
+    expect(persisted).not.toContain("req-raw-task-123");
+    expect(persisted).not.toContain("/srv/app/");
+  });
+
+  it("keeps raw provider diagnostics out of automatic task records", async () => {
+    const { executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
+    const rawMessage = "automatic provider request req-raw-auto-456 failed at /var/task/worker.ts";
+    vi.mocked(mockExecuteTask).mockRejectedValueOnce(new Error(rawMessage));
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    await db.update(tasksTable)
+      .set({ prompt: "Run the automatic task" })
+      .where(eq(tasksTable.id, taskId));
+
+    scheduleAiTaskExecution(taskId, "test-user");
+
+    let failureEvent: typeof eventsTable.$inferSelect | undefined;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const events = await db.select().from(eventsTable).where(eq(eventsTable.taskId, taskId));
+      failureEvent = events.find((event) => event.type === "TaskAutoExecutionFailed");
+      if (failureEvent) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    expect(failureEvent).toBeDefined();
+    const logs = await db.select().from(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+    const persisted = JSON.stringify({ failureEvent, logs });
+    expect(persisted).not.toContain(rawMessage);
+    expect(persisted).not.toContain("req-raw-auto-456");
+    expect(persisted).not.toContain("/var/task/");
+  });
+
+  it("keeps automatic parser output private in task records", async () => {
+    const { executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockExecuteTask).mockResolvedValueOnce({
+      summary: "fallback",
+      result: "fallback",
+      confidence: "low",
+      steps: [],
+      needsHumanReview: true,
+      _parseError: {
+        code: "SCHEMA_VALIDATION_FAILED",
+        message: "invalid output at /tmp/auto-parser.json (request req-auto-parser-999)",
+        raw: "raw automatic parser output",
+      },
+    });
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "verifying");
+    await db.update(tasksTable)
+      .set({ prompt: "Run the automatic parser fixture" })
+      .where(eq(tasksTable.id, taskId));
+
+    scheduleAiTaskExecution(taskId, "test-user");
+
+    let failureEvent: typeof eventsTable.$inferSelect | undefined;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const events = await db.select().from(eventsTable).where(eq(eventsTable.taskId, taskId));
+      failureEvent = events.find((event) => event.type === "TaskAutoExecutionFailed");
+      if (failureEvent) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    expect(failureEvent).toBeDefined();
+    const logs = await db.select().from(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+    const persisted = JSON.stringify({ failureEvent, logs });
+    expect(persisted).not.toContain("raw automatic parser output");
+    expect(persisted).not.toContain("req-auto-parser-999");
+    expect(persisted).not.toContain("/tmp/auto-parser.json");
   });
 
   it("returns 428 and leaves task in original status when no AI provider is configured", async () => {
