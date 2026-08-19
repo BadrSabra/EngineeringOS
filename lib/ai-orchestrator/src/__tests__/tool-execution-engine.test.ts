@@ -428,6 +428,7 @@ describe("executeToolLoop", () => {
       allowExecutionTools: true,
       validationRunner,
       validationTargetPaths: ["src/example.ts"],
+      maxValidationAttempts: 3,
       onStep: (step) => {
         if (step.kind === "validation") validationSteps.push(step);
         if (step.kind === "repair_state") repairStates.push(step);
@@ -718,7 +719,7 @@ describe("executeToolLoop", () => {
     expect(strategy.call).toHaveBeenCalledTimes(2);
     expect(strategy.call).toHaveBeenLastCalledWith(
       expect.any(Array),
-      expect.objectContaining({ maxTokens: 8_192 }),
+      expect.objectContaining({ maxTokens: 16_384 }),
     );
   });
 
@@ -1810,7 +1811,7 @@ describe("executeToolLoop", () => {
     }));
   });
 
-  it("caps an oversized repair budget at three validation attempts", async () => {
+  it("caps an oversized repair budget at five validation attempts", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([
       makeResponse("", [makeToolCall("write-1", "write_file", {
@@ -1831,7 +1832,19 @@ describe("executeToolLoop", () => {
         reason: "third repair",
       })]),
       makeResponse("", [makeToolCall("validate-3", "run_validation", { profile: "workspace-typecheck" })]),
+      makeResponse("", [makeToolCall("write-4", "write_file", {
+        path: "src/example.ts",
+        content: "const value = 4;",
+        reason: "fourth repair",
+      })]),
       makeResponse("", [makeToolCall("validate-4", "run_validation", { profile: "workspace-typecheck" })]),
+      makeResponse("", [makeToolCall("write-5", "write_file", {
+        path: "src/example.ts",
+        content: "const value = 5;",
+        reason: "fifth repair",
+      })]),
+      makeResponse("", [makeToolCall("validate-5", "run_validation", { profile: "workspace-typecheck" })]),
+      makeResponse("", [makeToolCall("validate-6", "run_validation", { profile: "workspace-typecheck" })]),
       makeResponse("BLOCKED: the repair attempt budget was exhausted."),
     ]);
     let writeCount = 0;
@@ -1883,14 +1896,14 @@ describe("executeToolLoop", () => {
     });
 
     expect(result.kind).toBe("response");
-    expect(validationRunner).toHaveBeenCalledTimes(3);
+    expect(validationRunner).toHaveBeenCalledTimes(5);
     expect(steps.filter((step) => step.kind === "validation" && step.status === "failed"))
-      .toHaveLength(3);
+      .toHaveLength(5);
     expect(steps).toContainEqual(expect.objectContaining({
       kind: "validation",
       status: "blocked",
-      attempt: 4,
-      maxAttempts: 3,
+      attempt: 6,
+      maxAttempts: 5,
       repairState: "BLOCKED",
       detail: expect.stringContaining("attempt limit"),
     }));

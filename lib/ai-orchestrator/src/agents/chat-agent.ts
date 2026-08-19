@@ -4301,8 +4301,8 @@ export async function chat(opts: {
   // Structured forensic reports need enough turns to inspect both layers and
   // then produce six contract-checked sections. Reserve the final four turns
   // for synthesis so the loop cannot spend the full budget on additional reads.
-  const STRUCTURED_OUTPUT_MAX_ITER = 120;
-  const STRUCTURED_OUTPUT_SYNTHESIS_TURNS = 14;
+  const STRUCTURED_OUTPUT_MAX_ITER = 180;
+  const STRUCTURED_OUTPUT_SYNTHESIS_TURNS = 20;
 
   const selectedBudget = immediateIntent
     ? {

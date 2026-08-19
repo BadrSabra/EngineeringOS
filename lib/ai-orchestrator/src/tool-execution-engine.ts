@@ -157,8 +157,8 @@ function pendingChangesFingerprint(changes: readonly PendingChange[]): string {
 
 type RepairPatchSnapshot = Map<string, string>;
 
-const MAX_REPAIR_ATTEMPT_DIFF_CHARS = 6_000;
-const MAX_REPAIR_ATTEMPT_DIFF_LINES = 96;
+const MAX_REPAIR_ATTEMPT_DIFF_CHARS = 12_000;
+const MAX_REPAIR_ATTEMPT_DIFF_LINES = 160;
 
 function snapshotPendingChanges(changes: readonly PendingChange[]): RepairPatchSnapshot {
   return new Map(
@@ -1616,7 +1616,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     * default to 4 096.
    * The caller can override with an explicit `maxTokens` option.
    */
-  const iterMaxTokens = opts.maxTokens ?? (provider === "openrouter" ? 4_096 : 4_096);
+  const iterMaxTokens = opts.maxTokens ?? (provider === "openrouter" ? 8_192 : 8_192);
 
   /**
    * OR-004: Transient error codes that warrant a powerModel retry within
@@ -2283,7 +2283,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       (!result.toolCalls || result.toolCalls.length === 0)
     ) {
       const truncatedContent = result.content.trim();
-      const retryMaxTokens = Math.max(iterMaxTokens * 2, 4_096);
+      const retryMaxTokens = Math.max(iterMaxTokens * 2, 8_192);
       const retryMessages = compactModelMessages([
         ...safeMessages,
         { role: "assistant", content: truncatedContent },

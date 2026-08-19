@@ -78,14 +78,16 @@ export abstract class BaseAgent<TInput, TOutput> {
     let parsed = parseResponse(response.content);
     let parseError = parsed.ok ? undefined : { code: parsed.code, message: parsed.message, raw: parsed.raw };
     const initialAssessment = parsed.ok && qualityProfile ? assessStructuredOutput(qualityProfile, parsed.data) : undefined;
-    const retryDecision = decideRetry({
-      attempt: 1,
-      limit: executionPlan.retryLimit,
-      parseError,
-      assessment: initialAssessment,
-    });
-
-    if (retryDecision.shouldRetry) {
+    let attempt = 1;
+    let assessment = initialAssessment;
+    while (attempt < executionPlan.retryLimit) {
+      const retryDecision = decideRetry({
+        attempt,
+        limit: executionPlan.retryLimit,
+        parseError,
+        assessment,
+      });
+      if (!retryDecision.shouldRetry) break;
       console.warn(
         JSON.stringify({
           scope: this.scope,
@@ -105,6 +107,8 @@ export abstract class BaseAgent<TInput, TOutput> {
 
       parsed = parseResponse(retryResponse.content);
       parseError = parsed.ok ? undefined : { code: parsed.code, message: parsed.message, raw: parsed.raw };
+      assessment = parsed.ok && qualityProfile ? assessStructuredOutput(qualityProfile, parsed.data) : undefined;
+      attempt += 1;
     }
 
     if (!parsed.ok) {
@@ -112,7 +116,7 @@ export abstract class BaseAgent<TInput, TOutput> {
       return { ...parsed.data, _parseError: parseError };
     }
 
-    const assessment = qualityProfile ? assessStructuredOutput(qualityProfile, parsed.data) : undefined;
+    assessment = qualityProfile ? assessStructuredOutput(qualityProfile, parsed.data) : undefined;
     if (assessment && assessment.decision !== "accept") {
       console.warn(
         JSON.stringify({

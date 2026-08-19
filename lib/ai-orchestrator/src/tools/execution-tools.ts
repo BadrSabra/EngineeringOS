@@ -16,7 +16,7 @@ export type RepairLoopState = "VALIDATING" | "REPAIRING" | "READY_FOR_REVIEW" | 
  * Callers may choose a smaller budget for a child loop, but no execution path
  * may expand a repair handoff beyond this limit.
  */
-export const MAX_REPAIR_ATTEMPTS = 3;
+export const MAX_REPAIR_ATTEMPTS = 5;
 
 export type ValidationToolResult = ValidationResult;
 

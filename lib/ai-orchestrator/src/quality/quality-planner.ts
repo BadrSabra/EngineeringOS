@@ -48,10 +48,10 @@ export type ExecutionPlanOptions = {
 };
 
 // Budget tables — all values are in approximate tokens.
-const CONTEXT_BUDGET: Record<ContextIntensity, number> = { lite: 2000, normal: 4000, deep: 8000 };
-const GRAPH_BUDGET: Record<GraphMode, number>           = { off: 0, index: 500, expanded: 2000 };
+const CONTEXT_BUDGET: Record<ContextIntensity, number> = { lite: 3000, normal: 6000, deep: 12000 };
+const GRAPH_BUDGET: Record<GraphMode, number>           = { off: 0, index: 800, expanded: 3200 };
 const HISTORY_DEPTH: Record<HistoryMode, number>        = { none: 0, recent: 4, summarized: 2 };
-const MEMORY_DEPTH: Record<MemoryMode, number>          = { none: 0, summary: 3, episodic: 5 };
+const MEMORY_DEPTH: Record<MemoryMode, number>          = { none: 0, summary: 5, episodic: 8 };
 const CACHE_MODE_BY_INTENSITY: Record<ContextIntensity, CacheMode> = {
   lite:   "aggressive",
   normal: "normal",
@@ -87,7 +87,7 @@ export function buildExecutionPlan(
     promptProfile: promptPlan.contextProfile,
     strictHints: qualityPlan.strictHints,
     relaxedHints: qualityPlan.relaxedHints,
-    retryLimit: options?.retryLimit ?? (taskProfile.retryOnParseFailure || taskProfile.retryOnLowQuality ? 2 : 1),
+    retryLimit: options?.retryLimit ?? (taskProfile.retryOnParseFailure || taskProfile.retryOnLowQuality ? 3 : 1),
     contextBudget: CONTEXT_BUDGET[contextIntensity],
     graphBudget:   GRAPH_BUDGET[graphMode],
     historyDepth:  HISTORY_DEPTH[historyMode],
