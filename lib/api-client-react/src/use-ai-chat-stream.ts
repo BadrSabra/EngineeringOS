@@ -719,6 +719,7 @@ export function useAiChatStream() {
   const [isPending, setIsPending] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
   const executionRef = useRef<{ id: string; resumeToken?: string } | null>(null);
+  const generationRef = useRef(0);
 
   const send = useCallback(async (
     params: AiChatStreamParams,
@@ -726,6 +727,7 @@ export function useAiChatStream() {
   ): Promise<void> => {
     controllerRef.current?.abort();
     const controller = new AbortController();
+    const generation = ++generationRef.current;
     controllerRef.current = controller;
     if (params.executionId) {
       executionRef.current = { id: params.executionId, resumeToken: params.resumeToken };
@@ -733,6 +735,50 @@ export function useAiChatStream() {
       executionRef.current = null;
     }
     setIsPending(true);
+    const isCurrent = () => (
+      generationRef.current === generation
+      && controllerRef.current === controller
+      && !controller.signal.aborted
+    );
+    const guardedCallbacks: AiChatStreamCallbacks = {
+      onExecutionStarted: (event) => {
+        if (!isCurrent()) return;
+        executionRef.current = {
+          id: event.executionId,
+          ...(event.resumeToken ? { resumeToken: event.resumeToken } : {}),
+        };
+        callbacks.onExecutionStarted?.(event);
+      },
+      onExecutionNodes: (event) => { if (isCurrent()) callbacks.onExecutionNodes?.(event); },
+      onSessionStarted: (event) => { if (isCurrent()) callbacks.onSessionStarted?.(event); },
+      onStage: (event) => { if (isCurrent()) callbacks.onStage?.(event); },
+      onDelta: (event) => { if (isCurrent()) callbacks.onDelta?.(event); },
+      onStreamReset: () => { if (isCurrent()) callbacks.onStreamReset?.(); },
+      onDone: (event) => {
+        if (!isCurrent()) return;
+        executionRef.current = null;
+        callbacks.onDone?.(event);
+      },
+      onError: (event) => { if (isCurrent()) callbacks.onError?.(event); },
+      onToolCall: (event) => { if (isCurrent()) callbacks.onToolCall?.(event); },
+      onToolResult: (event) => { if (isCurrent()) callbacks.onToolResult?.(event); },
+      onValidation: (event) => { if (isCurrent()) callbacks.onValidation?.(event); },
+      onRepairState: (event) => { if (isCurrent()) callbacks.onRepairState?.(event); },
+      onModelCall: (event) => { if (isCurrent()) callbacks.onModelCall?.(event); },
+      onThinking: (event) => { if (isCurrent()) callbacks.onThinking?.(event); },
+      onExecutionGuard: (event) => { if (isCurrent()) callbacks.onExecutionGuard?.(event); },
+      onSynthesisStart: (event) => { if (isCurrent()) callbacks.onSynthesisStart?.(event); },
+      onExecutionDiagnostic: (event) => { if (isCurrent()) callbacks.onExecutionDiagnostic?.(event); },
+      onForensicStatus: (event) => { if (isCurrent()) callbacks.onForensicStatus?.(event); },
+      onForensicTerminal: (event) => { if (isCurrent()) callbacks.onForensicTerminal?.(event); },
+      onProductionTrace: (event) => { if (isCurrent()) callbacks.onProductionTrace?.(event); },
+      onCrossFileTrace: (event) => { if (isCurrent()) callbacks.onCrossFileTrace?.(event); },
+      onEvidenceIntegrity: (event) => { if (isCurrent()) callbacks.onEvidenceIntegrity?.(event); },
+      onDecisionTrace: (event) => { if (isCurrent()) callbacks.onDecisionTrace?.(event); },
+      onTaskStarted: (event) => { if (isCurrent()) callbacks.onTaskStarted?.(event); },
+      onTaskProgress: (event) => { if (isCurrent()) callbacks.onTaskProgress?.(event); },
+      onTaskDone: (event) => { if (isCurrent()) callbacks.onTaskDone?.(event); },
+    };
     try {
       const requestParams = {
         ...params,
@@ -756,7 +802,7 @@ export function useAiChatStream() {
         // correct 401 case with a session-expiry hint rather than the generic
         // "Groq API key is invalid" fallback.
         const isSessionExpiry = res.status === 401 && !parsed.code;
-        callbacks.onError?.({
+        guardedCallbacks.onError?.({
           type: 'error',
           code: isSessionExpiry ? 'AUTH_ERROR' : (parsed.code ?? 'request_failed'),
           message: parsed.error ?? `Request failed (${res.status})`,
@@ -770,24 +816,15 @@ export function useAiChatStream() {
       // Server sets Content-Type: text/event-stream for the happy path.
       // If body is null (shouldn't happen in practice), treat as error.
       if (!res.body) {
-        callbacks.onError?.({ type: 'error', code: 'no_body', message: 'Stream response had no body.' });
+        guardedCallbacks.onError?.({ type: 'error', code: 'no_body', message: 'Stream response had no body.' });
         return;
       }
 
-      await processAiStream(res.body, {
-        ...callbacks,
-        onExecutionStarted: (event) => {
-          executionRef.current = {
-            id: event.executionId,
-            ...(event.resumeToken ? { resumeToken: event.resumeToken } : {}),
-          };
-          callbacks.onExecutionStarted?.(event);
-        },
-      });
+      await processAiStream(res.body, guardedCallbacks);
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return;
       // Network-level failure (fetch threw)
-      callbacks.onError?.({
+      guardedCallbacks.onError?.({
         type: 'error',
         code: 'network_error',
         message: err instanceof Error ? err.message : String(err),
@@ -809,8 +846,10 @@ export function useAiChatStream() {
         body: '{}',
       }).catch(() => undefined);
     }
+    generationRef.current += 1;
     controllerRef.current?.abort();
     controllerRef.current = null;
+    executionRef.current = null;
     setIsPending(false);
   }, []);
 

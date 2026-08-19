@@ -826,6 +826,13 @@ export type ToolLoopOpts = {
   taskType?: TaskType;
 
   /**
+   * Whether a zero-read terminal is an evidence failure. Ordinary chat,
+   * project questions, and delivery turns may complete without forensic
+   * evidence and must not emit INCOMPLETE_BEFORE_EVIDENCE diagnostics.
+   */
+  requiresEvidence?: boolean;
+
+  /**
    * Independent novelty budget for ordinary search_code calls. A search
    * consumes one unit; a previously unseen result hash refills the budget.
    */
@@ -1307,6 +1314,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     provider,
     apiKey,
     taskType,
+    requiresEvidence = true,
     deterministicTaskExecution = taskType === "task_execution",
     rootPath,
     pendingChanges,
@@ -1858,7 +1866,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   // that ends after one or a few zero-read turns must report THAT many starving
   // iterations, never the full configured budget.
   const classifyZeroReadTerminal = (when: string, elapsedIterations: number): void => {
-    if (firstSourceReadIter !== null || zeroReadClassified) return;
+    if (!requiresEvidence || firstSourceReadIter !== null || zeroReadClassified) return;
     zeroReadClassified = true;
     sourceRetrieval.incompleteBeforeEvidence = true;
     sourceRetrieval.iterationsWithoutEvidence = elapsedIterations;
@@ -1894,7 +1902,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       // If the soft limit fires before the FIRST source read, the run never
       // started investigating — report that explicitly rather than letting it
       // degrade into a bare NOT_PROVEN verdict the caller cannot explain.
-      if (firstSourceReadIter === null) {
+      if (requiresEvidence && firstSourceReadIter === null) {
         sourceRetrieval.investigationStartSla =
           sourceRetrieval.investigationStartSla ?? "soft_limit_with_zero_reads";
         try {

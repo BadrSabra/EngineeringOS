@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => {
     toast: vi.fn(),
     serverProposal: undefined as unknown,
     operationEvents: [] as Array<Record<string, unknown>>,
+    projects: [{ id: 'project-1', name: 'demo-service', language: 'TypeScript' }],
     sessions: [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }],
     proposalMessages: [{
       id: 'message-1',
@@ -127,7 +128,7 @@ vi.mock('@workspace/api-client-react', () => {
 
   return {
     useListProjects: vi.fn(() => ({
-      data: [{ id: 'project-1', name: 'demo-service', language: 'TypeScript' }],
+      data: mocks.projects,
       isLoading: false,
       isError: false,
       error: null,
@@ -282,6 +283,8 @@ function renderAiChat() {
 beforeEach(() => {
   mocks.toast.mockReset();
   mocks.serverProposal = undefined;
+  mocks.projects = [{ id: 'project-1', name: 'demo-service', language: 'TypeScript' }];
+  mocks.sessions = [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }];
   mocks.proposalMessages[0].content = 'Existing response';
   mocks.operationEvents = [];
   mocks.proposalMessages[0].toolTrace = undefined;
@@ -339,7 +342,8 @@ describe('AiChat authenticated generated mutations', () => {
 
   it('restores a paused execution after refresh and resumes the same execution', async () => {
     mocks.activeExecutionStatus = { status: 'paused' };
-    localStorage.setItem('eos_ai_execution_project-1', JSON.stringify({
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
       id: 'execution-paused',
       projectId: 'project-1',
       sessionId: 'session-1',
@@ -363,7 +367,8 @@ describe('AiChat authenticated generated mutations', () => {
 
   it('hydrates persisted chat data and clears stale storage when the server completed offline', async () => {
     mocks.activeExecutionStatus = { status: 'completed' };
-    localStorage.setItem('eos_ai_execution_project-1', JSON.stringify({
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
       id: 'execution-completed',
       projectId: 'project-1',
       sessionId: 'session-1',
@@ -374,12 +379,133 @@ describe('AiChat authenticated generated mutations', () => {
     const { invalidateQueries } = renderAiChat();
 
     await waitFor(() => {
-      expect(localStorage.getItem('eos_ai_execution_project-1')).toBeNull();
+      expect(localStorage.getItem('eos_ai_execution_project-1_session-1')).toBeNull();
+      expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBeNull();
       expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-messages', 'session-1'] });
       expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-pending-proposal', 'session-1'] });
       expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-sessions', 'project-1'] });
     });
     expect(screen.queryByText('A saved AI execution is ready to resume')).not.toBeInTheDocument();
+  });
+
+  it('clears execution state for a new session and rejects late callbacks', async () => {
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    const composer = screen.getByPlaceholderText(/Ask about your codebase/);
+    fireEvent.change(composer, { target: { value: 'Audit src/app.ts' } });
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+    const callbacks = mocks.streamCallbacks as {
+      onExecutionStarted?: (event: Record<string, unknown>) => void;
+      onDone?: (event: Record<string, unknown>) => void;
+    };
+
+    act(() => callbacks.onExecutionStarted?.({
+      type: 'execution_started',
+      executionId: 'execution-old',
+      status: 'running',
+      resumable: true,
+      resumeToken: 'resume-old',
+    }));
+    expect(await screen.findByText(/Execution executio…/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+    expect(screen.queryByText(/Execution executio…/)).not.toBeInTheDocument();
+
+    act(() => callbacks.onDone?.({
+      type: 'done',
+      sessionId: 'session-1',
+      message: {
+        id: 'late-message',
+        role: 'assistant',
+        content: 'Late stale response',
+        sources: '[]',
+        createdAt: '2026-08-19T00:00:00.000Z',
+      },
+      sources: [],
+      pendingChanges: [],
+      operationMode: 'FORENSIC_AUDIT',
+    }));
+    expect(screen.queryByText('Late stale response')).not.toBeInTheDocument();
+  });
+
+  it('preserves each project execution pointer when switching away and back', async () => {
+    mocks.projects = [
+      { id: 'project-1', name: 'demo-service', language: 'TypeScript' },
+      { id: 'project-2', name: 'worker-service', language: 'TypeScript' },
+    ];
+    mocks.activeExecutionStatus = { status: 'paused' };
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'alpha-execution',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      resumeToken: 'resume-alpha',
+      message: 'Resume project one',
+    }));
+    localStorage.setItem('eos_ai_execution_current_project-2', 'session-2');
+    localStorage.setItem('eos_ai_execution_project-2_session-2', JSON.stringify({
+      id: 'beta-execution',
+      projectId: 'project-2',
+      sessionId: 'session-2',
+      resumeToken: 'resume-beta',
+      message: 'Resume project two',
+    }));
+
+    renderAiChat();
+    expect(await screen.findByText(/Execution alpha-ex/)).toBeInTheDocument();
+
+    const projectSelector = screen.getByRole('combobox');
+    fireEvent.change(projectSelector, { target: { value: 'project-2' } });
+    expect(await screen.findByText(/Execution beta-exe/)).toBeInTheDocument();
+    expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBe('session-1');
+    expect(localStorage.getItem('eos_ai_execution_current_project-2')).toBe('session-2');
+
+    fireEvent.change(projectSelector, { target: { value: 'project-1' } });
+    expect(await screen.findByText(/Execution alpha-ex/)).toBeInTheDocument();
+    expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBe('session-1');
+    expect(localStorage.getItem('eos_ai_execution_current_project-2')).toBe('session-2');
+  });
+
+  it('keeps a previous session execution out of the selected session', async () => {
+    mocks.sessions = [
+      { id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' },
+      { id: 'session-2', title: 'Other session', updatedAt: '2026-08-14T00:00:00.000Z' },
+    ];
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    const composer = screen.getByPlaceholderText(/Ask about your codebase/);
+    fireEvent.change(composer, { target: { value: 'Inspect src/app.ts' } });
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' });
+    const callbacks = mocks.streamCallbacks as {
+      onExecutionStarted?: (event: Record<string, unknown>) => void;
+      onExecutionNodes?: (event: Record<string, unknown>) => void;
+    };
+    act(() => callbacks.onExecutionStarted?.({
+      type: 'execution_started',
+      executionId: 'execution-session-1',
+      status: 'running',
+      resumable: true,
+    }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Other session' }));
+    act(() => callbacks.onExecutionNodes?.({
+      type: 'execution_nodes',
+      executionId: 'execution-session-1',
+      nodes: [{
+        id: 'late-node',
+        title: 'Late stale node',
+        status: 'running',
+        allowedFiles: [],
+        dependencies: [],
+        validationProfile: 'api-ai-tests',
+        attempts: 0,
+      }],
+    }));
+
+    expect(screen.queryByText('Late stale node')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Execution executio…/)).not.toBeInTheDocument();
   });
 
   it('sends a provider key through the generated mutation and reports success/error', async () => {

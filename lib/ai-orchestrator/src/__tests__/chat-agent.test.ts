@@ -124,6 +124,7 @@ describe("chat agent — ChatOutputSchema validation", () => {
 
   it("keeps an Arabic greeting out of the tool loop when a project root is present", async () => {
     const decisionCalls: Array<{ scope: string; opts: Record<string, unknown> }> = [];
+    const steps: AgentStep[] = [];
 
     vi.doMock("../model-selection/decision-engine.js", () => ({
       resolveExecutionDecision: vi.fn((scope: string, opts: Record<string, unknown>) => {
@@ -160,11 +161,17 @@ describe("chat agent — ChatOutputSchema validation", () => {
       history: [],
       projectContext: makeContext(),
       rootPath: "/tmp/project",
+      onStep: (step) => steps.push(step),
     });
 
     expect(decisionCalls).toHaveLength(1);
     expect(decisionCalls[0]?.scope).toBe("chat");
     expect(decisionCalls[0]?.opts).toMatchObject({ hasTools: false, requireTools: false });
+    expect(steps.filter((step) => step.kind === "tool_call")).toHaveLength(0);
+    expect(steps.find((step) => step.kind === "done")).toMatchObject({ toolCalls: 0 });
+    expect(steps.some(
+      (step) => step.kind === "diagnostic" && step.code === "INCOMPLETE_BEFORE_EVIDENCE",
+    )).toBe(false);
     expect(result.response).toBe("أهلًا بك!");
   });
 

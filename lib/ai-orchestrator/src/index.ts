@@ -249,6 +249,12 @@ export type { ActiveTask } from "./prompts/chat.prompt.js";
 
 export { classifyRequest, isSocialGreeting } from "./prompts/profile-classifier.js";
 export type { ClassifiedRequest, RequestCategory } from "./prompts/profile-classifier.js";
+export { resolveTurnIntent } from "./turn-intent.js";
+export type {
+  TurnIntent,
+  TurnIntentKind,
+  TurnOperationMode,
+} from "./turn-intent.js";
 export {
   AnalysisModeSchema,
   BehaviorAnswerSchema,

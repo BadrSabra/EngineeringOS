@@ -29,6 +29,7 @@ import type {
   ExecutionNode,
   ProductionTraceLink,
   ObjectiveContract,
+  TurnIntent,
   ValidationRunner,
 } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
@@ -349,6 +350,8 @@ export async function chatWithFallback(
      * actual chat entry points, not just direct library calls.
      */
     objective?: ObjectiveContract;
+    /** Route-owned decision derived from the unaugmented user message. */
+    turnIntent?: TurnIntent;
     /** Enabled only after the route validates an approved implementation plan. */
     allowValidationTools?: boolean;
     /** Server-owned validation callback; never derived from model arguments. */
@@ -414,6 +417,7 @@ export async function chatWithFallback(
         buildHandoff: baseParams.buildHandoff,
         onExecutionNodes: baseParams.onExecutionNodes,
         signal: baseParams.signal,
+        turnIntent: baseParams.turnIntent,
       });
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {

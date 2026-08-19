@@ -103,7 +103,6 @@ vi.mock("@workspace/db", () => {
     };
   }
 
-  let txInsertIdx = 0;
   const updateResult = () => {
     const promise = Promise.resolve();
     return Object.assign(promise, {
@@ -131,23 +130,22 @@ vi.mock("@workspace/db", () => {
         }),
       }),
       transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
-        txInsertIdx = 0;
         const tx = {
           insert: () => ({
             values: (vals?: Record<string, unknown>) => {
-              // 0 = user message (awaited directly, return value ignored)
-              // 1 = assistant message (.returning() is called)
-              const idx = txInsertIdx++;
               // Task #59: capture the exact serialized DB columns written for
               // the assistant message so the scoped-verdict tests can parse
               // them back (tool_trace + repair_plan_metadata).
-              if (idx === 1) {
+              if (vals?.role === "assistant") {
                 chatCapture.assistantToolTrace =
                   (vals?.toolTrace as string | null | undefined) ?? null;
                 chatCapture.assistantRepairPlanMetadata =
                   (vals?.repairPlanMetadata as string | null | undefined) ?? null;
               }
-              return insertResult(idx === 1 ? [MOCK_MSG] : []);
+              if (vals && "projectId" in vals && !("sessionId" in vals)) {
+                return insertResult([MOCK_SESSION]);
+              }
+              return insertResult(vals?.role === "assistant" ? [MOCK_MSG] : []);
             },
           }),
           update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
@@ -235,6 +233,7 @@ vi.mock("../../lib/advisory-lock.js", () => ({
 import app from "../../app.js";
 import { chatWithFallback, requireProvider } from "../../lib/ai-route-helpers.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+import { resolveRootPath } from "../../lib/rootpath-validator.js";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -414,6 +413,204 @@ afterEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration)", () => {
+  it("routes implementation-plan requests as read-only chat on JSON and SSE", async () => {
+    const captured: Array<{
+      turnIntent?: Record<string, unknown>;
+      options?: Record<string, unknown>;
+    }> = [];
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, params, _provider, _onDelta, options) => {
+        const input = params as { turnIntent?: Record<string, unknown> };
+        captured.push({
+          turnIntent: input.turnIntent,
+          options: options as Record<string, unknown>,
+        });
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const body = {
+      projectId: "test-project-id",
+      message: "Create an implementation plan for feature X.",
+    };
+    const json = await request(app).post("/api/ai/chat").send(body);
+    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+
+    expect(json.status, JSON.stringify(json.body)).toBe(200);
+    expect(stream.status, stream.text).toBe(200);
+    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+      { requireTools: false, qualityProfile: "chat" },
+      { requireTools: false, qualityProfile: "chat" },
+    ]);
+    expect(captured).toHaveLength(2);
+    for (const call of captured) {
+      expect(call.turnIntent).toMatchObject({
+        kind: "DELIVERY",
+        executionTaskType: "chat",
+        requiresTools: false,
+        requiresEvidence: false,
+        operationMode: "DELIVERY",
+      });
+      expect(call.options).toEqual({
+        requireTools: false,
+        qualityProfile: "chat",
+      });
+    }
+  });
+
+  it("keeps non-imperative action questions in ordinary chat on JSON and SSE", async () => {
+    const captured: Array<{
+      turnIntent?: Record<string, unknown>;
+      options?: Record<string, unknown>;
+    }> = [];
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, params, _provider, _onDelta, options) => {
+        const input = params as { turnIntent?: Record<string, unknown> };
+        captured.push({
+          turnIntent: input.turnIntent,
+          options: options as Record<string, unknown>,
+        });
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const body = {
+      projectId: "test-project-id",
+      message: "How do I edit settings?",
+    };
+    const json = await request(app).post("/api/ai/chat").send(body);
+    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+
+    expect(json.status, JSON.stringify(json.body)).toBe(200);
+    expect(stream.status, stream.text).toBe(200);
+    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+      { requireTools: false, qualityProfile: "chat" },
+      { requireTools: false, qualityProfile: "chat" },
+    ]);
+    expect(captured).toHaveLength(2);
+    for (const call of captured) {
+      expect(call.turnIntent).toMatchObject({
+        kind: "CHAT",
+        executionTaskType: "chat",
+        requiresTools: false,
+        requiresEvidence: false,
+        operationMode: "CHAT",
+      });
+      expect(call.options).toEqual({
+        requireTools: false,
+        qualityProfile: "chat",
+      });
+    }
+  });
+
+  it("routes composed polite modification requests as delivery on JSON and SSE", async () => {
+    const captured: Array<{
+      turnIntent?: Record<string, unknown>;
+      options?: Record<string, unknown>;
+    }> = [];
+    const validRootPath = `${process.cwd()}/src/routes/ai`;
+    vi.mocked(resolveRootPath)
+      .mockResolvedValueOnce({
+        validRootPath,
+        fallbackUsed: false,
+        originalPath: validRootPath,
+      })
+      .mockResolvedValueOnce({
+        validRootPath,
+        fallbackUsed: false,
+        originalPath: validRootPath,
+      });
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, params, _provider, _onDelta, options) => {
+        const input = params as { turnIntent?: Record<string, unknown> };
+        captured.push({
+          turnIntent: input.turnIntent,
+          options: options as Record<string, unknown>,
+        });
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const body = {
+      projectId: "test-project-id",
+      message: "Can you please fix it?",
+    };
+    const json = await request(app).post("/api/ai/chat").send(body);
+    const stream = await request(app).post("/api/ai/chat/stream").send(body);
+
+    expect(json.status, JSON.stringify(json.body)).toBe(200);
+    expect(stream.status, stream.text).toBe(200);
+    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+      { requireTools: true, qualityProfile: "task_execution" },
+      { requireTools: true, qualityProfile: "task_execution" },
+    ]);
+    expect(captured).toHaveLength(2);
+    for (const call of captured) {
+      expect(call.turnIntent).toMatchObject({
+        kind: "DELIVERY",
+        executionTaskType: "task_execution",
+        requiresTools: true,
+        requiresEvidence: false,
+        operationMode: "DELIVERY",
+      });
+      expect(call.options).toEqual({
+        requireTools: true,
+        qualityProfile: "task_execution",
+      });
+    }
+  });
+
+  it("ignores stale Build and execution metadata for an Arabic greeting", async () => {
+    let capturedParams: Record<string, unknown> | undefined;
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, params) => {
+        capturedParams = params as Record<string, unknown>;
+        return {
+          ...MOCK_CHAT_RESULT,
+          result: {
+            ...MOCK_CHAT_RESULT.result,
+            response: "أهلًا بك!",
+          },
+        };
+      },
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId: "test-project-id",
+        message: "مرحبا",
+        executionId: "10000000-0000-4000-8000-000000000001",
+        resumeToken: "stale-resume-token-that-is-long-enough",
+        buildPlanMessageId: "20000000-0000-4000-8000-000000000002",
+      });
+
+    expect(res.status).toBe(200);
+    expect(requireProvider).toHaveBeenCalledWith(
+      "test-user",
+      expect.anything(),
+      expect.objectContaining({ requireTools: false, qualityProfile: "chat" }),
+    );
+    expect(capturedParams).toMatchObject({
+      message: "مرحبا",
+      buildHandoff: false,
+      turnIntent: {
+        kind: "CHAT",
+        executionTaskType: "chat",
+        requiresTools: false,
+        requiresEvidence: false,
+        operationMode: "CHAT",
+      },
+    });
+
+    const frames = parseSseFrames(res.text) as Array<Record<string, unknown>>;
+    expect(frames.some((frame) => frame.type === "forensic_terminal")).toBe(false);
+    expect(frames.find((frame) => frame.type === "done")).toMatchObject({
+      type: "done",
+      operationMode: "CHAT",
+    });
+  });
+
   it("emits a forensic_status SSE event when chatWithFallback calls onStep with an isFixtureLocal:true step", async () => {
     // Arrange: mock chatWithFallback to call the real onStep closure with a
     // fixture-local forensic_status step.  The real onStep in chat.ts will then

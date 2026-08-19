@@ -53,7 +53,8 @@ import { GroqClientError, type AgentErrorCode } from "../errors.js";
 import type { RawMessage, ToolDefinition } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildChatSystemPrompt, type ActiveTask } from "../prompts/chat.prompt.js";
-import { classifyRequest, isSocialGreeting } from "../prompts/profile-classifier.js";
+import { classifyRequest } from "../prompts/profile-classifier.js";
+import { resolveTurnIntent, type TurnIntent } from "../turn-intent.js";
 import {
   buildSemanticBehaviorAnswer,
   buildTaskValidationFallback,
@@ -2130,23 +2131,8 @@ function emitExecutionDiagnostic(
 // Iteration and call budgets are owned by the engine (DEFAULT_MAX_ITERATIONS / DEFAULT_MAX_TOOL_CALLS).
 
 /**
- * إصلاح #2 — اكتشاف نية التنفيذ الفعلي للأدوات.
- *
- * عندما يطلب المستخدم صراحةً تنفيذ شيء ("اختبر الأدوات"، "run the tests"...)،
- * نستخدم MODEL_POWERFUL بدلاً من MODEL_FAST لأن النموذج الأصغر يميل إلى
- * وصف الأدوات نظرياً بمسارات وهمية بدل استدعائها فعلياً (hallucination).
- */
-const TOOL_EXECUTION_PATTERNS: RegExp[] = [
-  // العربية: أفعال الكتابة/التنفيذ/الإصلاح/التحقق التي تعني "ابدأ أدوات"
-  /(?:اكتب|كتابة|أنشئ|انشئ|إنشئ|كوّن|كون|ابن|ابني|نفّذ|نفذ|تنفيذ|شغّل|شغل|تشغيل|طبّق|طبق|تطبيق|عدّل|عدل|تعديل|أصلح|اصلح|تصحيح|صحّح|صحح|اختبر|فحص|افحص|تحقق|استعرض|راجع|حلّل|حلل|تحليل|ابحث|اكتشف|استكشف|افتح|اقرأ|أرني|اعرض|أظهر|اظهر)/,
-  // الإنجليزية — analysis, writing, and exploration verbs.
-  /\b(write|create|build|generate|implement|execute|run|try|perform|apply|check|verify|demonstrate|show\s+me|read|list|search|find|scan|inspect|analyze|analyse|review|explore|investigate|examine|look\s+at|open|browse|fix|patch|edit|modify|test)\b/i,
-];
-
-/**
- * Imperative-execution patterns — subset of TOOL_EXECUTION_PATTERNS where the
- * user is commanding immediate action rather than asking a question or requesting
- * a description.
+ * Imperative-execution patterns where the user is commanding immediate action
+ * rather than asking a question or requesting a description.
  *
  * Matched messages trigger "immediate execution mode" in the system prompt:
  * Rule 9 is replaced with a hard directive to skip any plan/description and
@@ -2163,11 +2149,6 @@ function normalizeIntentText(message: string): string {
     .replace(/[^0-9A-Za-z\u0600-\u06FF\s]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function requiresToolExecution(message: string): boolean {
-  const normalized = normalizeIntentText(message);
-  return TOOL_EXECUTION_PATTERNS.some((p) => p.test(normalized));
 }
 
 const REPORT_REGENERATION_PATTERNS = [
@@ -3052,6 +3033,11 @@ export async function chat(opts: {
    * gate refuses to emit a completed final answer.
    */
   objective?: ObjectiveContract;
+  /**
+   * Route-owned decision derived from the original user message. API callers
+   * must pass this when they augment `message` with Build/resume context.
+   */
+  turnIntent?: TurnIntent;
 }): Promise<ChatResult> {
   const {
     message,
@@ -3078,18 +3064,29 @@ export async function chat(opts: {
     onExecutionNodes,
     productionTraceLinks,
     objective,
+    turnIntent: suppliedTurnIntent,
   } = opts;
 
   // ── Profile classification ────────────────────────────────────────────────
   // Pure sync — classifies the message into simple/code/architecture/workflow/
   // deep_analysis and derives context profile, history depth, and prefetch flag.
-  const classificationResult = resumeActiveTaskClassification(
-    message,
-    classifyRequest(message),
-    activeTaskState ?? null,
-  );
+  const classificationResult = suppliedTurnIntent
+    ? {
+        classification: suppliedTurnIntent.classification,
+        resumed: suppliedTurnIntent.resumed,
+      }
+    : resumeActiveTaskClassification(
+        message,
+        classifyRequest(message),
+        activeTaskState ?? null,
+      );
   const classification = classificationResult.classification;
   const resumedTask = classificationResult.resumed;
+  const turnIntent = suppliedTurnIntent ?? resolveTurnIntent(message, {
+    classification,
+    resumed: resumedTask,
+    buildHandoff,
+  });
 
   // Plan mode is intentionally a separate, read-only path. It produces a
   // reviewable contract and never enters the forensic tool loop or exposes
@@ -3120,7 +3117,7 @@ export async function chat(opts: {
     };
   }
 
-  const taskRoute = routeTask(classification.taskType);
+  const taskRoute = routeTask(turnIntent.forensicTaskType);
   const explicitlyRequestedBehavioralAssessment = requiresBehavioralFindingAssessment(message);
   const capabilityProbeRequest = isCapabilityProbeRequest(message);
   const taskChecklistSource = [activeTask?.description, message]
@@ -3137,11 +3134,11 @@ export async function chat(opts: {
     orderedForensicRoots,
     includeTestSources: classifiedIncludeTestSources,
     fixtureAuditMode,
-    taskType: forensicTaskType,
-    analysisMode,
-    outputContract,
     firstEvidence,
   } = classification;
+  const forensicTaskType = turnIntent.forensicTaskType;
+  const analysisMode = turnIntent.analysisMode;
+  const outputContract = turnIntent.outputContract;
   // A fixture capability audit is itself an evidence-grounded behavioral
   // assessment, even when the short request only says to test forensic
   // capability on the named file. Production audits still require explicit
@@ -3541,17 +3538,18 @@ export async function chat(opts: {
   // retain their own output contract and do not enter the forensic gate.
   const structuredOutputMode = forensicOutputMode;
   const suppressHistoricalSessionMemory =
-    structuredOutputMode || capabilityProbeRequest || taskRoute.requiresEvidence;
+    structuredOutputMode || capabilityProbeRequest || turnIntent.requiresEvidence;
   // FEG-017: terminal explanations apply to forensic audits AND behavior-evidence
   // investigations. The latter (BEHAVIOR_QUERY naming an explicit source file)
   // run with structuredOutputMode=false but still must report WHY a NOT_PROVEN
   // terminal happened — an inventory is not an answer. Generic chats (neither
   // forensic nor behavior-evidence) must never emit a forensic_terminal step.
-  const isForensicOrEvidenceRun =
-    forensicOutputMode ||
-    (forensicTaskType === "BEHAVIOR_QUERY" && isExplicitBehaviorQueryRequest(message));
-  const promptOutputContract = forensicOutputMode ? "FORENSIC_REPORT" : outputContract;
+  const isForensicOrEvidenceRun = turnIntent.requiresEvidence;
+  const promptOutputContract = forensicOutputMode
+    ? "FORENSIC_REPORT"
+    : turnIntent.outputContract;
   const validateResponseForTask = (response: string): string => {
+    if (!turnIntent.requiresEvidence && turnIntent.kind === "CHAT") return response;
     const validationTaskType = forensicOutputMode
       ? "FULL_FORENSIC_AUDIT"
       : forensicTaskType;
@@ -3599,24 +3597,13 @@ export async function chat(opts: {
   // selects paid reasoning models on OpenRouter, causing 400 errors on free-tier
   // keys. The pacing rules deliver all 6 sections without a model change.
   const isDeepAnalysis = forensicOutputMode || classification.category === "deep_analysis";
-  // Execution follow-ups («ابدأ», "apply the fixes") count as tool-execution
-  // requests even when the bare verb doesn't match TOOL_EXECUTION_PATTERNS.
-  const userToolExecutionRequested = requiresToolExecution(message) || immediateIntent;
-  // `classifyForensicTask()` intentionally defaults to BEHAVIOR_QUERY for
-  // unclassified messages, including greetings. The task route's
-  // `requiresEvidence` flag therefore cannot be used by itself here or a
-  // simple "مرحبا" would enter the tool loop. Only an actually detected
-  // forensic/evidence request may force tools.
-  const evidenceReadRequested = isForensicOrEvidenceRun;
-  // Evidence runs must select a tool-capable model even when the user asks a
-  // question rather than issuing an imperative such as "read this file". A
-  // forensic answer that can terminate before its first source read is not a
-  // valid answer; the evidence gate will fail closed, but only after wasting a
-  // model turn and showing a misleading incomplete result.
-  const toolExecutionRequested =
-    !isSocialGreeting(message) && (userToolExecutionRequested || evidenceReadRequested);
+  // The shared intent is authoritative. Do not infer tool use again from the
+  // augmented model message or from rootPath availability.
+  const toolExecutionRequested = turnIntent.requiresTools;
   const immediateExecution = rootPath !== undefined && immediateIntent;
-  const agentScope = rootPath && toolExecutionRequested ? "task_execution" : "chat";
+  const agentScope = rootPath && toolExecutionRequested
+    ? turnIntent.executionTaskType
+    : "chat";
   const modelHasTools = !!rootPath && toolExecutionRequested;
 
   const executionPlan = resolveExecutionDecision(agentScope, {
@@ -3644,6 +3631,9 @@ export async function chat(opts: {
     outputContract,
     validator: taskRoute.validator,
     category: classification.category,
+    turnIntent: turnIntent.kind,
+    requiresTools: turnIntent.requiresTools,
+    requiresEvidence: turnIntent.requiresEvidence,
     agentScope,
     taskType: executionPlan.taskProfile.taskType,
     immediateExecution,
@@ -3823,7 +3813,7 @@ export async function chat(opts: {
         orderedForensicRoots,
         allowValidationTools,
       )
-    : [];
+    : undefined;
 
   if (singleFileForensicMode) {
     console.info(
@@ -4095,6 +4085,7 @@ export async function chat(opts: {
   // the content in its first iteration without spending a real tool call.
   // Skipped for lite turns (allowPrefetch=false) and when the profile is lite.
   if (
+    turnIntent.requiresTools &&
     !singleFileForensicMode &&
     orderedForensicRoots.length === 0 &&
     rootPath &&
@@ -4205,6 +4196,7 @@ export async function chat(opts: {
   // additional model call re-planning "نفّذ الخطة"; use the concrete paths from
   // the recovered plan and start the execution loop immediately.
   if (
+    turnIntent.requiresTools &&
     !singleFileForensicMode &&
     orderedForensicRoots.length === 0 &&
     tools != null &&
@@ -4584,6 +4576,7 @@ export async function chat(opts: {
           toolChoice: "required",
           maxIterations: Math.min(budget.maxIterations, 48),
           taskType: executionPlan.taskProfile.taskType,
+          requiresEvidence: turnIntent.requiresEvidence,
           deterministicTaskExecution: false,
           maxToolCalls: Math.min(budget.maxToolCalls, 100),
           executionMode: "repair_plan",
@@ -4877,6 +4870,7 @@ export async function chat(opts: {
         : undefined,
     maxIterations: budget.maxIterations,
     taskType: executionPlan.taskProfile.taskType,
+    requiresEvidence: turnIntent.requiresEvidence,
     deterministicTaskExecution,
     maxToolCalls: structuredOutputMode
       ? Math.max(0, budget.maxToolCalls - prefetchFileContents.size)

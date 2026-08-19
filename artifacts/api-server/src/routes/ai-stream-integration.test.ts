@@ -39,7 +39,7 @@ import {
 } from "@workspace/db";
 import { logger } from "../lib/logger.js";
 import { encryptApiKey } from "../lib/credentials-crypto.js";
-import { chatWithFallback } from "../lib/ai-route-helpers.js";
+import { chatWithFallback, requireProvider } from "../lib/ai-route-helpers.js";
 import { buildPatchHunks, hashPatchBase, type ExecutionNode } from "@workspace/ai-orchestrator";
 import {
   claimAiExecution,
@@ -106,9 +106,12 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
   recordInvalidModel:      vi.fn(),
   recordLatency:           vi.fn(),
   sortProviderIdsByQuality: vi.fn((ids: string[]) => ids),
-  // classifyRequest is called by the chat/stream route to determine prompt profile.
-  classifyRequest: vi.fn(() => ({ category: "code", contextDepth: "full", historyDepth: 4, maxTokens: 4096, temperature: 0.2, qualityProfile: "code_review" })),
-  isImmediateExecutionRequest: vi.fn((message: string) => /(?:نفذ|ابدأ|apply|implement|fix|patch|edit|modify)/i.test(message)),
+  // Use the real routing contracts. Partial legacy classifier fixtures hide
+  // missing fields and can no longer represent a complete TurnIntent.
+  classifyRequest: vi.fn((message: string) =>
+    (actual.classifyRequest as (value: string) => unknown)(message)),
+  isImmediateExecutionRequest: vi.fn((message: string) =>
+    (actual.isImmediateExecutionRequest as (value: string) => boolean)(message)),
   // enrichContextWithMemories and writeSessionMemories are called by the chat route.
   enrichContextWithMemories: vi.fn(async (ctx: string) => ctx),
   writeSessionMemories: vi.fn(async () => undefined),
@@ -1275,7 +1278,15 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .mockReturnValueOnce(forensicClassification)
       .mockReturnValueOnce(forensicClassification);
 
-    const seenInputs: Array<{ activeTaskState?: { taskType?: string; scope?: { projectId?: string } } }> = [];
+    const seenInputs: Array<{
+      activeTaskState?: { taskType?: string; scope?: { projectId?: string } } | null;
+      turnIntent?: {
+        kind?: string;
+        executionTaskType?: string;
+        requiresTools?: boolean;
+        requiresEvidence?: boolean;
+      };
+    }> = [];
     const repairPlan = [{
       findingId: "F-1" as const,
       files: ["src/unsafe.ts"],
@@ -1321,7 +1332,9 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     };
     vi.mocked(chatWithFallback)
       .mockImplementationOnce(runContinuation)
+      .mockImplementationOnce(runContinuation)
       .mockImplementationOnce(runContinuation);
+    vi.mocked(requireProvider).mockClear();
 
     const projectId = await insertProject();
     projectIds.push(projectId);
@@ -1373,6 +1386,25 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       taskType: "FULL_FORENSIC_AUDIT",
       scope: { projectId },
     });
+
+    const neutral = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: "Tell me a joke" });
+    expect(neutral.status).toBe(200);
+    expect(seenInputs[2]?.activeTaskState).toBeNull();
+    expect(seenInputs[2]?.turnIntent).toMatchObject({
+      kind: "CHAT",
+      executionTaskType: "chat",
+      requiresTools: false,
+      requiresEvidence: false,
+    });
+
+    expect(vi.mocked(requireProvider).mock.calls.slice(-3).map((call) => call[2])).toEqual([
+      { requireTools: true, qualityProfile: "analysis" },
+      { requireTools: true, qualityProfile: "analysis" },
+      { requireTools: false, qualityProfile: "chat" },
+    ]);
   });
 
   it("should carry the persisted audit report into a same-session execution follow-up", async () => {
@@ -1625,7 +1657,10 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const res = await request(app)
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
-      .send({ projectId, message: "أكمل" });
+      .send({
+        projectId,
+        message: "تحقق من الكود الفعلي واكتشف الفجوات وحدد الأسباب الجذرية",
+      });
 
     const events = parseSseEvents(res.text);
     const done = events.find((event) => event["type"] === "done");

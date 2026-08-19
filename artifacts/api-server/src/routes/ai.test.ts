@@ -796,7 +796,7 @@ describe("POST /api/ai/chat", () => {
     expect(messages.length).toBe(4);
   });
 
-  it("persists and restores the resumable task contract for a JSON continuation", async () => {
+  it("restores a JSON continuation but isolates later neutral chat from stale forensic state", async () => {
     const { chat: mockChat, classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
     const forensicClassification = {
       category: "deep_analysis",
@@ -888,6 +888,28 @@ describe("POST /api/ai/chat", () => {
     expect(continuationCall?.activeTaskState).toMatchObject({
       taskType: "FULL_FORENSIC_AUDIT",
       scope: { projectId },
+    });
+
+    const neutral = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId, sessionId, message: "Tell me a joke" });
+    expect(neutral.status).toBe(200);
+
+    const neutralCall = vi.mocked(mockChat).mock.calls.at(-1)?.[0] as {
+      activeTaskState?: unknown;
+      turnIntent?: {
+        kind?: string;
+        executionTaskType?: string;
+        requiresTools?: boolean;
+        requiresEvidence?: boolean;
+      };
+    } | undefined;
+    expect(neutralCall?.activeTaskState).toBeNull();
+    expect(neutralCall?.turnIntent).toMatchObject({
+      kind: "CHAT",
+      executionTaskType: "chat",
+      requiresTools: false,
+      requiresEvidence: false,
     });
   });
 

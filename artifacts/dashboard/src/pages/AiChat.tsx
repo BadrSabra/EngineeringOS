@@ -153,6 +153,13 @@ type ActiveExecution = {
   buildPlanMessageId?: string;
 };
 
+type StreamOwner = {
+  generation: number;
+  projectId: string;
+  sessionId?: string;
+  executionId?: string;
+};
+
 /**
  * Local mirror of the AI-008 typed result union. The server sends the nested
  * payloads as plain objects, so accessors below cast defensively rather than
@@ -6006,6 +6013,7 @@ export default function AiChat() {
   const { send: streamSend, cancel: cancelStream, isPending: isSending } = useAiChatStream();
   const { send: taskStreamSend, cancel: cancelTaskStream, isPending: isTaskSending } = useAiTaskStream();
   const streamGenerationRef = useRef(0);
+  const streamOwnerRef = useRef<StreamOwner | null>(null);
   const { data: operationEvents = [], isLoading: operationEventsLoading } = useListEvents<ApiEvent[]>(
     {
       projectId: selectedProjectId,
@@ -6061,10 +6069,19 @@ export default function AiChat() {
   // Keep the opaque resume token across tab refreshes. The server stores only
   // its hash, so losing this browser copy would make a paused execution look
   // resumable while making the actual resume impossible.
-  const executionStorageKey = selectedProjectId
-    ? `eos_ai_execution_${selectedProjectId}`
+  const executionPointerKey = selectedProjectId
+    ? `eos_ai_execution_current_${selectedProjectId}`
     : undefined;
-  const hydratedExecutionProjectRef = useRef<string | null>(null);
+  const pointedExecutionSessionId = (() => {
+    if (!executionPointerKey || sessionId) return undefined;
+    const value = localStorage.getItem(executionPointerKey);
+    return value && value.trim() ? value : undefined;
+  })();
+  const executionStorageSessionId = sessionId ?? pointedExecutionSessionId;
+  const executionStorageKey = selectedProjectId && executionStorageSessionId
+    ? `eos_ai_execution_${selectedProjectId}_${executionStorageSessionId}`
+    : undefined;
+  const hydratedExecutionScopeRef = useRef<string | null>(null);
   const storedExecution = (() => {
     if (!executionStorageKey) return null;
     try {
@@ -6074,12 +6091,20 @@ export default function AiChat() {
       if (
         typeof parsed.id !== 'string' ||
         typeof parsed.projectId !== 'string' ||
+        typeof parsed.sessionId !== 'string' ||
         typeof parsed.message !== 'string'
       ) {
         localStorage.removeItem(executionStorageKey);
         return null;
       }
-      return parsed as ActiveExecution;
+      if (
+        parsed.projectId !== selectedProjectId ||
+        parsed.sessionId !== executionStorageSessionId
+      ) {
+        localStorage.removeItem(executionStorageKey);
+        return null;
+      }
+      return parsed as ActiveExecution & { sessionId: string };
     } catch {
       localStorage.removeItem(executionStorageKey);
       return null;
@@ -6098,36 +6123,49 @@ export default function AiChat() {
   );
 
   useEffect(() => {
-    if (!selectedProjectId || hydratedExecutionProjectRef.current === selectedProjectId) return;
-    hydratedExecutionProjectRef.current = selectedProjectId;
+    if (!executionStorageKey || hydratedExecutionScopeRef.current === executionStorageKey) return;
+    hydratedExecutionScopeRef.current = executionStorageKey;
     if (!storedExecution) return;
-    if (storedExecution.projectId !== selectedProjectId) return;
     activeExecutionRef.current = storedExecution;
     setActiveExecution(storedExecution);
-    if (storedExecution.sessionId) setSessionId((current) => current ?? storedExecution.sessionId);
+    setSessionId((current) => current ?? storedExecution.sessionId);
     setAgentStage('Saved execution recovered — checking server status…');
-  }, [selectedProjectId, storedExecution?.id]);
+  }, [executionStorageKey, storedExecution?.id]);
 
   useEffect(() => {
-    if (!executionStorageKey) return;
-    if (hydratedExecutionProjectRef.current !== selectedProjectId) return;
-    if (activeExecution && activeExecution.projectId !== selectedProjectId) return;
-    if (!activeExecution) {
-      localStorage.removeItem(executionStorageKey);
-      return;
-    }
+    if (
+      !executionStorageKey ||
+      !executionPointerKey ||
+      !executionStorageSessionId ||
+      !activeExecution
+    ) return;
+    if (
+      activeExecution.projectId !== selectedProjectId ||
+      activeExecution.sessionId !== executionStorageSessionId
+    ) return;
     localStorage.setItem(
       executionStorageKey,
       JSON.stringify({
         ...activeExecution,
         projectId: selectedProjectId,
-        ...(sessionId ? { sessionId } : {}),
+        sessionId: executionStorageSessionId,
       }),
     );
-  }, [activeExecution, executionStorageKey, selectedProjectId, sessionId]);
+    localStorage.setItem(executionPointerKey, executionStorageSessionId);
+  }, [
+    activeExecution,
+    executionPointerKey,
+    executionStorageKey,
+    executionStorageSessionId,
+    selectedProjectId,
+  ]);
 
   useEffect(() => {
     if (!activeExecutionStatus || !activeExecution) return;
+    if (
+      activeExecution.projectId !== selectedProjectId ||
+      activeExecution.sessionId !== sessionId
+    ) return;
     if (activeExecutionStatus.status === 'completed' || activeExecutionStatus.status === 'cancelled') {
       const recoveredSessionId = activeExecution.sessionId ?? sessionId;
       if (recoveredSessionId) {
@@ -6137,6 +6175,8 @@ export default function AiChat() {
       void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
       activeExecutionRef.current = null;
       setActiveExecution(null);
+      if (executionStorageKey) localStorage.removeItem(executionStorageKey);
+      if (executionPointerKey) localStorage.removeItem(executionPointerKey);
       setAgentStage(null);
       return;
     }
@@ -6154,12 +6194,30 @@ export default function AiChat() {
     qc,
     selectedProjectId,
     sessionId,
+    executionPointerKey,
+    executionStorageKey,
   ]);
 
   function clearLiveActivityEvents() {
     agentActivityIdRef.current = 0;
     agentActivityEventsRef.current = [];
     setAgentActivityEvents([]);
+  }
+
+  function clearExecutionScopedState(options?: { preserveBuildPending?: boolean }) {
+    streamOwnerRef.current = null;
+    activeExecutionRef.current = null;
+    setActiveExecution(null);
+    setExecutionNodes([]);
+    setOperationId(undefined);
+    setOperationMode(undefined);
+    setCommitReadyPaths([]);
+    setCommitProposalId(undefined);
+    setPushReady(false);
+    if (!options?.preserveBuildPending) {
+      setPlanBuildPending(null);
+      setPlanDecisionPending(null);
+    }
   }
 
   function appendLiveActivityEvent(
@@ -6479,10 +6537,16 @@ export default function AiChat() {
   // session list has been fetched and no longer contains the active session,
   // fail closed instead of sending that session ID with a different project.
   useEffect(() => {
+    const sessionOwnsRecoveredExecution = Boolean(
+      activeExecution
+      && activeExecution.projectId === selectedProjectId
+      && activeExecution.sessionId === sessionId,
+    );
     if (
       !sessionsFetched ||
       sessionsError ||
       !sessionId ||
+      sessionOwnsRecoveredExecution ||
       sessions.some((session) => session.id === sessionId)
     ) {
       return;
@@ -6490,8 +6554,20 @@ export default function AiChat() {
     setSessionId(undefined);
     setLocalMessages([]);
     setPendingChanges([]);
+    setProposalId(undefined);
+    setProposalRequiresApproval(false);
+    setProposalRevision(undefined);
     setVerificationResults({});
-  }, [sessions, sessionsError, sessionsFetched, sessionId]);
+    clearExecutionScopedState();
+  }, [
+    activeExecution?.projectId,
+    activeExecution?.sessionId,
+    selectedProjectId,
+    sessions,
+    sessionsError,
+    sessionsFetched,
+    sessionId,
+  ]);
 
   useEffect(() => {
     if (projects.length > 0 && !selectedProjectId) {
@@ -6827,6 +6903,31 @@ export default function AiChat() {
     }
     if (isSending) return;
     const generation = ++streamGenerationRef.current;
+    const requestProjectId = selectedProjectId;
+    const requestSessionId = sessionId;
+    streamOwnerRef.current = {
+      generation,
+      projectId: requestProjectId,
+      ...(requestSessionId ? { sessionId: requestSessionId } : {}),
+      ...(options?.executionId ? { executionId: options.executionId } : {}),
+    };
+    const ownsStream = (binding?: { sessionId?: string; executionId?: string }) => {
+      const owner = streamOwnerRef.current;
+      if (
+        !owner ||
+        owner.generation !== generation ||
+        owner.projectId !== requestProjectId
+      ) return false;
+      if (binding?.sessionId && owner.sessionId && binding.sessionId !== owner.sessionId) {
+        return false;
+      }
+      if (
+        binding?.executionId &&
+        owner.executionId &&
+        binding.executionId !== owner.executionId
+      ) return false;
+      return true;
+    };
     setInput('');
 
     const isResume = Boolean(options?.executionId);
@@ -6838,8 +6939,12 @@ export default function AiChat() {
         createdAt: new Date().toISOString(),
       };
       setLocalMessages((prev) => [...prev, optimistic]);
-      activeExecutionRef.current = null;
-      setActiveExecution(null);
+      clearExecutionScopedState({ preserveBuildPending: Boolean(options?.buildPlanMessageId) });
+      streamOwnerRef.current = {
+        generation,
+        projectId: requestProjectId,
+        ...(requestSessionId ? { sessionId: requestSessionId } : {}),
+      };
     }
     setAgentStage('Connecting…');
     setStreamingContent('');
@@ -6858,7 +6963,7 @@ export default function AiChat() {
 
     void streamSend(
       {
-        projectId: selectedProjectId,
+        projectId: requestProjectId,
         message: msg.trim(),
         sessionId,
         linkedTaskId,
@@ -6868,11 +6973,13 @@ export default function AiChat() {
       },
       {
         onExecutionStarted: (event) => {
-          if (generation !== streamGenerationRef.current) return;
+          if (!ownsStream({ executionId: event.executionId })) return;
+          const owner = streamOwnerRef.current!;
+          owner.executionId = event.executionId;
           const next = {
             id: event.executionId,
-             projectId: selectedProjectId,
-             ...(sessionId ? { sessionId } : {}),
+             projectId: requestProjectId,
+             ...(owner.sessionId ? { sessionId: owner.sessionId } : {}),
             ...(event.resumeToken ? { resumeToken: event.resumeToken } : {}),
             message: msg.trim(),
             ...(options?.buildPlanMessageId ? { buildPlanMessageId: options.buildPlanMessageId } : {}),
@@ -6887,7 +6994,7 @@ export default function AiChat() {
           });
         },
         onExecutionNodes: (event) => {
-          if (generation !== streamGenerationRef.current) return;
+          if (!ownsStream({ executionId: event.executionId })) return;
           setExecutionNodes(event.nodes);
           appendLiveActivityEvent({
             kind: 'stage',
@@ -6897,10 +7004,11 @@ export default function AiChat() {
           });
         },
         onSessionStarted: (event) => {
-          if (generation !== streamGenerationRef.current) return;
+          if (!ownsStream({ sessionId: event.sessionId })) return;
+          streamOwnerRef.current!.sessionId = event.sessionId;
           setSessionId(event.sessionId);
           qc.setQueryData<Session[]>(
-            ['ai-sessions', selectedProjectId],
+            ['ai-sessions', requestProjectId],
             (previous = []) => [
               {
                 id: event.sessionId,
@@ -7109,7 +7217,7 @@ export default function AiChat() {
           });
         },
         onDone: (data) => {
-          if (generation !== streamGenerationRef.current) return;
+          if (!ownsStream({ sessionId: data.sessionId })) return;
            const activityEvents = agentActivityEventsRef.current;
           setAgentStage(null);
           setStreamingContent('');
@@ -7127,7 +7235,7 @@ export default function AiChat() {
            setActiveExecution(null);
           setSessionId(data.sessionId);
           qc.setQueryData<Session[]>(
-            ['ai-sessions', selectedProjectId],
+            ['ai-sessions', requestProjectId],
             (previous = []) => {
               const existing = previous.find((session) => session.id === data.sessionId);
               return [
@@ -7170,10 +7278,11 @@ export default function AiChat() {
            );
           // STORY-04: update displayed model from the done event
           if (data.resolvedModel) setLastResolvedModel(data.resolvedModel);
-          void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+          streamOwnerRef.current = null;
+          void qc.invalidateQueries({ queryKey: ['ai-sessions', requestProjectId] });
         },
         onError: (err) => {
-          if (generation !== streamGenerationRef.current) return;
+          if (!ownsStream(err.executionId ? { executionId: err.executionId } : undefined)) return;
            const resumableDisconnect = err.code === 'network_error' || err.code === 'no_body';
            if (resumableDisconnect && activeExecutionRef.current) {
              setAgentStage('Disconnected — execution saved');
@@ -7202,7 +7311,10 @@ export default function AiChat() {
         },
       },
     ).finally(() => {
-      if (options?.buildPlanMessageId) setPlanBuildPending(null);
+      if (
+        options?.buildPlanMessageId &&
+        generation === streamGenerationRef.current
+      ) setPlanBuildPending(null);
     });
   }
 
@@ -7323,15 +7435,20 @@ export default function AiChat() {
     }
   }
 
-  function newSession() {
+  function resetConversationView(options: { forgetCurrentExecution: boolean }) {
     streamGenerationRef.current += 1;
     cancelStream();
+    if (options.forgetCurrentExecution && executionPointerKey) {
+      localStorage.removeItem(executionPointerKey);
+    }
+    clearExecutionScopedState();
     setSessionId(undefined);
     setInput('');
     setLocalMessages([]);
     setPendingChanges([]);
     setProposalId(undefined);
-    setOperationMode(undefined);
+    setProposalRequiresApproval(false);
+    setProposalRevision(undefined);
     setVerificationResults({});
     setAgentStage(null);
     setAgentSteps([]);
@@ -7345,6 +7462,10 @@ export default function AiChat() {
     setLiveFixtureLocal(false);
     setLiveEvidenceIntegrity(null);
     setLiveVerdictScope(null);
+  }
+
+  function newSession() {
+    resetConversationView({ forgetCurrentExecution: true });
   }
 
   // Derive the subtitle shown in the empty-chat state. Each case maps to a
@@ -7444,7 +7565,13 @@ export default function AiChat() {
         <div className="p-3 border-b border-border flex items-center justify-between">
           <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Sessions</span>
           <div className="flex items-center gap-1">
-            <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={newSession}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 w-6 p-0"
+              onClick={newSession}
+              aria-label="New session"
+            >
               <Plus className="w-3.5 h-3.5" />
             </Button>
             {/* Collapse button — only shown on narrow screens */}
@@ -7466,8 +7593,8 @@ export default function AiChat() {
             <select
               value={selectedProjectId}
               onChange={(e) => {
+                resetConversationView({ forgetCurrentExecution: false });
                 setSelectedProjectId(e.target.value);
-                newSession();
                 if (window.matchMedia('(max-width: 767px)').matches) setSidebarOpen(false);
               }}
               className="w-full text-xs bg-secondary border border-border rounded-md px-2 py-1.5 text-foreground appearance-none pr-6"
@@ -7488,11 +7615,13 @@ export default function AiChat() {
                 onClick={() => {
                   streamGenerationRef.current += 1;
                   cancelStream();
+                  clearExecutionScopedState();
                   setSessionId(s.id);
                   setLocalMessages([]);
                   setPendingChanges([]);
                   setProposalId(undefined);
-                   setOperationMode(undefined);
+                  setProposalRequiresApproval(false);
+                  setProposalRevision(undefined);
                   setVerificationResults({});
                   if (window.matchMedia('(max-width: 767px)').matches) setSidebarOpen(false);
                 }}

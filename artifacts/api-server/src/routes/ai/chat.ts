@@ -38,7 +38,7 @@ import {
   enrichContextWithMemories,
   writeSessionMemories,
   classifyRequest,
-  isSocialGreeting,
+  resolveTurnIntent,
   isImmediateExecutionRequest,
   isTaskContinuationRequest,
   CONVERSATION_HISTORY_FETCH_MESSAGES,
@@ -1222,20 +1222,29 @@ router.post("/ai/chat", async (req, res) => {
   // Classify the request upfront — pure sync, zero cost. Short continuation
   // messages reuse the verified contract stored on the session.
   const persistedActiveTaskState = resolveSessionTaskState(existingSession?.activeTaskState, projectId);
-  const initialClassification = classifyRequest(message);
-  // A greeting is a new conversational turn, never a continuation of a
-  // forensic execution. Do not let stale persisted evidence influence routing
-  // or get copied into the next session state.
-  const isGreetingTurn = isSocialGreeting(message);
-  const resumableStateForTurn = isGreetingTurn && !isTaskContinuationRequest(message)
+  const rawTurnClassification = classifyRequest(message);
+  const rawTurnIntent = resolveTurnIntent(message, {
+    classification: rawTurnClassification,
+  });
+  // Any ordinary CHAT request starts an isolated conversational turn unless it
+  // is an explicit continuation. This mirrors the SSE path, so stale forensic
+  // state cannot turn neutral conversation into an evidence-gated audit.
+  const isolatedConversationTurn =
+    rawTurnIntent.kind === "CHAT" && !isTaskContinuationRequest(message);
+  const resumableStateForTurn = isolatedConversationTurn
     ? null
     : persistedActiveTaskState;
   const classificationResolution = resumeActiveTaskClassification(
     message,
-    initialClassification,
+    rawTurnClassification,
     resumableStateForTurn,
   );
   const chatClassification = classificationResolution.classification;
+  const turnIntent = resolveTurnIntent(message, {
+    classification: chatClassification,
+    resumed: classificationResolution.resumed,
+  });
+  const modelHasTools = Boolean(validRootPath && turnIntent.requiresTools);
   const immediateExecutionRequest = isImmediateExecutionRequest(message);
   // Fetch a stable bounded history for every ordinary request. chat-agent
   // keeps the latest complete turns verbatim and summarizes older turns,
@@ -1253,8 +1262,8 @@ router.post("/ai/chat", async (req, res) => {
       : [];
 
   const providerResolved = await requireProvider(req.userId, res, {
-    requireTools: !!validRootPath && !isGreetingTurn,
-    qualityProfile: validRootPath && !isGreetingTurn ? "tool_chat" : "chat",
+    requireTools: modelHasTools,
+    qualityProfile: turnIntent.executionTaskType,
   });
   if (!providerResolved) return;
   const { provider, apiKey } = providerResolved;
@@ -1298,8 +1307,10 @@ router.post("/ai/chat", async (req, res) => {
       taskLoaded: !!activeTask,
       promptMode: activeTask ? "task" : "chat",
       messageCount: historyRows.length,
-      requireTools: !!validRootPath && !isGreetingTurn,
-      qualityProfile: validRootPath && !isGreetingTurn ? "tool_chat" : "chat",
+      turnIntent: turnIntent.kind,
+      requireTools: modelHasTools,
+      requiresEvidence: turnIntent.requiresEvidence,
+      qualityProfile: turnIntent.executionTaskType,
       contextProfile: chatClassification.contextProfile,
       executionHandoff: {
         requested: immediateExecutionRequest,
@@ -1333,15 +1344,16 @@ router.post("/ai/chat", async (req, res) => {
           activeTask,
           productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat"),
           objective,
+          turnIntent,
         },
         { provider, apiKey },
         undefined,
-        { requireTools: !!validRootPath && !isGreetingTurn, qualityProfile: validRootPath && !isGreetingTurn ? "tool_chat" : "chat" },
+        { requireTools: modelHasTools, qualityProfile: turnIntent.executionTaskType },
         undefined,
         (step) => traceSteps.push(step),
       );
       result = chatOut.result;
-      if (endedBeforeFirstSourceRead(traceSteps)) {
+      if (turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps)) {
         result = {
           ...result,
           response: failClosedBeforeEvidenceResponse(message),
@@ -1578,6 +1590,14 @@ router.post("/ai/chat/stream", async (req, res) => {
     resumeToken,
     idempotencyKey,
   } = chatBody.data;
+  const rawTurnClassification = classifyRequest(message);
+  const rawTurnIntent = resolveTurnIntent(message, {
+    classification: rawTurnClassification,
+  });
+  const isolatedConversationTurn =
+    rawTurnIntent.kind === "CHAT" && !isTaskContinuationRequest(message);
+  const effectiveExecutionId = isolatedConversationTurn ? undefined : executionId;
+  const effectiveResumeToken = isolatedConversationTurn ? undefined : resumeToken;
 
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
@@ -1590,7 +1610,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       message: "Repair Plan execution requires the original audit session.",
     });
   }
-  if (executionId && !sessionId) {
+  if (effectiveExecutionId && !sessionId) {
     return res.status(400).json({
       error: "executionId requires the original chat session",
       code: "EXECUTION_SESSION_REQUIRED",
@@ -1614,8 +1634,8 @@ router.post("/ai/chat/stream", async (req, res) => {
   // Decide this from the validated user text before any Build handoff
   // augmentation. A greeting must never inherit Build Mode state, even when
   // the client retries with stale buildPlanMessageId metadata.
-  const greetingTurnForExecution = isSocialGreeting(message) && !isTaskContinuationRequest(message);
-  const effectiveBuildPlanMessageId = greetingTurnForExecution ? undefined : buildPlanMessageId;
+  const greetingTurnForExecution = isolatedConversationTurn;
+  const effectiveBuildPlanMessageId = isolatedConversationTurn ? undefined : buildPlanMessageId;
   if (effectiveBuildPlanMessageId) {
     if (!sessionId) {
       return res.status(400).json({
@@ -1714,9 +1734,48 @@ router.post("/ai/chat/stream", async (req, res) => {
     ].join("\n");
   }
 
+  let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
+  if (sessionId) {
+    const [found] = await db
+      .select()
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, sessionId))
+      .limit(1);
+    if (found && found.projectId !== projectId) {
+      return res.status(403).json({ error: "Session does not belong to this project" });
+    }
+    if (!found) {
+      return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+    }
+    existingSession = found;
+  }
+
+  const persistedActiveTaskState = resolveSessionTaskState(
+    existingSession?.activeTaskState,
+    projectId,
+  );
+  const streamResumableStateForTurn = isolatedConversationTurn
+    ? null
+    : persistedActiveTaskState;
+  const streamClassificationResolution = resumeActiveTaskClassification(
+    message,
+    rawTurnClassification,
+    streamResumableStateForTurn,
+  );
+  const streamClassification = streamClassificationResolution.classification;
+  const streamTurnIntent = resolveTurnIntent(message, {
+    classification: streamClassification,
+    resumed: streamClassificationResolution.resumed,
+    buildHandoff: Boolean(approvedImplementationPlan && effectiveBuildPlanMessageId),
+  });
+  const streamModelHasTools = Boolean(validRootPath && streamTurnIntent.requiresTools);
+
+  // Provider/model routing must use the same authoritative intent as the
+  // downstream agent. In particular, a terse continuation can inherit a
+  // persisted forensic task and must not be routed from its raw text alone.
   const providerResolved = await requireProvider(req.userId, res, {
-    requireTools: !!validRootPath && !greetingTurnForExecution,
-    qualityProfile: validRootPath && !greetingTurnForExecution ? "tool_chat" : "chat",
+    requireTools: streamModelHasTools,
+    qualityProfile: streamTurnIntent.executionTaskType,
   });
   if (!providerResolved) return;
   const { provider, apiKey } = providerResolved;
@@ -1727,24 +1786,6 @@ router.post("/ai/chat/stream", async (req, res) => {
       error: "apply_in_progress",
       hint: "File changes are still being written for this project — wait a moment, then retry.",
     });
-  }
-
-  let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
-  if (sessionId) {
-    const [found] = await db
-      .select()
-      .from(aiChatSessionsTable)
-      .where(eq(aiChatSessionsTable.id, sessionId))
-      .limit(1);
-    if (found && found.projectId !== projectId) {
-      await applyLock.release();
-      return res.status(403).json({ error: "Session does not belong to this project" });
-    }
-    if (!found) {
-      await applyLock.release();
-      return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
-    }
-    existingSession = found;
   }
 
   let executionWorkerId: string | undefined;
@@ -1844,6 +1885,8 @@ router.post("/ai/chat/stream", async (req, res) => {
       ...(objective ? { objective } : {}),
       validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
       proofRequired: Boolean(
+        streamTurnIntent.requiresEvidence
+        ||
         effectiveLinkedTaskId
         || effectiveBuildPlanMessageId
         || objective
@@ -1854,11 +1897,11 @@ router.post("/ai/chat/stream", async (req, res) => {
     const proofRequired = executionRequest.proofRequired === true;
     executionWorkerId = randomUUID();
     let executionResumeToken: string | undefined;
-    aiExecution = executionId
-      ? await getAiExecutionForUser(executionId, req.userId)
+    aiExecution = effectiveExecutionId
+      ? await getAiExecutionForUser(effectiveExecutionId, req.userId)
       : undefined;
 
-    if (executionId && !aiExecution) {
+    if (effectiveExecutionId && !aiExecution) {
       sse({ type: "error", code: "EXECUTION_NOT_FOUND", message: "AI execution not found" });
       res.end();
       return;
@@ -1866,13 +1909,29 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     if (aiExecution) {
       const storedRequest = parseExecutionRequest(aiExecution.request);
+      const legacyBuildModelBinding = Boolean(
+        storedRequest?.buildPlanMessageId
+        && storedRequest.modelMessage === storedRequest.message
+        && executionRequest.modelMessage.startsWith(
+          `${executionRequest.message}\n\nBUILD HANDOFF`,
+        ),
+      );
       const bindingMatches = storedRequest &&
         storedRequest.projectId === executionRequest.projectId &&
         storedRequest.sessionId === executionRequest.sessionId &&
         storedRequest.message === executionRequest.message &&
+        (
+          storedRequest.modelMessage === executionRequest.modelMessage
+          || legacyBuildModelBinding
+        ) &&
         (storedRequest.linkedTaskId ?? undefined) === (executionRequest.linkedTaskId ?? undefined) &&
         (storedRequest.buildPlanMessageId ?? undefined) === (executionRequest.buildPlanMessageId ?? undefined) &&
-        JSON.stringify(storedRequest.validationTargetPaths) === JSON.stringify(executionRequest.validationTargetPaths);
+        JSON.stringify(storedRequest.validationTargetPaths) === JSON.stringify(executionRequest.validationTargetPaths) &&
+        JSON.stringify(storedRequest.objective ?? null) === JSON.stringify(executionRequest.objective ?? null) &&
+        (
+          storedRequest.proofRequired === undefined
+          || Boolean(storedRequest.proofRequired) === Boolean(executionRequest.proofRequired)
+        );
       if (!bindingMatches) {
         sse({
           type: "error",
@@ -1902,7 +1961,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         res.end();
         return;
       }
-      if (!resumeToken) {
+      if (!effectiveResumeToken) {
         sse({
           type: "error",
           code: "EXECUTION_RESUME_TOKEN_REQUIRED",
@@ -1922,7 +1981,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         executionId: aiExecution.id,
         userId: req.userId,
         workerId: executionWorkerId,
-        resumeToken,
+        resumeToken: effectiveResumeToken,
       });
       if (!claimed) {
         sse({
@@ -1961,7 +2020,6 @@ router.post("/ai/chat/stream", async (req, res) => {
     }
 
     let checkpointSequence = aiExecution.checkpointVersion;
-    const persistedActiveTaskState = resolveSessionTaskState(existingSession?.activeTaskState, projectId);
     const resumableStateForExecution = greetingTurnForExecution ? null : persistedActiveTaskState;
     const executionPlanForRun = !greetingTurnForExecution && approvedImplementationPlan
       ? approvedImplementationExecutionPlan
@@ -2083,20 +2141,8 @@ router.post("/ai/chat/stream", async (req, res) => {
       }
     });
 
-    // Classify the request upfront — pure sync, zero cost. Short continuation
-    // messages reuse the verified contract stored on the session.
-    const streamInitialClassification = classifyRequest(modelMessage);
-    const streamIsGreetingTurn = greetingTurnForExecution;
-    const streamResumableStateForTurn = streamIsGreetingTurn && !isTaskContinuationRequest(modelMessage)
-      ? null
-      : persistedActiveTaskState;
-    const streamClassificationResolution = resumeActiveTaskClassification(
-      modelMessage,
-      streamInitialClassification,
-      streamResumableStateForTurn,
-    );
-    const streamClassification = streamClassificationResolution.classification;
-    const immediateExecutionRequest = isImmediateExecutionRequest(modelMessage);
+    const streamIsGreetingTurn = isolatedConversationTurn;
+    const immediateExecutionRequest = isImmediateExecutionRequest(message);
     const historyLimit = CONVERSATION_HISTORY_FETCH_MESSAGES;
 
     const historyRows = existingSession
@@ -2119,7 +2165,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             const filesystemManifest = await buildProjectFileManifest(validRootPath);
             return {
               filesystemManifest,
-              filesystemSources: await buildProjectFileSources(validRootPath, filesystemManifest, modelMessage),
+              filesystemSources: await buildProjectFileSources(validRootPath, filesystemManifest, message),
             };
           })(),
         }
@@ -2142,8 +2188,10 @@ router.post("/ai/chat/stream", async (req, res) => {
       taskLoaded: !!activeTask,
       promptMode: activeTask ? "task" : "chat",
       messageCount: historyRows.length,
-      requireTools: !!validRootPath && !greetingTurnForExecution,
-      qualityProfile: validRootPath && !greetingTurnForExecution ? "tool_chat" : "chat",
+      turnIntent: streamTurnIntent.kind,
+      requireTools: streamModelHasTools,
+      requiresEvidence: streamTurnIntent.requiresEvidence,
+      qualityProfile: streamTurnIntent.executionTaskType,
       contextProfile: streamClassification.contextProfile,
       executionHandoff: {
         requested: immediateExecutionRequest,
@@ -2462,15 +2510,17 @@ router.post("/ai/chat/stream", async (req, res) => {
            buildHandoff: Boolean(!streamIsGreetingTurn && approvedImplementationPlan && effectiveBuildPlanMessageId),
           onExecutionNodes: publishExecutionNodes,
           signal: activeExecutionAbortController.signal,
+          turnIntent: streamTurnIntent,
         },
         { provider, apiKey },
         onDelta,
-        { requireTools: !!validRootPath && !greetingTurnForExecution, qualityProfile: validRootPath && !greetingTurnForExecution ? "tool_chat" : "chat" },
+        { requireTools: streamModelHasTools, qualityProfile: streamTurnIntent.executionTaskType },
         onStreamReset,
         onStep,
       );
       result = chatOut.result;
-      endedBeforeEvidence = endedBeforeFirstSourceRead(traceSteps);
+      endedBeforeEvidence =
+        streamTurnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps);
       if (endedBeforeEvidence) {
         result = {
           ...result,
@@ -2849,9 +2899,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       || result.taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT"
       || Boolean(effectiveBuildPlanMessageId)
         ? "DELIVERY"
-        : streamClassification.analysisMode === "FORENSIC"
-          ? "FORENSIC_AUDIT"
-          : "CHAT";
+        : streamTurnIntent.operationMode;
 
     sse({
       type: "done",
