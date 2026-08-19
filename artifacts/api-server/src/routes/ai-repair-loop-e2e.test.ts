@@ -26,6 +26,7 @@ import type { RepairVerificationResult } from "../lib/ai-repair-validation.js";
 const harness = vi.hoisted(() => {
   const responses: RawGroqResponse[] = [];
   const validationResults: RepairVerificationResult[] = [];
+  let allowRealValidation = false;
   const calls: Array<{ toolNames: string[]; toolChoice?: string; messages: unknown[] }> = [];
 
   const toolResponse = (id: string, name: string, args: Record<string, unknown>): RawGroqResponse => ({
@@ -66,7 +67,15 @@ const harness = vi.hoisted(() => {
     }),
   };
 
-  return { responses, validationResults, calls, strategy, toolResponse, finalResponse };
+  return {
+    responses,
+    validationResults,
+    allowRealValidation,
+    calls,
+    strategy,
+    toolResponse,
+    finalResponse,
+  };
 });
 
 vi.mock("../../../../lib/ai-orchestrator/src/provider-registry.js", async (importOriginal) => {
@@ -148,9 +157,18 @@ vi.mock("../lib/ai-repair-validation.js", async (importOriginal) => {
     ...actual,
     runRepairValidation: vi.fn(async (...args: unknown[]) => {
       const fixtureResult = harness.validationResults.shift();
-      return fixtureResult ?? actual.runRepairValidation(
-        ...(args as Parameters<typeof actual.runRepairValidation>),
-      );
+      if (fixtureResult) {
+        return fixtureResult;
+      }
+      if (!harness.allowRealValidation) {
+        throw new Error(
+          "Repair-loop fixture exhausted its injected validation results. "
+          + "Add a deterministic result before invoking run_validation, or explicitly enable real validation.",
+        );
+      }
+      return actual.runRepairValidation(...(
+        args as Parameters<typeof actual.runRepairValidation>
+      ));
     }),
   };
 });
@@ -243,6 +261,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
   afterEach(async () => {
     harness.responses.length = 0;
     harness.validationResults.length = 0;
+    harness.allowRealValidation = false;
     harness.calls.length = 0;
     harness.strategy.call.mockClear();
     for (const projectId of projectIds.splice(0)) {
