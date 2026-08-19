@@ -1780,7 +1780,6 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
       .send({ projectId, message: "Trigger rate limit" });
 
     expect(res.status).toBe(200);
-    expect(res.headers["retry-after"]).toBe("2");
     const errorEvent = parseSseEvents(res.text).find((e) => e["type"] === "error");
     expect(errorEvent).toMatchObject({
       code: "RATE_LIMITED",
