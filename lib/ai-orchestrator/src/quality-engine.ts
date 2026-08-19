@@ -129,7 +129,6 @@ function buildBasePlans(profile: QualityProfile): Pick<QualityPlan, "strictHints
       return {
         strictHints: {
           requireStreaming: true,
-          requireReasoning: true,
         },
         relaxedHints: {
           requireStreaming: true,

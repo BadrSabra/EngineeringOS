@@ -55,3 +55,13 @@ describe("capability_probe quality profile", () => {
     expect(plan.strictHints.requireJsonMode).toBeUndefined();
   });
 });
+
+describe("chat quality profile", () => {
+  it("does not force reasoning for ordinary conversational turns", () => {
+    const plan = buildQualityPlan("chat");
+
+    expect(plan.strictHints.requireStreaming).toBe(true);
+    expect(plan.strictHints.requireReasoning).toBeUndefined();
+    expect(plan.strictHints.requireThinking).toBeUndefined();
+  });
+});
