@@ -1957,6 +1957,8 @@ router.post("/ai/chat/stream", async (req, res) => {
 
     let checkpointSequence = aiExecution.checkpointVersion;
     const persistedActiveTaskState = resolveSessionTaskState(existingSession?.activeTaskState, projectId);
+    const greetingTurnForExecution = isSocialGreeting(modelMessage) && !isTaskContinuationRequest(modelMessage);
+    const resumableStateForExecution = greetingTurnForExecution ? null : persistedActiveTaskState;
     const executionPlanForRun = approvedImplementationPlan
       ? approvedImplementationExecutionPlan
         ?? buildActiveTaskExecutionPlan({
@@ -1965,7 +1967,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             projectId,
             rootPath: validRootPath,
           })
-      : persistedActiveTaskState?.executionPlan ?? null;
+      : resumableStateForExecution?.executionPlan ?? null;
     const persistedExecutionNodes = executionPlanForRun?.nodes ?? [];
     const reconciledExecutionNodes = reconcileExecutionNodeCheckpoint(
       persistedExecutionNodes,

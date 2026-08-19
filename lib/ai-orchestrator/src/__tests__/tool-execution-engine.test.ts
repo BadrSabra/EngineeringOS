@@ -1811,7 +1811,7 @@ describe("executeToolLoop", () => {
     }));
   });
 
-  it("caps an oversized repair budget at five validation attempts", async () => {
+  it("caps an oversized repair budget at three validation attempts", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([
       makeResponse("", [makeToolCall("write-1", "write_file", {

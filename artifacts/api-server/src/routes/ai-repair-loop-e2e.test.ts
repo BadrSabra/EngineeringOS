@@ -642,7 +642,7 @@ describe("verified repair loop through the real SSE route and chat engine", () =
       repairState: "BLOCKED",
       profile: "workspace-typecheck",
       attempt: 1,
-      maxAttempts: 5,
+      maxAttempts: 3,
       detail: "The registered validator is unavailable in the isolated environment.",
     });
     expect(doneEvent).toMatchObject({
