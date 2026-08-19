@@ -3695,11 +3695,12 @@ function MessageBubble({
   const repairRadar = !isUser ? parseRepairRadar(toolTrace) : null;
   // UI-01: strip any accidental JSON envelope before rendering.
   const displayContent = extractDisplayText(msg.content);
+  const redactedDisplayContent = redactInternalDetails(displayContent);
   const internalTechnicalDump = !isUser && isInternalTechnicalDump(displayContent);
   const isStructuredPlan = !isUser && msg.taskResult?.kind === 'IMPLEMENTATION_PLAN_RESULT';
   const userFacingContent = internalTechnicalDump
     ? 'The agent produced internal technical details for this run.'
-    : displayContent;
+    : redactedDisplayContent;
   const persistedForensicStatus = !isUser
     ? [...toolTrace].reverse().find((entry) => entry.kind === 'forensic_status')
     : undefined;
@@ -3805,7 +3806,7 @@ function MessageBubble({
               Technical details
             </button>
             {technicalDetailsExpanded && (
-              <pre className="max-h-80 overflow-auto border-t border-border/40 p-3 text-[10px] leading-relaxed font-mono whitespace-pre-wrap break-words">{displayContent}</pre>
+              <pre className="max-h-80 overflow-auto border-t border-border/40 p-3 text-[10px] leading-relaxed font-mono whitespace-pre-wrap break-words">{redactedDisplayContent}</pre>
             )}
           </div>
         )}
@@ -3850,7 +3851,7 @@ function MessageBubble({
         )}
         <CompletedActivityTimeline
           events={activityEvents}
-          defaultOpen={!incompleteBeforeEvidence}
+          defaultOpen={false}
         />
         <SemanticTraceCard
           productionTrace={productionTrace}
@@ -4860,7 +4861,7 @@ function LiveAgentActivity({
 
 function CompletedActivityTimeline({
   events,
-  defaultOpen = true,
+  defaultOpen = false,
 }: {
   events?: LiveAgentActivityEvent[];
   defaultOpen?: boolean;
@@ -4886,7 +4887,7 @@ function CompletedActivityTimeline({
             </span>
             <span className="min-w-0 break-words text-foreground/85">{event.label}</span>
             {event.detail && (
-              <code className="min-w-0 break-all text-muted-foreground">{event.detail}</code>
+              <code className="min-w-0 break-all text-muted-foreground">{redactInternalDetails(event.detail)}</code>
             )}
           </div>
         ))}
