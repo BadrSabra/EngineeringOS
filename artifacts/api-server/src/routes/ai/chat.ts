@@ -1253,8 +1253,8 @@ router.post("/ai/chat", async (req, res) => {
       : [];
 
   const providerResolved = await requireProvider(req.userId, res, {
-    requireTools: !!validRootPath,
-    qualityProfile: validRootPath ? "tool_chat" : "chat",
+    requireTools: !!validRootPath && !isGreetingTurn,
+    qualityProfile: validRootPath && !isGreetingTurn ? "tool_chat" : "chat",
   });
   if (!providerResolved) return;
   const { provider, apiKey } = providerResolved;
@@ -1298,8 +1298,8 @@ router.post("/ai/chat", async (req, res) => {
       taskLoaded: !!activeTask,
       promptMode: activeTask ? "task" : "chat",
       messageCount: historyRows.length,
-      requireTools: !!validRootPath,
-      qualityProfile: validRootPath ? "tool_chat" : "chat",
+      requireTools: !!validRootPath && !isGreetingTurn,
+      qualityProfile: validRootPath && !isGreetingTurn ? "tool_chat" : "chat",
       contextProfile: chatClassification.contextProfile,
       executionHandoff: {
         requested: immediateExecutionRequest,
@@ -1336,7 +1336,7 @@ router.post("/ai/chat", async (req, res) => {
         },
         { provider, apiKey },
         undefined,
-        { requireTools: !!validRootPath, qualityProfile: validRootPath ? "tool_chat" : "chat" },
+        { requireTools: !!validRootPath && !isGreetingTurn, qualityProfile: validRootPath && !isGreetingTurn ? "tool_chat" : "chat" },
         undefined,
         (step) => traceSteps.push(step),
       );
@@ -1715,8 +1715,8 @@ router.post("/ai/chat/stream", async (req, res) => {
   }
 
   const providerResolved = await requireProvider(req.userId, res, {
-    requireTools: !!validRootPath,
-    qualityProfile: validRootPath ? "tool_chat" : "chat",
+    requireTools: !!validRootPath && !greetingTurnForExecution,
+    qualityProfile: validRootPath && !greetingTurnForExecution ? "tool_chat" : "chat",
   });
   if (!providerResolved) return;
   const { provider, apiKey } = providerResolved;
@@ -2142,8 +2142,8 @@ router.post("/ai/chat/stream", async (req, res) => {
       taskLoaded: !!activeTask,
       promptMode: activeTask ? "task" : "chat",
       messageCount: historyRows.length,
-      requireTools: !!validRootPath,
-      qualityProfile: validRootPath ? "tool_chat" : "chat",
+      requireTools: !!validRootPath && !greetingTurnForExecution,
+      qualityProfile: validRootPath && !greetingTurnForExecution ? "tool_chat" : "chat",
       contextProfile: streamClassification.contextProfile,
       executionHandoff: {
         requested: immediateExecutionRequest,
@@ -2465,7 +2465,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         },
         { provider, apiKey },
         onDelta,
-        { requireTools: !!validRootPath, qualityProfile: validRootPath ? "tool_chat" : "chat" },
+        { requireTools: !!validRootPath && !greetingTurnForExecution, qualityProfile: validRootPath && !greetingTurnForExecution ? "tool_chat" : "chat" },
         onStreamReset,
         onStep,
       );
