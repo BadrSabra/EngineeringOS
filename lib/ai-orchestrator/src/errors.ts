@@ -72,6 +72,8 @@ export type ProviderErrorContext = {
   providerName?: string;
   /** Model slug that was attempted when the error occurred. */
   providerModel?: string;
+  /** Bounded provider retry hint, in milliseconds, when supplied by HTTP. */
+  retryAfterMs?: number;
   /** Every provider-owned fallback model attempted before this error surfaced. */
   providerAttemptedModels?: string[];
 };
@@ -85,6 +87,7 @@ export class GroqClientError extends Error {
   readonly providerMessage?: string;
   readonly providerName?: string;
   readonly providerModel?: string;
+  readonly retryAfterMs?: number;
   readonly providerAttemptedModels?: string[];
 
   constructor(
@@ -101,6 +104,7 @@ export class GroqClientError extends Error {
       this.providerMessage = options.context.providerMessage;
       this.providerName    = options.context.providerName;
       this.providerModel   = options.context.providerModel;
+      this.retryAfterMs    = options.context.retryAfterMs;
       this.providerAttemptedModels = options.context.providerAttemptedModels;
     }
   }
@@ -113,6 +117,7 @@ export class GroqClientError extends Error {
       providerMessage: this.providerMessage,
       providerName:    this.providerName,
       providerModel:   this.providerModel,
+      retryAfterMs:    this.retryAfterMs,
       providerAttemptedModels: this.providerAttemptedModels,
     };
   }

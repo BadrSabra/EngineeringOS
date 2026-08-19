@@ -540,10 +540,14 @@ export function handleOrchestratorError(
       });
       return true;
     case "RATE_LIMITED":
+      if (err.retryAfterMs !== undefined) {
+        res.setHeader("Retry-After", String(Math.ceil(err.retryAfterMs / 1000)));
+      }
       res.status(429).json({
         ...base,
-        error: `${providerLabel} rate limit reached — please wait a moment before retrying.`,
-        hint: `You've exceeded your ${providerLabel} API quota. Wait 30–60 seconds or upgrade your plan at ${providerConsole}.`,
+        error: `${providerLabel} rate limit reached — retry after ${Math.max(1, Math.ceil((err.retryAfterMs ?? 30_000) / 1000))} seconds.`,
+        retryAfterMs: err.retryAfterMs,
+        hint: `You've exceeded your ${providerLabel} API quota. Retry after the indicated delay or configure another provider at ${providerConsole}.`,
       });
       return true;
     case "SERVER_ERROR":

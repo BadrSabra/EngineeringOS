@@ -2606,11 +2606,15 @@ router.post("/ai/chat/stream", async (req, res) => {
 
         switch (err.code) {
           case "RATE_LIMITED":
+            if (err.retryAfterMs !== undefined) {
+              res.setHeader("Retry-After", String(Math.ceil(err.retryAfterMs / 1000)));
+            }
             sse({
               ...base,
-              message: "Rate limit reached on all configured AI providers — wait 30–60 seconds and retry.",
+              message: `Rate limit reached on all configured AI providers — retry after ${Math.max(1, Math.ceil((err.retryAfterMs ?? 30_000) / 1000))} seconds.`,
+              retryAfterMs: err.retryAfterMs,
               retryable: true,
-              suggestedFix: "Wait before retrying.",
+              suggestedFix: "Retry after the indicated delay or configure another provider.",
             });
             break;
           case "QUOTA":
