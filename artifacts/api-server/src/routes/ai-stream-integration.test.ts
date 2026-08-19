@@ -1758,6 +1758,38 @@ describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced clean
     expect(lastEvent!["type"]).toBe("error");
   });
 
+  it("should expose a bounded Retry-After hint for an exhausted rate-limited chain", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+    const { GroqClientError } = await import("@workspace/ai-orchestrator");
+    vi.mocked(chatWithFallback).mockRejectedValueOnce(
+      new GroqClientError("RATE_LIMITED", "OpenRouter rate limited", {
+        context: {
+          providerName: "OpenRouter",
+          providerStatus: 429,
+          retryAfterMs: 2_000,
+        },
+      }),
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "Trigger rate limit" });
+
+    expect(res.status).toBe(200);
+    expect(res.headers["retry-after"]).toBe("2");
+    const errorEvent = parseSseEvents(res.text).find((e) => e["type"] === "error");
+    expect(errorEvent).toMatchObject({
+      code: "RATE_LIMITED",
+      retryAfterMs: 2_000,
+      retryable: true,
+    });
+    expect(String(errorEvent!["message"])).toContain("2 seconds");
+  });
+
   it("should respond with 400 before opening SSE stream when request body is invalid", async () => {
     // Validation errors return JSON 400, not SSE — the stream is never opened
     const res = await request(app)
