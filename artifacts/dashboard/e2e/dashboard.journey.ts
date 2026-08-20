@@ -88,16 +88,16 @@ async function installApiFixtures(
     const path = url.pathname;
     const arabicAi = overrides?.arabicAi;
 
-    if (arabicAi && path === "/api/ai/chat/sessions")
+    if (arabicAi && path.endsWith("/api/ai/chat/sessions"))
       return route.fulfill(jsonResponse([]));
-    if (arabicAi && path === "/api/ai/chat/stream")
+    if (arabicAi && path.endsWith("/api/ai/chat/stream"))
       return route.fulfill({
         status: 200,
         contentType: "text/event-stream",
         headers: { "Cache-Control": "no-cache" },
         body: arabicAi.streamBody,
       });
-    if (arabicAi && path === `/api/ai/chat/${arabicAi.sessionId}/messages`)
+    if (arabicAi && path.endsWith(`/api/ai/chat/${arabicAi.sessionId}/messages`))
       return route.fulfill(jsonResponse([
         {
           id: "e2e-arabic-user-message",
