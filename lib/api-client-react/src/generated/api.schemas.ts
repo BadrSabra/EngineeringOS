@@ -495,6 +495,19 @@ export interface AiChatRequest {
   buildPlanMessageId?: string;
 }
 
+/**
+ * Derived forensic outcome for the latest assistant audit result, when available
+ */
+export type AiChatSessionForensicStatus = typeof AiChatSessionForensicStatus[keyof typeof AiChatSessionForensicStatus] | null;
+
+
+export const AiChatSessionForensicStatus = {
+  INCOMPLETE: 'INCOMPLETE',
+  NO_FINDING: 'NO_FINDING',
+  FINDING_PROVEN: 'FINDING_PROVEN',
+  NOT_PROVEN: 'NOT_PROVEN',
+} as const;
+
 export interface AiChatSession {
   id: string;
   projectId: string;
@@ -503,6 +516,8 @@ export interface AiChatSession {
   title: string;
   createdAt: string;
   updatedAt: string;
+  /** Derived forensic outcome for the latest assistant audit result, when available */
+  forensicStatus?: AiChatSessionForensicStatus;
 }
 
 export type AiChatMessageRole = typeof AiChatMessageRole[keyof typeof AiChatMessageRole];

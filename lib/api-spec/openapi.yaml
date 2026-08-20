@@ -3566,6 +3566,11 @@ components:
         updatedAt:
           type: string
           format: date-time
+        forensicStatus:
+          type: string
+          nullable: true
+          description: Derived forensic outcome for the latest assistant audit result, when available
+          enum: [INCOMPLETE, NO_FINDING, FINDING_PROVEN, NOT_PROVEN]
 
     AiChatMessage:
       type: object

@@ -980,6 +980,55 @@ describe("GET /api/ai/chat/sessions", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual([]);
   });
+
+  it("returns derived forensic statuses for incomplete and no-finding sessions", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const now = new Date();
+    const incompleteSessionId = randomUUID();
+    const noFindingSessionId = randomUUID();
+
+    await db.insert(aiChatSessionsTable).values([
+      {
+        id: incompleteSessionId,
+        projectId,
+        title: "Incomplete audit",
+        createdAt: new Date(now.getTime() - 1000),
+        updatedAt: new Date(now.getTime() - 1000),
+      },
+      {
+        id: noFindingSessionId,
+        projectId,
+        title: "No finding audit",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(aiChatMessagesTable).values([
+      {
+        id: randomUUID(),
+        sessionId: incompleteSessionId,
+        role: "assistant",
+        content: "ANALYSIS_INCOMPLETE — the audit was cancelled before coverage completed.",
+        createdAt: new Date(now.getTime() - 1000),
+      },
+      {
+        id: randomUUID(),
+        sessionId: noFindingSessionId,
+        role: "assistant",
+        content: "## 6) Final Judgment\nNO FINDING",
+        createdAt: now,
+      },
+    ]);
+
+    const res = await request(app).get(`/api/ai/chat/sessions?projectId=${projectId}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: incompleteSessionId, forensicStatus: "INCOMPLETE" }),
+      expect.objectContaining({ id: noFindingSessionId, forensicStatus: "NO_FINDING" }),
+    ]));
+  });
 });
 
 // ─── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────

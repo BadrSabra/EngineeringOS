@@ -3282,7 +3282,8 @@ export const ListAiChatSessionsResponseItem = zod.object({
   "linkedTaskId": zod.string().nullish().describe('Task associated with this chat session, when present'),
   "title": zod.string(),
   "createdAt": zod.coerce.date(),
-  "updatedAt": zod.coerce.date()
+  "updatedAt": zod.coerce.date(),
+  "forensicStatus": zod.enum(['INCOMPLETE', 'NO_FINDING', 'FINDING_PROVEN', 'NOT_PROVEN']).nullish().describe('Derived forensic outcome for the latest assistant audit result, when available')
 })
 export const ListAiChatSessionsResponse = zod.array(ListAiChatSessionsResponseItem)
 

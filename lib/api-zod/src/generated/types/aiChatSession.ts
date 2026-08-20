@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AiChatSessionForensicStatus } from './aiChatSessionForensicStatus';
 
 export interface AiChatSession {
   id: string;
@@ -14,4 +15,6 @@ export interface AiChatSession {
   title: string;
   createdAt: Date;
   updatedAt: Date;
+  /** Derived forensic outcome for the latest assistant audit result, when available */
+  forensicStatus?: AiChatSessionForensicStatus;
 }

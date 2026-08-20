@@ -38,6 +38,7 @@ export * from './aiChatOutput';
 export * from './aiChatOutputRepairPlanItem';
 export * from './aiChatRequest';
 export * from './aiChatSession';
+export * from './aiChatSessionForensicStatus';
 export * from './aiCodeExtractionResult';
 export * from './aiCodeExtractionResultKind';
 export * from './aiCodeIssue';
