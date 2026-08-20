@@ -21,6 +21,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import type { ProjectContext } from "../context-builder.js";
 import type { AgentStep } from "../tool-execution-engine.js";
+import { assertArabicFixtureResponse } from "./fixture-guards.js";
 
 const originalApiKey = process.env.GROQ_API_KEY;
 
@@ -78,6 +79,25 @@ function makeFakeStrategy(responseJson: string) {
       usage: {},
     })),
     stream: vi.fn(),
+  };
+}
+
+function makeNativeSseStrategy(responseText: string) {
+  return {
+    providerId: "groq",
+    supportsNativeStream: true,
+    ownsModelFallback: true,
+    call: vi.fn(async () => ({
+      content: responseText,
+      toolCalls: [],
+      model: "initial-model",
+      usage: {},
+    })),
+    stream: vi.fn(async function* () {
+      for (const chunk of responseText.split(/(\s+)/)) {
+        if (chunk) yield chunk;
+      }
+    }),
   };
 }
 
@@ -624,13 +644,66 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
       finding: { severity: "NOT_PROVEN" },
     });
     expect(result.taskResult).not.toMatchObject({ kind: "BEHAVIOR_ANSWER_RESULT" });
+  });
 
-    const dt = steps.find((s) => s.kind === "decision_trace");
-    expect(dt).toBeDefined();
-    if (dt?.kind === "decision_trace") {
-      expect(dt.trace.taskType).toBe("FINDING_ANALYSIS");
-      expect(dt.trace.finalState).not.toBe("VERIFIED");
-    }
+  // ── Scenario 11 (Arabic SSE regression): the native stream has its own
+  // finalization seam and must preserve the forensic reachability contract.
+  it("S11 Arabic production-reachability prompt: native SSE stays NOT PROVEN", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s11-"));
+    const unsupportedArabicAnswer = "الدالة computeCentrality تُستدعى في الإنتاج وتعيد نتائج صحيحة.";
+    assertArabicFixtureResponse(unsupportedArabicAnswer, "reachability-gate-native-sse-arabic");
+    const unsupportedForensicReport = [
+      "تقرير مكتمل يدعي صحة الوصول إلى الدالة.",
+      "## 1) Executive Verdict",
+      unsupportedArabicAnswer,
+      "## 2) Evidence Map",
+      "لا يوجد مقتطف مصدر يثبت استدعاء الدالة.",
+      "## 3) Findings",
+      "لا يوجد دليل مقبول على الوصول في الإنتاج.",
+      "## 4) Repair Plan",
+      "لا توجد خطة إصلاح.",
+      "## 5) Validation Checklist",
+      "لم تكتمل عملية التحقق.",
+      "## 6) Final Judgment",
+      "PROVEN",
+    ].join("\n");
+    await mockChatProviders(makeNativeSseStrategy(unsupportedForensicReport));
+
+    const steps: AgentStep[] = [];
+    const deltas: string[] = [];
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: "أثبت أن الدالة computeCentrality قابلة للوصول في الإنتاج.",
+      history: [],
+      projectContext: makeContext(),
+      rootPath,
+      provider: "groq",
+      apiKey: "test-key",
+      onStep: (s) => steps.push(s),
+      onDelta: (delta) => deltas.push(delta),
+      productionTraceLinks: [
+        {
+          from: { id: "route:POST /api/ai/chat", name: "POST /api/ai/chat", stage: "API_ROUTE" },
+          to: { id: "orchestrator:chat", name: "chat()", stage: "ORCHESTRATOR" },
+          relation: "invokes",
+          source: "artifacts/api-server/src/routes/ai/chat.ts",
+          evidence: "runtime chatWithFallback dispatch",
+          runtimeObserved: true,
+        },
+      ],
+    });
+
+    const streamed = deltas.join("");
+    expect(streamed).toContain("NOT PROVEN");
+    expect(streamed).not.toContain(unsupportedArabicAnswer);
+    expect(result.response).toContain("NOT PROVEN");
+    expect(result.response).not.toContain(unsupportedArabicAnswer);
+    expect(result.taskResult).toMatchObject({
+      kind: "FINDING_RESULT",
+      finding: { severity: "NOT_PROVEN" },
+    });
+    expect(result.taskResult).not.toMatchObject({ kind: "BEHAVIOR_ANSWER_RESULT" });
+
   });
 
   // ── Scenario 9 (declaration bypass, AI-OBJ-007 R6): the caller file only

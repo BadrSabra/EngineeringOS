@@ -3809,7 +3809,11 @@ export async function chat(opts: {
   // Structured forensic responses and Repair Plan handoffs must be validated
   // before the client sees them. In particular, an execution follow-up must not
   // stream a fresh generic analysis before the deterministic execution summary.
-  const streamCallback = forensicOutputMode || repairPlanExecution ? undefined : onDelta;
+  // Reachability audits still need the native SSE finalization seam: the
+  // response is buffered and gated before emission below, so enabling deltas
+  // here does not expose an ungated forensic claim. Keep deterministic repair
+  // execution non-streaming because its partial report is assembled locally.
+  const streamCallback = repairPlanExecution ? undefined : onDelta;
 
   // Forensic / structured-output audits are stateless: previous conversation
   // turns contain prior architectural descriptions that strongly bias the model
@@ -5999,6 +6003,26 @@ export async function chat(opts: {
         relayAgentStep,
       });
       nativeSseResponse = nativeSseObjectiveGate.gatedResponse;
+      // AI-OBJ-010: native SSE reaches this seam before the non-streaming
+      // final-answer validator below. An explicit production-reachability
+      // request backed only by the transport trace must therefore be blocked
+      // here as well; otherwise an unsupported behavioral synthesis (including
+      // an Arabic one) can be emitted as the final SSE response.
+      const nativeHasApplicationReachabilityLink = (productionTraceLinks ?? []).some(
+        (link) =>
+          link.to.id !== "orchestrator:chat" &&
+          link.to.stage !== "ORCHESTRATOR" &&
+          link.to.stage !== "PERSISTENCE_OUTPUT" &&
+          Boolean(link.to.path || link.from.path),
+      );
+      if (
+        isProductionReachabilityRequest(message) &&
+        !nativeHasApplicationReachabilityLink
+      ) {
+        nativeSseResponse =
+          "NOT PROVEN — production reachability could not be verified. " +
+          "The available trace only proves transport into the chat orchestrator.";
+      }
       if (isForensicOrEvidenceRun) {
         relayForensicTerminal({
           onStep,
