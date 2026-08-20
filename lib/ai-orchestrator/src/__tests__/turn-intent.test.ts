@@ -3,6 +3,35 @@ import { classifyRequest } from "../prompts/profile-classifier.js";
 import { resolveTurnIntent } from "../turn-intent.js";
 
 describe("resolveTurnIntent", () => {
+  it.each([
+    "ما هذا المشروع؟",
+    "ممكن تساعدني أفهم المشروع؟",
+    "هل المشروع شغال حاليًا؟",
+    "What is this project?",
+  ])("keeps low-risk orientation question tool-free: %s", (message) => {
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(classification.category).toBe("simple");
+    expect(classification.allowPrefetch).toBe(false);
+    expect(intent).toMatchObject({
+      kind: "CHAT",
+      requiresTools: false,
+      requiresEvidence: false,
+      operationMode: "CHAT",
+    });
+  });
+
+  it("does not weaken an explicit forensic request containing project language", () => {
+    const message = "افحص المشروع عن الفجوات";
+    const classification = classifyRequest(message);
+    const intent = resolveTurnIntent(message, { classification });
+
+    expect(classification.category).not.toBe("simple");
+    expect(intent.requiresTools).toBe(true);
+    expect(intent.kind).toBe("FORENSIC_AUDIT");
+  });
+
   it.each(["مرحبا", "hello", "Thanks for your help", "Tell me a joke"])(
     "routes ordinary conversation as non-evidence CHAT: %s",
     (message) => {
