@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const runControlledReleaseValidation =
+  process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1";
 
 async function readWorkspaceFile(fileName: string): Promise<string> {
   return readFile(resolve(workspaceRoot, fileName), "utf8");
@@ -72,6 +74,37 @@ test("surfaces recovery gate failures in the deployment post-build result", asyn
   );
 });
 
+test(
+  "allows deployment post-build to continue after a successful recovery gate",
+  {
+    skip: !runControlledReleaseValidation,
+    timeout: 300_000,
+  },
+  () => {
+    const result = spawnSync("pnpm", ["run", "validate:release:controlled"], {
+      cwd: workspaceRoot,
+      env: {
+        ...process.env,
+        RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+      },
+      encoding: "utf8",
+      timeout: 280_000,
+    });
+    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+
+    assert.equal(
+      result.status,
+      0,
+      `controlled release validation must complete after recovery succeeds:\n${output}`,
+    );
+    assert.match(
+      output,
+      /Real process-recovery validation completed successfully\./,
+      "the real recovery check must report success before post-build completes",
+    );
+  },
+);
+
 test("reports a controlled recovery failure by name", async () => {
   const result = spawnSync(
     "pnpm",
@@ -136,10 +169,16 @@ test("keeps the local Project workflow and release validation separate", async (
 
   const normalTestCommand = packageJson.scripts?.test;
   const releaseTestCommand = packageJson.scripts?.["validate:release"];
+  const controlledReleaseTestCommand =
+    packageJson.scripts?.["validate:release:controlled"];
   assert.equal(normalTestCommand, "pnpm -r --if-present run test");
   assert.equal(
     releaseTestCommand,
     "pnpm --filter @workspace/api-server run test:process-recovery",
+  );
+  assert.equal(
+    controlledReleaseTestCommand,
+    "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
   );
   assert.notEqual(normalTestCommand, releaseTestCommand);
 });

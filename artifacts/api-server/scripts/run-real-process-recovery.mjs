@@ -62,6 +62,9 @@ child.on("exit", (code, signal) => {
   }
   if (code !== 0) {
     console.error(`Real process-recovery validation failed (exit code ${code ?? "unknown"}).`);
+    process.exitCode = code ?? 1;
+    return;
   }
-  process.exitCode = code ?? 1;
+  console.log("Real process-recovery validation completed successfully.");
+  process.exitCode = 0;
 });

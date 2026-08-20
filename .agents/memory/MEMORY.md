@@ -19,3 +19,4 @@
 - [Shared package type lag](shared-package-type-lag.md) — workspace consumers can briefly retain older shared declarations; isolate additive compatibility casts at the boundary.
 - [Optional process recovery tests](optional-process-recovery-tests.md) — resolve API build entrypoints relative to the package working directory when spawning real child servers.
 - [Behavior evidence recovery](behavior-evidence-recovery.md) — normal behavior answers get one bounded citation-correction pass; missing proof remains ANALYSIS_INCOMPLETE.
+- [Controlled release validation](controlled-release-validation.md) — live recovery checks are opt-in; keep provider-free configuration tests isolated from deployment credentials.
