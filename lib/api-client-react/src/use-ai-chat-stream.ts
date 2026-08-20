@@ -399,8 +399,14 @@ export type AiStreamExecutionSummary = {
   toolCalls: number;
   prefetchToolCalls: number;
   loopToolCalls: number;
-  stopReason: 'response' | 'iteration_budget' | 'soft_limit' | 'repeated_tool_call' | 'empty_response';
+  stopReason: 'response' | 'iteration_budget' | 'soft_limit' | 'repeated_tool_call' | 'empty_response' | 'provider_timeout' | 'cancelled';
   synthesisStarted: boolean;
+  /** Bounded final-synthesis telemetry safe for operator-facing UI. */
+  synthesisAttempts?: number;
+  synthesisMaxAttempts?: number;
+  synthesisTimeoutMs?: number;
+  synthesisElapsedMs?: number;
+  synthesisTimedOut?: boolean;
   recoveryStarted?: boolean;
   diagnosticCodes: string[];
   diagnosticDetails?: string[];

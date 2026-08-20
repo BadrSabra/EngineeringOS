@@ -513,6 +513,11 @@ type ToolTraceEntry = {
   loopToolCalls?: number;
   stopReason?: string;
   synthesisStarted?: boolean;
+  synthesisAttempts?: number;
+  synthesisMaxAttempts?: number;
+  synthesisTimeoutMs?: number;
+  synthesisElapsedMs?: number;
+  synthesisTimedOut?: boolean;
   recoveryStarted?: boolean;
   sourceCoverage?: 'COMPLETE' | 'PARTIAL' | 'NONE';
   behavioralAssessment?: 'COMPLETE' | 'INCOMPLETE' | 'NOT_STARTED';
@@ -763,7 +768,15 @@ const EXECUTION_STOP_REASONS = [
   'cancelled',
 ] as const;
 
-function parseExecutionSummary(trace: ToolTraceEntry[]): AiStreamExecutionSummary | null {
+type DashboardExecutionSummary = AiStreamExecutionSummary & {
+  synthesisAttempts?: number;
+  synthesisMaxAttempts?: number;
+  synthesisTimeoutMs?: number;
+  synthesisElapsedMs?: number;
+  synthesisTimedOut?: boolean;
+};
+
+function parseExecutionSummary(trace: ToolTraceEntry[]): DashboardExecutionSummary | null {
   const done = [...trace].reverse().find((entry) => entry.kind === 'done');
   if (!done || !EXECUTION_STOP_REASONS.includes(done.stopReason as typeof EXECUTION_STOP_REASONS[number])) {
     return null;
@@ -803,6 +816,11 @@ function parseExecutionSummary(trace: ToolTraceEntry[]): AiStreamExecutionSummar
         : recordedLoopToolCalls,
     stopReason: done.stopReason as AiStreamExecutionSummary['stopReason'],
     synthesisStarted: done.synthesisStarted === true,
+    ...(typeof done.synthesisAttempts === 'number' ? { synthesisAttempts: done.synthesisAttempts } : {}),
+    ...(typeof done.synthesisMaxAttempts === 'number' ? { synthesisMaxAttempts: done.synthesisMaxAttempts } : {}),
+    ...(typeof done.synthesisTimeoutMs === 'number' ? { synthesisTimeoutMs: done.synthesisTimeoutMs } : {}),
+    ...(typeof done.synthesisElapsedMs === 'number' ? { synthesisElapsedMs: done.synthesisElapsedMs } : {}),
+    ...(typeof done.synthesisTimedOut === 'boolean' ? { synthesisTimedOut: done.synthesisTimedOut } : {}),
     recoveryStarted:
       done.recoveryStarted === true ||
       trace.some((entry) => entry.kind === 'forensic_recovery_start'),
@@ -2068,10 +2086,20 @@ function ForensicEvidenceCard({
   );
 }
 
-function ExecutionSummaryBanner({ summary }: { summary: AiStreamExecutionSummary | null }) {
+function ExecutionSummaryBanner({
+  summary,
+  operatorTraceId,
+}: {
+  summary: DashboardExecutionSummary | null;
+  operatorTraceId?: string;
+}) {
+  const hasSynthesisTelemetry =
+    summary?.synthesisAttempts !== undefined ||
+    summary?.synthesisTimeoutMs !== undefined ||
+    summary?.synthesisTimedOut !== undefined;
   if (
     !summary ||
-    (summary.stopReason === 'response' && summary.diagnosticCodes.length === 0)
+    (summary.stopReason === 'response' && summary.diagnosticCodes.length === 0 && !hasSynthesisTelemetry)
   ) {
     return null;
   }
@@ -2096,6 +2124,26 @@ function ExecutionSummaryBanner({ summary }: { summary: AiStreamExecutionSummary
         ? `stopped: ${summary.stopReason.replace(/_/g, ' ')} · ${summary.iterations}/${summary.maxIterations} iterations · ${summary.toolCalls} tool calls`
         : 'the response required forensic recovery'}{' '}
       {summary.synthesisStarted ? '· synthesis attempted ' : ''}
+      {hasSynthesisTelemetry && (
+        <div className="mt-2 rounded border border-border/40 bg-background/20 px-2.5 py-2 text-[10px] text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="font-medium text-foreground/85">Synthesis</span>
+            {summary.synthesisAttempts !== undefined && (
+              <span>{summary.synthesisAttempts} attempt{summary.synthesisAttempts === 1 ? '' : 's'}</span>
+            )}
+            {summary.synthesisMaxAttempts !== undefined && <span>max {summary.synthesisMaxAttempts}</span>}
+            {summary.synthesisTimeoutMs !== undefined && <span>budget {summary.synthesisTimeoutMs} ms</span>}
+            {summary.synthesisElapsedMs !== undefined && <span>elapsed {summary.synthesisElapsedMs} ms</span>}
+            {summary.synthesisTimedOut === true && <span className="font-semibold text-amber-200">timed out</span>}
+            {summary.synthesisTimedOut === false && <span className="text-emerald-200">completed within budget</span>}
+          </div>
+          {summary.synthesisTimedOut === true && operatorTraceId && (
+            <a href={`#${operatorTraceId}`} className="mt-1 inline-flex text-primary underline-offset-2 hover:underline">
+              ANALYSIS_INCOMPLETE details are preserved in the operator trace below
+            </a>
+          )}
+        </div>
+      )}
       {summary.diagnosticCodes.length > 0
         ? `· ${summary.diagnosticCodes.join(', ')}`
         : ''}
@@ -2115,12 +2163,14 @@ function PersistedExecutionProof({
   evidence,
   finalVerdict,
   behaviorEvidenceCount,
+  traceId,
 }: {
   summary: AiStreamExecutionSummary | null;
   trace: ToolTraceEntry[];
   evidence: ForensicEvidenceSummary | null;
   finalVerdict: FinalForensicVerdict | null;
   behaviorEvidenceCount: number;
+  traceId?: string;
 }) {
   if (!summary) return null;
 
@@ -2152,7 +2202,7 @@ function PersistedExecutionProof({
       : 'border-border/50 bg-background/20 text-foreground';
 
   return (
-    <details className="mt-1 w-full min-w-0 max-w-full rounded-lg border border-border/50 bg-background/20 text-[10px]">
+    <details id={traceId} className="mt-1 w-full min-w-0 max-w-full rounded-lg border border-border/50 bg-background/20 text-[10px]">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-muted-foreground hover:text-foreground">
         <ShieldCheck className={`h-3.5 w-3.5 shrink-0 ${isBlocked ? 'text-amber-300' : 'text-green-300'}`} />
         <span className="font-medium text-foreground">Persisted execution proof</span>
@@ -3896,7 +3946,7 @@ function MessageBubble({
             />
           : incompleteBeforeEvidence
             ? null
-            : <ExecutionSummaryBanner summary={executionSummary} />}
+           : <ExecutionSummaryBanner summary={executionSummary} operatorTraceId={`operator-trace-${msg.id}`} />}
         {isEngineeringExecution && repairRadar && <RepairRadar trace={toolTrace} />}
         {!isUser && (isForensicRun || isEngineeringExecution) && (
           <PersistedExecutionProof
@@ -3905,6 +3955,7 @@ function MessageBubble({
             evidence={forensicEvidence}
             finalVerdict={finalVerdict}
             behaviorEvidenceCount={parseBehaviorEvidence(msg.behaviorEvidence).length}
+            traceId={`operator-trace-${msg.id}`}
           />
         )}
         <CompletedActivityTimeline

@@ -1948,6 +1948,11 @@ describe('AiChat authenticated generated mutations', () => {
         loopToolCalls: 1,
         stopReason: 'response',
         synthesisStarted: false,
+        synthesisAttempts: 1,
+        synthesisMaxAttempts: 2,
+        synthesisTimeoutMs: 1000,
+        synthesisElapsedMs: 240,
+        synthesisTimedOut: false,
       },
     ]);
     renderAiChat();
@@ -1961,6 +1966,9 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByText('Writes gated')).toBeInTheDocument();
     expect(screen.getByText('response completed')).toBeInTheDocument();
     expect(screen.getByText(/Model path:.*history-model/)).toBeInTheDocument();
+    expect(screen.getByText('1 attempt')).toBeInTheDocument();
+    expect(screen.getByText('budget 1000 ms')).toBeInTheDocument();
+    expect(screen.getByText('completed within budget')).toBeInTheDocument();
   });
 
   it('keeps zero-read execution diagnostics compact and collapsed', async () => {
