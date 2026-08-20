@@ -391,7 +391,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const composer = page.locator("textarea").first();
     await expect(composer).toBeVisible();
     await composer.fill(fixture.question);
-    await composer.press("Enter");
+    const sendButton = composer.locator("xpath=..").getByRole("button");
+    await expect(sendButton).toBeEnabled();
+    await sendButton.click();
 
     await expect(page.getByText(fixture.question, { exact: true })).toBeVisible();
     await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
