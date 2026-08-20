@@ -1736,6 +1736,112 @@ describe("Phase 6 — Arabic evidence persistence and history rehydration", () =
   });
 });
 
+describe("Concurrent Arabic chat turns", () => {
+  it("keeps each assistant result adjacent to its prompt after simultaneous streams", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = randomUUID();
+    const now = new Date();
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "جلسة محادثة متزامنة",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const firstPrompt = "حلل مسار التخزين الأول";
+    const secondPrompt = "حلل مسار التخزين الثاني";
+    const firstResponse = "## 6) Final Judgment\nFINDING PROVEN\n\nنتيجة المسار الأول.";
+    const secondResponse = "## 6) Final Judgment\nNO FINDING\n\nنتيجة المسار الثاني.";
+    const resultFor = (response: string, label: string) => ({
+      response,
+      sources: [`src/${label}.ts`],
+      pendingChanges: [],
+      taskResult: {
+        kind: "BEHAVIOR_ANSWER_RESULT" as const,
+        answer: {
+          answer: response,
+          evidence: [],
+          confidence: 1,
+          sourceScope: [`src/${label}.ts`],
+          coverage: {
+            requestedFields: [label],
+            answeredFields: [label],
+            missingFields: [],
+            complete: true,
+          },
+        },
+      },
+    });
+
+    // Complete the second request first to exercise finish-order inversion.
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      args[3]?.(firstResponse);
+      return {
+        result: resultFor(firstResponse, "first-turn"),
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    }).mockImplementationOnce(async (...args) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      args[3]?.(secondResponse);
+      return {
+        result: resultFor(secondResponse, "second-turn"),
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const [firstStream, secondStream] = await Promise.all([
+      request(app)
+        .post("/api/ai/chat/stream")
+        .set("Content-Type", "application/json")
+        .send({ projectId, sessionId, message: firstPrompt }),
+      request(app)
+        .post("/api/ai/chat/stream")
+        .set("Content-Type", "application/json")
+        .send({ projectId, sessionId, message: secondPrompt }),
+    ]);
+    expect(firstStream.status).toBe(200);
+    expect(secondStream.status).toBe(200);
+    expect(parseSseEvents(firstStream.text).some((event) => event.type === "done")).toBe(true);
+    expect(parseSseEvents(secondStream.text).some((event) => event.type === "done")).toBe(true);
+
+    const history = await request(app)
+      .get(`/api/ai/chat/${sessionId}/messages`)
+      .expect(200);
+    expect(history.body).toHaveLength(4);
+    expect(history.body.map((message: { role: string }) => message.role)).toEqual([
+      "user", "assistant", "user", "assistant",
+    ]);
+    expect(history.body.map((message: { content: string }) => message.content)).toEqual([
+      firstPrompt,
+      firstResponse,
+      secondPrompt,
+      secondResponse,
+    ]);
+    expect(new Set(history.body.map((message: { id: string }) => message.id)).size).toBe(4);
+    expect(history.body[1].taskResult).toMatchObject({
+      kind: "BEHAVIOR_ANSWER_RESULT",
+      answer: { sourceScope: ["src/first-turn.ts"] },
+    });
+    expect(history.body[3].taskResult).toMatchObject({
+      kind: "BEHAVIOR_ANSWER_RESULT",
+      answer: { sourceScope: ["src/second-turn.ts"] },
+    });
+
+    const sessions = await request(app)
+      .get("/api/ai/chat/sessions")
+      .query({ projectId })
+      .expect(200);
+    expect(sessions.body).toHaveLength(1);
+    expect(sessions.body[0]).toMatchObject({
+      id: sessionId,
+      forensicStatus: "NO_FINDING",
+    });
+  });
+});
+
 // ─── INT-005: SSE success path ────────────────────────────────────────────────
 
 describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE", () => {

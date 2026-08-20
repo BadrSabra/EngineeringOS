@@ -23,7 +23,7 @@ import {
   eventsTable,
   tasksTable,
 } from "@workspace/db";
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { eq, desc, and, inArray, sql } from "drizzle-orm";
 import {
   buildProjectContext,
   invalidateContextCache,
@@ -250,6 +250,21 @@ function parseTaskResult(value: string | null | undefined): ChatTaskResult | und
 
 function serializeTaskResult(value: ChatTaskResult | undefined): string | null {
   return value ? JSON.stringify(redactUserFacingValue(value)) : null;
+}
+
+// A turn is persisted only after its provider call completes, but history must
+// remain ordered by the time the user submitted each turn. Allocate a unique
+// two-millisecond window up front so concurrent completions cannot interleave
+// the user/assistant rows or make equal-timestamp ordering database-dependent.
+let lastAllocatedTurnTimestamp = 0;
+function allocateTurnTimestamps(): { startedAt: Date; assistantAt: Date } {
+  const wallClock = Date.now();
+  const startedAtMs = Math.max(wallClock, lastAllocatedTurnTimestamp + 2);
+  lastAllocatedTurnTimestamp = startedAtMs;
+  return {
+    startedAt: new Date(startedAtMs),
+    assistantAt: new Date(startedAtMs + 1),
+  };
 }
 
 type ApprovedImplementationPlan = Extract<
@@ -1195,7 +1210,7 @@ router.post("/ai/chat", async (req, res) => {
     });
   }
 
-    const now = new Date();
+    const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
 
   let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
   if (sessionId) {
@@ -1293,7 +1308,9 @@ router.post("/ai/chat", async (req, res) => {
   if (!providerResolved) return;
   const { provider, apiKey } = providerResolved;
 
-  const applyProbe = await tryAdvisoryLock(LockNamespace.APPLY, projectId);
+  const applyProbe = modelHasTools
+    ? await tryAdvisoryLock(LockNamespace.APPLY, projectId)
+    : { acquired: true, release: async () => undefined };
   if (!applyProbe.acquired) {
     return res.status(409).json({
       error: "apply_in_progress",
@@ -1412,7 +1429,6 @@ router.post("/ai/chat", async (req, res) => {
     // Chat turns don't modify project data — no cache invalidation needed.
     // Full invalidation happens only in /apply-changes when files are written.
 
-    const msgNow = new Date();
     const sessionIdToUse = existingSession?.id ?? randomUUID();
 
     // Atomic: session creation (when needed) + user message + assistant message
@@ -1527,7 +1543,10 @@ router.post("/ai/chat", async (req, res) => {
       }
       await tx
         .update(aiChatSessionsTable)
-        .set({ updatedAt: msgNow, activeTaskState })
+        .set({
+          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+          activeTaskState,
+        })
         .where(eq(aiChatSessionsTable.id, sessionIdToUse));
       return msg;
     });
@@ -1814,7 +1833,9 @@ router.post("/ai/chat/stream", async (req, res) => {
   if (!providerResolved) return;
   const { provider, apiKey } = providerResolved;
 
-  const applyLock = await tryAdvisoryLock(LockNamespace.APPLY, projectId);
+  const applyLock = streamModelHasTools
+    ? await tryAdvisoryLock(LockNamespace.APPLY, projectId)
+    : { acquired: true, release: async () => undefined };
   if (!applyLock.acquired) {
     return res.status(409).json({
       error: "apply_in_progress",
@@ -1870,7 +1891,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       };
     }
 
-    const now = new Date();
+    const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
     const sessionIdToUse = existingSession?.id ?? randomUUID();
 
     // Reserve a new session before the long model/tool loop starts. The client
@@ -2793,8 +2814,6 @@ router.post("/ai/chat/stream", async (req, res) => {
       }
     })();
 
-    const msgNow = new Date();
-
     // Atomic: session creation (when needed) + user message + assistant message
     // + session timestamp update in one transaction — prevents a half-saved
     // conversation if one insert fails.
@@ -2922,7 +2941,10 @@ router.post("/ai/chat/stream", async (req, res) => {
       }
       await tx
         .update(aiChatSessionsTable)
-        .set({ updatedAt: msgNow, activeTaskState })
+        .set({
+          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+          activeTaskState,
+        })
         .where(eq(aiChatSessionsTable.id, sessionIdToUse));
       return msg;
     });
