@@ -190,47 +190,15 @@ try {
   process.exit(1);
 }
 
-// ─── 3. Check for uncommitted changes in generated directories ──────────────
+// ─── 3. Check the generated output against the committed output ─────────────
 
 console.log("🔍  Checking for uncommitted changes in generated files …");
 
 const changed = GENERATED_PATHS.flatMap(compareGeneratedPath);
 
-// ─── 3. Report ───────────────────────────────────────────────────────────────
-
-// ─── 3. Post-codegen verify: no looseObject should remain (PR-05) ────────────
-//
-// The codegen script runs a sed patch to replace z.looseObject (Orval/Zod v4
-// compatibility shim) with z.object (Zod v3 semantics). Verify the patch worked
-// so that a future Orval upgrade does not silently re-introduce looseObject.
-
-console.log("🔍  Verifying codegen output has no looseObject remnants …");
-const generatedZodFile = "lib/api-zod/src/generated/api.ts";
-try {
-  const generatedContent = readFileSync(
-    join(generatedRoot, generatedZodFile),
-    "utf8",
-  );
-  if (generatedContent.includes("looseObject")) {
-    console.error("❌  Post-codegen verify failed:");
-    console.error(
-      `    ${generatedZodFile} still contains 'looseObject' after the sed patch.`,
-    );
-    console.error(
-      "    The sed substitution in lib/api-spec/package.json may need updating.",
-    );
-    rmSync(generatedRoot, { recursive: true, force: true });
-    process.exit(1);
-  }
-  console.log("✅  No looseObject remnants in generated Zod output.");
-} catch {
-  // If the file doesn't exist yet (first run), skip the check.
-  console.warn(
-    `⚠️   Could not verify ${generatedZodFile} — skipping looseObject check.`,
-  );
-}
-
-// ─── 4. Report ───────────────────────────────────────────────────────────────
+// The api-spec codegen command now owns and verifies the post-processing step.
+// If Orval changes its output format, that command fails before this comparison
+// and explains how to update the transform; never silently accept a no-op.
 
 if (changed.length === 0) {
   console.log("✅  Generated files are in sync with openapi.yaml.");

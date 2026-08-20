@@ -7,6 +7,7 @@
     "hello": "tsx ./src/hello.ts",
     "parse-check-spec": "tsx ./parse-check-spec.ts",
     "check-codegen-drift": "tsx ./check-codegen-drift.ts",
+    "patch-generated-zod": "tsx ./patch-generated-zod.ts",
     "validate-truth-flow": "tsx ./validate-truth-flow.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
