@@ -423,8 +423,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page.locator("summary").filter({ hasText: "Agent activity" }).click();
     await expect(page.getByText("Reading source", { exact: false })).toBeVisible();
     await expect(page.getByText(fixture.source, { exact: true }).last()).toBeVisible();
-    await expect(page.getByText(/Behavior evidence · 1 excerpt/i)).toBeVisible();
-    await expect(page.getByText(evidence[0].excerpt, { exact: true })).toBeVisible();
+    await expect(page.getByText(/Behavior evidence · 1 excerpt/i).last()).toBeVisible();
+    await expect(
+      page.getByText('return partialFromCollectedEvidence("provider timeout");', { exact: true }).last(),
+    ).toBeVisible();
 
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toMatch(/e2e-arabic-ai-session|e2e-execution|\/home\/runner|recovery diagnostics|rawPrompt|systemPrompt/i);
