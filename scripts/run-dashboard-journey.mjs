@@ -53,6 +53,53 @@ async function waitFor(url, label) {
   throw new Error(`${label} did not become healthy: ${lastError} (${url})`);
 }
 
+function runClerkHandoffContracts() {
+  return new Promise((resolve, reject) => {
+    const contractTests = spawn(
+      "pnpm",
+      ["--filter", "@workspace/dashboard", "run", "test:clerk-handoff"],
+      {
+        env: {
+          ...process.env,
+          CI: "true",
+        },
+        stdio: "inherit",
+      },
+    );
+
+    contractTests.on("error", (error) => {
+      reject(
+        new Error(
+          `Unable to start dashboard Clerk handoff contract checks: ${redact(error.message)}`,
+        ),
+      );
+    });
+
+    contractTests.on("exit", (code, signal) => {
+      if (signal) {
+        reject(
+          new Error(
+            `Dashboard Clerk handoff contract checks stopped by ${signal}.`,
+          ),
+        );
+        return;
+      }
+      if (code !== 0) {
+        reject(
+          new Error(
+            `Dashboard Clerk handoff contract checks failed with exit code ${code ?? 1}; browser startup was skipped.`,
+          ),
+        );
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+await runClerkHandoffContracts();
+console.log("Dashboard Clerk handoff response contracts passed.");
+
 const dashboardResponse = await waitFor(dashboardBaseUrl, "Dashboard workflow");
 const dashboardHtml = await dashboardResponse.text();
 if (!dashboardHtml.includes("/dashboard/")) {
