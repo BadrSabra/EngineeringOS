@@ -14,146 +14,91 @@
 ```
 Error: expect(locator).toBeVisible() failed
 
-Locator: getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.', { exact: true })
+Locator:  getByText('Reading source')
 Expected: visible
-Error: strict mode violation: getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.', { exact: true }) resolved to 2 elements:
-    1) <p class="mb-2 last:mb-0">عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسا…</p> aka getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي').first()
-    2) <p class="text-[12px] leading-relaxed text-foreground/90">عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسا…</p> aka getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي').nth(1)
+Received: hidden
+Timeout:  10000ms
 
 Call log:
   - Expect "toBeVisible" with timeout 10000ms
-  - waiting for getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.', { exact: true })
+  - waiting for getByText('Reading source')
+    23 × locator resolved to <span class="min-w-0 break-words text-foreground/85">Reading source · src/execution-tools.ts</span>
+       - unexpected value "hidden"
 
 ```
 
-# Page snapshot
-
 ```yaml
-- generic [ref=f2e2]:
-  - generic [ref=f2e3]:
-    - generic [ref=f2e4]:
-      - generic [ref=f2e5]: EngineeringOS
-      - generic [ref=f2e13]:
-        - generic [ref=f2e14]: Core Ops
-        - link "Dashboard" [ref=f2e15] [cursor=pointer]:
-          - /url: /dashboard/
-        - link "Projects" [ref=f2e21] [cursor=pointer]:
-          - /url: /dashboard/projects
-        - link "Tasks" [ref=f2e27] [cursor=pointer]:
-          - /url: /dashboard/tasks
-        - link "Rules Engine" [ref=f2e31] [cursor=pointer]:
-          - /url: /dashboard/rules
-        - link "Workflows" [ref=f2e34] [cursor=pointer]:
-          - /url: /dashboard/workflows
-        - link "Event Stream" [ref=f2e39] [cursor=pointer]:
-          - /url: /dashboard/events
-        - link "Metrics" [ref=f2e42] [cursor=pointer]:
-          - /url: /dashboard/metrics
-        - link "Knowledge Graph" [ref=f2e45] [cursor=pointer]:
-          - /url: /dashboard/graph
-        - link "AI Assistant" [ref=f2e51] [cursor=pointer]:
-          - /url: /dashboard/ai
-        - link "Flight Deck" [ref=f2e55] [cursor=pointer]:
-          - /url: /dashboard/flight-deck
-        - link "Mission Control" [ref=f2e58] [cursor=pointer]:
-          - /url: /dashboard/mission-control
-      - generic [ref=f2e63]:
-        - generic [ref=f2e64]: ED
-        - generic [ref=f2e65]:
-          - generic [ref=f2e66]: EngineeringOS Dashboard Release
-          - generic [ref=f2e67]: Connected
-        - button "Sign out" [ref=f2e69]
-    - generic [ref=f2e73]:
-      - banner [ref=f2e74]:
-        - textbox "Search projects, tasks, rules... (Press '/')" [ref=f2e79]
-        - generic [ref=f2e80]:
-          - generic [ref=f2e81]: v1.0.4-stable
-          - button [ref=f2e86]
-      - main [ref=f2e91]:
-        - generic [ref=f2e93]:
-          - generic [ref=f2e94]:
-            - generic [ref=f2e95]:
-              - generic [ref=f2e96]: Sessions
-              - button "New session" [ref=f2e98]
-            - combobox [ref=f2e101]:
-              - option "Smoke Project" [selected]
-            - button "ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟" [ref=f2e106]
-            - generic [ref=f2e109]:
-              - generic [ref=f2e110]:
-                - generic [ref=f2e111]:
-                  - generic [ref=f2e116]: OpenRouter API Key
-                  - generic [ref=f2e117]: Priority
-                - paragraph [ref=f2e118]: Get a free key at openrouter.ai/keys — routes to 300+ models, used first when configured.
-                - generic [ref=f2e119]:
-                  - textbox "sk-or-…" [ref=f2e120]
-                  - button "Save" [disabled]
-              - generic [ref=f2e121]:
-                - generic [ref=f2e122]:
-                  - generic [ref=f2e127]: Gemini API Key
-                  - generic [ref=f2e128]: Free · Priority
-                - paragraph [ref=f2e129]: Free key at aistudio.google.com/apikey — 1,500 req/day, 1M tokens/day.
-                - generic [ref=f2e130]:
-                  - textbox "AIza…" [ref=f2e131]
-                  - button "Save" [ref=f2e132]
-              - generic [ref=f2e133]:
-                - generic [ref=f2e134]:
-                  - generic [ref=f2e139]: DeepSeek API Key
-                  - generic [ref=f2e140]: Optional
-                - paragraph [ref=f2e141]: Get a free API key at platform.deepseek.com to use DeepSeek as your AI provider.
-                - generic [ref=f2e142]:
-                  - textbox "sk-…" [ref=f2e143]
-                  - button "Save" [disabled]
-              - generic [ref=f2e144]:
-                - generic [ref=f2e145]: Groq API Key
-                - paragraph [ref=f2e151]: No personal key saved — the server's key will be used if one is configured.
-                - generic [ref=f2e152]:
-                  - textbox "gsk_…" [ref=f2e153]
-                  - button "Save" [disabled]
-          - generic [ref=f2e154]:
-            - generic [ref=f2e155]:
-              - generic [ref=f2e159]: EngineeringOS AI
-              - generic [ref=f2e160]: Llama 3.3 · Groq
-            - generic [ref=f2e164]:
-              - generic [ref=f2e165]: ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟
-              - generic [ref=f2e177]:
-                - paragraph [ref=f2e179]: عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.
-                - generic [ref=f2e180]:
-                  - generic [ref=f2e181]: Behavior evidence · 1 excerpt
-                  - generic [ref=f2e190]:
-                    - generic [ref=f2e191]: return partialFromCollectedEvidence("provider timeout");
-                    - generic [ref=f2e192]:
-                      - button "src/execution-tools.ts:42" [ref=f2e193]
-                      - button "View file" [ref=f2e201]
-                - generic [ref=f2e205]:
-                  - generic [ref=f2e206]:
-                    - generic [ref=f2e212]: Behavior answer
-                    - generic [ref=f2e213]: confidence 100%
-                  - paragraph [ref=f2e214]: عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.
-                  - generic [ref=f2e215]: src/execution-tools.ts
-                  - generic [ref=f2e217]: "Answered fields: timeout behavior"
-                  - generic [ref=f2e218]:
-                    - generic [ref=f2e219]: Behavior evidence · 1 excerpt
-                    - generic [ref=f2e228]:
-                      - generic [ref=f2e229]: return partialFromCollectedEvidence("provider timeout");
-                      - generic [ref=f2e230]:
-                        - button "src/execution-tools.ts:42" [ref=f2e231]
-                        - button "View file" [ref=f2e239]
-                - group [ref=f2e243]:
-                  - generic "Agent activity · 1 events" [ref=f2e244] [cursor=pointer]:
-                    - generic [ref=f2e247]: Agent activity
-                    - generic [ref=f2e248]: · 1 events
-            - generic [ref=f2e252]:
-              - textbox "Ask about your codebase, tasks, or metrics… (Enter to send)" [ref=f2e253]
-              - button [disabled]
-  - region "Notifications (F8)":
-    - list
+- text: EngineeringOS Core Ops
+- link "Dashboard":
+  - /url: /dashboard/
+- link "Projects":
+  - /url: /dashboard/projects
+- link "Tasks":
+  - /url: /dashboard/tasks
+- link "Rules Engine":
+  - /url: /dashboard/rules
+- link "Workflows":
+  - /url: /dashboard/workflows
+- link "Event Stream":
+  - /url: /dashboard/events
+- link "Metrics":
+  - /url: /dashboard/metrics
+- link "Knowledge Graph":
+  - /url: /dashboard/graph
+- link "AI Assistant":
+  - /url: /dashboard/ai
+- link "Flight Deck":
+  - /url: /dashboard/flight-deck
+- link "Mission Control":
+  - /url: /dashboard/mission-control
+- text: ED EngineeringOS Dashboard Release Connected
+- button "Sign out"
+- banner:
+  - textbox "Search projects, tasks, rules... (Press '/')"
+  - text: v1.0.4-stable
+  - button
+- main:
+  - text: Sessions
+  - button "New session"
+  - combobox:
+    - option "Smoke Project" [selected]
+  - button "ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟"
+  - text: OpenRouter API Key Priority
+  - paragraph: Get a free key at openrouter.ai/keys — routes to 300+ models, used first when configured.
+  - textbox "sk-or-…"
+  - button "Save" [disabled]
+  - text: Gemini API Key Free · Priority
+  - paragraph: Free key at aistudio.google.com/apikey — 1,500 req/day, 1M tokens/day.
+  - textbox "AIza…"
+  - button "Save"
+  - text: DeepSeek API Key Optional
+  - paragraph: Get a free API key at platform.deepseek.com to use DeepSeek as your AI provider.
+  - textbox "sk-…"
+  - button "Save" [disabled]
+  - text: Groq API Key
+  - paragraph: No personal key saved — the server's key will be used if one is configured.
+  - textbox "gsk_…"
+  - button "Save" [disabled]
+  - text: EngineeringOS AI Llama 3.3 · Groq ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟
+  - paragraph: عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.
+  - text: Behavior evidence · 1 excerpt return partialFromCollectedEvidence("provider timeout");
+  - button "src/execution-tools.ts:42"
+  - button "View file"
+  - text: Behavior answer confidence 100%
+  - paragraph: عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.
+  - text: "src/execution-tools.ts Answered fields: timeout behavior Behavior evidence · 1 excerpt return partialFromCollectedEvidence(\"provider timeout\");"
+  - button "src/execution-tools.ts:42"
+  - button "View file"
+  - group: Agent activity · 1 events
+  - textbox "Ask about your codebase, tasks, or metrics… (Enter to send)"
+  - button [disabled]
+- region "Notifications (F8)":
+  - list
 ```
 
 # Test source
 
 ```ts
-  321 |     new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
-  322 |   );
   323 | }
   324 | 
   325 | async function openNavigation(page: Page, label: string, path: string) {
@@ -252,10 +197,10 @@ Call log:
   418 |     expect(streamResponse.status()).toBe(200);
   419 | 
   420 |     await expect(page.getByText(fixture.question, { exact: true }).last()).toBeVisible();
-> 421 |     await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
-      |                                                                   ^ Error: expect(locator).toBeVisible() failed
+  421 |     await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
   422 |     await expect(page.getByText("Agent activity", { exact: false })).toBeVisible();
-  423 |     await expect(page.getByText("Reading source", { exact: false })).toBeVisible();
+> 423 |     await expect(page.getByText("Reading source", { exact: false })).toBeVisible();
+      |                                                                      ^ Error: expect(locator).toBeVisible() failed
   424 |     await expect(page.getByText(fixture.source, { exact: true })).toBeVisible();
   425 |     await expect(page.getByText(/claim-bound evidence excerpt retained/i)).toBeVisible();
   426 | 
