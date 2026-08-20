@@ -109,10 +109,12 @@ export function resolveTurnIntent(
     !classification.structuredOutputMode &&
     !classification.singleFileForensicMode &&
     classification.orderedForensicRoots.length === 0 &&
+    !implementationDelivery &&
     !classification.implementationTaskMode &&
     !classification.implementationPlanMode;
 
   const explicitEvidenceIntent = Boolean(
+    !isLowRiskChat &&
     !implementationDelivery &&
     !planDelivery &&
     route.requiresEvidence &&

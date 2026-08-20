@@ -27,7 +27,7 @@ describe("resolveTurnIntent", () => {
     const classification = classifyRequest(message);
     const intent = resolveTurnIntent(message, { classification });
 
-    expect(classification.category).not.toBe("simple");
+    expect(classification.taskType).not.toBe("BEHAVIOR_QUERY");
     expect(intent.requiresTools).toBe(true);
     expect(intent.kind).toBe("FORENSIC_AUDIT");
   });
