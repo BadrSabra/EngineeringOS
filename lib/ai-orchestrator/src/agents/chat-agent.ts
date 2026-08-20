@@ -1115,6 +1115,66 @@ export function buildCapabilityProbeRecoveryMessages(
   ];
 }
 
+/**
+ * A normal behavior question can finish with source reads but without the
+ * exact executable quote required by the evidence gate. Give it one bounded
+ * citation-correction pass over retained reads. This is intentionally separate
+ * from the C1-C7 capability-probe recovery contract.
+ */
+export function buildBehaviorEvidenceRecoveryMessages(
+  question: string,
+  fileContents: ReadonlyMap<string, string>,
+  priorCandidate: string,
+): RawMessage[] {
+  let remaining = MAX_RECOVERY_EVIDENCE_CHARS;
+  const records = [...fileContents.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([file, content], fileIndex, allFiles) => {
+      const bounded = buildBalancedSourceExcerpt(
+        content,
+        fileIndex,
+        allFiles.length,
+        remaining,
+      );
+      remaining -= bounded.consumed;
+      return [
+        `FILE: ${file}`,
+        `SOURCE_EXCERPT${content.length > bounded.consumed ? " (bounded; complete read retained by verifier)" : ""}:`,
+        bounded.excerpt,
+      ].join("\n");
+    });
+  const isArabic = /[\u0600-\u06FF]/.test(question);
+
+  return [
+    {
+      role: "system",
+      content:
+        "You are correcting a source-grounded behavioral answer. " +
+        "Use only the verified source excerpts supplied by the user. " +
+        "Never invent a path, symbol, behavior, or source text. " +
+        "The caller will verify the quoted fragment verbatim and check its source span.",
+    },
+    {
+      role: "user",
+      content: [
+        "The previous answer did not provide an accepted source-grounded behavioral claim.",
+        `Answer the original question directly: ${question}`,
+        isArabic
+          ? "اكتب إجابة عربية قصيرة، واذكر الدليل بصيغة: المصدر: `path`، المقتطف: `مقتطف حرفي متصل من الكود`."
+          : "Write a short direct answer, and cite evidence as: Source: `path`, excerpt: `exact contiguous source fragment`.",
+        "The excerpt must be copied exactly from one supplied file and include executable flow such as if, return, switch, throw, or a call. Do not cite only a filename, declaration, constant, or paraphrase.",
+        "If the supplied reads do not prove the answer, say ANALYSIS_INCOMPLETE instead of inventing a conclusion.",
+        "",
+        "VERIFIED COMPLETED READS:",
+        records.join("\n\n") || "(none)",
+        "",
+        "UNTRUSTED PRIOR ANSWER (use only to understand what needs correction):",
+        priorCandidate.slice(0, MAX_RECOVERY_CANDIDATE_CHARS),
+      ].join("\n"),
+    },
+  ];
+}
+
 type CapabilityMicroProbeGroup = {
   name: string;
   labels: readonly string[];
@@ -7653,6 +7713,79 @@ export async function chat(opts: {
   let behaviorEvidenceValidation = shouldValidateBehaviorEvidence
     ? validateBehaviorEvidence(message, responseBeforeBehaviorEvidence, forensicFileContents)
     : { valid: true, violations: [], evidence: [] };
+  /**
+   * Normal behavior questions need one bounded citation correction when the
+   * provider answered without an exact executable excerpt. This is deliberately
+   * a single no-tool pass: it can improve evidence conversion, but cannot
+   * broaden the already completed read scope or turn a missing answer into a
+   * positive verdict.
+   */
+  if (
+    shouldValidateBehaviorEvidence &&
+    !capabilityProbeRequest &&
+    forensicFileContents.size > 0 &&
+    behaviorEvidenceValidation.evidence.length === 0 &&
+    responseBeforeBehaviorEvidence.trim().length > 0
+  ) {
+    recoveryAttemptsUsed += 1;
+    const recoveryModel = result.model || model;
+    try {
+      const recovery = await strategy.call(
+        buildBehaviorEvidenceRecoveryMessages(
+          message,
+          forensicFileContents,
+          responseBeforeBehaviorEvidence,
+        ),
+        {
+          model: recoveryModel,
+          apiKey,
+          maxTokens: 1024,
+          timeoutMs: 45_000,
+          retryTransient: false,
+          maxFallbackModels: 1,
+          ...(signal ? { signal } : {}),
+        },
+      );
+      const recoveredResponse = validateResponseForTask(
+        normalizeAssistantText(recovery.content ?? ""),
+      );
+      const recoveredValidation = validateBehaviorEvidence(
+        message,
+        recoveredResponse,
+        forensicFileContents,
+      );
+      if (recoveredValidation.evidence.some((item) => item.supportsClaim)) {
+        responseBeforeBehaviorEvidence = recoveredResponse;
+        behaviorEvidenceValidation = recoveredValidation;
+        content = recovery.content ?? content;
+        parsed = {
+          ok: true,
+          data: {
+            response: recoveredResponse,
+            sources: sanitizeSources(recovery.sources ?? []),
+          },
+        };
+        console.info(JSON.stringify({
+          scope: "chat-agent",
+          code: "BEHAVIOR_EVIDENCE_RECOVERED",
+          sourceCount: forensicFileContents.size,
+          model: recovery.model || recoveryModel,
+        }));
+      } else {
+        console.warn(JSON.stringify({
+          scope: "chat-agent",
+          code: "BEHAVIOR_EVIDENCE_RECOVERY_REJECTED",
+          reason: "corrected response still lacked a verified executable excerpt",
+        }));
+      }
+    } catch (error) {
+      console.warn(JSON.stringify({
+        scope: "chat-agent",
+        code: "BEHAVIOR_EVIDENCE_RECOVERY_FAILED",
+        reason: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }
   /**
    * A free-tier model can finish the read loop and satisfy the C1–C7 shape
    * while forgetting the exact quoted fragment required by the probe contract.
