@@ -21,6 +21,66 @@ const evidence = {
 };
 
 describe("staged forensic Recovery", () => {
+  it("keeps Arabic empty-result classifications and the six-section contract", () => {
+    const envelope: ForensicRecoveryEnvelope = {
+      verdict: "NO_FINDING",
+      findings: [],
+      repairPlan: [],
+      validationChecklist: [],
+    };
+    const completedEvidence = {
+      ...evidence,
+      sourceCoverage: { complete: true, roots: [] },
+    };
+    const incompleteEvidence = {
+      ...completedEvidence,
+      sourceCoverage: { complete: false, roots: [] },
+    };
+    const unreadableEvidence = {
+      toolSources: [sourcePath],
+      fileContents: new Map<string, string>(),
+      allowTestSources: true,
+      sourceCoverage: { complete: false, roots: [] },
+    };
+
+    const reports = [
+      buildStructuredForensicReport(envelope, completedEvidence, {
+        language: "ar",
+      }),
+      buildStructuredForensicReport(envelope, incompleteEvidence, {
+        language: "ar",
+      }),
+      buildStructuredForensicReport(envelope, unreadableEvidence, {
+        language: "ar",
+      }),
+    ];
+
+    expect(reports[0]).toContain("NO_VERIFIED_FINDING");
+    expect(reports[0]).not.toContain("ANALYSIS_INCOMPLETE");
+    expect(reports[1]).toContain("ANALYSIS_INCOMPLETE");
+    expect(reports[2]).toContain("ANALYSIS_INCOMPLETE");
+
+    const headers = [
+      "## 1) Executive Verdict",
+      "## 2) Evidence Map",
+      "## 3) Findings",
+      "## 4) Repair Plan",
+      "## 5) Validation Checklist",
+      "## 6) Final Judgment",
+    ];
+    for (const report of reports) {
+      const positions = headers.map((header) => report.indexOf(header));
+      expect(positions.every((position) => position >= 0)).toBe(true);
+      expect(positions).toEqual([...positions].sort((a, b) => a - b));
+      for (const header of headers) {
+        expect(report.match(new RegExp(header.replace(/[()[\]]/g, "\\$&"), "g"))).toHaveLength(1);
+      }
+      expect(report).not.toContain("recovery-model");
+      expect(report).not.toContain("initial-model");
+      expect(report).not.toContain("recoveryAttemptId");
+    }
+  });
+
   it("builds a six-section report and keeps an evidence-linked repair phase", () => {
     const envelope: ForensicRecoveryEnvelope = {
       verdict: "FINDING_PROVEN",
