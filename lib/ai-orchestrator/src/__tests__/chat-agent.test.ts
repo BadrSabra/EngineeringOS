@@ -191,6 +191,58 @@ describe("chat agent — ChatOutputSchema validation", () => {
     expect(result.response).toBe("أهلًا بك!");
   });
 
+  it("keeps a project-orientation question tool-free and hides raw provenance sources", async () => {
+    const toolCalls: AgentStep[] = [];
+
+    vi.doMock("../model-selection/decision-engine.js", () => ({
+      resolveExecutionDecision: vi.fn((scope: string, opts: Record<string, unknown>) => ({
+        taskProfile: { taskType: scope },
+      })),
+    }));
+    vi.doMock("../model-selection/provider-strategy.js", () => ({
+      resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
+    }));
+    vi.doMock("../model-selection/model-resolver.js", () => ({
+      resolveExecutionModel: vi.fn(() => ({
+        model: "llama-3.1-8b-instant",
+        powerModel: "llama-3.3-70b-versatile",
+      })),
+    }));
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = {
+          completions: {
+            create: vi.fn().mockResolvedValue({
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    response: "This is the project workspace.",
+                    sources: ["directory: .", "git:status", "search:project"],
+                  }),
+                },
+              }],
+              model: "m",
+              usage: {},
+            }),
+          },
+        };
+      },
+    }));
+
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: "What is this project?",
+      history: [],
+      projectContext: makeContext(),
+      rootPath: "/tmp/project",
+      onStep: (step) => toolCalls.push(step),
+    });
+
+    expect(toolCalls.filter((step) => step.kind === "tool_call")).toHaveLength(0);
+    expect(result.sources).toEqual([]);
+    expect(result.response).toBe("This is the project workspace.");
+  });
+
   it("emits a proven production trace only from runtime-observed links", async () => {
     vi.doMock("groq-sdk", () => ({
       default: class {

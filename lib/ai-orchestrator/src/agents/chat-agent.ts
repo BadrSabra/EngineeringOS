@@ -1513,6 +1513,10 @@ const GENERIC_SOURCE_PATTERNS: RegExp[] = [
   /^(no project data|no data|unknown|n\/a|none|context)$/i,
   // Tool names masquerading as sources
   /^(read_file|list_directory|search_code|write_file|git_status|git_diff|git_log)$/i,
+  // Raw internal provenance labels must never reach the user-facing sources
+  // array. Ground-truth tool sources are collected separately and remain
+  // available only when an actual read occurred.
+  /^(?:directory|git|search|telemetry|trace|tool)\s*:/i,
   // Single-word generic nouns with no qualifier
   /^(name|type|title|label|value|url|date|time|id|uuid)$/i,
 ];
