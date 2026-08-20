@@ -85,9 +85,51 @@ describe("geminiCompleteRaw", () => {
     expect(body).not.toHaveProperty("tool_choice");
     expect(body).not.toHaveProperty("response_format");
   });
+
+  it("redacts credential-like transport failures while retaining NETWORK_ERROR", async () => {
+    const secret = "AIzaSyFixtureTransportSecret_1234567890";
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error(`fetch failed for https://generativelanguage.googleapis.com?key=${secret}`);
+    }));
+
+    const result = geminiCompleteRaw(baseMessages as any, {
+      apiKey: "test-key",
+      model: "gemini-2.0-flash",
+    });
+    await expect(result).rejects.toMatchObject({ code: "NETWORK_ERROR" });
+    await result.catch((error: GroqClientError) => {
+      expect(error.message).not.toContain(secret);
+      expect(error.message).toContain("[redacted]");
+      expect(JSON.stringify(error.toProviderContext())).not.toContain(secret);
+    });
+  });
 });
 
 // ── OpenRouter fallback ────────────────────────────────────────────────────────
+
+describe("OpenRouter transport-error redaction", () => {
+  it("redacts provider credentials after the bounded transient retry", async () => {
+    const secret = "sk-or-v1-fixture-transport-secret";
+    const fetchMock = vi.fn(async () => {
+      throw new Error(`OpenRouter request failed: Authorization: Bearer ${secret}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      model: FREE_MODELS[0]!.id,
+      maxFallbackModels: 1,
+    });
+    await expect(result).rejects.toMatchObject({ code: "NETWORK_ERROR" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await result.catch((error: GroqClientError) => {
+      expect(error.message).not.toContain(secret);
+      expect(error.message).toContain("[redacted]");
+      expect(error.code).toBe("NETWORK_ERROR");
+      expect(JSON.stringify(error.toProviderContext())).not.toContain(secret);
+    });
+  });
+});
 
 describe("openrouterCompleteWithFallback — error classification", () => {
   const primaryModel = FREE_MODELS[0]!.id;

@@ -78,6 +78,31 @@ export type ProviderErrorContext = {
   providerAttemptedModels?: string[];
 };
 
+/**
+ * Provider SDKs and HTTP clients sometimes include credentials in otherwise
+ * useful transport errors (for example, a URL query string or an echoed
+ * Authorization header). Keep the internal error available for server logs,
+ * but make every message/context serialization safe for user-facing output.
+ */
+export function redactProviderErrorText(value: string): string {
+  return value
+    .replace(/((?:authorization|x-api-key|api[_-]?key|access[_-]?token|token|key)\s*[=:]\s*)([^\s,;)"']+)/gi, "$1[redacted]")
+    .replace(/(Bearer\s+)([A-Za-z0-9._~+/=-]+)/gi, "$1[redacted]")
+    .replace(/\bsk-or-v1-[A-Za-z0-9_-]+\b/gi, "[redacted]")
+    .replace(/\bAIza[A-Za-z0-9_-]{20,}\b/g, "[redacted]");
+}
+
+function redactProviderContext(context: ProviderErrorContext): ProviderErrorContext {
+  return {
+    ...context,
+    providerCode: context.providerCode ? redactProviderErrorText(context.providerCode) : context.providerCode,
+    providerMessage: context.providerMessage ? redactProviderErrorText(context.providerMessage) : context.providerMessage,
+    providerName: context.providerName ? redactProviderErrorText(context.providerName) : context.providerName,
+    providerModel: context.providerModel ? redactProviderErrorText(context.providerModel) : context.providerModel,
+    providerAttemptedModels: context.providerAttemptedModels?.map(redactProviderErrorText),
+  };
+}
+
 export class GroqClientError extends Error {
   readonly code: GroqErrorCode;
 
@@ -95,7 +120,7 @@ export class GroqClientError extends Error {
     message: string,
     options?: { cause?: unknown; context?: ProviderErrorContext },
   ) {
-    super(message, { cause: options?.cause });
+    super(redactProviderErrorText(message), { cause: options?.cause });
     this.name = "GroqClientError";
     this.code = code;
     if (options?.context) {
@@ -111,7 +136,7 @@ export class GroqClientError extends Error {
 
   /** PR-007: serialise to a plain object suitable for SSE / JSON responses. */
   toProviderContext(): ProviderErrorContext {
-    return {
+    return redactProviderContext({
       providerStatus:  this.providerStatus,
       providerCode:    this.providerCode,
       providerMessage: this.providerMessage,
@@ -119,6 +144,6 @@ export class GroqClientError extends Error {
       providerModel:   this.providerModel,
       retryAfterMs:    this.retryAfterMs,
       providerAttemptedModels: this.providerAttemptedModels,
-    };
+    });
   }
 }
