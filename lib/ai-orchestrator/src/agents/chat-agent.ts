@@ -3068,6 +3068,49 @@ function emptyResponseMessage(message: string, forensic = false): string {
   return "I couldn't generate a response — please try again.";
 }
 
+/**
+ * Deterministic degradation for evidence runs when the provider returns no
+ * final text. This is intentionally not a verdict: it reports only the
+ * server-owned completed read manifest and keeps the behavioral claim open.
+ */
+export function buildBehaviorEvidenceIncompleteResponse(
+  message: string,
+  fileContents: ReadonlyMap<string, string>,
+): string {
+  const isArabic = /[\u0600-\u06FF]/.test(message);
+  const files = [...fileContents.keys()].sort();
+  if (isArabic) {
+    return [
+      "ANALYSIS_INCOMPLETE — لم يُرجع مزوّد الذكاء الاصطناعي نصًا نهائيًا بعد القراءات المتاحة.",
+      "",
+      "### القراءات المكتملة",
+      ...(files.length > 0
+        ? files.map((file) => `- ${file}`)
+        : ["- لا يوجد ملف مقروء مؤكد."]),
+      "",
+      "### حالة الدليل",
+      "تمت قراءة المصادر أعلاه، لكن لم يُعتمد مقتطف تنفيذي يغلق الادعاء السلوكي.",
+      "لا يوجد حكم سلوكي مثبت، ولا يجوز اعتبار هذه النتيجة Finding أو NO_VERIFIED_FINDING.",
+      "",
+      "### الخطوة التالية",
+      "أعد المحاولة أو ضيّق السؤال إلى دالة أو مسار محدد؛ لن تتم إعادة القراءات المؤكدة دون حاجة.",
+    ].join("\n");
+  }
+  return [
+    "ANALYSIS_INCOMPLETE — the AI provider returned no final text after the available reads.",
+    "",
+    "### Completed reads",
+    ...(files.length > 0 ? files.map((file) => `- ${file}`) : ["- No confirmed file read."]),
+    "",
+    "### Evidence status",
+    "The sources above were read, but no executable excerpt was accepted to close the behavioral claim.",
+    "No behavioral verdict was proven; this is neither a Finding nor NO_VERIFIED_FINDING.",
+    "",
+    "### Next step",
+    "Retry or narrow the question to one function or path; confirmed reads do not need to be repeated.",
+  ].join("\n");
+}
+
 // hint: Structural and logic conflict. Both design and behavior differ.
 export async function chat(opts: {
   message: string;
@@ -5394,7 +5437,9 @@ export async function chat(opts: {
             requireCompleteReadEvidence,
           ),
         ).response
-      : exhaustionMessage;
+      : isForensicOrEvidenceRun && forensicFileContents.size > 0
+        ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
+        : exhaustionMessage;
     const exhaustionFinalResponse = repairPlanExecution
       ? finalizeTaskResponse(
           buildRepairPlanExecutionResponse(
@@ -5611,7 +5656,9 @@ export async function chat(opts: {
       const responseText =
         normalizeAssistantText(parsedDirect.data.response) ||
         normalizeAssistantText(directContent) ||
-        emptyResponseMessage(message, forensicOutputMode);
+        (isForensicOrEvidenceRun && forensicFileContents.size > 0
+          ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
+          : emptyResponseMessage(message, forensicOutputMode));
       const gatedResponseText = validateResponseForTask(finalizeTaskResponse(
         repairPlanExecution
           ? buildRepairPlanExecutionResponse(
@@ -7681,6 +7728,12 @@ export async function chat(opts: {
       ? [...scopedToolSources, ...cleanModelSources.filter((s) => !scopedToolSources.includes(s))]
       : cleanModelSources;
 
+  const providerResponseCandidate =
+    parseError?.code === "EMPTY_MODEL_RESPONSE" &&
+    isForensicOrEvidenceRun &&
+    forensicFileContents.size > 0
+      ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
+      : parsed.data.response;
   let responseBeforeBehaviorEvidence = validateResponseForTask(
     finalizeTaskResponse(
       repairPlanExecution
@@ -7695,7 +7748,7 @@ export async function chat(opts: {
         : cancelledForensicAudit()
           ? parsed.data.response
           : gateForensicResponse(
-              parsed.data.response,
+              providerResponseCandidate,
               structuredOutputMode,
               messages,
               toolSources,
