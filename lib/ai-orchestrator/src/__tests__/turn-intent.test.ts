@@ -75,6 +75,34 @@ describe("resolveTurnIntent", () => {
     });
   });
 
+  it.each([
+    "افحص مشروعي وأخبرني إن كانت هناك مشاكل مهمة.",
+    "Review my project and tell me about important problems.",
+  ])("asks for scope before a broad audit: %s", (message) => {
+    const intent = resolveTurnIntent(message);
+
+    expect(intent).toMatchObject({
+      kind: "CHAT",
+      executionTaskType: "chat",
+      requiresTools: false,
+      requiresEvidence: false,
+      scopeClarificationRequired: true,
+      operationMode: "CHAT",
+    });
+  });
+
+  it.each([
+    "Audit src/api and identify important problems.",
+    "Audit the core production files and identify important problems.",
+    "Audit the entire repository and identify the root causes.",
+  ])("starts only after the user declares an audit scope: %s", (message) => {
+    const intent = resolveTurnIntent(message);
+
+    expect(intent.scopeClarificationRequired).toBe(false);
+    expect(intent.requiresTools).toBe(true);
+    expect(intent.requiresEvidence).toBe(true);
+  });
+
   it("resumes the verified prior classification for a real continuation", () => {
     const prior = classifyRequest(
       "Audit the entire repository and identify the root causes.",

@@ -142,7 +142,7 @@ describe("chat() WORKSPACE_REVIEW evidence contract", () => {
       const steps: AgentStep[] = [];
       const { chat } = await import("../agents/chat-agent.js");
       const result = await chat({
-        message: "review workspace",
+        message: "review the entire workspace",
         history: [],
         projectContext: makeContext(),
         rootPath,
@@ -248,7 +248,7 @@ describe("chat() WORKSPACE_REVIEW evidence contract", () => {
       const steps: AgentStep[] = [];
       const { chat } = await import("../agents/chat-agent.js");
       const result = await chat({
-        message: "review workspace",
+        message: "review the entire workspace",
         history: [],
         projectContext: makeContext(),
         rootPath,

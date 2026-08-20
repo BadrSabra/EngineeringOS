@@ -3117,6 +3117,24 @@ export async function chat(opts: {
     buildHandoff,
   });
 
+  // A broad audit without a declared scope is expensive and surprising for
+  // ordinary users. Keep this deterministic and provider-free so neither the
+  // tool loop nor a slow reasoning model can start before the user chooses a
+  // boundary. The next turn can state a path, production files, or the whole
+  // project explicitly.
+  if (turnIntent.scopeClarificationRequired) {
+    const arabic = /[\u0600-\u06FF]/.test(message);
+    const response = arabic
+      ? "قبل أن أبدأ فحصًا واسعًا، ما النطاق الذي تريده؟ اختر: الملفات الإنتاجية الأساسية، مجلدًا أو ملفات محددة، أو المشروع كاملًا."
+      : "Before I start a broad audit, what scope should I use? Choose the core production files, a specific folder/files, or the entire project.";
+    onDelta?.(response);
+    return {
+      response,
+      sources: [],
+      pendingChanges: [],
+    };
+  }
+
   // Plan mode is intentionally a separate, read-only path. It produces a
   // reviewable contract and never enters the forensic tool loop or exposes
   // write tools. Approval and execution will be separate milestones.
@@ -3561,11 +3579,17 @@ export async function chat(opts: {
     !immediateIntent &&
     !classification.implementationTaskMode &&
     !capabilityProbeRequest &&
-    (classification.taskType === "FULL_FORENSIC_AUDIT" ||
-      classification.taskType === "WORKSPACE_REVIEW" ||
-      classification.singleFileForensicMode ||
-      classification.orderedForensicRoots.length > 0 ||
-      behavioralAssessmentRequested);
+    (
+      (
+        turnIntent.kind === "FORENSIC_AUDIT" &&
+        (
+          turnIntent.forensicTaskType !== "BEHAVIOR_QUERY" ||
+          classification.singleFileForensicMode ||
+          classification.orderedForensicRoots.length > 0
+        )
+      ) ||
+      behavioralAssessmentRequested
+    );
   const requireCompleteReadEvidence = forensicTaskType === "WORKSPACE_REVIEW";
   // The hardened six-section machinery below is intentionally limited to
   // forensic turns. Generic exact-format requests such as CODE_EXTRACTION
@@ -3602,7 +3626,7 @@ export async function chat(opts: {
       );
       return buildResponseLanguageFallback(responseLanguage);
     }
-    if (!turnIntent.requiresEvidence && turnIntent.kind === "CHAT") return response;
+    if (!turnIntent.requiresEvidence && turnIntent.kind !== "FORENSIC_AUDIT") return response;
     const validationTaskType = forensicOutputMode
       ? "FULL_FORENSIC_AUDIT"
       : forensicTaskType;

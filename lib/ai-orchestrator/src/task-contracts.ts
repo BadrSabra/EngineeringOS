@@ -489,10 +489,12 @@ const FULL_AUDIT_PATTERNS = [
 ];
 
 const WORKSPACE_REVIEW_PATTERNS = [
-  /\b(?:review|audit|assess|evaluate|inspect|analy[sz]e)\s+(?:the\s+)?(?:whole\s+)?(?:workspace|repository|repo|codebase|project)\b/i,
+  /\b(?:review|audit|assess|evaluate|inspect|analy[sz]e)\s+(?:(?:the|my|this)\s+)?(?:whole\s+)?(?:workspace|repository|repo|codebase|project)\b/i,
   /\b(?:review|audit|assess|evaluate|inspect|analy[sz]e)\s+(?:the\s+)?(?:entire|whole|full|all)\s+(?:workspace|repository|repo|codebase|project|code)\b/i,
   /\b(?:review|audit|assess|evaluate|inspect|analy[sz]e)\s+all\s+code\b/i,
   /(?:راجع|قيّم|قيم|افحص|حلل|حلّل|استكشف)\s+(?:مساحة\s+العمل|المشروع|المستودع|قاعدة\s+الكود|الكود\s+بالكامل)/u,
+  /(?:راجع|قيّم|قيم|افحص|حلل|حلّل|استكشف)\s+مشروعي(?:\s|$)/u,
+  /(?:راجع|قيّم|قيم|افحص|حلل|حلّل|استكشف)\s+(?:ملفات|الملفات)\s+(?:الإنتاجية|الأساسية)/u,
   /(?:راجع|قيّم|قيم|افحص|حلل|حلّل|استكشف)\s+(?:كل|كامل|كاملًا)\s+(?:الكود|المشروع|المستودع|مساحة\s+العمل)/u,
 ];
 

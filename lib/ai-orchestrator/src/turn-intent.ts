@@ -40,6 +40,8 @@ export type TurnIntent = {
   resumed: boolean;
   allowsResume: boolean;
   allowsBuildHandoff: boolean;
+  /** Broad forensic requests must declare a scope before expensive discovery. */
+  scopeClarificationRequired: boolean;
   operationMode: TurnOperationMode;
   classification: ClassifiedRequest;
 };
@@ -66,6 +68,8 @@ const ARABIC_EXECUTION_ACTION_RE =
 const FORENSIC_EVIDENCE_SIGNAL_RE =
   /(?:\b(?:audit|forensic|root\s+cause|prove|verify|investigate)\b|تدقيق|جنائي|تحقيق|تحقق|تحقّق|السبب\s+الجذري|الأسباب\s+الجذرية|أثبت|اثبت)/iu;
 
+const EXPLICIT_AUDIT_SCOPE_RE =
+  /(?:\b(?:src|lib|app|server|client|test|tests|components?|pages?|routes?|api|packages?|artifacts?|files?)\b|[./][\w@.-]+(?:\/[\w@.-]+)*|[\w@.-]+\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh|json|yaml|yml|toml|css|scss|html)\b|specific\s+(?:file|folder|directory|module)|(?:whole|entire|full|all)\s+(?:the\s+)?(?:project|workspace|repository|repo|codebase|code)|مجلد\s+(?:محدد|معين)|ملف(?:ات)?\s+(?:محدد(?:ة)?|معين(?:ة)?)|هذا\s+الملف|الملفات\s+الإنتاجية|الكود\s+الإنتاجي|المشروع\s+بالكامل|كل\s+(?:المشروع|المستودع|الكود)|المشروع\s+كله)/iu;
 function isExecutionActionRequest(message: string): boolean {
   return (
     ENGLISH_EXECUTION_ACTION_RE.test(message) ||
@@ -97,10 +101,8 @@ export function resolveTurnIntent(
     );
   const hasProjectToolSignal =
     SOURCE_PATH_RE.test(message) || PROJECT_TOOL_SIGNAL_RE.test(message);
-
-  // The classifier has already established that these are orientation/chat
-  // questions. Do not let a broad word such as "project" re-promote them to a
-  // tool query: "what is this project?" must remain a fast, tool-free turn.
+  // Orientation questions classified as simple must remain fast, tool-free
+  // turns even when they contain a broad word such as "project".
   const isLowRiskChat =
     classification.category === "simple" &&
     classification.allowPrefetch === false &&
@@ -112,6 +114,24 @@ export function resolveTurnIntent(
     !implementationDelivery &&
     !classification.implementationTaskMode &&
     !classification.implementationPlanMode;
+  const broadForensicTask =
+    classification.taskType === "FULL_FORENSIC_AUDIT" ||
+    classification.taskType === "WORKSPACE_REVIEW";
+  const broadAuditIntent =
+    !broadForensicTask ||
+    BROAD_AUDIT_REQUEST_RE.test(message) ||
+    EXPLICIT_STRUCTURED_AUDIT_RE.test(message) ||
+    hasExplicitAuditScope(message, classification);
+  const scopeClarificationRequired =
+    !buildHandoff &&
+    !options.resumed &&
+    !planDelivery &&
+    !implementationDelivery &&
+    broadForensicTask &&
+    BROAD_AUDIT_REQUEST_RE.test(message) &&
+    !EXPLICIT_STRUCTURED_AUDIT_RE.test(message) &&
+    !FORENSIC_EVIDENCE_SIGNAL_RE.test(message) &&
+    !hasExplicitAuditScope(message, classification);
 
   const explicitEvidenceIntent = Boolean(
     !isLowRiskChat &&
@@ -119,32 +139,38 @@ export function resolveTurnIntent(
     !planDelivery &&
     route.requiresEvidence &&
     (
-      classification.analysisMode === "FORENSIC" ||
-      classification.structuredOutputMode ||
-      classification.singleFileForensicMode ||
-      classification.orderedForensicRoots.length > 0 ||
+      (
+        (!broadForensicTask || broadAuditIntent) &&
+        (
+          classification.analysisMode === "FORENSIC" ||
+          classification.structuredOutputMode ||
+          classification.singleFileForensicMode ||
+          classification.orderedForensicRoots.length > 0
+        )
+      ) ||
       (hasProjectToolSignal && isExplicitBehaviorQueryRequest(message)) ||
       isProductionReachabilityRequest(message) ||
       FORENSIC_EVIDENCE_SIGNAL_RE.test(message)
     ),
   );
 
-  const requiresTools = isLowRiskChat
-    ? false
-    : implementationDelivery ||
-      explicitEvidenceIntent ||
-      (!planDelivery && hasProjectToolSignal);
+  const requiresTools =
+    isLowRiskChat
+      ? false
+      : implementationDelivery ||
+        (explicitEvidenceIntent && !scopeClarificationRequired) ||
+        (!planDelivery && hasProjectToolSignal && !scopeClarificationRequired);
 
   const kind: TurnIntentKind = implementationDelivery || planDelivery
     ? "DELIVERY"
-    : explicitEvidenceIntent
+    : explicitEvidenceIntent && !scopeClarificationRequired
       ? "FORENSIC_AUDIT"
       : requiresTools
         ? "PROJECT_QUERY"
         : "CHAT";
   const executionTaskType: TaskType = implementationDelivery
     ? "task_execution"
-    : explicitEvidenceIntent
+    : explicitEvidenceIntent && !scopeClarificationRequired
       ? "analysis"
       : requiresTools
         ? "tool_chat"
@@ -160,20 +186,37 @@ export function resolveTurnIntent(
     kind,
     category: classification.category,
     forensicTaskType: classification.taskType,
-    analysisMode: explicitEvidenceIntent ? classification.analysisMode : "STANDARD",
+    analysisMode: explicitEvidenceIntent && !scopeClarificationRequired
+      ? classification.analysisMode
+      : "STANDARD",
     outputContract:
       kind !== "CHAT"
         ? classification.outputContract
         : "GENERIC_RESPONSE",
     executionTaskType,
     requiresTools,
-    requiresEvidence: explicitEvidenceIntent,
+    requiresEvidence: explicitEvidenceIntent && !scopeClarificationRequired,
     resumed: options.resumed === true,
     allowsResume:
       options.resumed === true ||
       (kind !== "CHAT" && RESUMABLE_FORENSIC_TASKS.has(classification.taskType)),
     allowsBuildHandoff: buildHandoff,
+    scopeClarificationRequired,
     operationMode,
     classification,
   };
 }
+
+const EXPLICIT_STRUCTURED_AUDIT_RE =
+  /(?:\b(?:required\s+output|forensic\s+findings?|findings?\s+matrix|final\s+verdict|executive\s+verdict)\b|#{1,3}\s*1[.)]\s|الأقسام\s+الستة|المخرجات\s+المطلوبة)/iu;
+
+function hasExplicitAuditScope(message: string, classification: ClassifiedRequest): boolean {
+  return (
+    classification.singleFileForensicMode ||
+    classification.orderedForensicRoots.length > 0 ||
+    EXPLICIT_AUDIT_SCOPE_RE.test(message)
+  );
+}
+
+const BROAD_AUDIT_REQUEST_RE =
+  /(?:\b(?:audit|review|inspect|assess|evaluate)\b[\s\S]{0,100}\b(?:project|workspace|repository|repo|codebase|problems?|issues?|bugs?)\b|\banaly[sz]e\b[\s\S]{0,100}\b(?:problems?|issues?|bugs?|vulnerabilit(?:y|ies))\b|(?:افحص|راجع|قيّم|قيم|حلل|حلّل|استكشف)\s+(?:مشروعي|المشروع|مساحة\s+العمل|المستودع|قاعدة\s+الكود|المشاكل|المشكلات))/iu;
