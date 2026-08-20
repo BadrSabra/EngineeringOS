@@ -2479,6 +2479,20 @@ export function isRepairPlanExecutionRequest(message: string): boolean {
   );
 }
 
+/**
+ * A bare continuation such as "ابدأ" is ambiguous by design. It means
+ * "continue the analysis" after an analysis proposal, and only means
+ * "execute the Repair Plan" when a recovered plan contains an executable
+ * source-change phase. Explicit Repair Plan wording remains an execution
+ * request so it can fail closed when the plan is missing or blocked.
+ */
+function hasExplicitRepairPlanExecutionLanguage(message: string): boolean {
+  const normalized = normalizeIntentText(message);
+  return /(?:repair\s+plan|خطة\s+الإصلاح|خطة\s+الاصلاح|الإصلاحات|الاصلاحات|التعديلات|التغييرات)/i.test(
+    normalized,
+  );
+}
+
 function buildRepairPlanExecutionResponse(
   changes: PendingChange[],
   isArabic: boolean,
@@ -2552,7 +2566,7 @@ function buildRepairPlanExecutionResponse(
 function buildProviderTools(
   provider: ProviderId,
   rootPath: string | undefined,
-  executionMode?: "repair_plan",
+  executionMode?: "forensic" | "repair_plan",
   singleFileForensicMode = false,
   orderedForensicRoots: string[] = [],
   allowValidationTools = false,
@@ -2580,6 +2594,8 @@ function buildProviderTools(
       ? tools.filter((tool) => tool.function.name === "read_file")
       : orderedForensicRoots.length > 0
       ? tools.filter((tool) => ["read_file", "list_directory"].includes(tool.function.name))
+      : executionMode === "forensic"
+      ? tools.filter((tool) => ["read_file", "read_file_range", "list_directory", "search_code", "git_status", "git_diff", "git_log"].includes(tool.function.name))
       : executionMode === "repair_plan"
       ? tools.filter((tool) =>
           [
@@ -3301,7 +3317,9 @@ export async function chat(opts: {
         ? extractExecutionFilePaths(priorRepairPlan)
         : [];
   const repairPlanExecution =
-    (immediateIntent && isRepairPlanExecutionRequest(message)) ||
+    (immediateIntent &&
+      isRepairPlanExecutionRequest(message) &&
+      (hasExplicitRepairPlanExecutionLanguage(message) || executionFilePaths.length > 0)) ||
     (buildHandoff && storedExecutionPlan != null);
   const responseLanguage = resolveResponseLanguage(message);
   const executionDiagnosticDetails: string[] = [];
@@ -3906,7 +3924,11 @@ export async function chat(opts: {
     ? buildProviderTools(
         providerId,
         rootPath,
-        repairPlanExecution ? "repair_plan" : undefined,
+        repairPlanExecution
+          ? "repair_plan"
+          : turnIntent.requiresEvidence
+            ? "forensic"
+            : undefined,
         singleFileForensicMode,
         orderedForensicRoots,
         allowValidationTools,

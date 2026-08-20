@@ -117,6 +117,25 @@ describe("resolveTurnIntent", () => {
     expect(intent.requiresEvidence).toBe(true);
   });
 
+  it("treats a bare Arabic start as analysis continuation, not delivery", () => {
+    const prior = classifyRequest(
+      "Audit src/api and identify important problems.",
+    );
+    const intent = resolveTurnIntent("ابدأ", {
+      classification: prior,
+      resumed: true,
+    });
+
+    expect(intent).toMatchObject({
+      kind: "FORENSIC_AUDIT",
+      executionTaskType: "analysis",
+      requiresTools: true,
+      requiresEvidence: true,
+      resumed: true,
+      operationMode: "FORENSIC_AUDIT",
+    });
+  });
+
   it("treats an approved Build handoff as delivery rather than chat", () => {
     const intent = resolveTurnIntent("Build the approved implementation plan.", {
       buildHandoff: true,

@@ -10,6 +10,8 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectContext } from "../context-builder.js";
+import { classifyRequest } from "../prompts/profile-classifier.js";
+import { resolveTurnIntent } from "../turn-intent.js";
 
 function makeContext(): ProjectContext {
   return {
@@ -36,6 +38,107 @@ describe("chat agent — recovered Repair Plan execution", () => {
     vi.doUnmock("groq-sdk");
     if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
     else process.env.GROQ_API_KEY = originalApiKey;
+  });
+
+  it("starts a proposed analysis with a read and never exposes write tools", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-analysis-start-"));
+    const relativePath = "src/target.ts";
+    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+    await fs.writeFile(
+      path.join(rootPath, relativePath),
+      "export const enabled = true;\n",
+      "utf8",
+    );
+
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce({
+        choices: [{
+          message: {
+            content: "",
+            tool_calls: [{
+              id: "read-analysis-target",
+              type: "function",
+              function: { name: "read_file", arguments: JSON.stringify({ path: relativePath }) },
+            }],
+          },
+        }],
+        model: "analysis-model",
+        usage: {},
+      })
+      .mockResolvedValueOnce({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              response: [
+                "## 1) Executive Verdict",
+                "NO_VERIFIED_FINDING — the source was read and no defect is proven.",
+                "## 2) Evidence Map",
+                `- Read: \`${relativePath}\``,
+                "## 3) Findings",
+                "No verified finding.",
+                "## 4) Repair Plan",
+                "No repair phase.",
+                "## 5) Validation Checklist",
+                "No validation is required because no finding was accepted.",
+                "## 6) Final Judgment",
+                "Analysis complete from the read source.",
+              ].join("\n"),
+              sources: [relativePath],
+            }),
+          },
+        }],
+        model: "analysis-model",
+        usage: {},
+      });
+
+    vi.doMock("groq-sdk", () => ({
+      default: class {
+        chat = { completions: { create } };
+      },
+    }));
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const steps: Array<{ kind: string; tool?: string }> = [];
+      const priorAnalysis = classifyRequest(
+        "Audit src/target.ts and identify important problems.",
+      );
+      const result = await chat({
+        message: "ابدأ",
+        history: [{
+          role: "assistant",
+          content: "سأقترح نطاق التحليل أولًا، ثم أبدأ بقراءة المصدر عند موافقتك.",
+        }],
+        projectContext: makeContext(),
+        rootPath,
+        turnIntent: resolveTurnIntent("ابدأ", {
+          classification: priorAnalysis,
+          resumed: true,
+        }),
+        onStep: (step) => {
+          if (step.kind === "tool_call") steps.push({ kind: step.kind, tool: step.tool });
+        },
+      });
+
+      expect(result.pendingChanges).toEqual([]);
+      expect(steps.map((step) => step.tool)).toEqual(["read_file"]);
+      const request = create.mock.calls
+        .map((call) => call[0] as { tools?: Array<{ function?: { name?: string } }> })
+        .find((candidate) =>
+          candidate.tools?.some((tool) => tool.function?.name === "read_file"),
+        );
+      expect(request).toBeDefined();
+      const exposedTools = (request!.tools ?? []).map((tool) => tool.function?.name);
+      expect(exposedTools).toContain("read_file");
+      expect(exposedTools).not.toContain("write_file");
+      expect(exposedTools).not.toContain("replace_text");
+      expect(await fs.readFile(path.join(rootPath, relativePath), "utf8")).toBe(
+        "export const enabled = true;\n",
+      );
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
   });
 
   it("prefetches only the target, queues replace_text, and does not write to disk", async () => {

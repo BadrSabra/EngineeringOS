@@ -134,6 +134,15 @@ export function resolveTurnIntent(
     !EXPLICIT_STRUCTURED_AUDIT_RE.test(message) &&
     !FORENSIC_EVIDENCE_SIGNAL_RE.test(message) &&
     !hasExplicitAuditScope(message, classification);
+  // A short approval/continuation inherits the already-approved forensic
+  // contract. Its raw text ("ابدأ", "continue") does not repeat the audit
+  // keywords, but it must still reach the read-only evidence path.
+  const resumedForensicContinuation =
+    options.resumed === true &&
+    !implementationDelivery &&
+    !planDelivery &&
+    route.requiresEvidence &&
+    !scopeClarificationRequired;
 
   const explicitEvidenceIntent = Boolean(
     !isLowRiskChat &&
@@ -153,7 +162,8 @@ export function resolveTurnIntent(
       (hasProjectToolSignal && isExplicitBehaviorQueryRequest(message)) ||
       isProductionReachabilityRequest(message) ||
       FORENSIC_EVIDENCE_SIGNAL_RE.test(message)
-    ),
+     ) ||
+     resumedForensicContinuation,
   );
 
   const requiresTools =
