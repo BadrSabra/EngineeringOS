@@ -260,4 +260,61 @@ describe("chat() BEHAVIOR_ANSWER_RESULT — duplicated-fragment span (task #25)"
       await fs.rm(rootPath, { recursive: true, force: true });
     }
   });
+
+  it("renders a useful Arabic incomplete report when synthesis returns no text", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-empty-response-"));
+    const file = "src/pick.ts";
+    const fileContent =
+      "export function pick(flag: boolean): string {\n" +
+      '  if (!flag) return "partial";\n' +
+      '  return "complete";\n' +
+      "}\n";
+    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+    await fs.writeFile(path.join(rootPath, file), fileContent, "utf8");
+
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      call: vi.fn(async () => ({
+        content: "",
+        toolCalls: [],
+        model: "initial-model",
+        usage: {},
+      })),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy, {
+      targetFiles: [file],
+      targetEntities: [],
+      scopeEstimate: "narrow",
+      suggestedIterations: 8,
+      requiresToolUse: true,
+      subQueries: [],
+    });
+
+    try {
+      const steps: AgentStep[] = [];
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message: "ما الذي يحدث عندما تكون flag=false في الدالة pick داخل src/pick.ts؟",
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        onStep: (step) => steps.push(step),
+      });
+
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).toContain(file);
+      expect(result.response).toContain("لم يُعتمد مقتطف تنفيذي");
+      expect(result.response).not.toContain("تعذر عرض الاستجابة");
+      expect(result.response).not.toContain("FINDING PROVEN");
+      expect(result.sources).toContain(file);
+      expect(steps.some((step) => step.kind === "evidence_integrity")).toBe(true);
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
 });
