@@ -447,6 +447,7 @@ export function buildStructuredForensicReport(
     repairStatus?: "PROPOSED" | "APPLIED" | "BEHAVIORALLY_VALIDATED";
     language?: "ar" | "en";
     allowPartialScopeFinding?: boolean;
+    cancelled?: boolean;
   } = {},
 ): string {
   const isArabic = options.language === "ar";
@@ -556,7 +557,16 @@ export function buildStructuredForensicReport(
           executionText,
         ].join("");
       }).join("\n")
-    : findings.length > 0
+    : options.cancelled
+      ? [
+          isArabic
+            ? "Recovery needed — يلزم استئناف قراءة الأدلة وإعادة بناء التقرير قبل أي استنتاج نهائي."
+            : "Recovery needed — resume evidence reads and rebuild the report before any final conclusion.",
+          isArabic
+            ? "Blocked by — إلغاء التحليل قبل اكتمال التوليف والتحقق."
+            : "Blocked by — analysis cancellation before synthesis and validation completed.",
+        ].join("\n")
+      : findings.length > 0
       ? noRepairPhasesText
       : noExecutablePhasesText;
 

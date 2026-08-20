@@ -3570,6 +3570,13 @@ export async function chat(opts: {
   const validateResponseForTask = (response: string): string => {
     const languageValidation = validateResponseLanguage(response, responseLanguage);
     if (!languageValidation.valid) {
+      // A cancelled forensic audit intentionally keeps canonical English
+      // identifiers and section headings (including ANALYSIS_INCOMPLETE) in
+      // the Arabic report contract. Do not replace that truthful six-section
+      // report with the generic language fallback.
+      if (forensicOutputMode && cancelledForensicAudit()) {
+        return response;
+      }
       console.warn(
         JSON.stringify({
           scope: "chat-agent",
@@ -7456,7 +7463,7 @@ export async function chat(opts: {
     const cancelledReport = buildStructuredForensicReport(
       EMPTY_FORENSIC_RECOVERY_ENVELOPE,
       cancelledEvidence,
-      { emptyVerdict: "ANALYSIS_INCOMPLETE", language: responseLanguage },
+      { emptyVerdict: "ANALYSIS_INCOMPLETE", language: responseLanguage, cancelled: true },
     );
     structuredRepairPlan = undefined;
     parsed = {
@@ -7534,16 +7541,18 @@ export async function chat(opts: {
             undefined,
             executionDiagnosticDetails,
           )
-        : gateForensicResponse(
-            parsed.data.response,
-            structuredOutputMode,
-            messages,
-            toolSources,
-            forensicFileContents,
-            includeTestSources,
-            forensicScope,
-            forensicSourceCoverage,
-          ),
+        : cancelledForensicAudit()
+          ? parsed.data.response
+          : gateForensicResponse(
+              parsed.data.response,
+              structuredOutputMode,
+              messages,
+              toolSources,
+              forensicFileContents,
+              includeTestSources,
+              forensicScope,
+              forensicSourceCoverage,
+            ),
     ),
   );
   const shouldValidateBehaviorEvidence =

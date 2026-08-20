@@ -81,6 +81,32 @@ describe("staged forensic Recovery", () => {
     }
   });
 
+  it("keeps a cancelled Arabic audit incomplete and exposes blocked Recovery in Repair Plan", () => {
+    const report = buildStructuredForensicReport(
+      {
+        verdict: "NO_FINDING",
+        findings: [],
+        repairPlan: [],
+        validationChecklist: [],
+      },
+      {
+        ...evidence,
+        sourceCoverage: { complete: false, roots: [] },
+      },
+      {
+        emptyVerdict: "ANALYSIS_INCOMPLETE",
+        language: "ar",
+        cancelled: true,
+      },
+    );
+
+    expect(report).toContain("ANALYSIS_INCOMPLETE");
+    expect(report).toContain("Recovery needed");
+    expect(report).toContain("Blocked by");
+    expect(report).not.toContain("NO_VERIFIED_FINDING");
+    expect(report.match(/## [1-6]\)/g)).toHaveLength(6);
+  });
+
   it("builds a six-section report and keeps an evidence-linked repair phase", () => {
     const envelope: ForensicRecoveryEnvelope = {
       verdict: "FINDING_PROVEN",

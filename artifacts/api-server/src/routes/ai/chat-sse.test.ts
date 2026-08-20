@@ -147,7 +147,11 @@ vi.mock("@workspace/db", () => {
               if (vals && "projectId" in vals && !("sessionId" in vals)) {
                 return insertResult([MOCK_SESSION]);
               }
-              return insertResult(vals?.role === "assistant" ? [MOCK_MSG] : []);
+              return insertResult(
+                vals?.role === "assistant"
+                  ? [{ ...MOCK_MSG, content: vals.content ?? MOCK_MSG.content }]
+                  : [],
+              );
             },
           }),
           update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
@@ -431,6 +435,49 @@ afterEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration)", () => {
+  it("keeps the cancelled Arabic incomplete report intact in the SSE done frame", async () => {
+    const cancelledArabicReport = [
+      "## 1) Executive Verdict",
+      "ANALYSIS_INCOMPLETE — لم يكتمل التحليل.",
+      "",
+      "## 2) Evidence Map",
+      "لا توجد قراءة مكتملة إضافية.",
+      "",
+      "## 3) Findings",
+      "لم يتم قبول Finding.",
+      "",
+      "## 4) Repair Plan",
+      "Recovery needed — يلزم استئناف التحليل.",
+      "Blocked by — إلغاء التوليف قبل اكتماله.",
+      "",
+      "## 5) Validation Checklist",
+      "BLOCKED — لا يمكن التحقق قبل اكتمال الأدلة.",
+      "",
+      "## 6) Final Judgment",
+      "ANALYSIS_INCOMPLETE — التقرير غير مكتمل.",
+    ].join("\n");
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockResolvedValue({
+      ...MOCK_CHAT_RESULT,
+      result: { ...MOCK_CHAT_RESULT.result, response: cancelledArabicReport },
+    } as never);
+
+    const response = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "أجرِ تدقيقًا جنائيًا وأوقفه." });
+
+    expect(response.status).toBe(200);
+    const frames = parseSseFrames(response.text);
+    const done = frames.find(
+      (frame) => typeof frame === "object" && frame !== null && (frame as Record<string, unknown>).type === "done",
+    ) as Record<string, unknown> | undefined;
+    expect(done).toBeDefined();
+    expect(JSON.stringify(done)).toContain("ANALYSIS_INCOMPLETE");
+    expect(JSON.stringify(done)).toContain("Recovery needed");
+    expect(JSON.stringify(done)).toContain("Blocked by");
+    expect(JSON.stringify(done)).not.toContain("NO_VERIFIED_FINDING");
+    expect(JSON.stringify(done)).not.toContain("تعذر عرض الاستجابة لأنها لم تلتزم بلغة الطلب");
+  });
+
   it("redacts runtime paths and opaque IDs from JSON, SSE, and persisted assistant content", async () => {
     const sensitive = "/home/runner/workspace/artifacts/api-server/src/chat.ts";
     const internalId = "123e4567-e89b-12d3-a456-426614174000";

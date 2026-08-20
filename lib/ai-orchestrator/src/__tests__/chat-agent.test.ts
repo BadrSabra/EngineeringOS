@@ -625,6 +625,70 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
     expect(result.response).toContain("NOT PROVEN");
   });
 
+  it("preserves the Arabic incomplete forensic report when AbortSignal fires during synthesis", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-forensic-cancel-"));
+    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+    await fs.writeFile(path.join(rootPath, "src", "target.ts"), "export const target = true;\n", "utf8");
+    const controller = new AbortController();
+
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      call: vi.fn(async (
+        _messages: unknown,
+        _opts: { signal?: AbortSignal },
+      ) => {
+        controller.abort();
+        throw new Error("simulated synthesis cancellation");
+      }),
+      stream: vi.fn(),
+    };
+
+    vi.doMock("../provider-registry.js", async () => {
+      const actual = await vi.importActual("../provider-registry.js") as Record<string, unknown>;
+      return { ...actual, getStrategy: vi.fn(() => fakeStrategy) };
+    });
+    vi.doMock("../model-selection/decision-engine.js", () => ({
+      resolveExecutionDecision: vi.fn((scope: string) => ({ taskProfile: { taskType: scope } })),
+    }));
+    vi.doMock("../model-selection/provider-strategy.js", () => ({
+      resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
+    }));
+    vi.doMock("../model-selection/model-resolver.js", () => ({
+      resolveExecutionModel: vi.fn(() => ({
+        model: "llama-3.1-8b-instant",
+        powerModel: "llama-3.3-70b-versatile",
+      })),
+    }));
+
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message: [
+          "أنت وكيل تدقيق جنائي. Perform a structured forensic audit باللغة العربية على الملف src/target.ts.",
+          "أخرج الأقسام الستة للتقرير بالترتيب، مع Executive Verdict وRepair Plan.",
+        ].join("\n"),
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        signal: controller.signal,
+      });
+
+      expect(controller.signal.aborted).toBe(true);
+      expect(result.response).toContain("## 1) Executive Verdict");
+      expect(result.response).toContain("## 6) Final Judgment");
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).toContain("Recovery needed");
+      expect(result.response).toContain("Blocked by");
+      expect(result.response).not.toContain("NO_VERIFIED_FINDING");
+      expect(result.response).not.toContain("تعذر عرض الاستجابة لأنها لم تلتزم بلغة الطلب");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("emits FIRST_EVIDENCE_UNAVAILABLE instead of the generic skip when a 0-read run has an unreadable primary target", async () => {
     // Task #54 (FEG-013/014): a structured forensic run that ends with ZERO
     // source reads and names a single explicit file as its DIRECT_READ primary
