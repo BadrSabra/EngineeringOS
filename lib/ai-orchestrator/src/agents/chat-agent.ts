@@ -3148,6 +3148,17 @@ export async function chat(opts: {
 
   const taskRoute = routeTask(turnIntent.forensicTaskType);
   const explicitlyRequestedBehavioralAssessment = requiresBehavioralFindingAssessment(message);
+  // Ordinary orientation questions may classify as BEHAVIOR_QUERY for the
+  // task-contract defaults, but they are not requests for a behavior verdict.
+  // Keep them on the generic answer path so the evidence gate cannot demand a
+  // source read that the user never requested.
+  const lowRiskChatTurn =
+    turnIntent.kind === "CHAT" &&
+    classification.category === "simple" &&
+    !turnIntent.requiresTools &&
+    !turnIntent.requiresEvidence;
+  const explicitBehaviorQueryRequested =
+    !lowRiskChatTurn && isExplicitBehaviorQueryRequest(message);
   const capabilityProbeRequest = isCapabilityProbeRequest(message);
   const taskChecklistSource = [activeTask?.description, message]
     .filter((value): value is string => Boolean(value?.trim()))
@@ -4397,7 +4408,7 @@ export async function chat(opts: {
   // an inconsistent run can never surface a claimed PROVEN/PASS from the
   // hierarchical executor either.
   const isBehaviorVerdictRequest =
-    forensicTaskType === "BEHAVIOR_QUERY" && isExplicitBehaviorQueryRequest(message);
+    forensicTaskType === "BEHAVIOR_QUERY" && explicitBehaviorQueryRequested;
   if (
     queryPlan?.scopeEstimate === "broad" &&
     queryPlan.subQueries.length >= 2 &&
@@ -5511,7 +5522,7 @@ export async function chat(opts: {
       );
       const streamingAcceptedFiles = !forensicOutputMode &&
         forensicTaskType === "BEHAVIOR_QUERY" &&
-        isExplicitBehaviorQueryRequest(message)
+        explicitBehaviorQueryRequested
         ? streamingBehaviorGated.evidence.filter((item) => item.supportsClaim).map((item) => item.source)
         : [];
       const streamingGateResult = reconcileAndGateVerdict({
@@ -5523,7 +5534,7 @@ export async function chat(opts: {
         recoveryAttempts: 0,
         additionalRecoveryRecords: [],
         behaviorRequested:
-          !forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && isExplicitBehaviorQueryRequest(message),
+          !forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && explicitBehaviorQueryRequested,
         behaviorSupported: streamingAcceptedFiles.length > 0,
       });
       // FEG-011/012: apply the SHARED required-claim gate on this direct-stream
@@ -5532,7 +5543,7 @@ export async function chat(opts: {
         message,
         evidence: streamingBehaviorGated.evidence,
         fileContents: forensicFileContents,
-        shouldValidate: !forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && isExplicitBehaviorQueryRequest(message),
+        shouldValidate: !forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && explicitBehaviorQueryRequested,
         response: streamingGateResult.gatedResponse,
         relayAgentStep,
       });
@@ -5599,7 +5610,7 @@ export async function chat(opts: {
       // Compute BEHAVIOR_QUERY semantic answer here so the streaming path produces
       // the same BEHAVIOR_ANSWER_RESULT as the non-streaming path.
       let streamingSemanticBehaviorAnswer: ReturnType<typeof buildSemanticBehaviorAnswer> | undefined;
-      if (!forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && isExplicitBehaviorQueryRequest(message)) {
+      if (!forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && explicitBehaviorQueryRequested) {
         const streamingBehaviorValidation = validateBehaviorEvidence(
           message,
           emittedGatedResponse,
@@ -5752,7 +5763,7 @@ export async function chat(opts: {
       );
       const nativeSseAcceptedFiles = !forensicOutputMode &&
         forensicTaskType === "BEHAVIOR_QUERY" &&
-        isExplicitBehaviorQueryRequest(message)
+        explicitBehaviorQueryRequested
         ? nativeSseBehaviorValidation.evidence
             .filter((item) => item.supportsClaim)
             .map((item) => item.source)
@@ -5766,7 +5777,7 @@ export async function chat(opts: {
         recoveryAttempts: 0,
         additionalRecoveryRecords: [],
         behaviorRequested:
-          !forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && isExplicitBehaviorQueryRequest(message),
+          !forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && explicitBehaviorQueryRequested,
         behaviorSupported: nativeSseAcceptedFiles.length > 0,
       });
       nativeSseResponse = nativeSseGateResult.gatedResponse;
@@ -5778,7 +5789,7 @@ export async function chat(opts: {
         message,
         evidence: nativeSseBehaviorValidation.evidence,
         fileContents: forensicFileContents,
-        shouldValidate: !forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && isExplicitBehaviorQueryRequest(message),
+        shouldValidate: !forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && explicitBehaviorQueryRequested,
         response: nativeSseResponse,
         relayAgentStep,
       });
@@ -5823,7 +5834,7 @@ export async function chat(opts: {
       // Compute BEHAVIOR_QUERY semantic answer here so the native SSE path produces
       // the same BEHAVIOR_ANSWER_RESULT as the non-streaming path.
       let nativeSseSemanticBehaviorAnswer: ReturnType<typeof buildSemanticBehaviorAnswer> | undefined;
-      if (!forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && isExplicitBehaviorQueryRequest(message)) {
+      if (!forensicOutputMode && forensicTaskType === "BEHAVIOR_QUERY" && explicitBehaviorQueryRequested) {
         const nativeSseBehaviorValidation = validateBehaviorEvidence(
           message,
           nativeSseResponse,
@@ -7561,7 +7572,7 @@ export async function chat(opts: {
   );
   const shouldValidateBehaviorEvidence =
     !forensicOutputMode &&
-    isExplicitBehaviorQueryRequest(message) &&
+    explicitBehaviorQueryRequested &&
     (Boolean(rootPath) || toolSources.length > 0 || forensicFileContents.size > 0);
   let behaviorEvidenceValidation = shouldValidateBehaviorEvidence
     ? validateBehaviorEvidence(message, responseBeforeBehaviorEvidence, forensicFileContents)
@@ -8335,7 +8346,7 @@ export async function chat(opts: {
   const semanticBehaviorAnswer =
     !forensicOutputMode &&
     forensicTaskType === "BEHAVIOR_QUERY" &&
-    isExplicitBehaviorQueryRequest(message)
+    explicitBehaviorQueryRequested
       ? buildSemanticBehaviorAnswer(
           message,
           gateFinalResponse,
