@@ -231,6 +231,49 @@ function readThenAnswerStrategy(
   };
 }
 
+function rangeReadThenAnswerStrategy(
+  readPath: string,
+  responseText: string,
+  calls: { count: number },
+): unknown {
+  let readIssued = false;
+  return {
+    providerId: "openrouter",
+    supportsNativeStream: false,
+    ownsModelFallback: true,
+    call: vi.fn(async (_messages: unknown, opts: { tools?: Array<{ function: { name: string } }> }) => {
+      calls.count += 1;
+      if (!readIssued && opts.tools?.some((tool) => tool.function.name === "read_file_range")) {
+        readIssued = true;
+        return {
+          content: "",
+          toolCalls: [{
+            id: "read-reach-caller-range",
+            type: "function",
+            function: {
+              name: "read_file_range",
+              arguments: JSON.stringify({
+                path: readPath,
+                startLine: "2",
+                endLine: "4",
+              }),
+            },
+          }],
+          model: "initial-model",
+          usage: {},
+        };
+      }
+      return {
+        content: responseText,
+        toolCalls: [],
+        model: "initial-model",
+        usage: {},
+      };
+    }),
+    stream: vi.fn(),
+  };
+}
+
 describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010)", () => {
   beforeEach(() => {
     process.env.GROQ_API_KEY = "test-key";
@@ -1031,6 +1074,85 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
     expect(calls.count).toBeGreaterThan(0);
     expect(streamed).toContain("PROVEN");
     expect(streamed).not.toContain("NOT PROVEN");
+    expect(result.response).toContain("PROVEN");
+    expect(result.response).not.toContain("NOT PROVEN");
+    const dt = steps.find((step) => step.kind === "decision_trace");
+    if (dt?.kind === "decision_trace") {
+      expect(dt.trace.finalState).toBe("VERIFIED");
+    }
+  });
+
+  // ── Scenario 15 (non-streaming range-read positive regression): the
+  // non-streamed finalization seam must preserve the same source-backed
+  // verification as native SSE when the asserted caller arrives through a
+  // bounded read and the runtime trace itself is non-proving.
+  it("S15 source-range-backed caller: non-streaming finalization preserves VERIFIED result", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s15-"));
+    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+    const callerPath = "src/engine.ts";
+    await fs.writeFile(
+      path.join(rootPath, callerPath),
+      [
+        "// Context outside the bounded evidence window",
+        "export function runEngine(graph: unknown) {",
+        "  return computeCentrality(graph);",
+        "}",
+        "// More source outside the bounded evidence window",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const verifiedReport = [
+      "## 1) Executive Verdict",
+      "مُثبت — تستدعي runEngine الدالة computeCentrality من نافذة المصدر المتحقق منها.",
+      "## 2) Evidence Map",
+      `- ${callerPath} (lines 2–4): return computeCentrality(graph);`,
+      "## 3) Findings",
+      "تحتوي نافذة المستدعي المحدودة على الاستدعاء المباشر.",
+      "## 4) Repair Plan",
+      "لا يلزم إجراء إصلاحي.",
+      "## 5) Validation Checklist",
+      "يثبت دليل نطاق المصدر حافة المستدعي المصرح بها.",
+      "## 6) Final Judgment",
+      "PROVEN",
+    ].join("\n");
+    assertArabicFixtureResponse(verifiedReport, "reachability-gate-non-streaming-arabic-range");
+    const calls = { count: 0 };
+    await mockChatProviders(
+      rangeReadThenAnswerStrategy(callerPath, verifiedReport, calls),
+    );
+
+    const steps: AgentStep[] = [];
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: "أثبت أن الدالة computeCentrality قابلة للوصول من runEngine في الإنتاج.",
+      history: [],
+      projectContext: makeContext(),
+      rootPath,
+      provider: "openrouter",
+      apiKey: "test-key",
+      onStep: (s) => steps.push(s),
+      productionTraceLinks: [
+        {
+          from: {
+            id: "engine:runEngine",
+            name: "runEngine",
+            path: callerPath,
+            stage: "ORCHESTRATOR" as never,
+          },
+          to: {
+            id: "lib:computeCentrality",
+            name: "computeCentrality",
+            stage: "TOOL_PROVIDER",
+          },
+          relation: "DIRECT_INVOCATION",
+          // No runtimeObserved/evidence: the bounded source read must prove it.
+          runtimeObserved: false,
+        },
+      ],
+    });
+
+    expect(calls.count).toBeGreaterThan(0);
     expect(result.response).toContain("PROVEN");
     expect(result.response).not.toContain("NOT PROVEN");
     const dt = steps.find((step) => step.kind === "decision_trace");
