@@ -8608,7 +8608,7 @@ export async function chat(opts: {
     // Keep this count visible in the shared trace without converting it into
     // a FINDING_PROVEN claim.
     acceptedClaimCount: Math.max(
-      runtimeLedger.acceptedClaimCount,
+      runtimeLedger.acceptedClaimCount ?? 0,
       acceptedBehaviorEvidence.length,
     ),
     evidenceSourceCoverage: runtimeLedger.sourceCoverage,
