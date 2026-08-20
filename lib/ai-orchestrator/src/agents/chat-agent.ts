@@ -7809,7 +7809,6 @@ export async function chat(opts: {
     ),
   );
   const shouldValidateBehaviorEvidence =
-    !forensicOutputMode &&
     explicitBehaviorQueryRequested &&
     (Boolean(rootPath) || toolSources.length > 0 || forensicFileContents.size > 0);
   let behaviorEvidenceValidation = shouldValidateBehaviorEvidence
