@@ -825,6 +825,88 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
     }
   });
 
+  // ── Scenario 13 (Arabic native SSE positive regression): Arabic output
+  // must not be over-blocked when the asserted caller was read and the
+  // application-level runtime trace verifies the direct invocation.
+  it("S13 Arabic source-backed application trace: native SSE preserves VERIFIED result", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s13-"));
+    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+    const callerPath = "src/engine.ts";
+    await fs.writeFile(
+      path.join(rootPath, callerPath),
+      [
+        "import { computeCentrality } from './lib';",
+        "export function runEngine(graph: unknown) {",
+        "  return computeCentrality(graph);",
+        "}",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const verifiedArabicReport = [
+      "## 1) Executive Verdict",
+      "مُثبت — تستدعي runEngine الدالة computeCentrality في الإنتاج.",
+      "## 2) Evidence Map",
+      `- ${callerPath}: return computeCentrality(graph);`,
+      "## 3) Findings",
+      "يثبت تتبع التشغيل استدعاءً مباشرًا من runEngine، ويتوافق مع مقتطف المصدر.",
+      "## 4) Repair Plan",
+      "لا يلزم إجراء إصلاحي.",
+      "## 5) Validation Checklist",
+      "تمت قراءة ملف المستدعي وتأكيد أثر التشغيل على مستوى التطبيق.",
+      "## 6) Final Judgment",
+      "PROVEN",
+    ].join("\n");
+    assertArabicFixtureResponse(verifiedArabicReport, "reachability-gate-native-sse-arabic-positive");
+    const calls = { count: 0 };
+    await mockChatProviders(
+      nativeSseReadThenAnswerStrategy(callerPath, verifiedArabicReport, calls),
+    );
+
+    const steps: AgentStep[] = [];
+    const deltas: string[] = [];
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: "أثبت أن الدالة computeCentrality قابلة للوصول من runEngine في الإنتاج.",
+      history: [],
+      projectContext: makeContext(),
+      rootPath,
+      provider: "groq",
+      apiKey: "test-key",
+      onStep: (s) => steps.push(s),
+      onDelta: (delta) => deltas.push(delta),
+      productionTraceLinks: [
+        {
+          from: {
+            id: "engine:runEngine",
+            name: "runEngine",
+            path: callerPath,
+            stage: "ORCHESTRATOR" as never,
+          },
+          to: {
+            id: "lib:computeCentrality",
+            name: "computeCentrality",
+            stage: "TOOL_PROVIDER",
+          },
+          relation: "DIRECT_INVOCATION",
+          evidence: `${callerPath}: return computeCentrality(graph);`,
+          runtimeObserved: true,
+        },
+      ],
+    });
+
+    const streamed = deltas.join("");
+    expect(calls.count).toBeGreaterThan(0);
+    expect(streamed).toContain("PROVEN");
+    expect(streamed).not.toContain("NOT PROVEN");
+    expect(result.response).toContain("PROVEN");
+    expect(result.response).not.toContain("NOT PROVEN");
+    const dt = steps.find((step) => step.kind === "decision_trace");
+    if (dt?.kind === "decision_trace") {
+      expect(dt.trace.finalState).toBe("VERIFIED");
+    }
+  });
+
   // ── Scenario 9 (declaration bypass, AI-OBJ-007 R6): the caller file only
   // DECLARES computeCentrality as a class/object-shorthand method (harmless
   // `computeCentrality(graph) { … }`), it never invokes it. The chat read
