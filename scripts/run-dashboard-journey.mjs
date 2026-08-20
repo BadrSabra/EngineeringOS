@@ -1,0 +1,104 @@
+#!/usr/bin/env node
+
+import { spawn } from "node:child_process";
+
+if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
+  console.error(
+    "Dashboard browser journey is release-only; set RUN_CONTROLLED_RELEASE_VALIDATION=1.",
+  );
+  process.exit(2);
+}
+
+const dashboardBaseUrl =
+  process.env.DASHBOARD_E2E_BASE_URL ?? "http://127.0.0.1:23183/dashboard/";
+const apiHealthUrl =
+  process.env.DASHBOARD_E2E_API_HEALTH_URL ??
+  "http://127.0.0.1:8080/api/healthz";
+const testEmail =
+  process.env.DASHBOARD_E2E_EMAIL ??
+  "engineeringos-dashboard-release@example.com";
+const timeoutMs = Number(
+  process.env.DASHBOARD_E2E_PREFLIGHT_TIMEOUT_MS ?? 30_000,
+);
+
+function redact(value) {
+  const secretValues = Object.values(process.env).filter(
+    (item) => typeof item === "string" && item.length >= 8,
+  );
+  return secretValues.reduce(
+    (redacted, secret) => redacted.split(secret).join("[REDACTED]"),
+    value,
+  );
+}
+
+async function waitFor(url, label) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = "not attempted";
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (response.ok) {
+        return response;
+      }
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error(`${label} did not become healthy: ${lastError} (${url})`);
+}
+
+const dashboardResponse = await waitFor(dashboardBaseUrl, "Dashboard workflow");
+const dashboardHtml = await dashboardResponse.text();
+if (!dashboardHtml.includes("/dashboard/")) {
+  throw new Error(
+    `Dashboard workflow responded without the /dashboard/ base path (${dashboardBaseUrl}).`,
+  );
+}
+
+const apiResponse = await waitFor(apiHealthUrl, "API workflow");
+const apiHealth = await apiResponse.json();
+if (apiHealth?.status !== "ok") {
+  throw new Error(
+    `API health check did not report status=ok (${apiHealthUrl}).`,
+  );
+}
+
+console.log(`Dashboard workflow healthy at ${dashboardBaseUrl}`);
+console.log(`API workflow healthy at ${apiHealthUrl}`);
+console.log(`Using isolated Clerk journey user ${testEmail}`);
+
+const child = spawn(
+  "pnpm",
+  ["--filter", "@workspace/dashboard", "run", "test:e2e"],
+  {
+    env: {
+      ...process.env,
+      CI: "true",
+      DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
+      DASHBOARD_E2E_EMAIL: testEmail,
+    },
+    stdio: "inherit",
+  },
+);
+
+child.on("error", (error) => {
+  console.error(
+    `Unable to start dashboard browser journey: ${redact(error.message)}`,
+  );
+  process.exitCode = 1;
+});
+
+child.on("exit", (code, signal) => {
+  if (signal) {
+    console.error(`Dashboard browser journey stopped by ${signal}.`);
+    process.exitCode = 1;
+    return;
+  }
+  process.exitCode = code ?? 1;
+});

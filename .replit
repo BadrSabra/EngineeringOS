@@ -91,6 +91,17 @@ args = "pnpm run validate:release"
 [workflows.workflow.metadata]
 isValidation = true
 
+[[workflows.workflow]]
+name = "release-dashboard-journey"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "DASHBOARD_E2E_EXECUTABLE_PATH=$(command -v chromium) pnpm run validate:dashboard-journey"
+
+[workflows.workflow.metadata]
+isValidation = true
+
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
@@ -101,6 +112,7 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
+packages = ["glib", "nss", "atk", "at-spi2-atk", "cups", "dbus", "expat", "fontconfig", "freetype", "libdrm", "libxkbcommon", "pango", "cairo", "xorg.libX11", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXext", "xorg.libXfixes", "xorg.libXrandr", "xorg.libxcb", "mesa", "mesa.drivers", "chromium"]
 
 [userenv]
 
