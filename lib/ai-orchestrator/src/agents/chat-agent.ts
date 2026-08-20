@@ -7762,7 +7762,9 @@ export async function chat(opts: {
           ok: true,
           data: {
             response: recoveredResponse,
-            sources: sanitizeSources(recovery.sources ?? []),
+            // Recovery is trusted only for its response text; source
+            // provenance remains the server-owned completed-read manifest.
+            sources: [],
           },
         };
         console.info(JSON.stringify({
