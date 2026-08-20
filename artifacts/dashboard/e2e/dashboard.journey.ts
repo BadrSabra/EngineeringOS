@@ -123,10 +123,11 @@ async function createReleaseSignInUrl(page: Page) {
     `https://api.clerk.com/v1/users?email_address=${encodeURIComponent(TEST_USER.email)}`,
     { headers },
   );
-  const users = (await userResponse.json()) as {
-    data?: Array<{ id: string }>;
-  };
-  let userId = users.data?.[0]?.id;
+  const users = (await userResponse.json()) as
+    | Array<{ id: string }>
+    | { data?: Array<{ id: string }> };
+  const userList = Array.isArray(users) ? users : (users.data ?? []);
+  let userId = userList[0]?.id;
 
   if (!userId) {
     const createdResponse = await page.request.post(
@@ -229,7 +230,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByText("Smoke Project", { exact: true }),
     ).toBeVisible();
 
-    await openNavigation(page, "Events", `${DASHBOARD_PATH}events`);
+    await openNavigation(page, "Event Stream", `${DASHBOARD_PATH}events`);
     await expect(
       page.getByRole("heading", { name: "Event Stream" }),
     ).toBeVisible();

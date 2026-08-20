@@ -41,10 +41,11 @@ rendering remain real browser behavior.
 
 ## Failure diagnostics
 
-The Playwright config retains traces, screenshots, and video on failure under
-`test-results/dashboard-journey`. Check the dashboard and API workflow logs
-first, then confirm `BASE_PATH=/dashboard/`, the dashboard/API workflows are
-running, both health checks pass, `DASHBOARD_E2E_BASE_URL` includes the
-trailing `/dashboard/`, and the browser runner has injected
-`signInClerkUser`. A missing helper is an environment/setup failure, not a
-Clerk form failure.
+The Playwright config retains traces and screenshots on failure under
+`test-results/dashboard-journey`; video is intentionally disabled because the
+managed runner does not download Playwright's optional ffmpeg helper. Check
+the dashboard and API workflow logs first, then confirm
+`BASE_PATH=/dashboard/`, the dashboard/API workflows are running, both health
+checks pass, `DASHBOARD_E2E_BASE_URL` includes the trailing `/dashboard/`, and
+the browser runner has injected `signInClerkUser`. A missing helper is an
+environment/setup failure, not a Clerk form failure.

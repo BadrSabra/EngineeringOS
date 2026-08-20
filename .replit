@@ -112,7 +112,7 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
-packages = ["glib", "nss", "atk", "at-spi2-atk", "cups", "dbus", "expat", "fontconfig", "freetype", "libdrm", "libxkbcommon", "pango", "cairo", "xorg.libX11", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXext", "xorg.libXfixes", "xorg.libXrandr", "xorg.libxcb", "mesa", "mesa.drivers", "chromium"]
+packages = ["glib", "nss", "atk", "at-spi2-atk", "cups", "dbus", "expat", "fontconfig", "freetype", "libdrm", "libgbm", "libxkbcommon", "libxshmfence", "alsa-lib", "pango", "cairo", "wayland", "xorg.libX11", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXext", "xorg.libXfixes", "xorg.libXi", "xorg.libXrandr", "xorg.libXrender", "xorg.libXScrnSaver", "xorg.libXtst", "xorg.libxcb", "mesa", "mesa.drivers", "chromium", "ffmpeg"]
 
 [userenv]
 
