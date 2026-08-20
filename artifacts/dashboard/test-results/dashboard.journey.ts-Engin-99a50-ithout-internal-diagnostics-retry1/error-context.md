@@ -14,15 +14,15 @@
 ```
 Error: expect(locator).toBeVisible() failed
 
-Locator: getByText('ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟', { exact: true })
+Locator: getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.', { exact: true })
 Expected: visible
-Error: strict mode violation: getByText('ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟', { exact: true }) resolved to 2 elements:
-    1) <span class="min-w-0 truncate">ماذا يحدث عند انتهاء مهلة provider timeout داخل e…</span> aka getByRole('button', { name: 'ماذا يحدث عند انتهاء مهلة' })
-    2) <div class="min-w-0 max-w-full overflow-hidden rounded-xl px-4 py-3 text-sm leading-relaxed [overflow-wrap:anywhere] bg-primary text-primary-foreground rounded-tr-sm whitespace-pre-wrap">ماذا يحدث عند انتهاء مهلة provider timeout داخل e…</div> aka getByText('ماذا يحدث عند انتهاء مهلة').nth(1)
+Error: strict mode violation: getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.', { exact: true }) resolved to 2 elements:
+    1) <p class="mb-2 last:mb-0">عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسا…</p> aka getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي').first()
+    2) <p class="text-[12px] leading-relaxed text-foreground/90">عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسا…</p> aka getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي').nth(1)
 
 Call log:
   - Expect "toBeVisible" with timeout 10000ms
-  - waiting for getByText('ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟', { exact: true })
+  - waiting for getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.', { exact: true })
 
 ```
 
@@ -83,7 +83,7 @@ Call log:
                 - generic [ref=f2e111]:
                   - generic [ref=f2e116]: OpenRouter API Key
                   - generic [ref=f2e117]: Priority
-                - paragraph [ref=f2e118]: Loading…
+                - paragraph [ref=f2e118]: Get a free key at openrouter.ai/keys — routes to 300+ models, used first when configured.
                 - generic [ref=f2e119]:
                   - textbox "sk-or-…" [ref=f2e120]
                   - button "Save" [disabled]
@@ -91,7 +91,7 @@ Call log:
                 - generic [ref=f2e122]:
                   - generic [ref=f2e127]: Gemini API Key
                   - generic [ref=f2e128]: Free · Priority
-                - paragraph [ref=f2e129]: Loading…
+                - paragraph [ref=f2e129]: Free key at aistudio.google.com/apikey — 1,500 req/day, 1M tokens/day.
                 - generic [ref=f2e130]:
                   - textbox "AIza…" [ref=f2e131]
                   - button "Save" [ref=f2e132]
@@ -99,13 +99,13 @@ Call log:
                 - generic [ref=f2e134]:
                   - generic [ref=f2e139]: DeepSeek API Key
                   - generic [ref=f2e140]: Optional
-                - paragraph [ref=f2e141]: Loading…
+                - paragraph [ref=f2e141]: Get a free API key at platform.deepseek.com to use DeepSeek as your AI provider.
                 - generic [ref=f2e142]:
                   - textbox "sk-…" [ref=f2e143]
                   - button "Save" [disabled]
               - generic [ref=f2e144]:
                 - generic [ref=f2e145]: Groq API Key
-                - paragraph [ref=f2e151]: Loading…
+                - paragraph [ref=f2e151]: No personal key saved — the server's key will be used if one is configured.
                 - generic [ref=f2e152]:
                   - textbox "gsk_…" [ref=f2e153]
                   - button "Save" [disabled]
@@ -152,7 +152,6 @@ Call log:
 # Test source
 
 ```ts
-  320 |   await expect(page).toHaveURL(
   321 |     new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
   322 |   );
   323 | }
@@ -252,9 +251,9 @@ Call log:
   417 |     const streamResponse = await streamResponsePromise;
   418 |     expect(streamResponse.status()).toBe(200);
   419 | 
-> 420 |     await expect(page.getByText(fixture.question, { exact: true })).toBeVisible();
-      |                                                                     ^ Error: expect(locator).toBeVisible() failed
-  421 |     await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
+  420 |     await expect(page.getByText(fixture.question, { exact: true }).last()).toBeVisible();
+> 421 |     await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
+      |                                                                   ^ Error: expect(locator).toBeVisible() failed
   422 |     await expect(page.getByText("Agent activity", { exact: false })).toBeVisible();
   423 |     await expect(page.getByText("Reading source", { exact: false })).toBeVisible();
   424 |     await expect(page.getByText(fixture.source, { exact: true })).toBeVisible();

@@ -14,15 +14,15 @@
 ```
 Error: expect(locator).toBeVisible() failed
 
-Locator: getByText('ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟', { exact: true })
+Locator: getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.', { exact: true })
 Expected: visible
-Error: strict mode violation: getByText('ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟', { exact: true }) resolved to 2 elements:
-    1) <span class="min-w-0 truncate">ماذا يحدث عند انتهاء مهلة provider timeout داخل e…</span> aka getByRole('button', { name: 'ماذا يحدث عند انتهاء مهلة' })
-    2) <div class="min-w-0 max-w-full overflow-hidden rounded-xl px-4 py-3 text-sm leading-relaxed [overflow-wrap:anywhere] bg-primary text-primary-foreground rounded-tr-sm whitespace-pre-wrap">ماذا يحدث عند انتهاء مهلة provider timeout داخل e…</div> aka getByText('ماذا يحدث عند انتهاء مهلة').nth(1)
+Error: strict mode violation: getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.', { exact: true }) resolved to 2 elements:
+    1) <p class="mb-2 last:mb-0">عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسا…</p> aka getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي').first()
+    2) <p class="text-[12px] leading-relaxed text-foreground/90">عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسا…</p> aka getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي').nth(1)
 
 Call log:
   - Expect "toBeVisible" with timeout 10000ms
-  - waiting for getByText('ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟', { exact: true })
+  - waiting for getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.', { exact: true })
 
 ```
 
@@ -152,7 +152,6 @@ Call log:
 # Test source
 
 ```ts
-  320 |   await expect(page).toHaveURL(
   321 |     new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
   322 |   );
   323 | }
@@ -252,9 +251,9 @@ Call log:
   417 |     const streamResponse = await streamResponsePromise;
   418 |     expect(streamResponse.status()).toBe(200);
   419 | 
-> 420 |     await expect(page.getByText(fixture.question, { exact: true })).toBeVisible();
-      |                                                                     ^ Error: expect(locator).toBeVisible() failed
-  421 |     await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
+  420 |     await expect(page.getByText(fixture.question, { exact: true }).last()).toBeVisible();
+> 421 |     await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
+      |                                                                   ^ Error: expect(locator).toBeVisible() failed
   422 |     await expect(page.getByText("Agent activity", { exact: false })).toBeVisible();
   423 |     await expect(page.getByText("Reading source", { exact: false })).toBeVisible();
   424 |     await expect(page.getByText(fixture.source, { exact: true })).toBeVisible();
