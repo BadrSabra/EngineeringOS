@@ -12,13 +12,17 @@
 # Error details
 
 ```
-Test timeout of 45000ms exceeded.
-```
+Error: expect(locator).toBeVisible() failed
 
-```
-Error: locator.click: Test timeout of 45000ms exceeded.
+Locator: getByText(/Behavior evidence · 1 excerpt/i)
+Expected: visible
+Error: strict mode violation: getByText(/Behavior evidence · 1 excerpt/i) resolved to 2 elements:
+    1) <span class="flex items-center gap-1.5 text-[11px] text-muted-foreground">…</span> aka getByText('Behavior evidence · 1 excerpt').first()
+    2) <span class="flex items-center gap-1.5 text-[11px] text-muted-foreground">…</span> aka getByText('Behavior evidence · 1 excerpt').nth(1)
+
 Call log:
-  - waiting for locator('summary').filter({ hasText: 'Persisted execution proof' })
+  - Expect "toBeVisible" with timeout 10000ms
+  - waiting for getByText(/Behavior evidence · 1 excerpt/i)
 
 ```
 
@@ -79,7 +83,7 @@ Call log:
                 - generic [ref=f2e111]:
                   - generic [ref=f2e116]: OpenRouter API Key
                   - generic [ref=f2e117]: Priority
-                - paragraph [ref=f2e118]: Get a free key at openrouter.ai/keys — routes to 300+ models, used first when configured.
+                - paragraph [ref=f2e118]: Loading…
                 - generic [ref=f2e119]:
                   - textbox "sk-or-…" [ref=f2e120]
                   - button "Save" [disabled]
@@ -87,7 +91,7 @@ Call log:
                 - generic [ref=f2e122]:
                   - generic [ref=f2e127]: Gemini API Key
                   - generic [ref=f2e128]: Free · Priority
-                - paragraph [ref=f2e129]: Free key at aistudio.google.com/apikey — 1,500 req/day, 1M tokens/day.
+                - paragraph [ref=f2e129]: Loading…
                 - generic [ref=f2e130]:
                   - textbox "AIza…" [ref=f2e131]
                   - button "Save" [ref=f2e132]
@@ -95,13 +99,13 @@ Call log:
                 - generic [ref=f2e134]:
                   - generic [ref=f2e139]: DeepSeek API Key
                   - generic [ref=f2e140]: Optional
-                - paragraph [ref=f2e141]: Get a free API key at platform.deepseek.com to use DeepSeek as your AI provider.
+                - paragraph [ref=f2e141]: Loading…
                 - generic [ref=f2e142]:
                   - textbox "sk-…" [ref=f2e143]
                   - button "Save" [disabled]
               - generic [ref=f2e144]:
                 - generic [ref=f2e145]: Groq API Key
-                - paragraph [ref=f2e151]: No personal key saved — the server's key will be used if one is configured.
+                - paragraph [ref=f2e151]: Loading…
                 - generic [ref=f2e152]:
                   - textbox "gsk_…" [ref=f2e153]
                   - button "Save" [disabled]
@@ -252,9 +256,9 @@ Call log:
   423 |     await page.locator("summary").filter({ hasText: "Agent activity" }).click();
   424 |     await expect(page.getByText("Reading source", { exact: false })).toBeVisible();
   425 |     await expect(page.getByText(fixture.source, { exact: true }).last()).toBeVisible();
-> 426 |     await page.locator("summary").filter({ hasText: "Persisted execution proof" }).click();
-      |                                                                                    ^ Error: locator.click: Test timeout of 45000ms exceeded.
-  427 |     await expect(page.getByText(/claim-bound evidence excerpt retained/i)).toBeVisible();
+> 426 |     await expect(page.getByText(/Behavior evidence · 1 excerpt/i)).toBeVisible();
+      |                                                                    ^ Error: expect(locator).toBeVisible() failed
+  427 |     await expect(page.getByText(evidence[0].excerpt, { exact: true })).toBeVisible();
   428 | 
   429 |     const visibleText = await page.locator("body").innerText();
   430 |     expect(visibleText).not.toMatch(/e2e-arabic-ai-session|e2e-execution|\/home\/runner|recovery diagnostics|rawPrompt|systemPrompt/i);
