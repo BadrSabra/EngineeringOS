@@ -180,4 +180,84 @@ describe("chat() BEHAVIOR_ANSWER_RESULT — duplicated-fragment span (task #25)"
       await fs.rm(rootPath, { recursive: true, force: true });
     }
   });
+
+  it("completes an Arabic user journey with accepted behavioral evidence", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-behavior-"));
+    const file = "src/pick.ts";
+    const fileContent =
+      "export function pick(flag: boolean): string {\n" +
+      '  if (!flag) return "partial";\n' +
+      '  return "complete";\n' +
+      "}\n";
+    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+    await fs.writeFile(path.join(rootPath, file), fileContent, "utf8");
+
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      call: vi.fn(async () => ({
+        content: JSON.stringify({
+          response:
+            "المصدر: `src/pick.ts`\n" +
+            'الدليل: `if (!flag) return "partial"`\n' +
+            "عندما تكون flag=false تعيد الدالة القيمة الجزئية.",
+          sources: [file],
+        }),
+        toolCalls: [],
+        model: "initial-model",
+        usage: {},
+      })),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy, {
+      targetFiles: [file],
+      targetEntities: [],
+      scopeEstimate: "narrow",
+      suggestedIterations: 8,
+      requiresToolUse: true,
+      subQueries: [],
+    });
+
+    try {
+      const steps: AgentStep[] = [];
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message: "ما الذي يحدث عندما تكون flag=false في الدالة pick داخل src/pick.ts؟",
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        onStep: (step) => steps.push(step),
+      });
+
+      expect(result.taskResult?.kind).toBe("BEHAVIOR_ANSWER_RESULT");
+      expect(result.response).toContain("القيمة الجزئية");
+      expect(result.response).not.toContain("ANALYSIS_INCOMPLETE");
+
+      const integrity = steps.find(
+        (step): step is Extract<AgentStep, { kind: "evidence_integrity" }> =>
+          step.kind === "evidence_integrity",
+      );
+      expect(integrity).toBeDefined();
+      if (integrity?.kind === "evidence_integrity") {
+        expect(integrity.evidenceFileCount).toBe(1);
+        expect(integrity.acceptedEvidenceCount).toBe(1);
+        expect(integrity.acceptedEvidenceFiles).toContain(file);
+      }
+
+      if (result.taskResult?.kind === "BEHAVIOR_ANSWER_RESULT") {
+        expect(result.taskResult.answer.evidence).toMatchObject([{
+          source: file,
+          excerpt: 'if (!flag) return "partial"',
+          supportsClaim: true,
+          evidenceClass: "BEHAVIOR_PROVEN",
+          sourceSpan: { startLine: 2, endLine: 2 },
+        }]);
+      }
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
 });
