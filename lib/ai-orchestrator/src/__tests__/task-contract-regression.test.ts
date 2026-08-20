@@ -120,6 +120,17 @@ describe("task contract regression matrix", () => {
     expect(validateTaskResponse("FULL_FORENSIC_AUDIT", fallback, { responseLanguage: "ar" }).valid).toBe(true);
   });
 
+  it("returns an informative incomplete behavior fallback after source reads", () => {
+    const arabicFallback = buildTaskValidationFallback("BEHAVIOR_QUERY", true);
+    const englishFallback = buildTaskValidationFallback("BEHAVIOR_QUERY", false);
+
+    expect(arabicFallback).toContain("ANALYSIS_INCOMPLETE");
+    expect(arabicFallback).toContain("تمت قراءة مصادر");
+    expect(validateTaskResponse("BEHAVIOR_QUERY", arabicFallback, { responseLanguage: "ar" }).valid).toBe(true);
+    expect(englishFallback).toContain("ANALYSIS_INCOMPLETE");
+    expect(validateTaskResponse("BEHAVIOR_QUERY", englishFallback, { responseLanguage: "en" }).valid).toBe(true);
+  });
+
   it("accepts mixed Arabic prose containing canonical technical identifiers", () => {
     expect(
       validateResponseLanguage(
