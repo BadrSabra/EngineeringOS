@@ -1794,6 +1794,152 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     ]));
   });
 
+  it("keeps a streamed forensic cancellation incomplete after recovery retains partial evidence", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+    const report = [
+      "## 1) Executive Verdict",
+      "ANALYSIS_INCOMPLETE — cancellation stopped the audit before evidence coverage was complete.",
+      "",
+      "## 2) Evidence Map",
+      "One source read was retained before cancellation.",
+      "",
+      "## 3) Findings",
+      "No verified finding identified from the retained evidence.",
+      "",
+      "## 4) Repair Plan",
+      "No repair phases are authorized for this incomplete audit.",
+      "",
+      "## 5) Validation Checklist",
+      "No executable validation scenario is authorized for this incomplete audit.",
+      "",
+      "## 6) Final Judgment",
+      "ANALYSIS_INCOMPLETE — no verified defect was established because the audit was cancelled during recovery.",
+    ].join("\n");
+    const recoveryStarted = new Promise<void>((resolve, reject) => {
+      void (async () => {
+        let execution: { id: string } | undefined;
+        for (let attempt = 0; attempt < 50 && !execution; attempt += 1) {
+          [execution] = await db
+            .select({ id: aiExecutionsTable.id })
+            .from(aiExecutionsTable)
+            .where(eq(aiExecutionsTable.projectId, projectId));
+          if (!execution) await new Promise((wait) => setTimeout(wait, 10));
+        }
+        if (!execution) {
+          reject(new Error("SSE cancellation fixture could not find its running execution."));
+          return;
+        }
+        const cancel = await request(app)
+          .post(`/api/ai/executions/${execution.id}/cancel`)
+          .set("Content-Type", "application/json");
+        expect(cancel.status).toBe(200);
+        resolve();
+      })().catch(reject);
+    });
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(
+      async (
+        _userId,
+        input,
+        _prov,
+        onDelta,
+        _options,
+        _onStreamReset,
+        onStep,
+      ) => {
+        const signal = (input as { signal?: AbortSignal }).signal;
+        onDelta?.("partial evidence");
+        onStep?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source: "src/partially-read.ts",
+          cached: false,
+          outputLength: 256,
+          prefetched: false,
+        });
+        onStep?.({ kind: "forensic_recovery_start", attempt: 1 });
+        onStep?.({
+          kind: "recovery_model_call",
+          model: "recovery-provider-model",
+          provider: "recovery-provider",
+          attempt: 1,
+        });
+        await recoveryStarted;
+        await new Promise<void>((resolve) => {
+          if (signal?.aborted) {
+            resolve();
+            return;
+          }
+          signal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+        onStep?.({
+          kind: "diagnostic",
+          code: "FORENSIC_CONTRACT_RECOVERY_FAILED",
+          details: [
+            "AbortError: recovery provider request was cancelled",
+            "provider recovery-provider diagnostic: cancellation requested by user",
+            "telemetry.internalAttemptId=secret-fixture-value",
+          ],
+        });
+        onStep?.({
+          kind: "done",
+          iterations: 3,
+          maxIterations: 24,
+          toolCalls: 1,
+          prefetchToolCalls: 0,
+          loopToolCalls: 1,
+          stopReason: "response",
+          synthesisStarted: true,
+          diagnosticCodes: ["FORENSIC_CONTRACT_RECOVERY_FAILED"],
+        });
+        return {
+          result: { response: report, sources: ["src/partially-read.ts"], pendingChanges: [] },
+          effectiveProvider: "groq" as const,
+        };
+      },
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "forensic audit" });
+    const events = parseSseEvents(res.text);
+    const done = events.find((event) => event["type"] === "done");
+    const message = done?.["message"] as { content?: string; toolTrace?: string | null } | undefined;
+    const publicToolTrace = message?.toolTrace ?? "";
+
+    expect(res.status).toBe(200);
+    expect(done).toBeDefined();
+    expect(message?.content).toBe(report);
+    for (const heading of [
+      "## 1) Executive Verdict",
+      "## 2) Evidence Map",
+      "## 3) Findings",
+      "## 4) Repair Plan",
+      "## 5) Validation Checklist",
+      "## 6) Final Judgment",
+    ]) {
+      expect(message?.content).toContain(heading);
+    }
+    expect(message?.content).toContain("ANALYSIS_INCOMPLETE");
+    expect(message?.content).not.toContain("NO_VERIFIED_FINDING");
+    expect(res.text).not.toContain("AbortError");
+    expect(res.text).not.toContain("recovery-provider diagnostic");
+    expect(res.text).not.toContain("secret-fixture-value");
+    expect(publicToolTrace).not.toContain("AbortError");
+    expect(publicToolTrace).not.toContain("recovery-provider diagnostic");
+    expect(publicToolTrace).not.toContain("secret-fixture-value");
+
+    const persisted = await db
+      .select({ toolTrace: aiChatMessagesTable.toolTrace })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, done?.["sessionId"] as string));
+    const assistant = persisted.find((row) => row.toolTrace);
+    expect(assistant?.toolTrace).toContain("secret-fixture-value");
+  });
+
   it("records zero-read evidence stops as failed, not completed", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

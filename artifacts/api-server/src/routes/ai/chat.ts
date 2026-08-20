@@ -808,7 +808,7 @@ type PersistedToolTraceEntry = {
  * Keep execution observability separate from the assistant report. The trace
  * contains bounded metadata only — never the tool output body or model text.
  */
-function serializeToolTrace(steps: AgentStep[]): string | null {
+function serializeToolTrace(steps: AgentStep[], includeDiagnosticDetails = true): string | null {
   if (steps.length === 0) return null;
   const diagnosticCodes = steps
     .filter((step): step is Extract<AgentStep, { kind: "diagnostic" }> => step.kind === "diagnostic")
@@ -959,7 +959,11 @@ function serializeToolTrace(steps: AgentStep[]): string | null {
           ...(step.reason ? { reason: step.reason } : {}),
         };
       case "diagnostic":
-        return { kind: step.kind, code: step.code, details: step.details };
+        return {
+          kind: step.kind,
+          code: step.code,
+          ...(includeDiagnosticDetails && step.details ? { details: step.details } : {}),
+        };
       case "model_call":
         return { kind: step.kind, model: step.model, provider: step.provider };
       case "recovery_model_call":
@@ -1010,7 +1014,7 @@ function serializeToolTrace(steps: AgentStep[]): string | null {
             .filter((model, index, models) => models.indexOf(model) === index)
             .slice(0, 12),
           diagnosticCodes,
-          ...(diagnosticDetails.length > 0 ? { diagnosticDetails } : {}),
+          ...(includeDiagnosticDetails && diagnosticDetails.length > 0 ? { diagnosticDetails } : {}),
         };
     }
   });
@@ -2449,7 +2453,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             .filter((model, index, models) => models.indexOf(model) === index)
             .slice(0, 12),
           diagnosticCodes: [...diagnosticCodes],
-          ...(executionDiagnosticDetails.length > 0
+           ...(executionDiagnosticDetails.length > 0 && !activeExecutionAbortController.signal.aborted
             ? { diagnosticDetails: [...executionDiagnosticDetails] }
             : {}),
         };
@@ -2957,12 +2961,32 @@ router.post("/ai/chat/stream", async (req, res) => {
         ? "DELIVERY"
         : streamTurnIntent.operationMode;
 
+    const publicToolTrace = streamTurnIntent.requiresEvidence
+      ? serializeToolTrace(traceSteps, false)
+      : assistantMsg.toolTrace;
+    // The database row is intentionally retained with full diagnostics, but
+    // every SSE projection of that row must use the public trace.
+    assistantMsg.toolTrace = publicToolTrace;
+    const publicAssistantMsg = {
+      id: assistantMsg.id,
+      sessionId: assistantMsg.sessionId,
+      role: assistantMsg.role,
+      content: assistantMsg.content,
+      sources: assistantMsg.sources,
+      repairPlanMetadata: assistantMsg.repairPlanMetadata,
+      behaviorEvidence: assistantMsg.behaviorEvidence,
+      createdAt: assistantMsg.createdAt,
+      toolTrace: publicToolTrace,
+    };
     sse({
       type: "done",
       sessionId: sessionIdToUse,
-      message: { ...assistantMsg, taskResult: parseTaskResult(assistantMsg.taskResult) },
+      message: {
+        ...publicAssistantMsg,
+        taskResult: parseTaskResult(assistantMsg.taskResult),
+      },
       sources: redactUserFacingValue(result.sources),
-      toolTrace: assistantMsg.toolTrace,
+      toolTrace: publicToolTrace,
       pendingChanges: proposalId
         ? proposalChanges
         : [],
