@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildResponseLanguageFallback,
+  buildTaskValidationFallback,
   type ForensicTaskType,
   validateResponseLanguage,
   validateTaskResponse,
