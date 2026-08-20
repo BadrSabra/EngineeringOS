@@ -53,6 +53,12 @@ import {
   registerAiExecutionController,
   unregisterAiExecutionController,
 } from "../lib/ai-execution-state.js";
+import { tryAdvisoryLock } from "../lib/advisory-lock.js";
+
+vi.mock("../lib/advisory-lock.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/advisory-lock.js")>();
+  return { ...actual, tryAdvisoryLock: vi.fn(actual.tryAdvisoryLock) };
+});
 
 const execFileAsync = promisify(execFile);
 const validationFixtures: Array<Record<string, unknown>> = [];
@@ -2457,6 +2463,146 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       { requireTools: true, qualityProfile: "analysis" },
       { requireTools: false, qualityProfile: "chat" },
     ]);
+  });
+
+  it("keeps the newest resumable contract when same-session turns finish out of order", async () => {
+    const { classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
+    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+    const forensicClassification = {
+      category: "deep_analysis",
+      contextProfile: "chat-deep",
+      historyDepth: 0,
+      allowPrefetch: false,
+      confidence: 1,
+      structuredOutputMode: true,
+      singleFileForensicMode: false,
+      orderedForensicRoots: [],
+      includeTestSources: false,
+      fixtureAuditMode: false,
+      implementationTaskMode: false,
+      implementationPlanMode: false,
+      taskType: "FULL_FORENSIC_AUDIT",
+      analysisMode: "FORENSIC",
+      outputContract: "FORENSIC_REPORT",
+      firstEvidence: {
+        allowedFirstAction: "EXPLORE",
+        primaryEvidenceTarget: null,
+        traversalPolicy: "BROAD",
+      },
+    } as ReturnType<typeof import("@workspace/ai-orchestrator").classifyRequest>;
+    vi.mocked(mockClassifyRequest).mockReturnValue(forensicClassification);
+
+    const makeResult = (file: string) => ({
+      response: `verified ${file}`,
+      sources: [],
+      pendingChanges: [],
+      repairPlan: [{
+        findingId: "F-1" as const,
+        files: [file],
+        steps: [`Repair ${file}.`],
+        validationProfile: "ai-orchestrator-tests" as const,
+        verdictScope: "PRODUCTION" as const,
+        scopedFindingStatus: "PRODUCTION_PROVEN" as const,
+      }],
+      behaviorEvidence: [{
+        source: file,
+        sourceSpan: { startLine: 1, endLine: 2 },
+        excerpt: `verified ${file}`,
+        supportsClaim: true,
+        evidenceClass: "FINDING_PROVEN" as const,
+        directness: "DIRECT" as const,
+        sourceType: "IMPLEMENTATION" as const,
+        productionReachability: "PROVEN" as const,
+        relevance: 1,
+      }],
+    });
+    const initial = makeResult("src/initial.ts");
+    vi.mocked(chatWithFallback).mockResolvedValueOnce({
+      result: initial,
+      effectiveProvider: "groq",
+    } as Awaited<ReturnType<typeof chatWithFallback>>);
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const first = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "forensic audit" });
+    expect(first.status).toBe(200);
+    const sessionId = parseSseEvents(first.text).find((event) => event["type"] === "done")?.["sessionId"] as string;
+    expect(sessionId).toBeTruthy();
+
+    let releaseOld!: () => void;
+    let releaseNew!: () => void;
+    const oldReady = new Promise<void>((resolve) => { releaseOld = resolve; });
+    const newReady = new Promise<void>((resolve) => { releaseNew = resolve; });
+    let concurrentCalls = 0;
+    vi.mocked(tryAdvisoryLock).mockResolvedValue({
+      acquired: true,
+      release: async () => undefined,
+    });
+    vi.mocked(chatWithFallback)
+      .mockImplementationOnce(async (...args) => {
+        concurrentCalls += 1;
+        await oldReady;
+        args[3]?.("older");
+        return {
+          result: makeResult("src/older.ts"),
+          effectiveProvider: "groq" as const,
+        } as Awaited<ReturnType<typeof chatWithFallback>>;
+      })
+      .mockImplementationOnce(async (...args) => {
+        concurrentCalls += 1;
+        await newReady;
+        args[3]?.("newer");
+        return {
+          result: makeResult("src/newer.ts"),
+          effectiveProvider: "groq" as const,
+        } as Awaited<ReturnType<typeof chatWithFallback>>;
+      });
+
+    const oldTurnRequest = request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: "continue older work" });
+    const newTurnRequest = request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: "continue newer work" });
+    const oldTurn = oldTurnRequest.then((response) => response);
+    const newTurn = newTurnRequest.then((response) => response);
+    while (concurrentCalls < 2) await new Promise((resolve) => setTimeout(resolve, 0));
+    releaseNew();
+    const newerResponse = await newTurn;
+    releaseOld();
+    const olderResponse = await oldTurn;
+    expect(newerResponse.status).toBe(200);
+    expect(olderResponse.status).toBe(200);
+
+    const persisted = await db
+      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, sessionId));
+    expect(JSON.parse(persisted[0]!.activeTaskState!)).toMatchObject({
+      executionPlan: { phases: [{ files: ["src/newer.ts"] }] },
+    });
+
+    const continuationInputs: Array<{ activeTaskState?: { executionPlan?: { phases?: Array<{ files?: string[] }> } } | null }> = [];
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      continuationInputs.push(args[1] as typeof continuationInputs[number]);
+      return {
+        result: makeResult("src/newest-continuation.ts"),
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+    const continuation = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: "continue" });
+    expect(continuation.status).toBe(200);
+    expect(continuationInputs[0]?.activeTaskState).toMatchObject({
+      executionPlan: { phases: [{ files: ["src/newer.ts"] }] },
+    });
   });
 
   it("should carry the persisted audit report into a same-session execution follow-up", async () => {

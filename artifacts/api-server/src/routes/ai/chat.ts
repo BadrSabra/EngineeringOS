@@ -1564,7 +1564,14 @@ router.post("/ai/chat", async (req, res) => {
         .update(aiChatSessionsTable)
         .set({
           updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
-          activeTaskState,
+          // Turns can finish out of order. Only the turn with the newest
+          // allocated timestamp may advance the resumable contract; an older
+          // completion must not replace a newer turn's verified state.
+          activeTaskState: sql`CASE
+            WHEN ${aiChatSessionsTable.updatedAt} <= ${msgNow}
+            THEN ${activeTaskState}
+            ELSE ${aiChatSessionsTable.activeTaskState}
+          END`,
         })
         .where(eq(aiChatSessionsTable.id, sessionIdToUse));
       return msg;
@@ -2979,7 +2986,14 @@ router.post("/ai/chat/stream", async (req, res) => {
         .update(aiChatSessionsTable)
         .set({
           updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
-          activeTaskState,
+          // Turns can finish out of order. Only the turn with the newest
+          // allocated timestamp may advance the resumable contract; an older
+          // completion must not replace a newer turn's verified state.
+          activeTaskState: sql`CASE
+            WHEN ${aiChatSessionsTable.updatedAt} <= ${msgNow}
+            THEN ${activeTaskState}
+            ELSE ${aiChatSessionsTable.activeTaskState}
+          END`,
         })
         .where(eq(aiChatSessionsTable.id, sessionIdToUse));
       return msg;
