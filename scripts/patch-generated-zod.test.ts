@@ -45,7 +45,10 @@ test("fails with actionable Orval output-format guidance when no marker exists",
         () => patchGeneratedZod(filePath),
         (error: unknown) => {
           assert(error instanceof Error);
-          assert.match(error.message, /contains no 'zod\.looseObject\(' markers/);
+          assert.match(
+            error.message,
+            /contains no 'zod\.looseObject\(' markers/,
+          );
           assert.match(error.message, /Orval's output format may have changed/);
           assert.match(
             error.message,
@@ -56,4 +59,32 @@ test("fails with actionable Orval output-format guidance when no marker exists",
       );
     },
   );
+});
+
+test("explains how to fix a missing generated Zod output path", async () => {
+  const directory = await mkdtemp(
+    join(tmpdir(), "patch-generated-zod-missing-"),
+  );
+  const missingFilePath = join(directory, "generated", "api.ts");
+
+  try {
+    assert.throws(
+      () => patchGeneratedZod(missingFilePath),
+      (error: unknown) => {
+        assert(error instanceof Error);
+        assert.match(error.message, /Generated Zod output is missing/);
+        assert.match(
+          error.message,
+          new RegExp(missingFilePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+        );
+        assert.match(
+          error.message,
+          /Orval may have changed its output path; update the codegen target and post-processing step/,
+        );
+        return true;
+      },
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
