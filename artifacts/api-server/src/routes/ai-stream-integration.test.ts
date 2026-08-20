@@ -353,6 +353,170 @@ afterEach(async () => {
 });
 
 describe("Durable AI execution crash/reconnect", () => {
+  it("keeps a forensic ابدأ resume read-only after server-layer reinitialization", async () => {
+    const { classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
+    const forensicClassification = {
+      category: "deep_analysis",
+      contextProfile: "chat-deep",
+      historyDepth: 0,
+      allowPrefetch: false,
+      confidence: 1,
+      structuredOutputMode: true,
+      singleFileForensicMode: false,
+      orderedForensicRoots: [],
+      includeTestSources: false,
+      fixtureAuditMode: false,
+      implementationTaskMode: false,
+      implementationPlanMode: false,
+      taskType: "FULL_FORENSIC_AUDIT",
+      analysisMode: "FORENSIC",
+      outputContract: "FORENSIC_REPORT",
+      firstEvidence: {
+        allowedFirstAction: "EXPLORE",
+        primaryEvidenceTarget: null,
+        traversalPolicy: "BROAD",
+      },
+    } as ReturnType<typeof import("@workspace/ai-orchestrator").classifyRequest>;
+    vi.mocked(mockClassifyRequest)
+      .mockReturnValueOnce(forensicClassification)
+      .mockReturnValueOnce(forensicClassification);
+
+    const rootPath = await fs.mkdtemp("/tmp/stream-forensic-restart-");
+    rootPaths.push(rootPath);
+    const relativePath = "src/restart-safe.ts";
+    const absolutePath = path.join(rootPath, relativePath);
+    const originalSource = "export const safe = true;\n";
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, originalSource, "utf8");
+    const projectId = await insertProject(rootPath);
+    projectIds.push(projectId);
+
+    const readTools: string[] = [];
+    const emitReadOnlyEvidence = (args: Parameters<typeof chatWithFallback>[0] extends never
+      ? never
+      : Parameters<typeof chatWithFallback>[6]) => {
+      args?.({
+        kind: "tool_call",
+        tool: "read_file",
+        args: { path: relativePath },
+        cached: false,
+      } as never);
+      args?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source: relativePath,
+        cached: false,
+      } as never);
+      readTools.push("read_file", "read_file");
+    };
+    const repairPlan = [{
+      findingId: "F-1" as const,
+      files: [relativePath],
+      steps: ["Keep the source unchanged after inspection."],
+      validationProfile: "ai-orchestrator-tests" as const,
+      verdictScope: "PRODUCTION" as const,
+      scopedFindingStatus: "PRODUCTION_PROVEN" as const,
+    }];
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      emitReadOnlyEvidence(args[6]);
+      args[3]?.(`Read ${relativePath}; no changes were made.`);
+      return {
+        result: {
+          response: `## Evidence\n- Read: ${relativePath}\n\nNo verified finding.`,
+          sources: [relativePath],
+          pendingChanges: [],
+          repairPlan,
+        },
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const first = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId, message: "forensic audit" });
+    expect(first.status).toBe(200);
+    const sessionId = parseSseEvents(first.text)
+      .find((event) => event["type"] === "done")?.["sessionId"] as string;
+    expect(sessionId).toBeTruthy();
+
+    const requestEnvelope = {
+      projectId,
+      sessionId,
+      message: "ابدأ",
+      modelMessage: "ابدأ",
+      validationTargetPaths: [],
+      proofRequired: true,
+    };
+    const created = await createAiExecution({
+      userId: "test-user",
+      request: requestEnvelope,
+      idempotencyKey: randomUUID(),
+      projectId,
+      sessionId,
+    });
+    expect(created.resumeToken).toBeTruthy();
+    const workerId = randomUUID();
+    expect((await claimAiExecution({
+      executionId: created.execution.id,
+      userId: "test-user",
+      workerId,
+    }))?.status).toBe("running");
+    await checkpointAiExecution({
+      executionId: created.execution.id,
+      workerId,
+      checkpoint: {
+        stage: "tool_loop",
+        sequence: 1,
+        recentSteps: [{
+          kind: "tool_result",
+          tool: "read_file",
+          source: relativePath,
+        }],
+        detail: "The forensic worker stopped after reading source evidence.",
+        updatedAt: new Date().toISOString(),
+      },
+    });
+
+    // This is the same durable startup reconciliation used after a process
+    // restart: the in-memory worker is gone, while the DB checkpoint remains.
+    expect(await reconcileAiExecutions()).toBeGreaterThanOrEqual(1);
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      emitReadOnlyEvidence(args[6]);
+      args[3]?.(`## Evidence\n- Read: ${relativePath}`);
+      return {
+        result: {
+          response: `## Evidence\n- Read: ${relativePath}\n\n## Final Judgment\nNo verified finding.`,
+          sources: [relativePath],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const resumed = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId,
+        sessionId,
+        message: "ابدأ",
+        executionId: created.execution.id,
+        resumeToken: created.resumeToken,
+      });
+    expect(resumed.status).toBe(200);
+    expect(readTools).toEqual(["read_file", "read_file", "read_file", "read_file"]);
+    expect(readTools.every((tool) => tool === "read_file")).toBe(true);
+    expect(resumed.text).toContain(relativePath);
+    expect(resumed.text).toContain("No verified finding");
+    expect(resumed.text).not.toContain("write_file");
+    expect(resumed.text).not.toContain("replace_text");
+    expect(parseSseEvents(resumed.text).some((event) =>
+      JSON.stringify(event).includes(relativePath),
+    )).toBe(true);
+    expect(await fs.readFile(absolutePath, "utf8")).toBe(originalSource);
+  });
+
   it("rehydrates node progress only when the checkpoint matches the approved plan", () => {
     const planNodes = [{
       id: "phase:F-1:1",
