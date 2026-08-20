@@ -6086,6 +6086,7 @@ export async function chat(opts: {
   let content = result.content ?? "";
   const providerReturnedEmptyEvidenceResponse =
     !content.trim() &&
+    !structuredOutputMode &&
     isForensicOrEvidenceRun &&
     forensicFileContents.size > 0;
   let parsed = parseAgentResponse(content, ChatResponseSchema, fallbackChatOutput);
