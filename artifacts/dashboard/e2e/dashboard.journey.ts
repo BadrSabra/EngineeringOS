@@ -112,6 +112,117 @@ async function installApiFixtures(page: Page) {
   });
 }
 
+async function installArabicAiFixture(page: Page) {
+  const sessionId = "e2e-arabic-ai-session";
+  const messageId = "e2e-arabic-ai-message";
+  const source = "src/execution-tools.ts";
+  const question = "ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟";
+  const answer =
+    "عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.";
+  const evidence = [{
+    source,
+    excerpt: 'return partialFromCollectedEvidence("provider timeout");',
+    sourceSpan: { startLine: 42, endLine: 42 },
+    supportsClaim: true,
+    evidenceClass: "BEHAVIOR_PROVEN",
+  }];
+  const toolTrace = [
+    { kind: "tool_call", tool: "read_file", args: { path: source }, cached: false, prefetched: true },
+    { kind: "tool_result", tool: "read_file", source, cached: false, prefetched: true },
+    {
+      kind: "evidence_integrity",
+      code: "EVIDENCE_INTEGRITY_OK",
+      consistent: true,
+      violations: [],
+      evidenceFileCount: 1,
+      acceptedEvidenceCount: 1,
+      completedReadFiles: [source],
+      acceptedEvidenceFiles: [source],
+    },
+  ];
+  const taskResult = {
+    kind: "BEHAVIOR_ANSWER_RESULT",
+    answer: {
+      answer,
+      evidence,
+      confidence: 1,
+      sourceScope: [source],
+      coverage: {
+        requestedFields: ["timeout behavior"],
+        answeredFields: ["timeout behavior"],
+        missingFields: [],
+        complete: true,
+      },
+    },
+  };
+  const message = {
+    id: messageId,
+    sessionId,
+    role: "assistant",
+    content: answer,
+    sources: [source],
+    toolTrace: JSON.stringify(toolTrace),
+    behaviorEvidence: evidence,
+    taskResult,
+    createdAt: "2026-01-01T00:02:00.000Z",
+  };
+  const sse = (event: Record<string, unknown>) => `data: ${JSON.stringify(event)}\n\n`;
+  const streamBody = [
+    sse({ type: "session_started", sessionId }),
+    sse({ type: "execution_started", executionId: "e2e-execution", status: "running", resumable: true }),
+    sse({ type: "stage", stage: "building-context" }),
+    sse({ type: "stage", stage: "calling-model" }),
+    sse({ type: "tool_call", tool: "read_file", args: { path: source }, cached: false, prefetched: true }),
+    sse({ type: "tool_result", tool: "read_file", source, cached: false, prefetched: true }),
+    sse({
+      type: "evidence_integrity",
+      code: "EVIDENCE_INTEGRITY_OK",
+      consistent: true,
+      violations: [],
+      evidenceFileCount: 1,
+      acceptedEvidenceCount: 1,
+      completedReadFiles: [source],
+      acceptedEvidenceFiles: [source],
+    }),
+    sse({ type: "delta", delta: answer }),
+    sse({
+      type: "done",
+      sessionId,
+      message,
+      sources: [source],
+      toolTrace: JSON.stringify(toolTrace),
+      behaviorEvidence: evidence,
+      taskResult,
+      pendingChanges: [],
+    }),
+  ].join("");
+
+  await page.route("**/api/ai/chat/sessions**", (route) =>
+    route.fulfill(jsonResponse([])),
+  );
+  await page.route("**/api/ai/chat/stream", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      headers: { "Cache-Control": "no-cache" },
+      body: streamBody,
+    }),
+  );
+  await page.route(`**/api/ai/chat/${sessionId}/messages`, (route) =>
+    route.fulfill(jsonResponse([
+      {
+        id: "e2e-arabic-user-message",
+        sessionId,
+        role: "user",
+        content: question,
+        createdAt: "2026-01-01T00:01:00.000Z",
+      },
+      message,
+    ])),
+  );
+  return { question, answer, source, sessionId };
+}
+
 async function createReleaseSignInUrl(page: Page) {
   const secretKey = process.env.CLERK_SECRET_KEY;
   if (!secretKey) {
@@ -267,6 +378,58 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText("PROVEN", { exact: true }).first(),
     ).toBeVisible();
+  });
+
+  test("renders an Arabic source-backed AI answer without internal diagnostics", async ({
+    page,
+  }) => {
+    await installApiFixtures(page);
+    const fixture = await installArabicAiFixture(page);
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await expect(composer).toBeVisible();
+    await composer.fill(fixture.question);
+    await composer.press("Enter");
+
+    await expect(page.getByText(fixture.question, { exact: true })).toBeVisible();
+    await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
+    await expect(page.getByText("Agent activity", { exact: false })).toBeVisible();
+    await expect(page.getByText("Reading source", { exact: false })).toBeVisible();
+    await expect(page.getByText(fixture.source, { exact: true })).toBeVisible();
+    await expect(page.getByText(/claim-bound evidence excerpt retained/i)).toBeVisible();
+
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toMatch(/e2e-arabic-ai-session|e2e-execution|\/home\/runner|recovery diagnostics|rawPrompt|systemPrompt/i);
+    expect(visibleText).not.toContain("تعذر عرض الاستجابة");
+    expect(visibleText).toContain("تقريرًا جزئيًا");
+  });
+
+  test("keeps the AI session drawer overlaid on a phone viewport", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await installApiFixtures(page);
+    await installArabicAiFixture(page);
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await expect(composer).toBeVisible();
+    const beforeOpen = await composer.boundingBox();
+    expect(beforeOpen?.width).toBeGreaterThan(250);
+
+    await page.getByRole("button", { name: "Open sessions" }).click();
+    await expect(page.getByText("Sessions", { exact: true })).toBeVisible();
+    const drawer = page.getByText("Sessions", { exact: true }).locator("..").locator("..");
+    const drawerBox = await drawer.boundingBox();
+    expect(drawerBox?.width).toBeLessThanOrEqual(390);
+    const duringOpen = await composer.boundingBox();
+    expect(duringOpen?.width).toBeGreaterThan(250);
+
+    await page.getByRole("button", { name: "Close sessions" }).click();
+    await expect(page.getByRole("button", { name: "Open sessions" })).toBeVisible();
   });
 
   test("renders a user-visible API failure state", async ({ page }) => {
