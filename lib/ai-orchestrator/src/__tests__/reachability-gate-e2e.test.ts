@@ -101,6 +101,46 @@ function makeNativeSseStrategy(responseText: string) {
   };
 }
 
+function nativeSseReadThenAnswerStrategy(
+  readPath: string,
+  responseText: string,
+  calls: { count: number },
+) {
+  let readIssued = false;
+  return {
+    providerId: "groq",
+    supportsNativeStream: true,
+    ownsModelFallback: true,
+    call: vi.fn(async (_messages: unknown, opts: { tools?: Array<{ function: { name: string } }> }) => {
+      calls.count += 1;
+      if (!readIssued && opts.tools?.some((tool) => tool.function.name === "read_file")) {
+        readIssued = true;
+        return {
+          content: "",
+          toolCalls: [{
+            id: "read-native-reach-caller",
+            type: "function",
+            function: { name: "read_file", arguments: JSON.stringify({ path: readPath }) },
+          }],
+          model: "initial-model",
+          usage: {},
+        };
+      }
+      return {
+        content: "",
+        toolCalls: [],
+        model: "initial-model",
+        usage: {},
+      };
+    }),
+    stream: vi.fn(async function* () {
+      for (const chunk of responseText.split(/(\s+)/)) {
+        if (chunk) yield chunk;
+      }
+    }),
+  };
+}
+
 /**
  * Strategy that issues a read_file tool call for `readPath` on the first call
  * (only when read_file is in the supplied tools), then returns `responseJson`
@@ -704,6 +744,85 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
     });
     expect(result.taskResult).not.toMatchObject({ kind: "BEHAVIOR_ANSWER_RESULT" });
 
+  });
+
+  // ── Scenario 12 (native SSE positive regression): a source-backed caller
+  // plus an application-level runtime trace must remain verified. The native
+  // finalization guard must not over-block a trace merely because it is streamed.
+  it("S12 source-backed application trace: native SSE preserves VERIFIED result", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s12-"));
+    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+    const callerPath = "src/engine.ts";
+    await fs.writeFile(
+      path.join(rootPath, callerPath),
+      [
+        "import { computeCentrality } from './lib';",
+        "export function runEngine(graph: unknown) {",
+        "  return computeCentrality(graph);",
+        "}",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const verifiedReport = [
+      "## 1) Executive Verdict",
+      "PROVEN — runEngine reaches computeCentrality in production.",
+      "## 2) Evidence Map",
+      `- ${callerPath}: return computeCentrality(graph);`,
+      "## 3) Findings",
+      "The application runtime trace observes the direct invocation from runEngine.",
+      "## 4) Repair Plan",
+      "No repair is required.",
+      "## 5) Validation Checklist",
+      "The caller source and runtime trace agree.",
+      "## 6) Final Judgment",
+      "PROVEN",
+    ].join("\n");
+    const calls = { count: 0 };
+    await mockChatProviders(nativeSseReadThenAnswerStrategy(callerPath, verifiedReport, calls));
+
+    const steps: AgentStep[] = [];
+    const deltas: string[] = [];
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: "Prove computeCentrality is reachable from runEngine in production.",
+      history: [],
+      projectContext: makeContext(),
+      rootPath,
+      provider: "groq",
+      apiKey: "test-key",
+      onStep: (s) => steps.push(s),
+      onDelta: (delta) => deltas.push(delta),
+      productionTraceLinks: [
+        {
+          from: {
+            id: "engine:runEngine",
+            name: "runEngine",
+            path: callerPath,
+            stage: "ORCHESTRATOR" as never,
+          },
+          to: {
+            id: "lib:computeCentrality",
+            name: "computeCentrality",
+            stage: "TOOL_PROVIDER",
+          },
+          relation: "DIRECT_INVOCATION",
+          evidence: `${callerPath}: return computeCentrality(graph);`,
+          runtimeObserved: true,
+        },
+      ],
+    });
+
+    const streamed = deltas.join("");
+    expect(calls.count).toBeGreaterThan(0);
+    expect(streamed).toContain("PROVEN");
+    expect(streamed).not.toContain("NOT PROVEN");
+    expect(result.response).toContain("PROVEN");
+    expect(result.response).not.toContain("NOT PROVEN");
+    const dt = steps.find((step) => step.kind === "decision_trace");
+    if (dt?.kind === "decision_trace") {
+      expect(dt.trace.finalState).toBe("VERIFIED");
+    }
   });
 
   // ── Scenario 9 (declaration bypass, AI-OBJ-007 R6): the caller file only
