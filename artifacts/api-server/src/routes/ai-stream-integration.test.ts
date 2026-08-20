@@ -1859,8 +1859,11 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const historyResponse = await request(app)
       .get(`/api/ai/chat/${sessionId}/messages`)
       .expect(200);
-    expect(historyResponse.body.sessionId).toBe(sessionId);
-    const storedAssistant = (historyResponse.body.messages as Array<Record<string, unknown>>)
+    expect(Array.isArray(historyResponse.body)).toBe(true);
+    const historyMessages = historyResponse.body as Array<Record<string, unknown>>;
+    expect(historyMessages.length).toBeGreaterThanOrEqual(2);
+    expect(historyMessages.every((message) => message["sessionId"] === sessionId)).toBe(true);
+    const storedAssistant = historyMessages
       .find((message) => message["role"] === "assistant" && message["content"] === behaviorResult.response);
     expect(storedAssistant).toBeDefined();
     expect(storedAssistant?.["sources"]).toEqual([source]);
@@ -1874,7 +1877,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       kind: "BEHAVIOR_ANSWER_RESULT",
       answer: { sourceScope: [source] },
     });
-    expect(JSON.stringify(historyResponse.body)).not.toMatch(/systemPrompt|rawPrompt|apiKey|diagnosticDetails|providerKey|stackTrace/i);
+    expect(JSON.stringify(historyMessages)).not.toMatch(/systemPrompt|rawPrompt|apiKey|diagnosticDetails|providerKey|stackTrace/i);
   });
 
   it("persists and restores the resumable task contract for an SSE continuation", async () => {
