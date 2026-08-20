@@ -2454,6 +2454,12 @@ router.post("/ai/chat/stream", async (req, res) => {
             : {}),
         };
       } else if (step.kind === "diagnostic") {
+        // Forensic recovery/provider details are server diagnostics, not user
+        // report content. Keep them in the internal trace for debugging, but
+        // do not stream them to a forensic audit client.
+        const visibleDiagnosticDetails = streamTurnIntent.requiresEvidence
+          ? undefined
+          : step.details;
         if (!diagnosticCodes.includes(step.code)) {
           diagnosticCodes.push(step.code);
         }
@@ -2470,7 +2476,11 @@ router.post("/ai/chat/stream", async (req, res) => {
         if (executionSummary && step.details) {
           executionSummary.diagnosticDetails = [...executionDiagnosticDetails];
         }
-        sse({ type: "execution_diagnostic", code: step.code, details: step.details });
+        sse({
+          type: "execution_diagnostic",
+          code: step.code,
+          ...(visibleDiagnosticDetails ? { details: visibleDiagnosticDetails } : {}),
+        });
       }
     }
 

@@ -593,6 +593,8 @@ export function buildStructuredForensicReport(
   const noFindingBasisText = groundedNoFindingBasis
     ? ` Basis: ${oneLine(groundedNoFindingBasis)}`
     : "";
+  const completedEmptyLabelSuffix =
+    emptyClassification === "NO_VERIFIED_FINDING" ? " (NO FINDING)" : "";
 
   return [
     "## 1) Executive Verdict",
@@ -634,8 +636,8 @@ export function buildStructuredForensicReport(
           : "NOT PROVEN — every accepted Finding requires a linked Repair Plan with concrete files, an actionable change, a registered validation profile, and a behavior-specific checklist. No Repair Plan is executable."
       : [
           isArabic
-            ? `${emptyClassification} — لم يتم إثبات عيب موثوق من قراءات الشيفرة المصدرية المكتملة.${noFindingBasisText}`
-            : `${emptyClassification} — no verified defect was established from the completed source reads.${noFindingBasisText}`,
+            ? `${emptyClassification} — لم يتم إثبات عيب موثوق من قراءات الشيفرة المصدرية المكتملة.${noFindingBasisText}${completedEmptyLabelSuffix}${analysisIncomplete ? " الادعاء بالعيب NOT PROVEN لأن تغطية الأدلة غير مكتملة." : ""}`
+            : `${emptyClassification} — no verified defect was established from the completed source reads.${noFindingBasisText}${completedEmptyLabelSuffix}${analysisIncomplete ? " The defect claim remains NOT PROVEN because evidence coverage is incomplete." : ""}`,
           isArabic
             ? "هذا استنتاج محدود بالأدلة، وليس إثباتًا لصحة التنفيذ."
             : "This is an evidence-limited conclusion, not proof that the implementation is correct.",

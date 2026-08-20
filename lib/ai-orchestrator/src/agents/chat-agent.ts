@@ -2744,16 +2744,15 @@ function buildForensicRecoveryOptions(
     // concise. A truncated JSON envelope cannot be recovered by the parser,
     // while 4k keeps this pass bounded within a single provider round-trip.
     maxTokens: 4096,
-    // Reasoning models (the recovery tier) are slow on free-tier queues; a
-    // 15s cap made the whole Recovery chain fail with TIMEOUT before a single
-    // candidate could finish, so every audit fell back to NOT PROVEN. Give a
-    // recovery attempt up to two minutes to complete before advancing.
-    timeoutMs: 120_000,
+    // Recovery is a bounded formatting pass. The caller also applies a
+    // run-level deadline so provider-owned fallback chains cannot multiply this
+    // timeout across packets and leave an SSE request open for minutes.
+    timeoutMs: 30_000,
     retryTransient: false,
-    // Recovery is a safety-net formatting pass, but a provider-owned chain of
-    // up to three live candidates raises the odds that one of them returns a
-    // parseable envelope — still bounded, never unbounded.
-    maxFallbackModels: 3,
+    // The agent owns the ordered recovery chain. Do not add another provider
+    // fallback chain inside each attempt; doing so makes the total duration
+    // depend on packet count × provider candidates.
+    maxFallbackModels: 1,
     apiKey,
     ...(signal ? { signal } : {}),
     // Recovery is now read-capable: the recovery model may re-read the actual
@@ -2784,6 +2783,30 @@ function buildForensicRecoveryOptions(
     model,
     responseFormat: { type: "json_object" },
   };
+}
+
+const FORENSIC_RECOVERY_DEADLINE_MS = 90_000;
+
+async function awaitBoundedRecovery<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error("forensic recovery timed out");
+          Object.assign(error, { code: "TIMEOUT" });
+          reject(error);
+        }, timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /**
@@ -6200,7 +6223,13 @@ export async function chat(opts: {
       const recoveryProviderFailureCodes: string[] = [];
 
       if (forensicEvidence.fileContents.size === 0) {
-        useForensicFallback(initialContract.response);
+        // Keep the primary classification fail-closed as ANALYSIS_INCOMPLETE,
+        // while retaining the legacy NOT PROVEN wording used by clients for a
+        // zero-read scope gate. This is not a completed NO_FINDING result.
+        const noEvidenceFallback = initialContract.response.includes("NOT PROVEN")
+          ? initialContract.response
+          : `${initialContract.response}\n\nNOT PROVEN — no Finding can be accepted without a completed source read.`;
+        useForensicFallback(noEvidenceFallback);
         // If FIRST_EVIDENCE recovery was attempted (a single primary target
         // read) and still produced no admissible evidence, surface the truth:
         // FIRST_EVIDENCE_UNAVAILABLE replaces the generic "recovery skipped"
@@ -6387,7 +6416,14 @@ export async function chat(opts: {
           : ["Evidence Map provenance requires deterministic repair from the completed reads"];
         const recoveryAttemptLimit =
           packetsForRecovery.length * recoveryModelAttemptCount;
-        for (let recoveryAttempt = 0; recoveryAttempt < recoveryAttemptLimit && !recoveryAccepted; recoveryAttempt += 1) {
+        const recoveryDeadline = Date.now() + FORENSIC_RECOVERY_DEADLINE_MS;
+        for (
+          let recoveryAttempt = 0;
+          recoveryAttempt < recoveryAttemptLimit &&
+          !recoveryAccepted &&
+          Date.now() < recoveryDeadline;
+          recoveryAttempt += 1
+        ) {
           recoveryAttemptsUsed = recoveryAttempt + 1;
           packetAcceptedThisAttempt = false;
           const packetIndex = Math.floor(recoveryAttempt / recoveryModelAttemptCount);
@@ -6434,7 +6470,12 @@ export async function chat(opts: {
             // self-correct against actual source windows instead of re-guessing.
             recoveredReadData,
           );
+          const remainingRecoveryMs = Math.max(1, recoveryDeadline - Date.now());
           const recoveryOptions = buildForensicRecoveryOptions(providerId, model, apiKey, undefined, signal);
+          recoveryOptions.timeoutMs = Math.min(
+            recoveryOptions.timeoutMs ?? 30_000,
+            remainingRecoveryMs,
+          );
           if (recoveryModelOverride) {
             recoveryOptions.model = recoveryModelOverride;
             // Once the agent has rejected a syntactically valid provider
@@ -6462,7 +6503,10 @@ export async function chat(opts: {
             let providerReturnedToolCalls = false;
             do {
               providerReturnedToolCalls = false;
-              recovery = await strategy.call(recoveryRoundMessages, recoveryOptions);
+              recovery = await awaitBoundedRecovery(
+                strategy.call(recoveryRoundMessages, recoveryOptions),
+                Math.min(recoveryOptions.timeoutMs ?? 30_000, remainingRecoveryMs),
+              );
               // A recovery model may issue read tool calls instead of an
               // envelope on its first round. Execute only the allowed read
               // tools, append the results, and re-request the envelope — bounded
@@ -7182,13 +7226,25 @@ export async function chat(opts: {
             behavioralAssessmentRequired && forensicEvidence.fileContents.size > 0
               ? applyForensicOutputContract("", forensicEvidence).response
               : null;
+          const incompleteRecoveryReport = buildStructuredForensicReport(
+            EMPTY_FORENSIC_RECOVERY_ENVELOPE,
+            forensicEvidence,
+            {
+              emptyVerdict: "ANALYSIS_INCOMPLETE",
+              language: responseLanguage,
+            },
+          );
+          const incompleteScopeFallback =
+            forensicEvidence.sourceCoverage?.complete === false
+              ? initialContract.response
+              : incompleteRecoveryReport;
           useForensicFallback(
             deterministicBehavioralReport ??
               (recoveryProducedNoFinding && noFindingRecoveryReport
               ? noFindingRecoveryReport
               : deterministicNoFindingReport ??
                 semanticAssessmentFallback ??
-                initialContract.response),
+                incompleteScopeFallback),
           );
           const evidenceOnlyFallbackSelected =
             forensicEvidence.fileContents.size > 0 &&
@@ -7265,6 +7321,18 @@ export async function chat(opts: {
           behavioralAssessmentRequired && forensicEvidence.fileContents.size > 0
             ? applyForensicOutputContract("", forensicEvidence).response
             : null;
+        const incompleteRecoveryReport = buildStructuredForensicReport(
+          EMPTY_FORENSIC_RECOVERY_ENVELOPE,
+          forensicEvidence,
+          {
+            emptyVerdict: "ANALYSIS_INCOMPLETE",
+            language: responseLanguage,
+          },
+        );
+        const incompleteScopeFallback =
+          forensicEvidence.sourceCoverage?.complete === false
+            ? initialContract.response
+            : incompleteRecoveryReport;
         const deterministicBehavioralEnvelope = behavioralAssessmentRequired
           ? detectDeterministicBehavioralFindings(forensicEvidence, {
               allowTestSources: includeTestSources,
@@ -7304,7 +7372,7 @@ export async function chat(opts: {
           deterministicBehavioralReport ??
             deterministicNoFindingReport ??
             semanticAssessmentFallback ??
-            initialContract.response,
+            incompleteScopeFallback,
           forensicEvidence,
         );
         useForensicFallback(evidenceOnlyFallback.response);
