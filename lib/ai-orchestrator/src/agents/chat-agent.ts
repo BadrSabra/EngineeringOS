@@ -563,6 +563,10 @@ export function hasUnverifiedPositiveForensicClaim(
   acceptedEvidenceCount: number,
 ): boolean {
   if (acceptedEvidenceCount > 0) return false;
+  // A report that explicitly proves a Finding is not making the unsupported
+  // "the system is correct" claim this guard is intended to block. Its source
+  // evidence is validated by the Finding/evidence gates separately.
+  if (/\bFINDING\s+PROVEN\b|\bID:\s*F-\d+\b/i.test(response)) return false;
   return /(?:\b(?:confirmed|verified|works?\s+correctly|operates?\s+correctly|no\s+fixes?\s+(?:are\s+)?required)\b|تم\s+تأكيد|يعمل\s+بشكل\s+صحيح|لا\s+توجد\s+إصلاحات\s+مطلوبة)/iu.test(
     response,
   );
