@@ -15,11 +15,42 @@ import {
   classifyRecoveryFailure,
   requiresBehavioralFindingAssessment,
   shouldRejectBehaviorAnswerForMissingEvidence,
+  buildBehaviorEvidenceIncompleteResponse,
   isRepeatedConversationQuestion,
   buildResumedEvidenceLedger,
   structuredRecoveryParseDiagnostic,
   type ChatMessage,
 } from "../agents/chat-agent.js";
+
+describe("buildBehaviorEvidenceIncompleteResponse", () => {
+  it("renders retained reads and an incomplete verdict after an empty provider response", () => {
+    const response = buildBehaviorEvidenceIncompleteResponse(
+      "ماذا يحدث عند انتهاء المهلة؟",
+      new Map([
+        ["src/execution-tools.ts", "if (timedOut) return partial;"],
+        ["src/provider.ts", "return fallback;"],
+      ]),
+    );
+
+    expect(response).toContain("ANALYSIS_INCOMPLETE");
+    expect(response).toContain("src/execution-tools.ts");
+    expect(response).toContain("src/provider.ts");
+    expect(response).toContain("لم يُعتمد مقتطف تنفيذي");
+    expect(response).not.toContain("FINDING PROVEN");
+    expect(response).not.toContain("NO_VERIFIED_FINDING");
+  });
+
+  it("does not claim a read when no completed source is retained", () => {
+    const response = buildBehaviorEvidenceIncompleteResponse(
+      "What happens on timeout?",
+      new Map(),
+    );
+
+    expect(response).toContain("ANALYSIS_INCOMPLETE");
+    expect(response).toContain("No confirmed file read.");
+    expect(response).not.toContain("FINDING PROVEN");
+  });
+});
 
 describe("resolveBehaviorAnswerLanguage", () => {
   it("keeps Arabic behavior answers in Arabic when the question mentions tools", () => {
