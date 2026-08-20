@@ -8603,7 +8603,14 @@ export async function chat(opts: {
     completedReadFiles: runtimeLedger.completedReadFiles,
     retainedBodyFiles: runtimeLedger.retainedBodyFiles,
     acceptedEvidenceFiles: runtimeLedger.acceptedEvidenceFiles,
-    acceptedClaimCount: runtimeLedger.acceptedClaimCount,
+    // A normal behavior answer does not create a forensic ClaimRecord, but
+    // each accepted behavior excerpt closes the answer's behavioral claim.
+    // Keep this count visible in the shared trace without converting it into
+    // a FINDING_PROVEN claim.
+    acceptedClaimCount: Math.max(
+      runtimeLedger.acceptedClaimCount,
+      acceptedBehaviorEvidence.length,
+    ),
     evidenceSourceCoverage: runtimeLedger.sourceCoverage,
     scopeExpansions: runtimeLedger.scopeExpansions,
     unjustifiedReads: runtimeLedger.unjustifiedReads,
