@@ -394,8 +394,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   test("renders an Arabic source-backed AI answer without internal diagnostics", async ({
     page,
   }) => {
-    await installApiFixtures(page);
     const fixture = await installArabicAiFixture(page);
+    await installApiFixtures(page, { arabicAi: fixture });
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
 
@@ -423,8 +423,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await installApiFixtures(page);
-    await installArabicAiFixture(page);
+    const fixture = await installArabicAiFixture(page);
+    await installApiFixtures(page, { arabicAi: fixture });
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
 
