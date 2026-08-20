@@ -345,6 +345,52 @@ describe("chat() emits evidence_integrity reconciling telemetry (task #33)", () 
     }
   });
 
+  it("keeps completed reads separate from accepted behavioral evidence", async () => {
+    const rootPath = await makeRoot();
+    // The provider identifies the relevant file, but supplies no executable
+    // excerpt that can be accepted as proof of the behavioral claim.
+    const sourceSuggestion =
+      "Source: `src/loop.ts`\nThe file appears relevant to the iteration-limit question.";
+
+    const calls = { count: 0 };
+    await mockChatProviders(groundedStrategy(sourceSuggestion, calls), plan([FILE]));
+
+    try {
+      const steps: AgentStep[] = [];
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message: MESSAGE,
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        onStep: (step) => steps.push(step),
+      });
+
+      expect(calls.count).toBeGreaterThan(0);
+
+      const integrity = [...steps].reverse().find((s) => s.kind === "evidence_integrity");
+      expect(integrity?.kind).toBe("evidence_integrity");
+      if (integrity?.kind !== "evidence_integrity") return;
+      expect(integrity.evidenceFileCount).toBeGreaterThan(0);
+      expect(integrity.completedReadFiles).toContain(FILE);
+      expect(integrity.acceptedEvidenceCount).toBe(0);
+      expect(integrity.acceptedClaimCount).toBe(0);
+      expect(integrity.acceptedEvidenceFiles ?? []).not.toContain(FILE);
+
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).not.toContain("NO_VERIFIED_FINDING");
+      expect(result.response).not.toMatch(/(?:does not|doesn't|is not|isn't)\s+(?:exist|implemented|enforced|working)/i);
+      if (result.taskResult?.kind === "BEHAVIOR_ANSWER_RESULT") {
+        expect(result.taskResult.answer.evidence).toEqual([]);
+        expect(result.taskResult.answer.sourceScope).toEqual([]);
+      }
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("reconciles targeted reads into the same retained-body set as telemetry", async () => {
     const rootPath = await makeRoot();
     // The mock includes a claimed verdict so this test also proves the

@@ -1873,6 +1873,126 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
   });
 
+  it("keeps a completed read out of accepted sources when SSE has insufficient behavioral evidence", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const source = "src/loop.ts";
+    const question = "Does the loop run at most 20 iterations?";
+    const incomplete = "ANALYSIS_INCOMPLETE — source reads completed, but no grounded behavioral answer could be accepted.";
+    const evidenceAnswer = {
+      kind: "BEHAVIOR_ANSWER_RESULT" as const,
+      answer: {
+        answer: incomplete,
+        evidence: [],
+        confidence: 0,
+        sourceScope: [],
+        coverage: {
+          requestedFields: [],
+          answeredFields: [],
+          missingFields: [],
+          complete: false,
+        },
+      },
+    };
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      args[3]?.(incomplete);
+      args[6]?.({
+        kind: "tool_call",
+        tool: "read_file",
+        args: { path: source },
+        cached: false,
+        prefetched: true,
+      });
+      args[6]?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source,
+        cached: false,
+        outputLength: 110,
+        prefetched: true,
+      });
+      args[6]?.({
+        kind: "evidence_integrity",
+        code: "TELEMETRY_CONSISTENT",
+        consistent: true,
+        violations: [],
+        readAttempts: 1,
+        uniqueFilesRead: 1,
+        evidenceFileCount: 1,
+        acceptedEvidenceCount: 0,
+        completedReadFiles: [source],
+        retainedBodyFiles: [source],
+        acceptedEvidenceFiles: [],
+        acceptedClaimCount: 0,
+      });
+      args[6]?.({
+        kind: "verification",
+        trace: {
+          stage: "VERIFIED_RESPONSE",
+          responseLength: incomplete.length,
+          sourceCount: 0,
+          evidenceCount: 0,
+          acceptedEvidenceCount: 0,
+          rejectionReasons: ["claim:behavior:UNCLOSED"],
+        },
+      });
+      args[6]?.({
+        kind: "done",
+        iterations: 1,
+        maxIterations: 8,
+        toolCalls: 1,
+        prefetchToolCalls: 1,
+        loopToolCalls: 0,
+        stopReason: "response",
+        synthesisStarted: false,
+        diagnosticCodes: [],
+      });
+      return {
+        result: {
+          response: incomplete,
+          sources: [],
+          pendingChanges: [],
+          behaviorEvidence: [],
+          taskResult: evidenceAnswer,
+        },
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: question });
+
+    expect(res.status).toBe(200);
+    const events = parseSseEvents(res.text);
+    const integrity = events.find((event) => event["type"] === "evidence_integrity");
+    const done = events.find((event) => event["type"] === "done");
+    expect(integrity).toMatchObject({
+      evidenceFileCount: 1,
+      acceptedEvidenceCount: 0,
+      acceptedClaimCount: 0,
+      completedReadFiles: [source],
+      acceptedEvidenceFiles: [],
+    });
+    expect(done).toBeDefined();
+    expect(done?.["sources"]).toEqual([]);
+    expect((done?.["message"] as Record<string, unknown> | undefined)?.["content"]).toContain("ANALYSIS_INCOMPLETE");
+    expect((done?.["message"] as Record<string, unknown> | undefined)?.["content"]).not.toContain("NO_VERIFIED_FINDING");
+    expect((done?.["message"] as Record<string, unknown> | undefined)?.["sources"]).toBe("[]");
+
+    const trace = ((done?.["message"] as Record<string, unknown> | undefined)?.["toolTrace"] ?? "") as string;
+    expect(trace).toContain("evidence_integrity");
+    expect(trace).toContain("acceptedEvidenceCount");
+    expect(trace).not.toContain("/home/runner");
+    const persistedTaskResult = (done?.["message"] as Record<string, unknown> | undefined)?.["taskResult"] as Record<string, unknown>;
+    expect(persistedTaskResult).toMatchObject({
+      kind: "BEHAVIOR_ANSWER_RESULT",
+      answer: { evidence: [], sourceScope: [] },
+    });
+  });
+
   it("completes the Arabic behavior journey through session, API, SSE, and history endpoints", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

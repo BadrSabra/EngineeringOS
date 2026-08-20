@@ -6056,7 +6056,7 @@ export async function chat(opts: {
           message,
           nativeSseResponse,
           nativeSseBehaviorValidation.evidence,
-          mergedSources,
+          nativeSseAcceptedFiles.length > 0 ? mergedSources : [],
         );
       }
       // FEG-011/012 + AI-OBJ-005: mirror the non-streaming rejection trace so the
@@ -8324,8 +8324,18 @@ export async function chat(opts: {
           FINDING_PROVEN_RE,
           buildScopedVerdictLabel(runtimeLedger.scopedFindingStatus),
         );
+  const insufficientAcceptedBehaviorEvidence =
+    shouldValidateBehaviorEvidence &&
+    behaviorAnswerRejected &&
+    runtimeLedger.evidenceFileCount > 0 &&
+    acceptedBehaviorEvidence.length === 0 &&
+    /(?:\bsource\b|`[^`]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|rb|sql|sh)`)/i.test(
+      responseBeforeBehaviorEvidence,
+    );
   const finalResponse =
     providerReturnedEmptyEvidenceResponse
+      ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
+      : insufficientAcceptedBehaviorEvidence
       ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
       : behaviorAnswerRejected || anyRequiredClaimUnclosed || telemetryBlocksVerdict || objectiveBlocksVerdict
       ? /[\u0600-\u06FF]/.test(message)
@@ -8699,7 +8709,7 @@ export async function chat(opts: {
           message,
           gateFinalResponse,
           behaviorEvidenceValidation.evidence,
-          scopedToolSources,
+          acceptedBehaviorEvidence.length > 0 ? scopedToolSources : [],
           {
             crossFileTrace:
               graphGuidance?.crossFileTraces.find((trace) => trace.status === "PROVEN") ??
