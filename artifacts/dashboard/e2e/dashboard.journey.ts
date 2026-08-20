@@ -418,7 +418,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(streamResponse.status()).toBe(200);
 
     await expect(page.getByText(fixture.question, { exact: true }).last()).toBeVisible();
-    await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
+    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
     await expect(page.getByText("Agent activity", { exact: false })).toBeVisible();
     await expect(page.getByText("Reading source", { exact: false })).toBeVisible();
     await expect(page.getByText(fixture.source, { exact: true })).toBeVisible();
