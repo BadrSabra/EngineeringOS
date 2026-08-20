@@ -423,6 +423,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page.locator("summary").filter({ hasText: "Agent activity" }).click();
     await expect(page.getByText("Reading source", { exact: false })).toBeVisible();
     await expect(page.getByText(fixture.source, { exact: true }).last()).toBeVisible();
+    await page.locator("summary").filter({ hasText: "Persisted execution proof" }).click();
     await expect(page.getByText(/claim-bound evidence excerpt retained/i)).toBeVisible();
 
     const visibleText = await page.locator("body").innerText();
