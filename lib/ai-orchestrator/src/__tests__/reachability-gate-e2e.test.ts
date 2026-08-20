@@ -579,6 +579,60 @@ describe("chat() production-reachability gate — end-to-end (AI-OBJ-004/007/010
     }
   });
 
+  // ── Scenario 10 (Arabic API regression): Arabic reachability intent must
+  // remain on the forensic proof contract through the complete chat path.
+  // A provider can return a plausible Arabic behavioral claim, but the
+  // transport-only runtime trace does not prove production reachability.
+  it("S10 Arabic production-reachability prompt: unproven behavioral answer stays NOT PROVEN", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-reach-s10-"));
+    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+
+    const unsupportedArabicAnswer = "الدالة computeCentrality تُستدعى في الإنتاج وتعيد نتائج صحيحة.";
+    const behavioralResponse = JSON.stringify({
+      response: unsupportedArabicAnswer,
+      sources: ["src/engine.ts"],
+    });
+    await mockChatProviders(makeFakeStrategy(behavioralResponse));
+
+    const steps: AgentStep[] = [];
+    const { chat } = await import("../agents/chat-agent.js");
+    const result = await chat({
+      message: "أثبت أن الدالة computeCentrality قابلة للوصول في الإنتاج.",
+      history: [],
+      projectContext: makeContext(),
+      rootPath,
+      apiKey: "test-key",
+      provider: "openrouter",
+      onStep: (s) => steps.push(s),
+      productionTraceLinks: [
+        {
+          from: { id: "route:POST /api/ai/chat", name: "POST /api/ai/chat", stage: "API_ROUTE" },
+          to: { id: "orchestrator:chat", name: "chat()", stage: "ORCHESTRATOR" },
+          relation: "invokes",
+          source: "artifacts/api-server/src/routes/ai/chat.ts",
+          evidence: "runtime chatWithFallback dispatch",
+          runtimeObserved: true,
+        },
+      ],
+    });
+
+    // The Arabic candidate must never escape as a verified production claim.
+    expect(result.response).toContain("NOT PROVEN");
+    expect(result.response).not.toBe(unsupportedArabicAnswer);
+    expect(result.taskResult).toMatchObject({
+      kind: "FINDING_RESULT",
+      finding: { severity: "NOT_PROVEN" },
+    });
+    expect(result.taskResult).not.toMatchObject({ kind: "BEHAVIOR_ANSWER_RESULT" });
+
+    const dt = steps.find((s) => s.kind === "decision_trace");
+    expect(dt).toBeDefined();
+    if (dt?.kind === "decision_trace") {
+      expect(dt.trace.taskType).toBe("FINDING_ANALYSIS");
+      expect(dt.trace.finalState).not.toBe("VERIFIED");
+    }
+  });
+
   // ── Scenario 9 (declaration bypass, AI-OBJ-007 R6): the caller file only
   // DECLARES computeCentrality as a class/object-shorthand method (harmless
   // `computeCentrality(graph) { … }`), it never invokes it. The chat read

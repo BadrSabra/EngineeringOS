@@ -14,6 +14,7 @@ import {
   SemanticBehaviorAnswerSchema,
   validateBehaviorEvidence,
   validateTaskResponse,
+  isProductionReachabilityRequest,
 } from "../task-contracts.js";
 
 describe("task-aware contracts", () => {
@@ -142,6 +143,18 @@ End with one line stating the overall score. Do not include a repair plan.`;
     expect(classifyForensicTask("Find the gaps in the AI orchestration layer")).toBe(
       "FULL_FORENSIC_AUDIT",
     );
+  });
+
+  it("keeps Arabic production reachability on the forensic proof contract", () => {
+    const reachabilityPrompt = "أثبت أن الدالة computeCentrality قابلة للوصول في الإنتاج.";
+    expect(isProductionReachabilityRequest(reachabilityPrompt)).toBe(true);
+    expect(classifyForensicTask(reachabilityPrompt)).toBe("FINDING_ANALYSIS");
+    expect(getTaskOutputContract("FINDING_ANALYSIS")).toBe("FINDING_ANALYSIS");
+
+    const behaviorPrompt = "ماذا يحدث عند انتهاء المهلة في الدالة computeCentrality؟";
+    expect(isProductionReachabilityRequest(behaviorPrompt)).toBe(false);
+    expect(classifyForensicTask(behaviorPrompt)).toBe("BEHAVIOR_QUERY");
+    expect(getTaskOutputContract("BEHAVIOR_QUERY")).toBe("BEHAVIOR_ANSWER");
   });
 
   it("routes broad workspace reviews to the dedicated evidence contract", () => {
