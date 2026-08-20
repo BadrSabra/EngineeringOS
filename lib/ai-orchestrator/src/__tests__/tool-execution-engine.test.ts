@@ -316,6 +316,45 @@ describe("executeToolLoop", () => {
     expect(result.kind).toBe("response");
   });
 
+  it("returns a cancelled result when AbortSignal interrupts the provider turn", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const controller = new AbortController();
+    const steps: AgentStep[] = [];
+    const strategy: ProviderStrategy = {
+      providerId: "test",
+      supportsNativeStream: false,
+      call: vi.fn((_messages, options) =>
+        new Promise<RawGroqResponse>((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () => {
+            reject(new DOMException("The operation was aborted", "AbortError"));
+          }, { once: true });
+        }),
+      ),
+      stream: async function* () { yield ""; },
+    };
+
+    const pending = executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: undefined,
+      rootPath: "/project",
+      pendingChanges: [],
+      initialFileContents: new Map([["src/already-read.ts", "const value = 1;"]]),
+      maxIterations: 2,
+      signal: controller.signal,
+      onStep: (step) => steps.push(step),
+    });
+    controller.abort();
+    const result = await pending;
+
+    expect(result.kind).toBe("cancelled");
+    expect(result.fileContents?.get("src/already-read.ts")).toBe("const value = 1;");
+    expect(steps.some((step) => step.kind === "done" && step.stopReason === "cancelled")).toBe(true);
+  });
+
   it("blocks an objective read outside scope and records the failure telemetry", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const diagnostics: AgentStep[] = [];

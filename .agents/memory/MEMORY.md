@@ -13,3 +13,4 @@
 - [Preview port cleanup](preview-port-cleanup.md) — this environment provides lsof, not fuser; port cleanup must wait for listeners to disappear before startup.
 - [Forensic empty verdicts](forensic-empty-verdicts.md) — complete reads with no accepted Finding use NO_VERIFIED_FINDING; missing or partial reads use ANALYSIS_INCOMPLETE.
 - [Forensic Recovery deadline](forensic-recovery-deadline.md) — Recovery needs per-attempt and run-level bounds; provider fallback must not multiply audit latency.
+- [Forensic cancellation](forensic-cancellation.md) — cancellation preserves collected evidence but always renders ANALYSIS_INCOMPLETE, never NO_VERIFIED_FINDING.

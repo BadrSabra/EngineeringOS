@@ -4944,6 +4944,11 @@ export async function chat(opts: {
     requireDependencyProof: firstEvidence.traversalPolicy === "PRIMARY_FIRST",
     onStep: relayAgentStep,
   });
+  // Cancellation is an incomplete forensic run even when some source reads
+  // already landed. Keep the evidence for the six-section report, but never
+  // allow a cancellation to reach a completed NO_FINDING fallback.
+  const cancelledForensicAudit = (): boolean =>
+    signal?.aborted === true || loopResult.kind === "cancelled";
 
   // Merge prefetch sources with the engine's ground-truth sources.
   // Prefetch sources are prepended since they were resolved first.
@@ -5283,7 +5288,14 @@ export async function chat(opts: {
   }
 
   // ── Final response from model (kind:"response" or kind:"partial") ─────────
-  const result = loopResult.result;
+  const result = loopResult.kind === "cancelled"
+    ? {
+        content: "",
+        toolCalls: null,
+        model,
+        usage: { promptTokens: 0, completionTokens: 0 },
+      }
+    : loopResult.result;
 
   // STORY-04: capture actual model used — may differ from initial selection if
   // the fallback engine advanced to a different model mid-request.
@@ -6045,7 +6057,8 @@ export async function chat(opts: {
     if (
       forensicEvidence.fileContents.size === 0 &&
       firstEvidenceTargetPath &&
-      rootPath
+      rootPath &&
+      !cancelledForensicAudit()
     ) {
       const primaryPath = firstEvidenceTargetPath;
       const readResult = await readForensicPrimaryTarget(rootPath, primaryPath);
@@ -6073,7 +6086,7 @@ export async function chat(opts: {
         firstEvidenceRecoveryError = readResult.reason;
       }
     }
-    const deterministicBehavioralEnvelope = behavioralAssessmentRequested
+    const deterministicBehavioralEnvelope = behavioralAssessmentRequested && !cancelledForensicAudit()
       ? detectDeterministicBehavioralFindings(forensicEvidence, {
           allowTestSources: includeTestSources,
           language: responseLanguage,
@@ -6091,7 +6104,7 @@ export async function chat(opts: {
         ? deterministicBehavioralResult.report
         : null;
     const deterministicNoFindingEnvelope =
-      behavioralAssessmentRequested && !deterministicBehavioralEnvelope
+      behavioralAssessmentRequested && !cancelledForensicAudit() && !deterministicBehavioralEnvelope
         ? buildSourceGroundedNoFindingEnvelope(forensicEvidence)
         : null;
     const deterministicNoFindingReport = deterministicNoFindingEnvelope
@@ -6421,6 +6434,7 @@ export async function chat(opts: {
           let recoveryAttempt = 0;
           recoveryAttempt < recoveryAttemptLimit &&
           !recoveryAccepted &&
+          !cancelledForensicAudit() &&
           Date.now() < recoveryDeadline;
           recoveryAttempt += 1
         ) {
@@ -7427,6 +7441,33 @@ export async function chat(opts: {
         }));
       }
     }
+  }
+
+  if (structuredOutputMode && cancelledForensicAudit()) {
+    const cancelledEvidence = collectForensicEvidence(
+      messages,
+      toolSources,
+      forensicFileContents,
+      includeTestSources,
+      forensicScope,
+      forensicSourceCoverage,
+      requireCompleteReadEvidence,
+    );
+    const cancelledReport = buildStructuredForensicReport(
+      EMPTY_FORENSIC_RECOVERY_ENVELOPE,
+      cancelledEvidence,
+      { emptyVerdict: "ANALYSIS_INCOMPLETE", language: responseLanguage },
+    );
+    structuredRepairPlan = undefined;
+    parsed = {
+      ok: true,
+      data: {
+        ...parsed.data,
+        response: cancelledReport,
+        sources: [...cancelledEvidence.fileContents.keys()],
+      },
+    };
+    content = JSON.stringify(parsed.data);
   }
 
   // PR-E: capture parse failure after all correction retries so the route can

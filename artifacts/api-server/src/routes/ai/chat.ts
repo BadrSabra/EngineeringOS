@@ -701,7 +701,7 @@ type PersistedToolTraceEntry = {
   toolCalls?: number;
   prefetchToolCalls?: number;
   loopToolCalls?: number;
-  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout";
+  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "cancelled";
   synthesisStarted?: boolean;
   recoveryStarted?: boolean;
   sourceCoverage?: "COMPLETE" | "PARTIAL" | "NONE";
@@ -2238,7 +2238,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           toolCalls: number;
           prefetchToolCalls: number;
           loopToolCalls: number;
-          stopReason: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout";
+          stopReason: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "cancelled";
           synthesisStarted: boolean;
           recoveryStarted?: boolean;
           diagnosticCodes: string[];
@@ -2550,7 +2550,9 @@ router.post("/ai/chat/stream", async (req, res) => {
       );
       result = chatOut.result;
       endedBeforeEvidence =
-        streamTurnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps);
+        streamTurnIntent.requiresEvidence &&
+        !activeExecutionAbortController.signal.aborted &&
+        endedBeforeFirstSourceRead(traceSteps);
       if (endedBeforeEvidence) {
         result = {
           ...result,

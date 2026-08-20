@@ -1053,6 +1053,13 @@ export type ToolLoopResult =
       reason: "repeated_tool_call";
       tool: string;
       iterations: number;
+    }
+  | {
+      /** Cancellation preserves evidence but never represents a completed audit. */
+      kind: "cancelled";
+      toolSources: string[];
+      fileContents?: Map<string, string>;
+      sourceRetrieval?: SourceRetrievalTelemetry;
     };
 
 // ── Agent step events ──────────────────
@@ -1280,7 +1287,8 @@ export type AgentStep =
         | "soft_limit"
         | "repeated_tool_call"
         | "empty_response"
-        | "provider_timeout";
+        | "provider_timeout"
+        | "cancelled";
       synthesisStarted: boolean;
       diagnosticCodes: AgentDiagnosticCode[];
       /** Source-retrieval read classification and telemetry (SR-008). */
@@ -1883,8 +1891,24 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       });
     } catch { /* ignore */ }
   };
+  const cancelledResult = (): ToolLoopResult => {
+    try {
+      onStep?.({
+        kind: "done",
+        iterations: 0,
+        maxIterations,
+        ...executionCounts(),
+        stopReason: "cancelled",
+        synthesisStarted,
+        diagnosticCodes: [],
+        sourceRetrieval,
+      });
+    } catch { /* ignore */ }
+    return { kind: "cancelled", toolSources, fileContents, sourceRetrieval };
+  };
 
   for (let iter = 0; iter < maxIterations; iter++) {
+    if (signal?.aborted) return cancelledResult();
     try { onStep?.({ kind: "iteration_start", iter, maxIterations }); } catch { /* ignore */ }
     // Reset per-iteration progress attribution before any tool calls dispatch.
     let iterationIssuedToolCalls = false;
@@ -2025,6 +2049,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       result = callResult.result;
       attemptCount = callResult.attemptCount;
     } catch (err) {
+      if (signal?.aborted) return cancelledResult();
       // OR-004: only fall back to powerModel on transient infrastructure errors,
       // not on user/validation errors like NON_200 or AUTH_ERROR.
       if (err instanceof GroqClientError && TRANSIENT_CODES.has(err.code) && model !== powerModel) {
