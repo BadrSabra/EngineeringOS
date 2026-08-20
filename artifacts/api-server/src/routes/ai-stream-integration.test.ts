@@ -22,7 +22,7 @@ import request from "supertest";
 import { randomUUID } from "crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import { eq } from "drizzle-orm";
 import app from "../app.js";
@@ -56,6 +56,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const validationFixtures: Array<Record<string, unknown>> = [];
+const runRealApiProcessRecovery = process.env.RUN_REAL_API_PROCESS_RECOVERY === "1";
 
 // ─── Orchestrator mock ────────────────────────────────────────────────────────
 // Mirrors the module-level mock in ai.test.ts so all imports from
@@ -353,6 +354,172 @@ afterEach(async () => {
 });
 
 describe("Durable AI execution crash/reconnect", () => {
+  it.runIf(runRealApiProcessRecovery)(
+    "recovers a forensic stream after the API process exits",
+    async () => {
+      const originalEncryptionKey = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+      const originalNodeEnv = process.env.NODE_ENV;
+      const originalPort = process.env.PORT;
+      const port = 18_000 + Math.floor(Math.random() * 1_000);
+      let server: ChildProcess | undefined;
+
+      const waitForHealth = async (child: ChildProcess, timeoutMs = 30_000) => {
+        let diagnostics = "";
+        child.stderr?.on("data", (chunk: Buffer) => {
+          diagnostics = `${diagnostics}${chunk.toString("utf8")}`.slice(-4_000);
+        });
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+          if (child.exitCode !== null) {
+            throw new Error(
+              `API process exited before becoming healthy (code ${child.exitCode}): ${diagnostics}`,
+            );
+          }
+          try {
+            const response = await fetch(`http://127.0.0.1:${port}/api/healthz`);
+            if (response.ok) return;
+          } catch {
+            // The startup migrations and reconciliation run before the listener opens.
+          }
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        throw new Error(`API process did not become healthy within ${timeoutMs}ms`);
+      };
+
+      const stopProcess = async (child: ChildProcess) => {
+        if (child.exitCode !== null) return;
+        child.kill("SIGKILL");
+        await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+      };
+
+      try {
+        const rootPath = await fs.mkdtemp("/tmp/stream-real-process-recovery-");
+        rootPaths.push(rootPath);
+        const relativePath = "src/process-recovery.ts";
+        const absolutePath = path.join(rootPath, relativePath);
+        const originalSource = "export const processRecovery = true;\n";
+        await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+        await fs.writeFile(absolutePath, originalSource, "utf8");
+        const projectId = await insertProject(rootPath);
+        projectIds.push(projectId);
+
+        const sessionId = randomUUID();
+        await db.insert(aiChatSessionsTable).values({
+          id: sessionId,
+          projectId,
+          title: "Process recovery forensic audit",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+
+        process.env.AI_CREDENTIALS_ENCRYPTION_KEY =
+          originalEncryptionKey ?? "0123456789abcdef".repeat(4);
+        process.env.NODE_ENV = "test";
+        process.env.PORT = String(port);
+
+        await execFileAsync("pnpm", ["--filter", "@workspace/api-server", "run", "build"], {
+          cwd: process.cwd(),
+          timeout: 120_000,
+        });
+
+        const childEnv = {
+          ...process.env,
+          NODE_ENV: "test",
+          PORT: String(port),
+          AI_CREDENTIALS_ENCRYPTION_KEY: process.env.AI_CREDENTIALS_ENCRYPTION_KEY,
+        };
+        const apiEntryPoint = path.join(process.cwd(), "dist/index.mjs");
+        server = spawn(process.execPath, ["--enable-source-maps", apiEntryPoint], {
+          cwd: process.cwd(),
+          env: childEnv,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        await waitForHealth(server);
+
+        const created = await createAiExecution({
+          userId: "test-user",
+          request: {
+            projectId,
+            sessionId,
+            message: "forensic audit",
+            modelMessage: "forensic audit",
+            validationTargetPaths: [],
+            proofRequired: true,
+          },
+          idempotencyKey: randomUUID(),
+          projectId,
+          sessionId,
+        });
+        expect(created.resumeToken).toBeTruthy();
+
+        const firstStream = fetch(`http://127.0.0.1:${port}/api/ai/chat/stream`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            projectId,
+            sessionId,
+            message: "forensic audit",
+            executionId: created.execution.id,
+            resumeToken: created.resumeToken,
+          }),
+        });
+
+        let checkpointSequence = 0;
+        const checkpointDeadline = Date.now() + 45_000;
+        while (Date.now() < checkpointDeadline) {
+          const [row] = await db
+            .select({ status: aiExecutionsTable.status, checkpoint: aiExecutionsTable.checkpoint })
+            .from(aiExecutionsTable)
+            .where(eq(aiExecutionsTable.id, created.execution.id));
+          const checkpoint = parseAiExecutionCheckpoint(row?.checkpoint);
+          checkpointSequence = checkpoint?.sequence ?? 0;
+          if (row?.status === "running" && checkpointSequence > 0) break;
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        expect(checkpointSequence).toBeGreaterThan(0);
+
+        await stopProcess(server);
+        server = undefined;
+        await firstStream
+          .then(async (response) => response.body?.cancel())
+          .catch(() => undefined);
+
+        server = spawn(process.execPath, ["--enable-source-maps", apiEntryPoint], {
+          cwd: process.cwd(),
+          env: childEnv,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        await waitForHealth(server);
+
+        const resumed = await fetch(`http://127.0.0.1:${port}/api/ai/chat/stream`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            projectId,
+            sessionId,
+            message: "forensic audit",
+            executionId: created.execution.id,
+            resumeToken: created.resumeToken,
+          }),
+        });
+        const resumedText = await resumed.text();
+        expect(resumed.status).toBe(200);
+        expect(resumedText).toContain(relativePath);
+        expect(resumedText).not.toMatch(/write_file|replace_text|delete_file/);
+        expect(await fs.readFile(absolutePath, "utf8")).toBe(originalSource);
+      } finally {
+        if (server) await stopProcess(server);
+        if (originalEncryptionKey === undefined) delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+        else process.env.AI_CREDENTIALS_ENCRYPTION_KEY = originalEncryptionKey;
+        if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+        else process.env.NODE_ENV = originalNodeEnv;
+        if (originalPort === undefined) delete process.env.PORT;
+        else process.env.PORT = originalPort;
+      }
+    },
+    120_000,
+  );
+
   it("keeps a forensic ابدأ resume read-only after server-layer reinitialization", async () => {
     const { classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
     const forensicClassification = {
