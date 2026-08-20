@@ -22,3 +22,4 @@
 - [Empty provider recovery](empty-provider-recovery.md) — empty or exhausted evidence runs use a deterministic read-manifest report instead of a generic blocking message.
 - [Controlled release validation](controlled-release-validation.md) — live recovery checks are opt-in; keep provider-free configuration tests isolated from deployment credentials.
 - [Release browser runtime](release-browser-runtime.md) — Playwright release jobs need Chromium plus native Nix libraries before Clerk setup can run.
+- [Dashboard evidence assertions](dashboard-evidence-assertions.md) — E2E assertions for completed AI runs must open collapsed activity/proof panels and disambiguate repeated evidence text.
