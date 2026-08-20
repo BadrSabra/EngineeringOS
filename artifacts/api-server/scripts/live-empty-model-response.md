@@ -34,3 +34,8 @@ guidance, and the absence of a Finding, `NO_VERIFIED_FINDING`, raw provider
 diagnostics, or credentials for each selected provider. Provider/model
 nondeterminism should be treated as a failed validation, not silently retried
 with another provider.
+
+Provider-shaped empty-final fixtures for both OpenRouter and Gemini run in the
+normal provider-free `@workspace/ai-orchestrator` test suite. That deterministic
+matrix covers the same incomplete-report, redaction, completed-read, and
+temporary-root cleanup contract without contacting either provider.

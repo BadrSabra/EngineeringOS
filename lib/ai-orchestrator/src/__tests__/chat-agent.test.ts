@@ -85,6 +85,38 @@ function makeContext(): ProjectContext {
   };
 }
 
+/**
+ * Provider payloads observed for an otherwise successful completion with no
+ * final text. Keep these fixtures deliberately provider-shaped: the strategy
+ * adapter below is the only normalization boundary, so this regression test
+ * does not need either provider's credentials or network.
+ */
+const emptyFinalResponseFixtures = [
+  {
+    provider: "openrouter" as const,
+    payload: {
+      choices: [{ message: { content: null }, finish_reason: "stop" }],
+    },
+  },
+  {
+    provider: "gemini" as const,
+    payload: {
+      candidates: [{ content: { parts: [] }, finishReason: "STOP" }],
+    },
+  },
+] as const;
+
+function normalizeEmptyFinalFixture(
+  fixture: (typeof emptyFinalResponseFixtures)[number],
+): { content: string; toolCalls: [] } {
+  if (fixture.provider === "openrouter") {
+    expect(fixture.payload.choices[0]?.message.content).toBeNull();
+  } else {
+    expect(fixture.payload.candidates[0]?.content.parts).toEqual([]);
+  }
+  return { content: "", toolCalls: [] };
+}
+
 describe("chat agent — ChatOutputSchema validation", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -437,6 +469,122 @@ describe("chat agent — ChatOutputSchema validation", () => {
       expect(c.absolutePath.startsWith("/")).toBe(true);
     }
   });
+});
+
+describe("chat agent — provider empty-final response contract", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    process.env.GROQ_API_KEY = "test-key";
+  });
+
+  afterEach(() => {
+    vi.doUnmock("../provider-registry.js");
+    vi.doUnmock("../model-selection/decision-engine.js");
+    vi.doUnmock("../model-selection/provider-strategy.js");
+    vi.doUnmock("../model-selection/model-resolver.js");
+    if (originalApiKey === undefined) delete process.env.GROQ_API_KEY;
+    else process.env.GROQ_API_KEY = originalApiKey;
+  });
+
+  it.each(emptyFinalResponseFixtures)(
+    "fails closed for $provider after a completed read",
+    async (fixture) => {
+      const rootPath = await fs.mkdtemp(path.join(tmpdir(), `eos-empty-final-${fixture.provider}-`));
+      const relativeFile = "src/provider-empty-fixture.ts";
+      await fs.mkdir(path.dirname(path.join(rootPath, relativeFile)), { recursive: true });
+      await fs.writeFile(
+        path.join(rootPath, relativeFile),
+        "export function completedRead() { return true; }\n",
+        "utf8",
+      );
+
+      let calls = 0;
+      const steps: AgentStep[] = [];
+      const fakeStrategy = {
+        providerId: fixture.provider,
+        // Use the non-native path so the test exercises the common buffered
+        // empty-final handling used by both provider adapters.
+        supportsNativeStream: false,
+        call: vi.fn(async () => {
+          calls += 1;
+          if (calls === 1) {
+            return {
+              content: "",
+              toolCalls: [{
+                id: `read-${fixture.provider}`,
+                type: "function" as const,
+                function: {
+                  name: "read_file",
+                  arguments: JSON.stringify({ path: relativeFile }),
+                },
+              }],
+              model: "fixture-model",
+              usage: {},
+            };
+          }
+          // The normalized result came from the provider-shaped fixture above.
+          return {
+            ...normalizeEmptyFinalFixture(fixture),
+            model: "fixture-model",
+            usage: {},
+          };
+        }),
+        stream: vi.fn(),
+      };
+
+      vi.doMock("../provider-registry.js", async () => {
+        const actual = await vi.importActual("../provider-registry.js") as Record<string, unknown>;
+        return { ...actual, getStrategy: vi.fn(() => fakeStrategy) };
+      });
+      vi.doMock("../model-selection/decision-engine.js", () => ({
+        resolveExecutionDecision: vi.fn((scope: string) => ({ taskProfile: { taskType: scope } })),
+      }));
+      vi.doMock("../model-selection/provider-strategy.js", () => ({
+        resolveExecutionProvider: vi.fn((_, provider: string) => ({ providerId: provider })),
+      }));
+      vi.doMock("../model-selection/model-resolver.js", () => ({
+        resolveExecutionModel: vi.fn(() => ({
+          model: "fixture-model",
+          powerModel: "fixture-model",
+        })),
+      }));
+
+      try {
+        const { chat } = await import("../agents/chat-agent.js");
+        const result = await chat({
+          message:
+            `Perform a forensic audit of exactly ${relativeFile}. ` +
+            "Read the file first, then return an empty final response.",
+          history: [],
+          projectContext: makeContext(),
+          rootPath,
+          provider: fixture.provider,
+          apiKey: `${fixture.provider}-fixture-key`,
+          onStep: (step) => steps.push(step),
+        });
+
+        expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+        expect(result.response).toContain(relativeFile);
+        expect(result.response).toMatch(/Retry or narrow the question|No Repair Plan is executable/);
+        expect(result.response).not.toContain("NO_VERIFIED_FINDING");
+        expect(result.response).not.toContain("EMPTY_MODEL_RESPONSE");
+        expect(result.response).not.toContain("providerMessage");
+        expect(result.response).not.toContain(`${fixture.provider}-fixture-key`);
+        expect(result.sources).toContain(relativeFile);
+        expect(
+          steps.some(
+            (step) =>
+              step.kind === "tool_result" &&
+              step.tool === "read_file" &&
+              step.source === relativeFile,
+          ),
+        ).toBe(true);
+      } finally {
+        await fs.rm(rootPath, { recursive: true, force: true });
+        expect(await fs.access(rootPath).then(() => true).catch(() => false)).toBe(false);
+      }
+    },
+  );
 });
 
 // ── AI-03: OpenRouter streaming normalisation ─────────────────────────────────

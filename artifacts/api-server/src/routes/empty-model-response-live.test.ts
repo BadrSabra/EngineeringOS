@@ -38,6 +38,9 @@ afterEach(async () => {
 });
 
 describe("controlled live empty-model-response contract", () => {
+  // Provider-free coverage for the provider-shaped empty-final fixtures lives
+  // in the normal ai-orchestrator test suite. This file intentionally remains
+  // the credential-gated transport check for the same contract.
   it.runIf(enabled)(
     "live provider returns an empty final response after completed reads",
     async () => {
