@@ -3727,11 +3727,7 @@ export async function chat(opts: {
     (
       (
         turnIntent.kind === "FORENSIC_AUDIT" &&
-        (
-          turnIntent.forensicTaskType !== "BEHAVIOR_QUERY" ||
-          classification.singleFileForensicMode ||
-          classification.orderedForensicRoots.length > 0
-        )
+        turnIntent.forensicTaskType !== "BEHAVIOR_QUERY"
       ) ||
       behavioralAssessmentRequested
     );
