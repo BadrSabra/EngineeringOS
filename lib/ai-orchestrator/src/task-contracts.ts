@@ -472,9 +472,12 @@ export function buildTaskValidationFallback(
       ].join("\n");
     }
     if (taskType === "BEHAVIOR_QUERY") {
-      return "تعذر عرض الاستجابة لأنها لم تكن إجابة سلوكية عربية مباشرة وفق عقد BEHAVIOR_QUERY. لم يتم عرض إجابة بلغة أو صيغة غير مطابقة.";
+      return "ANALYSIS_INCOMPLETE — تمت قراءة مصادر، لكن تعذر اعتماد إجابة سلوكية عربية مباشرة. لم يُثبت ادعاء سلوكي نهائي، ويمكن إعادة المحاولة بنطاق أضيق.";
     }
     return `لم تلتزم الاستجابة بعقد المهمة ${taskType}. تم حجبها بدل عرض نتيجة بصيغة غير صحيحة.`;
+  }
+  if (taskType === "BEHAVIOR_QUERY") {
+    return "ANALYSIS_INCOMPLETE — source reads completed, but no grounded behavioral answer could be accepted. No final behavioral claim was proven; retry with a narrower scope.";
   }
   return `The response did not satisfy the ${taskType} task contract, so it was withheld instead of returning a mismatched result.`;
 }

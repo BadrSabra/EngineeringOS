@@ -3666,6 +3666,12 @@ export async function chat(opts: {
           violations: languageValidation.violations.slice(0, 2),
         }),
       );
+      // If source reads already completed, do not hide the truthful partial
+      // state behind a generic language error. The user needs to know that
+      // evidence was collected but no behavioral conclusion was accepted.
+      if (turnIntent.requiresEvidence && forensicFileContents.size > 0) {
+        return buildTaskValidationFallback(forensicTaskType, responseLanguage === "ar");
+      }
       return buildResponseLanguageFallback(responseLanguage);
     }
     if (!turnIntent.requiresEvidence && turnIntent.kind !== "FORENSIC_AUDIT") return response;
