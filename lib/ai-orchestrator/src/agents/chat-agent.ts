@@ -2026,21 +2026,25 @@ export function extractRawForensicReport(raw: string): string | null {
       .replace(/\\t/g, "\t"),
   ];
   const source = candidates.find((candidate) => {
-    const first = candidate.search(/(?:^|[\r\n"'])\s*#{0,6}\s*1\s*[.)]\s*Executive Verdict\s*$/im);
+    const first = candidate.search(
+      /(?:^|[\r\n"'*])\s*#{0,6}\s*(?:1\s*[.)]\s*)?(?:\*\*)?Executive Verdict(?:\*\*)?\s*:?\s*$/im,
+    );
     return first >= 0;
   });
   if (!source) return null;
 
-  // Accept the harmless heading variations models commonly emit, but keep
-  // the section names and ordering strict. This cannot turn arbitrary prose
-  // into a report because all six exact section names are still required.
+  // Accept harmless heading variations models commonly emit: `1.` vs `1)`,
+  // optional numbering, a trailing colon, and simple bold Markdown. Keep the
+  // six exact section names and their ordering strict. This cannot turn
+  // arbitrary prose into a report because every section is still required and
+  // the result continues through the forensic/evidence gates.
   const aliases = [
-    /(?:^|[\r\n"'])(\s*#{0,6}\s*1\s*[.)]\s*Executive Verdict\s*)$/im,
-    /(?:^|[\r\n"'])(\s*#{0,6}\s*2\s*[.)]\s*Evidence Map\s*)$/im,
-    /(?:^|[\r\n"'])(\s*#{0,6}\s*3\s*[.)]\s*Findings\s*)$/im,
-    /(?:^|[\r\n"'])(\s*#{0,6}\s*4\s*[.)]\s*Repair Plan\s*)$/im,
-    /(?:^|[\r\n"'])(\s*#{0,6}\s*5\s*[.)]\s*Validation Checklist\s*)$/im,
-    /(?:^|[\r\n"'])(\s*#{0,6}\s*6\s*[.)]\s*Final Judgment\s*)$/im,
+    /(?:^|[\r\n"'*])(\s*#{0,6}\s*(?:1\s*[.)]\s*)?(?:\*\*)?Executive Verdict(?:\*\*)?\s*:?\s*)$/im,
+    /(?:^|[\r\n"'*])(\s*#{0,6}\s*(?:2\s*[.)]\s*)?(?:\*\*)?Evidence Map(?:\*\*)?\s*:?\s*)$/im,
+    /(?:^|[\r\n"'*])(\s*#{0,6}\s*(?:3\s*[.)]\s*)?(?:\*\*)?Findings(?:\*\*)?\s*:?\s*)$/im,
+    /(?:^|[\r\n"'*])(\s*#{0,6}\s*(?:4\s*[.)]\s*)?(?:\*\*)?Repair Plan(?:\*\*)?\s*:?\s*)$/im,
+    /(?:^|[\r\n"'*])(\s*#{0,6}\s*(?:5\s*[.)]\s*)?(?:\*\*)?Validation Checklist(?:\*\*)?\s*:?\s*)$/im,
+    /(?:^|[\r\n"'*])(\s*#{0,6}\s*(?:6\s*[.)]\s*)?(?:\*\*)?Final Judgment(?:\*\*)?\s*:?\s*)$/im,
   ];
   const matches = aliases.map((alias) => alias.exec(source));
   if (matches.some((match) => !match || match.index === undefined)) return null;

@@ -132,6 +132,28 @@ describe("extractRawForensicReport", () => {
     expect(report).toContain("No repair phases identified.");
   });
 
+  it("accepts harmless unnumbered and colon-terminated recovery headings", () => {
+    const report = extractRawForensicReport([
+      "**Executive Verdict:**",
+      "NOT PROVEN — no verified defect.",
+      "### Evidence Map:",
+      "File: `src/example.ts`",
+      "## Findings:",
+      "No verified finding identified from inspected source code.",
+      "### Repair Plan:",
+      "No repair phases identified.",
+      "## Validation Checklist:",
+      "No validation scenario available.",
+      "## Final Judgment:",
+      "NOT PROVEN.",
+    ].join("\n"));
+
+    expect(report).not.toBeNull();
+    expect(report).toContain("## 1) Executive Verdict");
+    expect(report).toContain("## 6) Final Judgment");
+    expect(report).toMatch(/## 1\)[\s\S]*## 2\)[\s\S]*## 3\)[\s\S]*## 4\)[\s\S]*## 5\)[\s\S]*## 6\)/);
+  });
+
   it("recovers six sections whose newlines are JSON-escaped", () => {
     const escaped = sections.replace(/\n/g, "\\n");
     const report = extractRawForensicReport(`{"response":"${escaped}"}`);
