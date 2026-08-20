@@ -23,7 +23,7 @@ import {
   eventsTable,
   tasksTable,
 } from "@workspace/db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, inArray } from "drizzle-orm";
 import {
   buildProjectContext,
   invalidateContextCache,
@@ -3167,7 +3167,58 @@ router.get("/ai/chat/sessions", async (req, res) => {
     .orderBy(desc(aiChatSessionsTable.updatedAt))
     .limit(20);
 
-  return res.json(sessions);
+  if (sessions.length === 0) return res.json(sessions);
+
+  const messages = await db
+    .select({
+      sessionId: aiChatMessagesTable.sessionId,
+      role: aiChatMessagesTable.role,
+      content: aiChatMessagesTable.content,
+      toolTrace: aiChatMessagesTable.toolTrace,
+      createdAt: aiChatMessagesTable.createdAt,
+    })
+    .from(aiChatMessagesTable)
+    .where(inArray(aiChatMessagesTable.sessionId, sessions.map((session) => session.id)))
+    .orderBy(desc(aiChatMessagesTable.createdAt));
+
+  const latestAssistantBySession = new Map<string, (typeof messages)[number]>();
+  for (const message of messages) {
+    if (message.role === "assistant" && !latestAssistantBySession.has(message.sessionId)) {
+      latestAssistantBySession.set(message.sessionId, message);
+    }
+  }
+
+  return res.json(sessions.map((session) => {
+    const latest = latestAssistantBySession.get(session.id);
+    if (!latest) return session;
+
+    const trace = latest.toolTrace ? parseStoredJson(latest.toolTrace) : [];
+    const traceEntries = Array.isArray(trace) ? trace : [];
+    const cancelled = traceEntries.some(
+      (entry) => entry && typeof entry === "object" && (
+        (entry as { stopReason?: unknown }).stopReason === "cancelled"
+        || (entry as { diagnosticCodes?: unknown }).diagnosticCodes instanceof Array
+          && (entry as { diagnosticCodes: unknown[] }).diagnosticCodes.some((code) =>
+            typeof code === "string" && code.includes("CANCEL"),
+          )
+      ),
+    ) || /\bANALYSIS_INCOMPLETE\b/i.test(latest.content);
+    if (cancelled) return { ...session, forensicStatus: "INCOMPLETE" as const };
+
+    const finalJudgment = latest.content.match(
+      /##\s*6\)\s*Final Judgment([\s\S]*?)(?=\n##\s+\d+\)|$)/i,
+    )?.[1] ?? "";
+    if (/\bNO FINDING\b/i.test(finalJudgment)) {
+      return { ...session, forensicStatus: "NO_FINDING" as const };
+    }
+    if (/\bFINDING PROVEN\b/i.test(finalJudgment)) {
+      return { ...session, forensicStatus: "FINDING_PROVEN" as const };
+    }
+    if (/\bNOT PROVEN\b/i.test(finalJudgment)) {
+      return { ...session, forensicStatus: "NOT_PROVEN" as const };
+    }
+    return session;
+  }));
 });
 
 // ── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────

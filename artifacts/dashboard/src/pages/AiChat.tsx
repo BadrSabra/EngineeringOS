@@ -216,7 +216,22 @@ function hasSafeImplementationPlanFileScope(
     });
   });
 }
-type Session = { id: string; title: string; updatedAt: string };
+type Session = {
+  id: string;
+  title: string;
+  updatedAt: string;
+  forensicStatus?: 'INCOMPLETE' | 'NO_FINDING' | 'FINDING_PROVEN' | 'NOT_PROVEN';
+};
+
+function sessionForensicStatusLabel(status: Session['forensicStatus']): string | null {
+  switch (status) {
+    case 'INCOMPLETE': return 'Incomplete';
+    case 'NO_FINDING': return 'No finding';
+    case 'FINDING_PROVEN': return 'Finding proven';
+    case 'NOT_PROVEN': return 'Not proven';
+    default: return null;
+  }
+}
 type ProviderKeyStatus  = { configured: boolean; last4: string | null; updatedAt: string | null };
 type GroqKeyStatus      = ProviderKeyStatus;
 type DeepSeekKeyStatus  = ProviderKeyStatus;
@@ -7616,6 +7631,7 @@ export default function AiChat() {
             {sessions.map((s) => (
               <button
                 key={s.id}
+                aria-label={s.title}
                 onClick={() => {
                   streamGenerationRef.current += 1;
                   cancelStream();
@@ -7635,7 +7651,23 @@ export default function AiChat() {
                     : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
                 }`}
               >
-                {s.title}
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="min-w-0 truncate">{s.title}</span>
+                  {sessionForensicStatusLabel(s.forensicStatus) && (
+                    <span
+                      aria-hidden="true"
+                      className={`shrink-0 rounded border px-1 py-0.5 text-[9px] font-medium leading-none ${
+                        s.forensicStatus === 'INCOMPLETE'
+                          ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                          : s.forensicStatus === 'NO_FINDING'
+                            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                            : 'border-border bg-secondary text-muted-foreground'
+                      }`}
+                    >
+                      {sessionForensicStatusLabel(s.forensicStatus)}
+                    </span>
+                  )}
+                </span>
               </button>
             ))}
           </div>

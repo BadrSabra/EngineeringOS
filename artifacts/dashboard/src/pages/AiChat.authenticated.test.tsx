@@ -571,6 +571,34 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByRole('button', { name: 'Existing session' }).closest('div.absolute')).toHaveClass('hidden');
   });
 
+  it('shows persisted forensic session statuses and distinguishes incomplete audits from no findings', async () => {
+    mocks.sessions = [
+      {
+        id: 'cancelled-session',
+        title: 'Interrupted audit',
+        updatedAt: '2026-08-14T00:00:00.000Z',
+        forensicStatus: 'INCOMPLETE',
+      },
+      {
+        id: 'clean-session',
+        title: 'Clean audit',
+        updatedAt: '2026-08-13T00:00:00.000Z',
+        forensicStatus: 'NO_FINDING',
+      },
+    ];
+
+    renderAiChat();
+
+    const cancelled = await screen.findByRole('button', { name: 'Interrupted audit' });
+    const clean = screen.getByRole('button', { name: 'Clean audit' });
+    expect(cancelled).toHaveTextContent('Interrupted audit');
+    expect(cancelled).toHaveTextContent('Incomplete');
+    expect(clean).toHaveTextContent('Clean audit');
+    expect(clean).toHaveTextContent('No finding');
+    expect(cancelled).not.toHaveTextContent('No finding');
+    expect(clean).not.toHaveTextContent('Incomplete');
+  });
+
   it('applies a server-owned proposal with its project and proposal identity', async () => {
     mocks.serverProposal = {
       proposalId: 'proposal-1',
