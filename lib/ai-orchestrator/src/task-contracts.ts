@@ -596,7 +596,7 @@ function matchesAnyPositive(patterns: RegExp[], message: string): boolean {
 const BEHAVIOR_QUERY_PATTERNS = [
   /^(?:what|why|how|does|is|are|will|can|when|where)\b/i,
   /\b(?:what happens|how does|does .* always|behavior|behaviour)\b/i,
-  /^(?:هل|ماذا|كيف|لماذا|متى|أين)\b/u,
+  /^(?:هل|ماذا|كيف|لماذا|متى|أين)(?:\s|$)/u,
   /(?:ما\s+الذي\s+يحدث|كيف\s+يعمل|هل\s+يؤدي|السلوك)/u,
 ];
 
