@@ -7614,33 +7614,6 @@ export async function chat(opts: {
             ),
     ),
   );
-  if (
-    structuredOutputMode &&
-    hasUnverifiedPositiveForensicClaim(
-      responseBeforeBehaviorEvidence,
-      runtimeLedger.acceptedEvidenceCount,
-    )
-  ) {
-    console.warn(
-      JSON.stringify({
-        scope: "chat-agent",
-        code: "FORENSIC_POSITIVE_CLAIM_WITHOUT_EVIDENCE",
-        acceptedEvidenceCount: runtimeLedger.acceptedEvidenceCount,
-      }),
-    );
-    responseBeforeBehaviorEvidence = buildTaskValidationFallback(
-      "FULL_FORENSIC_AUDIT",
-      /[\u0600-\u06FF]/.test(message),
-    );
-    relayAgentStep({
-      kind: "diagnostic",
-      code: "FORENSIC_POSITIVE_CLAIM_WITHOUT_EVIDENCE",
-      details: [
-        "a positive forensic judgment was replaced because no behavioral evidence was accepted",
-        "the final state is ANALYSIS_INCOMPLETE rather than a correctness claim",
-      ],
-    });
-  }
   const shouldValidateBehaviorEvidence =
     !forensicOutputMode &&
     explicitBehaviorQueryRequested &&
@@ -7899,6 +7872,33 @@ export async function chat(opts: {
     }),
     additionalRecoveryRecords: recoveredEvidenceRecords,
   });
+  if (
+    structuredOutputMode &&
+    hasUnverifiedPositiveForensicClaim(
+      responseBeforeBehaviorEvidence,
+      runtimeLedger.acceptedEvidenceCount,
+    )
+  ) {
+    console.warn(
+      JSON.stringify({
+        scope: "chat-agent",
+        code: "FORENSIC_POSITIVE_CLAIM_WITHOUT_EVIDENCE",
+        acceptedEvidenceCount: runtimeLedger.acceptedEvidenceCount,
+      }),
+    );
+    responseBeforeBehaviorEvidence = buildTaskValidationFallback(
+      "FULL_FORENSIC_AUDIT",
+      /[\u0600-\u06FF]/.test(message),
+    );
+    relayAgentStep({
+      kind: "diagnostic",
+      code: "FORENSIC_POSITIVE_CLAIM_WITHOUT_EVIDENCE",
+      details: [
+        "a positive forensic judgment was replaced because no behavioral evidence was accepted",
+        "the final state is ANALYSIS_INCOMPLETE rather than a correctness claim",
+      ],
+    });
+  }
   // AI-OBJ-005: Objective Completion Gate. Runs BEFORE a final answer is
   // emitted (after the runtime ledger is final) and refuses finalization while
   // any required objective claim or required reachability edge is unproven.
