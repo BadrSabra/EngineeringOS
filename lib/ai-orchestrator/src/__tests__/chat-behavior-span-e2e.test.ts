@@ -187,8 +187,7 @@ describe("chat() BEHAVIOR_ANSWER_RESULT — duplicated-fragment span (task #25)"
     const fileContent =
       "async function finishProviderAttempt(primaryTimedOut: boolean, fallbackTimedOut: boolean) {\n" +
       "  if (primaryTimedOut && fallbackTimedOut) {\n" +
-      '    const stopReason = "provider_timeout";\n' +
-      "    return partialFromCollectedEvidence(stopReason);\n" +
+      '    return partialFromCollectedEvidence("provider timeout");\n' +
       "  }\n" +
       "  return completeProviderResponse();\n" +
       "}\n";
@@ -205,8 +204,8 @@ describe("chat() BEHAVIOR_ANSWER_RESULT — duplicated-fragment span (task #25)"
           content: JSON.stringify({
             response:
               "المصدر: `src/tools/execution-tools.ts`\n" +
-              'الدليل: `const stopReason = "provider_timeout";`\n' +
-              "عند انتهاء مهلة المزود الأساسي والبديل، يحدد المسار سبب التوقف كـ provider_timeout " +
+              'الدليل: `return partialFromCollectedEvidence("provider timeout");`\n' +
+              "عند انتهاء مهلة المزود الأساسي والبديل، يعيد المسار نتيجة جزئية بسبب provider timeout " +
               "ثم يعيد نتيجة جزئية من الأدلة التي جُمعت.",
             sources: [file],
           }),
@@ -232,7 +231,7 @@ describe("chat() BEHAVIOR_ANSWER_RESULT — duplicated-fragment span (task #25)"
       const { chat } = await import("../agents/chat-agent.js");
       const result = await chat({
         message:
-          "ماذا يحدث عندما تنتهي مهلة مزود الذكاء الاصطناعي داخل src/tools/execution-tools.ts؟",
+          "ماذا يحدث عندما تنتهي مهلة provider timeout لمزود الذكاء الاصطناعي داخل src/tools/execution-tools.ts؟",
         history: [],
         projectContext: makeContext(),
         rootPath,
@@ -242,7 +241,7 @@ describe("chat() BEHAVIOR_ANSWER_RESULT — duplicated-fragment span (task #25)"
       });
 
       expect(result.taskResult?.kind).toBe("BEHAVIOR_ANSWER_RESULT");
-      expect(result.response).toContain("provider_timeout");
+      expect(result.response).toContain("provider timeout");
       expect(result.response).toContain("نتيجة جزئية");
       expect(result.response).not.toContain("ANALYSIS_INCOMPLETE");
       expect(result.pendingChanges).toEqual([]);
@@ -268,7 +267,7 @@ describe("chat() BEHAVIOR_ANSWER_RESULT — duplicated-fragment span (task #25)"
       if (result.taskResult?.kind === "BEHAVIOR_ANSWER_RESULT") {
         expect(result.taskResult.answer.evidence).toMatchObject([{
           source: file,
-          excerpt: 'const stopReason = "provider_timeout";',
+          excerpt: 'return partialFromCollectedEvidence("provider timeout");',
           supportsClaim: true,
           evidenceClass: "BEHAVIOR_PROVEN",
           sourceSpan: { startLine: 3, endLine: 3 },
