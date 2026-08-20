@@ -553,6 +553,22 @@ export function requiresBehavioralFindingAssessment(objective: string): boolean 
 }
 
 /**
+ * A forensic report with no accepted behavioral evidence must not assert that
+ * the implementation or its verification system is confirmed/correct. This is
+ * separate from the Finding gate: a report can have no Finding and still make
+ * an unsupported positive final judgment.
+ */
+export function hasUnverifiedPositiveForensicClaim(
+  response: string,
+  acceptedEvidenceCount: number,
+): boolean {
+  if (acceptedEvidenceCount > 0) return false;
+  return /(?:\b(?:confirmed|verified|works?\s+correctly|operates?\s+correctly|no\s+fixes?\s+(?:are\s+)?required)\b|تم\s+تأكيد|يعمل\s+بشكل\s+صحيح|لا\s+توجد\s+إصلاحات\s+مطلوبة)/iu.test(
+    response,
+  );
+}
+
+/**
  * Capability probes use an exact-file read boundary for safety, but their
  * result is a BEHAVIOR_QUERY capability report, not a six-section forensic
  * audit. Keep the read-only/scope manifest while preventing the forensic
@@ -7598,6 +7614,33 @@ export async function chat(opts: {
             ),
     ),
   );
+  if (
+    structuredOutputMode &&
+    hasUnverifiedPositiveForensicClaim(
+      responseBeforeBehaviorEvidence,
+      runtimeLedger.acceptedEvidenceCount,
+    )
+  ) {
+    console.warn(
+      JSON.stringify({
+        scope: "chat-agent",
+        code: "FORENSIC_POSITIVE_CLAIM_WITHOUT_EVIDENCE",
+        acceptedEvidenceCount: runtimeLedger.acceptedEvidenceCount,
+      }),
+    );
+    responseBeforeBehaviorEvidence = buildTaskValidationFallback(
+      "FULL_FORENSIC_AUDIT",
+      /[\u0600-\u06FF]/.test(message),
+    );
+    relayAgentStep({
+      kind: "diagnostic",
+      code: "FORENSIC_POSITIVE_CLAIM_WITHOUT_EVIDENCE",
+      details: [
+        "a positive forensic judgment was replaced because no behavioral evidence was accepted",
+        "the final state is ANALYSIS_INCOMPLETE rather than a correctness claim",
+      ],
+    });
+  }
   const shouldValidateBehaviorEvidence =
     !forensicOutputMode &&
     explicitBehaviorQueryRequested &&

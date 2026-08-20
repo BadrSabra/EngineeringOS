@@ -10,6 +10,7 @@ import {
   restrictPendingChangesToRepairPlan,
   isRepairPlanExecutionRequest,
   extractRawForensicReport,
+  hasUnverifiedPositiveForensicClaim,
   buildForensicRecoveryMessages,
   classifyRecoveryFailure,
   requiresBehavioralFindingAssessment,
@@ -164,6 +165,32 @@ describe("extractRawForensicReport", () => {
 
   it("rejects prose that does not contain all six sections", () => {
     expect(extractRawForensicReport("## 1) Executive Verdict\nonly one section")).toBeNull();
+  });
+});
+
+describe("hasUnverifiedPositiveForensicClaim", () => {
+  it("blocks positive correctness claims when no evidence was accepted", () => {
+    expect(
+      hasUnverifiedPositiveForensicClaim(
+        "تم تأكيد أن نظام التحقق يعمل بشكل صحيح ولا توجد إصلاحات مطلوبة.",
+        0,
+      ),
+    ).toBe(true);
+  });
+
+  it("allows the same claim only when behavioral evidence was accepted", () => {
+    expect(
+      hasUnverifiedPositiveForensicClaim("The verification system works correctly.", 1),
+    ).toBe(false);
+  });
+
+  it("does not block a neutral incomplete verdict", () => {
+    expect(
+      hasUnverifiedPositiveForensicClaim(
+        "ANALYSIS_INCOMPLETE — no conclusive result was produced.",
+        0,
+      ),
+    ).toBe(false);
   });
 });
 
