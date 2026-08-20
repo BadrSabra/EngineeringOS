@@ -75,6 +75,33 @@ describe("resolveTurnIntent", () => {
     });
   });
 
+  it("routes Arabic production-reachability proof requests to the forensic proof contract", () => {
+    const message = "أثبت أن computeCentrality قابل للوصول في الإنتاج.";
+    const intent = resolveTurnIntent(message);
+
+    expect(intent).toMatchObject({
+      kind: "FORENSIC_AUDIT",
+      forensicTaskType: "FINDING_ANALYSIS",
+      analysisMode: "FORENSIC",
+      outputContract: "FINDING_ANALYSIS",
+      requiresTools: true,
+      requiresEvidence: true,
+      operationMode: "FORENSIC_AUDIT",
+    });
+  });
+
+  it("keeps ordinary Arabic behavior questions on the behavior-query path", () => {
+    const intent = resolveTurnIntent(
+      "ما الذي يحدث عندما تكون flag=false في الدالة pick داخل src/pick.ts؟",
+    );
+
+    expect(intent).toMatchObject({
+      forensicTaskType: "BEHAVIOR_QUERY",
+      outputContract: "BEHAVIOR_ANSWER",
+      requiresEvidence: true,
+    });
+  });
+
   it.each([
     "افحص مشروعي وأخبرني إن كانت هناك مشاكل مهمة.",
     "Review my project and tell me about important problems.",

@@ -1066,6 +1066,9 @@ const PRODUCTION_REACHABILITY_PATTERNS: RegExp[] = [
   // reachability-explicit compound words
   /\bproduction.?reachab[a-z]*\b/i,
   /\bare\s+[a-zA-Z_][\w$.\-]*\s+(?:reachable|called|invoked)\s+in\s+production\b/i,
+  // Arabic proof requests for production reachability.
+  /(?:أثبت|اثبت|تحقق|تحقّق|تأكد|تأكّد|أكد|أكّد|بيّن|بين|أظهر)[\s\S]{0,140}(?:الوصول|قابل(?:ة)?\s+للوصول|استدعاؤه|يُستدعى|يستدعى)[\s\S]{0,80}(?:الإنتاج|إنتاج|التشغيل)/iu,
+  /(?:الوصول|قابل(?:ة)?\s+للوصول|استدعاؤه|يُستدعى|يستدعى)[\s\S]{0,80}(?:في|إلى)\s+(?:الإنتاج|إنتاج|التشغيل)/iu,
 ];
 
 /**
@@ -1096,6 +1099,10 @@ export function classifyForensicTask(
   if (matchesAny(normalized, CODE_EXTRACTION_PATTERNS)) return "CODE_EXTRACTION";
   if (matchesAny(normalized, WORKSPACE_REVIEW_PATTERNS)) return "WORKSPACE_REVIEW";
   if (matchesAny(normalized, FULL_AUDIT_PATTERNS)) return "FULL_FORENSIC_AUDIT";
+  // Production reachability is a proof request, not an ordinary behavioral
+  // question. Keep it on the finding/R-PROOF contract even without a caller-
+  // supplied structured objective.
+  if (isProductionReachabilityRequest(normalized)) return "FINDING_ANALYSIS";
   // REPAIR / FINDING intent requires a POSITIVE occurrence of the keyword.
   // A prompt that only *denies* ("do not include a repair plan", "do NOT invent
   // a defect finding") is a behavioral / capability probe — route it to the
