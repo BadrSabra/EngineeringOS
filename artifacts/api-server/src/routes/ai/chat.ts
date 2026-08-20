@@ -2215,6 +2215,15 @@ router.post("/ai/chat/stream", async (req, res) => {
       logger.warn({ err, projectId }, "memory-enrich: failed to load session memories (stream)");
     });
 
+    // Public, bounded intent notification. Keep internal prompt construction,
+    // provider diagnostics, and raw telemetry out of the SSE contract.
+    sse({
+      type: "intent",
+      intent: streamTurnIntent.kind,
+      operationMode: streamTurnIntent.operationMode,
+      requiresEvidence: streamTurnIntent.requiresEvidence,
+    });
+
     sse({ type: "stage", stage: "calling-model" });
 
     // AI-TASK-007: Structured stream context trace.
