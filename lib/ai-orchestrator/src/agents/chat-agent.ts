@@ -2027,7 +2027,7 @@ export function extractRawForensicReport(raw: string): string | null {
   ];
   const source = candidates.find((candidate) => {
     const first = candidate.search(
-      /(?:^|[\r\n"'])\s*#{0,6}\s*(?:[*_]{0,2})?(?:1\s*[.)]\s*)?Executive Verdict(?:[*_]{0,2})?\s*:?\s*$/im,
+      /(?:^|[\r\n"'])\s*#{0,6}\s*(?:[*_]{0,2})?(?:1\s*[.)]\s*)?Executive Verdict\s*:?\s*[*_]{0,2}\s*$/im,
     );
     return first >= 0;
   });
@@ -2039,12 +2039,12 @@ export function extractRawForensicReport(raw: string): string | null {
   // arbitrary prose into a report because every section is still required and
   // the result continues through the forensic/evidence gates.
   const aliases = [
-    /(?:^|[\r\n"'])(\s*#{0,6}\s*[*_]{0,2}(?:1\s*[.)]\s*)?Executive Verdict[*_]{0,2}\s*:?\s*)$/im,
-    /(?:^|[\r\n"'])(\s*#{0,6}\s*[*_]{0,2}(?:2\s*[.)]\s*)?Evidence Map[*_]{0,2}\s*:?\s*)$/im,
-    /(?:^|[\r\n"'])(\s*#{0,6}\s*[*_]{0,2}(?:3\s*[.)]\s*)?Findings[*_]{0,2}\s*:?\s*)$/im,
-    /(?:^|[\r\n"'])(\s*#{0,6}\s*[*_]{0,2}(?:4\s*[.)]\s*)?Repair Plan[*_]{0,2}\s*:?\s*)$/im,
-    /(?:^|[\r\n"'])(\s*#{0,6}\s*[*_]{0,2}(?:5\s*[.)]\s*)?Validation Checklist[*_]{0,2}\s*:?\s*)$/im,
-    /(?:^|[\r\n"'])(\s*#{0,6}\s*[*_]{0,2}(?:6\s*[.)]\s*)?Final Judgment[*_]{0,2}\s*:?\s*)$/im,
+    /(?:^|[\r\n"'])(\s*#{0,6}\s*[*_]{0,2}(?:1\s*[.)]\s*)?Executive Verdict\s*:?\s*[*_]{0,2}\s*)$/im,
+    /(?:^|[\r\n"'])(\s*#{0,6}\s*[*_]{0,2}(?:2\s*[.)]\s*)?Evidence Map\s*:?\s*[*_]{0,2}\s*)$/im,
+    /(?:^|[\r\n"'])(\s*#{0,6}\s*[*_]{0,2}(?:3\s*[.)]\s*)?Findings\s*:?\s*[*_]{0,2}\s*)$/im,
+    /(?:^|[\r\n"'])(\s*#{0,6}\s*[*_]{0,2}(?:4\s*[.)]\s*)?Repair Plan\s*:?\s*[*_]{0,2}\s*)$/im,
+    /(?:^|[\r\n"'])(\s*#{0,6}\s*[*_]{0,2}(?:5\s*[.)]\s*)?Validation Checklist\s*:?\s*[*_]{0,2}\s*)$/im,
+    /(?:^|[\r\n"'])(\s*#{0,6}\s*[*_]{0,2}(?:6\s*[.)]\s*)?Final Judgment\s*:?\s*[*_]{0,2}\s*)$/im,
   ];
   const matches = aliases.map((alias) => alias.exec(source));
   if (matches.some((match) => !match || match.index === undefined)) return null;
