@@ -7,4 +7,4 @@ Completed AI responses render activity and proof details in collapsed disclosure
 
 **Why:** Assertions that expect collapsed content to be visible or assume unique text matches produce false failures even when the user-visible journey is correct.
 
-**How to apply:** Open the relevant `summary` element before asserting its details, and use a scoped or explicitly disambiguated locator when source-backed text is intentionally repeated.
+**How to apply:** Reopen the persisted session from the visible session list after a page reload, open the relevant `summary` element before asserting its details, and use a scoped or explicitly disambiguated locator when source-backed text is intentionally repeated.

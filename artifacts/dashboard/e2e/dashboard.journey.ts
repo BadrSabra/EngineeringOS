@@ -152,19 +152,32 @@ async function installApiFixtures(
   });
 }
 
-async function installArabicAiFixture(page: Page) {
+async function installArabicAiFixture(page: Page, options?: { blocked?: boolean }) {
   const sessionId = "e2e-arabic-ai-session";
   const messageId = "e2e-arabic-ai-message";
   const source = "src/execution-tools.ts";
+  const blocked = options?.blocked === true;
   const question = "ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟";
   const answer =
     "عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.";
   const evidence = [{
     source,
-    excerpt: 'return partialFromCollectedEvidence("provider timeout");',
-    sourceSpan: { startLine: 42, endLine: 42 },
-    supportsClaim: true,
-    evidenceClass: "BEHAVIOR_PROVEN",
+    ...(blocked
+      ? {
+          excerpt: "provider timeout is handled here",
+          supportsClaim: false,
+          evidenceClass: "READ_CONFIRMED",
+          citationStatus: "BLOCKED",
+          citationReason: "MISSING_LITERAL_MATCH",
+        }
+      : {
+          excerpt: 'return partialFromCollectedEvidence("provider timeout");',
+          sourceSpan: { startLine: 42, endLine: 42 },
+          supportsClaim: true,
+          evidenceClass: "BEHAVIOR_PROVEN",
+          citationStatus: "ACCEPTED",
+          citationReason: "ACCEPTED_SOURCE_SPAN",
+        }),
   }];
   const toolTrace = [
     { kind: "tool_call", tool: "read_file", args: { path: source }, cached: false, prefetched: true },
@@ -432,6 +445,53 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(visibleText).not.toMatch(/e2e-arabic-ai-session|e2e-execution|\/home\/runner|recovery diagnostics|rawPrompt|systemPrompt/i);
     expect(visibleText).not.toContain("تعذر عرض الاستجابة");
     expect(visibleText).toContain("تقريرًا جزئيًا");
+  });
+
+  test("keeps accepted citation explanations and line ranges after chat reload", async ({
+    page,
+  }) => {
+    const fixture = await installArabicAiFixture(page);
+    await installApiFixtures(page, { arabicAi: fixture });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(fixture.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
+    await expect(page.getByText(`${fixture.source}:42`, { exact: false }).last()).toBeVisible();
+    await expect(page.getByText("Accepted: source span verified.", { exact: true }).last()).toBeVisible();
+
+    await page.reload();
+    await page.getByRole("button", { name: fixture.question }).click();
+
+    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
+    await expect(page.getByText(`${fixture.source}:42`, { exact: false }).last()).toBeVisible();
+    await expect(page.getByText("Accepted: source span verified.", { exact: true }).last()).toBeVisible();
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toMatch(/rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i);
+  });
+
+  test("keeps only the safe blocked citation reason after chat reload", async ({
+    page,
+  }) => {
+    const fixture = await installArabicAiFixture(page, { blocked: true });
+    await installApiFixtures(page, { arabicAi: fixture });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(fixture.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+    await expect(page.getByText("Blocked: no matching source text was found.", { exact: true }).last()).toBeVisible();
+
+    await page.reload();
+    await page.getByRole("button", { name: fixture.question }).click();
+
+    await expect(page.getByText("Blocked: no matching source text was found.", { exact: true }).last()).toBeVisible();
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toMatch(/MISSING_LITERAL_MATCH|rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i);
+    expect(visibleText).not.toContain("Accepted: source span verified.");
   });
 
   test("keeps the AI session drawer overlaid on a phone viewport", async ({
