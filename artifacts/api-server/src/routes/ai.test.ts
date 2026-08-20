@@ -1061,6 +1061,45 @@ describe("GET /api/ai/chat/sessions", () => {
       expect.objectContaining({ id: notProvenSessionId, forensicStatus: "NOT_PROVEN" }),
     ]));
   });
+
+  it("derives the displayed verdict from the newest assistant message", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = randomUUID();
+    const older = new Date("2026-01-01T00:00:00.000Z");
+    const newer = new Date("2026-01-01T00:00:01.000Z");
+
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Reloaded audit",
+      createdAt: older,
+      updatedAt: newer,
+    });
+    await db.insert(aiChatMessagesTable).values([
+      {
+        id: randomUUID(),
+        sessionId,
+        role: "assistant",
+        content: "## 6) Final Judgment\nFINDING PROVEN",
+        createdAt: older,
+      },
+      {
+        id: randomUUID(),
+        sessionId,
+        role: "assistant",
+        content: "## 6) Final Judgment\nNO FINDING",
+        createdAt: newer,
+      },
+    ]);
+
+    const res = await request(app).get(`/api/ai/chat/sessions?projectId=${projectId}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      expect.objectContaining({ id: sessionId, forensicStatus: "NO_FINDING" }),
+    ]);
+  });
 });
 
 // ─── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────
