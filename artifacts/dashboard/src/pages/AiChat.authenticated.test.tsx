@@ -1479,6 +1479,44 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.queryByText('NO FINDING')).not.toBeInTheDocument();
   });
 
+  it('keeps cancelled recovery context visible after history reload', async () => {
+    mocks.serverProposal = { proposalId: 'cancelled-forensic-history', changes: [] };
+    mocks.proposalMessages[0].content = [
+      '## 1) Executive Verdict',
+      'ANALYSIS_INCOMPLETE — لم يكتمل التحليل.',
+      '',
+      '## 4) Repair Plan',
+      'Recovery needed — يلزم استئناف التحليل.',
+      'Blocked by — إلغاء التوليف قبل اكتماله.',
+      '',
+      '## 6) Final Judgment',
+      'ANALYSIS_INCOMPLETE — التقرير غير مكتمل.',
+    ].join('\n');
+    mocks.proposalMessages[0].operationMode = 'FORENSIC_AUDIT';
+    mocks.proposalMessages[0].toolTrace = JSON.stringify([
+      {
+        kind: 'done',
+        iterations: 2,
+        maxIterations: 24,
+        toolCalls: 1,
+        prefetchToolCalls: 0,
+        loopToolCalls: 1,
+        stopReason: 'cancelled',
+        synthesisStarted: true,
+        recoveryStarted: true,
+        diagnosticCodes: ['FORENSIC_CONTRACT_RECOVERY_FAILED'],
+      },
+    ]);
+    renderAiChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByText(/Recovery needed/)).toBeInTheDocument();
+    expect(screen.getByText(/Blocked by/)).toBeInTheDocument();
+    expect(screen.getAllByText(/ANALYSIS_INCOMPLETE/).length).toBeGreaterThan(0);
+    expect(screen.queryByText('NO_VERIFIED_FINDING')).not.toBeInTheDocument();
+  });
+
   it('renders a REPAIR_RESULT with a readiness indicator and phases', async () => {
     mocks.serverProposal = { proposalId: 'repair-proposal', changes: [] };
     mocks.proposalMessages[0].taskResult = {

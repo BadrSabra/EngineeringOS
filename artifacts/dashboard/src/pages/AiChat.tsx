@@ -756,6 +756,10 @@ const EXECUTION_STOP_REASONS = [
   'repeated_tool_call',
   'empty_response',
   'provider_timeout',
+  // Cancellation is a terminal audit state. Keep its persisted execution
+  // summary available after history reload so the incomplete report's
+  // recovery context is not replaced by a clean/no-finding fallback.
+  'cancelled',
 ] as const;
 
 function parseExecutionSummary(trace: ToolTraceEntry[]): AiStreamExecutionSummary | null {
@@ -802,7 +806,13 @@ function parseExecutionSummary(trace: ToolTraceEntry[]): AiStreamExecutionSummar
       done.recoveryStarted === true ||
       trace.some((entry) => entry.kind === 'forensic_recovery_start'),
     diagnosticCodes: [...diagnosticCodes],
-    ...(diagnosticDetails.size > 0 ? { diagnosticDetails: [...diagnosticDetails] } : {}),
+    // Cancellation diagnostics are internal recovery/provider details. The
+    // cancelled report and its terminal state survive history reload, but
+    // provider errors must not become visible just because the persisted
+    // summary is now restored.
+    ...(diagnosticDetails.size > 0 && done.stopReason !== 'cancelled'
+      ? { diagnosticDetails: [...diagnosticDetails] }
+      : {}),
     ...(modelsUsed.size > 0 ? { modelsUsed: [...modelsUsed].slice(0, 12) } : {}),
     ...(recoveryModelsUsed.size > 0
       ? { recoveryModelsUsed: [...recoveryModelsUsed].slice(0, 2) }
