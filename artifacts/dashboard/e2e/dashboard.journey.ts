@@ -1,4 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
+import {
+  parseClerkSignInTokenResponse,
+  parseClerkUserLookupResponse,
+  parseCreatedClerkUserResponse,
+} from "../src/lib/clerk-handoff";
 
 const DASHBOARD_PATH = "/dashboard/";
 const TEST_USER = {
@@ -123,11 +128,7 @@ async function createReleaseSignInUrl(page: Page) {
     `https://api.clerk.com/v1/users?email_address=${encodeURIComponent(TEST_USER.email)}`,
     { headers },
   );
-  const users = (await userResponse.json()) as
-    | Array<{ id: string }>
-    | { data?: Array<{ id: string }> };
-  const userList = Array.isArray(users) ? users : (users.data ?? []);
-  let userId = userList[0]?.id;
+  let userId = parseClerkUserLookupResponse(await userResponse.json());
 
   if (!userId) {
     const createdResponse = await page.request.post(
@@ -143,8 +144,7 @@ async function createReleaseSignInUrl(page: Page) {
         },
       },
     );
-    const createdUser = (await createdResponse.json()) as { id?: string };
-    userId = createdUser.id;
+    userId = parseCreatedClerkUserResponse(await createdResponse.json());
   }
 
   if (!userId) {
@@ -157,14 +157,9 @@ async function createReleaseSignInUrl(page: Page) {
     "https://api.clerk.com/v1/sign_in_tokens",
     { headers, data: { user_id: userId } },
   );
-  const token = (await tokenResponse.json()) as { token?: string };
-  if (!token.token) {
-    throw new Error(
-      "Clerk did not return a programmatic release sign-in token.",
-    );
-  }
+  const token = parseClerkSignInTokenResponse(await tokenResponse.json());
 
-  return `${new URL(DASHBOARD_PATH, page.url()).toString()}sign-in?__clerk_ticket=${encodeURIComponent(token.token)}`;
+  return `${new URL(DASHBOARD_PATH, page.url()).toString()}sign-in?__clerk_ticket=${encodeURIComponent(token)}`;
 }
 
 async function programmaticSignIn(page: Page) {
