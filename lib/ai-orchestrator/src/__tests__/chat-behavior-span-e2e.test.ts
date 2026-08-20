@@ -181,6 +181,104 @@ describe("chat() BEHAVIOR_ANSWER_RESULT — duplicated-fragment span (task #25)"
     }
   });
 
+  it("routes a natural Arabic timeout question to BEHAVIOR_QUERY without repair or writes", async () => {
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-timeout-behavior-"));
+    const file = "src/tools/execution-tools.ts";
+    const fileContent =
+      "async function finishProviderAttempt(primaryTimedOut: boolean, fallbackTimedOut: boolean) {\n" +
+      "  if (primaryTimedOut && fallbackTimedOut) {\n" +
+      '    const stopReason = "provider_timeout";\n' +
+      "    return partialFromCollectedEvidence(stopReason);\n" +
+      "  }\n" +
+      "  return completeProviderResponse();\n" +
+      "}\n";
+    await fs.mkdir(path.join(rootPath, "src/tools"), { recursive: true });
+    await fs.writeFile(path.join(rootPath, file), fileContent, "utf8");
+
+    const calls: unknown[] = [];
+    const fakeStrategy = {
+      providerId: "openrouter",
+      supportsNativeStream: false,
+      call: vi.fn(async (messages: unknown) => {
+        calls.push(messages);
+        return {
+          content: JSON.stringify({
+            response:
+              "المصدر: `src/tools/execution-tools.ts`\n" +
+              'الدليل: `const stopReason = "provider_timeout";`\n' +
+              "عند انتهاء مهلة المزود الأساسي والبديل، يحدد المسار سبب التوقف كـ provider_timeout " +
+              "ثم يعيد نتيجة جزئية من الأدلة التي جُمعت.",
+            sources: [file],
+          }),
+          toolCalls: [],
+          model: "initial-model",
+          usage: {},
+        };
+      }),
+      stream: vi.fn(),
+    };
+
+    await mockChatProviders(fakeStrategy, {
+      targetFiles: [file],
+      targetEntities: [],
+      scopeEstimate: "narrow",
+      suggestedIterations: 8,
+      requiresToolUse: true,
+      subQueries: [],
+    });
+
+    try {
+      const steps: AgentStep[] = [];
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message:
+          "ماذا يحدث عندما تنتهي مهلة مزود الذكاء الاصطناعي داخل src/tools/execution-tools.ts؟",
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        onStep: (step) => steps.push(step),
+      });
+
+      expect(result.taskResult?.kind).toBe("BEHAVIOR_ANSWER_RESULT");
+      expect(result.response).toContain("provider_timeout");
+      expect(result.response).toContain("نتيجة جزئية");
+      expect(result.response).not.toContain("ANALYSIS_INCOMPLETE");
+      expect(result.pendingChanges).toEqual([]);
+      expect(result.repairPlan).toBeUndefined();
+      expect(calls.length).toBeGreaterThan(0);
+
+      const evidenceStep = steps.find((step) => step.kind === "evidence_integrity");
+      expect(evidenceStep).toBeDefined();
+      if (evidenceStep?.kind === "evidence_integrity") {
+        expect(evidenceStep.evidenceFileCount).toBe(1);
+        expect(evidenceStep.acceptedEvidenceCount).toBe(1);
+      }
+
+      expect(
+        steps.some(
+          (step) =>
+            step.kind === "repair_state" ||
+            (step.kind === "tool_call" &&
+              ["write_file", "apply_patch", "execute_command"].includes(step.tool)),
+        ),
+      ).toBe(false);
+
+      if (result.taskResult?.kind === "BEHAVIOR_ANSWER_RESULT") {
+        expect(result.taskResult.answer.evidence).toMatchObject([{
+          source: file,
+          excerpt: 'const stopReason = "provider_timeout";',
+          supportsClaim: true,
+          evidenceClass: "BEHAVIOR_PROVEN",
+          sourceSpan: { startLine: 3, endLine: 3 },
+        }]);
+      }
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
   it("completes an Arabic user journey with accepted behavioral evidence", async () => {
     const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-arabic-behavior-"));
     const file = "src/pick.ts";
