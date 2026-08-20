@@ -1578,6 +1578,164 @@ function parseSseEvents(body: string): SseEvent[] {
     .filter((ev): ev is SseEvent => ev !== null);
 }
 
+describe("Phase 6 — Arabic evidence persistence and history rehydration", () => {
+  it("preserves the Arabic report, structured evidence, verdict, and redacted trace after reload", async () => {
+    const { classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
+    const forensicClassification = {
+      category: "deep_analysis",
+      contextProfile: "chat-deep",
+      historyDepth: 0,
+      allowPrefetch: false,
+      confidence: 1,
+      structuredOutputMode: true,
+      singleFileForensicMode: false,
+      orderedForensicRoots: [],
+      includeTestSources: false,
+      fixtureAuditMode: false,
+      implementationTaskMode: false,
+      implementationPlanMode: false,
+      taskType: "BEHAVIOR_QUERY",
+      analysisMode: "FORENSIC",
+      outputContract: "FORENSIC_REPORT",
+      firstEvidence: {
+        allowedFirstAction: "EXPLORE",
+        primaryEvidenceTarget: null,
+        traversalPolicy: "BROAD",
+      },
+    } as ReturnType<typeof import("@workspace/ai-orchestrator").classifyRequest>;
+    vi.mocked(mockClassifyRequest).mockReturnValueOnce(forensicClassification);
+
+    const rootPath = await fs.mkdtemp("/tmp/stream-arabic-persistence-");
+    rootPaths.push(rootPath);
+    const projectId = await insertProject(rootPath);
+    projectIds.push(projectId);
+    const relativePath = "src/verified-behavior.ts";
+    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+    await fs.writeFile(
+      path.join(rootPath, relativePath),
+      "export function verifiedBehavior() { return true; }\n",
+      "utf8",
+    );
+
+    const sensitiveDiagnostic = "/tmp/private-trace";
+    const publicSource = relativePath;
+    const behaviorEvidence = [{
+      source: publicSource,
+      excerpt: "return true;",
+      sourceSpan: { startLine: 1, endLine: 1 },
+      supportsClaim: true,
+      relevance: 1,
+      directness: "DIRECT" as const,
+      sourceType: "IMPLEMENTATION" as const,
+      productionReachability: "NOT_PROVEN" as const,
+      evidenceClass: "BEHAVIOR_PROVEN" as const,
+    }];
+    const taskResult = {
+      kind: "FORENSIC_REPORT_RESULT" as const,
+      report: "السلوك مثبت من المصدر المقروء.",
+      evidence: behaviorEvidence,
+    };
+    const ArabicReport =
+      "## 6) Final Judgment\nFINDING PROVEN\n\n" +
+      "تم التحقق من السلوك من المصدر الفعلي.";
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      args[6]?.({
+        kind: "tool_call",
+        tool: "read_file",
+        args: { path: publicSource, diagnostic: sensitiveDiagnostic },
+        cached: false,
+      } as never);
+      args[6]?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source: publicSource,
+        details: [sensitiveDiagnostic],
+        cached: false,
+      } as never);
+      args[6]?.({
+        kind: "done",
+        iterations: 1,
+        maxIterations: 24,
+        toolCalls: 1,
+        stopReason: "response",
+        synthesisStarted: true,
+        diagnosticCodes: [],
+      } as never);
+      args[3]?.("تمت قراءة المصدر والتحقق من السلوك.");
+      return {
+        result: {
+          response: ArabicReport,
+          sources: [publicSource],
+          pendingChanges: [],
+          behaviorEvidence,
+          taskResult,
+        },
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const stream = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId, message: "تحقق من سلوك الدالة وأثبت النتيجة من المصدر" });
+    expect(stream.status).toBe(200);
+
+    const events = parseSseEvents(stream.text);
+    const done = events.find((event) => event.type === "done");
+    expect(done).toBeDefined();
+    const doneMessage = done?.message as {
+      id: string;
+      sessionId: string;
+      content: string;
+      sources: string;
+      toolTrace: string | null;
+      behaviorEvidence: unknown;
+      taskResult: unknown;
+    };
+    const sessionId = doneMessage.sessionId;
+    expect(doneMessage.content).toContain("تم التحقق");
+    expect(done?.sources).toEqual([publicSource]);
+    expect(done?.behaviorEvidence).toEqual(behaviorEvidence);
+    expect(done?.taskResult).toEqual(taskResult);
+    expect(doneMessage.toolTrace).not.toContain(sensitiveDiagnostic);
+    expect(JSON.stringify(doneMessage.toolTrace)).toContain(publicSource);
+
+    const [stored] = await db
+      .select()
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.id, doneMessage.id))
+      .limit(1);
+    expect(stored?.role).toBe("assistant");
+    expect(stored?.content).toBe(ArabicReport);
+    expect(JSON.parse(stored?.sources ?? "[]")).toEqual([publicSource]);
+    expect(JSON.parse(stored?.behaviorEvidence ?? "[]")).toEqual(behaviorEvidence);
+    expect(JSON.parse(stored?.taskResult ?? "{}")).toEqual(taskResult);
+    expect(stored?.toolTrace).not.toContain(sensitiveDiagnostic);
+
+    const sessions = await request(app)
+      .get("/api/ai/chat/sessions")
+      .query({ projectId });
+    expect(sessions.status).toBe(200);
+    expect(sessions.body).toHaveLength(1);
+    expect(sessions.body[0].id).toBe(sessionId);
+    expect(sessions.body[0].forensicStatus).toBe("FINDING_PROVEN");
+
+    const reloaded = await request(app)
+      .get(`/api/ai/chat/${sessionId}/messages`);
+    expect(reloaded.status).toBe(200);
+    expect(reloaded.body).toHaveLength(2);
+    const restored = reloaded.body.find((message: { id: string }) => message.id === doneMessage.id);
+    expect(restored).toBeDefined();
+    expect(restored.content).toBe(ArabicReport);
+    expect(JSON.parse(restored.sources)).toEqual([publicSource]);
+    expect(restored.behaviorEvidence).toEqual(behaviorEvidence);
+    expect(restored.taskResult).toEqual(taskResult);
+    expect(restored.toolTrace).not.toContain(sensitiveDiagnostic);
+    expect(restored.toolTrace).toContain(publicSource);
+    expect(restored.toolTrace).toEqual(doneMessage.toolTrace);
+  });
+});
+
 // ─── INT-005: SSE success path ────────────────────────────────────────────────
 
 describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE", () => {
