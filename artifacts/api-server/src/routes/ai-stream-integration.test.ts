@@ -1866,7 +1866,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const storedAssistant = historyMessages
       .find((message) => message["role"] === "assistant" && message["content"] === behaviorResult.response);
     expect(storedAssistant).toBeDefined();
-    expect(storedAssistant?.["sources"]).toEqual([source]);
+    expect(JSON.parse(storedAssistant?.["sources"] as string)).toEqual([source]);
     expect(storedAssistant?.["behaviorEvidence"]).toMatchObject([{
       source,
       excerpt: evidence[0].excerpt,
