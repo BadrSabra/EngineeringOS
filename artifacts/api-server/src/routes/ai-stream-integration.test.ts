@@ -1665,6 +1665,135 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     ]));
   });
 
+  it("hides provider and recovery diagnostic details from evidence-required SSE", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
+    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+
+    vi.mocked(mockClassifyRequest).mockReturnValueOnce({
+      category: "deep_analysis",
+      contextProfile: "chat-deep",
+      historyDepth: 0,
+      allowPrefetch: false,
+      confidence: 1,
+      structuredOutputMode: true,
+      singleFileForensicMode: false,
+      orderedForensicRoots: [],
+      includeTestSources: false,
+      fixtureAuditMode: false,
+      implementationTaskMode: false,
+      implementationPlanMode: false,
+      taskType: "FULL_FORENSIC_AUDIT",
+      analysisMode: "FORENSIC",
+      outputContract: "FORENSIC_REPORT",
+      firstEvidence: {
+        allowedFirstAction: "EXPLORE",
+        primaryEvidenceTarget: null,
+        traversalPolicy: "BROAD",
+      },
+    } as ReturnType<typeof import("@workspace/ai-orchestrator").classifyRequest>);
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(
+      async (
+        _userId,
+        _input,
+        _prov,
+        onDelta,
+        _options,
+        _onStreamReset,
+        onStep,
+      ) => {
+        onDelta?.("Evidence-backed report");
+        onStep?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source: "src/current.ts",
+          cached: false,
+          outputLength: 128,
+          prefetched: false,
+        });
+        onStep?.({
+          kind: "recovery_model_call",
+          model: "recovery-provider-model",
+          provider: "recovery-provider",
+          attempt: 2,
+        });
+        onStep?.({
+          kind: "diagnostic",
+          code: "FORENSIC_CONTRACT_RECOVERY_REJECTED",
+          details: [
+            "provider recovery-provider returned an unusable response",
+            "recovery attempt 2 failed with provider timeout",
+          ],
+        });
+        onStep?.({
+          kind: "done",
+          iterations: 2,
+          maxIterations: 24,
+          toolCalls: 1,
+          prefetchToolCalls: 0,
+          loopToolCalls: 1,
+          stopReason: "response",
+          synthesisStarted: true,
+          diagnosticCodes: ["FORENSIC_CONTRACT_RECOVERY_REJECTED"],
+        });
+        return {
+          result: {
+            response: "Evidence-backed report",
+            sources: ["src/current.ts"],
+            pendingChanges: [],
+          },
+          effectiveProvider: "groq" as const,
+        };
+      },
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "forensic audit" });
+    const events = parseSseEvents(res.text);
+    const diagnostic = events.find((event) => event["type"] === "execution_diagnostic");
+    const done = events.find((event) => event["type"] === "done");
+    const message = done?.["message"] as { content?: string; toolTrace?: string | null } | undefined;
+    const execution = done?.["execution"] as Record<string, unknown> | undefined;
+    const persisted = await db
+      .select({ role: aiChatMessagesTable.role, toolTrace: aiChatMessagesTable.toolTrace })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, done?.["sessionId"] as string));
+    const assistant = persisted.find((row) => row.role === "assistant");
+
+    expect(res.status).toBe(200);
+    expect(message?.content).toBe("Evidence-backed report");
+    expect(diagnostic).toEqual({
+      type: "execution_diagnostic",
+      code: "FORENSIC_CONTRACT_RECOVERY_REJECTED",
+    });
+    expect(diagnostic).not.toHaveProperty("details");
+    expect(execution?.["diagnosticDetails"]).toEqual([
+      "provider recovery-provider returned an unusable response",
+      "recovery attempt 2 failed with provider timeout",
+    ]);
+
+    const trace = assistant?.toolTrace ? JSON.parse(assistant.toolTrace) as Array<Record<string, unknown>> : [];
+    expect(trace).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "recovery_model_call",
+        model: "recovery-provider-model",
+        provider: "recovery-provider",
+      }),
+      expect.objectContaining({
+        kind: "diagnostic",
+        code: "FORENSIC_CONTRACT_RECOVERY_REJECTED",
+        details: [
+          "provider recovery-provider returned an unusable response",
+          "recovery attempt 2 failed with provider timeout",
+        ],
+      }),
+    ]));
+  });
+
   it("records zero-read evidence stops as failed, not completed", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
