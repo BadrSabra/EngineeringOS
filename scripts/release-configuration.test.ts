@@ -1,4 +1,5 @@
 import { strict as assert } from "node:assert";
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -68,6 +69,35 @@ test("surfaces recovery gate failures in the deployment post-build result", asyn
     deploymentCommand,
     /\|\|/,
     "release gate failures must propagate instead of being masked",
+  );
+});
+
+test("reports a controlled recovery failure by name", async () => {
+  const result = spawnSync(
+    "pnpm",
+    ["run", "validate:release"],
+    {
+      cwd: workspaceRoot,
+      env: {
+        ...process.env,
+        DATABASE_URL: "",
+        OPENROUTER_API_KEY: "",
+      },
+      encoding: "utf8",
+    },
+  );
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+
+  assert.notEqual(result.status, 0, "the controlled recovery check must fail");
+  assert.match(
+    output,
+    /> workspace@[^ ]+ validate:release/,
+    "deployment output must identify the release validation command",
+  );
+  assert.match(
+    output,
+    /Real process-recovery validation requires provider\/database configuration/,
+    "deployment output must name the blocked process-recovery validation",
   );
 });
 
