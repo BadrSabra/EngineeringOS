@@ -98,6 +98,20 @@ export function resolveTurnIntent(
   const hasProjectToolSignal =
     SOURCE_PATH_RE.test(message) || PROJECT_TOOL_SIGNAL_RE.test(message);
 
+  // The classifier has already established that these are orientation/chat
+  // questions. Do not let a broad word such as "project" re-promote them to a
+  // tool query: "what is this project?" must remain a fast, tool-free turn.
+  const isLowRiskChat =
+    classification.category === "simple" &&
+    classification.allowPrefetch === false &&
+    classification.analysisMode === "STANDARD" &&
+    classification.taskType === "BEHAVIOR_QUERY" &&
+    !classification.structuredOutputMode &&
+    !classification.singleFileForensicMode &&
+    classification.orderedForensicRoots.length === 0 &&
+    !classification.implementationTaskMode &&
+    !classification.implementationPlanMode;
+
   const explicitEvidenceIntent = Boolean(
     !implementationDelivery &&
     !planDelivery &&
@@ -113,10 +127,11 @@ export function resolveTurnIntent(
     ),
   );
 
-  const requiresTools =
-    implementationDelivery ||
-    explicitEvidenceIntent ||
-    (!planDelivery && hasProjectToolSignal);
+  const requiresTools = isLowRiskChat
+    ? false
+    : implementationDelivery ||
+      explicitEvidenceIntent ||
+      (!planDelivery && hasProjectToolSignal);
 
   const kind: TurnIntentKind = implementationDelivery || planDelivery
     ? "DELIVERY"
