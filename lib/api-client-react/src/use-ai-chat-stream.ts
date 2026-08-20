@@ -258,6 +258,8 @@ export type AiStreamForensicStatusEvent = {
   type: 'forensic_status';
   /** Structured audit scope emitted live as evidence is gathered. */
   auditScope?: 'PRODUCTION' | 'FIXTURE_LOCAL';
+  /** User-readable boundary approved for the active audit. */
+  scopeDescription?: string;
   /** Explicit file manifest retained in request order for scoped audits. */
   requestedFiles?: string[];
   /** True when the proven Finding is supported only by fixture/test/spec evidence. */

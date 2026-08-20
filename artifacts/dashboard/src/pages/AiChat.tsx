@@ -491,6 +491,7 @@ function evidenceAnchor(evidence: AiBehaviorEvidence): { label: string; copy: st
 
 type ToolTraceEntry = {
   kind: string;
+  scopeDescription?: string;
   tool?: string;
   args?: Record<string, string>;
   source?: string;
@@ -949,6 +950,7 @@ type ForensicEvidenceSummary = {
     /** True when the proven Finding is supported only by fixture/test/spec evidence. */
     isFixtureLocal?: boolean;
   } | null;
+  auditScopeDescription?: string;
   forensicPackets: Array<{
     root: string;
     packetIndex: number;
@@ -1046,6 +1048,9 @@ function parseForensicEvidence(trace: ToolTraceEntry[], executionSummary: AiStre
   const statusEntry = [...trace]
     .reverse()
     .find((entry) => entry.kind === 'forensic_status');
+  const scopeEntry = [...trace]
+    .reverse()
+    .find((entry) => entry.kind === 'audit_scope' && entry.scopeDescription);
   const terminalEntry = [...trace]
     .reverse()
     .find((entry) => entry.kind === 'forensic_terminal');
@@ -1128,6 +1133,7 @@ function parseForensicEvidence(trace: ToolTraceEntry[], executionSummary: AiStre
                 : undefined,
           }
         : null,
+    auditScopeDescription: scopeEntry?.scopeDescription,
     forensicPackets,
     // EI-012: surface the latest run-ledger telemetry reconciliation for the run.
     ...(extractEvidenceIntegrity(trace)),
@@ -1471,6 +1477,11 @@ function ForensicEvidenceCard({
         <span className={`font-medium ${isFixtureLocal ? 'text-violet-200' : 'text-amber-200'}`}>
           Forensic evidence
         </span>
+          {evidence.auditScopeDescription && (
+            <span className="hidden min-w-0 truncate text-[10px] text-muted-foreground sm:inline">
+              · {evidence.auditScopeDescription}
+            </span>
+          )}
         {isFixtureLocal && (
           <span className="rounded-full border border-violet-500/50 bg-violet-500/15 px-1.5 py-0.5 text-[10px] text-violet-200 font-semibold">
             FIXTURE-LOCAL
@@ -4664,6 +4675,7 @@ function LiveAgentActivity({
   diagnostics,
   isFixtureLocal,
   verdictScope,
+  auditScopeDescription,
 }: {
   stage: string | null;
   steps: LiveAgentToolStep[];
@@ -4683,6 +4695,7 @@ function LiveAgentActivity({
     scope?: 'PRODUCTION' | 'FIXTURE_LOCAL' | 'TEST_LOCAL' | 'SPEC_LOCAL' | 'MIXED' | 'NOT_PROVEN';
     findingStatus?: 'PRODUCTION_PROVEN' | 'FIXTURE_PROVEN' | 'TEST_PROVEN' | 'MIXED_EVIDENCE' | 'NOT_PROVEN';
   };
+  auditScopeDescription?: string;
 }) {
   const activityLogEndRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -4756,6 +4769,12 @@ function LiveAgentActivity({
           <p className="mt-1 break-words text-[10px] leading-4 text-muted-foreground">
             {liveStageDescription(stage, streamingContent, activeStep)}
           </p>
+          {auditScopeDescription && (
+            <div className="mt-2 rounded border border-primary/20 bg-background/25 px-2 py-1.5 text-[10px] leading-4 text-foreground/85">
+              <span className="font-medium text-primary">Approved scope:</span>{' '}
+              {auditScopeDescription}
+            </div>
+          )}
           {isFixtureLocal && (
             <p className="mt-1 text-[10px] leading-4 text-violet-300/80">
               Evidence found only in fixture/test paths — production reachability not yet proven.
@@ -6085,6 +6104,7 @@ export default function AiChat() {
     scope?: 'PRODUCTION' | 'FIXTURE_LOCAL' | 'TEST_LOCAL' | 'SPEC_LOCAL' | 'MIXED' | 'NOT_PROVEN';
     findingStatus?: 'PRODUCTION_PROVEN' | 'FIXTURE_PROVEN' | 'TEST_PROVEN' | 'MIXED_EVIDENCE' | 'NOT_PROVEN';
   } | null>(null);
+  const [liveAuditScopeDescription, setLiveAuditScopeDescription] = useState<string | null>(null);
   /** NI-35: live evidence_integrity (EI-012) reconciliation shown during the
    *  stream; cleared on done so the persisted forensic card takes over. */
   const [liveEvidenceIntegrity, setLiveEvidenceIntegrity] = useState<{
@@ -7228,6 +7248,10 @@ export default function AiChat() {
           if (event.isFixtureLocal === true || event.auditScope === 'FIXTURE_LOCAL') {
             setLiveFixtureLocal(true);
           }
+          const scopeDescription = (event as typeof event & { scopeDescription?: string }).scopeDescription;
+          if (scopeDescription) {
+            setLiveAuditScopeDescription(scopeDescription);
+          }
         },
         onEvidenceIntegrity: (event) => {
           if (generation !== streamGenerationRef.current) return;
@@ -7257,6 +7281,7 @@ export default function AiChat() {
           setLiveFixtureLocal(false);
           setLiveEvidenceIntegrity(null);
           setLiveVerdictScope(null);
+           setLiveAuditScopeDescription(null);
            activeExecutionRef.current = null;
            setActiveExecution(null);
           setSessionId(data.sessionId);
@@ -7810,6 +7835,7 @@ export default function AiChat() {
                        diagnostics={agentDiagnostics}
                        isFixtureLocal={liveFixtureLocal}
                        verdictScope={liveVerdictScope ?? undefined}
+                        auditScopeDescription={liveAuditScopeDescription ?? undefined}
                      />
                      {/* NI-35: live EI-012 reconciliation indicator during the stream */}
                      {liveEvidenceIntegrity && (

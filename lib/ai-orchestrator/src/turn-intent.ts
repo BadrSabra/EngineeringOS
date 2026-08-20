@@ -42,6 +42,8 @@ export type TurnIntent = {
   allowsBuildHandoff: boolean;
   /** Broad forensic requests must declare a scope before expensive discovery. */
   scopeClarificationRequired: boolean;
+  /** User-readable description of the boundary approved for this audit. */
+  auditScopeDescription?: string;
   operationMode: TurnOperationMode;
   classification: ClassifiedRequest;
 };
@@ -202,6 +204,9 @@ export function resolveTurnIntent(
       (kind !== "CHAT" && RESUMABLE_FORENSIC_TASKS.has(classification.taskType)),
     allowsBuildHandoff: buildHandoff,
     scopeClarificationRequired,
+    ...(explicitEvidenceIntent && !scopeClarificationRequired
+      ? { auditScopeDescription: describeAuditScope(classification, message) }
+      : {}),
     operationMode,
     classification,
   };
@@ -216,6 +221,26 @@ function hasExplicitAuditScope(message: string, classification: ClassifiedReques
     classification.orderedForensicRoots.length > 0 ||
     EXPLICIT_AUDIT_SCOPE_RE.test(message)
   );
+}
+
+function describeAuditScope(classification: ClassifiedRequest, message: string): string | undefined {
+  const roots = classification.orderedForensicRoots
+    .map((root) => root.replace(/\\/g, "/").split("/").filter(Boolean).pop())
+    .filter((root): root is string => Boolean(root));
+  if (classification.singleFileForensicMode && roots.length > 0) {
+    return roots.length === 1
+      ? `the selected file “${roots[0]}”`
+      : `the selected files: ${roots.join(", ")}`;
+  }
+  if (roots.length > 0) {
+    return roots.length === 1
+      ? `the selected folder “${roots[0]}”`
+      : `the selected folders: ${roots.join(", ")}`;
+  }
+  if (BROAD_AUDIT_REQUEST_RE.test(message) && hasExplicitAuditScope(message, classification)) {
+    return "the whole project";
+  }
+  return undefined;
 }
 
 const BROAD_AUDIT_REQUEST_RE =

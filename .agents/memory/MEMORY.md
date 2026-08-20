@@ -15,3 +15,4 @@
 - [Forensic Recovery deadline](forensic-recovery-deadline.md) — Recovery needs per-attempt and run-level bounds; provider fallback must not multiply audit latency.
 - [Forensic cancellation](forensic-cancellation.md) — cancellation preserves collected evidence but always renders ANALYSIS_INCOMPLETE, never NO_VERIFIED_FINDING.
 - [Audit scope consent](audit-scope-consent.md) — vague broad reviews must get an explicit boundary before tool discovery; architecture questions remain ordinary project queries.
+- [Shared package type lag](shared-package-type-lag.md) — workspace consumers can briefly retain older shared declarations; isolate additive compatibility casts at the boundary.

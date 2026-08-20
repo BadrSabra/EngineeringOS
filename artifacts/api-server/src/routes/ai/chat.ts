@@ -687,7 +687,8 @@ function makeSyntheticValidationResult(
 }
 
 type PersistedToolTraceEntry = {
-  kind: AgentStep["kind"];
+  kind: AgentStep["kind"] | "audit_scope";
+  scopeDescription?: string;
   tool?: string;
   args?: Record<string, string>;
   source?: string;
@@ -808,8 +809,12 @@ type PersistedToolTraceEntry = {
  * Keep execution observability separate from the assistant report. The trace
  * contains bounded metadata only — never the tool output body or model text.
  */
-function serializeToolTrace(steps: AgentStep[], includeDiagnosticDetails = true): string | null {
-  if (steps.length === 0) return null;
+function serializeToolTrace(
+  steps: AgentStep[],
+  includeDiagnosticDetails = true,
+  scopeDescription?: string,
+): string | null {
+  if (steps.length === 0 && !scopeDescription) return null;
   const diagnosticCodes = steps
     .filter((step): step is Extract<AgentStep, { kind: "diagnostic" }> => step.kind === "diagnostic")
     .map((step) => step.code)
@@ -1018,6 +1023,7 @@ function serializeToolTrace(steps: AgentStep[], includeDiagnosticDetails = true)
         };
     }
   });
+  if (scopeDescription) entries.unshift({ kind: "audit_scope", scopeDescription });
   return redactUserFacingText(JSON.stringify(entries));
 }
 
@@ -1791,6 +1797,11 @@ router.post("/ai/chat/stream", async (req, res) => {
     resumed: streamClassificationResolution.resumed,
     buildHandoff: Boolean(approvedImplementationPlan && effectiveBuildPlanMessageId),
   });
+  // Keep this compatible with consumers that still resolve the pre-scope
+  // TurnIntent declaration while the workspace packages are being rebuilt.
+  const streamAuditScopeDescription = (streamTurnIntent as unknown as {
+    auditScopeDescription?: string;
+  }).auditScopeDescription;
   const streamModelHasTools = Boolean(validRootPath && streamTurnIntent.requiresTools);
 
   // Provider/model routing must use the same authoritative intent as the
@@ -1895,6 +1906,12 @@ router.post("/ai/chat/stream", async (req, res) => {
         sessionId: createdSession.id,
         title: createdSession.title,
         updatedAt: createdSession.updatedAt.toISOString(),
+      });
+    }
+    if (streamAuditScopeDescription) {
+      sse({
+        type: "forensic_status",
+        scopeDescription: streamAuditScopeDescription,
       });
     }
 
@@ -2370,6 +2387,9 @@ router.post("/ai/chat/stream", async (req, res) => {
         sse({
           type: "forensic_status",
           auditScope: step.auditScope,
+          ...(streamAuditScopeDescription
+            ? { scopeDescription: streamAuditScopeDescription }
+            : {}),
           ...(step.requestedFiles ? { requestedFiles: step.requestedFiles } : {}),
           isFixtureLocal: step.isFixtureLocal === true ? true : undefined,
         });
@@ -2850,7 +2870,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           role: "assistant",
           content: sanitizeResponseText(result.response),
           sources: JSON.stringify(redactUserFacingValue(result.sources)),
-          toolTrace: serializeToolTrace(traceSteps),
+          toolTrace: serializeToolTrace(traceSteps, true, streamAuditScopeDescription),
           repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
           behaviorEvidence: serializeBehaviorEvidence(result.behaviorEvidence),
           taskResult: serializeTaskResult(result.taskResult),
@@ -2962,7 +2982,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         : streamTurnIntent.operationMode;
 
     const publicToolTrace = streamTurnIntent.requiresEvidence
-      ? serializeToolTrace(traceSteps, false)
+        ? serializeToolTrace(traceSteps, false, streamAuditScopeDescription)
       : assistantMsg.toolTrace;
     // The database row is intentionally retained with full diagnostics, but
     // every SSE projection of that row must use the public trace.
