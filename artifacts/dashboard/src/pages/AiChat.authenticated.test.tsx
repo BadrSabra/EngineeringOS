@@ -1380,6 +1380,44 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByText('maxIterations returns exhausted once the cap is reached.')).toBeInTheDocument();
   });
 
+  it('renders an Arabic behavioral answer together with its accepted evidence', async () => {
+    mocks.serverProposal = { proposalId: 'arabic-behavior-answer', changes: [] };
+    mocks.proposalMessages[0].content =
+      "المصدر: `src/pick.ts`\n" +
+      'الدليل: `if (!flag) return "partial"`\n' +
+      "عندما تكون flag=false تعيد الدالة القيمة الجزئية.";
+    mocks.proposalMessages[0].behaviorEvidence = JSON.stringify([{
+      source: 'src/pick.ts',
+      excerpt: 'if (!flag) return "partial"',
+      sourceSpan: { startLine: 2, endLine: 2 },
+      supportsClaim: true,
+      evidenceClass: 'BEHAVIOR_PROVEN',
+    }]);
+    mocks.proposalMessages[0].taskResult = {
+      kind: 'BEHAVIOR_ANSWER_RESULT',
+      answer: {
+        answer: 'عندما تكون flag=false تعيد الدالة القيمة الجزئية.',
+        confidence: 1,
+        sourceScope: ['src/pick.ts'],
+        evidence: [{
+          source: 'src/pick.ts',
+          excerpt: 'if (!flag) return "partial"',
+          supportsClaim: true,
+          evidenceClass: 'BEHAVIOR_PROVEN',
+        }],
+      },
+    };
+    renderAiChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    expect(await screen.findByText('Behavior answer')).toBeInTheDocument();
+    expect(screen.getByText('عندما تكون flag=false تعيد الدالة القيمة الجزئية.')).toBeInTheDocument();
+    expect(screen.getByText(/confidence 100%/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Behavior evidence · 1 excerpt/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('if (!flag) return "partial"').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('src/pick.ts').length).toBeGreaterThan(0);
+  });
+
   it('renders a FINDING_RESULT with a severity badge and description', async () => {
     mocks.serverProposal = { proposalId: 'finding-proposal', changes: [] };
     mocks.proposalMessages[0].taskResult = {
