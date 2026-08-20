@@ -52,6 +52,12 @@ export type AiBehaviorEvidence = {
   excerpt?: string;
   sourceSpan?: { startLine: number; endLine: number };
   supportsClaim: boolean;
+  citationStatus?: 'ACCEPTED' | 'BLOCKED';
+  citationReason?:
+    | 'ACCEPTED_SOURCE_SPAN'
+    | 'MISSING_LITERAL_MATCH'
+    | 'UNRESOLVED_SOURCE_SPAN'
+    | 'INSUFFICIENT_BEHAVIORAL_CONTEXT';
   directness?: 'DIRECT' | 'INDIRECT';
   sourceType?: string;
   evidenceClass?: string;

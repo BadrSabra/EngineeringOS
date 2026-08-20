@@ -3115,12 +3115,12 @@ function isInternalTechnicalDump(content: string): boolean {
 }
 
 /**
- * Task #16: behavior-evidence panel.
- * Shows each accepted excerpt with its exact source line anchor (file:start–end)
- * so analysts can tell exactly where the proof came from.
+ * Behavior-evidence panel.
+ * Shows each citation's safe outcome so analysts can tell exactly where proof
+ * came from, or why an otherwise relevant citation stayed incomplete.
  * - Fragments with a verified line span show a copyable `file:start–end` anchor.
- * - Fragments without a span (READ_CONFIRMED, no control-flow) are dimmed and
- *   labelled "no span" so analysts don't mistake them for located proof.
+ * - Blocked citations expose only a stable, user-facing reason; provider
+ *   prompts, diagnostics, and source-window metadata never reach this panel.
  */
 function BehaviorEvidencePanel({ evidence, projectId }: { evidence: AiBehaviorEvidence[]; projectId?: string }) {
   const [copied, setCopied] = useState<string | null>(null);
@@ -3150,10 +3150,24 @@ function BehaviorEvidencePanel({ evidence, projectId }: { evidence: AiBehaviorEv
         const key = `${index}-${label}`;
         const isCopied = copied === key;
         const isViewing = viewing === key;
+        const accepted = e.citationStatus === 'ACCEPTED' || (e.citationStatus === undefined && e.supportsClaim && hasSpan);
+        const citationReason = e.citationReason === 'MISSING_LITERAL_MATCH'
+          ? 'Blocked: no matching source text was found.'
+          : e.citationReason === 'UNRESOLVED_SOURCE_SPAN'
+            ? 'Blocked: the matching source span could not be resolved uniquely.'
+            : e.citationReason === 'INSUFFICIENT_BEHAVIORAL_CONTEXT'
+              ? 'Blocked: the citation does not show enough behavior to prove the claim.'
+              : accepted
+                ? 'Accepted: source span verified.'
+                : 'Blocked: source span could not be verified.';
         return (
           <div key={`${e.source}-${index}`} className="min-w-0">
             <div className="flex items-start gap-2 min-w-0">
               <div className="min-w-0 flex-1">
+                <div className={`mb-0.5 flex items-center gap-1 text-[10px] font-medium ${accepted ? 'text-emerald-300' : 'text-amber-300'}`}>
+                  {accepted ? <CheckCircle2 className="h-3 w-3" /> : <ShieldAlert className="h-3 w-3" />}
+                  {citationReason}
+                </div>
                 <div className={`text-[11px] leading-5 break-words ${hasSpan ? 'text-foreground/90' : 'text-muted-foreground/70 italic'}`}>
                   {e.excerpt && e.excerpt.length > 160 ? `${e.excerpt.slice(0, 160)}…` : e.excerpt}
                 </div>
@@ -3171,7 +3185,7 @@ function BehaviorEvidencePanel({ evidence, projectId }: { evidence: AiBehaviorEv
                     {hasSpan ? (
                       <><FileCode2 className="w-2.5 h-2.5" />{label}</>
                     ) : (
-                      <><FileCode2 className="w-2.5 h-2.5" />{label}<span className="not-italic text-muted-foreground/50">(no span)</span></>
+                      <><FileCode2 className="w-2.5 h-2.5" />{label}<span className="not-italic text-muted-foreground/50">(unresolved span)</span></>
                     )}
                     <Check className={`w-2.5 h-2.5 ${isCopied ? 'text-emerald-400' : 'opacity-0'}`} />
                   </button>

@@ -43,6 +43,14 @@ export const SourceSpanSchema = z.object({
 }).strict();
 export type SourceSpan = z.infer<typeof SourceSpanSchema>;
 
+export const CitationStatusSchema = z.enum(["ACCEPTED", "BLOCKED"]);
+export const CitationReasonSchema = z.enum([
+  "ACCEPTED_SOURCE_SPAN",
+  "MISSING_LITERAL_MATCH",
+  "UNRESOLVED_SOURCE_SPAN",
+  "INSUFFICIENT_BEHAVIORAL_CONTEXT",
+]);
+
 export const EvidenceReferenceSchema = z.object({
   source: z.string().min(1),
   excerpt: z.string().min(1).optional(),
@@ -59,6 +67,9 @@ export const EvidenceReferenceSchema = z.object({
   sourceType: z.enum(["IMPLEMENTATION", "TEST", "CONFIG", "UNKNOWN"]).default("UNKNOWN"),
   productionReachability: z.enum(["PROVEN", "NOT_PROVEN"]).default("NOT_PROVEN"),
   evidenceClass: z.enum(["READ_CONFIRMED", "BEHAVIOR_PROVEN", "FINDING_PROVEN"]).default("READ_CONFIRMED"),
+  /** Safe, user-facing explanation for whether this citation can be used as proof. */
+  citationStatus: CitationStatusSchema.optional(),
+  citationReason: CitationReasonSchema.optional(),
 }).strict();
 export type EvidenceReference = z.infer<typeof EvidenceReferenceSchema>;
 
@@ -963,6 +974,7 @@ export function validateBehaviorEvidence(
     .map((match) => match[1]?.trim() ?? "")
     .filter((fragment) => fragment.length >= 3);
   const hasEvidenceLabel = /(?:evidence|source|file|الدليل|المصدر)/i.test(response);
+  const hasExplicitEvidenceLabel = /(?:evidence|الدليل)\s*:/i.test(response);
 
   for (const [source, content] of fileContents) {
     const normalizedSource = normalizeEvidencePath(source);
@@ -991,7 +1003,23 @@ export function validateBehaviorEvidence(
         );
       }) ??
       matchingFragments[0];
-    if (excerpt && (sourceMentioned || hasEvidenceLabel)) {
+    if (!excerpt) {
+      if (sourceMentioned && hasExplicitEvidenceLabel) {
+        evidence.push({
+          source: normalizedSource,
+          supportsClaim: false,
+          relevance: 0,
+          directness: "INDIRECT",
+          sourceType: sourceTypeForEvidence(normalizedSource),
+          productionReachability: "NOT_PROVEN",
+          evidenceClass: "READ_CONFIRMED",
+          citationStatus: "BLOCKED",
+          citationReason: "MISSING_LITERAL_MATCH",
+        });
+      }
+      continue;
+    }
+    if (sourceMentioned || hasEvidenceLabel) {
       const scored = scoreEvidenceRelevance(question, normalizedSource, excerpt, content);
       const sourceType = sourceTypeForEvidence(normalizedSource);
       const { span, ambiguous } = computeSourceSpan(
@@ -1024,6 +1052,11 @@ export function validateBehaviorEvidence(
       // span — per the sourceSpan contract, a span that cannot be associated
       // with a specific occurrence can never be BEHAVIOR_PROVEN.
       const supportsClaim = structurallyProven && !ambiguous;
+      const citationReason = supportsClaim
+        ? "ACCEPTED_SOURCE_SPAN"
+        : ambiguous
+          ? "UNRESOLVED_SOURCE_SPAN"
+          : "INSUFFICIENT_BEHAVIORAL_CONTEXT";
       evidence.push({
         source: normalizedSource,
         excerpt,
@@ -1034,6 +1067,8 @@ export function validateBehaviorEvidence(
         sourceType,
         productionReachability: "NOT_PROVEN",
         evidenceClass: supportsClaim ? "BEHAVIOR_PROVEN" : "READ_CONFIRMED",
+        citationStatus: supportsClaim ? "ACCEPTED" : "BLOCKED",
+        citationReason,
       });
     }
   }
