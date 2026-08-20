@@ -443,7 +443,7 @@ export function buildStructuredForensicReport(
   envelope: ForensicRecoveryEnvelope,
   evidence: ForensicEvidence,
   options: {
-    emptyVerdict?: "NO FINDING" | "NOT PROVEN";
+    emptyVerdict?: "NO_VERIFIED_FINDING" | "ANALYSIS_INCOMPLETE" | "NO FINDING" | "NOT PROVEN";
     repairStatus?: "PROPOSED" | "APPLIED" | "BEHAVIORALLY_VALIDATED";
     language?: "ar" | "en";
     allowPartialScopeFinding?: boolean;
@@ -465,6 +465,28 @@ export function buildStructuredForensicReport(
   const blockedValidationText = isArabic
     ? "BLOCKED — لا ينطبق سيناريو تحقق سلوكي لأن أي Finding لم يُقبل."
     : "BLOCKED — no behavioral validation scenario is applicable because no Finding was accepted.";
+  const analysisIncomplete =
+    evidence.fileContents.size === 0 || evidence.sourceCoverage?.complete === false;
+  const emptyClassification =
+    options.emptyVerdict === "NO FINDING"
+      ? "NO_VERIFIED_FINDING"
+      : options.emptyVerdict === "NOT PROVEN"
+        ? "ANALYSIS_INCOMPLETE"
+        : options.emptyVerdict ??
+          (analysisIncomplete ? "ANALYSIS_INCOMPLETE" : "NO_VERIFIED_FINDING");
+  const noFindingBehaviorChecks = isArabic
+    ? [
+        "- graph-empty: تحقق من أن الرسم البياني الفارغ لا ينتج Finding.",
+        "- invalid-relationship: ارفض العلاقة ذات الطرف غير الصالح.",
+        "- missing-provenance: ارفض الدليل أو الحافة التي تفتقد provenance.",
+        "- nonexistent-node: تعامل بأمان مع العقدة غير الموجودة.",
+      ]
+    : [
+        "- graph-empty: verify behavior when the knowledge graph is empty.",
+        "- invalid-relationship: reject a relationship with an invalid endpoint.",
+        "- missing-provenance: reject evidence or edges with missing provenance.",
+        "- nonexistent-node: handle a node that does not exist without producing a Finding.",
+      ];
   const verdict = normalizeVerdict(envelope);
   const findings = (verdict === "NO_FINDING" ? [] : envelope.findings).filter((finding, index, all) =>
     all.findIndex((candidate) => candidate.id === finding.id) === index,
@@ -538,9 +560,14 @@ export function buildStructuredForensicReport(
       ? noRepairPhasesText
       : noExecutablePhasesText;
 
-  const validationText = envelope.validationChecklist.length > 0
-    ? envelope.validationChecklist.map((item) => `- ${oneLine(item)}`).join("\n")
-    : phases.length > 0
+  const validationText = findings.length === 0
+    ? [
+        ...noFindingBehaviorChecks,
+        ...envelope.validationChecklist.map((item) => `- ${oneLine(item)}`),
+      ].join("\n")
+    : envelope.validationChecklist.length > 0
+      ? envelope.validationChecklist.map((item) => `- ${oneLine(item)}`).join("\n")
+      : phases.length > 0
       ? isArabic
         ? "- FAIL — لم يتم توفير سيناريو تحقق صالح لمراحل الإصلاح المقترحة."
         : "- FAIL — no validated scenario was supplied for the proposed repair phases."
@@ -578,8 +605,8 @@ export function buildStructuredForensicReport(
           ? "NOT PROVEN — يفتقر الـFinding المرشح إلى خطة إصلاح مرتبطة وقائمة تحقق خاصة بالسلوك؛ لا يمكن تنفيذ إصلاح."
           : "NOT PROVEN — the candidate Finding lacks a complete linked Repair Plan and behavior-specific validation checklist; no repair is executable."
       : isArabic
-        ? "لم يتم إثبات Finding موثوق من قراءات الشيفرة المصدرية المكتملة."
-        : "No verified Finding was established from the completed source reads.",
+        ? `${emptyClassification} — لم يتم إثبات Finding موثوق من قراءات الشيفرة المصدرية المكتملة.`
+        : `${emptyClassification} — no verified Finding was established from the completed source reads.`,
     "",
     "## 2) Evidence Map",
     ...buildForensicEvidenceMap(evidence, {
@@ -607,8 +634,8 @@ export function buildStructuredForensicReport(
           : "NOT PROVEN — every accepted Finding requires a linked Repair Plan with concrete files, an actionable change, a registered validation profile, and a behavior-specific checklist. No Repair Plan is executable."
       : [
           isArabic
-            ? `${options.emptyVerdict ?? "NO FINDING"} — لم يتم إثبات عيب موثوق من قراءات الشيفرة المصدرية المكتملة.${noFindingBasisText}`
-            : `${options.emptyVerdict ?? "NO FINDING"} — no verified defect was established from the completed source reads.${noFindingBasisText}`,
+            ? `${emptyClassification} — لم يتم إثبات عيب موثوق من قراءات الشيفرة المصدرية المكتملة.${noFindingBasisText}`
+            : `${emptyClassification} — no verified defect was established from the completed source reads.${noFindingBasisText}`,
           isArabic
             ? "هذا استنتاج محدود بالأدلة، وليس إثباتًا لصحة التنفيذ."
             : "This is an evidence-limited conclusion, not proof that the implementation is correct.",

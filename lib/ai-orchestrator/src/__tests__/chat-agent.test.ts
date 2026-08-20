@@ -920,7 +920,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
 
       expect(result.response).toContain("## 2) Evidence Map");
       expect(result.response).toContain("No verified finding identified from inspected source code.");
-      expect(result.response).toContain("NO FINDING");
+      expect(result.response).toContain("NO_VERIFIED_FINDING");
       expect(result.response).toContain(
         "Basis: verified.ts contains `export function verifiedRead() { return true; }`",
       );
@@ -1662,7 +1662,7 @@ describe("chat agent — OpenRouter streaming normalisation (AI-03)", () => {
         expect.objectContaining({ root: "root-b", status: "ACCEPTED" }),
       ]));
       expect(result.response).toContain("## 6) Final Judgment");
-      expect(result.response).toContain("NOT PROVEN — no verified defect was established");
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE — no verified defect was established");
       expect(result.response).not.toContain("NO FINDING — no verified defect was established");
       expect(result.response).toContain("No repair phases identified");
       expect(result.pendingChanges).toEqual([]);

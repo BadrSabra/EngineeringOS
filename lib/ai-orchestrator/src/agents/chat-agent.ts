@@ -6075,7 +6075,7 @@ export async function chat(opts: {
       ? buildStructuredForensicReport(
           deterministicNoFindingEnvelope,
           forensicEvidence,
-          { emptyVerdict: "NO FINDING", language: responseLanguage },
+          { emptyVerdict: "NO_VERIFIED_FINDING", language: responseLanguage },
         )
       : null;
     if (deterministicBehavioralResult?.accepted && deterministicBehavioralEnvelope) {
@@ -6341,12 +6341,12 @@ export async function chat(opts: {
            const mergedReport = reportEnvelope.findings.length > 0
              ? forensicEvidence.sourceCoverage?.complete === false
                ? buildStructuredForensicReport(reportEnvelope, acceptedEvidence, {
-                   emptyVerdict: "NOT PROVEN",
+                   emptyVerdict: "ANALYSIS_INCOMPLETE",
                    language: responseLanguage,
                  })
                : mergedResult.report
              : buildStructuredForensicReport(reportEnvelope, forensicEvidence, {
-                emptyVerdict: "NOT PROVEN",
+                emptyVerdict: "ANALYSIS_INCOMPLETE",
                 language: responseLanguage,
               });
           const mergedExecutablePlan =
@@ -7290,7 +7290,7 @@ export async function chat(opts: {
           ? buildStructuredForensicReport(
               deterministicNoFindingEnvelope,
               forensicEvidence,
-              { emptyVerdict: "NO FINDING", language: responseLanguage },
+              { emptyVerdict: "NO_VERIFIED_FINDING", language: responseLanguage },
             )
           : null;
         if (deterministicBehavioralResult?.accepted && deterministicBehavioralEnvelope) {

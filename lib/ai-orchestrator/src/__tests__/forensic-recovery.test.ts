@@ -422,10 +422,11 @@ describe("staged forensic Recovery", () => {
 
     expect(result.accepted).toBe(false);
     expect(result.verdict).toBe("NO_FINDING");
-    expect(result.report).toContain("NO FINDING — no verified defect was established");
-    expect(result.report).toContain(
-      "BLOCKED — no behavioral validation scenario is applicable because no Finding was accepted.",
-    );
+    expect(result.report).toContain("NO_VERIFIED_FINDING — no verified defect was established");
+    expect(result.report).toContain("graph-empty:");
+    expect(result.report).toContain("invalid-relationship:");
+    expect(result.report).toContain("missing-provenance:");
+    expect(result.report).toContain("nonexistent-node:");
     expect(result.report).toContain("This is an evidence-limited conclusion, not proof that the implementation is correct.");
   });
 

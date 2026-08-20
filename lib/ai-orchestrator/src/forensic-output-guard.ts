@@ -644,7 +644,7 @@ function evidenceMapContractViolations(
       const notes = fields.get("notes");
       if (
         notes &&
-        !/^(?:FACT|INFERENCE|NOT PROVEN|READ_CONFIRMED)(?:\s+·\s+[A-Z_]+)*$/i.test(notes)
+        !/^(?:FACT|INFERENCE|NOT PROVEN|READ_CONFIRMED|READ_COMPLETE)(?:\s+·\s+[A-Z_]+)*$/i.test(notes)
       ) {
         violations.push(
           "Evidence Map Notes must start with FACT, INFERENCE, or NOT PROVEN and may include a bounded classification suffix",
@@ -1036,10 +1036,10 @@ function fallbackEvidenceMap(
       const isConfig = category === "context";
       const isGenerated = category === "generated";
       const hasCompleteRead = !hasDisplayTruncationMarker(content);
-      const note = hasCompleteRead
+       const note = hasCompleteRead
         ? options.findingAccepted && category === "implementation" && acceptedEvidence
           ? "FACT · EXACT_FINDING_EVIDENCE"
-          : "READ_CONFIRMED · NOT_BEHAVIORAL_PROOF"
+           : "READ_COMPLETE · NO_FINDING_ACCEPTED"
         : "NOT PROVEN · INCOMPLETE_READ";
       const role = options.findingAccepted
         ? isGenerated
@@ -1139,6 +1139,10 @@ export function normalizeCompactForensicReport(
     sourceEntries.some(([, content]) => content.includes(fragment)),
   );
   const findingAccepted = !noFinding && Boolean(file && exactEvidence);
+  const emptyClassification =
+    evidence && evidence.fileContents.size > 0
+      ? "NO_VERIFIED_FINDING"
+      : "ANALYSIS_INCOMPLETE";
 
   const firstMeaningfulLine = (value: string): string =>
     value
@@ -1180,7 +1184,7 @@ export function normalizeCompactForensicReport(
 
   return [
     "## 1) Executive Verdict",
-    oneLine(verdictBody),
+    findingAccepted ? oneLine(verdictBody) : `${emptyClassification} — ${oneLine(verdictBody)}`,
     "",
     "## 2) Evidence Map",
     evidenceMap || "No verified evidence map was produced because no completed source-file read was available.",
@@ -1197,7 +1201,7 @@ export function normalizeCompactForensicReport(
     "## 6) Final Judgment",
     findingAccepted
       ? oneLine(verdictBody)
-      : "NOT PROVEN — the compact response did not provide a directly verifiable Finding. This does not prove the implementation is correct; no Repair Plan is executable.",
+      : `${emptyClassification} — the compact response did not provide a directly verifiable Finding. This does not prove the implementation is correct; no Repair Plan is executable.`,
   ].join("\n");
 }
 
@@ -1327,8 +1331,6 @@ function repairContractFromEvidence(
   evidence: ForensicEvidence | undefined,
   violations: string[],
 ): string | null {
-  if (!evidence || evidence.fileContents.size === 0) return null;
-
   const repairable = violations.every((reason) =>
     reason.startsWith("Evidence Map") ||
     reason.includes("unverified broad quality or completeness claim") ||
@@ -1342,6 +1344,7 @@ function repairContractFromEvidence(
     reason.includes("Validation Checklist is generic"),
   );
   if (!repairable) return null;
+  if (!evidence || evidence.fileContents.size === 0) return null;
 
   let repaired = response;
   const findingsNeedRemoval = violations.some(
@@ -1436,15 +1439,28 @@ function repairContractFromEvidence(
 
 function safeForensicContractFallback(evidence?: ForensicEvidence): string {
   const hasCompletedEvidence = (evidence?.fileContents.size ?? 0) > 0;
+  const classification = hasCompletedEvidence
+    ? "NO_VERIFIED_FINDING"
+    : "ANALYSIS_INCOMPLETE";
   const executiveVerdict = hasCompletedEvidence
-    ? "No verified forensic verdict was produced from the provider response. Completed source reads were preserved, and the Evidence Map was rebuilt deterministically from them."
-    : "No verified forensic verdict was produced because the original model response was rejected by the required report contract.";
+    ? `${classification} — no verified Finding was established from the completed source reads.`
+    : `${classification} — the analysis could not establish a Finding because no completed source-file read was available.`;
   const validation = hasCompletedEvidence
-    ? "BLOCKED — completed source reads were preserved, but no Finding or repair phase passed the forensic contract and evidence gates."
-    : "- FAIL — The original model response was rejected by the forensic contract gate; no finding or repair phase was accepted from it.";
+    ? [
+        "- Graph empty: verify the audit remains safe when the knowledge graph has no nodes.",
+        "- Invalid relationship: reject relationships whose endpoints are invalid or disconnected.",
+        "- Missing provenance: reject evidence and edges that lack source provenance.",
+        "- Nonexistent node: return a bounded no-finding result for a node that is not present.",
+      ].join("\n")
+    : [
+        "- BLOCKED — graph-empty behavior cannot be verified without a completed source read.",
+        "- BLOCKED — invalid-relationship behavior cannot be verified without a completed source read.",
+        "- BLOCKED — missing-provenance behavior cannot be verified without a completed source read.",
+        "- BLOCKED — nonexistent-node behavior cannot be verified without a completed source read.",
+      ].join("\n");
   const finalJudgment = hasCompletedEvidence
-    ? "NOT PROVEN — completed source reads were preserved, but the provider response did not produce a report that could be verified. This does not prove the implementation is correct; no Finding or Repair Plan was accepted."
-    : "NOT PROVEN — the original model response was rejected by the contract gate. This does not prove the implementation is correct; no Finding or Repair Plan is executable.";
+    ? `${classification} — completed source reads were preserved, but no verified defect was established. No Repair Plan is executable.`
+    : `${classification} — the report could not be verified because source evidence is incomplete. No Repair Plan is executable.`;
 
   return [
     "## 1) Executive Verdict",
@@ -1457,7 +1473,7 @@ function safeForensicContractFallback(evidence?: ForensicEvidence): string {
     "No verified finding identified from inspected source code.",
     "",
     "## 4) Repair Plan",
-    "No repair phase is executable until a valid forensic report is produced.",
+    "No repair phases identified because no executable Finding was accepted.",
     "",
     "## 5) Validation Checklist",
     validation,

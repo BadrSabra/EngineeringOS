@@ -339,7 +339,7 @@ describe("forensic output evidence gate", () => {
     expect(result.response).toContain(
       "(read proof only; no behavioral finding accepted)",
     );
-    expect(result.response).toContain("Notes: READ_CONFIRMED · NOT_BEHAVIORAL_PROOF");
+    expect(result.response).toContain("Notes: READ_COMPLETE · NO_FINDING_ACCEPTED");
     expect(result.response).toContain("NOT PROVEN — the available source evidence does not establish a broad quality or completeness claim.");
     expect(result.response.match(/Evidence Map Evidence must cite/g)).toBeNull();
 
@@ -542,7 +542,7 @@ describe("forensic output evidence gate", () => {
     }
     expect(result.response).not.toContain("comprehensive and robust");
     expect(result.response).not.toContain("File: `inference.ts`");
-    expect(result.response).toContain("Notes: READ_CONFIRMED · NOT_BEHAVIORAL_PROOF");
+    expect(result.response).toContain("Notes: READ_COMPLETE · NO_FINDING_ACCEPTED");
     expect(applyForensicOutputContract(result.response, evidence)).toMatchObject({
       valid: true,
       violations: [],
@@ -1004,7 +1004,7 @@ describe("forensic output evidence gate", () => {
     expect(result.violations).toContain(
       "Validation Checklist contains an unresolved pass/fail scenario placeholder",
     );
-    expect(result.response).toContain("No verified forensic verdict");
+    expect(result.response).toContain("ANALYSIS_INCOMPLETE");
     expect(result.response).not.toContain("[pass/fail test scenario");
   });
 
@@ -1251,8 +1251,8 @@ describe("forensic output evidence gate", () => {
     expect(result.response).toContain("File: `lib/ai-orchestrator/src/context-builder.ts`");
     expect(result.response).not.toContain("openrouter/index.js");
     expect(result.response).not.toContain("Evidence: `const stale = true`");
-    expect(result.response).toContain("Completed source reads were preserved");
-    expect(result.response).toContain("Evidence Map was rebuilt deterministically");
+    expect(result.response).toContain("completed source reads were preserved");
+    expect(result.response).toContain("NO_VERIFIED_FINDING");
     expect(result.response).not.toContain("original model response was rejected");
     expect(applyForensicOutputContract(result.response, evidence)).toMatchObject({
       valid: true,
@@ -1418,7 +1418,7 @@ describe("forensic output evidence gate", () => {
 
     expect(result.valid).toBe(true);
     expect(result.response).toContain("Evidence: completed read_file result;");
-    expect(result.response).toContain("Notes: READ_CONFIRMED · NOT_BEHAVIORAL_PROOF");
+    expect(result.response).toContain("Notes: READ_COMPLETE · NO_FINDING_ACCEPTED");
   });
 
   it("rejects an unstructured finding that bypasses the finding ID grammar", () => {
