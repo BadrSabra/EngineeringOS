@@ -1,1 +1,0 @@
-The server is configured with a public base URL of /dashboard/ - did you mean to visit /dashboard/api/projects/e2e-project/git/log instead?
