@@ -4,9 +4,23 @@ import { spawn } from "node:child_process";
 
 const requiredEnvironment = [
   "DATABASE_URL",
-  "OPENROUTER_API_KEY",
   "EMPTY_MODEL_RESPONSE_TEST_MODEL",
 ];
+const provider = process.env.EMPTY_MODEL_RESPONSE_TEST_PROVIDER ?? "openrouter";
+const providerKeyEnvironment = {
+  openrouter: "OPENROUTER_API_KEY",
+  gemini: "GEMINI_API_KEY",
+};
+const providerKeyEnvironmentName = providerKeyEnvironment[provider];
+
+if (!providerKeyEnvironmentName) {
+  console.error(
+    `Unsupported empty-model-response provider "${provider}". Choose openrouter or gemini.`,
+  );
+  process.exit(2);
+}
+
+requiredEnvironment.push(providerKeyEnvironmentName);
 const missingEnvironment = requiredEnvironment.filter((name) => !process.env[name]);
 
 if (process.env.RUN_LIVE_EMPTY_MODEL_RESPONSE !== "1") {
@@ -21,7 +35,7 @@ if (missingEnvironment.length > 0) {
     `Live empty-model-response validation requires provider/database configuration: ${missingEnvironment.join(", ")}.`,
   );
   console.error(
-    "Set EMPTY_MODEL_RESPONSE_TEST_MODEL to a documented provider model used for the controlled empty-response scenario.",
+    "Set EMPTY_MODEL_RESPONSE_TEST_PROVIDER and EMPTY_MODEL_RESPONSE_TEST_MODEL to a documented provider/model used for the controlled empty-response scenario.",
   );
   process.exit(2);
 }

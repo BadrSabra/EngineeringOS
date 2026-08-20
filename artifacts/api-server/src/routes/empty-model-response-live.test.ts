@@ -14,11 +14,19 @@ import {
   chat,
   parseAgentResponse,
 } from "@workspace/ai-orchestrator";
+import type { ProviderId } from "@workspace/ai-orchestrator";
 
+const provider = (process.env.EMPTY_MODEL_RESPONSE_TEST_PROVIDER ??
+  "openrouter") as ProviderId;
+const providerKeyEnvironment: Partial<Record<ProviderId, string>> = {
+  openrouter: "OPENROUTER_API_KEY",
+  gemini: "GEMINI_API_KEY",
+};
+const providerKey = providerKeyEnvironment[provider];
 const enabled =
   process.env.RUN_LIVE_EMPTY_MODEL_RESPONSE === "1" &&
   Boolean(process.env.DATABASE_URL) &&
-  Boolean(process.env.OPENROUTER_API_KEY) &&
+  Boolean(providerKey && process.env[providerKey]) &&
   Boolean(process.env.EMPTY_MODEL_RESPONSE_TEST_MODEL);
 
 const roots: string[] = [];
@@ -58,8 +66,8 @@ describe("controlled live empty-model-response contract", () => {
       const readSources: string[] = [];
       const diagnostics: string[] = [];
       const result = await chat({
-        provider: "openrouter",
-        apiKey: process.env.OPENROUTER_API_KEY,
+        provider,
+        apiKey: process.env[providerKey!],
         model: process.env.EMPTY_MODEL_RESPONSE_TEST_MODEL,
         rootPath,
         projectContext: {} as never,
@@ -82,7 +90,7 @@ describe("controlled live empty-model-response contract", () => {
       expect(response).not.toMatch(/\bFINDING(?:_| )PROVEN\b/i);
       expect(response).not.toContain("providerMessage");
       expect(response).not.toContain("EMPTY_MODEL_RESPONSE");
-      expect(diagnostics.join("\n")).not.toContain(process.env.OPENROUTER_API_KEY);
+      expect(diagnostics.join("\n")).not.toContain(process.env[providerKey!]);
 
       // A model that emits text means the controlled scenario was not
       // exercised; never silently accept a normal completion as a pass.
