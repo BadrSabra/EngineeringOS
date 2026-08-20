@@ -2097,6 +2097,43 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       kind: "BEHAVIOR_ANSWER_RESULT",
       answer: { evidence: [], sourceScope: [] },
     });
+
+    // Replay the persisted assistant message through the history response
+    // builder. A completed read must not become a verified source or accepted
+    // evidence merely because the result was serialized and restored.
+    const historyResponse = await request(app)
+      .get(`/api/ai/chat/${done?.["sessionId"]}/messages`)
+      .expect(200);
+    const replayed = (historyResponse.body as Array<Record<string, unknown>>)
+      .find((message) => message["role"] === "assistant");
+    expect(replayed).toBeDefined();
+    expect(replayed?.["content"]).toContain("ANALYSIS_INCOMPLETE");
+    expect(replayed?.["content"]).not.toContain("NO_VERIFIED_FINDING");
+    expect(replayed?.["content"]).not.toMatch(/\bFinding\b/i);
+    expect(JSON.parse((replayed?.["sources"] as string | undefined) ?? "[]")).toEqual([]);
+    expect(replayed?.["behaviorEvidence"] ?? []).toEqual([]);
+
+    const replayedTaskResult = replayed?.["taskResult"] as Record<string, unknown> | undefined;
+    expect(replayedTaskResult).toMatchObject({
+      kind: "BEHAVIOR_ANSWER_RESULT",
+      answer: {
+        evidence: [],
+        sourceScope: [],
+      },
+    });
+    const replayedAnswer = replayedTaskResult?.["answer"] as Record<string, unknown> | undefined;
+    expect(replayedAnswer?.["evidence"]).toHaveLength(0);
+    expect(replayedAnswer?.["sourceScope"]).toHaveLength(0);
+
+    const replayedTrace = JSON.parse((replayed?.["toolTrace"] as string | undefined) ?? "[]") as Array<Record<string, unknown>>;
+    const replayedIntegrity = replayedTrace.find((entry) => entry["kind"] === "evidence_integrity");
+    expect(replayedIntegrity).toMatchObject({
+      acceptedEvidenceCount: 0,
+      acceptedClaimCount: 0,
+      acceptedEvidenceFiles: [],
+    });
+    expect(replayedIntegrity?.["completedReadFiles"]).toEqual([source]);
+    expect(replayedIntegrity?.["retainedBodyFiles"]).toEqual([source]);
   });
 
   it("completes the Arabic behavior journey through session, API, SSE, and history endpoints", async () => {
