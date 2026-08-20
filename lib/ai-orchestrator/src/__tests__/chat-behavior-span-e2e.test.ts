@@ -248,11 +248,32 @@ describe("chat() BEHAVIOR_ANSWER_RESULT — duplicated-fragment span (task #25)"
       expect(result.repairPlan).toBeUndefined();
       expect(calls.length).toBeGreaterThan(0);
 
+      // `steps` is the deterministic toolTrace emitted by chat(); prove that
+      // the requested source was actually read before the model answer passed.
+      const readCall = steps.find(
+        (step) =>
+          step.kind === "tool_call" &&
+          step.tool === "read_file" &&
+          step.prefetched === true,
+      );
+      const readResult = steps.find(
+        (step) =>
+          step.kind === "tool_result" &&
+          step.tool === "read_file" &&
+          step.source === file &&
+          step.prefetched === true,
+      );
+      expect(readCall).toBeDefined();
+      expect(readResult).toBeDefined();
+
       const evidenceStep = steps.find((step) => step.kind === "evidence_integrity");
       expect(evidenceStep).toBeDefined();
       if (evidenceStep?.kind === "evidence_integrity") {
         expect(evidenceStep.evidenceFileCount).toBe(1);
-        expect(evidenceStep.acceptedEvidenceCount).toBe(1);
+        expect(evidenceStep.acceptedEvidenceCount).toBeGreaterThan(0);
+        expect(evidenceStep.acceptedClaimCount).toBeGreaterThan(0);
+        expect(evidenceStep.completedReadFiles).toContain(file);
+        expect(evidenceStep.acceptedEvidenceFiles).toContain(file);
       }
 
       expect(
@@ -265,6 +286,10 @@ describe("chat() BEHAVIOR_ANSWER_RESULT — duplicated-fragment span (task #25)"
       ).toBe(false);
 
       if (result.taskResult?.kind === "BEHAVIOR_ANSWER_RESULT") {
+        expect(result.taskResult.answer.evidence?.length).toBeGreaterThan(0);
+        expect(result.taskResult.answer.evidence?.some(
+          (item) => item.evidenceClass === "FINDING_PROVEN",
+        )).toBe(false);
         expect(result.taskResult.answer.evidence).toMatchObject([{
           source: file,
           excerpt: 'return partialFromCollectedEvidence("provider timeout");',
