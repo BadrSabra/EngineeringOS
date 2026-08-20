@@ -981,12 +981,14 @@ describe("GET /api/ai/chat/sessions", () => {
     expect(res.body).toEqual([]);
   });
 
-  it("returns derived forensic statuses for incomplete and no-finding sessions", async () => {
+  it("returns stable derived forensic statuses after history reload", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const now = new Date();
     const incompleteSessionId = randomUUID();
     const noFindingSessionId = randomUUID();
+    const findingProvenSessionId = randomUUID();
+    const notProvenSessionId = randomUUID();
 
     await db.insert(aiChatSessionsTable).values([
       {
@@ -1002,6 +1004,20 @@ describe("GET /api/ai/chat/sessions", () => {
         title: "No finding audit",
         createdAt: now,
         updatedAt: now,
+      },
+      {
+        id: findingProvenSessionId,
+        projectId,
+        title: "Finding proven audit",
+        createdAt: new Date(now.getTime() + 1000),
+        updatedAt: new Date(now.getTime() + 1000),
+      },
+      {
+        id: notProvenSessionId,
+        projectId,
+        title: "Not proven audit",
+        createdAt: new Date(now.getTime() + 2000),
+        updatedAt: new Date(now.getTime() + 2000),
       },
     ]);
     await db.insert(aiChatMessagesTable).values([
@@ -1019,6 +1035,20 @@ describe("GET /api/ai/chat/sessions", () => {
         content: "## 6) Final Judgment\nNO FINDING",
         createdAt: now,
       },
+      {
+        id: randomUUID(),
+        sessionId: findingProvenSessionId,
+        role: "assistant",
+        content: "## 6) Final Judgment\nFINDING PROVEN",
+        createdAt: new Date(now.getTime() + 1000),
+      },
+      {
+        id: randomUUID(),
+        sessionId: notProvenSessionId,
+        role: "assistant",
+        content: "## 6) Final Judgment\nNOT PROVEN",
+        createdAt: new Date(now.getTime() + 2000),
+      },
     ]);
 
     const res = await request(app).get(`/api/ai/chat/sessions?projectId=${projectId}`);
@@ -1027,6 +1057,8 @@ describe("GET /api/ai/chat/sessions", () => {
     expect(res.body).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: incompleteSessionId, forensicStatus: "INCOMPLETE" }),
       expect.objectContaining({ id: noFindingSessionId, forensicStatus: "NO_FINDING" }),
+      expect.objectContaining({ id: findingProvenSessionId, forensicStatus: "FINDING_PROVEN" }),
+      expect.objectContaining({ id: notProvenSessionId, forensicStatus: "NOT_PROVEN" }),
     ]));
   });
 });
