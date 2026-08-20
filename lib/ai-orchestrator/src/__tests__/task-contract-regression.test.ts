@@ -110,6 +110,15 @@ describe("task contract regression matrix", () => {
     expect(buildResponseLanguageFallback("ar")).toContain("لغة الطلب");
   });
 
+  it("returns a complete Arabic incomplete report instead of hiding a forensic language failure", () => {
+    const fallback = buildTaskValidationFallback("FULL_FORENSIC_AUDIT", true);
+    expect(fallback).toContain("## 1) Executive Verdict");
+    expect(fallback).toContain("## 6) Final Judgment");
+    expect(fallback).toContain("ANALYSIS_INCOMPLETE");
+    expect(fallback).not.toContain("FINDING PROVEN");
+    expect(validateTaskResponse("FULL_FORENSIC_AUDIT", fallback, { responseLanguage: "ar" }).valid).toBe(true);
+  });
+
   it("accepts mixed Arabic prose containing canonical technical identifiers", () => {
     expect(
       validateResponseLanguage(

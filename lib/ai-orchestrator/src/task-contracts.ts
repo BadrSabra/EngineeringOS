@@ -450,6 +450,27 @@ export function buildTaskValidationFallback(
   isArabic = false,
 ): string {
   if (isArabic) {
+    if (taskType === "FULL_FORENSIC_AUDIT" || taskType === "WORKSPACE_REVIEW") {
+      return [
+        "## 1) Executive Verdict",
+        "غير مكتمل — تعذر اعتماد تقرير التدقيق لأن الاستجابة لم تلتزم بلغة الطلب.",
+        "",
+        "## 2) Evidence Map",
+        "لم يتم اعتماد خريطة أدلة قابلة للتحقق لهذه الاستجابة.",
+        "",
+        "## 3) Findings",
+        "لا يوجد Finding مثبت. لا يجوز استنتاج وجود خلل من استجابة غير مكتملة أو غير مطابقة.",
+        "",
+        "## 4) Repair Plan",
+        "لا توجد مرحلة إصلاح قابلة للتنفيذ قبل اكتمال تقرير مصدرّي مطابق.",
+        "",
+        "## 5) Validation Checklist",
+        "ANALYSIS_INCOMPLETE — لا يمكن تشغيل تحقق سلوكي قبل اعتماد الأدلة والتقرير.",
+        "",
+        "## 6) Final Judgment",
+        "ANALYSIS_INCOMPLETE — لم تُنتج نتيجة قاطعة؛ أُبقي الحكم غير مثبت بدل عرض نتيجة قد تكون خاطئة.",
+      ].join("\n");
+    }
     if (taskType === "BEHAVIOR_QUERY") {
       return "تعذر عرض الاستجابة لأنها لم تكن إجابة سلوكية عربية مباشرة وفق عقد BEHAVIOR_QUERY. لم يتم عرض إجابة بلغة أو صيغة غير مطابقة.";
     }
