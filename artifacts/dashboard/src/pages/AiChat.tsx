@@ -816,7 +816,7 @@ function isIncompleteBeforeEvidenceSummary(summary: AiStreamExecutionSummary | n
   );
 }
 
-type FinalForensicVerdict = 'FINDING PROVEN' | 'NO FINDING' | 'NOT PROVEN';
+type FinalForensicVerdict = 'FINDING PROVEN' | 'NO FINDING' | 'NOT PROVEN' | 'INCOMPLETE';
 
 /**
  * The execution trace contains historical attempts. It is useful for
@@ -833,6 +833,14 @@ function getFinalForensicVerdict(
   const findingsSection =
     content.match(/##\s*3\)\s*Findings([\s\S]*?)(?=\n##\s*4\)\s*Repair Plan|$)/i)?.[1] ?? '';
   const hasAcceptedFinding = /(?:^|\n)\s*(?:[*-]\s*)?ID:\s*F-\d+\s*·/i.test(findingsSection);
+
+  // Cancellation is a terminal state of the audit, not a finding verdict.
+  // Check the rendered report before historical trace fields so a stale
+  // NO_FINDING status can never turn an incomplete cancellation into a clean
+  // result.
+  if (/\bANALYSIS_INCOMPLETE\b/i.test(finalJudgment) || /\bANALYSIS_INCOMPLETE\b/i.test(content)) {
+    return 'INCOMPLETE';
+  }
 
   // The report's NOT PROVEN wording can describe a blocked repair handoff,
   // while forensic_status separately records that the Finding itself was

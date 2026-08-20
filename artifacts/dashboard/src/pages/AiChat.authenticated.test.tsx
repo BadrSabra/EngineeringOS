@@ -27,6 +27,26 @@ type TaskResultFixture =
       writeAccess: 'NOT_AUTHORIZED' | 'APPROVED_FOR_BUILD';
     };
 
+const CANCELLED_FORENSIC_REPORT_FIXTURE = [
+  '## 1) Executive Verdict',
+  'ANALYSIS_INCOMPLETE — cancellation stopped the audit before evidence coverage was complete.',
+  '',
+  '## 2) Evidence Map',
+  'One source read was retained before cancellation.',
+  '',
+  '## 3) Findings',
+  'No verified finding identified from the retained evidence.',
+  '',
+  '## 4) Repair Plan',
+  'No repair phases are authorized for this incomplete audit.',
+  '',
+  '## 5) Validation Checklist',
+  'No executable validation scenario is authorized for this incomplete audit.',
+  '',
+  '## 6) Final Judgment',
+  'ANALYSIS_INCOMPLETE — no verified defect was established because the audit was cancelled during recovery.',
+].join('\n');
+
 const mocks = vi.hoisted(() => {
   const mutation = () => ({
     mutate: vi.fn(),
@@ -286,6 +306,7 @@ beforeEach(() => {
   mocks.projects = [{ id: 'project-1', name: 'demo-service', language: 'TypeScript' }];
   mocks.sessions = [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }];
   mocks.proposalMessages[0].content = 'Existing response';
+  mocks.proposalMessages[0].operationMode = undefined;
   mocks.operationEvents = [];
   mocks.proposalMessages[0].toolTrace = undefined;
   mocks.proposalMessages[0].behaviorEvidence = undefined;
@@ -1362,6 +1383,72 @@ describe('AiChat authenticated generated mutations', () => {
     expect(await screen.findByText('Forensic report')).toBeInTheDocument();
     expect(screen.getByText('No behavioral defect found across reviewed sources.')).toBeInTheDocument();
     expect(screen.getByText('1 evidence item')).toBeInTheDocument();
+  });
+
+  it('renders a cancelled forensic SSE completion as incomplete without leaking diagnostics', async () => {
+    mocks.serverProposal = { proposalId: 'cancelled-forensic-audit', changes: [] };
+    mocks.proposalMessages[0].content = CANCELLED_FORENSIC_REPORT_FIXTURE;
+    mocks.proposalMessages[0].operationMode = 'FORENSIC_AUDIT';
+    mocks.proposalMessages[0].toolTrace = JSON.stringify([
+      {
+        kind: 'forensic_status',
+        auditScope: 'PRODUCTION',
+        productionReachability: 'NOT_PROVEN',
+        sourceCoverage: 'PARTIAL',
+        behavioralAssessment: 'INCOMPLETE',
+        // A stale status must not override the cancelled report.
+        findingStatus: 'NO_FINDING',
+        repairReadiness: 'BLOCKED',
+        implementationFiles: 1,
+        contextFiles: 0,
+        generatedFiles: 0,
+      },
+      {
+        kind: 'diagnostic',
+        code: 'FORENSIC_CONTRACT_RECOVERY_FAILED',
+        details: [
+          'AbortError: recovery provider request was cancelled',
+          'provider recovery-provider diagnostic: cancellation requested by user',
+          'telemetry.internalAttemptId=secret-fixture-value',
+        ],
+      },
+      {
+        kind: 'done',
+        iterations: 3,
+        maxIterations: 24,
+        toolCalls: 1,
+        prefetchToolCalls: 0,
+        loopToolCalls: 1,
+        stopReason: 'cancelled',
+        synthesisStarted: true,
+        diagnosticCodes: ['FORENSIC_CONTRACT_RECOVERY_FAILED'],
+        diagnosticDetails: [
+          'AbortError: recovery provider request was cancelled',
+          'provider recovery-provider diagnostic: cancellation requested by user',
+          'telemetry.internalAttemptId=secret-fixture-value',
+        ],
+      },
+    ]);
+    renderAiChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    for (const heading of [
+      '1) Executive Verdict',
+      '2) Evidence Map',
+      '3) Findings',
+      '4) Repair Plan',
+      '5) Validation Checklist',
+      '6) Final Judgment',
+    ]) {
+      expect(await screen.findByText(heading)).toBeInTheDocument();
+    }
+    expect(screen.getAllByText(/ANALYSIS_INCOMPLETE/).length).toBeGreaterThan(0);
+    expect(screen.queryByText('NO_VERIFIED_FINDING')).not.toBeInTheDocument();
+    expect(screen.queryByText(/AbortError/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/provider recovery-provider diagnostic/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/telemetry\.internalAttemptId/)).not.toBeInTheDocument();
+    expect(screen.queryByText('NO FINDING')).not.toBeInTheDocument();
   });
 
   it('renders a REPAIR_RESULT with a readiness indicator and phases', async () => {
