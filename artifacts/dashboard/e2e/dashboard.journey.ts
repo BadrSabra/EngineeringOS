@@ -89,7 +89,13 @@ async function installApiFixtures(
     const arabicAi = overrides?.arabicAi;
 
     if (arabicAi && path.endsWith("/api/ai/chat/sessions"))
-      return route.fulfill(jsonResponse([]));
+      return route.fulfill(jsonResponse([
+        {
+          id: arabicAi.sessionId,
+          title: arabicAi.question,
+          updatedAt: "2026-01-01T00:02:00.000Z",
+        },
+      ]));
     if (arabicAi && path.endsWith("/api/ai/chat/stream"))
       return route.fulfill({
         status: 200,
@@ -446,7 +452,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const duringOpen = await composer.boundingBox();
     expect(duringOpen?.width).toBeGreaterThan(250);
 
-    await page.getByRole("button", { name: "Close sessions" }).click();
+    await page.getByRole("button", { name: "Close sidebar" }).click();
     await expect(page.getByRole("button", { name: "Open sessions" })).toBeVisible();
   });
 

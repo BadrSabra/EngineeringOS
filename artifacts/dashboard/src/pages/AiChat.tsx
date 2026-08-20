@@ -7606,7 +7606,7 @@ export default function AiChat() {
           type="button"
           onClick={() => setSidebarOpen(false)}
           className="absolute inset-0 z-20 bg-black/55 md:hidden"
-          aria-label="Close sessions"
+          aria-label="Close sessions backdrop"
         />
       )}
 
