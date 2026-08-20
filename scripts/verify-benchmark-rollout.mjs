@@ -35,6 +35,18 @@ function requireNumber(value, label) {
 
 function validateRolloutScorecard(raw) {
   const scorecard = requireRecord(raw, "live benchmark scorecard");
+  if (
+    scorecard.kind === "code-agent-benchmark-baseline" &&
+    scorecard.version === 1 &&
+    scorecard.suiteVersion === "flight-deck-v2"
+  ) {
+    validateBaseline(scorecard);
+    return {
+      suiteVersion: scorecard.suiteVersion,
+      baselineId: scorecard.baselineId,
+      observedCases: scorecard.metrics.observedCases,
+    };
+  }
   if (scorecard.kind !== "code-agent-benchmark") {
     throw new Error("live benchmark scorecard has an unsupported kind");
   }
@@ -115,12 +127,12 @@ try {
     readJson(baselinePath, "benchmark baseline"),
   ]);
   validateBaseline(baseline);
-  validateRolloutScorecard(live);
+  const liveSummary = validateRolloutScorecard(live);
   console.log(JSON.stringify({
     ok: true,
-    suiteVersion: live.suiteVersion,
-    baselineId: live.baselineComparison.baselineId,
-    observedCases: live.metrics.observedCases,
+    suiteVersion: liveSummary.suiteVersion,
+    baselineId: liveSummary.baselineId,
+    observedCases: liveSummary.observedCases,
     rolloutAllowed: true,
   }, null, 2));
 } catch (error) {
