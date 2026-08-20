@@ -1633,6 +1633,88 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(res.text).not.toMatch(/at\s+\w+\s+\(/); // stack trace pattern
   });
 
+  it("persists an Arabic behavioral answer with accepted evidence through SSE", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const source = "src/pick.ts";
+    const evidence = [{
+      source,
+      excerpt: 'if (!flag) return "partial"',
+      sourceSpan: { startLine: 2, endLine: 2 },
+      supportsClaim: true,
+      evidenceClass: "BEHAVIOR_PROVEN" as const,
+      directness: "DIRECT" as const,
+      sourceType: "IMPLEMENTATION" as const,
+      productionReachability: "NOT_PROVEN" as const,
+      relevance: 1,
+    }];
+    vi.mocked(chatWithFallback).mockResolvedValueOnce({
+      result: {
+        response:
+          "المصدر: `src/pick.ts`\n" +
+          'الدليل: `if (!flag) return "partial"`\n' +
+          "عندما تكون flag=false تعيد الدالة القيمة الجزئية.",
+        sources: [source],
+        pendingChanges: [],
+        behaviorEvidence: evidence,
+        taskResult: {
+          kind: "BEHAVIOR_ANSWER_RESULT",
+          answer: {
+            answer: "عندما تكون flag=false تعيد الدالة القيمة الجزئية.",
+            evidence,
+            confidence: 1,
+            sourceScope: [source],
+            coverage: {
+              requestedFields: [],
+              answeredFields: [],
+              missingFields: [],
+              complete: true,
+            },
+          },
+        },
+      },
+      effectiveProvider: "groq",
+    } as Awaited<ReturnType<typeof chatWithFallback>>);
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        message: "ما الذي يحدث عندما تكون flag=false في الدالة pick داخل src/pick.ts؟",
+      });
+
+    expect(res.status).toBe(200);
+    const events = parseSseEvents(res.text);
+    const done = events.find((event) => event["type"] === "done");
+    expect(done).toBeDefined();
+    expect(done?.["error"]).toBeUndefined();
+    expect(done?.["sources"]).toEqual([source]);
+
+    const assistantMessageId = (done?.["message"] as { id?: string } | undefined)?.id;
+    expect(assistantMessageId).toEqual(expect.any(String));
+    const [stored] = await db
+      .select({
+        content: aiChatMessagesTable.content,
+        sources: aiChatMessagesTable.sources,
+        behaviorEvidence: aiChatMessagesTable.behaviorEvidence,
+        taskResult: aiChatMessagesTable.taskResult,
+      })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.id, assistantMessageId as string))
+      .limit(1);
+    expect(stored?.content).toContain("القيمة الجزئية");
+    expect(JSON.parse(stored?.sources ?? "[]")).toEqual([source]);
+    expect(JSON.parse(stored?.behaviorEvidence ?? "[]")).toMatchObject([{
+      source,
+      supportsClaim: true,
+      evidenceClass: "BEHAVIOR_PROVEN",
+    }]);
+    expect(JSON.parse(stored?.taskResult ?? "{}")).toMatchObject({
+      kind: "BEHAVIOR_ANSWER_RESULT",
+    });
+  });
+
   it("persists and restores the resumable task contract for an SSE continuation", async () => {
     const { classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
     const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
