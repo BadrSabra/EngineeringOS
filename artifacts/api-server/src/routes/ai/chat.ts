@@ -3191,6 +3191,7 @@ router.get("/ai/chat/sessions", async (req, res) => {
 
   const messages = await db
     .select({
+      id: aiChatMessagesTable.id,
       sessionId: aiChatMessagesTable.sessionId,
       role: aiChatMessagesTable.role,
       content: aiChatMessagesTable.content,
@@ -3199,7 +3200,7 @@ router.get("/ai/chat/sessions", async (req, res) => {
     })
     .from(aiChatMessagesTable)
     .where(inArray(aiChatMessagesTable.sessionId, sessions.map((session) => session.id)))
-    .orderBy(desc(aiChatMessagesTable.createdAt));
+    .orderBy(desc(aiChatMessagesTable.createdAt), desc(aiChatMessagesTable.id));
 
   const latestAssistantBySession = new Map<string, (typeof messages)[number]>();
   for (const message of messages) {

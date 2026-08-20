@@ -1100,6 +1100,44 @@ describe("GET /api/ai/chat/sessions", () => {
       expect.objectContaining({ id: sessionId, forensicStatus: "NO_FINDING" }),
     ]);
   });
+
+  it("uses the deterministic message id tie-breaker for equal-timestamp verdicts", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = randomUUID();
+    const timestamp = new Date("2026-01-01T00:00:00.000Z");
+
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Equal timestamp audit",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await db.insert(aiChatMessagesTable).values([
+      {
+        id: "00000000-0000-0000-0000-000000000001",
+        sessionId,
+        role: "assistant",
+        content: "## 6) Final Judgment\nNO FINDING",
+        createdAt: timestamp,
+      },
+      {
+        id: "00000000-0000-0000-0000-000000000002",
+        sessionId,
+        role: "assistant",
+        content: "## 6) Final Judgment\nFINDING PROVEN",
+        createdAt: timestamp,
+      },
+    ]);
+
+    const res = await request(app).get(`/api/ai/chat/sessions?projectId=${projectId}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([
+      expect.objectContaining({ id: sessionId, forensicStatus: "FINDING_PROVEN" }),
+    ]);
+  });
 });
 
 // ─── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────
