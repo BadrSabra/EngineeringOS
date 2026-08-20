@@ -3747,6 +3747,61 @@ describe("executeToolLoop", () => {
 });
 
 describe("bounded synthesis budget", () => {
+  it("enforces a real bounded synthesis timeout and preserves operator telemetry", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const steps: AgentStep[] = [];
+    const strategy: ProviderStrategy = {
+      providerId: "test",
+      supportsNativeStream: false,
+      call: vi.fn((_messages, options) =>
+        new Promise<RawGroqResponse>((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () => {
+            reject(new GroqClientError("TIMEOUT", "bounded synthesis timeout"));
+          }, { once: true });
+        }),
+      ),
+      stream: async function* () { yield ""; },
+    };
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "fast",
+      provider: "test",
+      tools: undefined,
+      rootPath: "",
+      pendingChanges: [],
+      maxIterations: 1,
+      toolCallsDisabledAfter: 0,
+      synthesisTimeoutMs: 1_000,
+      synthesisMaxAttempts: 1,
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result.kind).toBe("partial");
+    if (result.kind === "partial") {
+      expect(result.reason).toBe("provider_timeout");
+      expect(result.sourceRetrieval).toMatchObject({
+        synthesisAttempts: 1,
+        synthesisMaxAttempts: 1,
+        synthesisTimeoutMs: 1_000,
+        synthesisTimedOut: true,
+      });
+    }
+    expect(strategy.call).toHaveBeenCalledTimes(1);
+    expect(steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "done",
+        stopReason: "provider_timeout",
+        synthesisAttempts: 1,
+        synthesisMaxAttempts: 1,
+        synthesisTimeoutMs: 1_000,
+        synthesisTimedOut: true,
+      }),
+    ]));
+  });
+
   it("keeps synthesis fallback within its independent attempt budget", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([]);

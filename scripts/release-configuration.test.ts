@@ -174,7 +174,7 @@ test("keeps the local Project workflow and release validation separate", async (
   assert.equal(normalTestCommand, "pnpm -r --if-present run test");
   assert.equal(
     releaseTestCommand,
-    "pnpm --filter @workspace/api-server run test:process-recovery",
+    "pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
   );
   assert.equal(
     controlledReleaseTestCommand,
