@@ -70,10 +70,44 @@ function jsonResponse(body: unknown, status = 200) {
   };
 }
 
-async function installApiFixtures(page: Page) {
+type ArabicAiFixture = {
+  question: string;
+  answer: string;
+  source: string;
+  sessionId: string;
+  streamBody: string;
+  message: Record<string, unknown>;
+};
+
+async function installApiFixtures(
+  page: Page,
+  overrides?: { arabicAi?: ArabicAiFixture },
+) {
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
+    const arabicAi = overrides?.arabicAi;
+
+    if (arabicAi && path === "/api/ai/chat/sessions")
+      return route.fulfill(jsonResponse([]));
+    if (arabicAi && path === "/api/ai/chat/stream")
+      return route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        headers: { "Cache-Control": "no-cache" },
+        body: arabicAi.streamBody,
+      });
+    if (arabicAi && path === `/api/ai/chat/${arabicAi.sessionId}/messages`)
+      return route.fulfill(jsonResponse([
+        {
+          id: "e2e-arabic-user-message",
+          sessionId: arabicAi.sessionId,
+          role: "user",
+          content: arabicAi.question,
+          createdAt: "2026-01-01T00:01:00.000Z",
+        },
+        arabicAi.message,
+      ]));
 
     if (path === "/api/dashboard")
       return route.fulfill(jsonResponse(dashboardFixture));
@@ -197,30 +231,7 @@ async function installArabicAiFixture(page: Page) {
     }),
   ].join("");
 
-  await page.route("**/api/ai/chat/sessions**", (route) =>
-    route.fulfill(jsonResponse([])),
-  );
-  await page.route("**/api/ai/chat/stream", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "text/event-stream",
-      headers: { "Cache-Control": "no-cache" },
-      body: streamBody,
-    }),
-  );
-  await page.route(`**/api/ai/chat/${sessionId}/messages`, (route) =>
-    route.fulfill(jsonResponse([
-      {
-        id: "e2e-arabic-user-message",
-        sessionId,
-        role: "user",
-        content: question,
-        createdAt: "2026-01-01T00:01:00.000Z",
-      },
-      message,
-    ])),
-  );
-  return { question, answer, source, sessionId };
+  return { question, answer, source, sessionId, streamBody, message };
 }
 
 async function createReleaseSignInUrl(page: Page) {
