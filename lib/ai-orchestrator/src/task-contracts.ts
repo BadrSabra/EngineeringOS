@@ -955,7 +955,11 @@ export function validateBehaviorEvidence(
   fileContents: ReadonlyMap<string, string>,
 ): BehaviorEvidenceValidation {
   const evidence: EvidenceReference[] = [];
-  const quotedFragments = [...response.matchAll(/`([^`\n]+)`/g)]
+  // Keep newlines inside a quoted fragment. Recovery presents contiguous
+  // multi-line windows when one line alone hides the control-flow relation;
+  // literal matching below still requires the complete fragment to exist in
+  // the same retained source body.
+  const quotedFragments = [...response.matchAll(/`([^`]+)`/g)]
     .map((match) => match[1]?.trim() ?? "")
     .filter((fragment) => fragment.length >= 3);
   const hasEvidenceLabel = /(?:evidence|source|file|الدليل|المصدر)/i.test(response);

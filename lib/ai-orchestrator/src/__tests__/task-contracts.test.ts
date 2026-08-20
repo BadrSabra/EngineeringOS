@@ -281,6 +281,30 @@ End with one line stating the overall score. Do not include a repair plan.`;
     }]);
   });
 
+  it("accepts an exact contiguous multi-line behavioral excerpt", () => {
+    const fileContents = new Map([
+      ["src/loop.ts", [
+        "export function run(flag: boolean) {",
+        "  if (flag) {",
+        '    return "partial";',
+        "  }",
+        '  return "complete";',
+        "}",
+      ].join("\n")],
+    ]);
+    const result = validateBehaviorEvidence(
+      "What does run return?",
+      "Source: `src/loop.ts`\nEvidence: `if (flag) {\n    return \"partial\";\n  }`\nThe flagged branch returns the partial result.",
+      fileContents,
+    );
+    expect(result.valid).toBe(true);
+    expect(result.evidence).toMatchObject([{
+      supportsClaim: true,
+      evidenceClass: "BEHAVIOR_PROVEN",
+      sourceSpan: { startLine: 2, endLine: 4 },
+    }]);
+  });
+
   it("rejects a bare constant as behavioral evidence even when the file was fully read", () => {
     // DEFAULT_MAX_ITERATIONS = 30 tells us the configured limit; it does NOT prove
     // what the code does when that limit is reached (partial branch ≠ exhausted branch).

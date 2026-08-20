@@ -389,6 +389,89 @@ const MAX_RECOVERED_CORRECTION_EXCERPT_CHARS = 300;
 const MAX_RECOVERY_SOURCE_CHARS = 4_500;
 const MAX_RECOVERY_CANDIDATE_CHARS = 8_000;
 const MAX_RECOVERY_OBJECTIVE_CHARS = 4_000;
+const MAX_BEHAVIOR_RECOVERY_CANDIDATES_PER_FILE = 3;
+const BEHAVIOR_RECOVERY_WINDOW_LINES = 9;
+
+type BehaviorRecoverySourceCandidate = {
+  file: string;
+  startLine: number;
+  endLine: number;
+  content: string;
+  truncated: boolean;
+};
+
+/**
+ * Build source-owned, executable windows for the one behavior citation repair
+ * pass. This is presentation only: the verifier still matches the model's
+ * quoted fragment against the complete retained body.
+ *
+ * A plain head/tail excerpt can hide the only relevant branch in a large file
+ * and can make later files disappear when the shared budget is exhausted.
+ * Rank windows by question-token overlap and executable markers, then reserve a
+ * bounded slice for every retained file before spending the remainder on the
+ * strongest windows.
+ */
+export function buildBehaviorRecoverySourceCandidates(
+  question: string,
+  fileContents: ReadonlyMap<string, string>,
+): BehaviorRecoverySourceCandidate[] {
+  const queryTokens = [...new Set(
+    question
+      .toLocaleLowerCase()
+      .match(/[a-z_$][\w$]*|[\u0600-\u06ff]{3,}/giu) ?? [],
+  )].filter((token) => token.length >= 3);
+  const flowLine = /\b(?:if|else|switch|case|for|while|return|throw|catch|await|call|invoke)\b/i;
+  const files = [...fileContents.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const candidates: BehaviorRecoverySourceCandidate[] = [];
+  let remainingBudget = MAX_RECOVERY_EVIDENCE_CHARS;
+
+  for (const [fileIndex, [file, content]] of files.entries()) {
+    const lines = content.split("\n");
+    if (lines.length === 0 || !content) continue;
+    const remainingFiles = Math.max(1, files.length - fileIndex);
+    const perFileBudget = Math.max(128, Math.floor(remainingBudget / remainingFiles));
+    const scoredStarts = lines.map((line, index) => {
+      const lower = line.toLocaleLowerCase();
+      const queryHits = queryTokens.reduce((count, token) => count + (lower.includes(token) ? 1 : 0), 0);
+      const score = queryHits * 4 + (flowLine.test(line) ? 3 : 0);
+      return { index, score };
+    }).filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score || a.index - b.index);
+
+    const starts = (scoredStarts.length > 0
+      ? scoredStarts
+      : [{ index: 0, score: 0 }, { index: Math.max(0, lines.length - 1), score: 0 }])
+      .map((entry) => Math.max(0, entry.index - Math.floor(BEHAVIOR_RECOVERY_WINDOW_LINES / 2)));
+    const uniqueStarts: number[] = [];
+    for (const start of starts) {
+      if (uniqueStarts.some((existing) => Math.abs(existing - start) < 3)) continue;
+      uniqueStarts.push(start);
+      if (uniqueStarts.length >= MAX_BEHAVIOR_RECOVERY_CANDIDATES_PER_FILE) break;
+    }
+
+    let consumed = 0;
+    for (const start of uniqueStarts) {
+      const end = Math.min(lines.length, start + BEHAVIOR_RECOVERY_WINDOW_LINES);
+      const raw = lines.slice(start, end).join("\n");
+      const remaining = perFileBudget - consumed;
+      if (remaining < 128) break;
+      const candidateText = raw.length <= remaining ? raw : raw.slice(0, remaining);
+      const visibleLines = candidateText.split("\n");
+      const actualEnd = Math.min(end, start + visibleLines.length);
+      const truncated = candidateText.length < raw.length;
+      candidates.push({
+        file,
+        startLine: start + 1,
+        endLine: actualEnd,
+        content: candidateText,
+        truncated,
+      });
+      consumed += candidateText.length;
+      remainingBudget = Math.max(0, remainingBudget - candidateText.length);
+    }
+  }
+  return candidates;
+}
 /**
  * Recovery tool wiring: recovery is a bounded verification pass, not an edit
  * pass. Give the model ONLY read tools so it can re-read the actual source to
@@ -1126,23 +1209,16 @@ export function buildBehaviorEvidenceRecoveryMessages(
   fileContents: ReadonlyMap<string, string>,
   priorCandidate: string,
 ): RawMessage[] {
-  let remaining = MAX_RECOVERY_EVIDENCE_CHARS;
-  const records = [...fileContents.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([file, content], fileIndex, allFiles) => {
-      const bounded = buildBalancedSourceExcerpt(
-        content,
-        fileIndex,
-        allFiles.length,
-        remaining,
-      );
-      remaining -= bounded.consumed;
-      return [
-        `FILE: ${file}`,
-        `SOURCE_EXCERPT${content.length > bounded.consumed ? " (bounded; complete read retained by verifier)" : ""}:`,
-        bounded.excerpt,
-      ].join("\n");
-    });
+  const candidates = buildBehaviorRecoverySourceCandidates(question, fileContents);
+  const records = candidates.map((candidate, index) => [
+    `CANDIDATE ${index + 1} — FILE: ${candidate.file}`,
+    `SOURCE_WINDOW (lines ${candidate.startLine}–${candidate.endLine}${candidate.truncated ? "; window truncated" : ""}):`,
+    candidate.content,
+  ].join("\n"));
+  const manifest = [...fileContents.keys()]
+    .sort((left, right) => left.localeCompare(right))
+    .map((file) => `- ${file}`)
+    .join("\n");
   const isArabic = /[\u0600-\u06FF]/.test(question);
 
   return [
@@ -1164,9 +1240,13 @@ export function buildBehaviorEvidenceRecoveryMessages(
           : "Write a short direct answer, and cite evidence as: Source: `path`, excerpt: `exact contiguous source fragment`.",
         "The excerpt must be copied exactly from one supplied file and include executable flow such as if, return, switch, throw, or a call. Do not cite only a filename, declaration, constant, or paraphrase.",
         "If the supplied reads do not prove the answer, say ANALYSIS_INCOMPLETE instead of inventing a conclusion.",
+         "Choose one or more candidate windows below. Cite the exact file path and copy one contiguous fragment verbatim; do not join separate lines from different candidates. The candidate labels and line coordinates are guidance, not evidence.",
         "",
         "VERIFIED COMPLETED READS:",
-        records.join("\n\n") || "(none)",
+         manifest || "(none)",
+         "",
+         "DIRECTED EXECUTABLE SOURCE CANDIDATES:",
+         records.join("\n\n") || "(none)",
         "",
         "UNTRUSTED PRIOR ANSWER (use only to understand what needs correction):",
         priorCandidate.slice(0, MAX_RECOVERY_CANDIDATE_CHARS),
@@ -2796,6 +2876,22 @@ function normalizeAssistantText(raw: string): string {
     .replace(/\r\n/g, "\n")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
+ * Recovery citations are source literals. Do not collapse indentation inside
+ * backticks: doing so changes a multi-line quote before the literal verifier
+ * sees it and makes a valid source window impossible to accept.
+ */
+function normalizeRecoveryAssistantText(raw: string): string {
+  return raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, " ")
+    .replace(/```(?:json|text)?\s*([\s\S]*?)```/gi, "$1")
+    .replace(/[\u200B-\u200F\uFEFF]/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -7825,7 +7921,7 @@ export async function chat(opts: {
     shouldValidateBehaviorEvidence &&
     !capabilityProbeRequest &&
     forensicFileContents.size > 0 &&
-    behaviorEvidenceValidation.evidence.length === 0 &&
+    !behaviorEvidenceValidation.evidence.some((item) => item.supportsClaim) &&
     responseBeforeBehaviorEvidence.trim().length > 0
   ) {
     recoveryAttemptsUsed += 1;
@@ -7848,7 +7944,7 @@ export async function chat(opts: {
         },
       );
       const recoveredResponse = validateResponseForTask(
-        normalizeAssistantText(recovery.content ?? ""),
+        normalizeRecoveryAssistantText(recovery.content ?? ""),
       );
       const recoveredValidation = validateBehaviorEvidence(
         message,

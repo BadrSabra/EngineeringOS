@@ -80,10 +80,10 @@ const FILE_CONTENT = [
   "}",
 ].join("\n");
 
-async function makeRoot(): Promise<string> {
+async function makeRoot(fileContent = FILE_CONTENT): Promise<string> {
   const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-grounded-behavior-"));
   await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
-  await fs.writeFile(path.join(rootPath, FILE), FILE_CONTENT, "utf8");
+  await fs.writeFile(path.join(rootPath, FILE), fileContent, "utf8");
   return rootPath;
 }
 
@@ -95,6 +95,35 @@ function fakeStrategyFor(modelResponse: string, calls: { count: number }): unkno
       calls.count += 1;
       return {
         content: JSON.stringify({ response: modelResponse, sources: [FILE] }),
+        toolCalls: [],
+        model: "initial-model",
+        usage: {},
+      };
+    }),
+    stream: vi.fn(),
+  };
+}
+
+function citationRecoveryStrategyFor(
+  initialResponse: string,
+  recoveredResponse: string,
+  calls: { count: number },
+): unknown {
+  return {
+    providerId: "openrouter",
+    supportsNativeStream: false,
+    call: vi.fn(async () => {
+      calls.count += 1;
+      if (calls.count > 1) {
+        return {
+          content: recoveredResponse,
+          toolCalls: [],
+          model: "initial-model",
+          usage: {},
+        };
+      }
+      return {
+        content: JSON.stringify({ response: initialResponse, sources: [FILE] }),
         toolCalls: [],
         model: "initial-model",
         usage: {},
@@ -206,6 +235,65 @@ describe("chat() keeps a grounded no-Finding behavior answer (task #26)", () => 
 
       const verification = [...steps].reverse().find((s) => s.kind === "verification");
       expect(verification?.kind).toBe("verification");
+    } finally {
+      await fs.rm(rootPath, { recursive: true, force: true });
+    }
+  });
+
+  it("converts a declaration-only first answer into accepted evidence using one directed correction pass", async () => {
+    const rootPath = await makeRoot([
+      "export const MAX_ITERATIONS = 20;",
+      "export function run(iterations: number) {",
+      "  if (iterations >= MAX_ITERATIONS) {",
+      '    return "partial";',
+      "  }",
+      '  return "complete";',
+      "}",
+    ].join("\n"));
+    const initialResponse =
+      "Source: `src/loop.ts`\n" +
+      "Evidence: `export const MAX_ITERATIONS = 20`\nThe configured limit is 20.";
+    const recoveredResponse =
+      "Source: `src/loop.ts`\n" +
+      "Evidence: `  if (iterations >= MAX_ITERATIONS) {\n    return \"partial\";\n  }`\n" +
+      "When the limit is reached, the loop returns the partial result.";
+    const calls = { count: 0 };
+    await mockChatProviders(
+      citationRecoveryStrategyFor(initialResponse, recoveredResponse, calls),
+      PLAN,
+    );
+
+    try {
+      const steps: AgentStep[] = [];
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message: "What happens when iterations reaches MAX_ITERATIONS?",
+        history: [],
+        projectContext: makeContext(),
+        rootPath,
+        provider: "openrouter",
+        apiKey: "test-or-key",
+        onStep: (step) => steps.push(step),
+      });
+
+      expect(calls.count).toBe(2);
+      expect(result.response).toBe(recoveredResponse);
+      expect(result.response).not.toContain("ANALYSIS_INCOMPLETE");
+      expect(result.taskResult?.kind).toBe("BEHAVIOR_ANSWER_RESULT");
+
+      const integrity = [...steps].reverse().find((step) => step.kind === "evidence_integrity");
+      expect(integrity?.kind).toBe("evidence_integrity");
+      if (integrity?.kind === "evidence_integrity") {
+        expect(integrity.acceptedEvidenceCount).toBe(1);
+        expect(integrity.acceptedEvidenceFiles).toEqual(["src/loop.ts"]);
+      }
+      if (result.taskResult?.kind === "BEHAVIOR_ANSWER_RESULT") {
+        expect(result.taskResult.answer.evidence).toMatchObject([{
+          source: "src/loop.ts",
+          evidenceClass: "BEHAVIOR_PROVEN",
+          sourceSpan: { startLine: 3, endLine: 5 },
+        }]);
+      }
     } finally {
       await fs.rm(rootPath, { recursive: true, force: true });
     }

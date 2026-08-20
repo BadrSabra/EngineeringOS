@@ -19,6 +19,7 @@
 - [Shared package type lag](shared-package-type-lag.md) — workspace consumers can briefly retain older shared declarations; isolate additive compatibility casts at the boundary.
 - [Optional process recovery tests](optional-process-recovery-tests.md) — resolve API build entrypoints relative to the package working directory when spawning real child servers.
 - [Behavior evidence recovery](behavior-evidence-recovery.md) — normal behavior answers get one bounded citation-correction pass; missing proof remains ANALYSIS_INCOMPLETE.
+- [Directed citation recovery](directed-citation-recovery.md) — show source-owned executable windows and preserve literal multiline code before the strict evidence gate.
 - [Empty provider recovery](empty-provider-recovery.md) — empty or exhausted evidence runs use a deterministic read-manifest report instead of a generic blocking message.
 - [Controlled release validation](controlled-release-validation.md) — live recovery checks are opt-in; keep provider-free configuration tests isolated from deployment credentials.
 - [Release browser runtime](release-browser-runtime.md) — Playwright release jobs need Chromium plus native Nix libraries before Clerk setup can run.
