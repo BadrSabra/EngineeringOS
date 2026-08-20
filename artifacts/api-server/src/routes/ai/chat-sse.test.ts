@@ -90,6 +90,10 @@ vi.mock("@workspace/db", () => {
     startedAt: now,
     completedAt: null,
   };
+  const fixture = {
+    session: null as Record<string, unknown> | null,
+    messages: [] as Array<Record<string, unknown>>,
+  };
 
   /**
    * Returns an object that is:
@@ -114,16 +118,34 @@ vi.mock("@workspace/db", () => {
   return {
     db: {
       select: () => ({
-        from: () => ({
+        from: (table: unknown) => ({
           where: () => ({
-            limit: () => Promise.resolve([]),
-            orderBy: () => ({ limit: () => Promise.resolve([]) }),
+            limit: () => {
+              if ((table as { _tag?: string })._tag === "aiChatSessionsTable") {
+                return Promise.resolve(fixture.session ? [fixture.session] : []);
+              }
+              if ((table as { _tag?: string })._tag === "aiChatMessagesTable") {
+                return Promise.resolve([...fixture.messages]);
+              }
+              return Promise.resolve([]);
+            },
+            orderBy: () => ({
+              limit: () => (table as { _tag?: string })._tag === "aiChatMessagesTable"
+                ? Promise.resolve([...fixture.messages])
+                : Promise.resolve([]),
+            }),
           }),
         }),
       }),
       insert: () => ({
-        values: (vals?: Record<string, unknown>) =>
-          insertResult(vals && "idempotencyKey" in vals ? [MOCK_EXECUTION] : [MOCK_SESSION]),
+        values: (vals?: Record<string, unknown>) => {
+          if (vals && "idempotencyKey" in vals) return insertResult([MOCK_EXECUTION]);
+          if (vals && "projectId" in vals) {
+            fixture.session = { ...MOCK_SESSION, ...vals };
+            return insertResult([fixture.session]);
+          }
+          return insertResult([MOCK_SESSION]);
+        },
       }),
       update: () => ({
         set: () => ({
@@ -145,20 +167,41 @@ vi.mock("@workspace/db", () => {
                   (vals?.repairPlanMetadata as string | null | undefined) ?? null;
               }
               if (vals && "projectId" in vals && !("sessionId" in vals)) {
+                fixture.session = { ...MOCK_SESSION, ...vals };
                 return insertResult([MOCK_SESSION]);
+              }
+              if (vals?.sessionId) {
+                fixture.messages.push({ ...MOCK_MSG, ...vals });
               }
               return insertResult(
                 vals?.role === "assistant"
-                  ? [{ ...MOCK_MSG, content: vals.content ?? MOCK_MSG.content }]
+                  ? [{
+                      ...MOCK_MSG,
+                      ...vals,
+                      content: vals.content ?? MOCK_MSG.content,
+                      sources: typeof vals.sources === "string"
+                        ? vals.sources
+                        : JSON.stringify(vals.sources ?? []),
+                    }]
                   : [],
               );
             },
           }),
-          update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+          update: () => ({
+            set: (vals: Record<string, unknown>) => ({
+              where: () => {
+                if (fixture.session && "activeTaskState" in vals) {
+                  fixture.session = { ...fixture.session, ...vals };
+                }
+                return Promise.resolve();
+              },
+            }),
+          }),
         };
         return fn(tx);
       },
     },
+    __chatTestFixture: fixture,
     // Drizzle table references — used as opaque args to the mocked db methods,
     // which ignore them.  Give each a unique marker so vi's call logs are clear.
     aiChatSessionsTable:   { _tag: "aiChatSessionsTable" },
@@ -435,6 +478,91 @@ afterEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration)", () => {
+  it("persists a forensic session, then keeps ابدأ read-only across JSON and SSE routes", async () => {
+    const { promises: fs } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const path = await import("node:path");
+    const rootPath = await fs.mkdtemp(path.join(tmpdir(), "eos-server-session-"));
+    const relativePath = "src/target.ts";
+    const absolutePath = path.join(rootPath, relativePath);
+    const originalSource = "export const enabled = true;\n";
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, originalSource, "utf8");
+
+    const dbFixture = (await import("@workspace/db") as unknown as {
+      __chatTestFixture: {
+        session: Record<string, unknown> | null;
+        messages: Array<Record<string, unknown>>;
+      };
+    }).__chatTestFixture;
+    dbFixture.session = null;
+    dbFixture.messages.length = 0;
+    vi.mocked(resolveRootPath).mockResolvedValue({
+      validRootPath: rootPath,
+      fallbackUsed: false,
+      originalPath: rootPath,
+    });
+
+    const readStep: Extract<AgentStep, { kind: "tool_call" }> = {
+      kind: "tool_call",
+      tool: "read_file",
+      args: { path: relativePath },
+      cached: false,
+    };
+    vi.mocked(chatWithFallback as (...args: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _provider, onDelta, _options, _reset, onStep) => {
+        (onStep as ((step: AgentStep) => void) | undefined)?.(readStep);
+        (onDelta as ((delta: string) => void) | undefined)?.(
+          `Read ${relativePath}; no changes were made.`,
+        );
+        return {
+          ...MOCK_CHAT_RESULT,
+          result: {
+            ...MOCK_CHAT_RESULT.result,
+            response: `## Evidence\n- Read: ${relativePath}\n\nNo verified finding.`,
+            sources: [relativePath],
+          },
+        };
+      },
+    );
+
+    const audit = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId: "test-project-id",
+        message: "Perform a forensic audit of the source and determine whether there is a defect.",
+      });
+    expect(audit.status).toBe(200);
+    const persistedSession = dbFixture.session as Record<string, unknown> | null;
+    const sessionId = persistedSession?.id;
+    expect(typeof sessionId).toBe("string");
+    expect(persistedSession?.activeTaskState).toBeTruthy();
+
+    const jsonStart = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId: "test-project-id", sessionId, message: "ابدأ" });
+    expect(jsonStart.status).toBe(200);
+    expect(JSON.stringify(jsonStart.body)).toContain(relativePath);
+    expect(JSON.stringify(jsonStart.body)).toContain("read_file");
+    expect(JSON.stringify(jsonStart.body)).not.toContain("write_file");
+    expect(JSON.stringify(jsonStart.body)).not.toContain("replace_text");
+
+    const streamStart = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", sessionId, message: "ابدأ" });
+    expect(streamStart.status).toBe(200);
+    const streamFrames = parseSseFrames(streamStart.text);
+    expect(streamStart.text).toContain(relativePath);
+    expect(streamStart.text).toContain("read_file");
+    expect(streamStart.text).not.toContain("write_file");
+    expect(streamStart.text).not.toContain("replace_text");
+    expect(streamFrames.some((frame) =>
+      JSON.stringify(frame).includes(relativePath),
+    )).toBe(true);
+
+    expect(await fs.readFile(absolutePath, "utf8")).toBe(originalSource);
+  });
+
   it("keeps the cancelled Arabic incomplete report intact in the SSE done frame", async () => {
     const cancelledArabicReport = [
       "## 1) Executive Verdict",
