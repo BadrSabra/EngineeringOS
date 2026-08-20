@@ -3720,6 +3720,13 @@ export async function chat(opts: {
     !immediateIntent &&
     !classification.implementationTaskMode &&
     !capabilityProbeRequest;
+  // Objective-bound production reachability is a forensic report, even when
+  // the raw prompt classifier leaves the generic task type as BEHAVIOR_QUERY.
+  // The objective gate and the six-section report contract must agree on the
+  // route; otherwise a valid reachability report is rejected as behavior prose.
+  const objectiveForensicOutput =
+    objective?.objectiveType === "PRODUCTION_REACHABILITY" &&
+    !explicitBehaviorQueryRequested;
   const forensicOutputMode =
     !immediateIntent &&
     !classification.implementationTaskMode &&
@@ -3729,7 +3736,9 @@ export async function chat(opts: {
         turnIntent.kind === "FORENSIC_AUDIT" &&
         turnIntent.forensicTaskType !== "BEHAVIOR_QUERY"
       ) ||
-      behavioralAssessmentRequested
+      behavioralAssessmentRequested ||
+      objectiveForensicOutput ||
+      orderedForensicRoots.length > 0
     );
   const requireCompleteReadEvidence = forensicTaskType === "WORKSPACE_REVIEW";
   // The hardened six-section machinery below is intentionally limited to
