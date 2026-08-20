@@ -6084,6 +6084,10 @@ export async function chat(opts: {
   // ── End streaming path ────────────────────────────────────────────────────
 
   let content = result.content ?? "";
+  const providerReturnedEmptyEvidenceResponse =
+    !content.trim() &&
+    isForensicOrEvidenceRun &&
+    forensicFileContents.size > 0;
   let parsed = parseAgentResponse(content, ChatResponseSchema, fallbackChatOutput);
   // Preserve the verified phase metadata across the execution handoff. The
   // route uses the returned plan to bind validation profiles and create the
@@ -6159,7 +6163,22 @@ export async function chat(opts: {
   // JSON format correction: when MODEL_FAST ignores the JSON output instruction
   // (common with non-English responses), send one corrective follow-up that
   // shows the model its own answer and asks it to reformat.
-  if (!parsed.ok) {
+  if (providerReturnedEmptyEvidenceResponse) {
+    const incompleteResponse = buildBehaviorEvidenceIncompleteResponse(
+      message,
+      forensicFileContents,
+    );
+    parsed = {
+      ok: true,
+      data: { response: incompleteResponse, sources: [] },
+    };
+    content = incompleteResponse;
+    console.info(JSON.stringify({
+      scope: "chat-agent",
+      code: "EMPTY_PROVIDER_EVIDENCE_REPORT",
+      sourceCount: forensicFileContents.size,
+    }));
+  } else if (!parsed.ok) {
     console.warn(JSON.stringify({ scope: "chat-agent", code: parsed.code, message: parsed.message, action: "json_correction_retry" }));
     const forensicCorrection =
       structuredOutputMode
@@ -8277,7 +8296,9 @@ export async function chat(opts: {
           buildScopedVerdictLabel(runtimeLedger.scopedFindingStatus),
         );
   const finalResponse =
-    behaviorAnswerRejected || anyRequiredClaimUnclosed || telemetryBlocksVerdict || objectiveBlocksVerdict
+    providerReturnedEmptyEvidenceResponse
+      ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
+      : behaviorAnswerRejected || anyRequiredClaimUnclosed || telemetryBlocksVerdict || objectiveBlocksVerdict
       ? /[\u0600-\u06FF]/.test(message)
         ? objectiveBlocksVerdict
           ? "محظور — لم يُكتمل الهدف المصرَّح به؛ تبقّى ادعاءات مطلوبة أو حوافّ وصول مُثبتة غير مكتملة، فلا تُصدَر نتيجة قاطعة."
@@ -8293,7 +8314,7 @@ export async function chat(opts: {
             : claimsUnclosedButEvidenceAvailable
               ? "NOT PROVEN — EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED: source evidence was retained, but the answer did not close every required claim with a grounded source excerpt. An evidence inventory alone is not a final answer."
               : "NOT PROVEN — the verdict could not be accepted: the answer lacked a verifiable excerpt from a completed source read."
-      : scopedCandidateResponse;
+        : scopedCandidateResponse;
   if (isForensicOrEvidenceRun) {
     relayForensicTerminal({
       onStep,
