@@ -3746,6 +3746,76 @@ describe("executeToolLoop", () => {
   });
 });
 
+describe("bounded synthesis budget", () => {
+  it("keeps synthesis fallback within its independent attempt budget", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([]);
+    (strategy.call as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new GroqClientError("TIMEOUT", "fixture synthesis timeout"))
+      .mockResolvedValueOnce(makeResponse("fallback report"));
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: undefined,
+      rootPath: "",
+      pendingChanges: [],
+      maxIterations: 1,
+      toolCallsDisabledAfter: 0,
+      synthesisTimeoutMs: 5_000,
+      synthesisMaxAttempts: 2,
+    });
+
+    expect(result.kind).toBe("response");
+    if (result.kind === "response") {
+      expect(result.result.content).toBe("fallback report");
+      expect(result.sourceRetrieval?.synthesisAttempts).toBe(2);
+      expect(result.sourceRetrieval?.synthesisMaxAttempts).toBe(2);
+      expect(result.sourceRetrieval?.synthesisTimeoutMs).toBe(5_000);
+    }
+    expect(strategy.call).toHaveBeenCalledTimes(2);
+    expect((strategy.call as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toMatchObject({
+      timeoutMs: 5_000,
+    });
+    expect((strategy.call as ReturnType<typeof vi.fn>).mock.calls[0]?.[1].signal).toBeInstanceOf(
+      AbortSignal,
+    );
+  });
+
+  it("does not retry synthesis after the shared deadline is exhausted", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const strategy = makeStrategy([]);
+    (strategy.call as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new GroqClientError("TIMEOUT", "fixture synthesis timeout"),
+    );
+
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: undefined,
+      rootPath: "",
+      pendingChanges: [],
+      maxIterations: 1,
+      toolCallsDisabledAfter: 0,
+      synthesisTimeoutMs: 1_000,
+      synthesisMaxAttempts: 1,
+    });
+
+    expect(result.kind).toBe("partial");
+    expect(strategy.call).toHaveBeenCalledTimes(1);
+    if (result.kind === "partial") {
+      expect(result.sourceRetrieval?.synthesisAttempts).toBe(1);
+      expect(result.sourceRetrieval?.synthesisMaxAttempts).toBe(1);
+    }
+  });
+});
+
 // ── TIMEOUT → kind:"partial"/"provider_timeout" degradation ──────────────────
 
 describe("executeToolLoop — TIMEOUT degradation (task #67)", () => {

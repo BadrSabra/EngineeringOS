@@ -547,6 +547,12 @@ export type SourceRetrievalTelemetry = {
     evidence: number;
     reasoning: number;
   };
+  /** Synthesis-only budget and observed attempts, kept separate from reads. */
+  synthesisAttempts?: number;
+  synthesisMaxAttempts?: number;
+  synthesisTimeoutMs?: number;
+  synthesisElapsedMs?: number;
+  synthesisTimedOut?: boolean;
   /**
    * FEG-009/010: true when the run ended with ZERO source reads ever acquired
    * (never read, and no usable prefetch). Such a terminal is classified
@@ -582,6 +588,10 @@ export const EMPTY_SOURCE_RETRIEVAL_TELEMETRY: SourceRetrievalTelemetry = {
   progressForced: false,
   scopeExpansions: [],
 };
+
+/** Final reporting is a bounded phase, not another open-ended tool-loop turn. */
+export const DEFAULT_SYNTHESIS_TIMEOUT_MS = 30_000;
+export const DEFAULT_SYNTHESIS_MAX_ATTEMPTS = 2;
 
 /**
  * Fresh per-loop telemetry. `readPaths` is mutable and MUST be a newly
@@ -901,6 +911,13 @@ export type ToolLoopOpts = {
    * on reads and then ending without a report.
    */
   toolCallsDisabledAfter?: number;
+
+  /**
+   * Independent final-report budget. Both the primary and its intentional
+   * fallback share this deadline; neither may start a fresh full timeout.
+   */
+  synthesisTimeoutMs?: number;
+  synthesisMaxAttempts?: number;
 
   /**
    * Narrow execution mode for a recovered Repair Plan. It keeps the normal
@@ -1330,6 +1347,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     maxIterations = DEFAULT_MAX_ITERATIONS,
     maxToolCalls = DEFAULT_MAX_TOOL_CALLS,
     toolCallsDisabledAfter,
+    synthesisTimeoutMs = DEFAULT_SYNTHESIS_TIMEOUT_MS,
+    synthesisMaxAttempts = DEFAULT_SYNTHESIS_MAX_ATTEMPTS,
     executionMode,
     executionTargetPaths = [],
     allowExecutionTools = false,
@@ -1390,6 +1409,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   const failedValidationFingerprints = new Map<string, string>();
   const validationAttemptPatches = new Map<string, RepairPatchSnapshot>();
   let synthesisStarted = false;
+  const boundedSynthesisTimeoutMs = Math.max(1_000, Math.floor(synthesisTimeoutMs));
+  const boundedSynthesisMaxAttempts = Math.max(1, Math.floor(synthesisMaxAttempts));
+  let synthesisDeadlineAt: number | null = null;
+  let synthesisAttempts = 0;
+  let synthesisTimedOut = false;
   let forceSynthesisNext = false;
   let temporarilyDisabledTools = new Set<string>();
 
@@ -1716,6 +1740,56 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     }
   };
 
+  const callWithSynthesisBudget = async (
+    callMessages: RawMessage[],
+    options: Parameters<ProviderStrategy["call"]>[1],
+  ): Promise<RawGroqResponse> => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < boundedSynthesisMaxAttempts; attempt += 1) {
+      if (synthesisAttempts >= boundedSynthesisMaxAttempts) break;
+      if (synthesisDeadlineAt !== null && Date.now() >= synthesisDeadlineAt) {
+        synthesisTimedOut = true;
+        sourceRetrieval.synthesisTimedOut = true;
+        break;
+      }
+      synthesisAttempts += 1;
+      sourceRetrieval.synthesisAttempts = synthesisAttempts;
+      const startedAt = Date.now();
+      const controller = new AbortController();
+      const abortFromParent = () => controller.abort();
+      if (opts.signal?.aborted) controller.abort();
+      else opts.signal?.addEventListener("abort", abortFromParent, { once: true });
+      const remaining = Math.max(
+        1,
+        (synthesisDeadlineAt ?? Date.now() + boundedSynthesisTimeoutMs) - Date.now(),
+      );
+      const timer = setTimeout(() => {
+        synthesisTimedOut = true;
+        sourceRetrieval.synthesisTimedOut = true;
+        controller.abort();
+      }, remaining);
+      try {
+        return await strategy.call(callMessages, {
+          ...options,
+          timeoutMs: Math.min(options.timeoutMs ?? 60_000, remaining),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        lastError = error;
+        if (!(error instanceof GroqClientError) || error.code !== "EMPTY_RESPONSE") {
+          throw error;
+        }
+      } finally {
+        clearTimeout(timer);
+        opts.signal?.removeEventListener("abort", abortFromParent);
+        sourceRetrieval.synthesisElapsedMs =
+          (sourceRetrieval.synthesisElapsedMs ?? 0) + (Date.now() - startedAt);
+        sourceRetrieval.synthesisTimedOut = synthesisTimedOut;
+      }
+    }
+    throw lastError ?? new GroqClientError("TIMEOUT", "synthesis attempt budget exhausted");
+  };
+
   /**
    * Some OpenRouter models return tool_calls even when the request contains no
    * tools. That response cannot be executed in the synthesis window and often
@@ -1726,11 +1800,16 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     callMessages: RawMessage[],
     callOptions: Parameters<ProviderStrategy["call"]>[1],
   ): Promise<{ result: RawGroqResponse; attemptCount: number }> => {
-    const first = await callWithEmptyResponseRetry(callMessages, callOptions);
+    const attemptsBefore = synthesisAttempts;
+    const first = {
+      result: await callWithSynthesisBudget(callMessages, callOptions),
+      attemptCount: synthesisAttempts - attemptsBefore,
+    };
     if (
       first.result.content?.trim() ||
       !first.result.toolCalls?.length ||
-      callOptions.model === powerModel
+      callOptions.model === powerModel ||
+      synthesisAttempts >= boundedSynthesisMaxAttempts
     ) {
       return first;
     }
@@ -1746,11 +1825,14 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     );
 
     try {
-      const fallback = await strategy.call(callMessages, {
+      const fallback = await callWithSynthesisBudget(callMessages, {
         ...callOptions,
         model: powerModel,
       });
-      return { result: fallback, attemptCount: first.attemptCount + 1 };
+      return {
+        result: fallback,
+        attemptCount: synthesisAttempts - attemptsBefore,
+      };
     } catch {
       return first;
     }
@@ -1782,6 +1864,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     evidence: runBudget.evidence,
     reasoning: runBudget.reasoning,
   };
+  sourceRetrieval.synthesisMaxAttempts = boundedSynthesisMaxAttempts;
+  sourceRetrieval.synthesisTimeoutMs = boundedSynthesisTimeoutMs;
   // True once the progress guard has forced a primary-evidence action, so the
   // directive is injected once per run rather than spamming every turn.
   let forcedPrimaryEvidence = false;
@@ -2013,6 +2097,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       (toolCallsDisabledAfter !== undefined && iter >= toolCallsDisabledAfter);
     if (synthesisOnly && !synthesisStarted) {
       synthesisStarted = true;
+      synthesisDeadlineAt = Date.now() + boundedSynthesisTimeoutMs;
       try {
         onStep?.({
           kind: "synthesis_start",
@@ -2036,7 +2121,22 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     const outboundMessages = compactModelMessages(safeMessages);
 
     try {
-      const callResult = await callWithEmptyResponseRetry(outboundMessages, {
+      const synthesisAttemptsBeforeCall = synthesisAttempts;
+      const callResult = synthesisOnly
+        ? {
+            result: await callWithSynthesisBudget(outboundMessages, {
+              model,
+              ...(iterMaxTokens !== undefined ? { maxTokens: iterMaxTokens } : {}),
+              timeoutMs: 60_000,
+              apiKey,
+              taskType,
+              ...(callToolChoice ? { toolChoice: callToolChoice } : {}),
+              ...(iterationTools != null ? { tools: iterationTools } : {}),
+              ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
+            }),
+            attemptCount: synthesisAttempts - synthesisAttemptsBeforeCall,
+          }
+        : await callWithEmptyResponseRetry(outboundMessages, {
         model,
         ...(iterMaxTokens !== undefined ? { maxTokens: iterMaxTokens } : {}),
         timeoutMs: 60_000,
@@ -2046,14 +2146,19 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         ...(callToolChoice ? { toolChoice: callToolChoice } : {}),
         ...(iterationTools != null ? { tools: iterationTools } : {}),
         ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
-      });
+          });
       result = callResult.result;
       attemptCount = callResult.attemptCount;
     } catch (err) {
       if (signal?.aborted) return cancelledResult();
       // OR-004: only fall back to powerModel on transient infrastructure errors,
       // not on user/validation errors like NON_200 or AUTH_ERROR.
-      if (err instanceof GroqClientError && TRANSIENT_CODES.has(err.code) && model !== powerModel) {
+      if (
+        err instanceof GroqClientError &&
+        TRANSIENT_CODES.has(err.code) &&
+        model !== powerModel &&
+        (!synthesisOnly || synthesisAttempts < boundedSynthesisMaxAttempts)
+      ) {
         fallbackReason = err.code;
         attemptCount = 2;
         console.warn(
@@ -2069,7 +2174,17 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           }),
         );
         try {
-          result = await strategy.call(outboundMessages, {
+          const fallbackResult = synthesisOnly
+            ? await callWithSynthesisBudget(outboundMessages, {
+                model: powerModel,
+                ...(iterMaxTokens !== undefined ? { maxTokens: iterMaxTokens } : {}),
+                timeoutMs: 60_000,
+                apiKey,
+                taskType,
+                ...(iterationTools != null ? { tools: iterationTools } : {}),
+                ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
+              })
+            : await strategy.call(outboundMessages, {
             model: powerModel,
             ...(iterMaxTokens !== undefined ? { maxTokens: iterMaxTokens } : {}),
             timeoutMs: 60_000,
@@ -2079,7 +2194,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             ...(callToolChoice ? { toolChoice: callToolChoice } : {}),
             ...(iterationTools != null ? { tools: iterationTools } : {}),
             ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
-          });
+            });
+          result = fallbackResult;
         } catch (fallbackErr) {
           if (fallbackErr instanceof GroqClientError) {
             emitExecutionDiagnostic("EXECUTION_PROVIDER_FAILURE", [
