@@ -420,6 +420,17 @@ export function isSocialGreeting(message: string): boolean {
   return SOCIAL_GREETING_RE.test(message.trim());
 }
 
+/**
+ * Short, low-risk questions from ordinary users should stay on the chat path.
+ * These messages ask for orientation or clarification; they do not authorize
+ * repository-wide discovery merely because a project root is available.
+ */
+export function isLowRiskChatQuestion(message: string): boolean {
+  return /^(?:ما(?:\s+هو)?\s+(?:هذا\s+)?المشروع|ما\s+هذا\s+المشروع|ماذا\s+يمكنني\s+أن\s+أفعل|كيف\s+أبدأ|ساعدني(?:\s+في\s+فهم\s+المشروع)?|ممكن\s+تساعدني(?:\s+أفهم\s+المشروع)?|هل\s+المشروع\s+(?:شغال|يعمل)(?:\s+حاليًا)?|what(?:'s| is)\s+this\s+project|what\s+can\s+you\s+help\s+me\s+with|can\s+you\s+help\s+me|how\s+do\s+i\s+start|is\s+the\s+project\s+running)[؟?!.\s]*$/iu.test(
+    message.trim(),
+  );
+}
+
 const PATTERNS: PatternEntry[] = [
   // ── simple ──────────────────────────────────────────────────────────────────
   // Pure greetings / social openers
@@ -554,6 +565,34 @@ export function classifyRequest(message: string): ClassifiedRequest {
       taskType === "WORKSPACE_REVIEW" ||
       singleFileForensicMode ||
       orderedForensicRoots.length > 0);
+
+  // Keep ordinary orientation questions on the fast chat path even when a
+  // project root is present. A user asking "what is this project?" has not
+  // requested a repository-wide scan.
+  if (
+    isLowRiskChatQuestion(trimmed) &&
+    !implementationTaskMode &&
+    !implementationPlanMode &&
+    !singleFileForensicMode
+  ) {
+    return {
+      category: "simple",
+      ...CATEGORY_CONFIG.simple,
+      allowPrefetch: false,
+      confidence: 0.95,
+      structuredOutputMode: false,
+      singleFileForensicMode: false,
+      orderedForensicRoots: [],
+      includeTestSources: false,
+      fixtureAuditMode: false,
+      implementationTaskMode: false,
+      implementationPlanMode: false,
+      taskType: "BEHAVIOR_QUERY",
+      analysisMode: "STANDARD",
+      outputContract: "GENERIC_RESPONSE",
+      firstEvidence,
+    };
+  }
 
   // Very short messages with no file-extension hint → simple (greeting / quick question)
   if (trimmed.length <= 25 && !/\.[a-zA-Z]{2,5}\b/.test(trimmed)) {

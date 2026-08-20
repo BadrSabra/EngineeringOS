@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractOrderedForensicRoots,
   classifyRequest,
+  isLowRiskChatQuestion,
 } from "../prompts/profile-classifier.js";
 
 describe("classifyRequest — simple greetings", () => {
@@ -12,6 +13,32 @@ describe("classifyRequest — simple greetings", () => {
     expect(result.structuredOutputMode).toBe(false);
     expect(result.singleFileForensicMode).toBe(false);
     expect(result.orderedForensicRoots).toEqual([]);
+  });
+});
+
+describe("classifyRequest — ordinary orientation questions", () => {
+  it.each([
+    "ما هذا المشروع؟",
+    "ممكن تساعدني أفهم المشروع؟",
+    "هل المشروع شغال حاليًا؟",
+    "What is this project?",
+    "Can you help me?",
+  ])("keeps %s on the fast chat profile", (message) => {
+    const result = classifyRequest(message);
+
+    expect(isLowRiskChatQuestion(message)).toBe(true);
+    expect(result.category).toBe("simple");
+    expect(result.allowPrefetch).toBe(false);
+    expect(result.orderedForensicRoots).toEqual([]);
+    expect(result.structuredOutputMode).toBe(false);
+  });
+
+  it("does not downgrade an explicit forensic request", () => {
+    const result = classifyRequest("افحص الكود الفعلي واكتشف الفجوات");
+
+    expect(isLowRiskChatQuestion("افحص الكود الفعلي واكتشف الفجوات")).toBe(false);
+    expect(result.taskType).toBe("FULL_FORENSIC_AUDIT");
+    expect(result.structuredOutputMode).toBe(true);
   });
 });
 
