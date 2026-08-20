@@ -1715,6 +1715,168 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     });
   });
 
+  it("completes the Arabic behavior journey through session, API, SSE, and history endpoints", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const source = "src/execution-tools.ts";
+    const question = "ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟";
+    const evidence = [{
+      source,
+      excerpt: 'return partialFromCollectedEvidence("provider timeout");',
+      sourceSpan: { startLine: 42, endLine: 42 },
+      supportsClaim: true,
+      evidenceClass: "BEHAVIOR_PROVEN" as const,
+      directness: "DIRECT" as const,
+      sourceType: "IMPLEMENTATION" as const,
+      productionReachability: "NOT_PROVEN" as const,
+      relevance: 1,
+    }];
+    const behaviorResult = {
+      response:
+        "عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.",
+      sources: [source],
+      pendingChanges: [],
+      behaviorEvidence: evidence,
+      taskResult: {
+        kind: "BEHAVIOR_ANSWER_RESULT" as const,
+        answer: {
+          answer: "عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.",
+          evidence,
+          confidence: 1,
+          sourceScope: [source],
+          coverage: {
+            requestedFields: ["timeout behavior"],
+            answeredFields: ["timeout behavior"],
+            missingFields: [],
+            complete: true,
+          },
+        },
+      },
+    };
+
+    // First call is the real JSON API entrypoint and creates the session.
+    const createResponse = await request(app)
+      .post("/api/ai/chat")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "أبدأ جلسة تحليل سلوكي." });
+    expect(createResponse.status).toBe(200);
+    const sessionId = createResponse.body.sessionId as string;
+    expect(sessionId).toEqual(expect.any(String));
+
+    // The second call is the real stream endpoint. Make its injected agent
+    // callbacks deterministic while retaining the route, DB, and SSE layers.
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const onDelta = args[3] as ((delta: string) => void) | undefined;
+      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+      onStep?.({
+        kind: "tool_call",
+        tool: "read_file",
+        args: { path: source },
+        cached: false,
+        prefetched: true,
+      });
+      onStep?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source,
+        cached: false,
+        prefetched: true,
+      });
+      onStep?.({
+        kind: "evidence_integrity",
+        code: "EVIDENCE_INTEGRITY_OK",
+        consistent: true,
+        violations: [],
+        readAttempts: 1,
+        uniqueFilesRead: 1,
+        evidenceFileCount: 1,
+        acceptedEvidenceCount: 1,
+        completedReadFiles: [source],
+        retainedBodyFiles: [source],
+        acceptedEvidenceFiles: [source],
+        acceptedClaimCount: 1,
+      });
+      onDelta?.(behaviorResult.response);
+      onStep?.({
+        kind: "done",
+        iterations: 1,
+        maxIterations: 24,
+        toolCalls: 1,
+        prefetchToolCalls: 1,
+        loopToolCalls: 0,
+        stopReason: "response",
+        synthesisStarted: false,
+        diagnosticCodes: [],
+        modelsUsed: ["fixture-model"],
+      });
+      return {
+        result: behaviorResult,
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const streamResponse = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: question });
+    expect(streamResponse.status).toBe(200);
+    expect(streamResponse.headers["content-type"]).toMatch(/text\/event-stream/);
+
+    const events = parseSseEvents(streamResponse.text);
+    const types = events.map((event) => event["type"]);
+    const indexOf = (type: string) => types.indexOf(type);
+    expect(indexOf("execution_started")).toBeGreaterThanOrEqual(0);
+    expect(indexOf("intent")).toBeGreaterThan(indexOf("execution_started"));
+    expect(indexOf("tool_call")).toBeGreaterThan(indexOf("intent"));
+    expect(indexOf("tool_result")).toBeGreaterThan(indexOf("tool_call"));
+    expect(indexOf("evidence_integrity")).toBeGreaterThan(indexOf("tool_result"));
+    expect(indexOf("done")).toBeGreaterThan(indexOf("evidence_integrity"));
+
+    const done = events.find((event) => event["type"] === "done");
+    expect(done).toBeDefined();
+    expect(done?.["sessionId"]).toBe(sessionId);
+    expect(done?.["sources"]).toEqual([source]);
+    expect((done?.["message"] as Record<string, unknown>)["content"]).toContain("تقريرًا جزئيًا");
+    expect(done?.["telemetry"]).toEqual({
+      latencyMs: expect.any(Number),
+      provider: "groq",
+    });
+    expect(Object.keys(done?.["telemetry"] as Record<string, unknown>)).toEqual(
+      expect.arrayContaining(["latencyMs", "provider"]),
+    );
+    expect(JSON.stringify(events)).not.toMatch(/systemPrompt|rawPrompt|apiKey|diagnosticDetails|providerKey|stackTrace/i);
+
+    const evidenceEvent = events.find((event) => event["type"] === "evidence_integrity");
+    expect(evidenceEvent).toMatchObject({
+      consistent: true,
+      completedReadFiles: [source],
+      acceptedEvidenceFiles: [source],
+      acceptedEvidenceCount: 1,
+    });
+    const toolResult = events.find((event) => event["type"] === "tool_result");
+    expect(toolResult?.["source"]).toBe(source);
+
+    const historyResponse = await request(app)
+      .get(`/api/ai/chat/${sessionId}/messages`)
+      .expect(200);
+    expect(historyResponse.body.sessionId).toBe(sessionId);
+    const storedAssistant = (historyResponse.body.messages as Array<Record<string, unknown>>)
+      .find((message) => message["role"] === "assistant" && message["content"] === behaviorResult.response);
+    expect(storedAssistant).toBeDefined();
+    expect(storedAssistant?.["sources"]).toEqual([source]);
+    expect(storedAssistant?.["behaviorEvidence"]).toMatchObject([{
+      source,
+      excerpt: evidence[0].excerpt,
+      supportsClaim: true,
+      evidenceClass: "BEHAVIOR_PROVEN",
+    }]);
+    expect(storedAssistant?.["taskResult"]).toMatchObject({
+      kind: "BEHAVIOR_ANSWER_RESULT",
+      answer: { sourceScope: [source] },
+    });
+    expect(JSON.stringify(historyResponse.body)).not.toMatch(/systemPrompt|rawPrompt|apiKey|diagnosticDetails|providerKey|stackTrace/i);
+  });
+
   it("persists and restores the resumable task contract for an SSE continuation", async () => {
     const { classifyRequest: mockClassifyRequest } = await import("@workspace/ai-orchestrator");
     const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
