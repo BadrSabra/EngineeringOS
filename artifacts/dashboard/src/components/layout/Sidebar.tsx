@@ -14,6 +14,7 @@ import {
   Bot,
   Plane,
   Gauge,
+  X,
 } from 'lucide-react';
 import { basePath } from '@/lib/clerk';
 
@@ -38,7 +39,13 @@ function operatorInitials(name: string | null | undefined): string {
   return initials.join('') || 'OP';
 }
 
-export function Sidebar() {
+export function Sidebar({
+  mobileOpen = false,
+  onMobileClose,
+}: {
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+}) {
   const [location] = useLocation();
   const { user } = useUser();
   const { signOut } = useClerk();
@@ -46,7 +53,9 @@ export function Sidebar() {
     user?.fullName || user?.username || user?.primaryEmailAddress?.emailAddress || 'Operator';
 
   return (
-    <div className="w-64 border-r border-border bg-card flex flex-col h-full shrink-0">
+    <div
+      className={`${mobileOpen ? 'flex' : 'hidden'} fixed inset-y-0 left-0 z-50 w-72 max-w-[calc(100vw-1rem)] border-r border-border bg-card flex-col h-full shrink-0 shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:flex md:w-64 md:max-w-none md:shadow-none`}
+    >
       <div className="h-14 flex items-center px-4 border-b border-border shrink-0">
         <div className="flex items-center gap-2 text-primary font-bold text-lg tracking-tight">
           <div className="w-6 h-6 bg-primary rounded flex items-center justify-center text-primary-foreground">
@@ -54,6 +63,15 @@ export function Sidebar() {
           </div>
           EngineeringOS
         </div>
+        <button
+          type="button"
+          onClick={onMobileClose}
+          className="ml-auto rounded-md p-2 text-muted-foreground hover:bg-secondary hover:text-foreground md:hidden"
+          aria-label="Close navigation"
+          title="Close navigation"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
       <div className="flex-1 py-4 px-3 flex flex-col gap-1 overflow-y-auto">
@@ -68,6 +86,7 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onClick={onMobileClose}
               className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                 isActive
                   ? 'bg-primary/10 text-primary'
