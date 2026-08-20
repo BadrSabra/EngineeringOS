@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run && node --test scripts/stop-old-api.test.mjs",
     "test:process-recovery": "node ./scripts/run-real-process-recovery.mjs",
+    "test:live-empty-model-response": "node ./scripts/run-live-empty-model-response.mjs",
     "benchmark:live": "tsx src/lib/run-code-agent-benchmark.ts",
     "benchmark:airlock": "tsx src/lib/run-code-agent-benchmark-airlock.ts",
     "benchmark:coverage": "BENCHMARK_CAMPAIGN_MODE=coverage tsx src/lib/run-code-agent-benchmark-airlock.ts",

@@ -11,6 +11,7 @@
     "test:benchmark-rollout": "node --test scripts/verify-benchmark-rollout.test.mjs",
     "validate:release": "pnpm --filter @workspace/api-server run test:process-recovery",
     "validate:release:controlled": "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
+    "validate:live-empty-model-response": "pnpm --filter @workspace/api-server run test:live-empty-model-response",
     "deployment:post-build": "pnpm run db:schema:check && pnpm run test:benchmark-rollout && pnpm run verify:benchmark-rollout && pnpm run validate:release && pnpm store prune",
     "validate": "pnpm run codegen:check && pnpm run typecheck && pnpm run validate:dashboard-restart",
     "validate:dashboard-restart": "pnpm --filter @workspace/dashboard run smoke:restart",
