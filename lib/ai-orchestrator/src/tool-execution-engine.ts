@@ -1308,6 +1308,12 @@ export type AgentStep =
         | "provider_timeout"
         | "cancelled";
       synthesisStarted: boolean;
+      /** Bounded final-synthesis telemetry for operator diagnostics. */
+      synthesisAttempts?: number;
+      synthesisMaxAttempts?: number;
+      synthesisTimeoutMs?: number;
+      synthesisElapsedMs?: number;
+      synthesisTimedOut?: boolean;
       diagnosticCodes: AgentDiagnosticCode[];
       /** Source-retrieval read classification and telemetry (SR-008). */
       sourceRetrieval?: SourceRetrievalTelemetry;
@@ -1776,6 +1782,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         });
       } catch (error) {
         lastError = error;
+        if (error instanceof GroqClientError && error.code === "TIMEOUT") {
+          synthesisTimedOut = true;
+          sourceRetrieval.synthesisTimedOut = true;
+        }
         if (!(error instanceof GroqClientError) || error.code !== "EMPTY_RESPONSE") {
           throw error;
         }
@@ -1985,6 +1995,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         ...executionCounts(),
         stopReason: "cancelled",
         synthesisStarted,
+        synthesisAttempts,
+        synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+        synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+        ...(sourceRetrieval.synthesisElapsedMs !== undefined
+          ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+          : {}),
+        ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
         diagnosticCodes: [],
         sourceRetrieval,
       });
@@ -2231,6 +2248,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
                 ...executionCounts(),
                 stopReason: "provider_timeout",
                 synthesisStarted,
+                synthesisAttempts,
+                synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+                synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+                ...(sourceRetrieval.synthesisElapsedMs !== undefined
+                  ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+                  : {}),
+                ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
                 diagnosticCodes: [],
                 sourceRetrieval,
               });
@@ -2296,6 +2320,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
                 ...executionCounts(),
                 stopReason: "provider_timeout",
                 synthesisStarted,
+                synthesisAttempts,
+                synthesisMaxAttempts: boundedSynthesisMaxAttempts,
+                synthesisTimeoutMs: boundedSynthesisTimeoutMs,
+                ...(sourceRetrieval.synthesisElapsedMs !== undefined
+                  ? { synthesisElapsedMs: sourceRetrieval.synthesisElapsedMs }
+                  : {}),
+                ...(synthesisTimedOut ? { synthesisTimedOut: true } : {}),
                 diagnosticCodes: [],
                 sourceRetrieval,
               });

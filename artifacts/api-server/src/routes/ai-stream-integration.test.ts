@@ -2591,6 +2591,103 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(assistant?.toolTrace).toBe(message?.toolTrace);
   });
 
+  it("persists bounded synthesis timeout telemetry while keeping incomplete reports sanitized", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+    const report = "ANALYSIS_INCOMPLETE — final synthesis timed out before a verified report was accepted.";
+    const timeoutStep = {
+      kind: "done" as const,
+      iterations: 3,
+      maxIterations: 24,
+      toolCalls: 1,
+      prefetchToolCalls: 0,
+      loopToolCalls: 1,
+      stopReason: "provider_timeout" as const,
+      synthesisStarted: true,
+      synthesisAttempts: 1,
+      synthesisMaxAttempts: 2,
+      synthesisTimeoutMs: 1_000,
+      synthesisElapsedMs: 1_000,
+      synthesisTimedOut: true,
+      diagnosticCodes: [],
+    };
+
+    const timeoutFixture = async (
+        _userId: any,
+        _input: any,
+        _provider: any,
+        onDelta: any,
+        _options: any,
+        _onStreamReset: any,
+        onStep: any,
+      ) => {
+        onStep?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source: "src/completed-read.ts",
+          cached: false,
+          outputLength: 128,
+          prefetched: false,
+        });
+        onStep?.(timeoutStep as never);
+        onDelta?.(report);
+        return {
+          result: { response: report, sources: ["src/completed-read.ts"], pendingChanges: [] },
+          effectiveProvider: "groq" as const,
+        };
+      };
+    vi.mocked(chatWithFallback)
+      .mockImplementationOnce(timeoutFixture)
+      .mockImplementationOnce(timeoutFixture);
+
+    const streamed = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "forensic audit" });
+    const streamEvents = parseSseEvents(streamed.text);
+    const streamDone = streamEvents.find((event) => event["type"] === "done");
+    const streamMessage = streamDone?.["message"] as { content?: string; toolTrace?: string | null } | undefined;
+    const streamTrace = streamMessage?.toolTrace
+      ? JSON.parse(streamMessage.toolTrace) as Array<Record<string, unknown>>
+      : [];
+
+    expect(streamed.status).toBe(200);
+    expect(streamMessage?.content).toContain("ANALYSIS_INCOMPLETE");
+    expect(streamMessage?.content).not.toContain("provider timeout");
+    expect(streamed.text).not.toContain("fixture provider diagnostic");
+    expect(streamDone?.["execution"]).toEqual(expect.objectContaining({
+      stopReason: "provider_timeout",
+      synthesisAttempts: 1,
+      synthesisMaxAttempts: 2,
+      synthesisTimeoutMs: 1_000,
+      synthesisTimedOut: true,
+    }));
+    expect(streamTrace).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "done",
+        synthesisAttempts: 1,
+        synthesisMaxAttempts: 2,
+        synthesisTimeoutMs: 1_000,
+        synthesisTimedOut: true,
+      }),
+    ]));
+
+    const persisted = await db
+      .select({ toolTrace: aiChatMessagesTable.toolTrace })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, streamDone?.["sessionId"] as string));
+    expect(persisted.find((row) => row.toolTrace)?.toolTrace).toContain('"synthesisTimedOut":true');
+
+    const nonStreamed = await request(app)
+      .post("/api/ai/chat")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "forensic audit" });
+    expect(nonStreamed.status).toBe(200);
+    expect(nonStreamed.body.message?.content ?? nonStreamed.body.response).toContain("ANALYSIS_INCOMPLETE");
+    expect(JSON.stringify(nonStreamed.body)).not.toContain("fixture provider diagnostic");
+  });
+
   it("keeps forensic diagnostic details in metadata, not report content", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
@@ -2891,8 +2988,13 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
           loopToolCalls: 1,
           stopReason: "response",
           synthesisStarted: true,
-          diagnosticCodes: ["FORENSIC_CONTRACT_RECOVERY_FAILED"],
-        });
+           synthesisAttempts: 1,
+           synthesisMaxAttempts: 2,
+           synthesisTimeoutMs: 1_000,
+           synthesisElapsedMs: 0,
+           synthesisTimedOut: false,
+           diagnosticCodes: ["FORENSIC_CONTRACT_RECOVERY_FAILED"],
+         } as never);
         return {
           result: { response: report, sources: ["src/partially-read.ts"], pendingChanges: [] },
           effectiveProvider: "groq" as const,
@@ -2937,6 +3039,8 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .where(eq(aiChatMessagesTable.sessionId, done?.["sessionId"] as string));
     const assistant = persisted.find((row) => row.toolTrace);
     expect(assistant?.toolTrace).toContain("secret-fixture-value");
+    expect(assistant?.toolTrace).toContain('"synthesisAttempts":1');
+    expect(assistant?.toolTrace).toContain('"synthesisTimedOut":false');
   });
 
   it("records zero-read evidence stops as failed, not completed", async () => {

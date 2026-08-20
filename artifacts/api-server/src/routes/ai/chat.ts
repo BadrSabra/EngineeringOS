@@ -719,6 +719,11 @@ type PersistedToolTraceEntry = {
   loopToolCalls?: number;
   stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "cancelled";
   synthesisStarted?: boolean;
+  synthesisAttempts?: number;
+  synthesisMaxAttempts?: number;
+  synthesisTimeoutMs?: number;
+  synthesisElapsedMs?: number;
+  synthesisTimedOut?: boolean;
   recoveryStarted?: boolean;
   sourceCoverage?: "COMPLETE" | "PARTIAL" | "NONE";
   behavioralAssessment?: "COMPLETE" | "INCOMPLETE" | "NOT_STARTED";
@@ -1014,6 +1019,14 @@ function serializeToolTrace(
            ...(step.unjustifiedReads ? { unjustifiedReads: step.unjustifiedReads } : {}),
         };
       case "done":
+        {
+        const synthesisStep = step as typeof step & {
+          synthesisAttempts?: number;
+          synthesisMaxAttempts?: number;
+          synthesisTimeoutMs?: number;
+          synthesisElapsedMs?: number;
+          synthesisTimedOut?: boolean;
+        };
         return {
           kind: step.kind,
           iterations: step.iterations,
@@ -1023,6 +1036,11 @@ function serializeToolTrace(
           loopToolCalls: step.loopToolCalls,
           stopReason: step.stopReason,
           synthesisStarted: step.synthesisStarted,
+          ...(synthesisStep.synthesisAttempts !== undefined ? { synthesisAttempts: synthesisStep.synthesisAttempts } : {}),
+          ...(synthesisStep.synthesisMaxAttempts !== undefined ? { synthesisMaxAttempts: synthesisStep.synthesisMaxAttempts } : {}),
+          ...(synthesisStep.synthesisTimeoutMs !== undefined ? { synthesisTimeoutMs: synthesisStep.synthesisTimeoutMs } : {}),
+          ...(synthesisStep.synthesisElapsedMs !== undefined ? { synthesisElapsedMs: synthesisStep.synthesisElapsedMs } : {}),
+          ...(synthesisStep.synthesisTimedOut !== undefined ? { synthesisTimedOut: synthesisStep.synthesisTimedOut } : {}),
           ...(steps.some((candidate) => candidate.kind === "forensic_recovery_start")
             ? { recoveryStarted: true }
             : {}),
@@ -1036,6 +1054,7 @@ function serializeToolTrace(
           diagnosticCodes,
           ...(includeDiagnosticDetails && diagnosticDetails.length > 0 ? { diagnosticDetails } : {}),
         };
+        }
     }
   });
   if (scopeDescription) entries.unshift({ kind: "audit_scope", scopeDescription });
@@ -2291,6 +2310,11 @@ router.post("/ai/chat/stream", async (req, res) => {
           loopToolCalls: number;
           stopReason: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "cancelled";
           synthesisStarted: boolean;
+           synthesisAttempts?: number;
+           synthesisMaxAttempts?: number;
+           synthesisTimeoutMs?: number;
+           synthesisElapsedMs?: number;
+           synthesisTimedOut?: boolean;
           recoveryStarted?: boolean;
           diagnosticCodes: string[];
           diagnosticDetails?: string[];
@@ -2483,6 +2507,13 @@ router.post("/ai/chat/stream", async (req, res) => {
         // Skip iter 0 to avoid noise before any tools are called.
         sse({ type: "thinking", iter: step.iter, max: step.maxIterations });
       } else if (step.kind === "done") {
+        const synthesisStep = step as typeof step & {
+          synthesisAttempts?: number;
+          synthesisMaxAttempts?: number;
+          synthesisTimeoutMs?: number;
+          synthesisElapsedMs?: number;
+          synthesisTimedOut?: boolean;
+        };
         executionSummary = {
           iterations: step.iterations,
           maxIterations: step.maxIterations,
@@ -2491,6 +2522,11 @@ router.post("/ai/chat/stream", async (req, res) => {
           loopToolCalls: step.loopToolCalls,
           stopReason: step.stopReason,
           synthesisStarted: step.synthesisStarted,
+           ...(synthesisStep.synthesisAttempts !== undefined ? { synthesisAttempts: synthesisStep.synthesisAttempts } : {}),
+           ...(synthesisStep.synthesisMaxAttempts !== undefined ? { synthesisMaxAttempts: synthesisStep.synthesisMaxAttempts } : {}),
+           ...(synthesisStep.synthesisTimeoutMs !== undefined ? { synthesisTimeoutMs: synthesisStep.synthesisTimeoutMs } : {}),
+           ...(synthesisStep.synthesisElapsedMs !== undefined ? { synthesisElapsedMs: synthesisStep.synthesisElapsedMs } : {}),
+           ...(synthesisStep.synthesisTimedOut !== undefined ? { synthesisTimedOut: synthesisStep.synthesisTimedOut } : {}),
           ...(step.sourceRetrieval ? { sourceRetrieval: step.sourceRetrieval } : {}),
           ...(traceSteps.some((candidate) => candidate.kind === "forensic_recovery_start")
             ? { recoveryStarted: true }
