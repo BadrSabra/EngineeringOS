@@ -404,7 +404,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await composer.fill(fixture.question);
     const sendButton = composer.locator("xpath=..").getByRole("button");
     await expect(sendButton).toBeEnabled();
+    const streamResponsePromise = page.waitForResponse((response) =>
+      response.url().includes("/api/ai/chat/stream"),
+    );
     await sendButton.click();
+    const streamResponse = await streamResponsePromise;
+    expect(streamResponse.status()).toBe(200);
 
     await expect(page.getByText(fixture.question, { exact: true })).toBeVisible();
     await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
