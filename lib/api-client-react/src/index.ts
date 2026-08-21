@@ -36,6 +36,7 @@ export type {
   AiStreamExecutionGuardEvent,
   AiStreamSynthesisStartEvent,
   AiStreamExecutionDiagnosticEvent,
+  AiStreamEvidenceIntegrityEvent,
   AiStreamExecutionSummary,
   AiSemanticTraceSourceSpan,
   AiSemanticTraceNode,
