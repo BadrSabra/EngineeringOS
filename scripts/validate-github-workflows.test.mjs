@@ -311,3 +311,35 @@ test("reports malformed reusable workflow references with the complete nested pa
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("accepts local and external reusable workflow references", async () => {
+  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+  const workflowsDirectory = join(root, ".github", "workflows");
+
+  try {
+    await mkdir(workflowsDirectory, { recursive: true });
+    await writeFile(
+      join(workflowsDirectory, "valid-references.yml"),
+      [
+        "name: Valid reusable workflow references",
+        "on: [push]",
+        "jobs:",
+        "  local-yml:",
+        "    uses: ./.github/workflows/reusable.yml",
+        "  local-yaml:",
+        "    uses: ./.github/workflows/reusable.yaml",
+        "  external-tag:",
+        "    uses: octo-org/example/.github/workflows/reusable.yml@v4",
+        "  external-branch:",
+        "    uses: octo-org/example/.github/workflows/reusable.yaml@main",
+        "  external-commit:",
+        "    uses: octo-org/example/.github/workflows/reusable.yml@0123456789abcdef0123456789abcdef01234567",
+        "",
+      ].join("\n"),
+    );
+
+    await assert.doesNotReject(validateWorkflows(workflowsDirectory, root));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
