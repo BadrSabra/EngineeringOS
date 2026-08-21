@@ -84,6 +84,22 @@ export type { ExecutionModelDecision } from "./model-selection/model-resolver.js
 
 export { buildExecutionPlan } from "./quality/quality-planner.js";
 export type { ExecutionPlan } from "./quality/quality-planner.js";
+export {
+  LIVE_RESPONSE_QUALITY_VERSION,
+  LIVE_RESPONSE_QUALITY_CASES,
+  scoreLiveResponseQualityCase,
+  buildLiveResponseQualityScorecard,
+  runLiveResponseQualityBenchmark,
+} from "./benchmark/live-response-quality.js";
+export type {
+  LiveResponseQualityCase,
+  LiveResponseQualityEvidence,
+  LiveResponseQualitySnapshot,
+  LiveResponseQualityScore,
+  LiveResponseQualityScorecard,
+  LiveResponseQualityMetrics,
+  LiveResponseQualityExecutor,
+} from "./benchmark/live-response-quality.js";
 export { buildTaskProfile, inferTaskType } from "./quality/task-profile.js";
 export type { TaskProfile, TaskType, ContextIntensity, MemoryMode, GraphMode, HistoryMode } from "./quality/task-profile.js";
 export { decideRetry } from "./quality/retry-controller.js";
