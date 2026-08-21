@@ -3253,7 +3253,7 @@ function BehaviorEvidencePanel({ evidence, projectId }: { evidence: AiBehaviorEv
                     {hasSpan ? (
                       <><FileCode2 className="w-2.5 h-2.5" />{label}</>
                     ) : (
-                      <><FileCode2 className="w-2.5 h-2.5" />{label}<span className="not-italic text-muted-foreground/50">(unresolved span)</span></>
+                      <><FileCode2 className="w-2.5 h-2.5" />{label}<span className="not-italic text-muted-foreground/50">(no span)</span></>
                     )}
                     <Check className={`w-2.5 h-2.5 ${isCopied ? 'text-emerald-400' : 'opacity-0'}`} />
                   </button>
@@ -5060,7 +5060,9 @@ function flightRecorderLabel(entry: ToolTraceEntry): string {
     run_validation: 'Run registered validation',
   };
   if (entry.kind === 'tool_call') {
-    return entry.tool ? (toolLabel[entry.tool] ?? 'Project operation') : 'Project operation';
+    return entry.tool
+      ? `Called ${entry.tool} · ${toolLabel[entry.tool] ?? 'Project operation'}`
+      : 'Project operation';
   }
   if (entry.kind === 'tool_result') {
     return entry.tool
