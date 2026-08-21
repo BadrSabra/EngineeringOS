@@ -291,7 +291,9 @@ export async function performScan(projectId: string, signal?: AbortSignal): Prom
   // it lands, or none of it does, and the outer catch in runScanJob marks
   // the job failed with a clean, fully-rolled-back DB state.
 
+  checkCancelled();
   return await db.transaction(async (tx) => {
+    checkCancelled();
     const existingRuleTasks = await tx
       .select({ ruleId: tasksTable.ruleId })
       .from(tasksTable)
@@ -564,6 +566,7 @@ export async function performScan(projectId: string, signal?: AbortSignal): Prom
       correlationId,
     });
 
+    checkCancelled();
     return {
       projectId,
       scannedAt: now.toISOString(),

@@ -1381,6 +1381,15 @@ router.post("/ai/chat", async (req, res) => {
     implementationPlanResume,
   });
   const modelHasTools = Boolean(validRootPath && turnIntent.requiresTools);
+  let analysisCorrelation: {
+    operationId: string;
+    projectRevision: string;
+    evidenceProvenance: string;
+  } = {
+    operationId: randomUUID(),
+    projectRevision: project.updatedAt.toISOString(),
+    evidenceProvenance: "project-analysis",
+  };
   const analysisToolRunner = validRootPath
     ? createProjectAnalysisToolRunner(projectId, validRootPath)
     : undefined;
@@ -1488,6 +1497,7 @@ router.post("/ai/chat", async (req, res) => {
           turnIntent,
           allowAnalysisTools: Boolean(modelHasTools && analysisToolRunner),
           analysisToolRunner,
+          analysisCorrelation,
         },
         { provider, apiKey },
         undefined,
@@ -1944,6 +1954,15 @@ router.post("/ai/chat/stream", async (req, res) => {
     auditScopeDescription?: string;
   }).auditScopeDescription;
   const streamModelHasTools = Boolean(validRootPath && streamTurnIntent.requiresTools);
+  let analysisCorrelation: {
+    operationId: string;
+    projectRevision: string;
+    evidenceProvenance: string;
+  } = {
+    operationId: randomUUID(),
+    projectRevision: project.updatedAt.toISOString(),
+    evidenceProvenance: "project-analysis",
+  };
   const analysisToolRunner = validRootPath
     ? createProjectAnalysisToolRunner(projectId, validRootPath)
     : undefined;
@@ -2179,6 +2198,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         return;
       }
       aiExecution = claimed;
+      analysisCorrelation.operationId = aiExecution.id;
     } else {
       const created = await createAiExecution({
         userId: req.userId,
@@ -2190,6 +2210,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         buildPlanMessageId: effectiveBuildPlanMessageId,
       });
       aiExecution = created.execution;
+      analysisCorrelation.operationId = aiExecution.id;
       executionResumeToken = created.resumeToken;
       const claimed = await claimAiExecution({
         executionId: aiExecution.id,
@@ -2202,6 +2223,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         return;
       }
       aiExecution = claimed;
+      analysisCorrelation.operationId = aiExecution.id;
     }
 
     let checkpointSequence = aiExecution.checkpointVersion;
@@ -2817,6 +2839,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           turnIntent: streamTurnIntent,
           allowAnalysisTools: Boolean(streamModelHasTools && analysisToolRunner),
           analysisToolRunner,
+          analysisCorrelation,
         },
         { provider, apiKey },
         onDelta,

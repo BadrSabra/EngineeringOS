@@ -1,4 +1,4 @@
-import { db, graphEntitiesTable } from "@workspace/db";
+import { db, graphEntitiesTable, projectsTable } from "@workspace/db";
 import { and, eq, ilike } from "drizzle-orm";
 import {
   getImpactedEntities,
@@ -28,17 +28,54 @@ function entityView(entity: GraphEntity) {
   return { id: entity.id, type: entity.type, name: entity.name, path: entity.path, confidence: entity.confidence };
 }
 
-export function createProjectAnalysisToolRunner(projectId: string, rootPath: string): AnalysisToolRunner {
-  return async (name, args, signal): Promise<AnalysisToolResult> => {
-    check(signal);
+export function createProjectAnalysisToolRunner(
+  projectId: string,
+  rootPath: string,
+): AnalysisToolRunner {
+  return async (name, args, parentSignal, correlation): Promise<AnalysisToolResult> => {
+    if (!correlation) {
+      return { status: "unavailable", output: "Analysis correlation is unavailable." };
+    }
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    if (parentSignal?.aborted) controller.abort();
+    else parentSignal?.addEventListener("abort", onAbort, { once: true });
+    let timer: NodeJS.Timeout | undefined;
+    let timedOut = false;
+    const unavailable = (message: string): AnalysisToolResult => ({
+      status: "unavailable",
+      output: message,
+      correlation,
+    });
+    const assertRevision = async (): Promise<void> => {
+      const [project] = await db
+        .select({ updatedAt: projectsTable.updatedAt })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, projectId))
+        .limit(1);
+      if (project?.updatedAt && project.updatedAt.toISOString() !== correlation.projectRevision) {
+        throw new Error("analysis revision is stale");
+      }
+    };
+    check(controller.signal);
     const work = (async (): Promise<AnalysisToolResult> => {
+      check(controller.signal);
+      await assertRevision();
       if (name === "refresh_project_scan") {
-        const result = await performScan(projectId, signal);
-        check(signal);
+        const result = await performScan(projectId, controller.signal);
+        check(controller.signal);
+        const [project] = await db
+          .select({ updatedAt: projectsTable.updatedAt })
+          .from(projectsTable)
+          .where(eq(projectsTable.id, projectId))
+          .limit(1);
+        if (project?.updatedAt) correlation.projectRevision = project.updatedAt.toISOString();
+        correlation.evidenceProvenance = "project-scan";
         return {
           status: "complete",
           source: `analysis:scan:${result.scannedAt}`,
           output: bounded({ ...result, status: "complete", rootPath }),
+          correlation: { ...correlation },
         };
       }
 
@@ -47,11 +84,12 @@ export function createProjectAnalysisToolRunner(projectId: string, rootPath: str
         const conditions = [eq(graphEntitiesTable.projectId, projectId), eq(graphEntitiesTable.type, "api" as never)];
         if (query) conditions.push(ilike(graphEntitiesTable.name, `%${query}%`));
         const rows = await db.select().from(graphEntitiesTable).where(and(...conditions)).limit(100);
-        check(signal);
+        check(controller.signal);
         return {
           status: "complete",
           source: "analysis:api-discovery",
           output: bounded({ status: "complete", count: rows.length, apis: rows.map(entityView) }),
+          correlation: { ...correlation, evidenceProvenance: "persisted-api-discovery" },
         };
       }
 
@@ -60,35 +98,52 @@ export function createProjectAnalysisToolRunner(projectId: string, rootPath: str
       const entity = (args.entity ?? "").trim();
       if (operation === "search") {
         const matches = await searchNodes(db, projectId, entity ? [entity] : []);
+        check(controller.signal);
         return {
           status: "complete",
           source: "analysis:graph-search",
           output: bounded({ status: "complete", count: matches.length, entities: matches.slice(0, 50).map(entityView) }),
+          correlation: { ...correlation, evidenceProvenance: "persisted-graph-search" },
         };
       }
       const matches = await searchNodes(db, projectId, entity ? [entity] : []);
       const target = matches[0];
       if (!target) {
-        return { status: "complete", source: "analysis:graph", output: bounded({ status: "complete", count: 0, entities: [] }) };
+        return {
+          status: "complete",
+          source: "analysis:graph",
+          output: bounded({ status: "complete", count: 0, entities: [] }),
+          correlation: { ...correlation, evidenceProvenance: `persisted-graph-${operation}` },
+        };
       }
       const result = operation === "impact"
         ? await getImpactedEntities(db, target.id, depth)
         : await getNeighborhood(db, target.id, depth);
-      check(signal);
+      check(controller.signal);
       return {
         status: "complete",
         source: `analysis:graph-${operation}`,
         output: bounded({ status: "complete", operation, entity: entityView(target), result }),
+        correlation: { ...correlation, evidenceProvenance: `persisted-graph-${operation}` },
       };
     })();
-    return Promise.race([
-      work,
-      new Promise<AnalysisToolResult>((resolve) =>
-        setTimeout(() => resolve({
-          status: "unavailable",
-          output: "Analysis exceeded the bounded 30-second budget and was not completed.",
-        }), MAX_MS),
-      ),
-    ]);
+    const timeout = new Promise<AnalysisToolResult>((resolve) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+        resolve(unavailable("Analysis exceeded the bounded 30-second budget and was not completed."));
+      }, MAX_MS);
+    });
+    try {
+      return await Promise.race([
+        work,
+        timeout,
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      parentSignal?.removeEventListener("abort", onAbort);
+      // Ensure a timeout cannot turn a late completion into usable evidence.
+      if (timedOut) controller.abort();
+    }
   };
 }

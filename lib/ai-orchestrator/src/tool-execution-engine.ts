@@ -49,6 +49,7 @@ import {
   ANALYSIS_TOOL_NAMES,
   executeAnalysisTool,
   type AnalysisToolRunner,
+  type AnalysisCorrelation,
 } from "./tools/analysis-tools.js";
 import { recordProviderTelemetry } from "./provider-registry.js";
 import { recordBehavioralFailure } from "./behavioral-scorecard.js";
@@ -391,6 +392,7 @@ export type SingleToolOpts = {
   validationRunner?: ValidationRunner;
   /** Server-owned, read-only scanner/graph/discovery dispatcher. */
   analysisToolRunner?: AnalysisToolRunner;
+  analysisCorrelation?: AnalysisCorrelation;
   /** Files covered by the approved implementation plan. */
   validationTargetPaths?: string[];
   /** Fail-closed dispatcher gate for execution tools. */
@@ -666,7 +668,13 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
             opts.signal,
             pendingChanges,
           )
-        : executeAnalysisTool(name, effectiveArgs, opts.analysisToolRunner, opts.signal)
+        : executeAnalysisTool(
+            name,
+            effectiveArgs,
+            opts.analysisToolRunner,
+            opts.signal,
+            opts.analysisCorrelation,
+          )
             .then((result) => {
               analysisStatus = result.status;
               return result.output;
@@ -959,6 +967,7 @@ export type ToolLoopOpts = {
   /** Server-owned callback used by run_validation. */
   validationRunner?: ValidationRunner;
   analysisToolRunner?: AnalysisToolRunner;
+  analysisCorrelation?: AnalysisCorrelation;
 
   /** Files covered by the approved implementation plan. */
   validationTargetPaths?: string[];
@@ -3552,6 +3561,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         allowExecutionTools,
         validationRunner,
         validationTargetPaths,
+        analysisToolRunner: opts.analysisToolRunner,
+        analysisCorrelation: opts.analysisCorrelation,
         signal,
       });
 

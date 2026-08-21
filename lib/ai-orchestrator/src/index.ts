@@ -128,7 +128,12 @@ export type {
 
 export { resolveToolPolicy, getAllowedToolDefinitions, isToolAllowed } from "./tool-policy.js";
 export type { ToolMode, ToolPolicy } from "./tool-policy.js";
-export type { AnalysisToolRunner, AnalysisToolResult, AnalysisToolStatus } from "./tools/analysis-tools.js";
+export type {
+  AnalysisCorrelation,
+  AnalysisToolRunner,
+  AnalysisToolResult,
+  AnalysisToolStatus,
+} from "./tools/analysis-tools.js";
 
 export { extractJson, parseAgentResponse } from "./parsing.js";
 export type { AgentParseResult } from "./parsing.js";

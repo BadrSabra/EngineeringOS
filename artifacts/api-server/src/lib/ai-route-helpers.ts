@@ -384,6 +384,7 @@ export async function chatWithFallback(
     /** Server-owned read-only scanner/graph/discovery callback. */
     allowAnalysisTools?: boolean;
     analysisToolRunner?: import("@workspace/ai-orchestrator").AnalysisToolRunner;
+    analysisCorrelation?: import("@workspace/ai-orchestrator").AnalysisCorrelation;
     /** Server-owned files covered by the approved implementation plan. */
     validationTargetPaths?: string[];
     /** Server-owned execution plan for the current durable Build handoff. */
@@ -450,6 +451,7 @@ export async function chatWithFallback(
         validationRunner: baseParams.validationRunner,
         allowAnalysisTools: baseParams.allowAnalysisTools,
         analysisToolRunner: baseParams.analysisToolRunner,
+        analysisCorrelation: baseParams.analysisCorrelation,
         validationTargetPaths: baseParams.validationTargetPaths,
         executionPlanOverride: baseParams.executionPlanOverride,
         buildHandoff: baseParams.buildHandoff,

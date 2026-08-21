@@ -2,16 +2,24 @@ import type { ToolDefinition } from "./file-tools.js";
 
 export type AnalysisToolStatus = "complete" | "unavailable" | "failed";
 
+export type AnalysisCorrelation = {
+  operationId: string;
+  projectRevision: string;
+  evidenceProvenance: string;
+};
+
 export type AnalysisToolResult = {
   status: AnalysisToolStatus;
   output: string;
   source?: string;
+  correlation?: AnalysisCorrelation;
 };
 
 export type AnalysisToolRunner = (
   name: string,
   args: Record<string, string>,
   signal?: AbortSignal,
+  correlation?: AnalysisCorrelation,
 ) => Promise<AnalysisToolResult>;
 
 export const ANALYSIS_TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -72,6 +80,7 @@ export async function executeAnalysisTool(
   args: Record<string, string>,
   runner: AnalysisToolRunner | undefined,
   signal?: AbortSignal,
+  correlation?: AnalysisCorrelation,
 ): Promise<AnalysisToolResult> {
   if (!ANALYSIS_TOOL_NAMES.has(name)) {
     return { status: "failed", output: `Unknown analysis tool "${name}".` };
@@ -80,24 +89,49 @@ export async function executeAnalysisTool(
     return {
       status: "unavailable",
       output: `Analysis tool "${name}" is unavailable for this project turn; do not present its result as completed evidence.`,
+      correlation,
     };
   }
   if (signal?.aborted) {
-    return { status: "unavailable", output: "Analysis was cancelled before it started." };
+    return {
+      status: "unavailable",
+      output: "Analysis was cancelled before it started.",
+      correlation,
+    };
   }
   try {
-    const result = await runner(name, args, signal);
+    if (!correlation) {
+      return {
+        status: "unavailable",
+        output: "Analysis correlation is unavailable for this project turn; do not present its result as completed evidence.",
+      };
+    }
+    const result = await runner(name, args, signal, correlation);
     if (result.status !== "complete") {
       return {
         ...result,
         output: `${result.output}\nThis analysis result is not completed evidence.`,
       };
     }
+    if (
+      !result.correlation ||
+      result.correlation.operationId !== correlation.operationId ||
+      result.correlation.projectRevision !== correlation.projectRevision ||
+      !result.correlation.evidenceProvenance
+    ) {
+      return {
+        status: "unavailable",
+        output: "Analysis returned stale or cross-operation evidence; it was rejected.",
+      };
+    }
     return result;
   } catch {
     return {
-      status: "failed",
-      output: `Analysis tool "${name}" failed and produced no completed evidence.`,
+      status: signal?.aborted ? "unavailable" : "failed",
+      output: signal?.aborted
+        ? "Analysis was cancelled before it completed."
+        : `Analysis tool "${name}" failed and produced no completed evidence.`,
+      correlation,
     };
   }
 }
