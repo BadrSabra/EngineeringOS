@@ -233,6 +233,11 @@ async function installArabicAiFixture(
       acceptedEvidenceCount: 1,
       completedReadFiles: [source],
       acceptedEvidenceFiles: [source],
+      objectiveType: "PRODUCTION_REACHABILITY",
+      requiredEdges: ["client->server", "server->database"],
+      provenEdges: ["client->server"],
+      completionGateResult: "PARTIALLY_PROVEN",
+      finalAnswerType: "PRODUCTION_REACHABILITY_ANSWER",
     },
   ];
   const taskResult = {
@@ -254,7 +259,8 @@ async function installArabicAiFixture(
     id: messageId,
     sessionId,
     role: "assistant",
-    content: answer,
+    content: `${answer}\n\n## 6) Final Judgment\nNOT PROVEN`,
+    operationMode: "FORENSIC_AUDIT",
     sources: [source],
     toolTrace: JSON.stringify(toolTrace),
     behaviorEvidence: evidence,
@@ -278,6 +284,11 @@ async function installArabicAiFixture(
       acceptedEvidenceCount: 1,
       completedReadFiles: [source],
       acceptedEvidenceFiles: [source],
+      objectiveType: "PRODUCTION_REACHABILITY",
+      requiredEdges: ["client->server", "server->database"],
+      provenEdges: ["client->server"],
+      completionGateResult: "PARTIALLY_PROVEN",
+      finalAnswerType: "PRODUCTION_REACHABILITY_ANSWER",
     }),
     sse({ type: "delta", delta: answer }),
     sse({

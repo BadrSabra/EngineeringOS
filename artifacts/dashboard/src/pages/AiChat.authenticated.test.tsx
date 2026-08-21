@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AiChat, { BenchmarkMissionControlPanel } from './AiChat';
@@ -983,6 +983,13 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByText('2')).toBeInTheDocument();
     expect(screen.getByText('src/routes/ai/chat.ts')).toBeInTheDocument();
     expect(screen.getAllByText('8').length).toBeGreaterThan(0); // uniqueFilesRead + legacy completed-read fallback
+    const objectiveProof = screen.getByLabelText('Objective proof details');
+    expect(objectiveProof).toHaveTextContent('PARTIALLY_PROVEN');
+    expect(objectiveProof).toHaveTextContent('2'); // required edges
+    expect(objectiveProof).toHaveTextContent('1'); // proven edges
+    expect(objectiveProof).toHaveTextContent('PRODUCTION REACHABILITY');
+    expect(objectiveProof).toHaveTextContent('PRODUCTION_REACHABILITY');
+    expect(objectiveProof).toHaveTextContent('client->server');
   });
 
   it('uses canonical evidence files when prefetch reads are absent from the persisted trace', async () => {
@@ -1894,6 +1901,11 @@ describe('AiChat authenticated generated mutations', () => {
         type: 'evidence_integrity',
         consistent: true,
         violations: [],
+        objectiveType: 'PRODUCTION_REACHABILITY',
+        requiredEdges: ['client->server', 'server->database'],
+        provenEdges: ['client->server'],
+        completionGateResult: 'PARTIALLY_PROVEN',
+        finalAnswerType: 'PRODUCTION_REACHABILITY_ANSWER',
       });
     });
 
@@ -1903,6 +1915,13 @@ describe('AiChat authenticated generated mutations', () => {
     expect(proofPanel).toHaveTextContent('execution-proof-1');
     expect(proofPanel).toHaveTextContent('Telemetry consistent');
     expect(proofPanel).toHaveTextContent('No writes applied automatically');
+    const objectiveProof = within(proofPanel).getByLabelText('Objective proof details');
+    expect(objectiveProof).toHaveTextContent('PARTIALLY_PROVEN');
+    expect(objectiveProof).toHaveTextContent('Required edges');
+    expect(objectiveProof).toHaveTextContent('Proven edges');
+    expect(objectiveProof).toHaveTextContent('PRODUCTION REACHABILITY');
+    expect(objectiveProof).toHaveTextContent('PRODUCTION_REACHABILITY');
+    expect(objectiveProof).toHaveTextContent('client->server');
   });
 
   it('reconstructs the activity timeline from persisted toolTrace history', async () => {
