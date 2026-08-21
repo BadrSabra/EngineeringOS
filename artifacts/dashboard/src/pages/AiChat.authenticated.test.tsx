@@ -412,6 +412,36 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.queryByText('A saved AI execution is ready to resume')).not.toBeInTheDocument();
   });
 
+  it('replays a persisted analysis failure after dashboard reload without showing completion', async () => {
+    mocks.serverProposal = { proposalId: 'failed-analysis-replay', changes: [] };
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      content: '',
+      outcome: 'FAILED',
+      executionId: 'execution-failed-analysis',
+      errorCode: 'TOOL_UNAVAILABLE',
+      errorMessage: 'Analysis tool query_knowledge_graph was unavailable; the operation did not complete.',
+      toolTrace: JSON.stringify([
+        {
+          kind: 'tool_result',
+          tool: 'query_knowledge_graph',
+          resultKind: 'unavailable',
+          diagnosticCode: 'TOOL_UNAVAILABLE',
+          resultSummary: 'Analysis tool query_knowledge_graph was unavailable; the operation did not complete.',
+        },
+        { kind: 'done', stopReason: 'tool_failure', diagnosticCodes: ['TOOL_UNAVAILABLE'] },
+      ]),
+    };
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByText('Execution failed')).toBeInTheDocument();
+    expect(screen.getByText(/query_knowledge_graph was unavailable/)).toBeInTheDocument();
+    expect(screen.queryByText('Persisted execution proof')).not.toBeInTheDocument();
+    expect(screen.queryByText(/COMPLETED/)).not.toBeInTheDocument();
+  });
+
   it('clears execution state for a new session and rejects late callbacks', async () => {
     renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));

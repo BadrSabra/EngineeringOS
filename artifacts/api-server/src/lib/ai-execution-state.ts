@@ -441,6 +441,8 @@ export async function failAiExecution(params: {
   error: string;
   cancelled?: boolean;
   nodeStates?: AiExecutionCheckpoint["nodeStates"];
+  recentSteps?: Array<Record<string, unknown>>;
+  streamedPreview?: string;
 }): Promise<boolean> {
   const status = params.cancelled ? "cancelled" : "failed";
   const [updated] = await db
@@ -456,6 +458,10 @@ export async function failAiExecution(params: {
       checkpoint: JSON.stringify({
         stage: params.cancelled ? "cancelled" : "failed",
         sequence: Date.now(),
+        ...(params.streamedPreview ? { streamedPreview: params.streamedPreview.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT) } : {}),
+        ...(params.recentSteps && params.recentSteps.length > 0
+          ? { recentSteps: params.recentSteps.slice(-AI_EXECUTION_TRACE_LIMIT) }
+          : {}),
         ...(params.nodeStates && params.nodeStates.length > 0
           ? { nodeStates: params.nodeStates }
           : {}),

@@ -3593,6 +3593,82 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(assistant?.toolTrace).toContain('"synthesisTimedOut":false');
   });
 
+  it("persists required analysis failures and never replays them as completed", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+      onStep?.({
+        kind: "tool_result",
+        tool: "query_knowledge_graph",
+        resultKind: "unavailable",
+        diagnosticCode: "TOOL_UNAVAILABLE",
+        resultSummary: "Analysis tool query_knowledge_graph was unavailable; the operation did not complete.",
+      });
+      onStep?.({
+        kind: "done",
+        iterations: 1,
+        maxIterations: 24,
+        toolCalls: 0,
+        prefetchToolCalls: 0,
+        loopToolCalls: 0,
+        stopReason: "tool_failure",
+        synthesisStarted: false,
+        diagnosticCodes: ["TOOL_UNAVAILABLE"],
+      });
+      return {
+        result: {
+          response: "The analysis was unavailable.",
+          sources: [],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      };
+    });
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "تحقق من الكود الفعلي واكتشف الفجوات وحدد الأسباب الجذرية" });
+    const events = parseSseEvents(res.text);
+    expect(res.status).toBe(200);
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "error", code: "TOOL_UNAVAILABLE" }),
+    ]));
+    expect(events.find((event) => event.type === "done")).toBeUndefined();
+
+    const [failedExecution] = await db
+      .select({ sessionId: aiExecutionsTable.sessionId })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.projectId, projectId));
+    const sessionId = failedExecution?.sessionId;
+    expect(sessionId).toEqual(expect.any(String));
+    const messages = await db
+      .select({
+        role: aiChatMessagesTable.role,
+        outcome: aiChatMessagesTable.outcome,
+        errorCode: aiChatMessagesTable.errorCode,
+        errorMessage: aiChatMessagesTable.errorMessage,
+      })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, String(sessionId)));
+    expect(messages.find((message) => message.role === "assistant")).toMatchObject({
+      outcome: "FAILED",
+      errorCode: "TOOL_UNAVAILABLE",
+      errorMessage: "Analysis tool query_knowledge_graph was unavailable; the operation did not complete.",
+    });
+
+    const executions = await db
+      .select({ status: aiExecutionsTable.status, error: aiExecutionsTable.error, checkpoint: aiExecutionsTable.checkpoint })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.sessionId, String(sessionId)));
+    expect(executions.at(-1)?.status).toBe("failed");
+    expect(executions.at(-1)?.error).toContain("did not complete");
+    expect(parseAiExecutionCheckpoint(executions.at(-1)?.checkpoint ?? "")?.stage).toBe("failed");
+  });
+
   it("records zero-read evidence stops as failed, not completed", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

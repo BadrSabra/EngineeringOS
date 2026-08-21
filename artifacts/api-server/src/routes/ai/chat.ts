@@ -2919,6 +2919,68 @@ router.post("/ai/chat/stream", async (req, res) => {
         streamTurnIntent.requiresEvidence &&
         !activeExecutionAbortController.signal.aborted &&
         endedBeforeFirstSourceRead(traceSteps);
+      // A required analysis/validation tool failure is a terminal operation
+      // failure, even when the agent returned a blocked-looking response.
+      // Do not let that response enter the normal successful assistant-message
+      // and completeAiExecution path: doing so makes a failed run look
+      // completed after a reconnect or dashboard reload.
+      const terminalToolFailure = [...traceSteps]
+        .reverse()
+        .find((step) => step.kind === "done" && step.stopReason === "tool_failure");
+      if (terminalToolFailure?.kind === "done") {
+        const failedToolResult = [...traceSteps]
+          .reverse()
+          .find((step) =>
+            step.kind === "tool_result" &&
+            (step.resultKind === "failed" || step.resultKind === "unavailable" || step.resultKind === "cancelled"),
+          );
+        const diagnosticCode =
+          failedToolResult?.kind === "tool_result" && failedToolResult.diagnosticCode
+            ? failedToolResult.diagnosticCode
+            : "TOOL_EXECUTION_FAILED";
+        const safeDiagnostic =
+          failedToolResult?.kind === "tool_result" && failedToolResult.resultSummary
+            ? failedToolResult.resultSummary
+            : "The required analysis did not complete; the operation is blocked.";
+        const interrupted = failedToolResult?.kind === "tool_result" && failedToolResult.resultKind === "cancelled";
+        sse({
+          type: "error",
+          code: diagnosticCode,
+          message: safeDiagnostic,
+          retryable: false,
+          suggestedFix: "Retry the analysis after the required project analysis is available.",
+        });
+        await persistFailedChatTurn({
+          sessionId: sessionIdToUse,
+          projectId,
+          message,
+          turnIntent: streamTurnIntent.kind,
+          executionId: aiExecution?.id,
+          outcome: interrupted ? "INTERRUPTED" : "FAILED",
+          errorCode: diagnosticCode,
+          errorMessage: safeDiagnostic,
+          createdAt: now,
+          assistantAt: msgNow,
+          toolTrace: traceSteps,
+        }).catch((persistError) => logger.error(
+          { persistError, sessionId: sessionIdToUse },
+          "chat stream: failed to persist terminal tool failure",
+        ));
+        if (aiExecution) {
+          await failAiExecution({
+            executionId: aiExecution.id,
+            workerId: executionWorkerId!,
+            error: safeDiagnostic,
+            cancelled: interrupted,
+            nodeStates: executionNodeStates,
+            streamedPreview: streamedContent,
+            recentSteps: traceSteps.slice(-AI_EXECUTION_TRACE_LIMIT) as unknown as Array<Record<string, unknown>>,
+          });
+          executionTerminal = true;
+        }
+        res.end();
+        return;
+      }
       if (endedBeforeEvidence) {
         result = {
           ...result,

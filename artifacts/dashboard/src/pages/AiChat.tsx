@@ -4071,7 +4071,7 @@ function MessageBubble({
             ? null
            : <ExecutionSummaryBanner summary={executionSummary} operatorTraceId={`operator-trace-${msg.id}`} />}
         {isEngineeringExecution && repairRadar && <RepairRadar trace={toolTrace} />}
-        {!isUser && (isForensicRun || isEngineeringExecution) && (
+        {!isUser && !failedTurn && (isForensicRun || isEngineeringExecution) && (
           <PersistedExecutionProof
             summary={executionSummary}
             trace={toolTrace}
