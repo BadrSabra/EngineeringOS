@@ -21,6 +21,109 @@ function commandsBetween(value: string, start: string, end: string): string[] {
   return section.match(/args\s*=\s*"([^"]+)"/g) ?? [];
 }
 
+type ReleaseFailureScenario = {
+  name: string;
+  command: string;
+  diagnostic: string;
+  laterCommands: string[];
+};
+
+const releaseFailureScenarios: ReleaseFailureScenario[] = [
+  {
+    name: "dashboard journey contract",
+    command: "run test:dashboard-journey-contract",
+    diagnostic: "dashboard journey contract fixture failed: expected route was missing",
+    laterCommands: [
+      "run test:mission-correlation-report",
+      "--filter @workspace/api-server run test:release-fixture-collisions",
+      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+      "--filter @workspace/api-server run test:process-recovery",
+    ],
+  },
+  {
+    name: "mission correlation report",
+    command: "run test:mission-correlation-report",
+    diagnostic: "mission correlation report fixture failed: operation revision mismatched",
+    laterCommands: [
+      "--filter @workspace/api-server run test:release-fixture-collisions",
+      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+      "--filter @workspace/api-server run test:process-recovery",
+    ],
+  },
+  {
+    name: "release fixture collision check",
+    command: "--filter @workspace/api-server run test:release-fixture-collisions",
+    diagnostic: "release fixture collision check failed: duplicate fixture identity",
+    laterCommands: [
+      "--filter @workspace/api-server run test:release-synthesis-telemetry",
+      "--filter @workspace/api-server run test:process-recovery",
+    ],
+  },
+  {
+    name: "release synthesis telemetry",
+    command: "--filter @workspace/api-server run test:release-synthesis-telemetry",
+    diagnostic: "release synthesis telemetry failed: expected audit event was absent",
+    laterCommands: [
+      "--filter @workspace/api-server run test:process-recovery",
+    ],
+  },
+  {
+    name: "process recovery",
+    command: "--filter @workspace/api-server run test:process-recovery",
+    diagnostic: "process recovery failed: child server did not become ready",
+    laterCommands: [],
+  },
+];
+
+async function runReleaseWithInjectedFailure(
+  scenario: ReleaseFailureScenario,
+): Promise<{ output: string; trace: string; status: number | null }> {
+  const temporaryDirectory = await mkdtemp(
+    resolve(tmpdir(), "release-step-failure-"),
+  );
+  const tracePath = resolve(temporaryDirectory, "pnpm-trace.log");
+  const shimPath = resolve(temporaryDirectory, "pnpm");
+  const realPnpm = spawnSync("sh", ["-c", "command -v pnpm"], {
+    encoding: "utf8",
+  }).stdout.trim();
+
+  await writeFile(
+    shimPath,
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "$RELEASE_VALIDATION_TRACE"
+if [ "$*" = "${scenario.command}" ]; then
+  echo "${scenario.diagnostic}" >&2
+  exit 23
+fi
+if [ "$*" != "run validate:release" ]; then
+  exit 0
+fi
+exec "${realPnpm}" "$@"
+`,
+    "utf8",
+  );
+  await chmod(shimPath, 0o755);
+
+  try {
+    const result = spawnSync("pnpm", ["run", "validate:release"], {
+      cwd: workspaceRoot,
+      env: {
+        ...process.env,
+        PATH: `${temporaryDirectory}:${process.env.PATH ?? ""}`,
+        RELEASE_VALIDATION_TRACE: tracePath,
+      },
+      encoding: "utf8",
+    });
+    return {
+      output: `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
+      trace: await readFile(tracePath, "utf8"),
+      status: result.status,
+    };
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+}
+
 test("keeps release recovery validation before deployment cleanup", async () => {
   const packageJson = JSON.parse(await readWorkspaceFile("package.json")) as {
     scripts?: Record<string, string>;
@@ -200,6 +303,35 @@ exec "${realPnpm}" "$@"
     await rm(temporaryDirectory, { recursive: true, force: true });
   }
 });
+
+for (const scenario of releaseFailureScenarios) {
+  test(`stops release validation after a ${scenario.name} diagnostic`, async () => {
+    const { output, trace, status } = await runReleaseWithInjectedFailure(scenario);
+
+    assert.notEqual(
+      status,
+      0,
+      `${scenario.name} failure must keep release validation non-zero`,
+    );
+    assert.match(
+      output,
+      new RegExp(scenario.diagnostic.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      `${scenario.name} diagnostic must remain visible in release output`,
+    );
+    assert.match(
+      trace,
+      new RegExp(scenario.command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      `${scenario.name} must start before release validation stops`,
+    );
+    for (const laterCommand of scenario.laterCommands) {
+      assert.doesNotMatch(
+        trace,
+        new RegExp(laterCommand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+        `${laterCommand} must not start after ${scenario.name} fails`,
+      );
+    }
+  });
+}
 
 test("keeps the local Project workflow and release validation separate", async () => {
   const replitConfig = await readWorkspaceFile(".replit");
