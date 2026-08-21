@@ -195,6 +195,22 @@ describe("resolveTurnIntent", () => {
     });
   });
 
+  it("routes a persisted implementation-plan continuation to tools without replanning", () => {
+    const classification = classifyRequest("Continue");
+    const intent = resolveTurnIntent("Continue", {
+      classification: { ...classification, implementationPlanMode: true },
+      resumed: true,
+      implementationPlanResume: true,
+    });
+
+    expect(intent).toMatchObject({
+      implementationPlanResume: true,
+      kind: "PROJECT_QUERY",
+      requiresTools: true,
+      requiresEvidence: false,
+    });
+  });
+
   it.each(["How do I edit settings?", "How do I change settings?"])(
     "does not treat an interrogative action word as a delivery request: %s",
     (message) => {

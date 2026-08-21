@@ -50,6 +50,8 @@ import {
   serializeActiveTaskState,
   touchActiveTaskState,
   mergeActiveTaskEvidence,
+  isImplementationPlanContinuation,
+  advanceImplementationPlan,
   buildPatchHunks,
   hashPatchBase,
   rebasePatchHunks,
@@ -1127,10 +1129,14 @@ function nextSessionTaskState(args: {
 }): string | null {
   if (args.persisted && (args.resumed || args.executionPlan)) {
     const touched = touchActiveTaskState(args.persisted, args.now);
+    const existingPlan = touched.executionPlan;
+    const progressedPlan = existingPlan
+      ? advanceImplementationPlan(existingPlan, args.readFiles)
+      : null;
     return serializeActiveTaskState(
       {
         ...mergeActiveTaskEvidence(touched, args.readFiles, args.now),
-        executionPlan: args.executionPlan ?? touched.executionPlan,
+        executionPlan: args.executionPlan ?? progressedPlan ?? touched.executionPlan,
       },
     );
   }
@@ -1298,10 +1304,15 @@ router.post("/ai/chat", async (req, res) => {
     rawTurnClassification,
     resumableStateForTurn,
   );
+  const implementationPlanResume = isImplementationPlanContinuation(
+    message,
+    resumableStateForTurn,
+  );
   const chatClassification = classificationResolution.classification;
   const turnIntent = resolveTurnIntent(message, {
     classification: chatClassification,
     resumed: classificationResolution.resumed,
+    implementationPlanResume,
   });
   const modelHasTools = Boolean(validRootPath && turnIntent.requiresTools);
   const immediateExecutionRequest = isImmediateExecutionRequest(message);
@@ -1836,10 +1847,15 @@ router.post("/ai/chat/stream", async (req, res) => {
     rawTurnClassification,
     streamResumableStateForTurn,
   );
+  const streamImplementationPlanResume = isImplementationPlanContinuation(
+    message,
+    streamResumableStateForTurn,
+  );
   const streamClassification = streamClassificationResolution.classification;
   const streamTurnIntent = resolveTurnIntent(message, {
     classification: streamClassification,
     resumed: streamClassificationResolution.resumed,
+    implementationPlanResume: streamImplementationPlanResume,
     buildHandoff: Boolean(approvedImplementationPlan && effectiveBuildPlanMessageId),
   });
   // Keep this compatible with consumers that still resolve the pre-scope

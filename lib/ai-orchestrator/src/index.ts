@@ -145,6 +145,8 @@ export {
   getRunnableExecutionNodes,
   transitionExecutionNode,
   mergeActiveTaskEvidence,
+  isImplementationPlanContinuation,
+  advanceImplementationPlan,
   isResumableTaskType,
   isTaskContinuationRequest,
   parseActiveTaskState,

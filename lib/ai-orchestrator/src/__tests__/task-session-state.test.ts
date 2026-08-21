@@ -5,6 +5,8 @@ import {
   buildActiveTaskState,
   buildImplementationExecutionNodes,
   buildExecutionNodes,
+  advanceImplementationPlan,
+  isImplementationPlanContinuation,
   getRunnableExecutionNodes,
   isTaskContinuationRequest,
   mergeActiveTaskEvidence,
@@ -286,7 +288,64 @@ describe("active task session state", () => {
     expect(plan).toMatchObject({
       readiness: "NOT_PROVEN",
       nodes: [{ id: "step:ui", allowedFiles: ["client/timeline.tsx"] }],
+      currentStepIndex: 0,
+      planningAttempts: 1,
+      planFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
+  });
+
+  it("resumes a stored implementation plan and advances only after its inspect read", () => {
+    const implementationPlan = {
+      kind: "IMPLEMENTATION_PLAN_RESULT" as const,
+      objective: "Prepare the activity timeline",
+      summary: "Inspect first, then make the approved change.",
+      assumptions: [],
+      steps: [
+        {
+          id: "inspect",
+          title: "Inspect the timeline route",
+          description: "Read the current route.",
+          action: "inspect" as const,
+          files: ["server/routes.ts"],
+          dependsOn: [],
+          validation: [],
+        },
+        {
+          id: "modify",
+          title: "Update the timeline route",
+          description: "Apply the approved change.",
+          action: "modify" as const,
+          files: ["server/routes.ts"],
+          dependsOn: ["inspect"],
+          validation: [],
+        },
+      ],
+      validationCommands: [],
+      risks: [],
+      approvalStatus: "PENDING_APPROVAL" as const,
+      writeAccess: "NOT_AUTHORIZED" as const,
+    };
+    const executionPlan = buildActiveTaskExecutionPlan({
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      implementationPlan,
+    })!;
+    const state = {
+      ...buildActiveTaskState({
+        classification: auditClassification,
+        projectId: "project-1",
+        rootPath: "/workspace/project-1",
+        linkedTaskId: undefined,
+      })!,
+      executionPlan,
+    };
+
+    expect(isImplementationPlanContinuation("تابع", state)).toBe(true);
+    expect(isImplementationPlanContinuation("new request", state)).toBe(false);
+    expect(advanceImplementationPlan(executionPlan, ["unrelated.ts"]).currentStepIndex).toBe(0);
+    const advanced = advanceImplementationPlan(executionPlan, ["./server/routes.ts"]);
+    expect(advanced.currentStepIndex).toBe(1);
+    expect(advanced.stepFingerprint).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("blocks an approved plan that has no executable write nodes", () => {

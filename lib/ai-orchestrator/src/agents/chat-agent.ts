@@ -3377,7 +3377,7 @@ export async function chat(opts: {
   // Plan mode is intentionally a separate, read-only path. It produces a
   // reviewable contract and never enters the forensic tool loop or exposes
   // write tools. Approval and execution will be separate milestones.
-  if (classification.implementationPlanMode && !buildHandoff) {
+  if (classification.implementationPlanMode && !buildHandoff && !turnIntent.implementationPlanResume) {
     const planResult = await createImplementationPlan(
       { message, projectContext },
       {
@@ -3498,6 +3498,24 @@ export async function chat(opts: {
   // explicit context, so the model knows exactly which repairs to implement.
   const immediateIntent = isImmediateExecutionRequest(message);
   const storedExecutionPlan = executionPlanOverride ?? activeTaskState?.executionPlan ?? null;
+  const resumedImplementationPlan =
+    turnIntent.implementationPlanResume ? storedExecutionPlan?.implementationPlan : null;
+  const resumedImplementationStep = resumedImplementationPlan?.steps[
+    storedExecutionPlan?.currentStepIndex ?? 0
+  ];
+  const implementationResumeInstruction = resumedImplementationPlan
+    ? [
+        "\n\n**RESUMED IMPLEMENTATION PLAN — SERVER-OWNED:**",
+        "Do not create, rewrite, or summarize a new plan.",
+        `Plan fingerprint: ${storedExecutionPlan?.planFingerprint ?? "unavailable"}.`,
+        `Current step: ${resumedImplementationStep?.id ?? "(none)"} — ${resumedImplementationStep?.title ?? "No current step"}.`,
+        `Action: ${resumedImplementationStep?.action ?? "blocked"}.`,
+        `Allowed files: ${(resumedImplementationStep?.files ?? []).join(", ") || "(none)"}.`,
+        resumedImplementationStep?.action === "inspect" || resumedImplementationStep?.action === "test"
+          ? "Execute this read-only step now with the appropriate read/validation tool, then report the actual tool result. Continue automatically only to another read-only step with an explicit scope."
+          : "This step changes project state. Stop before any write/delete/configure tool and ask for one explicit approval naming the step and allowed files.",
+      ].join("\n")
+    : "";
   const priorRepairPlanMetadata = immediateIntent
     ? storedExecutionPlan?.phases?.length
       ? storedExecutionPlan.phases
@@ -4291,9 +4309,9 @@ export async function chat(opts: {
         outputContract: promptOutputContract,
         responseLanguage,
          fixtureAuditMode,
-         suppressSessionMemory: suppressHistoricalSessionMemory,
+        suppressSessionMemory: suppressHistoricalSessionMemory,
         immediateExecution,
-      }) +
+      }) + implementationResumeInstruction +
         (singleFileForensicMode
         ? "\n\n**Effective forensic test manifest — ACTIVE:**\n" +
             `- Allowed source file: ${singleFilePaths[0] ?? "(none resolved)"}\n` +

@@ -40,6 +40,7 @@ export type TurnIntent = {
   resumed: boolean;
   allowsResume: boolean;
   allowsBuildHandoff: boolean;
+  implementationPlanResume: boolean;
   /** Broad forensic requests must declare a scope before expensive discovery. */
   scopeClarificationRequired: boolean;
   /** User-readable description of the boundary approved for this audit. */
@@ -85,13 +86,15 @@ export function resolveTurnIntent(
     classification?: ClassifiedRequest;
     resumed?: boolean;
     buildHandoff?: boolean;
+    implementationPlanResume?: boolean;
   } = {},
 ): TurnIntent {
   const classification = options.classification ?? classifyRequest(message);
   const route = routeTask(classification.taskType);
   const buildHandoff = options.buildHandoff === true;
+  const implementationPlanResume = options.implementationPlanResume === true;
   const planDelivery =
-    !buildHandoff && classification.implementationPlanMode;
+    !buildHandoff && !implementationPlanResume && classification.implementationPlanMode;
   const implementationDelivery =
     buildHandoff ||
     (
@@ -139,6 +142,7 @@ export function resolveTurnIntent(
   // keywords, but it must still reach the read-only evidence path.
   const resumedForensicContinuation =
     options.resumed === true &&
+    !implementationPlanResume &&
     !implementationDelivery &&
     !planDelivery &&
     route.requiresEvidence &&
@@ -148,6 +152,7 @@ export function resolveTurnIntent(
     !isLowRiskChat &&
     !implementationDelivery &&
     !planDelivery &&
+    !implementationPlanResume &&
     route.requiresEvidence &&
     (
       (
@@ -170,6 +175,7 @@ export function resolveTurnIntent(
     isLowRiskChat
       ? false
       : implementationDelivery ||
+        implementationPlanResume ||
         (explicitEvidenceIntent && !scopeClarificationRequired) ||
         (!planDelivery && hasProjectToolSignal && !scopeClarificationRequired);
 
@@ -213,6 +219,7 @@ export function resolveTurnIntent(
       options.resumed === true ||
       (kind !== "CHAT" && RESUMABLE_FORENSIC_TASKS.has(classification.taskType)),
     allowsBuildHandoff: buildHandoff,
+    implementationPlanResume,
     scopeClarificationRequired,
     ...(explicitEvidenceIntent && !scopeClarificationRequired
       ? { auditScopeDescription: describeAuditScope(classification, message) }

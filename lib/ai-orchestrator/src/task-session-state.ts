@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createHash } from "node:crypto";
 import {
   routeTask,
   type ForensicTaskType,
@@ -11,7 +12,10 @@ import {
   type ObjectiveContract,
   type RepairPlanMetadata,
 } from "./schemas/chat.schema.js";
-import type { ImplementationPlan } from "./schemas/implementation-plan.schema.js";
+import {
+  ImplementationPlanSchema,
+  type ImplementationPlan,
+} from "./schemas/implementation-plan.schema.js";
 
 const RESUMABLE_TASK_TYPES = [
   "FINDING_ANALYSIS",
@@ -93,6 +97,12 @@ export const ActiveTaskExecutionPlanSchema = z.object({
   boundaries: ExecutionPlanBoundariesSchema,
   nodes: z.array(ExecutionNodeSchema).max(24).default([]),
   readiness: z.enum(["READY", "BLOCKED", "NOT_PROVEN"]),
+  /** The original implementation contract is server-owned and resumable. */
+  implementationPlan: ImplementationPlanSchema.nullable().default(null),
+  currentStepIndex: z.number().int().min(0).max(12).default(0),
+  planFingerprint: z.string().regex(/^[a-f0-9]{64}$/).nullable().default(null),
+  stepFingerprint: z.string().regex(/^[a-f0-9]{64}$/).nullable().default(null),
+  planningAttempts: z.number().int().min(0).max(2).default(0),
 }).strict();
 
 export type ActiveTaskExecutionPlan = z.infer<typeof ActiveTaskExecutionPlanSchema>;
@@ -388,6 +398,50 @@ export function buildActiveTaskExecutionPlan(args: {
     },
     nodes: implementationPlan ? implementationNodes : buildExecutionNodes(phases),
     readiness,
+    implementationPlan: implementationPlan ?? null,
+    currentStepIndex: 0,
+    planFingerprint: implementationPlan
+      ? createHash("sha256").update(JSON.stringify(implementationPlan)).digest("hex")
+      : null,
+    stepFingerprint: implementationPlan?.steps[0]
+      ? createHash("sha256").update(JSON.stringify(implementationPlan.steps[0])).digest("hex")
+      : null,
+    planningAttempts: implementationPlan ? 1 : 0,
+  });
+}
+
+export function isImplementationPlanContinuation(
+  message: string,
+  state: ActiveTaskState | null | undefined,
+): boolean {
+  return Boolean(
+    state?.executionPlan?.implementationPlan &&
+    isTaskContinuationRequest(message),
+  );
+}
+
+/** Advance only after a read-only step produced a real source result. */
+export function advanceImplementationPlan(
+  plan: ActiveTaskExecutionPlan,
+  readFiles: readonly string[],
+): ActiveTaskExecutionPlan {
+  const implementationPlan = plan.implementationPlan;
+  if (!implementationPlan) return plan;
+  const normalized = new Set(readFiles.map((file) =>
+    file.trim().replace(/^\.\/+/, "").replace(/\\/g, "/"),
+  ));
+  const current = implementationPlan.steps[plan.currentStepIndex];
+  if (!current || current.action !== "inspect" || !current.files.some((file) => normalized.has(
+    file.replace(/^\.\/+/, "").replace(/\\/g, "/"),
+  ))) return plan;
+  const nextIndex = Math.min(plan.currentStepIndex + 1, implementationPlan.steps.length);
+  const next = implementationPlan.steps[nextIndex];
+  return ActiveTaskExecutionPlanSchema.parse({
+    ...plan,
+    currentStepIndex: nextIndex,
+    stepFingerprint: next
+      ? createHash("sha256").update(JSON.stringify(next)).digest("hex")
+      : null,
   });
 }
 
@@ -510,6 +564,7 @@ export function resumeActiveTaskClassification(
       confidence: 1,
       allowPrefetch: false,
       implementationTaskMode: false,
+      implementationPlanMode: Boolean(state.executionPlan?.implementationPlan),
     },
     resumed: true,
   };
