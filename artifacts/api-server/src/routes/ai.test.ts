@@ -1421,6 +1421,66 @@ describe("GET /api/ai/chat/:sessionId/messages", () => {
     });
   });
 
+  it("returns the stored mission correlation report as a parsed API field", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = randomUUID();
+    const now = new Date();
+    const report = {
+      kind: "mission-correlation-report",
+      version: 1,
+      redacted: true,
+      operationId: "stored-operation",
+      projectId,
+      sessionId,
+      workspaceRevision: "stored-revision",
+      terminalState: "BLOCKED",
+      outcomeClass: "non-success",
+      counts: {
+        messages: 2,
+        sseEvents: 1,
+        executionCheckpoints: 1,
+        evidence: 0,
+        proposals: 0,
+        validation: 0,
+        correlatedEvents: 0,
+      },
+      agreement: {
+        execution: true,
+        messages: true,
+        sse: true,
+        checkpoints: true,
+        dashboard: true,
+        evidence: true,
+        proposals: true,
+        validation: true,
+      },
+    };
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Mission report session",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values({
+      id: randomUUID(),
+      sessionId,
+      role: "assistant",
+      content: "Historical mission result",
+      missionCorrelationReport: JSON.stringify(report),
+      createdAt: now,
+    });
+
+    const res = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+    expect(res.status).toBe(200);
+    expect(res.body[0].missionCorrelationReport).toMatchObject({
+      ...report,
+      projectId: "[internal id]",
+      sessionId: "[internal id]",
+    });
+  });
+
   it("renders generic assistant messages without a taskResult (null-equivalent)", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

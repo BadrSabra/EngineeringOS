@@ -53,6 +53,8 @@ export const aiChatMessagesTable = pgTable("ai_chat_messages", {
   repairPlanMetadata: text("repair_plan_metadata"),
   /** JSON array of accepted behavior-evidence references, each with an optional exact source line span. */
   behaviorEvidence: text("behavior_evidence"),
+  /** Versioned, redacted mission correlation report for historical run messages. */
+  missionCorrelationReport: text("mission_correlation_report"),
   /** Server-authoritative routing decision for this conversational turn. */
   turnIntent: text("turn_intent"),
   /** Durable execution linked to this turn, when the turn used one. */

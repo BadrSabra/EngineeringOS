@@ -59,6 +59,7 @@ import type {
   AiCrossFileSemanticTrace,
   AiProductionReachabilityTrace,
   AiBehaviorEvidence,
+  MissionCorrelationReport,
   Event as ApiEvent,
 } from '@workspace/api-client-react';
 import type { ValidationResult } from '@workspace/ai-orchestrator';
@@ -113,7 +114,7 @@ type ChatMessage = {
   errorCode?: string | null;
   errorMessage?: string | null;
   /** Optional persisted release report attached to a historical run. */
-  missionCorrelationReport?: unknown;
+  missionCorrelationReport?: MissionCorrelationReport | null;
   /** Safe operational timeline captured from the live SSE run. */
   activityEvents?: LiveAgentActivityEvent[];
   /** Accepted behavior-evidence excerpts, optionally with an exact source line span. */
@@ -7923,6 +7924,11 @@ export default function AiChat() {
 
         {/* Messages */}
         <ScrollArea className="min-h-0 min-w-0 flex-1 px-3 py-3 sm:px-4 sm:py-4">
+          {historicalReportError && (
+            <div role="alert" className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              Historical run unavailable: {historicalReportError}
+            </div>
+          )}
           {isEmpty ? (
             <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-6">
               <div className="flex flex-col items-center gap-2">
@@ -7950,11 +7956,6 @@ export default function AiChat() {
             </div>
           ) : (
             <div className="mx-auto min-w-0 w-full max-w-3xl">
-              {historicalReportError && (
-                <div role="alert" className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-                  Historical run unavailable: {historicalReportError}
-                </div>
-              )}
                {showExecutionProof && (
                  <AgentExecutionProofPanel
                    execution={activeExecutionStatus}

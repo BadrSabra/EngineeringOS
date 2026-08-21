@@ -3590,6 +3590,9 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
     errorMessage: message.errorMessage ? redactUserFacingText(message.errorMessage) : message.errorMessage,
     repairPlan: redactUserFacingValue(parseRepairPlanMetadata(message.repairPlanMetadata)),
     behaviorEvidence: redactUserFacingValue(parseBehaviorEvidence(message.behaviorEvidence)),
+    missionCorrelationReport: message.missionCorrelationReport
+      ? redactUserFacingValue(parseStoredJson(message.missionCorrelationReport))
+      : message.missionCorrelationReport,
     taskResult: redactUserFacingValue(parseTaskResult(message.taskResult)),
   })));
 });

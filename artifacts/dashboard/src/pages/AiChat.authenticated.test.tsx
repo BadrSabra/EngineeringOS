@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AiChat, { BenchmarkMissionControlPanel } from './AiChat';
+import storedMissionCorrelationReport from '../lib/fixtures/stored-mission-correlation-report.json';
 
 /** Minimal structural mirror of the AI-008 taskResult union for rendering tests. */
 type TaskResultFixture =
@@ -69,6 +70,7 @@ const mocks = vi.hoisted(() => {
       content: 'Existing response',
       toolTrace: undefined as string | undefined,
       behaviorEvidence: undefined as string | object | null | undefined,
+      missionCorrelationReport: undefined as Record<string, unknown> | undefined,
       taskResult: undefined as TaskResultFixture | undefined,
       createdAt: '2026-08-13T00:00:00.000Z',
     }],
@@ -310,6 +312,7 @@ beforeEach(() => {
   mocks.operationEvents = [];
   mocks.proposalMessages[0].toolTrace = undefined;
   mocks.proposalMessages[0].behaviorEvidence = undefined;
+  mocks.proposalMessages[0].missionCorrelationReport = undefined;
   mocks.proposalMessages[0].taskResult = undefined;
   for (const mutation of Object.values(mocks.mutations)) {
     mutation.mutate.mockReset();
@@ -1919,6 +1922,33 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByText(/Reading source/)).toBeInTheDocument();
     expect(screen.getByText(/Model response/)).toBeInTheDocument();
     expect(screen.getAllByText(/src\/routes\/history\.ts/).length).toBeGreaterThan(0);
+  });
+
+  it('accepts a generated API-shaped mission correlation report in history', async () => {
+    mocks.serverProposal = { proposalId: 'stored-report', changes: [] };
+    mocks.proposalMessages[0].missionCorrelationReport = storedMissionCorrelationReport;
+    renderAiChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByText('Existing response')).toBeInTheDocument();
+  });
+
+  it('fails closed when historical mission report version is incompatible', async () => {
+    mocks.serverProposal = { proposalId: 'incompatible-report', changes: [] };
+    mocks.proposalMessages[0].missionCorrelationReport = {
+      ...storedMissionCorrelationReport,
+      version: 2,
+    };
+    renderAiChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Unsupported mission correlation report version: expected 1, got 2.',
+    );
+    expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
   });
 
   it('renders persisted execution proof after reloading a completed assistant message', async () => {

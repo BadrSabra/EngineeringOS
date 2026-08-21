@@ -2363,6 +2363,20 @@ export const AiChatBody = zod.object({
 
 export const aiChatResponseMessageBehaviorEvidenceMax = 8;
 
+export const aiChatResponseMessageMissionCorrelationReportCountsMessagesMin = 0;
+
+export const aiChatResponseMessageMissionCorrelationReportCountsSseEventsMin = 0;
+
+export const aiChatResponseMessageMissionCorrelationReportCountsExecutionCheckpointsMin = 0;
+
+export const aiChatResponseMessageMissionCorrelationReportCountsEvidenceMin = 0;
+
+export const aiChatResponseMessageMissionCorrelationReportCountsProposalsMin = 0;
+
+export const aiChatResponseMessageMissionCorrelationReportCountsValidationMin = 0;
+
+export const aiChatResponseMessageMissionCorrelationReportCountsCorrelatedEventsMin = 0;
+
 
 export const aiChatResponseMessageTaskResultFourEvidenceMax = 20;
 
@@ -2437,6 +2451,36 @@ export const AiChatResponse = zod.object({
   "endLine": zod.number().min(1)
 }).optional()
 })).max(aiChatResponseMessageBehaviorEvidenceMax).optional().describe('Parsed accepted behavior-evidence references, each with an optional exact source line span'),
+  "missionCorrelationReport": zod.object({
+  "kind": zod.enum(['mission-correlation-report']),
+  "version": zod.literal(1).describe('Stored report contract version.'),
+  "redacted": zod.literal(true),
+  "operationId": zod.string(),
+  "projectId": zod.string(),
+  "sessionId": zod.string(),
+  "workspaceRevision": zod.string(),
+  "terminalState": zod.enum(['COMPLETED', 'READY_FOR_REVIEW', 'APPLIED', 'COMMITTED', 'PUSHED', 'BLOCKED', 'CANCELLED', 'FAILED', 'UNAVAILABLE']),
+  "outcomeClass": zod.string(),
+  "counts": zod.object({
+  "messages": zod.number().min(aiChatResponseMessageMissionCorrelationReportCountsMessagesMin),
+  "sseEvents": zod.number().min(aiChatResponseMessageMissionCorrelationReportCountsSseEventsMin),
+  "executionCheckpoints": zod.number().min(aiChatResponseMessageMissionCorrelationReportCountsExecutionCheckpointsMin),
+  "evidence": zod.number().min(aiChatResponseMessageMissionCorrelationReportCountsEvidenceMin),
+  "proposals": zod.number().min(aiChatResponseMessageMissionCorrelationReportCountsProposalsMin),
+  "validation": zod.number().min(aiChatResponseMessageMissionCorrelationReportCountsValidationMin),
+  "correlatedEvents": zod.number().min(aiChatResponseMessageMissionCorrelationReportCountsCorrelatedEventsMin)
+}),
+  "agreement": zod.object({
+  "execution": zod.boolean(),
+  "messages": zod.boolean(),
+  "sse": zod.boolean(),
+  "checkpoints": zod.boolean(),
+  "dashboard": zod.boolean(),
+  "evidence": zod.boolean(),
+  "proposals": zod.boolean(),
+  "validation": zod.boolean()
+})
+}).nullish().describe('Versioned, redacted correlation report retained with a historical mission message'),
   "taskResult": zod.union([zod.object({
   "kind": zod.enum(['CODE_EXTRACTION_RESULT']),
   "extractedCode": zod.string(),
@@ -3313,6 +3357,20 @@ export const ListAiChatMessagesParams = zod.object({
 
 export const listAiChatMessagesResponseBehaviorEvidenceMax = 8;
 
+export const listAiChatMessagesResponseMissionCorrelationReportCountsMessagesMin = 0;
+
+export const listAiChatMessagesResponseMissionCorrelationReportCountsSseEventsMin = 0;
+
+export const listAiChatMessagesResponseMissionCorrelationReportCountsExecutionCheckpointsMin = 0;
+
+export const listAiChatMessagesResponseMissionCorrelationReportCountsEvidenceMin = 0;
+
+export const listAiChatMessagesResponseMissionCorrelationReportCountsProposalsMin = 0;
+
+export const listAiChatMessagesResponseMissionCorrelationReportCountsValidationMin = 0;
+
+export const listAiChatMessagesResponseMissionCorrelationReportCountsCorrelatedEventsMin = 0;
+
 
 export const listAiChatMessagesResponseTaskResultFourEvidenceMax = 20;
 
@@ -3347,6 +3405,36 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "endLine": zod.number().min(1)
 }).optional()
 })).max(listAiChatMessagesResponseBehaviorEvidenceMax).optional().describe('Parsed accepted behavior-evidence references, each with an optional exact source line span'),
+  "missionCorrelationReport": zod.object({
+  "kind": zod.enum(['mission-correlation-report']),
+  "version": zod.literal(1).describe('Stored report contract version.'),
+  "redacted": zod.literal(true),
+  "operationId": zod.string(),
+  "projectId": zod.string(),
+  "sessionId": zod.string(),
+  "workspaceRevision": zod.string(),
+  "terminalState": zod.enum(['COMPLETED', 'READY_FOR_REVIEW', 'APPLIED', 'COMMITTED', 'PUSHED', 'BLOCKED', 'CANCELLED', 'FAILED', 'UNAVAILABLE']),
+  "outcomeClass": zod.string(),
+  "counts": zod.object({
+  "messages": zod.number().min(listAiChatMessagesResponseMissionCorrelationReportCountsMessagesMin),
+  "sseEvents": zod.number().min(listAiChatMessagesResponseMissionCorrelationReportCountsSseEventsMin),
+  "executionCheckpoints": zod.number().min(listAiChatMessagesResponseMissionCorrelationReportCountsExecutionCheckpointsMin),
+  "evidence": zod.number().min(listAiChatMessagesResponseMissionCorrelationReportCountsEvidenceMin),
+  "proposals": zod.number().min(listAiChatMessagesResponseMissionCorrelationReportCountsProposalsMin),
+  "validation": zod.number().min(listAiChatMessagesResponseMissionCorrelationReportCountsValidationMin),
+  "correlatedEvents": zod.number().min(listAiChatMessagesResponseMissionCorrelationReportCountsCorrelatedEventsMin)
+}),
+  "agreement": zod.object({
+  "execution": zod.boolean(),
+  "messages": zod.boolean(),
+  "sse": zod.boolean(),
+  "checkpoints": zod.boolean(),
+  "dashboard": zod.boolean(),
+  "evidence": zod.boolean(),
+  "proposals": zod.boolean(),
+  "validation": zod.boolean()
+})
+}).nullish().describe('Versioned, redacted correlation report retained with a historical mission message'),
   "taskResult": zod.union([zod.object({
   "kind": zod.enum(['CODE_EXTRACTION_RESULT']),
   "extractedCode": zod.string(),

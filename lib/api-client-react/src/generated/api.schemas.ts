@@ -520,6 +520,81 @@ export interface AiChatSession {
   forensicStatus?: AiChatSessionForensicStatus;
 }
 
+export type MissionCorrelationReportKind = typeof MissionCorrelationReportKind[keyof typeof MissionCorrelationReportKind];
+
+
+export const MissionCorrelationReportKind = {
+  'mission-correlation-report': 'mission-correlation-report',
+} as const;
+
+/**
+ * Stored report contract version.
+ */
+export type MissionCorrelationReportVersion = typeof MissionCorrelationReportVersion[keyof typeof MissionCorrelationReportVersion];
+
+
+export const MissionCorrelationReportVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type MissionCorrelationReportTerminalState = typeof MissionCorrelationReportTerminalState[keyof typeof MissionCorrelationReportTerminalState];
+
+
+export const MissionCorrelationReportTerminalState = {
+  COMPLETED: 'COMPLETED',
+  READY_FOR_REVIEW: 'READY_FOR_REVIEW',
+  APPLIED: 'APPLIED',
+  COMMITTED: 'COMMITTED',
+  PUSHED: 'PUSHED',
+  BLOCKED: 'BLOCKED',
+  CANCELLED: 'CANCELLED',
+  FAILED: 'FAILED',
+  UNAVAILABLE: 'UNAVAILABLE',
+} as const;
+
+export type MissionCorrelationReportCounts = {
+  /** @minimum 0 */
+  messages: number;
+  /** @minimum 0 */
+  sseEvents: number;
+  /** @minimum 0 */
+  executionCheckpoints: number;
+  /** @minimum 0 */
+  evidence: number;
+  /** @minimum 0 */
+  proposals: number;
+  /** @minimum 0 */
+  validation: number;
+  /** @minimum 0 */
+  correlatedEvents: number;
+};
+
+export type MissionCorrelationReportAgreement = {
+  execution: boolean;
+  messages: boolean;
+  sse: boolean;
+  checkpoints: boolean;
+  dashboard: boolean;
+  evidence: boolean;
+  proposals: boolean;
+  validation: boolean;
+};
+
+export interface MissionCorrelationReport {
+  kind: MissionCorrelationReportKind;
+  /** Stored report contract version. */
+  version: MissionCorrelationReportVersion;
+  redacted: true;
+  operationId: string;
+  projectId: string;
+  sessionId: string;
+  workspaceRevision: string;
+  terminalState: MissionCorrelationReportTerminalState;
+  outcomeClass: string;
+  counts: MissionCorrelationReportCounts;
+  agreement: MissionCorrelationReportAgreement;
+}
+
 export type AiChatMessageRole = typeof AiChatMessageRole[keyof typeof AiChatMessageRole];
 
 
@@ -690,6 +765,8 @@ export interface AiChatMessage {
      * @maxItems 8
      */
   behaviorEvidence?: BehaviorEvidence[];
+  /** Versioned, redacted correlation report retained with a historical mission message */
+  missionCorrelationReport?: MissionCorrelationReport | null;
   /** AI-008 — persisted per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns. */
   taskResult?: AiCodeExtractionResult | AiBehaviorAnswerResult | AiFindingResult | AiForensicReportResult | AiWorkspaceReviewResult | AiRepairResult;
   createdAt: string;

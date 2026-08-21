@@ -3581,6 +3581,71 @@ components:
           description: Derived forensic outcome for the latest assistant audit result, when available
           enum: [INCOMPLETE, NO_FINDING, FINDING_PROVEN, NOT_PROVEN]
 
+    MissionCorrelationReport:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - version
+        - redacted
+        - operationId
+        - projectId
+        - sessionId
+        - workspaceRevision
+        - terminalState
+        - outcomeClass
+        - counts
+        - agreement
+      properties:
+        kind:
+          type: string
+          enum: [mission-correlation-report]
+        version:
+          type: integer
+          enum: [1]
+          description: Stored report contract version.
+        redacted:
+          type: boolean
+          enum: [true]
+        operationId:
+          type: string
+        projectId:
+          type: string
+        sessionId:
+          type: string
+        workspaceRevision:
+          type: string
+        terminalState:
+          type: string
+          enum: [COMPLETED, READY_FOR_REVIEW, APPLIED, COMMITTED, PUSHED, BLOCKED, CANCELLED, FAILED, UNAVAILABLE]
+        outcomeClass:
+          type: string
+        counts:
+          type: object
+          additionalProperties: false
+          required: [messages, sseEvents, executionCheckpoints, evidence, proposals, validation, correlatedEvents]
+          properties:
+            messages: { type: integer, minimum: 0 }
+            sseEvents: { type: integer, minimum: 0 }
+            executionCheckpoints: { type: integer, minimum: 0 }
+            evidence: { type: integer, minimum: 0 }
+            proposals: { type: integer, minimum: 0 }
+            validation: { type: integer, minimum: 0 }
+            correlatedEvents: { type: integer, minimum: 0 }
+        agreement:
+          type: object
+          additionalProperties: false
+          required: [execution, messages, sse, checkpoints, dashboard, evidence, proposals, validation]
+          properties:
+            execution: { type: boolean }
+            messages: { type: boolean }
+            sse: { type: boolean }
+            checkpoints: { type: boolean }
+            dashboard: { type: boolean }
+            evidence: { type: boolean }
+            proposals: { type: boolean }
+            validation: { type: boolean }
+
     AiChatMessage:
       type: object
       required: [id, sessionId, role, content, createdAt]
@@ -3624,6 +3689,10 @@ components:
           maxItems: 8
           items:
             $ref: "#/components/schemas/BehaviorEvidence"
+        missionCorrelationReport:
+          description: Versioned, redacted correlation report retained with a historical mission message
+          nullable: true
+          $ref: "#/components/schemas/MissionCorrelationReport"
         taskResult:
           description: AI-008 — persisted per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns.
           oneOf:

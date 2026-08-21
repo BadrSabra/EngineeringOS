@@ -14,6 +14,7 @@ import type { AiForensicReportResult } from './aiForensicReportResult';
 import type { AiRepairResult } from './aiRepairResult';
 import type { AiWorkspaceReviewResult } from './aiWorkspaceReviewResult';
 import type { BehaviorEvidence } from './behaviorEvidence';
+import type { MissionCorrelationReport } from './missionCorrelationReport';
 
 export interface AiChatMessage {
   id: string;
@@ -34,6 +35,8 @@ export interface AiChatMessage {
      * @maxItems 8
      */
   behaviorEvidence?: BehaviorEvidence[];
+  /** Versioned, redacted correlation report retained with a historical mission message */
+  missionCorrelationReport?: MissionCorrelationReport | null;
   /** AI-008 — persisted per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns. */
   taskResult?: AiCodeExtractionResult | AiBehaviorAnswerResult | AiFindingResult | AiForensicReportResult | AiWorkspaceReviewResult | AiRepairResult;
   createdAt: Date;
