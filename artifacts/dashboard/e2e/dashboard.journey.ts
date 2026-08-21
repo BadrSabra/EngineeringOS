@@ -86,6 +86,7 @@ type ArabicAiFixture = {
   answer: string;
   source: string;
   sessionId: string;
+  executionId?: string;
   projectId?: string;
   streamBody: string;
   message: Record<string, unknown>;
@@ -96,6 +97,10 @@ async function installApiFixtures(
   overrides?: {
     arabicAi?: ArabicAiFixture;
     alternateAi?: ArabicAiFixture;
+    resumeFailure?: {
+      fixture: ArabicAiFixture;
+      execution: Record<string, unknown>;
+    };
     projects?: Array<Record<string, unknown>>;
   },
 ) {
@@ -122,6 +127,22 @@ async function installApiFixtures(
           })),
         ),
       );
+    }
+    if (overrides?.resumeFailure && path.endsWith("/api/ai/chat/stream")) {
+      let requestBody: Record<string, unknown> = {};
+      try {
+        requestBody = route.request().postDataJSON() as Record<string, unknown>;
+      } catch {
+        // The normal provider-free fallback below handles malformed requests.
+      }
+      if (requestBody.executionId === overrides.resumeFailure.fixture.executionId) {
+        return route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          headers: { "Cache-Control": "no-cache" },
+          body: overrides.resumeFailure.fixture.streamBody,
+        });
+      }
     }
     if (arabicAi && path.endsWith("/api/ai/chat/stream"))
       return route.fulfill({
@@ -166,6 +187,12 @@ async function installApiFixtures(
     }
     if (path === "/api/events")
       return route.fulfill(jsonResponse(dashboardFixture.recentEvents));
+    if (
+      overrides?.resumeFailure &&
+      path === `/api/ai/executions/${overrides.resumeFailure.fixture.executionId}`
+    ) {
+      return route.fulfill(jsonResponse(overrides.resumeFailure.execution));
+    }
     if (path === `/api/ai/executions/${EXECUTION_ID}`)
       return route.fulfill(jsonResponse(executionFixture));
     if (path === "/api/ai/mission-control")
@@ -397,6 +424,77 @@ function installToolFailureFixture(): ArabicAiFixture {
     sessionId,
     streamBody,
     message,
+  };
+}
+
+function installResumedAnalysisFailureFixture() {
+  const sessionId = "e2e-resumed-analysis-failure-session";
+  const executionId = "e2e-resumed-analysis-failure-execution";
+  const resumeToken = "e2e-resumed-analysis-failure-token-opaque";
+  const question = "Verify the analysis evidence after reconnect.";
+  const answer =
+    "ANALYSIS_INCOMPLETE: The required analysis did not complete, so no verified result is available.";
+  const diagnosticCode = "TOOL_UNAVAILABLE";
+  const sse = (event: Record<string, unknown>) => `data: ${JSON.stringify(event)}\n\n`;
+  const streamBody = [
+    sse({ type: "session_started", sessionId }),
+    sse({
+      type: "execution_started",
+      executionId,
+      status: "running",
+      resumable: true,
+      resumeToken,
+    }),
+    sse({
+      type: "error",
+      executionId,
+      code: diagnosticCode,
+      message: "The required analysis did not complete.",
+    }),
+  ].join("");
+  const fixture: ArabicAiFixture = {
+    question,
+    answer,
+    source: "src/missing-analysis-tool.ts",
+    sessionId,
+    executionId,
+    streamBody,
+    message: {
+      id: "e2e-resumed-analysis-failure-message",
+      sessionId,
+      role: "assistant",
+      content: answer,
+      outcome: "FAILED",
+      executionId,
+      errorCode: diagnosticCode,
+      errorMessage: "The required analysis did not complete.",
+      createdAt: "2026-01-01T00:02:00.000Z",
+    },
+  };
+
+  return {
+    fixture,
+    execution: {
+      id: executionId,
+      projectId: "e2e-project",
+      operationId: "e2e-resumed-analysis-failure-operation",
+      sessionId,
+      status: "failed",
+      flightState: "FAILED",
+      evidenceVerdict: "INCOMPLETE",
+      proofRequired: true,
+      resumable: true,
+      checkpointVersion: 1,
+      checkpoint: {
+        stage: "tool-execution",
+        detail: "The required analysis tool was unavailable.",
+      },
+      objective: { objective: question },
+      error: "The required analysis did not complete.",
+      startedAt: "2026-01-01T00:01:00.000Z",
+      createdAt: "2026-01-01T00:01:00.000Z",
+      updatedAt: "2026-01-01T00:02:00.000Z",
+    },
   };
 }
 
@@ -1030,6 +1128,52 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     const reloadedText = await page.locator("body").innerText();
     expect(reloadedText).not.toMatch(/raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i);
+  });
+
+  test("resumes a failed analysis and keeps the execution incomplete", async ({ page }) => {
+    const { fixture, execution } = installResumedAnalysisFailureFixture();
+    await installApiFixtures(page, {
+      arabicAi: fixture,
+      resumeFailure: { fixture, execution },
+    });
+    await programmaticSignIn(page);
+
+    await page.evaluate(({ sessionId, executionId, projectId, resumeToken, message }) => {
+      localStorage.setItem(`eos_ai_execution_current_${projectId}`, sessionId);
+      localStorage.setItem(
+        `eos_ai_execution_${projectId}_${sessionId}`,
+        JSON.stringify({ id: executionId, projectId, sessionId, resumeToken, message }),
+      );
+    }, {
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      projectId: "e2e-project",
+      resumeToken: "e2e-resumed-analysis-failure-token-opaque",
+      message: fixture.question,
+    });
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    await expect(page.getByText("A saved AI execution is ready to resume")).toBeVisible();
+    const resumeRequest = page.waitForRequest((request) =>
+      request.url().includes("/api/ai/chat/stream") &&
+      request.method() === "POST",
+    );
+    await page.getByRole("button", { name: "Resume", exact: true }).click();
+    const requestBody = JSON.parse((await resumeRequest).postData() ?? "{}") as Record<string, unknown>;
+    expect(requestBody).toEqual(expect.objectContaining({
+      projectId: "e2e-project",
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      resumeToken: "e2e-resumed-analysis-failure-token-opaque",
+      message: fixture.question,
+    }));
+
+    await expect(page.getByText("Failed to send message", { exact: true })).toBeVisible();
+    await expect(page.getByText("A saved AI execution is ready to resume")).toBeVisible();
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toContain("COMPLETED");
+    expect(visibleText).not.toContain("Persisted execution proof");
+    expect(visibleText).toContain("The required analysis did not complete.");
   });
 
   test("keeps the AI session drawer overlaid on a phone viewport", async ({
