@@ -13,7 +13,7 @@
     "test:dashboard-journey-contract": "node --test scripts/dashboard-journey-contract.test.mjs",
     "test:dashboard-contract-trigger": "node --test scripts/dashboard-contract-trigger.test.mjs",
     "validate:github-workflows": "pnpm --filter @workspace/scripts run validate-github-workflows",
-    "validate:release": "pnpm run test:dashboard-journey-contract && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+    "validate:release": "pnpm --filter @workspace/api-server run typecheck && pnpm run test:dashboard-journey-contract && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
     "validate:release:controlled": "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
     "validate:dashboard-journey": "RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs",
     "validate:live-empty-model-response": "pnpm --filter @workspace/api-server run test:live-empty-model-response",
