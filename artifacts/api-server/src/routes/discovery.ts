@@ -485,7 +485,7 @@ router.post("/projects/import", async (req, res) => {
       // 3. Graph entity stubs from detected API routes
       // Every stub carries a full provenance record so downstream consumers
       // can always tell these rows came from discovery, not from a full AST scan.
-      for (const apiRoute of result.detectedApis.slice(0, 50)) {
+      for (const apiRoute of result.detectedApis) {
         await tx.insert(graphEntitiesTable).values({
           id: randomUUID(),
           projectId,

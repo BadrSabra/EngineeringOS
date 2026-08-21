@@ -668,7 +668,7 @@ describe("POST /projects/import — transaction integrity", () => {
     expect(importedEvent?.message).toMatch(/event-test/);
   });
 
-  it("creates graph entity stubs for each detectedApi (capped at 50)", async () => {
+  it("imports every detectedApi, including routes beyond the former cap", async () => {
     const detectedApis = Array.from({ length: 60 }, (_, i) => `/api/route-${i}`);
     const discoveryId = await insertReadySession(fakeResult({ detectedApis }));
     const res = await request(app).post("/api/projects/import").send({ discoveryId });
@@ -679,8 +679,9 @@ describe("POST /projects/import — transaction integrity", () => {
       .select()
       .from(graphEntitiesTable)
       .where(eq(graphEntitiesTable.projectId, projectId!));
-    expect(entities).toHaveLength(50); // capped at 50
+    expect(entities).toHaveLength(detectedApis.length);
     expect(entities.every((e) => e.type === "api")).toBe(true);
+    expect(entities.map((e) => e.name).sort()).toEqual([...detectedApis].sort());
   });
 
   it("graph entity stubs from detectedApis carry a full provenance record", async () => {

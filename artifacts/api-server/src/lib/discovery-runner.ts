@@ -478,8 +478,7 @@ export async function runDiscovery(sessionId: string, rootPath: string): Promise
     // Detect API routes from graph
     const detectedApis = graphResult.entities
       .filter((e) => e.type === "api")
-      .map((e) => e.name)
-      .slice(0, 30);
+      .map((e) => e.name);
     await setStep(7, "done", Date.now() - t7);
 
     // Step 8 — Summary
