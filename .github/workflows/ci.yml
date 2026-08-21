@@ -15,9 +15,9 @@ jobs:
   contract-drift:
     name: OpenAPI contract drift guard
     runs-on: ubuntu-latest
-    # Keep this focused on contract sources and production API consumers rather
-    # than all dashboard edits. The full `validate` job still runs
-    # unconditionally as the final gate.
+    # The changed-file expression below is the checked-in representation of
+    # .github/dashboard-contract-trigger-policy.json. The policy test fails if
+    # this representation drifts.
     if: |
       github.event_name == 'push' ||
       contains(github.event.pull_request.changed_files, 'lib/api-spec/openapi.yaml') ||
@@ -25,7 +25,6 @@ jobs:
       contains(github.event.pull_request.changed_files, 'lib/api-client-react/src/generated') ||
       contains(github.event.pull_request.changed_files, 'lib/api-client-react/src/use-ai-chat-stream.ts') ||
       contains(github.event.pull_request.changed_files, 'scripts/validate-dashboard-client-contract.mjs') ||
-      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/lib/api-fetch.ts') ||
       contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/components/GitPanel.tsx') ||
       contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/AiChat.tsx') ||
       contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Dashboard.tsx') ||

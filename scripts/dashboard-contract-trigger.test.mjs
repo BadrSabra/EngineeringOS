@@ -6,15 +6,27 @@ import test from "node:test";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const workflowPath = join(root, ".github/workflows/ci.yml");
+const policyPath = join(root, ".github/dashboard-contract-trigger-policy.json");
 const dashboardSourceRoot = join(root, "artifacts/dashboard/src");
 
-async function readContractTriggerPaths() {
+async function readPolicy() {
+  return JSON.parse(await readFile(policyPath, "utf8"));
+}
+
+async function readWorkflowTriggerPaths() {
   const workflow = await readFile(workflowPath, "utf8");
   return [
     ...workflow.matchAll(
       /contains\(github\.event\.pull_request\.changed_files,\s*'([^']+)'\)/g,
     ),
   ].map((match) => match[1]);
+}
+
+async function readContractTriggerPaths() {
+  const policy = await readPolicy();
+  return [...policy.contractSources, ...Object.entries(policy.dashboardConsumers)
+    .filter(([, decision]) => decision === "trigger")
+    .map(([path]) => path)];
 }
 
 function triggersContractCheck(triggerPaths, changedPath) {
@@ -38,7 +50,7 @@ async function listSourceFiles(directory) {
 }
 
 test("contract fast path covers representative source changes", async () => {
-  const triggerPaths = await readContractTriggerPaths();
+  const triggerPaths = await readWorkflowTriggerPaths();
 
   for (const [changedPath, expected] of [
     ["artifacts/dashboard/src/pages/Projects.tsx", true],
@@ -54,6 +66,7 @@ test("contract fast path covers representative source changes", async () => {
 });
 
 test("every production dashboard API consumer has an explicit trigger decision", async () => {
+  const policy = await readPolicy();
   const triggerPaths = await readContractTriggerPaths();
   const sourceFiles = (await listSourceFiles(dashboardSourceRoot)).filter(
     (file) => !/\.(test|spec)\.[^.]+$/.test(file),
@@ -74,9 +87,42 @@ test("every production dashboard API consumer has an explicit trigger decision",
     "Expected to discover dashboard API consumers",
   );
   assert.deepEqual(
-    consumers.filter((path) => !triggerPaths.includes(path)),
+    Object.values(policy.dashboardConsumers).filter(
+      (decision) => decision !== "trigger" && decision !== "no-trigger",
+    ),
     [],
-    "New dashboard API consumers must be added to the contract fast-path allowlist " +
-      "in .github/workflows/ci.yml, or explicitly classified as a non-contract consumer.",
+    'Dashboard consumer decisions must be either "trigger" or "no-trigger".',
+  );
+  assert.deepEqual(
+    consumers.filter((path) => !Object.hasOwn(policy.dashboardConsumers, path)),
+    [],
+    "New dashboard API consumers must be explicitly classified in " +
+      ".github/dashboard-contract-trigger-policy.json.",
+  );
+  assert.deepEqual(
+    Object.keys(policy.dashboardConsumers).filter(
+      (path) => !consumers.includes(path),
+    ),
+    [],
+    "The trigger policy must not contain removed or undetected dashboard consumers.",
+  );
+  assert.deepEqual(
+    Object.keys(policy.dashboardConsumers).filter(
+      (path) => policy.dashboardConsumers[path] === "trigger" && !triggerPaths.includes(path),
+    ),
+    [],
+    "Trigger decisions in the policy must be represented in the workflow fast path.",
+  );
+});
+
+test("workflow trigger representation stays synchronized with the policy", async () => {
+  const expectedPaths = await readContractTriggerPaths();
+  const actualPaths = await readWorkflowTriggerPaths();
+
+  assert.deepEqual(
+    actualPaths,
+    expectedPaths,
+    "The workflow trigger expression is stale; regenerate it from " +
+      ".github/dashboard-contract-trigger-policy.json.",
   );
 });
