@@ -292,12 +292,12 @@ function renderAiChat(isDesktop = true) {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries');
-  render(
+  const rendered = render(
     <QueryClientProvider client={queryClient}>
       <AiChat />
     </QueryClientProvider>,
   );
-  return { invalidateQueries };
+  return { invalidateQueries, ...rendered };
 }
 
 beforeEach(() => {
@@ -1969,6 +1969,109 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByText('1 attempt')).toBeInTheDocument();
     expect(screen.getByText('budget 1000 ms')).toBeInTheDocument();
     expect(screen.getByText('completed within budget')).toBeInTheDocument();
+  });
+
+  it('rehydrates the plan timeline and scoped approval after an SSE disconnect and reload', async () => {
+    mocks.serverProposal = { proposalId: 'reconnect-plan', changes: [] };
+    mocks.proposalMessages[0].content = 'Inspect completed; review the response handler next.';
+    mocks.proposalMessages[0].operationMode = 'DELIVERY';
+    mocks.proposalMessages[0].taskResult = {
+      kind: 'IMPLEMENTATION_PLAN_RESULT',
+      objective: 'Make the response path observable.',
+      summary: 'Inspect the handler before making the approved change.',
+      assumptions: [],
+      steps: [{ title: 'Inspect response handler', files: ['src/routes/response.ts'] }],
+      validationCommands: ['pnpm test'],
+      risks: [],
+      approvalStatus: 'PENDING_APPROVAL',
+      writeAccess: 'NOT_AUTHORIZED',
+    };
+    // This is the safe, persisted projection returned by the messages query
+    // after the native stream has disconnected.
+    mocks.proposalMessages[0].toolTrace = JSON.stringify([
+      { kind: 'plan_activity', stage: 'understand', status: 'done' },
+      { kind: 'plan_activity', stage: 'scope', status: 'done', files: ['src/routes/response.ts'] },
+      { kind: 'plan_activity', stage: 'plan', status: 'done', stepTitle: 'Inspect response handler' },
+      {
+        kind: 'plan_activity',
+        stage: 'execute',
+        status: 'done',
+        stepTitle: 'Inspect response handler',
+        action: 'inspect',
+        files: ['src/routes/response.ts'],
+        resultSummary: 'Read completed after reconnect.',
+        nextStepTitle: 'Review response handler',
+      },
+      {
+        kind: 'plan_activity',
+        stage: 'execute',
+        status: 'info',
+        stepTitle: 'Review response handler',
+        action: 'modify',
+        files: ['src/routes/response.ts'],
+        approvalRequired: true,
+        approvalReason: 'Approval is required before changing these files.',
+      },
+      { kind: 'plan_activity', stage: 'validate', status: 'info', nextStepTitle: 'Run focused validation' },
+    ]);
+
+    const firstRender = renderAiChat();
+    const textarea = await screen.findByPlaceholderText(/Ask about your codebase/);
+    fireEvent.change(textarea, { target: { value: 'Continue the implementation plan' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    act(() => {
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onExecutionStarted?: (event: Record<string, unknown>) => void;
+        onPlanActivity?: (event: Record<string, unknown>) => void;
+        onError?: (event: Record<string, unknown>) => void;
+      }).onExecutionStarted?.({
+        type: 'execution_started',
+        executionId: 'execution-disconnected',
+        status: 'running',
+        resumeToken: 'resume-after-disconnect',
+        resumable: true,
+      });
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onPlanActivity?: (event: Record<string, unknown>) => void;
+      }).onPlanActivity?.({
+        type: 'plan_activity',
+        stage: 'execute',
+        status: 'active',
+        stepTitle: 'Inspect response handler',
+        action: 'inspect',
+        files: ['src/routes/response.ts'],
+      });
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onError?: (event: Record<string, unknown>) => void;
+      }).onError?.({
+        type: 'error',
+        code: 'network_error',
+        message: 'controlled disconnect',
+      });
+    });
+
+    expect(await screen.findByText('Disconnected — execution saved')).toBeInTheDocument();
+    firstRender.unmount();
+
+    const reloadedRender = renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    const activity = await screen.findByText('Agent activity');
+    expect(activity).toBeInTheDocument();
+    expect(screen.getByText('Understand')).toBeInTheDocument();
+    expect(screen.getByText('Scope')).toBeInTheDocument();
+    expect(screen.getByText('Plan · Inspect response handler')).toBeInTheDocument();
+    expect(screen.getAllByText(/Execute/).length).toBeGreaterThan(0);
+    expect(screen.getByText('Validate')).toBeInTheDocument();
+    expect(screen.getByText(/Read completed after reconnect/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Review response handler/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Approval required before changing:/)).toHaveLength(1);
+    expect(screen.getByText(/src\/routes\/response\.ts/)).toBeInTheDocument();
+    expect(screen.queryByText(/\/home\/runner|artifacts\/dashboard/)).not.toBeInTheDocument();
+    // Keep this reconnect witness isolated from the following authenticated
+    // dashboard tests.
+    reloadedRender.unmount();
   });
 
   it('keeps zero-read execution diagnostics compact and collapsed', async () => {
