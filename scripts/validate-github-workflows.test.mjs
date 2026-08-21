@@ -120,3 +120,45 @@ test("reports structural failures with the complete path for nested workflows", 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("reports malformed steps collections from nested workflows", async () => {
+  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+  const workflowsDirectory = join(root, ".github", "workflows");
+  const nestedWorkflowPath = join(
+    workflowsDirectory,
+    "deployment",
+    "production",
+    "release.yml",
+  );
+
+  try {
+    await mkdir(join(workflowsDirectory, "deployment", "production"), {
+      recursive: true,
+    });
+    await writeFile(
+      nestedWorkflowPath,
+      [
+        "name: Invalid nested workflow steps",
+        "on: [push]",
+        "jobs:",
+        "  deploy:",
+        "    runs-on: ubuntu-latest",
+        "    steps: {}",
+        "",
+      ].join("\n"),
+    );
+
+    await assert.rejects(
+      validateWorkflows(workflowsDirectory, root),
+      (error) => {
+        assert.match(
+          error.message,
+          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` steps must be a YAML sequence\./,
+        );
+        return true;
+      },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
