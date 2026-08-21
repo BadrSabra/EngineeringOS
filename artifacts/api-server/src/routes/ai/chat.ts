@@ -23,7 +23,7 @@ import {
   eventsTable,
   tasksTable,
 } from "@workspace/db";
-import { eq, desc, and, inArray, sql } from "drizzle-orm";
+import { eq, desc, and, inArray, lte, sql } from "drizzle-orm";
 import {
   buildProjectContext,
   invalidateContextCache,
@@ -1560,19 +1560,19 @@ router.post("/ai/chat", async (req, res) => {
           payload: { messageId: operationId, proposalId: proposalId ?? null },
         });
       }
+      // Turns can finish out of order. Qualify the state update itself by the
+      // allocated turn timestamp so an older completion cannot overwrite a
+      // newer resumable contract after waiting on the session row lock.
       await tx
         .update(aiChatSessionsTable)
-        .set({
-          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
-          // Turns can finish out of order. Only the turn with the newest
-          // allocated timestamp may advance the resumable contract; an older
-          // completion must not replace a newer turn's verified state.
-          activeTaskState: sql`CASE
-            WHEN ${aiChatSessionsTable.updatedAt} <= ${msgNow}
-            THEN ${activeTaskState}
-            ELSE ${aiChatSessionsTable.activeTaskState}
-          END`,
-        })
+        .set({ activeTaskState })
+        .where(and(
+          eq(aiChatSessionsTable.id, sessionIdToUse),
+          lte(aiChatSessionsTable.updatedAt, msgNow),
+        ));
+      await tx
+        .update(aiChatSessionsTable)
+        .set({ updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})` })
         .where(eq(aiChatSessionsTable.id, sessionIdToUse));
       return msg;
     });

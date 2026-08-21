@@ -232,6 +232,9 @@ vi.mock("../lib/ai-route-helpers.js", () => {
   };
 });
 
+const defaultChatWithFallback = vi.mocked(chatWithFallback).getMockImplementation();
+const defaultRequireProvider = vi.mocked(requireProvider).getMockImplementation();
+
 // The cycle test uses a temporary fixture rather than the workspace root. The
 // route still runs the real validation gate, but the registered workspace
 // command is represented by this deterministic passing result so the test
@@ -334,6 +337,10 @@ afterAll(() => {
 afterEach(async () => {
   validationFixtures.length = 0;
   vi.restoreAllMocks();
+  vi.mocked(chatWithFallback).mockReset();
+  vi.mocked(chatWithFallback).mockImplementation(defaultChatWithFallback!);
+  vi.mocked(requireProvider).mockReset();
+  vi.mocked(requireProvider).mockImplementation(defaultRequireProvider!);
   for (const pid of projectIds.splice(0)) {
     await db.delete(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.projectId, pid)).catch(() => undefined);
     await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, pid)).catch(() => undefined);
@@ -349,9 +356,6 @@ afterEach(async () => {
         .catch(() => undefined);
     }
     await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, pid)).catch(() => undefined);
-    await db.delete(aiProviderCredentialsTable)
-      .where(eq(aiProviderCredentialsTable.ownerId, "test-user"))
-      .catch(() => undefined);
     await db.delete(projectsTable).where(eq(projectsTable.id, pid)).catch(() => undefined);
   }
   for (const rootPath of rootPaths.splice(0)) {
@@ -1510,6 +1514,12 @@ exec "$ENGINEERINGOS_TEST_REAL_GIT" "$@"
       provider: "github",
       encryptedApiKey: encryptApiKey("fixture-github-token"),
       last4: "oken",
+    }).onConflictDoUpdate({
+      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+      set: {
+        encryptedApiKey: encryptApiKey("fixture-github-token"),
+        last4: "oken",
+      },
     });
 
     try {
@@ -2537,6 +2547,10 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const oldReady = new Promise<void>((resolve) => { releaseOld = resolve; });
     const newReady = new Promise<void>((resolve) => { releaseNew = resolve; });
     let concurrentCalls = 0;
+    let resolveOldCallStarted!: () => void;
+    const oldCallStarted = new Promise<void>((resolve) => {
+      resolveOldCallStarted = resolve;
+    });
     let resolveConcurrentCalls!: () => void;
     const bothConcurrentCallsStarted = new Promise<void>((resolve) => {
       resolveConcurrentCalls = resolve;
@@ -2550,6 +2564,7 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       concurrentCalls += 1;
       if (concurrentCalls === 2) resolveConcurrentCalls();
       if (turnMessage === "continue older work") {
+        resolveOldCallStarted();
         await oldReady;
         args[3]?.("older");
         return {
@@ -2572,6 +2587,12 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
       .send({ projectId, sessionId, message: "continue older work" });
+    const oldCallStartTimeout = setTimeout(
+      () => resolveOldCallStarted(),
+      5_000,
+    );
+    await oldCallStarted;
+    clearTimeout(oldCallStartTimeout);
     const newTurnRequest = request(app)
       .post("/api/ai/chat/stream")
       .set("Content-Type", "application/json")
