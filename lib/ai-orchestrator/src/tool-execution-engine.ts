@@ -668,6 +668,13 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       };
     }
     let analysisStatus: "complete" | "unavailable" | "failed" | undefined;
+    let analysisFailure:
+      | {
+          failureKind: "execution" | "unavailable" | "cancelled";
+          diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
+          safeMessage: string;
+        }
+      | undefined;
     const output = await (isGitTool
       ? await executeGitTool(name, effectiveArgs, rootPath)
       : isFileTool
@@ -693,8 +700,37 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
           )
             .then((result) => {
               analysisStatus = result.status;
+              if (result.status === "complete") return result.output;
+              const failureKind = opts.signal?.aborted
+                ? "cancelled"
+                : result.status === "unavailable"
+                  ? "unavailable"
+                  : "execution";
+              const diagnosticCode = failureKind === "cancelled"
+                ? "TOOL_CANCELLED"
+                : result.status === "unavailable"
+                  ? "TOOL_UNAVAILABLE"
+                  : "TOOL_EXECUTION_FAILED";
+              analysisFailure = {
+                failureKind,
+                diagnosticCode,
+                safeMessage: result.output,
+              };
               return result.output;
             }));
+
+    if (analysisFailure) {
+      console.error(JSON.stringify({
+        scope: "tool-execution-engine",
+        code: analysisFailure.diagnosticCode,
+        tool: name,
+        failureKind: analysisFailure.failureKind,
+      }));
+      return {
+        kind: "failed",
+        ...analysisFailure,
+      };
+    }
 
     // Ground-truth source label for observable reads.
     let source: string | undefined;

@@ -12,6 +12,42 @@ const correlation: AnalysisCorrelation = {
 };
 
 describe("analysis tool correlation contract", () => {
+  it("preserves unavailable status without exposing the runner diagnostic", async () => {
+    const result = await executeAnalysisTool(
+      "query_knowledge_graph",
+      { operation: "search" },
+      async () => ({
+        status: "unavailable",
+        output: "database password and internal connection details",
+        correlation,
+      }),
+      undefined,
+      correlation,
+    );
+
+    expect(result.status).toBe("unavailable");
+    expect(result.output).toContain("was unavailable");
+    expect(result.output).not.toContain("database password");
+  });
+
+  it("maps runner failures to a bounded failed result", async () => {
+    const result = await executeAnalysisTool(
+      "query_knowledge_graph",
+      { operation: "search" },
+      async () => ({
+        status: "failed",
+        output: "raw internal failure",
+        correlation,
+      }),
+      undefined,
+      correlation,
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.output).toContain("failed");
+    expect(result.output).not.toContain("raw internal failure");
+  });
+
   it("rejects stale or cross-operation results before they become complete evidence", async () => {
     const runner: AnalysisToolRunner = async () => ({
       status: "complete",
@@ -55,5 +91,26 @@ describe("analysis tool correlation contract", () => {
 
     expect(result.status).toBe("unavailable");
     expect(result.correlation).toEqual(correlation);
+  });
+
+  it("accepts complete evidence only when correlation and provenance match", async () => {
+    const result = await executeAnalysisTool(
+      "query_knowledge_graph",
+      { operation: "search" },
+      async () => ({
+        status: "complete",
+        output: '{"status":"complete","entities":[]}',
+        source: "analysis:graph-search",
+        correlation,
+      }),
+      undefined,
+      correlation,
+    );
+
+    expect(result).toEqual(expect.objectContaining({
+      status: "complete",
+      output: expect.stringContaining('"status":"complete"'),
+      correlation,
+    }));
   });
 });

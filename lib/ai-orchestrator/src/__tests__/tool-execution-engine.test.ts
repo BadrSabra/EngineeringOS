@@ -259,6 +259,58 @@ describe("executeSingleTool", () => {
     expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
     expect(GIT_TOOL_MOCK).not.toHaveBeenCalled();
   });
+
+  it("does not return ok when an analysis runner is unavailable", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const result = await executeSingleTool({
+      name: "query_knowledge_graph",
+      args: { operation: "search" },
+      rootPath: "/project",
+      pendingChanges: [],
+      analysisToolRunner: async () => ({
+        status: "unavailable",
+        output: "safe unavailable diagnostic",
+      }),
+      analysisCorrelation: {
+        operationId: "operation-a",
+        projectRevision: "revision-1",
+        evidenceProvenance: "persisted-graph-search",
+      },
+    });
+
+    expect(result).toEqual({
+      kind: "failed",
+      failureKind: "unavailable",
+      diagnosticCode: "TOOL_UNAVAILABLE",
+      safeMessage: "Analysis tool \"query_knowledge_graph\" was unavailable; the operation did not complete.",
+    });
+  });
+
+  it("does not return ok when an analysis runner fails", async () => {
+    const { executeSingleTool } = await import("../tool-execution-engine.js");
+    const result = await executeSingleTool({
+      name: "query_knowledge_graph",
+      args: { operation: "search" },
+      rootPath: "/project",
+      pendingChanges: [],
+      analysisToolRunner: async () => ({
+        status: "failed",
+        output: "safe failure diagnostic",
+      }),
+      analysisCorrelation: {
+        operationId: "operation-a",
+        projectRevision: "revision-1",
+        evidenceProvenance: "persisted-graph-search",
+      },
+    });
+
+    expect(result).toEqual({
+      kind: "failed",
+      failureKind: "execution",
+      diagnosticCode: "TOOL_EXECUTION_FAILED",
+      safeMessage: "Analysis tool \"query_knowledge_graph\" failed; the operation did not complete.",
+    });
+  });
 });
 
 // ── toolCacheKey ──────────────────────────────────────────────────────────────

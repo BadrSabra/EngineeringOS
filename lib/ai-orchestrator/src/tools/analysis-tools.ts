@@ -75,6 +75,12 @@ export const ANALYSIS_TOOL_NAMES = new Set(
   ANALYSIS_TOOL_DEFINITIONS.map((tool) => tool.function.name),
 );
 
+function safeStatusMessage(name: string, status: Exclude<AnalysisToolStatus, "complete">): string {
+  return status === "unavailable"
+    ? `Analysis tool "${name}" was unavailable; the operation did not complete.`
+    : `Analysis tool "${name}" failed; the operation did not complete.`;
+}
+
 export async function executeAnalysisTool(
   name: string,
   args: Record<string, string>,
@@ -108,9 +114,15 @@ export async function executeAnalysisTool(
     }
     const result = await runner(name, args, signal, correlation);
     if (result.status !== "complete") {
+      console.error(JSON.stringify({
+        scope: "analysis-tools",
+        code: result.status === "unavailable" ? "ANALYSIS_UNAVAILABLE" : "ANALYSIS_FAILED",
+        tool: name,
+        diagnostic: result.output,
+      }));
       return {
         ...result,
-        output: `${result.output}\nThis analysis result is not completed evidence.`,
+        output: safeStatusMessage(name, result.status),
       };
     }
     if (
@@ -125,12 +137,18 @@ export async function executeAnalysisTool(
       };
     }
     return result;
-  } catch {
+  } catch (error) {
+    console.error(JSON.stringify({
+      scope: "analysis-tools",
+      code: signal?.aborted ? "ANALYSIS_CANCELLED" : "ANALYSIS_FAILED",
+      tool: name,
+      error: error instanceof Error ? error.message : String(error),
+    }));
     return {
       status: signal?.aborted ? "unavailable" : "failed",
       output: signal?.aborted
-        ? "Analysis was cancelled before it completed."
-        : `Analysis tool "${name}" failed and produced no completed evidence.`,
+        ? `Analysis tool "${name}" was cancelled; the operation did not complete.`
+        : safeStatusMessage(name, "failed"),
       correlation,
     };
   }
