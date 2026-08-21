@@ -559,8 +559,12 @@ describe("Durable AI execution crash/reconnect", () => {
           timeout: 120_000,
         });
 
+        // The surrounding fixture suite installs a dummy Groq key for mocked
+        // route tests. Do not let that test-only credential steer the real
+        // recovery child away from the explicitly configured OpenRouter lane.
+        const { GROQ_API_KEY: _fixtureGroqKey, ...liveEnvironment } = process.env;
         const childEnv = {
-          ...process.env,
+          ...liveEnvironment,
           NODE_ENV: "test",
           PORT: String(port),
           AI_CREDENTIALS_ENCRYPTION_KEY: process.env.AI_CREDENTIALS_ENCRYPTION_KEY,
