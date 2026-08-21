@@ -45,6 +45,11 @@ import {
   type RepairLoopState,
   type ValidationRunner,
 } from "./tools/execution-tools.js";
+import {
+  ANALYSIS_TOOL_NAMES,
+  executeAnalysisTool,
+  type AnalysisToolRunner,
+} from "./tools/analysis-tools.js";
 import { recordProviderTelemetry } from "./provider-registry.js";
 import { recordBehavioralFailure } from "./behavioral-scorecard.js";
 import { isForensicTestSourcePath } from "./forensic-source-policy.js";
@@ -384,6 +389,8 @@ export type SingleToolOpts = {
   completeReads?: boolean;
   /** Server-owned validation runner, enabled only for an approved Build handoff. */
   validationRunner?: ValidationRunner;
+  /** Server-owned, read-only scanner/graph/discovery dispatcher. */
+  analysisToolRunner?: AnalysisToolRunner;
   /** Files covered by the approved implementation plan. */
   validationTargetPaths?: string[];
   /** Fail-closed dispatcher gate for execution tools. */
@@ -625,8 +632,9 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
   const isGitTool = GIT_TOOL_NAMES.has(name);
   const isFileTool = FILE_TOOL_NAMES.has(name);
   const isExecutionTool = EXECUTION_TOOL_NAMES.has(name);
+  const isAnalysisTool = ANALYSIS_TOOL_NAMES.has(name);
 
-  if (!isGitTool && !isFileTool && !isExecutionTool) {
+  if (!isGitTool && !isFileTool && !isExecutionTool && !isAnalysisTool) {
     return {
       kind: "unknown_tool",
       errorMessage: `Tool "${name}" is not registered — use one of the tools listed in the system prompt.`,
@@ -641,18 +649,28 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         source: undefined,
       };
     }
-    const output = isGitTool
+    if (isAnalysisTool && !opts.analysisToolRunner) {
+      return { kind: "ok", output: "Analysis tools are unavailable for this turn.", source: undefined };
+    }
+    let analysisStatus: "complete" | "unavailable" | "failed" | undefined;
+    const output = await (isGitTool
       ? await executeGitTool(name, effectiveArgs, rootPath)
       : isFileTool
         ? await executeFileTool(name, effectiveArgs, rootPath, pendingChanges)
-        : await executeValidationTool(
+        : isExecutionTool
+        ? await executeValidationTool(
             name,
             effectiveArgs,
             opts.validationTargetPaths ?? [],
             opts.validationRunner,
             opts.signal,
             pendingChanges,
-          );
+          )
+        : executeAnalysisTool(name, effectiveArgs, opts.analysisToolRunner, opts.signal)
+            .then((result) => {
+              analysisStatus = result.status;
+              return result.output;
+            }));
 
     // Ground-truth source label for observable reads.
     let source: string | undefined;
@@ -676,6 +694,8 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       case "git_log":
         source = "git:log";
         break;
+      default:
+        if (isAnalysisTool && analysisStatus === "complete") source = `analysis:${name}`;
     }
 
     return { kind: "ok", output, source };
@@ -938,6 +958,7 @@ export type ToolLoopOpts = {
 
   /** Server-owned callback used by run_validation. */
   validationRunner?: ValidationRunner;
+  analysisToolRunner?: AnalysisToolRunner;
 
   /** Files covered by the approved implementation plan. */
   validationTargetPaths?: string[];

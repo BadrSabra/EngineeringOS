@@ -196,7 +196,11 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
   }
 }
 
-async function performScan(projectId: string): Promise<ScanJobResult> {
+export async function performScan(projectId: string, signal?: AbortSignal): Promise<ScanJobResult> {
+  const checkCancelled = (): void => {
+    if (signal?.aborted) throw new Error("scan refresh cancelled");
+  };
+  checkCancelled();
   // One UUID per scan operation — written to audit_logs, events, and metrics
   // so a single `WHERE correlation_id = ?` retrieves the complete trace for
   // this scan without relying on projectId + timestamp proximity.
@@ -244,6 +248,7 @@ async function performScan(projectId: string): Promise<ScanJobResult> {
 
   // ── 1. Walk the project directory ──────────────────────────────────────
   const walkResult = await walkProject(effectiveRootPath);
+  checkCancelled();
   const { files } = walkResult;
 
   // ── 2. Match scoped rules against scanned files ─────────────────────────
@@ -267,6 +272,7 @@ async function performScan(projectId: string): Promise<ScanJobResult> {
   // section to inserts/updates only, reducing lock contention and connection
   // pool pressure.
   const graph = await extractGraph(files);
+  checkCancelled();
   const capturedEntities: ExtractedEntity[] = graph.entities.map((e) => ({
     type: e.type,
     name: e.name,

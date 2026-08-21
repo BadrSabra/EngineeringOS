@@ -124,6 +124,7 @@ import {
   redactUserFacingText,
   redactUserFacingValue,
 } from "../../lib/ai-route-helpers.js";
+import { createProjectAnalysisToolRunner } from "../../lib/ai-analysis-tools.js";
 
 const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
   "PROVEN",
@@ -1336,6 +1337,9 @@ router.post("/ai/chat", async (req, res) => {
     implementationPlanResume,
   });
   const modelHasTools = Boolean(validRootPath && turnIntent.requiresTools);
+  const analysisToolRunner = validRootPath
+    ? createProjectAnalysisToolRunner(projectId, validRootPath)
+    : undefined;
   const immediateExecutionRequest = isImmediateExecutionRequest(message);
   // Fetch a stable bounded history for every ordinary request. chat-agent
   // keeps the latest complete turns verbatim and summarizes older turns,
@@ -1438,6 +1442,8 @@ router.post("/ai/chat", async (req, res) => {
           productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat"),
           objective,
           turnIntent,
+          allowAnalysisTools: Boolean(modelHasTools && analysisToolRunner),
+          analysisToolRunner,
         },
         { provider, apiKey },
         undefined,
@@ -1885,6 +1891,9 @@ router.post("/ai/chat/stream", async (req, res) => {
     auditScopeDescription?: string;
   }).auditScopeDescription;
   const streamModelHasTools = Boolean(validRootPath && streamTurnIntent.requiresTools);
+  const analysisToolRunner = validRootPath
+    ? createProjectAnalysisToolRunner(projectId, validRootPath)
+    : undefined;
 
   // Provider/model routing must use the same authoritative intent as the
   // downstream agent. In particular, a terse continuation can inherit a
@@ -2754,6 +2763,8 @@ router.post("/ai/chat/stream", async (req, res) => {
           onExecutionNodes: publishExecutionNodes,
           signal: activeExecutionAbortController.signal,
           turnIntent: streamTurnIntent,
+          allowAnalysisTools: Boolean(streamModelHasTools && analysisToolRunner),
+          analysisToolRunner,
         },
         { provider, apiKey },
         onDelta,

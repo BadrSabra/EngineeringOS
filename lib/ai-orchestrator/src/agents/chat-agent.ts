@@ -78,6 +78,7 @@ import {
 } from "./implementation-planner.js";
 import type { ImplementationPlan } from "../schemas/implementation-plan.schema.js";
 import { getAllowedToolDefinitions, resolveToolPolicy } from "../tool-policy.js";
+import type { AnalysisToolRunner } from "../tools/analysis-tools.js";
 import type { StrategyCallOptions } from "../provider-strategy.js";
 import {
   speculativePrefetch,
@@ -2728,12 +2729,14 @@ function buildProviderTools(
   singleFileForensicMode = false,
   orderedForensicRoots: string[] = [],
   allowValidationTools = false,
+  allowAnalysisTools = false,
 ) {
   const policy = resolveToolPolicy({
     provider,
     rootPath,
     mode: "workspace",
     allowExecution: allowValidationTools,
+    allowAnalysis: allowAnalysisTools,
   });
   if (!policy.enabled) {
     console.warn(
@@ -2753,7 +2756,7 @@ function buildProviderTools(
       : orderedForensicRoots.length > 0
       ? tools.filter((tool) => ["read_file", "list_directory"].includes(tool.function.name))
       : executionMode === "forensic"
-      ? tools.filter((tool) => ["read_file", "read_file_range", "list_directory", "search_code", "git_status", "git_diff", "git_log"].includes(tool.function.name))
+      ? tools.filter((tool) => ["read_file", "read_file_range", "list_directory", "search_code", "git_status", "git_diff", "git_log", "refresh_project_scan", "query_knowledge_graph", "discover_project_apis"].includes(tool.function.name))
       : executionMode === "repair_plan"
       ? tools.filter((tool) =>
           [
@@ -3288,6 +3291,9 @@ export async function chat(opts: {
   allowValidationTools?: boolean;
   /** Server-owned validation runner; never supplied by the model. */
   validationRunner?: ValidationRunner;
+  /** Server-owned, read-only project analysis dispatcher. */
+  allowAnalysisTools?: boolean;
+  analysisToolRunner?: AnalysisToolRunner;
   /** Optional server-owned proof after validation and before review readiness. */
   executionProofRunner?: ExecutionProofRunner;
   /** Server-owned files covered by the approved implementation plan. */
@@ -3347,6 +3353,8 @@ export async function chat(opts: {
     signal,
     allowValidationTools = false,
     validationRunner,
+    allowAnalysisTools = false,
+    analysisToolRunner,
     executionProofRunner,
     validationTargetPaths = [],
     executionPlanOverride,
@@ -4196,6 +4204,7 @@ export async function chat(opts: {
         singleFileForensicMode,
         orderedForensicRoots,
         allowValidationTools,
+        allowAnalysisTools,
       )
     : undefined;
 
@@ -5315,6 +5324,7 @@ export async function chat(opts: {
     allowTestSources: includeTestSources,
     allowExecutionTools: allowValidationTools,
     validationRunner,
+    analysisToolRunner,
     validationTargetPaths,
     signal,
     // Dependency-First traversal (FEG-005/006): once the explicit primary
