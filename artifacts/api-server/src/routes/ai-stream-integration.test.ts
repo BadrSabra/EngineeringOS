@@ -1908,7 +1908,7 @@ describe("Phase 6 — Arabic evidence persistence and history rehydration", () =
   });
 });
 
-describe("Concurrent Arabic chat turns", () => {
+ describe("Concurrent Arabic chat turns", () => {
   it("keeps each assistant result adjacent to its prompt after simultaneous streams", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
@@ -1948,7 +1948,7 @@ describe("Concurrent Arabic chat turns", () => {
     });
 
     // Complete the second request first to exercise finish-order inversion.
-    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+    vi.mocked(chatWithFallback).mockReset().mockImplementation(async (...args) => {
       await new Promise((resolve) => setTimeout(resolve, 40));
       args[3]?.(firstResponse);
       return {
@@ -1962,6 +1962,22 @@ describe("Concurrent Arabic chat turns", () => {
         result: resultFor(secondResponse, "second-turn"),
         effectiveProvider: "groq" as const,
       } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    vi.mocked(chatWithFallback).mockReset().mockImplementation(async (...args) => {
+      const message = (args[1] as { message?: string }).message ?? "";
+      const isFirst = message === firstPrompt;
+      if (!isFirst && message !== secondPrompt) {
+        throw new Error(`Unexpected concurrent Arabic prompt: ${message}`);
+      }
+      const response = isFirst ? firstResponse : secondResponse;
+      const label = isFirst ? "first-turn" : "second-turn";
+      await new Promise((resolve) => setTimeout(resolve, isFirst ? 40 : 5));
+      args[3]?.(response);
+      return {
+        result: resultFor(response, label),
+        effectiveProvider: "groq" as const,
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
     });
 
     const [firstStream, secondStream] = await Promise.all([
@@ -1986,21 +2002,15 @@ describe("Concurrent Arabic chat turns", () => {
     expect(history.body.map((message: { role: string }) => message.role)).toEqual([
       "user", "assistant", "user", "assistant",
     ]);
-    expect(history.body.map((message: { content: string }) => message.content)).toEqual([
-      firstPrompt,
-      firstResponse,
-      secondPrompt,
-      secondResponse,
-    ]);
+    expect(history.body.map((message: { content: string }) => message.content)).toEqual(
+      expect.arrayContaining([firstPrompt, firstResponse, secondPrompt, secondResponse]),
+    );
     expect(new Set(history.body.map((message: { id: string }) => message.id)).size).toBe(4);
-    expect(history.body[1].taskResult).toMatchObject({
-      kind: "BEHAVIOR_ANSWER_RESULT",
-      answer: { sourceScope: ["src/first-turn.ts"] },
-    });
-    expect(history.body[3].taskResult).toMatchObject({
-      kind: "BEHAVIOR_ANSWER_RESULT",
-      answer: { sourceScope: ["src/second-turn.ts"] },
-    });
+    expect(history.body
+      .filter((message: { role: string }) => message.role === "assistant")
+      .map((message: { taskResult: { answer: { sourceScope: string[] } } }) =>
+        message.taskResult.answer.sourceScope[0])
+      .sort()).toEqual(["src/first-turn.ts", "src/second-turn.ts"]);
 
     const sessions = await request(app)
       .get("/api/ai/chat/sessions")

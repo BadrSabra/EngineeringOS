@@ -1026,18 +1026,28 @@ describe("POST /api/ai/chat", () => {
     let releaseNew!: () => void;
     const oldReady = new Promise<void>((resolve) => { releaseOld = resolve; });
     const newReady = new Promise<void>((resolve) => { releaseNew = resolve; });
-    let concurrentCalls = 0;
-    vi.mocked(mockChat)
-      .mockImplementationOnce(async () => {
-        concurrentCalls += 1;
+    const expectedCalls = new Set(["continue older work", "continue newer work"]);
+    const readyCalls = new Set<string>();
+    let resolveReady!: () => void;
+    const allReady = new Promise<void>((resolve) => { resolveReady = resolve; });
+    const readinessTimeout = setTimeout(() => {
+      resolveReady();
+    }, 2_000);
+    vi.mocked(mockChat).mockImplementation(async (...args) => {
+      const params = args[0] as { message?: string };
+      const message = params.message ?? "";
+      readyCalls.add(message);
+      if (readyCalls.size === expectedCalls.size) resolveReady();
+      if (message === "continue older work") {
         await oldReady;
         return makeResult("src/older.ts");
-      })
-      .mockImplementationOnce(async () => {
-        concurrentCalls += 1;
+      }
+      if (message === "continue newer work") {
         await newReady;
         return makeResult("src/newer.ts");
-      });
+      }
+      throw new Error(`Unexpected concurrent test message: ${message}`);
+    });
 
     const oldTurnRequest = request(app)
       .post("/api/ai/chat")
@@ -1047,7 +1057,9 @@ describe("POST /api/ai/chat", () => {
       .send({ projectId, sessionId, message: "continue newer work" });
     const oldTurn = oldTurnRequest.then((response) => response);
     const newTurn = newTurnRequest.then((response) => response);
-    while (concurrentCalls < 2) await new Promise((resolve) => setTimeout(resolve, 0));
+    await allReady;
+    clearTimeout(readinessTimeout);
+    expect([...readyCalls].sort()).toEqual([...expectedCalls].sort());
 
     releaseNew();
     const newerResponse = await newTurn;
@@ -1078,6 +1090,11 @@ describe("POST /api/ai/chat", () => {
     expect(continuationInputs[0]?.activeTaskState).toMatchObject({
       executionPlan: { phases: [{ files: ["src/newer.ts"] }] },
     });
+    vi.mocked(mockChat).mockImplementation(async () => ({
+      response: "AI response text",
+      sources: [],
+      pendingChanges: [],
+    }));
   });
 
   it("rejects Repair Plan execution without the original session before calling the model", async () => {

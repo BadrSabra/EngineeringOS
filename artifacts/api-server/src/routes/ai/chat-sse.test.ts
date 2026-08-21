@@ -154,6 +154,13 @@ vi.mock("@workspace/db", () => {
       }),
       transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
+          select: () => ({
+            from: () => ({
+              where: () => ({
+                for: () => Promise.resolve(fixture.session ? [{ id: fixture.session.id }] : []),
+              }),
+            }),
+          }),
           insert: () => ({
             values: (vals?: Record<string, unknown>) => {
               // Task #59: capture the exact serialized DB columns written for
@@ -295,9 +302,12 @@ vi.mock("../../lib/advisory-lock.js", () => ({
 // (vitest hoists vi.mock() above all static imports automatically, but dynamic
 // imports still need to come after the vi.mock calls in source order.)
 import app from "../../app.js";
-import { chatWithFallback, requireProvider } from "../../lib/ai-route-helpers.js";
+import { chatWithFallback, requireProvider, requestLooksToolBound } from "../../lib/ai-route-helpers.js";
 import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+import { checkProjectRateLimitDb } from "../../lib/db-rate-limiter.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
+import { tryAdvisoryLock } from "../../lib/advisory-lock.js";
+import { enrichContextWithMemories } from "@workspace/ai-orchestrator";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -308,6 +318,7 @@ const FAKE_PROJECT = {
   ownerId: "test-user",
   status: "active",
   language: "typescript",
+  updatedAt: new Date("2026-01-01T00:00:00.000Z"),
 };
 
 /** Forensic status step with isFixtureLocal:true — the one under test. */
@@ -461,10 +472,43 @@ const FIXTURE_VERDICT_STEP: Extract<AgentStep, { kind: "decision_trace" }> = {
 
 // ── Test setup ────────────────────────────────────────────────────────────────
 
-beforeEach(() => {
+beforeEach(async () => {
+  const dbFixture = (await import("@workspace/db") as unknown as {
+    __chatTestFixture: {
+      session: Record<string, unknown> | null;
+      messages: Array<Record<string, unknown>>;
+    };
+  }).__chatTestFixture;
+  dbFixture.session = null;
+  dbFixture.messages.length = 0;
+
+  // Each test owns the in-memory DB and the route-bound mocks it exercises.
+  // Reset these implementations so a prior SSE scenario cannot leak callback
+  // behavior into the next one without clearing unrelated module defaults.
+  vi.mocked(loadProjectByIdForUser).mockReset();
+  vi.mocked(requireProvider).mockReset();
+  vi.mocked(checkProjectRateLimitDb).mockReset();
+  vi.mocked(chatWithFallback as (...args: unknown[]) => unknown).mockReset();
+  vi.mocked(resolveRootPath).mockReset();
+  vi.mocked(requestLooksToolBound).mockReset();
+  vi.mocked(enrichContextWithMemories).mockReset();
+  vi.mocked(tryAdvisoryLock).mockReset();
   // Return the fake project for any project lookup in the stream route.
   vi.mocked(loadProjectByIdForUser).mockResolvedValue(FAKE_PROJECT as never);
   vi.mocked(requireProvider).mockResolvedValue({ provider: "openai" as never, apiKey: "test-key" });
+  vi.mocked(checkProjectRateLimitDb).mockResolvedValue({ allowed: true });
+  vi.mocked(chatWithFallback as (...args: unknown[]) => unknown).mockResolvedValue(MOCK_CHAT_RESULT);
+  vi.mocked(requestLooksToolBound).mockReturnValue(false);
+  vi.mocked(enrichContextWithMemories).mockResolvedValue(undefined);
+  vi.mocked(tryAdvisoryLock).mockResolvedValue({
+    acquired: true,
+    release: vi.fn().mockResolvedValue(undefined),
+  });
+  vi.mocked(resolveRootPath).mockResolvedValue({
+    validRootPath: null,
+    fallbackUsed: false,
+    originalPath: null,
+  });
   // Task #59: reset the captured persisted columns between tests.
   chatCapture.assistantToolTrace = null;
   chatCapture.assistantContent = null;
