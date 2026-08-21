@@ -28,6 +28,13 @@ type ReleaseFailureScenario = {
   laterCommands: string[];
 };
 
+type DeploymentFailureScenario = {
+  name: string;
+  command: string;
+  diagnostic: string;
+  laterCommands: string[];
+};
+
 const releaseFailureScenarios: ReleaseFailureScenario[] = [
   {
     name: "dashboard journey contract",
@@ -75,6 +82,42 @@ const releaseFailureScenarios: ReleaseFailureScenario[] = [
   },
 ];
 
+const deploymentFailureScenarios: DeploymentFailureScenario[] = [
+  {
+    name: "audit schema check",
+    command: "run db:schema:check",
+    diagnostic: "audit schema check failed: expected audit_events table was missing",
+    laterCommands: [
+      "run test:benchmark-rollout",
+      "run verify:benchmark-rollout",
+      "run validate:release",
+      "store prune",
+    ],
+  },
+  {
+    name: "benchmark rollout tests",
+    command: "run test:benchmark-rollout",
+    diagnostic: "benchmark rollout tests failed: rollout fixture was incomplete",
+    laterCommands: [
+      "run verify:benchmark-rollout",
+      "run validate:release",
+      "store prune",
+    ],
+  },
+  {
+    name: "benchmark rollout verifier",
+    command: "run verify:benchmark-rollout",
+    diagnostic: "benchmark rollout verifier failed: provider-unavailable cases block deployment",
+    laterCommands: ["run validate:release", "store prune"],
+  },
+  {
+    name: "release validation",
+    command: "run validate:release",
+    diagnostic: "release validation failed: process recovery did not complete",
+    laterCommands: ["store prune"],
+  },
+];
+
 async function runReleaseWithInjectedFailure(
   scenario: ReleaseFailureScenario,
 ): Promise<{ output: string; trace: string; status: number | null }> {
@@ -106,6 +149,55 @@ exec "${realPnpm}" "$@"
 
   try {
     const result = spawnSync("pnpm", ["run", "validate:release"], {
+      cwd: workspaceRoot,
+      env: {
+        ...process.env,
+        PATH: `${temporaryDirectory}:${process.env.PATH ?? ""}`,
+        RELEASE_VALIDATION_TRACE: tracePath,
+      },
+      encoding: "utf8",
+    });
+    return {
+      output: `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
+      trace: await readFile(tracePath, "utf8"),
+      status: result.status,
+    };
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
+}
+
+async function runDeploymentWithInjectedFailure(
+  scenario: DeploymentFailureScenario,
+): Promise<{ output: string; trace: string; status: number | null }> {
+  const temporaryDirectory = await mkdtemp(
+    resolve(tmpdir(), "deployment-step-failure-"),
+  );
+  const tracePath = resolve(temporaryDirectory, "pnpm-trace.log");
+  const shimPath = resolve(temporaryDirectory, "pnpm");
+  const realPnpm = spawnSync("sh", ["-c", "command -v pnpm"], {
+    encoding: "utf8",
+  }).stdout.trim();
+
+  await writeFile(
+    shimPath,
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "$RELEASE_VALIDATION_TRACE"
+if [ "$*" = "${scenario.command}" ]; then
+  echo "${scenario.diagnostic}" >&2
+  exit 29
+fi
+if [ "$*" = "run deployment:post-build" ]; then
+  exec "${realPnpm}" "$@"
+fi
+exit 0
+`,
+    "utf8",
+  );
+  await chmod(shimPath, 0o755);
+
+  try {
+    const result = spawnSync("pnpm", ["run", "deployment:post-build"], {
       cwd: workspaceRoot,
       env: {
         ...process.env,
@@ -322,6 +414,36 @@ for (const scenario of releaseFailureScenarios) {
       trace,
       new RegExp(scenario.command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
       `${scenario.name} must start before release validation stops`,
+    );
+    for (const laterCommand of scenario.laterCommands) {
+      assert.doesNotMatch(
+        trace,
+        new RegExp(laterCommand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+        `${laterCommand} must not start after ${scenario.name} fails`,
+      );
+    }
+  });
+}
+
+for (const scenario of deploymentFailureScenarios) {
+  test(`stops deployment post-build after a ${scenario.name} diagnostic`, async () => {
+    const { output, trace, status } =
+      await runDeploymentWithInjectedFailure(scenario);
+
+    assert.notEqual(
+      status,
+      0,
+      `${scenario.name} failure must keep deployment post-build non-zero`,
+    );
+    assert.match(
+      output,
+      new RegExp(scenario.diagnostic.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      `${scenario.name} diagnostic must remain visible in deployment output`,
+    );
+    assert.match(
+      trace,
+      new RegExp(scenario.command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+      `${scenario.name} must start before deployment post-build stops`,
     );
     for (const laterCommand of scenario.laterCommands) {
       assert.doesNotMatch(
