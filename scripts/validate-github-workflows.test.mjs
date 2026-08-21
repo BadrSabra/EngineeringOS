@@ -162,3 +162,44 @@ test("reports malformed steps collections from nested workflows", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("reports missing execution configuration from nested workflows", async () => {
+  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+  const workflowsDirectory = join(root, ".github", "workflows");
+  const nestedWorkflowPath = join(
+    workflowsDirectory,
+    "deployment",
+    "production",
+    "release.yml",
+  );
+
+  try {
+    await mkdir(join(workflowsDirectory, "deployment", "production"), {
+      recursive: true,
+    });
+    await writeFile(
+      nestedWorkflowPath,
+      [
+        "name: Invalid nested workflow job",
+        "on: [push]",
+        "jobs:",
+        "  deploy:",
+        "    steps: []",
+        "",
+      ].join("\n"),
+    );
+
+    await assert.rejects(
+      validateWorkflows(workflowsDirectory, root),
+      (error) => {
+        assert.match(
+          error.message,
+          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` must define either `runs-on` or `uses`\./,
+        );
+        return true;
+      },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
