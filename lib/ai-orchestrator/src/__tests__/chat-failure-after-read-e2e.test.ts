@@ -246,6 +246,38 @@ describe("chat() failure after completed source reads (Phase 5)", () => {
     }
   });
 
+  it("uses request-retained evidence on a text-only fallback without rereading", async () => {
+    const root = await makeRoot();
+    const calls = { count: 0, correctionTools: [] as unknown[] };
+    readThen("A text-only provider response.", calls, false);
+    await mockChatModules(true);
+    try {
+      const { chat } = await import("../agents/chat-agent.js");
+      const result = await chat({
+        message: `What does ${FILE} run do?`,
+        history: [],
+        projectContext: makeContext(),
+        // A provider without tool support must still be able to synthesize
+        // from evidence retained by the route's prior provider attempt.
+        rootPath: undefined,
+        provider: "openrouter",
+        apiKey: "fixture-key",
+        retainedEvidence: new Map([[FILE, FILE_CONTENT]]),
+      });
+
+      expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+      expect(result.response).toContain(FILE);
+      expect(result.sources).toEqual([FILE]);
+      expect(result.pendingChanges).toEqual([]);
+      expect(calls.count).toBe(1);
+      expect(calls.correctionTools).toEqual([]);
+      expect(result.response).not.toContain("fixture-key");
+      expect(result.response).not.toMatch(/read_file|write_file|replace_text/);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
   it.each([
     {
       name: "accepts a valid literal source excerpt",

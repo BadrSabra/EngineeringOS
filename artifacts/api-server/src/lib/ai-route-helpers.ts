@@ -421,7 +421,9 @@ export async function chatWithFallback(
   const providerErrors: Array<{ provider: string; code: string; message: string }> = [];
   // Keep completed source reads when a provider fails after a tool call. This
   // is deliberately request-scoped and contains no runtime/session metadata.
-  const retainedEvidence = new Map<string, string>();
+  // The route may seed this map when resuming a request; do not replace it or
+  // the text-only fallback will lose evidence acquired by the prior attempt.
+  const retainedEvidence = baseParams.retainedEvidence ?? new Map<string, string>();
 
   for (const providerEntry of orderedProviders) {
     if (lastErr) {

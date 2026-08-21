@@ -3579,6 +3579,97 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
 // ─── INT-006: SSE error path (provider failover / empty chain) ────────────────
 
 describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced cleanly through SSE", () => {
+  it("retains a completed read when the primary fails and the text-only fallback is resumed", async () => {
+    const rootPath = await fs.mkdtemp("/tmp/stream-provider-failover-");
+    rootPaths.push(rootPath);
+    const source = "src/failover.ts";
+    const sourceBody = "export function answer() { return 'retained'; }\n";
+    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+    await fs.writeFile(path.join(rootPath, source), sourceBody, "utf8");
+    const projectId = await insertProject(rootPath);
+    projectIds.push(projectId);
+
+    let turn = 0;
+    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+      turn += 1;
+      const onDelta = args[3] as ((delta: string) => void) | undefined;
+      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+      if (turn === 1) {
+        onStep?.({ kind: "tool_call", tool: "read_file", args: { path: source }, cached: false });
+        onStep?.({
+          kind: "tool_result",
+          tool: "read_file",
+          source,
+          cached: false,
+          resultSummary: "Source retained before provider failover.",
+        });
+      } else if (turn > 2) {
+        throw new Error(
+          "SSE failover fixture exhausted: expected only the initial fallback and one resumed read-only turn.",
+        );
+      }
+
+      const response =
+        `ANALYSIS_INCOMPLETE: The primary provider failed after reading ${source}. ` +
+        "The retained source is visible, but no further tool-capable provider was available.";
+      onDelta?.(response);
+      return {
+        result: { response, sources: [source], pendingChanges: [] },
+        effectiveProvider: "gemini",
+      };
+    });
+
+    const first = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: `What does ${source} do?` });
+    expect(first.status).toBe(200);
+    const firstEvents = parseSseEvents(first.text);
+    const firstDone = firstEvents.find((event) => event.type === "done");
+    const firstMessage = firstDone?.message as Record<string, unknown> | undefined;
+    expect(firstMessage?.content).toContain("ANALYSIS_INCOMPLETE");
+    expect(firstMessage?.content).toContain(source);
+    expect(firstMessage?.content).not.toMatch(/\/tmp\/|\/home\/runner\/|provider diagnostics|read_file/);
+    expect(firstMessage?.content).not.toMatch(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i,
+    );
+    expect(firstEvents.find((event) => event.type === "tool_result")).toMatchObject({
+      tool: "read_file",
+      source,
+    });
+
+    const sessionId = firstDone?.sessionId;
+    expect(sessionId).toEqual(expect.any(String));
+    const storedRows = await db
+      .select({ content: aiChatMessagesTable.content, sources: aiChatMessagesTable.sources })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, String(sessionId)))
+      .orderBy(aiChatMessagesTable.createdAt);
+    const storedAfterFirst = storedRows.at(-1);
+    expect(storedAfterFirst?.content).toContain("ANALYSIS_INCOMPLETE");
+    expect(storedAfterFirst?.content).toContain(source);
+    expect(storedAfterFirst?.content).not.toMatch(/\/tmp\/|\/home\/runner\/|read_file/);
+    expect(JSON.parse(storedAfterFirst?.sources ?? "[]")).toEqual([source]);
+
+    const resumed = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, sessionId, message: "Continue with the retained evidence." });
+    expect(resumed.status).toBe(200);
+    const resumedEvents = parseSseEvents(resumed.text);
+    const resumedMessage = resumedEvents.find((event) => event.type === "done")?.message as
+      | Record<string, unknown>
+      | undefined;
+    expect(resumedMessage?.content).toContain("ANALYSIS_INCOMPLETE");
+    expect(resumedMessage?.content).toContain(source);
+    expect(resumedMessage?.content).not.toMatch(/\/tmp\/|\/home\/runner\/|read_file|provider diagnostics/);
+    expect(resumedMessage?.content).not.toMatch(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i,
+    );
+    expect(await fs.readFile(path.join(rootPath, source), "utf8")).toBe(sourceBody);
+    expect(vi.mocked(chatWithFallback)).toHaveBeenCalledTimes(2);
+  });
+
   it("should surface provider failover cleanly through the SSE stream", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
