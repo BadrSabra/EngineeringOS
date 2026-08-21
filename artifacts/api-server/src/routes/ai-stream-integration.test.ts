@@ -3579,6 +3579,90 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
 // ─── INT-006: SSE error path (provider failover / empty chain) ────────────────
 
 describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced cleanly through SSE", () => {
+  it("retains completed evidence after a native stream reset and resumes read-only", async () => {
+    const rootPath = await fs.mkdtemp("/tmp/stream-native-reset-");
+    rootPaths.push(rootPath);
+    const source = "src/native-reset.ts";
+    const sourceBody = "export const retained = true;\n";
+    await fs.mkdir(path.join(rootPath, "src"), { recursive: true });
+    await fs.writeFile(path.join(rootPath, source), sourceBody, "utf8");
+    const projectId = await insertProject(rootPath);
+    projectIds.push(projectId);
+
+    let capturedParams: Record<string, unknown> | undefined;
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      capturedParams = args[1] as Record<string, unknown>;
+      const onDelta = args[3] as ((delta: string) => void) | undefined;
+      const onStreamReset = args[5] as (() => void) | undefined;
+      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+
+      // Native provider transport produced a partial bubble and completed a
+      // source read before breaking. The route must discard only the bubble.
+      onDelta?.(`partial provider diagnostic /tmp/provider-${randomUUID()}`);
+      onStep?.({
+        kind: "tool_result",
+        tool: "read_file",
+        source,
+        cached: false,
+        resultSummary: "Source read completed before transport interruption.",
+      });
+      onStreamReset?.();
+
+      const response =
+        `ANALYSIS_INCOMPLETE: The stream was interrupted after reading ${source}. ` +
+        "The retained source is available, but no verified finding was accepted.";
+      onDelta?.(response);
+      return {
+        result: {
+          response,
+          sources: [source],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      };
+    });
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: `What does ${source} do?` });
+
+    expect(res.status).toBe(200);
+    const events = parseSseEvents(res.text);
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "stream_reset" }),
+      expect.objectContaining({ type: "tool_result", tool: "read_file", source }),
+    ]));
+    const resetIndex = events.findIndex((event) => event.type === "stream_reset");
+    expect(resetIndex).toBeGreaterThan(-1);
+    expect(events.slice(resetIndex + 1).map((event) => JSON.stringify(event)).join("\n"))
+      .not.toMatch(/partial provider diagnostic|\/tmp\/provider-|provider diagnostics/);
+
+    const done = events.find((event) => event.type === "done");
+    const message = done?.message as Record<string, unknown> | undefined;
+    expect(message?.content).toContain("ANALYSIS_INCOMPLETE");
+    expect(message?.content).toContain(source);
+    expect(done?.sources).toEqual([source]);
+
+    expect(capturedParams).toMatchObject({
+      allowValidationTools: false,
+      validationTargetPaths: [],
+    });
+    expect(await fs.readFile(path.join(rootPath, source), "utf8")).toBe(sourceBody);
+
+    const storedRows = await db
+      .select({ content: aiChatMessagesTable.content, sources: aiChatMessagesTable.sources })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, String(done?.sessionId)))
+      .orderBy(aiChatMessagesTable.createdAt);
+    const stored = storedRows.find((row) => row.content.includes("ANALYSIS_INCOMPLETE"));
+    expect(stored?.content).toContain("ANALYSIS_INCOMPLETE");
+    expect(stored?.content).toContain(source);
+    expect(stored?.content).not.toContain("partial provider diagnostic");
+    expect(stored?.content).not.toMatch(/\/tmp\/provider-|provider diagnostics/);
+    expect(JSON.parse(stored?.sources ?? "[]")).toEqual([source]);
+  });
+
   it("retains a completed read when the primary fails and the text-only fallback is resumed", async () => {
     const rootPath = await fs.mkdtemp("/tmp/stream-provider-failover-");
     rootPaths.push(rootPath);
