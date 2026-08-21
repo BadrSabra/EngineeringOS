@@ -2998,19 +2998,19 @@ router.post("/ai/chat/stream", async (req, res) => {
           },
         });
       }
+      // Turns can finish out of order. Qualify the state write itself by the
+      // allocated turn timestamp so an older completion cannot overwrite a
+      // newer resumable contract after waiting on the session row lock.
       await tx
         .update(aiChatSessionsTable)
-        .set({
-          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
-          // Turns can finish out of order. Only the turn with the newest
-          // allocated timestamp may advance the resumable contract; an older
-          // completion must not replace a newer turn's verified state.
-          activeTaskState: sql`CASE
-            WHEN ${aiChatSessionsTable.updatedAt} <= ${msgNow}
-            THEN ${activeTaskState}
-            ELSE ${aiChatSessionsTable.activeTaskState}
-          END`,
-        })
+        .set({ activeTaskState })
+        .where(and(
+          eq(aiChatSessionsTable.id, sessionIdToUse),
+          lte(aiChatSessionsTable.updatedAt, msgNow),
+        ));
+      await tx
+        .update(aiChatSessionsTable)
+        .set({ updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})` })
         .where(eq(aiChatSessionsTable.id, sessionIdToUse));
       return msg;
     });
