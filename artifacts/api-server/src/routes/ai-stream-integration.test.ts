@@ -63,6 +63,12 @@ vi.mock("../lib/advisory-lock.js", async (importOriginal) => {
 const execFileAsync = promisify(execFile);
 const validationFixtures: Array<Record<string, unknown>> = [];
 const runRealApiProcessRecovery = process.env.RUN_REAL_API_PROCESS_RECOVERY === "1";
+type RecoveryTeardownFixture = {
+  projectId: string;
+  rootPath: string;
+  childPids: number[];
+};
+const recoveryTeardownFixtures: RecoveryTeardownFixture[] = [];
 
 // ─── Orchestrator mock ────────────────────────────────────────────────────────
 // Mirrors the module-level mock in ai.test.ts so all imports from
@@ -327,6 +333,15 @@ async function insertApprovedPlan(
 const projectIds: string[] = [];
 const rootPaths: string[] = [];
 
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 beforeAll(() => {
   process.env.GROQ_API_KEY = "test-dummy-key-for-stream-tests";
 });
@@ -341,6 +356,7 @@ afterEach(async () => {
   vi.mocked(chatWithFallback).mockImplementation(defaultChatWithFallback!);
   vi.mocked(requireProvider).mockReset();
   vi.mocked(requireProvider).mockImplementation(defaultRequireProvider!);
+  const recoveryFixtures = recoveryTeardownFixtures.splice(0);
   for (const pid of projectIds.splice(0)) {
     await db.delete(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.projectId, pid)).catch(() => undefined);
     await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, pid)).catch(() => undefined);
@@ -360,6 +376,36 @@ afterEach(async () => {
   }
   for (const rootPath of rootPaths.splice(0)) {
     await fs.rm(rootPath, { recursive: true, force: true });
+  }
+
+  const leaks: string[] = [];
+  for (const fixture of recoveryFixtures) {
+    const project = await db
+      .select({ id: projectsTable.id })
+      .from(projectsTable)
+      .where(eq(projectsTable.id, fixture.projectId))
+      .limit(1);
+    if (project.length > 0) {
+      leaks.push(`project ${fixture.projectId}`);
+    }
+
+    try {
+      await fs.access(fixture.rootPath);
+      leaks.push(`root ${fixture.rootPath}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        leaks.push(`root ${fixture.rootPath} could not be verified`);
+      }
+    }
+
+    for (const pid of fixture.childPids) {
+      if (processIsAlive(pid)) {
+        leaks.push(`child process ${pid}`);
+      }
+    }
+  }
+  if (leaks.length > 0) {
+    throw new Error(`Recovery fixture teardown left resources behind: ${leaks.join(", ")}`);
   }
 });
 
@@ -491,6 +537,8 @@ describe("Durable AI execution crash/reconnect", () => {
         await fs.writeFile(absolutePath, originalSource, "utf8");
         const projectId = await insertProject(rootPath);
         projectIds.push(projectId);
+        const recoveryFixture: RecoveryTeardownFixture = { projectId, rootPath, childPids: [] };
+        recoveryTeardownFixtures.push(recoveryFixture);
 
         const sessionId = randomUUID();
         await db.insert(aiChatSessionsTable).values({
@@ -523,6 +571,7 @@ describe("Durable AI execution crash/reconnect", () => {
           env: childEnv,
           stdio: ["ignore", "pipe", "pipe"],
         });
+        if (server.pid !== undefined) recoveryFixture.childPids.push(server.pid);
         await waitForHealth(server);
 
         const created = await createAiExecution({
@@ -578,6 +627,7 @@ describe("Durable AI execution crash/reconnect", () => {
           env: childEnv,
           stdio: ["ignore", "pipe", "pipe"],
         });
+        if (server.pid !== undefined) recoveryFixture.childPids.push(server.pid);
         await waitForHealth(server);
 
         const resumed = await fetch(`http://127.0.0.1:${port}/api/ai/chat/stream`, {
