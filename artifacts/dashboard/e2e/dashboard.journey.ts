@@ -303,6 +303,92 @@ async function installArabicAiFixture(
   };
 }
 
+function installToolFailureFixture(): ArabicAiFixture {
+  const sessionId = "e2e-tool-failure-session";
+  const messageId = "e2e-tool-failure-message";
+  const source = "src/missing-release-fixture.ts";
+  const question = "Which source file is available for the release check?";
+  const answer =
+    "ANALYSIS_INCOMPLETE: The required source read did not complete, so no verified result is available.";
+  const diagnosticCode = "TOOL_EXECUTION_FAILED";
+  const toolTrace = [
+    {
+      kind: "tool_call",
+      tool: "read_file",
+      args: { path: source },
+      cached: false,
+    },
+    {
+      kind: "tool_result",
+      tool: "read_file",
+      source,
+      resultKind: "failed",
+      diagnosticCode,
+      resultSummary: "The required source read did not complete.",
+    },
+    {
+      kind: "done",
+      stopReason: "tool_failure",
+      iterations: 1,
+      maxIterations: 8,
+      toolCalls: 1,
+      prefetchToolCalls: 0,
+      loopToolCalls: 1,
+      synthesisStarted: false,
+      diagnosticCodes: [diagnosticCode],
+    },
+  ];
+  const message = {
+    id: messageId,
+    sessionId,
+    role: "assistant",
+    content: answer,
+    toolTrace: JSON.stringify(toolTrace),
+    createdAt: "2026-01-01T00:02:00.000Z",
+  };
+  const sse = (event: Record<string, unknown>) => `data: ${JSON.stringify(event)}\n\n`;
+  const streamBody = [
+    sse({ type: "session_started", sessionId }),
+    sse({
+      type: "execution_started",
+      executionId: "e2e-tool-failure-execution",
+      status: "running",
+      resumable: true,
+    }),
+    sse({
+      type: "tool_call",
+      tool: "read_file",
+      args: { path: source },
+      cached: false,
+    }),
+    sse({
+      type: "tool_result",
+      tool: "read_file",
+      source,
+      resultKind: "failed",
+      diagnosticCode,
+      resultSummary: "The required source read did not complete.",
+    }),
+    sse({ type: "delta", delta: answer }),
+    sse({
+      type: "done",
+      sessionId,
+      message,
+      toolTrace: JSON.stringify(toolTrace),
+      pendingChanges: [],
+    }),
+  ].join("");
+
+  return {
+    question,
+    answer,
+    source,
+    sessionId,
+    streamBody,
+    message,
+  };
+}
+
 async function createReleaseSignInUrl(page: Page) {
   const secretKey = process.env.CLERK_SECRET_KEY;
   if (!secretKey) {
@@ -887,6 +973,52 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toMatch(/MISSING_LITERAL_MATCH|rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i);
     expect(visibleText).not.toContain("Accepted: source span verified.");
+  });
+
+  test("persists a blocked required-tool failure without exposing raw diagnostics", async ({
+    page,
+  }) => {
+    const fixture = installToolFailureFixture();
+    await installApiFixtures(page, { arabicAi: fixture });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(fixture.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+
+    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
+    await expect(
+      page.getByText("required tool did not complete — BLOCKED/INCOMPLETE", { exact: false }).last(),
+    ).toBeVisible();
+    await page.locator("summary").filter({ hasText: "Agent activity" }).last().click();
+    await expect(page.locator("body")).toContainText("Reading source");
+    await expect(page.locator("body")).toContainText("src/missing-release-fixture.ts");
+    await expect(page.locator("body")).toContainText("Tool failed");
+    await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
+    await page.locator("summary").filter({ hasText: "Persisted execution proof" }).last().click();
+    await expect(page.getByText("required tool failed — operation blocked", { exact: true }).last()).toBeVisible();
+
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toMatch(/raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i);
+
+    await page.reload();
+    await page.getByRole("button", { name: fixture.question, exact: true }).click();
+
+    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
+    await expect(
+      page.getByText("required tool did not complete — BLOCKED/INCOMPLETE", { exact: false }).last(),
+    ).toBeVisible();
+    await page.locator("summary").filter({ hasText: "Agent activity" }).last().click();
+    await expect(page.locator("body")).toContainText("Reading source");
+    await expect(page.locator("body")).toContainText("src/missing-release-fixture.ts");
+    await expect(page.locator("body")).toContainText("Tool failed");
+    await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
+    await page.locator("summary").filter({ hasText: "Persisted execution proof" }).last().click();
+    await expect(page.getByText("required tool failed — operation blocked", { exact: true }).last()).toBeVisible();
+
+    const reloadedText = await page.locator("body").innerText();
+    expect(reloadedText).not.toMatch(/raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i);
   });
 
   test("keeps the AI session drawer overlaid on a phone viewport", async ({
