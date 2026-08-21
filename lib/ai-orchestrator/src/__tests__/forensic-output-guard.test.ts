@@ -3,6 +3,7 @@ import {
   applyForensicEvidenceGate,
   applyForensicOutputContract,
   collectForensicEvidence,
+  validateCompoundReport,
 } from "../forensic-output-guard.js";
 
 function readEvidence(path: string, content: string) {
@@ -1919,5 +1920,83 @@ describe("forensic output evidence gate", () => {
     expect(evidence.fileContents.has(pinnedPath)).toBe(true);
     expect(evidence.fileContents.size).toBe(1);
     expect(evidence.incompleteFiles?.size ?? 0).toBe(0);
+  });
+});
+
+describe("compound forensic report contract", () => {
+  const parts = [
+    { id: "current-state", kind: "CURRENT_STATE", question: "What is current?", requiresCitation: true },
+    { id: "features", kind: "FEATURES", question: "What exists?", requiresCitation: true },
+    { id: "gaps", kind: "GAPS", question: "What is missing?", requiresCitation: true },
+    { id: "priorities", kind: "PRIORITIES", question: "Top priorities", requiredCount: 3, requiresCitation: true },
+  ] as const;
+  const evidence = {
+    toolSources: ["src/runtime.ts"],
+    fileContents: new Map([["src/runtime.ts", "export const runtime = true;\n"]]),
+    incompleteFiles: new Set<string>(),
+    compoundParts: parts,
+    compoundLanguage: "en" as const,
+  };
+
+  function report(body: string): string {
+    return [
+      "## 1) Executive Verdict", "ANALYSIS_INCOMPLETE",
+      "## 2) Evidence Map", "File: `src/runtime.ts`", "Role: implementation", "Evidence: `export const runtime = true;`", "Risk: scope", "Notes: FACT",
+      "## 3) Findings", body,
+      "## 4) Repair Plan", "No repair phases are authorized.",
+      "## 5) Validation Checklist", "ANALYSIS_INCOMPLETE",
+      "## 6) Final Judgment", "NOT PROVEN",
+    ].join("\n");
+  }
+
+  it("accepts ordered parts, exact top-three count, and distinct classifications", () => {
+    const result = validateCompoundReport(report([
+      "CURRENT_STATE: FACT — `src/runtime.ts`",
+      "FEATURES: FACT — `src/runtime.ts`",
+      "GAPS: INFERENCE — none verified from `src/runtime.ts`.",
+      "PRIORITIES:",
+      "1. PROPOSAL — inspect `src/runtime.ts`.",
+      "2. PROPOSAL — test `src/runtime.ts`.",
+      "3. PROPOSAL — document `src/runtime.ts`.",
+    ].join("\n")), evidence);
+    expect(result).toEqual({ valid: true, violations: [] });
+  });
+
+  it("rejects missing parts, wrong counts, and planned or truncated citations", () => {
+    const invalid = validateCompoundReport(report([
+      "FEATURES: FACT — `src/planned.ts`",
+      "PRIORITIES:",
+      "1. PROPOSAL — inspect `src/runtime.ts`.",
+      "2. PROPOSAL — test `src/runtime.ts`.",
+      "3. PROPOSAL — document `src/runtime.ts`.",
+    ].join("\n")), evidence);
+    expect(invalid.valid).toBe(false);
+    expect(invalid.violations).toEqual(expect.arrayContaining([
+      "compound part missing: current-state",
+      "compound part missing: gaps",
+      expect.stringContaining("features cites sources without completed retained reads"),
+    ]));
+
+    const truncated = {
+      ...evidence,
+      incompleteFiles: new Set(["src/runtime.ts"]),
+    };
+    expect(validateCompoundReport(report([
+      "CURRENT_STATE: FACT — `src/runtime.ts`",
+      "FEATURES: FACT — `src/runtime.ts`",
+      "GAPS: INFERENCE — `src/runtime.ts`",
+      "PRIORITIES: NOT PROVEN",
+    ].join("\n")), truncated).valid).toBe(false);
+  });
+
+  it("renders an Arabic not-proven fallback while preserving every requested part", () => {
+    const result = applyForensicOutputContract(
+      "not a report",
+      { ...evidence, compoundLanguage: "ar" },
+    );
+    expect(result.response).toContain("ANALYSIS_INCOMPLETE");
+    expect(result.response).toContain("current-state (CURRENT_STATE)");
+    expect(result.response).toContain("priorities (PRIORITIES)");
+    expect(result.response).toContain("PROPOSAL: NOT PROVEN");
   });
 });

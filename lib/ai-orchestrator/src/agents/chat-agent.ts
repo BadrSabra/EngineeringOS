@@ -5616,6 +5616,8 @@ export async function chat(opts: {
             forensicScope,
             forensicSourceCoverage,
             requireCompleteReadEvidence,
+            queryPlan?.compoundParts,
+            responseLanguage,
           ),
         ).response
       : isForensicOrEvidenceRun && forensicFileContents.size > 0
@@ -6318,6 +6320,8 @@ export async function chat(opts: {
         forensicScope,
         forensicSourceCoverage,
         requireCompleteReadEvidence,
+        queryPlan?.compoundParts,
+        responseLanguage,
       ),
     );
     if (initialMarkdownContract.valid && !initialMarkdownContract.evidenceMapRebuilt) {
@@ -6473,6 +6477,8 @@ export async function chat(opts: {
       forensicScope,
       forensicSourceCoverage,
       requireCompleteReadEvidence,
+      queryPlan?.compoundParts,
+      responseLanguage,
     );
     // RECOVERY_MODE = FIRST_EVIDENCE (FEG-013/014): a run that ends with ZERO
     // source reads is not a normal terminal and not silently skipped. Recover it
@@ -6497,7 +6503,9 @@ export async function chat(opts: {
           includeTestSources,
           forensicScope,
           forensicSourceCoverage,
-        requireCompleteReadEvidence,
+          requireCompleteReadEvidence,
+          queryPlan?.compoundParts,
+          responseLanguage,
         );
         if (forensicEvidence.fileContents.size > 0) {
           onStep?.({
@@ -7878,6 +7886,8 @@ export async function chat(opts: {
       forensicScope,
       forensicSourceCoverage,
       requireCompleteReadEvidence,
+      queryPlan?.compoundParts,
+      responseLanguage,
     );
     const cancelledReport = buildStructuredForensicReport(
       EMPTY_FORENSIC_RECOVERY_ENVELOPE,

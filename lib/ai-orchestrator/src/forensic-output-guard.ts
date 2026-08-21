@@ -44,6 +44,14 @@ export type ForensicSourceCoverage = {
   reason?: string;
 };
 
+export type CompoundReportPart = {
+  id: string;
+  kind: string;
+  question: string;
+  requiredCount?: number;
+  requiresCitation: boolean;
+};
+
 export type ForensicEvidence = {
   /** Sources actually returned by read/list/search tools during this turn. */
   toolSources: string[];
@@ -65,6 +73,10 @@ export type ForensicEvidence = {
    * Search snippets and source labels are discovery hints, not proof.
    */
   requireCompleteReadEvidence?: boolean;
+  /** Planner-owned ordered coverage contract for compound forensic reports. */
+  compoundParts?: readonly CompoundReportPart[];
+  /** User-request language used by deterministic compound fallbacks. */
+  compoundLanguage?: "ar" | "en";
 };
 
 type EvidenceMessage = {
@@ -1323,7 +1335,88 @@ function contractViolations(
     );
   }
   violations.push(...evidenceMapContractViolations(response, evidence));
+  violations.push(...compoundReportContractViolations(response, evidence));
   return violations;
+}
+
+function compoundPartPattern(part: CompoundReportPart): RegExp {
+  const terms = [part.id, part.kind, part.question]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length)
+    .map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return terms.length > 0 ? new RegExp(terms.join("|"), "iu") : /$a/;
+}
+
+function compoundPartBody(
+  response: string,
+  part: CompoundReportPart,
+  parts: readonly CompoundReportPart[],
+): string {
+  const marker = compoundPartPattern(part).exec(response);
+  if (!marker || marker.index === undefined) return "";
+  const nextPositions = parts
+    .filter((candidate) => candidate !== part)
+    .map((candidate) => compoundPartPattern(candidate).exec(
+      response.slice(marker.index + marker[0].length),
+    )?.index)
+    .filter((position): position is number => position !== undefined)
+    .map((position) => marker.index! + marker[0].length + position);
+  const next = nextPositions.length > 0 ? Math.min(...nextPositions) : response.length;
+  return response.slice(marker.index, next);
+}
+
+function compoundReportContractViolations(
+  response: string,
+  evidence?: ForensicEvidence,
+): string[] {
+  const parts = evidence?.compoundParts ?? [];
+  if (parts.length === 0) return [];
+  const violations: string[] = [];
+  const completed = new Set(
+    [...(evidence?.fileContents.keys() ?? [])]
+      .map(normalizePath)
+      .filter((file) => !evidence?.incompleteFiles?.has(file)),
+  );
+
+  for (const part of parts) {
+    const body = compoundPartBody(response, part, parts);
+    if (!body) {
+      violations.push(`compound part missing: ${part.id}`);
+      continue;
+    }
+    const notProven = /\bNOT\s+PROVEN\b|غير\s+مثبت|غير\s+مكتمل/i.test(body);
+    if (part.requiredCount && !notProven) {
+      const items = [...body.matchAll(/(?:^|\n)\s*(?:[-*]|\d+[.)])\s+\S+/g)].length;
+      if (items !== part.requiredCount) {
+        violations.push(
+          `compound part ${part.id} requires exactly ${part.requiredCount} items but contains ${items}`,
+        );
+      }
+    }
+    if (part.requiresCitation && !notProven) {
+      const cited = extractPaths(body).map(normalizePath);
+      if (cited.length === 0) {
+        violations.push(`compound part ${part.id} contains a supported claim without a citation`);
+      } else {
+        const invalid = cited.filter((file) => !completed.has(file));
+        if (invalid.length > 0) {
+          violations.push(
+            `compound part ${part.id} cites sources without completed retained reads: ${invalid.join(", ")}`,
+          );
+        }
+      }
+    }
+  }
+  return violations;
+}
+
+export function validateCompoundReport(
+  response: string,
+  evidence: ForensicEvidence,
+): { valid: boolean; violations: string[] } {
+  const violations = compoundReportContractViolations(response, evidence);
+  return { valid: violations.length === 0, violations };
 }
 
 function repairContractFromEvidence(
@@ -1483,6 +1576,41 @@ function safeForensicContractFallback(evidence?: ForensicEvidence): string {
   ].join("\n");
 }
 
+function compoundForensicContractFallback(evidence: ForensicEvidence): string {
+  const isArabic = evidence.compoundParts?.some((part) =>
+    /[\u0600-\u06FF]/.test(`${part.id} ${part.question}`),
+  ) ?? false;
+  const parts = evidence.compoundParts ?? [];
+  const coverage = parts.map((part) => [
+    `${part.id} (${part.kind}): ${isArabic ? "غير مثبت — لا توجد قراءة مكتملة تثبت هذا الجزء." : "NOT PROVEN — no completed read establishes this part."}`,
+    "FACT: NOT PROVEN",
+    "INFERENCE: NOT PROVEN",
+    "PROPOSAL: NOT PROVEN",
+  ].join("\n")).join("\n\n");
+  const evidenceMap = fallbackEvidenceMap(evidence).join("\n");
+  return [
+    "## 1) Executive Verdict",
+    isArabic
+      ? "ANALYSIS_INCOMPLETE — تعذر اعتماد جميع أجزاء السؤال المركب من القراءات المكتملة."
+      : "ANALYSIS_INCOMPLETE — every requested compound part was not established by completed reads.",
+    "",
+    "## 2) Evidence Map",
+    evidenceMap || (isArabic ? "لا توجد قراءة مكتملة محتفظ بها." : "No completed read was retained."),
+    "",
+    "## 3) Findings",
+    coverage,
+    "",
+    "## 4) Repair Plan",
+    isArabic ? "لا توجد مراحل إصلاح مصرح بها؛ المقترحات ليست حقائق مثبتة." : "No repair phases are authorized; proposals are not verified facts.",
+    "",
+    "## 5) Validation Checklist",
+    isArabic ? "ANALYSIS_INCOMPLETE — يجب إكمال كل جزء من السؤال وقراءة مصدره." : "ANALYSIS_INCOMPLETE — each requested part must be completed from a retained read.",
+    "",
+    "## 6) Final Judgment",
+    "NOT PROVEN — compound report coverage or citation integrity was not established.",
+  ].join("\n");
+}
+
 /**
  * Enforce the report-level contract before evidence validation. A response
  * that contains only a generic Summary must never be presented as a forensic
@@ -1512,6 +1640,18 @@ export function applyForensicOutputContract(
       }),
     );
     return { response: repaired, valid: true, violations: [] };
+  }
+
+  if (
+    evidence?.compoundParts?.length &&
+    violations.some((reason) => reason.startsWith("compound part"))
+  ) {
+    return {
+      response: compoundForensicContractFallback(evidence),
+      valid: true,
+      violations: [],
+      evidenceMapRebuilt: true,
+    };
   }
 
   // A provider may return a structurally valid six-section report whose
@@ -1665,6 +1805,8 @@ export function collectForensicEvidence(
   scope?: ForensicEvidenceScope,
   sourceCoverage?: ForensicSourceCoverage,
   requireCompleteReadEvidence = false,
+  compoundParts?: readonly CompoundReportPart[],
+  compoundLanguage?: "ar" | "en",
 ): ForensicEvidence {
   const fileContents = new Map<string, string>();
   const incompleteFiles = new Set<string>();
@@ -1756,5 +1898,7 @@ export function collectForensicEvidence(
     incompleteFiles,
     sourceCoverage,
     requireCompleteReadEvidence,
+    ...(compoundParts?.length ? { compoundParts } : {}),
+    ...(compoundLanguage ? { compoundLanguage } : {}),
   };
 }
