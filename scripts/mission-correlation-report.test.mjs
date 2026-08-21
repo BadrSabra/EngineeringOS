@@ -63,3 +63,144 @@ test("records provider failover and unavailable runs as non-success terminals", 
   assert.equal(report.outcomeClass, "non-success");
   assert.equal(report.terminalState, "UNAVAILABLE");
 });
+
+test("requires the redacted report identity, terminal, and core surfaces", () => {
+  const requiredInputs = [
+    ["operationId", { operationId: "" }],
+    ["workspaceRevision", { workspaceRevision: "" }],
+    ["projectId", { projectId: "" }],
+    ["sessionId", { sessionId: "" }],
+    ["terminalState", { terminalState: "" }],
+  ];
+
+  for (const [name, omission] of requiredInputs) {
+    assert.throws(
+      () =>
+        buildMissionCorrelationReport({
+          projectId: "project",
+          sessionId: "session",
+          operationId: "operation",
+          workspaceRevision: "abc1234",
+          terminalState: "BLOCKED",
+          execution: {
+            id: "execution",
+            projectId: "project",
+            sessionId: "session",
+            status: "failed",
+          },
+          messages: [{ executionId: "execution" }],
+          sseEvents: [{ type: "error" }],
+          checkpoints: [{ sequence: 1 }],
+          dashboard: { executions: [{ id: "execution" }] },
+          ...omission,
+        }),
+      new RegExp(`missing ${name}`),
+    );
+  }
+
+  assert.throws(
+    () =>
+      buildMissionCorrelationReport({
+        projectId: "project",
+        sessionId: "session",
+        operationId: "operation",
+        workspaceRevision: "abc1234",
+        terminalState: "UNKNOWN",
+      }),
+    /Unknown mission terminal state: UNKNOWN/,
+  );
+});
+
+test("names the missing core surface instead of accepting an incomplete report", () => {
+  const completeCapture = {
+    projectId: "project",
+    sessionId: "session",
+    operationId: "operation",
+    workspaceRevision: "abc1234",
+    terminalState: "BLOCKED",
+    execution: {
+      id: "execution",
+      projectId: "project",
+      sessionId: "session",
+      status: "failed",
+    },
+    messages: [{ executionId: "execution" }],
+    sseEvents: [{ type: "error" }],
+    checkpoints: [{ sequence: 1 }],
+    dashboard: { executions: [{ id: "execution" }] },
+  };
+
+  for (const [surface, incompleteCapture] of [
+    [
+      "execution",
+      {
+        ...completeCapture,
+        execution: { ...completeCapture.execution, id: "" },
+        messages: [{ role: "assistant" }],
+      },
+    ],
+    ["messages", { ...completeCapture, messages: [] }],
+    ["sse", { ...completeCapture, sseEvents: [] }],
+    ["checkpoints", { ...completeCapture, checkpoints: [] }],
+    ["dashboard", { ...completeCapture, dashboard: { executions: [] } }],
+  ]) {
+    assert.throws(
+      () => buildMissionCorrelationReport(incompleteCapture),
+      new RegExp(`missing the ${surface} surface`),
+    );
+  }
+});
+
+test("keeps every supported terminal explicit and classifies success terminals", () => {
+  const terminalStates = [
+    ["COMPLETED", "success"],
+    ["READY_FOR_REVIEW", "success"],
+    ["APPLIED", "success"],
+    ["COMMITTED", "success"],
+    ["PUSHED", "success"],
+    ["BLOCKED", "non-success"],
+    ["CANCELLED", "non-success"],
+    ["FAILED", "non-success"],
+    ["UNAVAILABLE", "non-success"],
+  ];
+
+  for (const [terminalState, outcomeClass] of terminalStates) {
+    const report = buildMissionCorrelationReport({
+      projectId: "project",
+      sessionId: "session",
+      operationId: "operation",
+      workspaceRevision: "abc1234",
+      terminalState,
+      execution: {
+        id: "execution",
+        projectId: "project",
+        sessionId: "session",
+        status: outcomeClass === "success" ? "completed" : "failed",
+      },
+      messages: [{ executionId: "execution" }],
+      sseEvents: [{ type: "done" }],
+      checkpoints: [{ sequence: 1 }],
+      dashboard: { executions: [{ id: "execution" }] },
+    });
+
+    assert.equal(report.redacted, true);
+    assert.equal(report.outcomeClass, outcomeClass);
+    assert.equal(report.terminalState, terminalState);
+    assert.deepEqual(
+      Object.keys(report).sort(),
+      [
+        "agreement",
+        "counts",
+        "kind",
+        "operationId",
+        "outcomeClass",
+        "projectId",
+        "redacted",
+        "sessionId",
+        "terminalState",
+        "version",
+        "workspaceRevision",
+      ].sort(),
+    );
+  }
+});

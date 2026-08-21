@@ -58,8 +58,15 @@ The run is bounded by `DASHBOARD_E2E_LIVE_TIMEOUT_MS` (default 120 seconds)
 and the live browser test allows an additional five seconds for Playwright
 cleanup and report collection. The normal journey remains non-executing: the
 provider-backed path is skipped unless `DASHBOARD_E2E_LIVE_PROVIDER=1` is set.
-The fast `test:dashboard-journey-contract` check runs before release validation
-and verifies that timeout relationship and provider opt-in guard.
+The fast `test:dashboard-journey-contract` and
+`test:mission-correlation-report` checks run before release validation. Together
+they verify the timeout relationship, provider opt-in guard, and the report
+boundary. The correlation report contract requires redacted identity
+(`operationId`, `projectId`, `sessionId`, and `workspaceRevision`), one
+supported terminal state, and execution, message, SSE, checkpoint, and
+dashboard surfaces. It explicitly classifies successful terminals separately
+from blocked, cancelled, failed, and unavailable terminals, so an incomplete
+report fails with the missing surface named before a live provider run.
 When enabled, it exports a redacted report keyed by the provider-backed `operationId` and
 the latest Git `workspaceRevision`. The report verifies persisted messages,
 SSE events, execution checkpoints, evidence, proposals, validation, and

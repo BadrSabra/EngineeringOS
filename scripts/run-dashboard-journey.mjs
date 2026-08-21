@@ -126,6 +126,36 @@ function runDashboardJourneyContracts() {
   });
 }
 
+function runMissionCorrelationReportContracts() {
+  return new Promise((resolve, reject) => {
+    const contractTests = spawn("pnpm", ["run", "test:mission-correlation-report"], {
+      env: { ...process.env, CI: "true" },
+      stdio: "inherit",
+    });
+
+    contractTests.on("error", (error) => {
+      reject(
+        new Error(
+          `Unable to start mission correlation report contract checks: ${redact(error.message)}`,
+        ),
+      );
+    });
+    contractTests.on("exit", (code, signal) => {
+      if (signal) {
+        reject(new Error(`Mission correlation report contract checks stopped by ${signal}.`));
+      } else if (code !== 0) {
+        reject(
+          new Error(
+            `Mission correlation report contract checks failed with exit code ${code ?? 1}.`,
+          ),
+        );
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
 function runConcurrentChatContractChecks() {
   const testRuns = [
     {
@@ -151,7 +181,7 @@ function runConcurrentChatContractChecks() {
         "-t",
         testRun.pattern,
         "--test-timeout",
-        "30000",
+        "60000",
       ],
       {
         env: {
@@ -212,6 +242,9 @@ function runLiveCorrelationReportCheck() {
 
 await runDashboardJourneyContracts();
 console.log("Dashboard journey timeout and provider-mode contracts passed.");
+
+await runMissionCorrelationReportContracts();
+console.log("Mission correlation report contracts passed.");
 
 await runClerkHandoffContracts();
 console.log("Dashboard Clerk handoff response contracts passed.");

@@ -76,3 +76,16 @@ test("the standard release journey remains provider-free", () => {
     "The standard runner must not enable live provider execution.",
   );
 });
+
+test("runs the mission correlation report contract before browser startup", () => {
+  assert.match(
+    runnerSource,
+    /await runMissionCorrelationReportContracts\(\)/,
+    "The release runner must validate the report boundary before starting the browser journey.",
+  );
+  assert.match(
+    runnerSource,
+    /test:mission-correlation-report/,
+    "The release runner must invoke the provider-free report contract test.",
+  );
+});
