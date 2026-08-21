@@ -3203,7 +3203,20 @@ router.post("/ai/chat/stream", async (req, res) => {
       await tx
         .update(aiChatSessionsTable)
         .set({
-          activeTaskState: sql`CASE WHEN ${aiChatSessionsTable.updatedAt} <= ${msgNow} THEN ${activeTaskState} ELSE ${aiChatSessionsTable.activeTaskState} END`,
+          // The session row lock serializes concurrent completions, but the
+          // older turn may acquire it after the newer turn. Compare against
+          // the state-owned progress timestamp, not only the session
+          // timestamp, so a late completion cannot resurrect stale evidence
+          // or an older execution plan.
+          activeTaskState: sql`CASE
+            WHEN CAST(${activeTaskState} AS text) IS NULL THEN NULL
+            WHEN ${aiChatSessionsTable.activeTaskState} IS NULL THEN ${activeTaskState}
+            WHEN COALESCE(
+              NULLIF(${aiChatSessionsTable.activeTaskState}::jsonb->>'lastProgressAt', '')::timestamptz,
+              ${aiChatSessionsTable.updatedAt}
+            ) <= ${msgNow} THEN ${activeTaskState}
+            ELSE ${aiChatSessionsTable.activeTaskState}
+          END`,
           updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
         })
         .where(eq(aiChatSessionsTable.id, sessionIdToUse));

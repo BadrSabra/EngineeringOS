@@ -29,3 +29,4 @@
 - [Release test isolation](release-test-isolation.md) — release API tests must pin the owning artifact and serialize shared-database fixtures.
 - [Capability probe evidence boundary](capability-probe-evidence.md) — C1–C7 completion requires both named source bodies retained without truncation.
 - [Codegen working directory](codegen-working-directory.md) — delegated Zod post-processing paths are resolved from the scripts package, while drift checks use an explicit output root.
+- [Durable session-state ordering](session-state-ordering.md) — streamed resumable state must reject late older completions using the state-owned progress timestamp.

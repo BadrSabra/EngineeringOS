@@ -98,7 +98,18 @@ function runClerkHandoffContracts() {
 }
 
 function runConcurrentChatContractChecks() {
-  return new Promise((resolve, reject) => {
+  const testRuns = [
+    {
+      file: "src/routes/ai.test.ts",
+      pattern: "keeps the newer resumable contract when concurrent JSON turns finish out of order",
+    },
+    {
+      file: "src/routes/ai-stream-integration.test.ts",
+      pattern: "keeps the newest resumable contract when same-session turns finish out of order|keeps a streamed forensic cancellation incomplete after recovery retains partial evidence",
+    },
+  ];
+
+  return testRuns.reduce((chain, testRun) => chain.then(() => new Promise((resolve, reject) => {
     const contractTests = spawn(
       "pnpm",
       [
@@ -107,10 +118,9 @@ function runConcurrentChatContractChecks() {
         "exec",
         "vitest",
         "run",
-        "src/routes/ai.test.ts",
-        "src/routes/ai-stream-integration.test.ts",
+        testRun.file,
         "-t",
-        "keeps the newer resumable contract when concurrent JSON turns finish out of order|keeps the newest resumable contract when same-session turns finish out of order|keeps a streamed forensic cancellation incomplete after recovery retains partial evidence",
+        testRun.pattern,
       ],
       {
         env: {
@@ -129,29 +139,25 @@ function runConcurrentChatContractChecks() {
     contractTests.on("error", (error) => {
       reject(
         new Error(
-          `Unable to start concurrent chat contract checks: ${redact(error.message)}`,
+          `Unable to start chat contract checks for ${testRun.file}: ${redact(error.message)}`,
         ),
       );
     });
 
     contractTests.on("exit", (code, signal) => {
       if (signal) {
-        reject(
-          new Error(`Concurrent chat contract checks stopped by ${signal}.`),
-        );
+        reject(new Error(`Chat contract checks for ${testRun.file} stopped by ${signal}.`));
         return;
       }
       if (code !== 0) {
-        reject(
-          new Error(
-            `Concurrent chat contract checks failed with exit code ${code ?? 1}; browser startup was skipped.`,
-          ),
-        );
+        reject(new Error(
+          `Chat contract checks for ${testRun.file} failed with exit code ${code ?? 1}; browser startup was skipped.`,
+        ));
         return;
       }
       resolve();
     });
-  });
+  })), Promise.resolve());
 }
 
 await runClerkHandoffContracts();
