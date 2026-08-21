@@ -5,7 +5,6 @@ import yaml from "js-yaml";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const workflowsDirectory = join(root, ".github/workflows");
-const workflowsLabel = ".github/workflows";
 
 function workflowLabel(workflowPath) {
   return relative(root, workflowPath).replaceAll("\\", "/");
@@ -21,7 +20,7 @@ function assertMapping(workflowPath, value, description) {
   }
 }
 
-async function findWorkflowFiles(directory) {
+export async function findWorkflowFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
 
@@ -37,8 +36,8 @@ async function findWorkflowFiles(directory) {
   return files.sort();
 }
 
-async function validateWorkflow(workflowPath) {
-  const label = workflowLabel(workflowPath);
+export async function validateWorkflow(workflowPath, rootDirectory = root) {
+  const label = relative(rootDirectory, workflowPath).replaceAll("\\", "/");
   const source = await readFile(workflowPath, "utf8");
   let workflow;
 
@@ -48,7 +47,9 @@ async function validateWorkflow(workflowPath) {
     const location = error.mark
       ? ` at line ${error.mark.line + 1}, column ${error.mark.column + 1}`
       : "";
-    fail(workflowPath, `YAML syntax error${location}: ${error.reason ?? error.message}`);
+    throw new Error(
+      `${label}: YAML syntax error${location}: ${error.reason ?? error.message}`,
+    );
   }
 
   assertMapping(workflowPath, workflow, "Workflow document");
@@ -76,16 +77,21 @@ async function validateWorkflow(workflowPath) {
   }
 }
 
-try {
-  const workflowFiles = await findWorkflowFiles(workflowsDirectory);
+export async function validateWorkflows(
+  directory = workflowsDirectory,
+  rootDirectory = root,
+) {
+  const workflowFiles = await findWorkflowFiles(directory);
   if (workflowFiles.length === 0) {
-    throw new Error(`${workflowsLabel}: no YAML workflow files found.`);
+    throw new Error(
+      `${relative(rootDirectory, directory).replaceAll("\\", "/")}: no YAML workflow files found.`,
+    );
   }
 
   const failures = [];
   for (const workflowPath of workflowFiles) {
     try {
-      await validateWorkflow(workflowPath);
+      await validateWorkflow(workflowPath, rootDirectory);
     } catch (error) {
       failures.push(error.message);
     }
@@ -95,10 +101,17 @@ try {
     throw new Error(failures.join("\n"));
   }
 
-  console.log(
-    `✅ ${workflowFiles.length} GitHub Actions workflow${workflowFiles.length === 1 ? "" : "s"} parse and have valid workflow/job structure.`,
-  );
-} catch (error) {
-  console.error(`❌ GitHub Actions workflow validation failed: ${error.message}`);
-  process.exitCode = 1;
+  return workflowFiles;
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  try {
+    const workflowFiles = await validateWorkflows();
+    console.log(
+      `✅ ${workflowFiles.length} GitHub Actions workflow${workflowFiles.length === 1 ? "" : "s"} parse and have valid workflow/job structure.`,
+    );
+  } catch (error) {
+    console.error(`❌ GitHub Actions workflow validation failed: ${error.message}`);
+    process.exitCode = 1;
+  }
 }

@@ -9,7 +9,7 @@
     "validate-github-workflows": "node ./validate-github-workflows.mjs",
     "check-codegen-drift": "tsx ./check-codegen-drift.ts",
     "patch-generated-zod": "tsx ./patch-generated-zod.ts",
-    "test": "tsx --test ./*.test.ts",
+    "test": "tsx --test ./*.test.ts ./*.test.mjs",
     "validate-truth-flow": "tsx ./validate-truth-flow.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
