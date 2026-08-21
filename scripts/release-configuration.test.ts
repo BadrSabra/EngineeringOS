@@ -216,6 +216,52 @@ exit 0
   }
 }
 
+async function runSuccessfulDeploymentFixture(): Promise<{
+  output: string;
+  trace: string;
+  status: number | null;
+  temporaryDirectory: string;
+}> {
+  const temporaryDirectory = await mkdtemp(
+    resolve(tmpdir(), "deployment-success-"),
+  );
+  const tracePath = resolve(temporaryDirectory, "pnpm-trace.log");
+  const shimPath = resolve(temporaryDirectory, "pnpm");
+  const realPnpm = spawnSync("sh", ["-c", "command -v pnpm"], {
+    encoding: "utf8",
+  }).stdout.trim();
+
+  await writeFile(
+    shimPath,
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "$RELEASE_VALIDATION_TRACE"
+if [ "$*" = "run deployment:post-build" ]; then
+  exec "${realPnpm}" "$@"
+fi
+exit 0
+`,
+    "utf8",
+  );
+  await chmod(shimPath, 0o755);
+
+  const result = spawnSync("pnpm", ["run", "deployment:post-build"], {
+    cwd: workspaceRoot,
+    env: {
+      ...process.env,
+      PATH: `${temporaryDirectory}:${process.env.PATH ?? ""}`,
+      RELEASE_VALIDATION_TRACE: tracePath,
+    },
+    encoding: "utf8",
+  });
+
+  return {
+    output: `${result.stdout ?? ""}\n${result.stderr ?? ""}`,
+    trace: await readFile(tracePath, "utf8"),
+    status: result.status,
+    temporaryDirectory,
+  };
+}
+
 test("keeps release recovery validation before deployment cleanup", async () => {
   const packageJson = JSON.parse(await readWorkspaceFile("package.json")) as {
     scripts?: Record<string, string>;
@@ -300,6 +346,47 @@ test(
     );
   },
 );
+
+test("runs deployment checks in order and prunes only after successful release validation", async () => {
+  const before = spawnSync("git", ["status", "--porcelain"], {
+    cwd: workspaceRoot,
+    encoding: "utf8",
+  }).stdout;
+  const fixture = await runSuccessfulDeploymentFixture();
+
+  try {
+    assert.equal(
+      fixture.status,
+      0,
+      `successful deployment fixture must remain zero:\n${fixture.output}`,
+    );
+    assert.deepEqual(fixture.trace.trim().split("\n"), [
+      "run deployment:post-build",
+      "run db:schema:check",
+      "run test:benchmark-rollout",
+      "run verify:benchmark-rollout",
+      "run validate:release",
+      "store prune",
+    ]);
+    assert.ok(
+      fixture.trace.indexOf("run validate:release") <
+        fixture.trace.indexOf("store prune"),
+      "pnpm store prune must start only after release validation succeeds",
+    );
+  } finally {
+    await rm(fixture.temporaryDirectory, { recursive: true, force: true });
+  }
+
+  const after = spawnSync("git", ["status", "--porcelain"], {
+    cwd: workspaceRoot,
+    encoding: "utf8",
+  }).stdout;
+  assert.equal(
+    after,
+    before,
+    "temporary deployment fixtures must leave no working-tree changes",
+  );
+});
 
 test("reports a controlled recovery failure by name", async () => {
   const result = spawnSync(
