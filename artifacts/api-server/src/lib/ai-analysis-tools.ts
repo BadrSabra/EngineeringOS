@@ -27,7 +27,7 @@ function check(signal?: AbortSignal): void {
 
 function hasUsableCorrelation(
   correlation: AnalysisCorrelation | undefined,
-): boolean {
+): correlation is AnalysisCorrelation {
   if (!correlation || typeof correlation !== "object") return false;
   const value = correlation as unknown as {
     operationId?: unknown;

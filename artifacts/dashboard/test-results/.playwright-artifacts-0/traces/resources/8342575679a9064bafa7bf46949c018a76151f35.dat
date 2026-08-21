@@ -1,0 +1,12 @@
+data: {"type":"session_started","sessionId":"e2e-tool-failure-session"}
+
+data: {"type":"execution_started","executionId":"e2e-tool-failure-execution","status":"running","resumable":true}
+
+data: {"type":"tool_call","tool":"read_file","args":{"path":"src/missing-release-fixture.ts"},"cached":false}
+
+data: {"type":"tool_result","tool":"read_file","source":"src/missing-release-fixture.ts","resultKind":"failed","diagnosticCode":"TOOL_EXECUTION_FAILED","resultSummary":"The required source read did not complete."}
+
+data: {"type":"delta","delta":"ANALYSIS_INCOMPLETE: The required source read did not complete, so no verified result is available."}
+
+data: {"type":"done","sessionId":"e2e-tool-failure-session","message":{"id":"e2e-tool-failure-message","sessionId":"e2e-tool-failure-session","role":"assistant","content":"ANALYSIS_INCOMPLETE: The required source read did not complete, so no verified result is available.","toolTrace":"[{\"kind\":\"tool_call\",\"tool\":\"read_file\",\"args\":{\"path\":\"src/missing-release-fixture.ts\"},\"cached\":false},{\"kind\":\"tool_result\",\"tool\":\"read_file\",\"source\":\"src/missing-release-fixture.ts\",\"resultKind\":\"failed\",\"diagnosticCode\":\"TOOL_EXECUTION_FAILED\",\"resultSummary\":\"The required source read did not complete.\"},{\"kind\":\"done\",\"stopReason\":\"tool_failure\",\"iterations\":1,\"maxIterations\":8,\"toolCalls\":1,\"prefetchToolCalls\":0,\"loopToolCalls\":1,\"synthesisStarted\":false,\"diagnosticCodes\":[\"TOOL_EXECUTION_FAILED\"]}]","createdAt":"2026-01-01T00:02:00.000Z"},"toolTrace":"[{\"kind\":\"tool_call\",\"tool\":\"read_file\",\"args\":{\"path\":\"src/missing-release-fixture.ts\"},\"cached\":false},{\"kind\":\"tool_result\",\"tool\":\"read_file\",\"source\":\"src/missing-release-fixture.ts\",\"resultKind\":\"failed\",\"diagnosticCode\":\"TOOL_EXECUTION_FAILED\",\"resultSummary\":\"The required source read did not complete.\"},{\"kind\":\"done\",\"stopReason\":\"tool_failure\",\"iterations\":1,\"maxIterations\":8,\"toolCalls\":1,\"prefetchToolCalls\":0,\"loopToolCalls\":1,\"synthesisStarted\":false,\"diagnosticCodes\":[\"TOOL_EXECUTION_FAILED\"]}]","pendingChanges":[]}
+
