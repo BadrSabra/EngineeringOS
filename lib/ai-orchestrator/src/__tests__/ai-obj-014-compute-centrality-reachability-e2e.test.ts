@@ -344,35 +344,19 @@ describe("AI-OBJ-014: prove/refute production reachability of computeCentrality 
   it("reaches PROVEN and returns the report when the caller's retained read closes the edge (no injected trace)", async () => {
     const rootPath = await makeRoot();
 
-    // The provider opens with a targeted read of the CALLER (graph-extractor)
-    // whose retained body directly invokes computeCentrality (`return
-    // computeCentrality(input);`). deriveObjectiveRuntimeEdgesFromRetainedReads
-    // must close the required edge from that retained PRODUCTION read — NO
-    // productionTraceLinks are injected; static lexical matches never qualify.
-    let issuedRead = false;
+    // Single-file forensic mode performs the targeted read of the CALLER
+    // (graph-extractor) before the provider loop. Its retained body directly
+    // invokes computeCentrality (`return computeCentrality(input);`), so
+    // deriveObjectiveRuntimeEdgesFromRetainedReads must close the required edge
+    // from that real PRODUCTION read — NO productionTraceLinks are injected;
+    // static lexical matches never qualify. The provider only needs to
+    // synthesize the report after the pre-read; asking it to repeat the read
+    // would intentionally trip the duplicate-call guard.
     const fakeStrategy = {
       providerId: "openrouter",
       supportsNativeStream: false,
       ownsModelFallback: true,
       call: vi.fn(async (_messages: unknown, opts: { model?: string }) => {
-        if (!issuedRead) {
-          issuedRead = true;
-          return {
-            content: "",
-            toolCalls: [
-              {
-                id: "chain-read-1",
-                type: "function" as const,
-                function: {
-                  name: "read_file",
-                  arguments: JSON.stringify({ path: GRAPH_EXTRACTOR }),
-                },
-              },
-            ],
-            model: "initial-model",
-            usage: {},
-          };
-        }
         return {
           content: JSON.stringify({
             response: REACHABILITY_REPORT(GRAPH_EXTRACTOR, INFERENCE),
@@ -402,7 +386,6 @@ describe("AI-OBJ-014: prove/refute production reachability of computeCentrality 
         objective: makeEdgeObjective(),
         onStep: (step) => void steps.push(step),
       });
-
       // The report surfaces as the completed answer: its Final Judgment closes
       // with PROVEN (a structural "BLOCKED — no behavioral scenario" line inside
       // the Validation Checklist is not a reachability refusal). The authoritative

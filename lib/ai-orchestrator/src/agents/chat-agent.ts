@@ -8405,16 +8405,17 @@ export async function chat(opts: {
   // links AND retained reads that show a direct call site. Static lexical
   // matches (bare imports, symbol co-occurrence) never qualify; only a retained
   // read that really invokes the target does. Neither path is fabricated.
+  const objectiveRetainedReadProvenEdges = objective
+    ? deriveObjectiveRuntimeEdgesFromRetainedReads({
+        objective,
+        fileContents: forensicFileContents,
+      })
+    : [];
   const objectiveProvenEdges = [
     ...(productionTraceLinks ?? [])
       .filter((l) => l.runtimeObserved && Boolean(l.evidence))
       .map((l) => ({ from: nodeKey(l.from), to: nodeKey(l.to) })),
-    ...(objective
-      ? deriveObjectiveRuntimeEdgesFromRetainedReads({
-          objective,
-          fileContents: forensicFileContents,
-        })
-      : []),
+    ...objectiveRetainedReadProvenEdges,
   ];
   // AI-OBJ-013/014 (review fix 1): derive the two scope flags from the real
   // pre-gate signals instead of only unit-test injection:
@@ -8661,10 +8662,15 @@ export async function chat(opts: {
   // transport link (route → chat()) — the transport link must never be treated
   // as PROVEN. Clamp to NO_EDGES so a behavioral answer cannot ride the transport
   // metadata to an ANSWER_COMPLETE verdict.
+  // A retained production read that contains a syntax-bound direct invocation
+  // is also an application-level proof. This is the AI-OBJ-014 path for
+  // single-file audits, where the caller can be proven without an externally
+  // supplied production trace.
+  const hasRetainedReadReachabilityProof = objectiveRetainedReadProvenEdges.length > 0;
   const reachabilityProofStatus: "PROVEN" | "NOT_PROVEN" | "NO_EDGES" =
-    !hasApplicationReachabilityLink
+    !hasApplicationReachabilityLink && !hasRetainedReadReachabilityProof
       ? "NO_EDGES"
-      : productionReachability?.status === "PROVEN"
+      : productionReachability?.status === "PROVEN" || hasRetainedReadReachabilityProof
         ? "PROVEN"
         : productionReachability != null
           ? "NOT_PROVEN"

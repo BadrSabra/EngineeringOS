@@ -33,3 +33,4 @@
 - [Live mission correlation](live-correlation-release.md) — live-provider acceptance is opt-in, disposable, redacted, and validates all mission surfaces by operation and revision.
 - [Analysis correlation](analysis-correlation.md) — scanner, graph, and discovery evidence must match the active operation and revision, with cancellation checked before writes.
 - [Tool failure terminality](tool-failure-terminality.md) — agent tool exceptions use bounded typed diagnostics and terminalize the operation; never continue from an error-shaped success.
+- [Retained-read reachability proof](retained-read-reachability-proof.md) — final-answer validation must recognize syntax-derived retained-read edges alongside externally supplied runtime traces.
