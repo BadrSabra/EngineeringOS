@@ -110,13 +110,16 @@ function runConcurrentChatContractChecks() {
         "src/routes/ai.test.ts",
         "src/routes/ai-stream-integration.test.ts",
         "-t",
-        "keeps the newer resumable contract when concurrent JSON turns finish out of order|keeps the newest resumable contract when same-session turns finish out of order",
+        "keeps the newer resumable contract when concurrent JSON turns finish out of order|keeps the newest resumable contract when same-session turns finish out of order|keeps a streamed forensic cancellation incomplete after recovery retains partial evidence",
       ],
       {
         env: {
           ...process.env,
           CI: "true",
           NODE_ENV: "test",
+           GROQ_API_KEY: "",
+           GEMINI_API_KEY: "",
+           DEEPSEEK_API_KEY: "",
           OPENROUTER_API_KEY: "",
         },
         stdio: "inherit",
