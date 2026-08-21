@@ -11,6 +11,7 @@
     "test:benchmark-rollout": "node --test scripts/verify-benchmark-rollout.test.mjs",
     "test:mission-correlation-report": "node --test scripts/mission-correlation-report.test.mjs",
     "test:dashboard-journey-contract": "node --test scripts/dashboard-journey-contract.test.mjs",
+    "test:dashboard-contract-trigger": "node --test scripts/dashboard-contract-trigger.test.mjs",
     "validate:release": "pnpm run test:dashboard-journey-contract && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
     "validate:release:controlled": "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
     "validate:dashboard-journey": "RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs",

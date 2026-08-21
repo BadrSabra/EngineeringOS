@@ -76,6 +76,9 @@ jobs:
       - name: Validate API client and dashboard contract
         run: pnpm run validate:dashboard-client-contract
 
+      - name: Verify dashboard contract trigger policy
+        run: pnpm run test:dashboard-contract-trigger
+
   validate:
     name: Validate (codegen drift + typecheck + tests)
     runs-on: ubuntu-latest
