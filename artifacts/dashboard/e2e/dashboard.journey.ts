@@ -75,13 +75,18 @@ type ArabicAiFixture = {
   answer: string;
   source: string;
   sessionId: string;
+  projectId?: string;
   streamBody: string;
   message: Record<string, unknown>;
 };
 
 async function installApiFixtures(
   page: Page,
-  overrides?: { arabicAi?: ArabicAiFixture; alternateAi?: ArabicAiFixture },
+  overrides?: {
+    arabicAi?: ArabicAiFixture;
+    alternateAi?: ArabicAiFixture;
+    projects?: Array<Record<string, unknown>>;
+  },
 ) {
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
@@ -92,12 +97,21 @@ async function installApiFixtures(
       (fixture): fixture is ArabicAiFixture => Boolean(fixture),
     );
 
-    if (aiFixtures.length > 0 && path.endsWith("/api/ai/chat/sessions"))
-      return route.fulfill(jsonResponse(aiFixtures.map((fixture) => ({
-        id: fixture.sessionId,
-        title: fixture.question,
-        updatedAt: "2026-01-01T00:02:00.000Z",
-      }))));
+    if (aiFixtures.length > 0 && path.endsWith("/api/ai/chat/sessions")) {
+      const projectId = url.searchParams.get("projectId");
+      const projectSessions = aiFixtures.filter(
+        (fixture) => !fixture.projectId || fixture.projectId === projectId,
+      );
+      return route.fulfill(
+        jsonResponse(
+          projectSessions.map((fixture) => ({
+            id: fixture.sessionId,
+            title: fixture.question,
+            updatedAt: "2026-01-01T00:02:00.000Z",
+          })),
+        ),
+      );
+    }
     if (arabicAi && path.endsWith("/api/ai/chat/stream"))
       return route.fulfill({
         status: 200,
@@ -124,17 +138,19 @@ async function installApiFixtures(
       return route.fulfill(jsonResponse(dashboardFixture));
     if (path === "/api/projects") {
       return route.fulfill(
-        jsonResponse([
-          {
-            id: "e2e-project",
-            name: "Smoke Project",
-            language: "TypeScript",
-            framework: "React",
-            status: "active",
-            rootPath: "/controlled/smoke",
-            qualityScore: 92,
-          },
-        ]),
+        jsonResponse(
+          overrides?.projects ?? [
+            {
+              id: "e2e-project",
+              name: "Smoke Project",
+              language: "TypeScript",
+              framework: "React",
+              status: "active",
+              rootPath: "/controlled/smoke",
+              qualityScore: 92,
+            },
+          ],
+        ),
       );
     }
     if (path === "/api/events")
@@ -159,7 +175,12 @@ async function installApiFixtures(
 
 async function installArabicAiFixture(
   page: Page,
-  options?: { blocked?: boolean; sessionId?: string; question?: string },
+  options?: {
+    blocked?: boolean;
+    sessionId?: string;
+    question?: string;
+    projectId?: string;
+  },
 ) {
   const sessionId = options?.sessionId ?? "e2e-arabic-ai-session";
   const messageId = "e2e-arabic-ai-message";
@@ -260,7 +281,15 @@ async function installArabicAiFixture(
     }),
   ].join("");
 
-  return { question, answer, source, sessionId, streamBody, message };
+  return {
+    question,
+    answer,
+    source,
+    sessionId,
+    projectId: options?.projectId,
+    streamBody,
+    message,
+  };
 }
 
 async function createReleaseSignInUrl(page: Page) {
@@ -518,6 +547,82 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toMatch(/rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i);
+  });
+
+  test("keeps citation explanations and line ranges when switching projects", async ({
+    page,
+  }) => {
+    const accepted = await installArabicAiFixture(page, {
+      sessionId: "e2e-project-one-accepted-session",
+      projectId: "e2e-project-one",
+      question: "ما هو سلوك مهلة provider في المشروع الأول؟",
+    });
+    const blocked = await installArabicAiFixture(page, {
+      blocked: true,
+      sessionId: "e2e-project-two-blocked-session",
+      projectId: "e2e-project-two",
+      question: "ما هو سلوك مهلة provider في المشروع الثاني؟",
+    });
+    await installApiFixtures(page, {
+      arabicAi: accepted,
+      alternateAi: blocked,
+      projects: [
+        {
+          id: "e2e-project-one",
+          name: "Citation Project One",
+          language: "TypeScript",
+          framework: "React",
+          status: "active",
+          rootPath: "/controlled/project-one",
+          qualityScore: 92,
+        },
+        {
+          id: "e2e-project-two",
+          name: "Citation Project Two",
+          language: "TypeScript",
+          framework: "React",
+          status: "active",
+          rootPath: "/controlled/project-two",
+          qualityScore: 88,
+        },
+      ],
+    });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    await page.getByRole("button", { name: accepted.question, exact: true }).click();
+    await expect(page.getByText(accepted.answer, { exact: true }).last()).toBeVisible();
+    await expect(page.getByText(`${accepted.source}:42`, { exact: false }).last()).toBeVisible();
+    await expect(
+      page.getByText("Accepted: source span verified.", { exact: true }).last(),
+    ).toBeVisible();
+
+    await page.getByRole("combobox").selectOption("e2e-project-two");
+    await expect(page.getByRole("button", { name: blocked.question, exact: true })).toBeVisible();
+    await expect(page.getByText(accepted.answer, { exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: blocked.question, exact: true }).click();
+    await expect(
+      page.getByText("Blocked: no matching source text was found.", { exact: true }).last(),
+    ).toBeVisible();
+    await expect(page.getByText(`${blocked.source}:42`, { exact: false })).toHaveCount(0);
+    await expect(
+      page.getByText("Accepted: source span verified.", { exact: true }),
+    ).toHaveCount(0);
+
+    await page.getByRole("combobox").selectOption("e2e-project-one");
+    await page.getByRole("button", { name: accepted.question, exact: true }).click();
+    await expect(page.getByText(`${accepted.source}:42`, { exact: false }).last()).toBeVisible();
+    await expect(
+      page.getByText("Accepted: source span verified.", { exact: true }).last(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Blocked: no matching source text was found.", { exact: true }),
+    ).toHaveCount(0);
+
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toMatch(
+      /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+    );
   });
 
   test("keeps only the safe blocked citation reason after chat reload", async ({
