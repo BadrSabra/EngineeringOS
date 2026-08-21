@@ -375,6 +375,8 @@ export async function chatWithFallback(
     objective?: ObjectiveContract;
     /** Route-owned decision derived from the unaugmented user message. */
     turnIntent?: TurnIntent;
+  /** Request-scoped read evidence shared across provider retries. */
+  retainedEvidence?: Map<string, string>;
     /** Enabled only after the route validates an approved implementation plan. */
     allowValidationTools?: boolean;
     /** Server-owned validation callback; never derived from model arguments. */
@@ -417,6 +419,9 @@ export async function chatWithFallback(
   // GAP-C1: collect every provider failure so the final error message shows
   // the full cascade, not just the last attempt.
   const providerErrors: Array<{ provider: string; code: string; message: string }> = [];
+  // Keep completed source reads when a provider fails after a tool call. This
+  // is deliberately request-scoped and contains no runtime/session metadata.
+  const retainedEvidence = new Map<string, string>();
 
   for (const providerEntry of orderedProviders) {
     if (lastErr) {
@@ -426,6 +431,9 @@ export async function chatWithFallback(
       );
     }
     try {
+      // The API package can briefly consume an older workspace declaration
+      // while the orchestrator adds this request-scoped additive option.
+      // Keep the compatibility cast at this package boundary only.
       const result = await chat({
         ...baseParams,
         apiKey: providerEntry.apiKey,
@@ -441,7 +449,9 @@ export async function chatWithFallback(
         onExecutionNodes: baseParams.onExecutionNodes,
         signal: baseParams.signal,
         turnIntent: baseParams.turnIntent,
-      });
+        // @ts-expect-error additive orchestrator option; see compatibility note above
+        retainedEvidence,
+      } as Parameters<typeof chat>[0]);
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {
       if (err instanceof GroqClientError && FALLBACK_TRIGGER_CODES.has(err.code)) {

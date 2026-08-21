@@ -3306,6 +3306,11 @@ export async function chat(opts: {
    * must pass this when they augment `message` with Build/resume context.
    */
   turnIntent?: TurnIntent;
+  /**
+   * Server-owned source evidence retained while a route retries another
+   * provider. This map is request-scoped and contains read bodies only.
+   */
+  retainedEvidence?: Map<string, string>;
 }): Promise<ChatResult> {
   const {
     message,
@@ -3333,6 +3338,7 @@ export async function chat(opts: {
     productionTraceLinks,
     objective,
     turnIntent: suppliedTurnIntent,
+    retainedEvidence,
   } = opts;
 
   // ── Profile classification ────────────────────────────────────────────────
@@ -4010,7 +4016,15 @@ export async function chat(opts: {
   /** Ground-truth sources from speculative-prefetch (merged with engine sources later). */
   const prefetchSources: string[] = [];
   /** Ground-truth read bodies from speculative/plan prefetch. */
-  const prefetchFileContents = new Map<string, string>();
+  const prefetchFileContents = new Map<string, string>(retainedEvidence ?? []);
+  // A provider retry may not expose tools (for example Gemini), but its
+  // server-owned evidence must still be visible to the final evidence gate.
+  // Seed the same cache key used by read_file so a tool-capable fallback does
+  // not execute the already-completed read again.
+  for (const [filePath, content] of prefetchFileContents) {
+    if (!prefetchSources.includes(filePath)) prefetchSources.push(filePath);
+    toolCallCache.set(toolCacheKey("read_file", { path: filePath }), content);
+  }
 
   // First-Evidence Gate (FEG): before graph guidance, cross-file tracing,
   // dependency discovery, or broad prefetch, eagerly read the explicit primary
@@ -5215,6 +5229,7 @@ export async function chat(opts: {
     rootPath: rootPath ?? "",
     pendingChanges,
     initialFileContents: prefetchFileContents,
+    retainedFileContents: retainedEvidence,
     cache: toolCallCache,
     toolChoice:
       immediateIntent && priorRepairPlan && executionFilePaths.length > 0
@@ -5295,6 +5310,25 @@ export async function chat(opts: {
   }
   for (const [filePath, content] of loopResult.fileContents ?? []) {
     forensicFileContents.set(filePath, stripReadFileWrapper(content));
+  }
+
+  // A provider fallback can be text-only after the primary provider completed
+  // a read. Do not let that provider turn retained evidence into a generic
+  // no-access answer or imply that it proved a fresh behavioral conclusion.
+  if (retainedEvidence && retainedEvidence.size > 0 && !modelHasTools && turnIntent.requiresEvidence) {
+    const retainedResponse = buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents);
+    onDelta?.(retainedResponse);
+    return {
+      response: retainedResponse,
+      sources: [...forensicFileContents.keys()],
+      pendingChanges: getExecutionPendingChanges(),
+      resolvedModel:
+        loopResult.kind === "response" || loopResult.kind === "partial"
+          ? loopResult.result.model
+            ? { id: loopResult.result.model, provider: providerId, free: providerId === "openrouter" }
+            : undefined
+          : undefined,
+    };
   }
 
   // ── Explicit file-scope forensic coverage ──────────────────────────────────

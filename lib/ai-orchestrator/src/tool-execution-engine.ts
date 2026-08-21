@@ -898,6 +898,13 @@ export type ToolLoopOpts = {
   /** Complete source bodies loaded by forensic prefetch before the loop. */
   initialFileContents?: Map<string, string>;
 
+  /**
+   * Optional per-request evidence handoff shared by provider retries. Only
+   * successful read bodies are copied here; it never contains provider or
+   * session metadata.
+   */
+  retainedFileContents?: Map<string, string>;
+
   /** Maximum number of model API calls (default: DEFAULT_MAX_ITERATIONS = 96). */
   maxIterations?: number;
 
@@ -1394,6 +1401,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
   const recordSourceEvidence = (path: string | undefined, output: string): void => {
     if (typeof path === "string" && path.trim()) {
       sourceEvidenceByCanonical.set(canonicalRel(path), output);
+      opts.retainedFileContents?.set(path, output);
     }
   };
   // Fresh-execution budget counter; only fresh calls consume budget while the
