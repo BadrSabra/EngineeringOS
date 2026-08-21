@@ -24,7 +24,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import app from "../app.js";
 import {
   db,
@@ -361,6 +361,85 @@ afterEach(async () => {
   for (const rootPath of rootPaths.splice(0)) {
     await fs.rm(rootPath, { recursive: true, force: true });
   }
+});
+
+describe("AI provider key persistence", () => {
+  it("updates an existing owner/provider credential through the generic PUT route", async () => {
+    const ownerId = "test-user";
+    const provider = "groq";
+    const encryptionKey = process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+    const originalCredential = await db
+      .select()
+      .from(aiProviderCredentialsTable)
+      .where(and(
+        eq(aiProviderCredentialsTable.ownerId, ownerId),
+        eq(aiProviderCredentialsTable.provider, provider),
+      ))
+      .limit(1);
+    const fixtureId = randomUUID();
+    const fixtureCreated = originalCredential.length === 0;
+    const fixtureKey = "fixture-provider-key-before";
+
+    if (fixtureCreated) {
+      const now = new Date();
+      process.env.AI_CREDENTIALS_ENCRYPTION_KEY = "0123456789abcdef".repeat(4);
+      await db.insert(aiProviderCredentialsTable).values({
+        id: fixtureId,
+        ownerId,
+        provider,
+        encryptedApiKey: encryptApiKey(fixtureKey),
+        last4: "fore",
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    try {
+      process.env.AI_CREDENTIALS_ENCRYPTION_KEY = "0123456789abcdef".repeat(4);
+      const response = await request(app)
+        .put(`/api/ai/providers/${provider}/key`)
+        .send({ apiKey: "updated-provider-key-9876" });
+
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        configured: true,
+        last4: "9876",
+      });
+
+      const credentials = await db
+        .select({
+          id: aiProviderCredentialsTable.id,
+          last4: aiProviderCredentialsTable.last4,
+        })
+        .from(aiProviderCredentialsTable)
+        .where(and(
+          eq(aiProviderCredentialsTable.ownerId, ownerId),
+          eq(aiProviderCredentialsTable.provider, provider),
+        ));
+      expect(credentials).toHaveLength(1);
+      expect(credentials[0]).toMatchObject({
+        id: originalCredential[0]?.id ?? fixtureId,
+        last4: "9876",
+      });
+    } finally {
+      if (originalCredential[0]) {
+        await db
+          .update(aiProviderCredentialsTable)
+          .set({
+            encryptedApiKey: originalCredential[0].encryptedApiKey,
+            last4: originalCredential[0].last4,
+            updatedAt: originalCredential[0].updatedAt,
+          })
+          .where(eq(aiProviderCredentialsTable.id, originalCredential[0].id));
+      } else {
+        await db
+          .delete(aiProviderCredentialsTable)
+          .where(eq(aiProviderCredentialsTable.id, fixtureId));
+      }
+      if (encryptionKey === undefined) delete process.env.AI_CREDENTIALS_ENCRYPTION_KEY;
+      else process.env.AI_CREDENTIALS_ENCRYPTION_KEY = encryptionKey;
+    }
+  });
 });
 
 describe("Durable AI execution crash/reconnect", () => {
