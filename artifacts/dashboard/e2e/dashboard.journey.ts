@@ -81,21 +81,23 @@ type ArabicAiFixture = {
 
 async function installApiFixtures(
   page: Page,
-  overrides?: { arabicAi?: ArabicAiFixture },
+  overrides?: { arabicAi?: ArabicAiFixture; alternateAi?: ArabicAiFixture },
 ) {
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
     const arabicAi = overrides?.arabicAi;
+    const alternateAi = overrides?.alternateAi;
+    const aiFixtures = [arabicAi, alternateAi].filter(
+      (fixture): fixture is ArabicAiFixture => Boolean(fixture),
+    );
 
-    if (arabicAi && path.endsWith("/api/ai/chat/sessions"))
-      return route.fulfill(jsonResponse([
-        {
-          id: arabicAi.sessionId,
-          title: arabicAi.question,
-          updatedAt: "2026-01-01T00:02:00.000Z",
-        },
-      ]));
+    if (aiFixtures.length > 0 && path.endsWith("/api/ai/chat/sessions"))
+      return route.fulfill(jsonResponse(aiFixtures.map((fixture) => ({
+        id: fixture.sessionId,
+        title: fixture.question,
+        updatedAt: "2026-01-01T00:02:00.000Z",
+      }))));
     if (arabicAi && path.endsWith("/api/ai/chat/stream"))
       return route.fulfill({
         status: 200,
@@ -103,16 +105,19 @@ async function installApiFixtures(
         headers: { "Cache-Control": "no-cache" },
         body: arabicAi.streamBody,
       });
-    if (arabicAi && path.endsWith(`/api/ai/chat/${arabicAi.sessionId}/messages`))
+    const messageFixture = aiFixtures.find((fixture) =>
+      path.endsWith(`/api/ai/chat/${fixture.sessionId}/messages`),
+    );
+    if (messageFixture)
       return route.fulfill(jsonResponse([
         {
-          id: "e2e-arabic-user-message",
-          sessionId: arabicAi.sessionId,
+          id: `${messageFixture.sessionId}-user-message`,
+          sessionId: messageFixture.sessionId,
           role: "user",
-          content: arabicAi.question,
+          content: messageFixture.question,
           createdAt: "2026-01-01T00:01:00.000Z",
         },
-        arabicAi.message,
+        messageFixture.message,
       ]));
 
     if (path === "/api/dashboard")
@@ -152,12 +157,17 @@ async function installApiFixtures(
   });
 }
 
-async function installArabicAiFixture(page: Page, options?: { blocked?: boolean }) {
-  const sessionId = "e2e-arabic-ai-session";
+async function installArabicAiFixture(
+  page: Page,
+  options?: { blocked?: boolean; sessionId?: string; question?: string },
+) {
+  const sessionId = options?.sessionId ?? "e2e-arabic-ai-session";
   const messageId = "e2e-arabic-ai-message";
   const source = "src/execution-tools.ts";
   const blocked = options?.blocked === true;
-  const question = "ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟";
+  const question =
+    options?.question ??
+    "ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟";
   const answer =
     "عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.";
   const evidence = [{
@@ -468,6 +478,44 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
     await expect(page.getByText(`${fixture.source}:42`, { exact: false }).last()).toBeVisible();
     await expect(page.getByText("Accepted: source span verified.", { exact: true }).last()).toBeVisible();
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toMatch(/rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i);
+  });
+
+  test("keeps each citation explanation and line range when switching sessions", async ({
+    page,
+  }) => {
+    const accepted = await installArabicAiFixture(page, {
+      sessionId: "e2e-accepted-ai-session",
+      question: "ما هو سلوك مهلة provider في المسار المقبول؟",
+    });
+    const blocked = await installArabicAiFixture(page, {
+      blocked: true,
+      sessionId: "e2e-blocked-ai-session",
+      question: "ما هو سلوك مهلة provider في المسار المحجوب؟",
+    });
+    await installApiFixtures(page, { arabicAi: accepted, alternateAi: blocked });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(accepted.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+    await expect(page.getByText(accepted.answer, { exact: true }).last()).toBeVisible();
+    await expect(page.getByText(`${accepted.source}:42`, { exact: false }).last()).toBeVisible();
+    await expect(page.getByText("Accepted: source span verified.", { exact: true }).last()).toBeVisible();
+
+    await page.getByRole("button", { name: blocked.question, exact: true }).click();
+    await expect(page.getByText(blocked.question, { exact: true }).last()).toBeVisible();
+    await expect(page.getByText("Blocked: no matching source text was found.", { exact: true }).last()).toBeVisible();
+    await expect(page.getByText("Accepted: source span verified.", { exact: true })).toHaveCount(0);
+    await expect(page.getByText(`${blocked.source}:42`, { exact: false })).toHaveCount(0);
+
+    await page.getByRole("button", { name: accepted.question, exact: true }).click();
+    await expect(page.getByText(`${accepted.source}:42`, { exact: false }).last()).toBeVisible();
+    await expect(page.getByText("Accepted: source span verified.", { exact: true }).last()).toBeVisible();
+    await expect(page.getByText("Blocked: no matching source text was found.", { exact: true })).toHaveCount(0);
+
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toMatch(/rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i);
   });
