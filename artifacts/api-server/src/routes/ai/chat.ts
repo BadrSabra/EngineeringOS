@@ -23,7 +23,7 @@ import {
   eventsTable,
   tasksTable,
 } from "@workspace/db";
-import { eq, desc, and, inArray, lte, sql } from "drizzle-orm";
+import { eq, desc, and, inArray, sql } from "drizzle-orm";
 import {
   buildProjectContext,
   invalidateContextCache,
@@ -1282,6 +1282,7 @@ router.post("/ai/chat", async (req, res) => {
     return res.status(400).json({ error });
   }
   const { projectId, message, sessionId, linkedTaskId, objective } = chatBody.data;
+  const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
 
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
@@ -1301,8 +1302,6 @@ router.post("/ai/chat", async (req, res) => {
       error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlChat.retryAfterSec}s.`,
     });
   }
-
-    const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
 
   let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
   if (sessionId) {
@@ -1571,6 +1570,13 @@ router.post("/ai/chat", async (req, res) => {
     });
 
     const assistantMsg = await db.transaction(async (tx) => {
+      if (existingSession) {
+        await tx
+          .select({ id: aiChatSessionsTable.id })
+          .from(aiChatSessionsTable)
+          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+          .for("update");
+      }
       if (!existingSession) {
         const [created] = await tx
           .insert(aiChatSessionsTable)
@@ -1648,19 +1654,12 @@ router.post("/ai/chat", async (req, res) => {
           payload: { messageId: operationId, proposalId: proposalId ?? null },
         });
       }
-      // Turns can finish out of order. Qualify the state update itself by the
-      // allocated turn timestamp so an older completion cannot overwrite a
-      // newer resumable contract after waiting on the session row lock.
       await tx
         .update(aiChatSessionsTable)
-        .set({ activeTaskState })
-        .where(and(
-          eq(aiChatSessionsTable.id, sessionIdToUse),
-          lte(aiChatSessionsTable.updatedAt, msgNow),
-        ));
-      await tx
-        .update(aiChatSessionsTable)
-        .set({ updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})` })
+        .set({
+          activeTaskState: sql`CASE WHEN ${aiChatSessionsTable.updatedAt} <= ${msgNow} THEN ${activeTaskState} ELSE ${aiChatSessionsTable.activeTaskState} END`,
+          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+        })
         .where(eq(aiChatSessionsTable.id, sessionIdToUse));
       return msg;
     });
@@ -1765,6 +1764,8 @@ router.post("/ai/chat/stream", async (req, res) => {
 
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
+
+  const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
 
   // Keep execution handoff fail-closed in the streaming route too. This check
   // happens before provider resolution and before SSE headers are committed.
@@ -2015,7 +2016,6 @@ router.post("/ai/chat/stream", async (req, res) => {
       };
     }
 
-    const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
     const sessionIdToUse = existingSession?.id ?? randomUUID();
 
     // Reserve a new session before the long model/tool loop starts. The client
@@ -3104,6 +3104,13 @@ router.post("/ai/chat/stream", async (req, res) => {
     const aiExecutionId = aiExecution.id;
     let assistantOperationId: string | undefined = aiExecution.operationId ?? effectiveBuildPlanMessageId;
     const assistantMsg = await db.transaction(async (tx) => {
+      if (existingSession) {
+        await tx
+          .select({ id: aiChatSessionsTable.id })
+          .from(aiChatSessionsTable)
+          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+          .for("update");
+      }
       if (!existingSession) {
         const [created] = await tx
           .insert(aiChatSessionsTable)
@@ -3193,19 +3200,12 @@ router.post("/ai/chat/stream", async (req, res) => {
           },
         });
       }
-      // Turns can finish out of order. Qualify the state write itself by the
-      // allocated turn timestamp so an older completion cannot overwrite a
-      // newer resumable contract after waiting on the session row lock.
       await tx
         .update(aiChatSessionsTable)
-        .set({ activeTaskState })
-        .where(and(
-          eq(aiChatSessionsTable.id, sessionIdToUse),
-          lte(aiChatSessionsTable.updatedAt, msgNow),
-        ));
-      await tx
-        .update(aiChatSessionsTable)
-        .set({ updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})` })
+        .set({
+          activeTaskState: sql`CASE WHEN ${aiChatSessionsTable.updatedAt} <= ${msgNow} THEN ${activeTaskState} ELSE ${aiChatSessionsTable.activeTaskState} END`,
+          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+        })
         .where(eq(aiChatSessionsTable.id, sessionIdToUse));
       return msg;
     });
