@@ -36,6 +36,40 @@ const FORENSIC_READ_TRUNCATION_MARKER =
   "\n\n[... forensic read exceeded the maximum safe evidence window; complete source evidence is unavailable for this file. ...]";
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".next", "__pycache__", ".venv", "build", "coverage"]);
 
+/**
+ * Convert filesystem failures into actionable, user-safe tool output.
+ *
+ * Node's native error text can contain absolute project/runtime paths and is
+ * therefore diagnostic-only. The model needs the operational reason, not the
+ * host layout.
+ */
+function formatFilesystemError(
+  operation: "read" | "list",
+  requestedPath: string,
+  error: unknown,
+): string {
+  const code = error && typeof error === "object" && "code" in error
+    ? String((error as { code?: unknown }).code ?? "")
+    : "";
+  const reason =
+    code === "ENOENT"
+      ? "the file or directory does not exist"
+      : code === "EACCES" || code === "EPERM"
+        ? "permission was denied"
+        : code === "EISDIR"
+          ? "the requested path is a directory"
+          : code === "ENOTDIR"
+            ? "a parent path is not a directory"
+            : "the project filesystem rejected the request";
+  const action =
+    code === "ENOENT"
+      ? "Check the project-relative path and retry."
+      : code === "EACCES" || code === "EPERM"
+        ? "Use a readable project file or directory and retry."
+        : "Check the project-relative path and retry.";
+  return `Error ${operation === "read" ? "reading" : "listing"} "${requestedPath}": ${reason}. ${action}`;
+}
+
 // ── Public types ─────────────────────────────────────────────────────────────
 
 // PendingChange is the canonical type from chat.schema.ts — re-exported here
@@ -409,7 +443,7 @@ export async function executeFileTool(
         const content = truncated ? text + READ_TRUNCATION_MARKER : text;
         return `File: ${args.path}\n\`\`\`\n${content}\n\`\`\``;
       } catch (e) {
-        return `Error reading "${args.path}": ${e instanceof Error ? e.message : String(e)}`;
+        return formatFilesystemError("read", args.path ?? "", e);
       }
     }
 
@@ -448,7 +482,7 @@ export async function executeFileTool(
         }
         return `File: ${args.path}\n\`\`\`\n${window}\n\`\`\``;
       } catch (e) {
-        return `Error reading "${args.path}": ${e instanceof Error ? e.message : String(e)}`;
+        return formatFilesystemError("read", args.path ?? "", e);
       }
     }
 
@@ -481,7 +515,7 @@ export async function executeFileTool(
           .join("\n");
         return `Contents of "${target}":\n${lines || "(empty)"}`;
       } catch (e) {
-        return `Error listing "${target}": ${e instanceof Error ? e.message : String(e)}`;
+        return formatFilesystemError("list", target, e);
       }
     }
 

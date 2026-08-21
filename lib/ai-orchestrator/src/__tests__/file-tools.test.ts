@@ -84,6 +84,19 @@ describe("executeFileTool — search_code error handling", () => {
 });
 
 describe("executeFileTool — bounded source reads", () => {
+  it("reports a missing file without exposing the absolute runtime path", async () => {
+    const result = await executeFileTool(
+      "read_file",
+      { path: "src/missing.ts" },
+      "/tmp",
+      [],
+    );
+    expect(result).toContain("does not exist");
+    expect(result).toContain("Check the project-relative path and retry.");
+    expect(result).not.toContain("/tmp");
+    expect(result).not.toContain("ENOENT");
+  });
+
   it("marks large reads as a display limit, not incomplete source", async () => {
     const filePath = path.join("/tmp", `bounded-read-${Date.now()}.ts`);
     await fs.writeFile(filePath, `export const start = true;\n${"x".repeat(128_100)}`, "utf-8");

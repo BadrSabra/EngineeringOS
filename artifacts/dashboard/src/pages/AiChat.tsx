@@ -5013,8 +5013,26 @@ function flightRecorderCategory(entry: ToolTraceEntry): Exclude<FlightRecorderFi
 }
 
 function flightRecorderLabel(entry: ToolTraceEntry): string {
-  if (entry.kind === 'tool_call') return entry.tool ? `Called ${entry.tool}` : 'Tool call';
-  if (entry.kind === 'tool_result') return entry.tool ? `Result from ${entry.tool}` : 'Tool result';
+  const toolLabel: Record<string, string> = {
+    read_file: 'Read source file',
+    read_file_range: 'Read source excerpt',
+    search_code: 'Search project source',
+    list_directory: 'List project files',
+    git_status: 'Check repository status',
+    git_diff: 'Review recent changes',
+    git_log: 'Review repository history',
+    write_file: 'Prepare file change',
+    replace_text: 'Prepare focused change',
+    run_validation: 'Run registered validation',
+  };
+  if (entry.kind === 'tool_call') {
+    return entry.tool ? (toolLabel[entry.tool] ?? 'Project operation') : 'Project operation';
+  }
+  if (entry.kind === 'tool_result') {
+    return entry.tool
+      ? `${toolLabel[entry.tool] ?? 'Project operation'} completed`
+      : 'Project operation completed';
+  }
   if (entry.kind === 'model_call' || entry.kind === 'recovery_model_call') {
     return entry.kind === 'recovery_model_call' ? 'Recovery model call' : 'Model call';
   }
