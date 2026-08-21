@@ -224,16 +224,32 @@ process.exit(result.status ?? 1);
         eq(eventsTable.type, "AiChangesApplied"),
       ));
     const credentialId = randomUUID();
-    credentialIds.push(credentialId);
+    const encryptedApiKey = encryptApiKey("fixture-token");
     await db.insert(aiProviderCredentialsTable).values({
       id: credentialId,
       ownerId: "test-user",
       provider: "github",
-      encryptedApiKey: encryptApiKey("fixture-token"),
+      encryptedApiKey,
       last4: "oken",
       createdAt: now,
       updatedAt: now,
+    }).onConflictDoUpdate({
+      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+      set: {
+        encryptedApiKey,
+        last4: "oken",
+        updatedAt: now,
+      },
     });
+    const [credential] = await db
+      .select({ id: aiProviderCredentialsTable.id })
+      .from(aiProviderCredentialsTable)
+      .where(and(
+        eq(aiProviderCredentialsTable.ownerId, "test-user"),
+        eq(aiProviderCredentialsTable.provider, "github"),
+      ))
+      .limit(1);
+    if (credential) credentialIds.push(credential.id);
 
     const originalPathEnv = process.env.PATH;
     const originalRemoteEnv = process.env.FIXTURE_GIT_REMOTE;
