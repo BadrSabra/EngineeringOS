@@ -42,6 +42,22 @@ function assertNonEmptyString(workflowPath, value, description) {
   }
 }
 
+function assertReusableWorkflowReference(workflowPath, value, jobId) {
+  const localReference = /^\.\/\.github\/workflows\/[^/\s]+\.ya?ml$/;
+  const externalReference =
+    /^[^/\s]+\/[^/\s]+\/\.github\/workflows\/[^/\s]+\.ya?ml@[^\s@]+$/;
+
+  if (!localReference.test(value) && !externalReference.test(value)) {
+    fail(
+      workflowPath,
+      `job \`${jobId}\` \`uses\` must reference a reusable workflow as ` +
+        "`./.github/workflows/<file>.yml` or " +
+        "`<owner>/<repo>/.github/workflows/<file>.yml@<ref>` " +
+        "(for example, add the workflow path and a version ref).",
+    );
+  }
+}
+
 export async function findWorkflowFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
@@ -95,6 +111,7 @@ export async function validateWorkflow(workflowPath, rootDirectory = root) {
     }
     if (Object.hasOwn(job, "uses")) {
       assertNonEmptyString(workflowPath, job.uses, `job \`${jobId}\` \`uses\``);
+      assertReusableWorkflowReference(workflowPath, job.uses, jobId);
     }
     if (!Object.hasOwn(job, "runs-on") && !Object.hasOwn(job, "uses")) {
       fail(workflowPath, `job \`${jobId}\` must define either \`runs-on\` or \`uses\`.`);

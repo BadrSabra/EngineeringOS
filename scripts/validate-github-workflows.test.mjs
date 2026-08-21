@@ -266,3 +266,48 @@ test("reports malformed runner declarations from nested workflows", async () => 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("reports malformed reusable workflow references with the complete nested path and job ID", async () => {
+  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+  const workflowsDirectory = join(root, ".github", "workflows");
+  const nestedWorkflowPath = join(
+    workflowsDirectory,
+    "deployment",
+    "production",
+    "release.yml",
+  );
+
+  try {
+    await mkdir(join(workflowsDirectory, "deployment", "production"), {
+      recursive: true,
+    });
+    await writeFile(
+      nestedWorkflowPath,
+      [
+        "name: Invalid reusable workflow reference",
+        "on: [push]",
+        "jobs:",
+        "  deploy:",
+        "    uses: ./.github/workflows/reusable.yml@main",
+        "",
+      ].join("\n"),
+    );
+
+    await assert.rejects(
+      validateWorkflows(workflowsDirectory, root),
+      (error) => {
+        assert.match(
+          error.message,
+          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` `uses` must reference a reusable workflow/,
+        );
+        assert.match(
+          error.message,
+          /add the workflow path and a version ref/,
+        );
+        return true;
+      },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
