@@ -189,6 +189,58 @@ async function mockChatProviders(
   });
 }
 
+function retainedReadStreamingStrategy(
+  mode: "direct" | "native-sse",
+  response: string,
+  calls: { count: number },
+) {
+  let readIssued = false;
+  const readThenAnswer = vi.fn(
+    async (_messages: unknown, opts: { model?: string; tools?: Array<{ function: { name: string } }> }) => {
+      calls.count += 1;
+      if (!readIssued && opts.tools?.some((tool) => tool.function.name === "read_file")) {
+        readIssued = true;
+        return {
+          content: "",
+          toolCalls: [{
+            id: `retained-read-${mode}`,
+            type: "function",
+            function: {
+              name: "read_file",
+              arguments: JSON.stringify({ path: GRAPH_EXTRACTOR }),
+            },
+          }],
+          model: opts.model ?? "initial-model",
+          usage: {},
+        };
+      }
+      return {
+        content: mode === "direct" ? JSON.stringify({
+          response,
+          sources: [GRAPH_EXTRACTOR, INFERENCE],
+        }) : "",
+        toolCalls: [],
+        model: opts.model ?? "initial-model",
+        usage: {},
+      };
+    },
+  );
+  const strategy = {
+    providerId: mode === "direct" ? "openrouter" : "groq",
+    supportsNativeStream: mode === "native-sse",
+    ownsModelFallback: true,
+    call: readThenAnswer,
+    stream: vi.fn(async function* () {
+      if (mode === "native-sse") {
+        for (const chunk of response.split(/(\s+)/)) {
+          if (chunk) yield chunk;
+        }
+      }
+    }),
+  };
+  return strategy;
+}
+
 /**
  * Reachability objectives following the real call chain. The PROVEN case carries
  * the proof via a retained caller read (getGraphCentrality -> computeCentrality
@@ -422,6 +474,55 @@ describe("AI-OBJ-014: prove/refute production reachability of computeCentrality 
       await fs.rm(rootPath, { recursive: true, force: true });
     }
   });
+
+  it.each([
+    ["direct OpenRouter streaming", "direct", "openrouter"],
+    ["native Groq SSE streaming", "native-sse", "groq"],
+  ] as const)(
+    "retained-read reachability remains PROVEN through %s finalization",
+    async (_label, mode, provider) => {
+      const rootPath = await makeRoot();
+      const calls = { count: 0 };
+      const deltas: string[] = [];
+      const steps: AgentStep[] = [];
+      const strategy = retainedReadStreamingStrategy(
+        mode,
+        REACHABILITY_REPORT(GRAPH_EXTRACTOR, INFERENCE),
+        calls,
+      );
+      const captures: Captures = { ledgers: [], telemetryLedgers: [], reconciles: [] };
+      await mockChatProviders(strategy, captures);
+
+      try {
+        const { chat } = await import("../agents/chat-agent.js");
+        const result = await chat({
+          message: FORENSIC_CALLER_MESSAGE(GRAPH_EXTRACTOR),
+          history: [],
+          projectContext: makeContext(),
+          rootPath,
+          provider,
+          apiKey: "test-or-key",
+          objective: makeEdgeObjective(),
+          onDelta: (delta) => deltas.push(delta),
+          onStep: (step) => steps.push(step),
+        });
+
+        expect(calls.count).toBeGreaterThan(0);
+        expect(deltas.join("")).toContain("PROVEN");
+        expect(result.response).toContain("PROVEN");
+
+        const integrity = [...steps].reverse().find((step) => step.kind === "evidence_integrity");
+        expect(integrity?.kind).toBe("evidence_integrity");
+        if (integrity?.kind === "evidence_integrity") {
+          expect(integrity.code).toBe("TELEMETRY_CONSISTENT");
+          expect(integrity.consistent).toBe(true);
+        }
+        expect(captures.reconciles.at(-1)?.consistent).toBe(true);
+      } finally {
+        await fs.rm(rootPath, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("OBJECTIVE_MISMATCH: an accepted behavioral answer for a reachability objective is blocked at chat() level", async () => {
     const rootPath = await makeRoot();
