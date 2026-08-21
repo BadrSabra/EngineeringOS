@@ -16,6 +16,7 @@ import { recordAudit } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
+import { tryAdvisoryLock, LockNamespace } from "../lib/advisory-lock.js";
 import {
   checkAdvanceCondition,
   computePhaseAdvancement,
@@ -382,6 +383,14 @@ router.post("/workflows/:workflowId/advance", async (req, res) => {
     return res.status(409).json({ error: "Workflow has no running execution to advance" });
   }
 
+  // Serialize the read/check/claim sequence so a competing request cannot
+  // observe the same phase and then advance again after the first request.
+  const transitionLock = await tryAdvisoryLock(LockNamespace.WORKFLOW_TRANSITION, workflowId);
+  if (!transitionLock.acquired) {
+    return res.status(409).json({ error: "A workflow transition is already in progress" });
+  }
+
+  try {
   // Evaluate the current phase's advance condition using the safe evaluator
   // (replaces the previous `new Function` approach — audit finding R-001/W-001).
   // An empty/absent condition means "always advance".
@@ -509,6 +518,9 @@ router.post("/workflows/:workflowId/advance", async (req, res) => {
   invalidateContextCache(workflow[0].projectId);
 
   return res.json(updatedExecution);
+  } finally {
+    await transitionLock.release();
+  }
 });
 
 // Mark the running execution's current phase as failed, stopping the run.

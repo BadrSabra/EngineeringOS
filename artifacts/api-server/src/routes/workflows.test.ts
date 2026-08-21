@@ -371,4 +371,38 @@ describe("Workflow phase orchestration", () => {
     );
     expect(res.status).toBe(409);
   });
+
+  it("atomically accepts one concurrent advance and emits one transition trace", async () => {
+    const { projectId, workflowId } = await createStartedWorkflow();
+
+    const [first, second] = await Promise.all([
+      request(app).post(`/api/workflows/${workflowId}/advance`),
+      request(app).post(`/api/workflows/${workflowId}/advance`),
+    ]);
+    expect([first.status, second.status].sort()).toEqual([200, 409]);
+
+    const executions = await db
+      .select()
+      .from(workflowExecutionsTable)
+      .where(eq(workflowExecutionsTable.workflowId, workflowId));
+    expect(executions).toHaveLength(1);
+    expect(executions[0].currentPhase).toBe("test");
+    expect(executions[0].completedPhases).toEqual(["build"]);
+    expect(executions.filter((execution) => execution.status === "running")).toHaveLength(1);
+
+    const events = await db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId));
+    const transitions = events.filter((event) => event.type === "WorkflowPhaseAdvanced");
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0].payload).toEqual({
+      before: { phase: "build", status: "running" },
+      after: { phase: "test", status: "running" },
+    });
+
+    const audits = await db.select().from(auditLogsTable).where(eq(auditLogsTable.projectId, projectId));
+    const advanceAudits = audits.filter((audit) => audit.action === "advanced");
+    expect(advanceAudits).toHaveLength(1);
+    expect(advanceAudits[0].correlationId).toBe(transitions[0].correlationId);
+    expect(advanceAudits[0].stateBefore).toEqual({ currentPhase: "build" });
+    expect(advanceAudits[0].stateAfter).toEqual({ currentPhase: "test" });
+  });
 });

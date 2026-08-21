@@ -38,3 +38,4 @@
 - [Retained-read reachability proof](retained-read-reachability-proof.md) — final-answer validation must recognize syntax-derived retained-read edges alongside externally supplied runtime traces.
 - [Analysis failure replay](analysis-failure-replay.md) — required analysis failures stay terminal and visibly incomplete across reconnects and dashboard reloads.
 - [GitHub PR file filtering](github-pr-file-filter.md) — pull_request.changed_files is a count; use an API-backed changed-path filter for conditional jobs.
+- [Workflow transition serialization](workflow-transition-lock.md) — phase advancement must lock the full read/check/claim sequence to prevent sequential double-advances.

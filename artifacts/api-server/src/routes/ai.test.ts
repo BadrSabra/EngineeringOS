@@ -17,6 +17,7 @@ import {
   tasksTable,
   eventsTable,
   workflowsTable,
+  workflowExecutionsTable,
   aiChatSessionsTable,
   aiChatMessagesTable,
   aiChangeProposalsTable,
@@ -1891,6 +1892,81 @@ describe("POST /api/ai/workflows/:workflowId/orchestrate", () => {
     expect(serialized).not.toContain("req-workflow-456");
     expect(serialized).not.toContain("/var/task/");
     expect(serialized).not.toContain("/tmp/");
+  });
+
+  it("is suggestion-only: explicit advance owns the persisted transition", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const created = await request(app)
+      .post("/api/workflows")
+      .send({
+        projectId,
+        name: `contract-${randomUUID().slice(0, 8)}`,
+        phases: [{ name: "plan", steps: ["plan"] }, { name: "build", steps: ["build"] }],
+      });
+    expect(created.status).toBe(201);
+    const workflowId = created.body.id;
+    workflowIds.push(workflowId);
+
+    const started = await request(app).post(`/api/workflows/${workflowId}/start`);
+    expect(started.status).toBe(202);
+    const before = await db.select().from(workflowsTable).where(eq(workflowsTable.id, workflowId));
+    const beforeExecution = await db
+      .select()
+      .from(workflowExecutionsTable)
+      .where(eq(workflowExecutionsTable.workflowId, workflowId));
+
+    const suggestion = await request(app).post(`/api/ai/workflows/${workflowId}/orchestrate`).send({});
+    expect(suggestion.status).toBe(200);
+    expect(suggestion.body).toMatchObject({
+      action: "advance",
+      nextPhase: "Phase 2",
+    });
+
+    const afterSuggestion = await db.select().from(workflowsTable).where(eq(workflowsTable.id, workflowId));
+    const afterSuggestionExecution = await db
+      .select()
+      .from(workflowExecutionsTable)
+      .where(eq(workflowExecutionsTable.workflowId, workflowId));
+    expect(afterSuggestion[0].currentPhase).toBe(before[0].currentPhase);
+    expect(afterSuggestion[0].status).toBe(before[0].status);
+    expect(afterSuggestionExecution[0].currentPhase).toBe(beforeExecution[0].currentPhase);
+    expect(afterSuggestionExecution[0].completedPhases).toEqual(beforeExecution[0].completedPhases);
+
+    const advanced = await request(app).post(`/api/workflows/${workflowId}/advance`);
+    expect(advanced.status).toBe(200);
+    expect(advanced.body.currentPhase).toBe("build");
+    expect(advanced.body.completedPhases).toEqual(["plan"]);
+
+    const persisted = await db.select().from(workflowsTable).where(eq(workflowsTable.id, workflowId));
+    expect(persisted[0].currentPhase).toBe("build");
+    expect(persisted[0].status).toBe("running");
+  });
+
+  it("maps provider timeout to a safe response and keeps raw diagnostics out of activity", async () => {
+    const { GroqClientError, orchestrateWorkflow: mockOrchestrate } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockOrchestrate).mockRejectedValueOnce(
+      new GroqClientError("TIMEOUT", "provider request req-secret failed at /srv/provider/workflow.ts"),
+    );
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const workflowId = await insertWorkflow(projectId);
+    workflowIds.push(workflowId);
+
+    const res = await request(app).post(`/api/ai/workflows/${workflowId}/orchestrate`).send({});
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe("TIMEOUT");
+    expect(res.body.error).not.toContain("req-secret");
+    expect(res.body.error).not.toContain("/srv/");
+
+    const events = await db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId));
+    const failure = events.find((event) => event.type === "AiOrchestratorError");
+    // Error activity is intentionally best-effort and is written after the
+    // response path; when present it must contain only the stable error code.
+    const activityText = failure?.message ?? "";
+    expect(activityText).not.toContain("req-secret");
+    expect(activityText).not.toContain("/srv/");
   });
 });
 

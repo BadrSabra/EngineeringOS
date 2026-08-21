@@ -14,14 +14,16 @@ import type { ProjectContext } from "../context-builder.js";
 // vi.mock is hoisted to the top of the file by vitest.
 // The factory runs before any imports, so _mockContent is initialised via
 // vi.hoisted() first.
-const { _mockContent } = vi.hoisted(() => ({
+const { _mockContent, _mockError } = vi.hoisted(() => ({
   _mockContent: { value: '{"action":"advance","reasoning":"ok","nextPhase":"build"}' },
+  _mockError: { value: null as Error | null },
 }));
 
 vi.mock("../agent-complete.js", () => ({
-  agentComplete: vi.fn(() =>
-    Promise.resolve({ content: _mockContent.value, model: "mock", usage: null }),
-  ),
+  agentComplete: vi.fn(() => {
+    if (_mockError.value) return Promise.reject(_mockError.value);
+    return Promise.resolve({ content: _mockContent.value, model: "mock", usage: null });
+  }),
 }));
 
 import { orchestrateWorkflow } from "../agents/workflow-orchestrator.js";
@@ -55,6 +57,7 @@ describe("orchestrateWorkflow — metrics gate (AI-003)", () => {
   beforeEach(() => {
     // Default: model proposes "advance" to "build".
     _mockContent.value = '{"action":"advance","reasoning":"ok","nextPhase":"build"}';
+    _mockError.value = null;
   });
 
   it("blocks 'advance' and downgrades to 'wait' when metricsVerified=false", async () => {
@@ -126,5 +129,93 @@ describe("orchestrateWorkflow — metrics gate (AI-003)", () => {
     });
 
     expect(result.action).toBe("fail");
+  });
+
+  it.each([
+    ["malformed JSON", "not-json at all"],
+    ["unknown action", '{"action":"sideways","reasoning":"unsafe"}'],
+    ["cross-contaminated fields", '{"action":"wait","reasoning":"hold","nextPhase":"build"}'],
+  ])("fails closed for %s with a wait fallback and parse marker", async (_label, response) => {
+    _mockContent.value = response;
+
+    const result = await orchestrateWorkflow({
+      workflowName: "test-wf",
+      phases,
+      currentPhase: "plan",
+      completedPhases: [],
+      projectContext: makeContext(true),
+    });
+
+    expect(result.action).toBe("wait");
+    expect(result._parseError).toBeDefined();
+    expect(result.reasoning).toBeTruthy();
+    // The orchestrator retains the raw value only in its internal parse marker;
+    // the API route redacts that marker before returning it to callers.
+    expect(result._parseError?.code).toBeTruthy();
+  });
+
+  it("rejects a skipped phase before it can become executable", async () => {
+    _mockContent.value = '{"action":"advance","reasoning":"skip build","nextPhase":"verify"}';
+
+    const result = await orchestrateWorkflow({
+      workflowName: "test-wf",
+      phases,
+      currentPhase: "plan",
+      completedPhases: [],
+      projectContext: makeContext(true),
+    });
+
+    expect(result.action).toBe("wait");
+    expect(result.reasoning).toMatch(/immediate successor/i);
+    expect(result.action === "wait" ? result.blockers?.[0] : undefined).toMatch(/verify/);
+  });
+
+  it("rejects premature completion without changing the suggested state", async () => {
+    _mockContent.value = '{"action":"complete","reasoning":"done"}';
+
+    const result = await orchestrateWorkflow({
+      workflowName: "test-wf",
+      phases,
+      currentPhase: "build",
+      completedPhases: ["plan"],
+      projectContext: makeContext(true),
+    });
+
+    expect(result.action).toBe("wait");
+    expect(result.reasoning).toMatch(/final phase/i);
+  });
+
+  it("propagates a bounded provider timeout for the API boundary to classify", async () => {
+    _mockError.value = Object.assign(
+      new Error("provider request req-secret failed at /srv/provider/workflow.ts"),
+      { code: "TIMEOUT" },
+    );
+
+    await expect(
+      orchestrateWorkflow({
+        workflowName: "test-wf",
+        phases,
+        currentPhase: "plan",
+        completedPhases: [],
+        projectContext: makeContext(true),
+      }),
+    ).rejects.toMatchObject({ code: "TIMEOUT" });
+  });
+
+  it("propagates provider failure without inventing an executable transition", async () => {
+    _mockError.value = Object.assign(
+      new Error("provider request req-secret failed at /srv/provider/workflow.ts"),
+      { code: "SERVER_ERROR" },
+    );
+
+    await expect(
+      orchestrateWorkflow({
+        workflowName: "test-wf",
+        phases,
+        currentPhase: "plan",
+        completedPhases: [],
+        projectContext: makeContext(true),
+      }),
+    ).rejects.toMatchObject({ code: "SERVER_ERROR" });
   });
 });

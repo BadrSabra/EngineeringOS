@@ -48,6 +48,8 @@ export const LockNamespace = {
    * Same rationale as SCAN_JOB but keyed on sessionId.
    */
   DISCOVERY_SESSION: 1004,
+  /** Guards competing phase transitions on the same workflow. */
+  WORKFLOW_TRANSITION: 1005,
 } as const;
 
 /**
