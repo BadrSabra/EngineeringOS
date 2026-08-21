@@ -58,6 +58,8 @@ The run is bounded by `DASHBOARD_E2E_LIVE_TIMEOUT_MS` (default 120 seconds)
 and the live browser test allows an additional five seconds for Playwright
 cleanup and report collection. The normal journey remains non-executing: the
 provider-backed path is skipped unless `DASHBOARD_E2E_LIVE_PROVIDER=1` is set.
+The fast `test:dashboard-journey-contract` check runs before release validation
+and verifies that timeout relationship and provider opt-in guard.
 When enabled, it exports a redacted report keyed by the provider-backed `operationId` and
 the latest Git `workspaceRevision`. The report verifies persisted messages,
 SSE events, execution checkpoints, evidence, proposals, validation, and

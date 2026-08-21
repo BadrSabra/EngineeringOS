@@ -100,6 +100,32 @@ function runClerkHandoffContracts() {
   });
 }
 
+function runDashboardJourneyContracts() {
+  return new Promise((resolve, reject) => {
+    const contractTests = spawn("pnpm", ["run", "test:dashboard-journey-contract"], {
+      env: { ...process.env, CI: "true" },
+      stdio: "inherit",
+    });
+
+    contractTests.on("error", (error) => {
+      reject(
+        new Error(
+          `Unable to start dashboard journey contract checks: ${redact(error.message)}`,
+        ),
+      );
+    });
+    contractTests.on("exit", (code, signal) => {
+      if (signal) {
+        reject(new Error(`Dashboard journey contract checks stopped by ${signal}.`));
+      } else if (code !== 0) {
+        reject(new Error(`Dashboard journey contract checks failed with exit code ${code ?? 1}.`));
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
 function runConcurrentChatContractChecks() {
   const testRuns = [
     {
@@ -183,6 +209,9 @@ function runLiveCorrelationReportCheck() {
     });
   });
 }
+
+await runDashboardJourneyContracts();
+console.log("Dashboard journey timeout and provider-mode contracts passed.");
 
 await runClerkHandoffContracts();
 console.log("Dashboard Clerk handoff response contracts passed.");
