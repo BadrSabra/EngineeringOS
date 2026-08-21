@@ -17,6 +17,7 @@
 - [Forensic cancellation](forensic-cancellation.md) — cancellation preserves collected evidence but always renders ANALYSIS_INCOMPLETE, never NO_VERIFIED_FINDING.
 - [Audit scope consent](audit-scope-consent.md) — vague broad reviews must get an explicit boundary before tool discovery; architecture questions remain ordinary project queries.
 - [Shared package type lag](shared-package-type-lag.md) — workspace consumers can briefly retain older shared declarations; isolate additive compatibility casts at the boundary.
+- [Composite declaration freshness](composite-declaration-freshness.md) — stale TypeScript build metadata can skip missing ignored declarations; force referenced builds before API typechecks.
 - [Optional process recovery tests](optional-process-recovery-tests.md) — resolve API build entrypoints relative to the package working directory when spawning real child servers.
 - [Behavior evidence recovery](behavior-evidence-recovery.md) — normal behavior answers get one bounded citation-correction pass; missing proof remains ANALYSIS_INCOMPLETE.
 - [Directed citation recovery](directed-citation-recovery.md) — show source-owned executable windows and preserve literal multiline code before the strict evidence gate.
