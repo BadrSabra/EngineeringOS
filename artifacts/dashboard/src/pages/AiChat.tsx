@@ -3200,12 +3200,22 @@ function BehaviorEvidencePanel({ evidence, projectId }: { evidence: AiBehaviorEv
         const key = `${index}-${label}`;
         const isCopied = copied === key;
         const isViewing = viewing === key;
-        const accepted = e.citationStatus === 'ACCEPTED' || (e.citationStatus === undefined && e.supportsClaim && hasSpan);
-        const citationReason = e.citationReason === 'MISSING_LITERAL_MATCH'
+        // The generated client type can briefly lag the additive citation
+        // fields carried by persisted behavior evidence.
+        const citation = e as AiBehaviorEvidence & {
+          citationStatus?: 'ACCEPTED' | 'BLOCKED';
+          citationReason?:
+            | 'MISSING_LITERAL_MATCH'
+            | 'UNRESOLVED_SOURCE_SPAN'
+            | 'INSUFFICIENT_BEHAVIORAL_CONTEXT'
+            | 'ACCEPTED_SOURCE_SPAN';
+        };
+        const accepted = citation.citationStatus === 'ACCEPTED' || (citation.citationStatus === undefined && e.supportsClaim && hasSpan);
+        const citationReason = citation.citationReason === 'MISSING_LITERAL_MATCH'
           ? 'Blocked: no matching source text was found.'
-          : e.citationReason === 'UNRESOLVED_SOURCE_SPAN'
+          : citation.citationReason === 'UNRESOLVED_SOURCE_SPAN'
             ? 'Blocked: the matching source span could not be resolved uniquely.'
-            : e.citationReason === 'INSUFFICIENT_BEHAVIORAL_CONTEXT'
+            : citation.citationReason === 'INSUFFICIENT_BEHAVIORAL_CONTEXT'
               ? 'Blocked: the citation does not show enough behavior to prove the claim.'
               : accepted
                 ? 'Accepted: source span verified.'

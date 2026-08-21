@@ -625,6 +625,88 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
   });
 
+  test("keeps safe citation state across browser back and forward navigation", async ({
+    page,
+  }) => {
+    const accepted = await installArabicAiFixture(page, {
+      sessionId: "e2e-history-accepted-session",
+      question: "ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟",
+    });
+    const blocked = await installArabicAiFixture(page, {
+      blocked: true,
+      sessionId: "e2e-history-blocked-session",
+      question: "ما هو الدليل المحجوب عند الرجوع عبر سجل المتصفح؟",
+    });
+    await installApiFixtures(page, { arabicAi: accepted, alternateAi: blocked });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const assertAcceptedCitation = async () => {
+      await expect(page.getByText(accepted.answer, { exact: true }).last()).toBeVisible();
+      await expect(page.getByText(`${accepted.source}:42`, { exact: false }).last()).toBeVisible();
+      await expect(
+        page.getByText("Accepted: source span verified.", { exact: true }).last(),
+      ).toBeVisible();
+      await expect(
+        page.getByText("Blocked: no matching source text was found.", { exact: true }),
+      ).toHaveCount(0);
+    };
+    const assertBlockedCitation = async () => {
+      await expect(
+        page.getByText("Blocked: no matching source text was found.", { exact: true }).last(),
+      ).toBeVisible();
+      await expect(page.getByText(`${blocked.source}:42`, { exact: false })).toHaveCount(0);
+      await expect(
+        page.getByText("Accepted: source span verified.", { exact: true }),
+      ).toHaveCount(0);
+    };
+    const assertNoInternalCitationDetails = async () => {
+      const visibleText = await page.locator("body").innerText();
+      expect(visibleText).not.toMatch(
+        /MISSING_LITERAL_MATCH|rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+      );
+    };
+
+    await page.getByRole("button", { name: accepted.question, exact: true }).click();
+    await assertAcceptedCitation();
+
+    await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`));
+    await page.getByRole("button", { name: accepted.question, exact: true }).click();
+    await assertAcceptedCitation();
+    await assertNoInternalCitationDetails();
+
+    await page.goForward();
+    await expect(page).toHaveURL(
+      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}projects$`),
+    );
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`));
+    await page.getByRole("button", { name: accepted.question, exact: true }).click();
+    await assertAcceptedCitation();
+
+    await page.getByRole("button", { name: blocked.question, exact: true }).click();
+    await assertBlockedCitation();
+
+    await openNavigation(page, "Event Stream", `${DASHBOARD_PATH}events`);
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`));
+    await page.getByRole("button", { name: blocked.question, exact: true }).click();
+    await assertBlockedCitation();
+    await assertNoInternalCitationDetails();
+
+    await page.goForward();
+    await expect(page).toHaveURL(
+      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}events$`),
+    );
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`));
+    await page.getByRole("button", { name: blocked.question, exact: true }).click();
+    await assertBlockedCitation();
+    await assertNoInternalCitationDetails();
+  });
+
   test("keeps only the safe blocked citation reason after chat reload", async ({
     page,
   }) => {
