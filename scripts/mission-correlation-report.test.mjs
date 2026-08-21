@@ -1,6 +1,50 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildMissionCorrelationReport } from "./mission-correlation-report.mjs";
+import {
+  assertSupportedMissionCorrelationReportVersion,
+  buildMissionCorrelationReport,
+  SUPPORTED_MISSION_CORRELATION_REPORT_VERSION,
+} from "./mission-correlation-report.mjs";
+
+test("keeps the mission correlation report version compatible with stored report readers", () => {
+  const report = buildMissionCorrelationReport({
+    projectId: "project",
+    sessionId: "session",
+    operationId: "operation",
+    workspaceRevision: "abc1234",
+    terminalState: "BLOCKED",
+    execution: {
+      id: "execution",
+      projectId: "project",
+      sessionId: "session",
+      operationId: "operation",
+      status: "failed",
+    },
+    messages: [{ executionId: "execution" }],
+    sseEvents: [{ type: "error" }],
+    checkpoints: [{ sequence: 1 }],
+    dashboard: { executions: [{ id: "execution" }] },
+  });
+
+  assert.equal(SUPPORTED_MISSION_CORRELATION_REPORT_VERSION, 1);
+  assert.equal(report.version, SUPPORTED_MISSION_CORRELATION_REPORT_VERSION);
+  assert.equal(assertSupportedMissionCorrelationReportVersion(report), report);
+});
+
+test("rejects incompatible mission correlation report versions with an upgrade action", () => {
+  assert.throws(
+    () =>
+      assertSupportedMissionCorrelationReportVersion({
+        kind: "mission-correlation-report",
+        version: SUPPORTED_MISSION_CORRELATION_REPORT_VERSION + 1,
+      }),
+    {
+      message:
+        "Unsupported mission correlation report version: expected 1, got 2. " +
+        "Update the report reader before changing the producer version.",
+    },
+  );
+});
 
 test("correlates every mission surface by operation and workspace revision", () => {
   const report = buildMissionCorrelationReport({

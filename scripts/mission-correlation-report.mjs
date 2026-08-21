@@ -14,6 +14,8 @@ const TERMINAL_STATES = new Set([
   "UNAVAILABLE",
 ]);
 
+export const SUPPORTED_MISSION_CORRELATION_REPORT_VERSION = 1;
+
 function text(value, fallback = undefined) {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
@@ -28,6 +30,16 @@ function same(value, expected, name) {
   if (value !== expected) {
     throw new Error(`Correlation mismatch for ${name}: expected ${expected}, got ${value ?? "missing"}.`);
   }
+}
+
+export function assertSupportedMissionCorrelationReportVersion(report) {
+  if (report?.version !== SUPPORTED_MISSION_CORRELATION_REPORT_VERSION) {
+    throw new Error(
+      `Unsupported mission correlation report version: expected ${SUPPORTED_MISSION_CORRELATION_REPORT_VERSION}, ` +
+        `got ${report?.version ?? "missing"}. Update the report reader before changing the producer version.`,
+    );
+  }
+  return report;
 }
 
 export function buildMissionCorrelationReport(input) {
@@ -90,7 +102,7 @@ export function buildMissionCorrelationReport(input) {
   const success = ["COMPLETED", "READY_FOR_REVIEW", "APPLIED", "COMMITTED", "PUSHED"].includes(terminalState);
   return {
     kind: "mission-correlation-report",
-    version: 1,
+    version: SUPPORTED_MISSION_CORRELATION_REPORT_VERSION,
     redacted: true,
     operationId,
     projectId,
