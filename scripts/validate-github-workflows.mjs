@@ -1,63 +1,103 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, readFile } from "node:fs/promises";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import yaml from "js-yaml";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const workflowPath = join(root, ".github/workflows/ci.yml");
-const workflowLabel = ".github/workflows/ci.yml";
+const workflowsDirectory = join(root, ".github/workflows");
+const workflowsLabel = ".github/workflows";
 
-function fail(message) {
-  throw new Error(`${workflowLabel}: ${message}`);
+function workflowLabel(workflowPath) {
+  return relative(root, workflowPath).replaceAll("\\", "/");
 }
 
-function assertMapping(value, description) {
+function fail(workflowPath, message) {
+  throw new Error(`${workflowLabel(workflowPath)}: ${message}`);
+}
+
+function assertMapping(workflowPath, value, description) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    fail(`${description} must be a YAML mapping.`);
+    fail(workflowPath, `${description} must be a YAML mapping.`);
   }
 }
 
-async function validateWorkflow() {
+async function findWorkflowFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = [];
+
+  for (const entry of entries) {
+    const entryPath = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await findWorkflowFiles(entryPath)));
+    } else if (entry.isFile() && /\.(?:yml|yaml)$/i.test(entry.name)) {
+      files.push(entryPath);
+    }
+  }
+
+  return files.sort();
+}
+
+async function validateWorkflow(workflowPath) {
+  const label = workflowLabel(workflowPath);
   const source = await readFile(workflowPath, "utf8");
   let workflow;
 
   try {
-    workflow = yaml.load(source, { filename: workflowLabel });
+    workflow = yaml.load(source, { filename: label });
   } catch (error) {
     const location = error.mark
       ? ` at line ${error.mark.line + 1}, column ${error.mark.column + 1}`
       : "";
-    fail(`YAML syntax error${location}: ${error.reason ?? error.message}`);
+    fail(workflowPath, `YAML syntax error${location}: ${error.reason ?? error.message}`);
   }
 
-  assertMapping(workflow, "Workflow document");
+  assertMapping(workflowPath, workflow, "Workflow document");
   if (!workflow.name || typeof workflow.name !== "string") {
-    fail("top-level `name` must be a non-empty string.");
+    fail(workflowPath, "top-level `name` must be a non-empty string.");
   }
   if (!Object.hasOwn(workflow, "on")) {
-    fail("top-level `on` trigger configuration is missing.");
+    fail(workflowPath, "top-level `on` trigger configuration is missing.");
   }
-  assertMapping(workflow.jobs, "top-level `jobs`");
+  assertMapping(workflowPath, workflow.jobs, "top-level `jobs`");
 
   const jobs = Object.entries(workflow.jobs);
   if (jobs.length === 0) {
-    fail("top-level `jobs` must define at least one job.");
+    fail(workflowPath, "top-level `jobs` must define at least one job.");
   }
 
   for (const [jobId, job] of jobs) {
-    assertMapping(job, `job \`${jobId}\``);
+    assertMapping(workflowPath, job, `job \`${jobId}\``);
     if (!job["runs-on"] && !job.uses) {
-      fail(`job \`${jobId}\` must define either \`runs-on\` or \`uses\`.`);
+      fail(workflowPath, `job \`${jobId}\` must define either \`runs-on\` or \`uses\`.`);
     }
     if (job.steps !== undefined && !Array.isArray(job.steps)) {
-      fail(`job \`${jobId}\` steps must be a YAML sequence.`);
+      fail(workflowPath, `job \`${jobId}\` steps must be a YAML sequence.`);
     }
   }
 }
 
 try {
-  await validateWorkflow();
-  console.log(`✅ ${workflowLabel} parses and has a valid workflow/job structure.`);
+  const workflowFiles = await findWorkflowFiles(workflowsDirectory);
+  if (workflowFiles.length === 0) {
+    throw new Error(`${workflowsLabel}: no YAML workflow files found.`);
+  }
+
+  const failures = [];
+  for (const workflowPath of workflowFiles) {
+    try {
+      await validateWorkflow(workflowPath);
+    } catch (error) {
+      failures.push(error.message);
+    }
+  }
+
+  if (failures.length > 0) {
+    throw new Error(failures.join("\n"));
+  }
+
+  console.log(
+    `✅ ${workflowFiles.length} GitHub Actions workflow${workflowFiles.length === 1 ? "" : "s"} parse and have valid workflow/job structure.`,
+  );
 } catch (error) {
   console.error(`❌ GitHub Actions workflow validation failed: ${error.message}`);
   process.exitCode = 1;
