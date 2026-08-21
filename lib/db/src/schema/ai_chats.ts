@@ -53,6 +53,15 @@ export const aiChatMessagesTable = pgTable("ai_chat_messages", {
   repairPlanMetadata: text("repair_plan_metadata"),
   /** JSON array of accepted behavior-evidence references, each with an optional exact source line span. */
   behaviorEvidence: text("behavior_evidence"),
+  /** Server-authoritative routing decision for this conversational turn. */
+  turnIntent: text("turn_intent"),
+  /** Durable execution linked to this turn, when the turn used one. */
+  executionId: text("execution_id"),
+  /** Terminal outcome; failed/interrupted turns are retained without an answer. */
+  outcome: text("outcome"),
+  /** Bounded provider/execution failure code for an auditable failed turn. */
+  errorCode: text("error_code"),
+  errorMessage: text("error_message"),
   /**
    * Serialized AI-008 per-task typed result (discriminated on `kind` by
    * forensicTaskType). Persisted so a reloaded/history session can re-render the

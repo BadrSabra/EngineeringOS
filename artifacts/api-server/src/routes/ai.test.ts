@@ -1263,11 +1263,10 @@ describe("GET /api/ai/chat/sessions", () => {
 // ─── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────
 
 describe("GET /api/ai/chat/:sessionId/messages", () => {
-  it("returns an empty array for an unknown session (not 404)", async () => {
-    // The route does not 404 — it returns the messages for the session (empty).
+  it("distinguishes a missing session from an empty session", async () => {
     const res = await request(app).get(`/api/ai/chat/${randomUUID()}/messages`);
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
+    expect(res.status).toBe(404);
+    expect(res.body).toMatchObject({ code: "SESSION_NOT_FOUND" });
   });
 
   it("returns messages in chronological order", async () => {

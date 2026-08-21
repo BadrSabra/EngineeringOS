@@ -106,6 +106,11 @@ type ChatMessage = {
   content: string;
   sources?: string;
   toolTrace?: string | null;
+  turnIntent?: string | null;
+  executionId?: string | null;
+  outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED' | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
   /** Safe operational timeline captured from the live SSE run. */
   activityEvents?: LiveAgentActivityEvent[];
   /** Accepted behavior-evidence excerpts, optionally with an exact source line span. */
@@ -3824,6 +3829,7 @@ function MessageBubble({
   const redactedDisplayContent = redactInternalDetails(displayContent);
   const internalTechnicalDump = !isUser && isInternalTechnicalDump(displayContent);
   const isStructuredPlan = !isUser && msg.taskResult?.kind === 'IMPLEMENTATION_PLAN_RESULT';
+  const failedTurn = !isUser && (msg.outcome === 'FAILED' || msg.outcome === 'INTERRUPTED');
   const userFacingContent = internalTechnicalDump
     ? 'The agent produced internal technical details for this run.'
     : redactedDisplayContent;
@@ -3897,7 +3903,17 @@ function MessageBubble({
               : 'bg-secondary border border-border rounded-tl-sm prose prose-sm prose-invert'
           }`}
         >
-          {isUser ? userFacingContent : (
+          {failedTurn ? (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-200">
+              <div className="font-medium">
+                {msg.outcome === 'INTERRUPTED' ? 'Execution interrupted' : 'Execution failed'}
+              </div>
+              {msg.errorMessage && <div className="mt-1 text-xs">{msg.errorMessage}</div>}
+              {msg.executionId && (
+                <div className="mt-1 text-[10px] opacity-70">Durable execution: {msg.executionId}</div>
+              )}
+            </div>
+          ) : isUser ? userFacingContent : (
             <ReactMarkdown
               components={{
                 p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
@@ -6659,7 +6675,7 @@ export default function AiChat() {
     },
   );
 
-  const { data: serverMessages = [] } = useListAiChatMessages<ChatMessage[]>(
+  const { data: serverMessages = [], isFetched: messagesFetched } = useListAiChatMessages<ChatMessage[]>(
     sessionId ?? '',
     {
       query: {
@@ -6686,8 +6702,8 @@ export default function AiChat() {
   );
 
   useEffect(() => {
-    if (serverMessages.length > 0) setLocalMessages(serverMessages);
-  }, [serverMessages]);
+    if (messagesFetched) setLocalMessages(serverMessages);
+  }, [messagesFetched, serverMessages]);
 
   useEffect(() => {
     if (!serverProposal) return;

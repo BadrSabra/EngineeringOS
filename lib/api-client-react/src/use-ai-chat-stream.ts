@@ -76,6 +76,11 @@ export type AiStreamDoneEvent = {
     /** JSON-encoded accepted behavior-evidence references (with exact line spans). */
     behaviorEvidence?: string | null;
     createdAt: string;
+    turnIntent?: string;
+    executionId?: string | null;
+    outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED';
+    errorCode?: string | null;
+    errorMessage?: string | null;
   };
   /** Exact source line spans for each accepted behavior-evidence excerpt. */
   behaviorEvidence?: AiBehaviorEvidence[];
@@ -173,6 +178,9 @@ export type AiStreamErrorEvent = {
   retryable?: boolean;
   suggestedFix?: string;
   executionId?: string;
+  sessionId?: string;
+  turnIntent?: string;
+  outcome?: 'FAILED' | 'INTERRUPTED';
 };
 
 export type AiStreamResetEvent = {

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { AiBehaviorAnswerResult } from './aiBehaviorAnswerResult';
+import type { AiChatMessageOutcome } from './aiChatMessageOutcome';
 import type { AiChatMessageRole } from './aiChatMessageRole';
 import type { AiCodeExtractionResult } from './aiCodeExtractionResult';
 import type { AiFindingResult } from './aiFindingResult';
@@ -21,6 +22,13 @@ export interface AiChatMessage {
   content: string;
   sources?: string | null;
   toolTrace?: string | null;
+  /** Server-authoritative intent used to route this turn */
+  turnIntent?: string | null;
+  /** Durable execution linked to this conversational turn */
+  executionId?: string | null;
+  outcome?: AiChatMessageOutcome;
+  errorCode?: string | null;
+  errorMessage?: string | null;
   /**
      * Parsed accepted behavior-evidence references, each with an optional exact source line span
      * @maxItems 8

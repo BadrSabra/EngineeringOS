@@ -3600,6 +3600,24 @@ components:
         toolTrace:
           type: string
           nullable: true
+        turnIntent:
+          type: string
+          nullable: true
+          description: Server-authoritative intent used to route this turn
+        executionId:
+          type: string
+          nullable: true
+          description: Durable execution linked to this conversational turn
+        outcome:
+          type: string
+          nullable: true
+          enum: [SUCCEEDED, FAILED, INTERRUPTED]
+        errorCode:
+          type: string
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
         behaviorEvidence:
           description: Parsed accepted behavior-evidence references, each with an optional exact source line span
           type: array
@@ -3624,9 +3642,38 @@ components:
               FORENSIC_REPORT_RESULT: "#/components/schemas/AiForensicReportResult"
               WORKSPACE_REVIEW_RESULT: "#/components/schemas/AiWorkspaceReviewResult"
               REPAIR_RESULT: "#/components/schemas/AiRepairResult"
+              IMPLEMENTATION_PLAN_RESULT: "#/components/schemas/AiImplementationPlanResult"
         createdAt:
           type: string
           format: date-time
+
+    AiImplementationPlanResult:
+      type: object
+      required: [kind, objective, summary, assumptions, steps, validationCommands, risks, approvalStatus, writeAccess]
+      properties:
+        kind:
+          type: string
+          enum: [IMPLEMENTATION_PLAN_RESULT]
+        objective: { type: string }
+        summary: { type: string }
+        assumptions:
+          type: array
+          items: { type: string }
+        steps:
+          type: array
+          items: { type: object, additionalProperties: true }
+        validationCommands:
+          type: array
+          items: { type: string }
+        risks:
+          type: array
+          items: { type: string }
+        approvalStatus:
+          type: string
+          enum: [PENDING_APPROVAL, APPROVED, REJECTED]
+        writeAccess:
+          type: string
+          enum: [NOT_AUTHORIZED, APPROVED_FOR_BUILD]
 
     BehaviorEvidence:
       type: object

@@ -529,6 +529,15 @@ export const AiChatMessageRole = {
   system: 'system',
 } as const;
 
+export type AiChatMessageOutcome = typeof AiChatMessageOutcome[keyof typeof AiChatMessageOutcome] | null;
+
+
+export const AiChatMessageOutcome = {
+  SUCCEEDED: 'SUCCEEDED',
+  FAILED: 'FAILED',
+  INTERRUPTED: 'INTERRUPTED',
+} as const;
+
 export type BehaviorEvidenceDirectness = typeof BehaviorEvidenceDirectness[keyof typeof BehaviorEvidenceDirectness];
 
 
@@ -669,6 +678,13 @@ export interface AiChatMessage {
   content: string;
   sources?: string | null;
   toolTrace?: string | null;
+  /** Server-authoritative intent used to route this turn */
+  turnIntent?: string | null;
+  /** Durable execution linked to this conversational turn */
+  executionId?: string | null;
+  outcome?: AiChatMessageOutcome;
+  errorCode?: string | null;
+  errorMessage?: string | null;
   /**
      * Parsed accepted behavior-evidence references, each with an optional exact source line span
      * @maxItems 8
@@ -677,6 +693,44 @@ export interface AiChatMessage {
   /** AI-008 — persisted per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns. */
   taskResult?: AiCodeExtractionResult | AiBehaviorAnswerResult | AiFindingResult | AiForensicReportResult | AiWorkspaceReviewResult | AiRepairResult;
   createdAt: string;
+}
+
+export type AiImplementationPlanResultKind = typeof AiImplementationPlanResultKind[keyof typeof AiImplementationPlanResultKind];
+
+
+export const AiImplementationPlanResultKind = {
+  IMPLEMENTATION_PLAN_RESULT: 'IMPLEMENTATION_PLAN_RESULT',
+} as const;
+
+export type AiImplementationPlanResultStepsItem = { [key: string]: unknown };
+
+export type AiImplementationPlanResultApprovalStatus = typeof AiImplementationPlanResultApprovalStatus[keyof typeof AiImplementationPlanResultApprovalStatus];
+
+
+export const AiImplementationPlanResultApprovalStatus = {
+  PENDING_APPROVAL: 'PENDING_APPROVAL',
+  APPROVED: 'APPROVED',
+  REJECTED: 'REJECTED',
+} as const;
+
+export type AiImplementationPlanResultWriteAccess = typeof AiImplementationPlanResultWriteAccess[keyof typeof AiImplementationPlanResultWriteAccess];
+
+
+export const AiImplementationPlanResultWriteAccess = {
+  NOT_AUTHORIZED: 'NOT_AUTHORIZED',
+  APPROVED_FOR_BUILD: 'APPROVED_FOR_BUILD',
+} as const;
+
+export interface AiImplementationPlanResult {
+  kind: AiImplementationPlanResultKind;
+  objective: string;
+  summary: string;
+  assumptions: string[];
+  steps: AiImplementationPlanResultStepsItem[];
+  validationCommands: string[];
+  risks: string[];
+  approvalStatus: AiImplementationPlanResultApprovalStatus;
+  writeAccess: AiImplementationPlanResultWriteAccess;
 }
 
 export interface AiFileContentLine {

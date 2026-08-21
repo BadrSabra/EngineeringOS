@@ -357,6 +357,51 @@ type ServerPendingChange = {
   evidence?: PatchEvidenceLink[];
 };
 
+async function persistFailedChatTurn(params: {
+  sessionId: string;
+  projectId: string;
+  message: string;
+  turnIntent: string;
+  executionId?: string;
+  outcome: "FAILED" | "INTERRUPTED";
+  errorCode: string;
+  errorMessage: string;
+  createdAt: Date;
+  assistantAt: Date;
+  toolTrace?: AgentStep[];
+}): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.insert(aiChatMessagesTable).values({
+      id: randomUUID(),
+      sessionId: params.sessionId,
+      role: "user",
+      content: params.message,
+      turnIntent: params.turnIntent,
+      executionId: params.executionId ?? null,
+      outcome: "SUCCEEDED",
+      createdAt: params.createdAt,
+    });
+    await tx.insert(aiChatMessagesTable).values({
+      id: randomUUID(),
+      sessionId: params.sessionId,
+      role: "assistant",
+      // Empty content is intentional: a failed provider turn is not an
+      // assistant answer and must not be rendered as one.
+      content: "",
+      turnIntent: params.turnIntent,
+      executionId: params.executionId ?? null,
+      outcome: params.outcome,
+      errorCode: params.errorCode,
+      errorMessage: redactUserFacingText(params.errorMessage).slice(0, 500),
+      toolTrace: params.toolTrace ? serializeToolTrace(params.toolTrace, true) : null,
+      createdAt: params.assistantAt,
+    });
+    await tx.update(aiChatSessionsTable)
+      .set({ updatedAt: params.assistantAt })
+      .where(eq(aiChatSessionsTable.id, params.sessionId));
+  });
+}
+
 type ApplySnapshot = {
   path: string;
   realPath: string;
@@ -1558,6 +1603,8 @@ router.post("/ai/chat", async (req, res) => {
         sessionId: sessionIdToUse,
         role: "user",
         content: message,
+        turnIntent: turnIntent.kind,
+        outcome: "SUCCEEDED",
         createdAt: now,
       });
       const [msg] = await tx
@@ -1567,11 +1614,14 @@ router.post("/ai/chat", async (req, res) => {
           sessionId: sessionIdToUse,
           role: "assistant",
           content: sanitizeResponseText(result.response),
+          turnIntent: turnIntent.kind,
+          outcome: "SUCCEEDED",
           sources: JSON.stringify(redactUserFacingValue(result.sources)),
           toolTrace: serializeToolTrace(traceSteps),
           repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
           behaviorEvidence: serializeBehaviorEvidence(result.behaviorEvidence),
           taskResult: serializeTaskResult(result.taskResult),
+          executionId: null,
           createdAt: msgNow,
         })
         .returning();
@@ -1627,6 +1677,8 @@ router.post("/ai/chat", async (req, res) => {
     return res.json({
       sessionId: sessionIdToUse,
       message: { ...assistantMsg, taskResult: parseTaskResult(assistantMsg.taskResult) },
+      turnIntent: turnIntent.kind,
+      outcome: "SUCCEEDED",
       sources: redactUserFacingValue(result.sources),
       toolTrace: assistantMsg.toolTrace,
       pendingChanges: proposalId
@@ -2945,6 +2997,19 @@ router.post("/ai/chat/stream", async (req, res) => {
           message: redactUserFacingText(err instanceof Error ? err.message : String(err)),
         });
       }
+      await persistFailedChatTurn({
+        sessionId: sessionIdToUse,
+        projectId,
+        message,
+        turnIntent: streamTurnIntent.kind,
+        executionId: aiExecution?.id,
+        outcome: executionAbortController?.signal.aborted ? "INTERRUPTED" : "FAILED",
+        errorCode: err instanceof GroqClientError ? err.code : "UNKNOWN",
+        errorMessage: err instanceof Error ? err.message : String(err),
+        createdAt: now,
+        assistantAt: msgNow,
+        toolTrace: traceSteps,
+      }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure"));
       res.end();
       return;
     }
@@ -2957,6 +3022,19 @@ router.post("/ai/chat/stream", async (req, res) => {
           message: "The AI model returned an unexpected response — try rephrasing your message.",
           parseCode: result._parseError.code,
         });
+        await persistFailedChatTurn({
+          sessionId: sessionIdToUse,
+          projectId,
+          message,
+          turnIntent: streamTurnIntent.kind,
+          executionId: aiExecution?.id,
+          outcome: "FAILED",
+          errorCode: "MODEL_OUTPUT_INVALID",
+          errorMessage: "The AI model returned an unexpected response.",
+          createdAt: now,
+          assistantAt: msgNow,
+          toolTrace: traceSteps,
+        }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure"));
         res.end();
         return;
       }
@@ -3058,6 +3136,9 @@ router.post("/ai/chat/stream", async (req, res) => {
         sessionId: sessionIdToUse,
         role: "user",
         content: message,
+        turnIntent: streamTurnIntent.kind,
+        executionId: aiExecutionId,
+        outcome: "SUCCEEDED",
         createdAt: now,
       });
       const [msg] = await tx
@@ -3067,6 +3148,9 @@ router.post("/ai/chat/stream", async (req, res) => {
           sessionId: sessionIdToUse,
           role: "assistant",
           content: sanitizeResponseText(result.response),
+          turnIntent: streamTurnIntent.kind,
+          executionId: aiExecutionId,
+          outcome: "SUCCEEDED",
           sources: JSON.stringify(redactUserFacingValue(result.sources)),
           toolTrace: serializeToolTrace(traceSteps, true, streamAuditScopeDescription),
           repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
@@ -3205,6 +3289,9 @@ router.post("/ai/chat/stream", async (req, res) => {
       behaviorEvidence: assistantMsg.behaviorEvidence,
       createdAt: assistantMsg.createdAt,
       toolTrace: publicToolTrace,
+      turnIntent: streamTurnIntent.kind,
+      executionId: aiExecutionId,
+      outcome: "SUCCEEDED",
     };
     sse({
       type: "done",
@@ -3461,7 +3548,7 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
     .where(eq(aiChatSessionsTable.id, sessionId))
     .limit(1);
   const session = sessionRows[0];
-  if (!session) return res.json([]);
+  if (!session) return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
 
   if (session.projectId) {
     const ownerProject = await loadProjectByIdForUser(session.projectId, req.userId, res);
@@ -3483,6 +3570,11 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
     toolTrace: message.toolTrace
       ? redactUserFacingText(message.toolTrace)
       : message.toolTrace,
+    turnIntent: message.turnIntent,
+    executionId: message.executionId,
+    outcome: message.outcome,
+    errorCode: message.errorCode,
+    errorMessage: message.errorMessage ? redactUserFacingText(message.errorMessage) : message.errorMessage,
     repairPlan: redactUserFacingValue(parseRepairPlanMetadata(message.repairPlanMetadata)),
     behaviorEvidence: redactUserFacingValue(parseBehaviorEvidence(message.behaviorEvidence)),
     taskResult: redactUserFacingValue(parseTaskResult(message.taskResult)),

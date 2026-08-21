@@ -2420,6 +2420,11 @@ export const AiChatResponse = zod.object({
   "content": zod.string(),
   "sources": zod.string().nullish(),
   "toolTrace": zod.string().nullish(),
+  "turnIntent": zod.string().nullish().describe('Server-authoritative intent used to route this turn'),
+  "executionId": zod.string().nullish().describe('Durable execution linked to this conversational turn'),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullish(),
+  "errorCode": zod.string().nullish(),
+  "errorMessage": zod.string().nullish(),
   "behaviorEvidence": zod.array(zod.object({
   "source": zod.string(),
   "excerpt": zod.string().optional(),
@@ -3325,6 +3330,11 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "content": zod.string(),
   "sources": zod.string().nullish(),
   "toolTrace": zod.string().nullish(),
+  "turnIntent": zod.string().nullish().describe('Server-authoritative intent used to route this turn'),
+  "executionId": zod.string().nullish().describe('Durable execution linked to this conversational turn'),
+  "outcome": zod.enum(['SUCCEEDED', 'FAILED', 'INTERRUPTED']).nullish(),
+  "errorCode": zod.string().nullish(),
+  "errorMessage": zod.string().nullish(),
   "behaviorEvidence": zod.array(zod.object({
   "source": zod.string(),
   "excerpt": zod.string().optional(),
