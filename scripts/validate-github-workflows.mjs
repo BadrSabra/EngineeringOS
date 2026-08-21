@@ -20,6 +20,28 @@ function assertMapping(workflowPath, value, description) {
   }
 }
 
+function describeYamlType(value) {
+  if (value === null) {
+    return "null";
+  }
+  if (Array.isArray(value)) {
+    return "a YAML sequence";
+  }
+  if (typeof value === "object") {
+    return "a YAML mapping";
+  }
+  return `a ${typeof value}`;
+}
+
+function assertNonEmptyString(workflowPath, value, description) {
+  if (typeof value !== "string" || value.trim() === "") {
+    fail(
+      workflowPath,
+      `${description} must be a non-empty string (received ${describeYamlType(value)}).`,
+    );
+  }
+}
+
 export async function findWorkflowFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
@@ -68,7 +90,13 @@ export async function validateWorkflow(workflowPath, rootDirectory = root) {
 
   for (const [jobId, job] of jobs) {
     assertMapping(workflowPath, job, `job \`${jobId}\``);
-    if (!job["runs-on"] && !job.uses) {
+    if (Object.hasOwn(job, "runs-on")) {
+      assertNonEmptyString(workflowPath, job["runs-on"], `job \`${jobId}\` \`runs-on\``);
+    }
+    if (Object.hasOwn(job, "uses")) {
+      assertNonEmptyString(workflowPath, job.uses, `job \`${jobId}\` \`uses\``);
+    }
+    if (!Object.hasOwn(job, "runs-on") && !Object.hasOwn(job, "uses")) {
       fail(workflowPath, `job \`${jobId}\` must define either \`runs-on\` or \`uses\`.`);
     }
     if (job.steps !== undefined && !Array.isArray(job.steps)) {

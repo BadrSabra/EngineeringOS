@@ -203,3 +203,66 @@ test("reports missing execution configuration from nested workflows", async () =
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("reports malformed runner declarations from nested workflows", async () => {
+  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+  const workflowsDirectory = join(root, ".github", "workflows");
+  const malformedRunsOnPath = join(
+    workflowsDirectory,
+    "deployment",
+    "staging",
+    "runs-on.yml",
+  );
+  const malformedUsesPath = join(
+    workflowsDirectory,
+    "deployment",
+    "staging",
+    "uses.yml",
+  );
+
+  try {
+    await mkdir(join(workflowsDirectory, "deployment", "staging"), {
+      recursive: true,
+    });
+    await writeFile(
+      malformedRunsOnPath,
+      [
+        "name: Invalid runner",
+        "on: [push]",
+        "jobs:",
+        "  build:",
+        "    runs-on:",
+        "      labels: ubuntu-latest",
+        "",
+      ].join("\n"),
+    );
+    await writeFile(
+      malformedUsesPath,
+      [
+        "name: Invalid reusable workflow",
+        "on: [push]",
+        "jobs:",
+        "  deploy:",
+        "    uses: [./.github/workflows/reusable.yml]",
+        "",
+      ].join("\n"),
+    );
+
+    await assert.rejects(
+      validateWorkflows(workflowsDirectory, root),
+      (error) => {
+        assert.match(
+          error.message,
+          /\.github\/workflows\/deployment\/staging\/runs-on\.yml: job `build` `runs-on` must be a non-empty string \(received a YAML mapping\)\./,
+        );
+        assert.match(
+          error.message,
+          /\.github\/workflows\/deployment\/staging\/uses\.yml: job `deploy` `uses` must be a non-empty string \(received a YAML sequence\)\./,
+        );
+        return true;
+      },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
