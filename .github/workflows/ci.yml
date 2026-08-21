@@ -12,33 +12,50 @@ on:
 # several minutes) even starts. The full job always runs in parallel so neither
 # blocks the other.
 jobs:
+  contract-trigger:
+    name: Detect contract changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      should_run: ${{ steps.filter.outputs.contract }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            contract:
+              - 'lib/api-spec/openapi.yaml'
+              - 'lib/api-zod/src/generated/**'
+              - 'lib/api-client-react/src/generated/**'
+              - 'lib/api-client-react/src/use-ai-chat-stream.ts'
+              - 'scripts/validate-dashboard-client-contract.mjs'
+              - 'artifacts/dashboard/src/components/GitPanel.tsx'
+              - 'artifacts/dashboard/src/pages/AiChat.tsx'
+              - 'artifacts/dashboard/src/pages/Dashboard.tsx'
+              - 'artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx'
+              - 'artifacts/dashboard/src/pages/Events.tsx'
+              - 'artifacts/dashboard/src/pages/FlightDeck.tsx'
+              - 'artifacts/dashboard/src/pages/Graph.tsx'
+              - 'artifacts/dashboard/src/pages/Metrics.tsx'
+              - 'artifacts/dashboard/src/pages/MissionControl.tsx'
+              - 'artifacts/dashboard/src/pages/ProjectDetail.tsx'
+              - 'artifacts/dashboard/src/pages/Projects.tsx'
+              - 'artifacts/dashboard/src/pages/Rules.tsx'
+              - 'artifacts/dashboard/src/pages/Tasks.tsx'
+              - 'artifacts/dashboard/src/pages/Workflows.tsx'
+
   contract-drift:
     name: OpenAPI contract drift guard
+    needs: contract-trigger
     runs-on: ubuntu-latest
-    # The changed-file expression below is the checked-in representation of
-    # .github/dashboard-contract-trigger-policy.json. The policy test fails if
-    # this representation drifts.
-    if: |
-      github.event_name == 'push' ||
-      contains(github.event.pull_request.changed_files, 'lib/api-spec/openapi.yaml') ||
-      contains(github.event.pull_request.changed_files, 'lib/api-zod/src/generated') ||
-      contains(github.event.pull_request.changed_files, 'lib/api-client-react/src/generated') ||
-      contains(github.event.pull_request.changed_files, 'lib/api-client-react/src/use-ai-chat-stream.ts') ||
-      contains(github.event.pull_request.changed_files, 'scripts/validate-dashboard-client-contract.mjs') ||
-      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/components/GitPanel.tsx') ||
-      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/AiChat.tsx') ||
-      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Dashboard.tsx') ||
-      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx') ||
-      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Events.tsx') ||
-      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/FlightDeck.tsx') ||
-      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Graph.tsx') ||
-      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Metrics.tsx') ||
-      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/MissionControl.tsx') ||
-      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/ProjectDetail.tsx') ||
-      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Projects.tsx') ||
-      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Rules.tsx') ||
-      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Tasks.tsx') ||
-      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Workflows.tsx')
+    # Pull-request file names come from paths-filter; changed_files in the
+    # GitHub event is only a numeric count. Pushes always run the fast path.
+    if: github.event_name == 'push' || needs.contract-trigger.outputs.should_run == 'true'
     steps:
       - uses: actions/checkout@v4
 

@@ -13,13 +13,26 @@ async function readPolicy() {
   return JSON.parse(await readFile(policyPath, "utf8"));
 }
 
-async function readWorkflowTriggerPaths() {
+async function readWorkflowTriggerPatterns() {
   const workflow = await readFile(workflowPath, "utf8");
-  return [
-    ...workflow.matchAll(
-      /contains\(github\.event\.pull_request\.changed_files,\s*'([^']+)'\)/g,
-    ),
-  ].map((match) => match[1]);
+  const filterStart = workflow.indexOf("            contract:\n");
+  assert.notEqual(filterStart, -1, "Workflow must define a contract path filter.");
+  const filterEnd = workflow.indexOf("\n\n  contract-drift:", filterStart);
+  assert.notEqual(filterEnd, -1, "Workflow contract path filter is malformed.");
+  return [...workflow.slice(filterStart, filterEnd).matchAll(/^\s+- '([^']+)'$/gm)].map(
+    (match) => match[1],
+  );
+}
+
+async function readContractJobCondition() {
+  const workflow = await readFile(workflowPath, "utf8");
+  const jobStart = workflow.indexOf("  contract-drift:\n");
+  assert.notEqual(jobStart, -1, "Workflow must define the contract-drift job.");
+  const conditionStart = workflow.indexOf("    if:", jobStart);
+  const stepsStart = workflow.indexOf("    steps:", conditionStart);
+  assert.notEqual(conditionStart, -1, "Contract-drift job must define a condition.");
+  assert.notEqual(stepsStart, -1, "Contract-drift job condition is malformed.");
+  return workflow.slice(conditionStart, stepsStart);
 }
 
 async function readContractTriggerPaths() {
@@ -29,8 +42,16 @@ async function readContractTriggerPaths() {
     .map(([path]) => path)];
 }
 
-function triggersContractCheck(triggerPaths, changedPath) {
-  return triggerPaths.includes(changedPath);
+function pathMatchesPattern(pattern, changedPath) {
+  return pattern.endsWith("/**")
+    ? changedPath.startsWith(pattern.slice(0, -3))
+    : changedPath === pattern;
+}
+
+function triggersContractCheck(triggerPatterns, changedPaths) {
+  return triggerPatterns.some((pattern) =>
+    changedPaths.some((changedPath) => pathMatchesPattern(pattern, changedPath)),
+  );
 }
 
 async function listSourceFiles(directory) {
@@ -50,19 +71,39 @@ async function listSourceFiles(directory) {
 }
 
 test("contract fast path covers representative source changes", async () => {
-  const triggerPaths = await readWorkflowTriggerPaths();
+  const triggerPatterns = await readWorkflowTriggerPatterns();
 
-  for (const [changedPath, expected] of [
-    ["artifacts/dashboard/src/pages/Projects.tsx", true],
-    ["lib/api-client-react/src/use-ai-chat-stream.ts", true],
-    ["artifacts/dashboard/src/pages/Landing.tsx", false],
+  for (const [changedPaths, expected] of [
+    [["lib/api-spec/openapi.yaml"], true],
+    [["lib/api-zod/src/generated/index.ts"], true],
+    [["artifacts/dashboard/src/pages/Projects.tsx"], true],
+    [["lib/api-client-react/src/use-ai-chat-stream.ts"], true],
+    [["artifacts/dashboard/src/pages/Landing.tsx"], false],
+    [["artifacts/dashboard/src/pages/Landing.tsx", "artifacts/dashboard/src/pages/Projects.tsx"], true],
   ]) {
     assert.equal(
-      triggersContractCheck(triggerPaths, changedPath),
+      triggersContractCheck(triggerPatterns, changedPaths),
       expected,
-      `${changedPath} should ${expected ? "" : "not "}trigger the contract fast path`,
+      `Changed pull-request files ${JSON.stringify(changedPaths)} should ${
+        expected ? "" : "not "
+      }trigger the contract fast path`,
     );
   }
+});
+
+test("contract job evaluates the real changed-path filter output", async () => {
+  const condition = await readContractJobCondition();
+
+  assert.match(
+    condition,
+    /needs\.contract-trigger\.outputs\.should_run == 'true'/,
+    "Contract-drift must be gated by the changed-path filter output.",
+  );
+  assert.doesNotMatch(
+    condition,
+    /github\.event\.pull_request\.changed_files/,
+    "Contract-drift must not treat changed_files (a numeric count) as paths.",
+  );
 });
 
 test("every production dashboard API consumer has an explicit trigger decision", async () => {
@@ -117,7 +158,10 @@ test("every production dashboard API consumer has an explicit trigger decision",
 
 test("workflow trigger representation stays synchronized with the policy", async () => {
   const expectedPaths = await readContractTriggerPaths();
-  const actualPaths = await readWorkflowTriggerPaths();
+  const actualPatterns = await readWorkflowTriggerPatterns();
+  const actualPaths = actualPatterns.map((pattern) =>
+    pattern.endsWith("/**") ? pattern.slice(0, -3) : pattern,
+  );
 
   assert.deepEqual(
     actualPaths,
