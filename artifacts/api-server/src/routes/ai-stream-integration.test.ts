@@ -1858,6 +1858,251 @@ describe("Concurrent Arabic chat turns", () => {
   });
 });
 
+describe("Concurrent chat ordering and ownership", () => {
+  type TurnFixture = {
+    prompt: string;
+    response: string;
+    source: string;
+    citation: string;
+  };
+
+  const turns: Record<string, TurnFixture> = {
+    technology: {
+      prompt: "Which technology handles the provider fallback?",
+      response: "Technology answer: the fallback router selects the next provider.",
+      source: "src/providers/fallback.ts",
+      citation: "provider fallback selection",
+    },
+    feature: {
+      prompt: "How should the feature flag be exposed to users?",
+      response: "Feature answer: expose the flag through the settings feature.",
+      source: "src/features/settings.ts",
+      citation: "settings feature flag",
+    },
+  };
+
+  /**
+   * The barrier is intentionally request-owned: a completion is registered by
+   * the prompt it received, not by mock invocation order. Both requests must
+   * arrive before either is released, and the release order is explicitly the
+   * reverse of submission order. This keeps the fixture deterministic without
+   * polling or queued mock implementations.
+   */
+  function requestOwnedReverseBarrier() {
+    const registered = new Set<string>();
+    const waiting = new Map<string, () => void>();
+    let readyResolve: (() => void) | undefined;
+    const ready = new Promise<void>((resolve) => { readyResolve = resolve; });
+    let released = false;
+
+    const waitForTurn = async (key: string) => {
+      await Promise.race([
+        ready,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("concurrent fixture barrier timed out")), 2_000),
+        ),
+      ]);
+      if (released) return;
+      await new Promise<void>((resolve) => waiting.set(key, resolve));
+    };
+
+    return {
+      register(key: string) {
+        registered.add(key);
+        if (registered.size === 2) readyResolve?.();
+      },
+      async releaseReverse() {
+        await ready;
+        if (released) throw new Error("concurrent fixture barrier released twice");
+        released = true;
+        waiting.get("feature")?.();
+        waiting.get("technology")?.();
+      },
+      waitForTurn,
+    };
+  }
+
+  function resultFor(turn: TurnFixture) {
+    const evidence = [{
+      source: turn.source,
+      excerpt: turn.citation,
+      sourceSpan: { startLine: 11, endLine: 11 },
+      supportsClaim: true,
+      evidenceClass: "BEHAVIOR_PROVEN" as const,
+      citationStatus: "ACCEPTED" as const,
+      citationReason: "ACCEPTED_SOURCE_SPAN" as const,
+    }];
+    return {
+      response: turn.response,
+      sources: [turn.source],
+      behaviorEvidence: evidence,
+      pendingChanges: [],
+      taskResult: {
+        kind: "BEHAVIOR_ANSWER_RESULT" as const,
+        answer: {
+          answer: turn.response,
+          evidence,
+          confidence: 1,
+          sourceScope: [turn.source],
+          coverage: {
+            requestedFields: [turn.citation],
+            answeredFields: [turn.citation],
+            missingFields: [],
+            complete: true,
+          },
+        },
+      },
+    };
+  }
+
+  async function createSession(projectId: string) {
+    const sessionId = randomUUID();
+    const now = new Date();
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Concurrent ownership fixture",
+      createdAt: now,
+      updatedAt: now,
+    });
+    return sessionId;
+  }
+
+  it("persists concurrent JSON turns in submission order with request-owned evidence", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await createSession(projectId);
+    const barrier = requestOwnedReverseBarrier();
+
+    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+      const prompt = (args[1] as { message: string }).message;
+      const key = prompt === turns.technology.prompt ? "technology" : "feature";
+      barrier.register(key);
+      await barrier.waitForTurn(key);
+      const turn = turns[key];
+      return {
+        result: resultFor(turn),
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const requests = Promise.all([
+      request(app)
+        .post("/api/ai/chat")
+        .send({ projectId, sessionId, message: turns.technology.prompt }),
+      request(app)
+        .post("/api/ai/chat")
+        .send({ projectId, sessionId, message: turns.feature.prompt }),
+    ]);
+    await barrier.releaseReverse();
+    const [first, second] = await requests;
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(first.body.sessionId).toBe(sessionId);
+    expect(second.body.sessionId).toBe(sessionId);
+    expect(first.body.message.content).toBe(turns.technology.response);
+    expect(second.body.message.content).toBe(turns.feature.response);
+    expect(first.body.behaviorEvidence[0]).toMatchObject({
+      source: turns.technology.source,
+      excerpt: turns.technology.citation,
+    });
+    expect(second.body.behaviorEvidence[0]).toMatchObject({
+      source: turns.feature.source,
+      excerpt: turns.feature.citation,
+    });
+
+    const history = await request(app).get(`/api/ai/chat/${sessionId}/messages`).expect(200);
+    expect(history.body.map((row: { role: string; content: string }) => [row.role, row.content])).toEqual([
+      ["user", turns.technology.prompt],
+      ["assistant", turns.technology.response],
+      ["user", turns.feature.prompt],
+      ["assistant", turns.feature.response],
+    ]);
+    expect(new Set(history.body.map((row: { id: string }) => row.id)).size).toBe(4);
+    expect(history.body[1].behaviorEvidence[0]).toMatchObject({
+      source: turns.technology.source,
+      excerpt: turns.technology.citation,
+    });
+    expect(history.body[3].behaviorEvidence[0]).toMatchObject({
+      source: turns.feature.source,
+      excerpt: turns.feature.citation,
+    });
+
+    const executions = await db
+      .select({ sessionId: aiExecutionsTable.sessionId, request: aiExecutionsTable.request })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.sessionId, sessionId));
+    expect(executions).toHaveLength(0);
+  });
+
+  it("keeps interleaved SSE deltas, evidence, executions, and done messages request-owned", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = await createSession(projectId);
+    const barrier = requestOwnedReverseBarrier();
+
+    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+      const prompt = (args[1] as { message: string }).message;
+      const key = prompt === turns.technology.prompt ? "technology" : "feature";
+      const turn = turns[key];
+      barrier.register(key);
+      const onDelta = args[3] as ((delta: string) => void) | undefined;
+      const onStep = args[6] as ((step: unknown) => void) | undefined;
+      onDelta?.(`${key}:delta:`);
+      onStep?.({
+        kind: "evidence_integrity",
+        code: "EVIDENCE_INTEGRITY_OK",
+        consistent: true,
+        violations: [],
+        evidenceFileCount: 1,
+        acceptedEvidenceCount: 1,
+        completedReadFiles: [turn.source],
+        acceptedEvidenceFiles: [turn.source],
+      });
+      await barrier.waitForTurn(key);
+      onDelta?.(turn.response);
+      return {
+        result: resultFor(turn),
+        effectiveProvider: "groq" as const,
+      } as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
+
+    const requests = Promise.all([
+      request(app)
+        .post("/api/ai/chat/stream")
+        .set("Content-Type", "application/json")
+        .send({ projectId, sessionId, message: turns.technology.prompt }),
+      request(app)
+        .post("/api/ai/chat/stream")
+        .set("Content-Type", "application/json")
+        .send({ projectId, sessionId, message: turns.feature.prompt }),
+    ]);
+    await barrier.releaseReverse();
+    const [first, second] = await requests;
+
+    for (const [response, turn] of [[first, turns.technology], [second, turns.feature]] as const) {
+      expect(response.status).toBe(200);
+      const events = parseSseEvents(response.text);
+      const started = events.find((event) => event.type === "execution_started");
+      const evidence = events.find((event) => event.type === "evidence_integrity");
+      const done = events.find((event) => event.type === "done");
+      expect(started?.executionId).toEqual(expect.any(String));
+      expect(evidence).toMatchObject({
+        completedReadFiles: [turn.source],
+        acceptedEvidenceFiles: [turn.source],
+      });
+      expect(done?.sessionId).toBe(sessionId);
+      expect((done?.message as Record<string, unknown>).content).toBe(turn.response);
+      expect(done?.behaviorEvidence).toEqual(resultFor(turn).behaviorEvidence);
+      expect(JSON.parse(String((done?.message as Record<string, unknown>).behaviorEvidence)))
+        .toEqual(resultFor(turn).behaviorEvidence);
+      expect(done?.operationId).toEqual(expect.any(String));
+      expect(events.filter((event) => event.type === "done")).toHaveLength(1);
+    }
+  });
+});
+
 // ─── INT-005: SSE success path ────────────────────────────────────────────────
 
 describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE", () => {
