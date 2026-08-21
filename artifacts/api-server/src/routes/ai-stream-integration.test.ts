@@ -2537,29 +2537,36 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     const oldReady = new Promise<void>((resolve) => { releaseOld = resolve; });
     const newReady = new Promise<void>((resolve) => { releaseNew = resolve; });
     let concurrentCalls = 0;
+    let resolveConcurrentCalls!: () => void;
+    const bothConcurrentCallsStarted = new Promise<void>((resolve) => {
+      resolveConcurrentCalls = resolve;
+    });
     vi.mocked(tryAdvisoryLock).mockResolvedValue({
       acquired: true,
       release: async () => undefined,
     });
-    vi.mocked(chatWithFallback)
-      .mockImplementationOnce(async (...args) => {
-        concurrentCalls += 1;
+    vi.mocked(chatWithFallback).mockImplementation(async (...args) => {
+      const turnMessage = (args[1] as { message?: string }).message;
+      concurrentCalls += 1;
+      if (concurrentCalls === 2) resolveConcurrentCalls();
+      if (turnMessage === "continue older work") {
         await oldReady;
         args[3]?.("older");
         return {
           result: makeResult("src/older.ts"),
           effectiveProvider: "groq" as const,
         } as Awaited<ReturnType<typeof chatWithFallback>>;
-      })
-      .mockImplementationOnce(async (...args) => {
-        concurrentCalls += 1;
+      }
+      if (turnMessage === "continue newer work") {
         await newReady;
         args[3]?.("newer");
         return {
           result: makeResult("src/newer.ts"),
           effectiveProvider: "groq" as const,
         } as Awaited<ReturnType<typeof chatWithFallback>>;
-      });
+      }
+      throw new Error(`Unexpected concurrent chat message: ${turnMessage ?? "(missing)"}`);
+    });
 
     const oldTurnRequest = request(app)
       .post("/api/ai/chat/stream")
@@ -2571,7 +2578,22 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       .send({ projectId, sessionId, message: "continue newer work" });
     const oldTurn = oldTurnRequest.then((response) => response);
     const newTurn = newTurnRequest.then((response) => response);
-    while (concurrentCalls < 2) await new Promise((resolve) => setTimeout(resolve, 0));
+    let rejectConcurrentStart!: (error: Error) => void;
+    const concurrentStartTimeout = setTimeout(
+      () => rejectConcurrentStart(new Error("Timed out waiting for both concurrent chat turns to start")),
+      5_000,
+    );
+    const concurrentStartTimeoutPromise = new Promise<never>((_, reject) => {
+      rejectConcurrentStart = reject;
+    });
+    try {
+      await Promise.race([
+        bothConcurrentCallsStarted,
+        concurrentStartTimeoutPromise,
+      ]);
+    } finally {
+      clearTimeout(concurrentStartTimeout);
+    }
     releaseNew();
     const newerResponse = await newTurn;
     releaseOld();
