@@ -7,4 +7,4 @@ Analysis results are only usable when their operation ID, workspace revision, an
 
 **Why:** Provider retries and reconnects can outlive the request that started them, while scans can mutate project state during execution.
 
-**How to apply:** Thread one correlation envelope through every analysis runner call, reject mismatches before model/evidence ingestion, and check cancellation before any scan transaction writes.
+**How to apply:** Thread one correlation envelope through every analysis runner call, persist its workspace revision with durable executions for reconnects, reject mismatches before model/evidence ingestion, and check cancellation before any scan transaction writes.

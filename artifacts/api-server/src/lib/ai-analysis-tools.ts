@@ -7,6 +7,7 @@ import {
   type GraphEntity,
 } from "@workspace/knowledge-engine";
 import type {
+  AnalysisCorrelation,
   AnalysisToolResult,
   AnalysisToolRunner,
 } from "@workspace/ai-orchestrator";
@@ -24,6 +25,20 @@ function check(signal?: AbortSignal): void {
   if (signal?.aborted) throw new Error("analysis cancelled");
 }
 
+function hasUsableCorrelation(
+  correlation: AnalysisCorrelation | undefined,
+): boolean {
+  if (!correlation || typeof correlation !== "object") return false;
+  const value = correlation as unknown as {
+    operationId?: unknown;
+    projectRevision?: unknown;
+  };
+  return typeof value.operationId === "string"
+    && value.operationId.length > 0
+    && typeof value.projectRevision === "string"
+    && value.projectRevision.length > 0;
+}
+
 function entityView(entity: GraphEntity) {
   return { id: entity.id, type: entity.type, name: entity.name, path: entity.path, confidence: entity.confidence };
 }
@@ -33,7 +48,7 @@ export function createProjectAnalysisToolRunner(
   rootPath: string,
 ): AnalysisToolRunner {
   return async (name, args, parentSignal, correlation): Promise<AnalysisToolResult> => {
-    if (!correlation) {
+    if (!hasUsableCorrelation(correlation)) {
       return { status: "unavailable", output: "Analysis correlation is unavailable." };
     }
     const controller = new AbortController();

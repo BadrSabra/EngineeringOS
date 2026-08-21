@@ -2133,6 +2133,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       sessionId: sessionIdToUse,
       message,
       modelMessage,
+      workspaceRevision: analysisCorrelation.projectRevision,
       ...(effectiveLinkedTaskId ? { linkedTaskId: effectiveLinkedTaskId } : {}),
       ...(effectiveBuildPlanMessageId ? { buildPlanMessageId: effectiveBuildPlanMessageId } : {}),
       ...(objective ? { objective } : {}),
@@ -2224,6 +2225,11 @@ router.post("/ai/chat/stream", async (req, res) => {
         res.end();
         return;
       }
+      // The original request owns the analysis revision. A reconnect must not
+      // silently move the same operation onto a newer workspace revision.
+      if (storedRequest?.workspaceRevision) {
+        analysisCorrelation.projectRevision = storedRequest.workspaceRevision;
+      }
       modelMessage = storedRequest.modelMessage;
       resumeCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
       const resumeContext = buildAiExecutionResumeContext(resumeCheckpoint);
@@ -2247,7 +2253,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         return;
       }
       aiExecution = claimed;
-      analysisCorrelation.operationId = aiExecution.id;
+      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
     } else {
       const created = await createAiExecution({
         userId: req.userId,
@@ -2259,7 +2265,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         buildPlanMessageId: effectiveBuildPlanMessageId,
       });
       aiExecution = created.execution;
-      analysisCorrelation.operationId = aiExecution.id;
+      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
       executionResumeToken = created.resumeToken;
       const claimed = await claimAiExecution({
         executionId: aiExecution.id,
@@ -2272,7 +2278,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         return;
       }
       aiExecution = claimed;
-      analysisCorrelation.operationId = aiExecution.id;
+      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
     }
 
     let checkpointSequence = aiExecution.checkpointVersion;

@@ -16,6 +16,8 @@ export type AiExecutionRequestEnvelope = {
   sessionId: string;
   message: string;
   modelMessage: string;
+  /** Workspace revision captured when this durable analysis operation began. */
+  workspaceRevision?: string;
   linkedTaskId?: string;
   buildPlanMessageId?: string;
   objective?: unknown;

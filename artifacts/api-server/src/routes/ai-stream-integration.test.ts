@@ -825,6 +825,11 @@ describe("Durable AI execution crash/reconnect", () => {
       sessionId,
       message: "continue the implementation",
       modelMessage: "continue the implementation",
+      workspaceRevision: (await db
+        .select({ updatedAt: projectsTable.updatedAt })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, projectId))
+        .limit(1))[0]!.updatedAt.toISOString(),
       validationTargetPaths: [],
     };
 
@@ -874,8 +879,25 @@ describe("Durable AI execution crash/reconnect", () => {
       .where(eq(aiExecutionsTable.id, created.execution.id))
       .limit(1);
     expect(paused[0]?.status).toBe("paused");
+    await db
+      .update(projectsTable)
+      .set({ updatedAt: new Date(new Date(requestEnvelope.workspaceRevision).getTime() + 60_000) })
+      .where(eq(projectsTable.id, projectId));
 
     vi.mocked(chatWithFallback).mockClear();
+    const resumedCorrelations: Array<{ operationId?: string; projectRevision?: string }> = [];
+    vi.mocked(chatWithFallback).mockImplementationOnce(async (...args) => {
+      const params = args[1] as { analysisCorrelation?: { operationId: string; projectRevision: string } };
+      resumedCorrelations.push({ ...params.analysisCorrelation });
+      return {
+        result: {
+          response: "Resumed after provider failover.",
+          sources: ["src/resume.ts"],
+          pendingChanges: [],
+        },
+        effectiveProvider: "gemini",
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+    });
     const resumed = await request(app)
       .post("/api/ai/chat/stream")
       .send({
@@ -887,6 +909,11 @@ describe("Durable AI execution crash/reconnect", () => {
       });
 
     expect(resumed.status).toBe(200);
+    expect(resumedCorrelations).toEqual([{
+      operationId: created.execution.operationId ?? created.execution.id,
+      projectRevision: requestEnvelope.workspaceRevision,
+      evidenceProvenance: "project-analysis",
+    }]);
     const call = vi.mocked(chatWithFallback).mock.calls.at(-1);
     const input = call?.[1] as { message?: string } | undefined;
     expect(input?.message).toContain("SERVER-OWNED DURABLE RESUME CONTEXT");

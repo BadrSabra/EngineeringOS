@@ -686,6 +686,9 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
             effectiveArgs,
             opts.analysisToolRunner,
             opts.signal,
+            // This is deliberately the same request-owned envelope on every
+            // provider retry/resume; the analysis tool validates it before
+            // accepting evidence.
             opts.analysisCorrelation,
           )
             .then((result) => {
