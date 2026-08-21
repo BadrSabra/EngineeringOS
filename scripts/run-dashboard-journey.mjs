@@ -160,6 +160,25 @@ function runConcurrentChatContractChecks() {
   })), Promise.resolve());
 }
 
+function runLiveCorrelationReportCheck() {
+  return new Promise((resolve, reject) => {
+    const reportPath =
+      process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+      "test-results/dashboard-journey/live-mission-correlation.json";
+    const check = spawn(
+      "node",
+      ["scripts/mission-correlation-report.mjs", reportPath],
+      { env: { ...process.env }, stdio: "inherit" },
+    );
+    check.on("error", reject);
+    check.on("exit", (code, signal) => {
+      if (signal) reject(new Error(`Live mission correlation check stopped by ${signal}.`));
+      else if (code !== 0) reject(new Error(`Live mission correlation report failed with exit code ${code ?? 1}.`));
+      else resolve();
+    });
+  });
+}
+
 await runClerkHandoffContracts();
 console.log("Dashboard Clerk handoff response contracts passed.");
 
@@ -213,5 +232,21 @@ child.on("exit", (code, signal) => {
     process.exitCode = 1;
     return;
   }
-  process.exitCode = code ?? 1;
+  if (code !== 0) {
+    process.exitCode = code ?? 1;
+    return;
+  }
+  if (process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1") {
+    runLiveCorrelationReportCheck()
+      .then(() => {
+        console.log("Live mission correlation report passed.");
+        process.exitCode = 0;
+      })
+      .catch((error) => {
+        console.error(redact(error instanceof Error ? error.message : String(error)));
+        process.exitCode = 1;
+      });
+    return;
+  }
+  process.exitCode = 0;
 });

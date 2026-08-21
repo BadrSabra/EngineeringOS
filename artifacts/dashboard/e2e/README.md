@@ -39,6 +39,29 @@ uses a controlled execution id for Flight Deck, and returns a deliberate
 provider-unavailable response for AI. Routing, Clerk session handoff, and
 rendering remain real browser behavior.
 
+## Bounded live-provider correlation run
+
+The live-provider path is opt-in and never runs as part of the normal smoke
+journey. It uses the isolated Clerk user, a disposable project already owned
+by that user, and the configured provider without printing keys or model
+responses:
+
+```sh
+DASHBOARD_E2E_LIVE_PROVIDER=1 \
+DASHBOARD_E2E_LIVE_PROJECT_ID=<disposable-project-id> \
+DASHBOARD_E2E_LIVE_REPORT_PATH=test-results/dashboard-journey/live-mission-correlation.json \
+RUN_CONTROLLED_RELEASE_VALIDATION=1 \
+pnpm run validate:dashboard-journey
+```
+
+The run is bounded by `DASHBOARD_E2E_LIVE_TIMEOUT_MS` (default 120 seconds)
+and exports a redacted report keyed by the provider-backed `operationId` and
+the latest Git `workspaceRevision`. The report verifies persisted messages,
+SSE events, execution checkpoints, evidence, proposals, validation, and
+Mission Control state. `COMPLETED`-class states are success; provider
+failover, unavailable, failed, and cancelled terminals are retained as
+explicit non-success outcomes rather than being treated as passing runs.
+
 ## Failure diagnostics
 
 The Playwright config retains traces and screenshots on failure under
