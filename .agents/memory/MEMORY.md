@@ -31,6 +31,7 @@
 - [Codegen working directory](codegen-working-directory.md) — delegated Zod post-processing paths are resolved from the scripts package, while drift checks use an explicit output root.
 - [Durable session-state ordering](session-state-ordering.md) — streamed resumable state must reject late older completions using the state-owned progress timestamp.
 - [Live mission correlation](live-correlation-release.md) — live-provider acceptance is opt-in, disposable, redacted, and validates all mission surfaces by operation and revision.
+- [Release wrapper teardown](release-wrapper-teardown.md) — release wrappers can pass assertions yet end with SIGTERM/SIGHUP during child-server cleanup; separate test assertions from lifecycle status.
 - [Analysis correlation](analysis-correlation.md) — scanner, graph, and discovery evidence must match the active operation and revision, with cancellation checked before writes.
 - [Tool failure terminality](tool-failure-terminality.md) — agent tool exceptions use bounded typed diagnostics and terminalize the operation; never continue from an error-shaped success.
 - [Retained-read reachability proof](retained-read-reachability-proof.md) — final-answer validation must recognize syntax-derived retained-read edges alongside externally supplied runtime traces.
