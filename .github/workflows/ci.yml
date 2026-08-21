@@ -52,6 +52,11 @@ jobs:
       - name: Type-check generated surfaces
         run: pnpm run typecheck:libs
 
+      # Keep the clean client declaration + dashboard contract guard in the
+      # fast path so stale dashboard-facing API types fail with the spec job.
+      - name: Validate API client and dashboard contract
+        run: pnpm run validate:dashboard-client-contract
+
   validate:
     name: Validate (codegen drift + typecheck + tests)
     runs-on: ubuntu-latest
