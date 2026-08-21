@@ -51,7 +51,24 @@ import {
 
 export type ScopeEstimate = "narrow" | "medium" | "broad";
 
+export type CompoundPartKind =
+  | "CURRENT_STATE"
+  | "FEATURES"
+  | "GAPS"
+  | "PRIORITIES"
+  | "OTHER";
+
+export type CompoundQueryPart = {
+  id: string;
+  kind: CompoundPartKind;
+  question: string;
+  requiredCount?: number;
+  requiresCitation: boolean;
+};
+
 export type QueryPlan = {
+  /** The original user intent, retained verbatim for final synthesis. */
+  originalIntent: string;
   /** Relevant file paths extracted from the knowledge graph. Max 10. */
   targetFiles: string[];
   /** Entity names from the knowledge graph most relevant to the query. */
@@ -67,6 +84,8 @@ export type QueryPlan = {
   requiresToolUse: boolean;
   /** Sub-questions produced for broad queries (empty for narrow/medium). */
   subQueries: string[];
+  /** Explicit coverage contract for compound questions. */
+  compoundParts: CompoundQueryPart[];
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -89,12 +108,14 @@ const MAX_GRAPH_GUIDED_NEIGHBORS = 6;
  * Keeps the tool loop running with sensible mid-range defaults.
  */
 const FALLBACK_PLAN: QueryPlan = {
+  originalIntent: "",
   targetFiles: [],
   targetEntities: [],
   scopeEstimate: "medium",
     suggestedIterations: 30,
   requiresToolUse: true,
   subQueries: [],
+  compoundParts: [],
 };
 
 // ── Prompt ────────────────────────────────────────────────────────────────────
@@ -122,6 +143,7 @@ Return exactly this JSON shape:
   "suggestedIterations": 10,
   "requiresToolUse": true,
   "subQueries": []
+  ,"compoundParts": []
 }
 
 Rules:
@@ -132,7 +154,9 @@ Rules:
 - targetEntities: entity names from the graph — max 10, empty if none relevant
 - suggestedIterations: integer — narrow 5-16, medium 18-35, broad 40-60
 - subQueries: non-empty only when scopeEstimate is "broad" — decompose into 2-5 focused sub-questions
-- requiresToolUse: false only if the answer is factual and requires no file reading`;
+- requiresToolUse: false only if the answer is factual and requires no file reading
+- compoundParts: preserve every requested part in order. Use kinds CURRENT_STATE, FEATURES, GAPS, PRIORITIES, or OTHER; set requiredCount to 3 only for an explicit top three request; every part requiresCitation when it makes a project claim
+- originalIntent: copy the user query exactly`;
 }
 
 // ── JSON parser ───────────────────────────────────────────────────────────────
@@ -159,6 +183,7 @@ function parsePlannerResponse(raw: string | null): QueryPlan | null {
         : scopeEstimate === "narrow" ? 10 : scopeEstimate === "broad" ? 45 : 24;
 
     return {
+      originalIntent: typeof parsed["originalIntent"] === "string" ? parsed["originalIntent"] : "",
       targetFiles: Array.isArray(parsed["targetFiles"])
         ? (parsed["targetFiles"] as string[]).filter((f) => typeof f === "string").slice(0, MAX_TARGET_FILES)
         : [],
@@ -171,10 +196,48 @@ function parsePlannerResponse(raw: string | null): QueryPlan | null {
       subQueries: Array.isArray(parsed["subQueries"])
         ? (parsed["subQueries"] as string[]).filter((q) => typeof q === "string").slice(0, MAX_SUBQUERIES)
         : [],
+      compoundParts: Array.isArray(parsed["compoundParts"])
+        ? (parsed["compoundParts"] as Array<Record<string, unknown>>)
+            .filter((part) => part && typeof part === "object" && typeof part.id === "string" && typeof part.question === "string")
+            .slice(0, 8)
+            .map((part, index) => ({
+              id: part.id as string || `part-${index + 1}`,
+              kind:
+                part.kind === "FEATURES" || part.kind === "GAPS" || part.kind === "PRIORITIES" ||
+                part.kind === "CURRENT_STATE"
+                  ? part.kind
+                  : "OTHER",
+              question: part.question as string,
+              ...(typeof part.requiredCount === "number" && part.requiredCount > 0
+                ? { requiredCount: Math.round(part.requiredCount) }
+                : {}),
+              requiresCitation: part.requiresCitation !== false,
+            }))
+        : [],
     };
   } catch {
     return null;
   }
+}
+
+function inferCompoundParts(message: string): CompoundQueryPart[] {
+  const parts: CompoundQueryPart[] = [];
+  const add = (id: string, kind: CompoundPartKind, question: string, requiredCount?: number) =>
+    parts.push({ id, kind, question, ...(requiredCount ? { requiredCount } : {}), requiresCitation: true });
+  if (/(?:current|currently|today|existing|implemented|الحالي|الحالية|الموجود|الميزات الحالية)/iu.test(message)) {
+    add("current-state", "CURRENT_STATE", "What is the current project state?");
+  }
+  if (/(?:feature|features|capabilit|وظائف|ميزات|إمكانات)/iu.test(message)) {
+    add("features", "FEATURES", "What features or capabilities currently exist?");
+  }
+  if (/(?:gap|gaps|missing|weakness|deficien|ثغر|فجوات|نواقص|نقاط الضعف)/iu.test(message)) {
+    add("gaps", "GAPS", "What verified gaps or missing capabilities exist?");
+  }
+  const topThree = /(?:top|first|priority|priorities|الأولويات|أول|ثلاث|3)\b/iu.test(message);
+  if (topThree || /priority|أولوية/iu.test(message)) {
+    add("priorities", "PRIORITIES", "What should be prioritized based on the verified project state?", topThree ? 3 : undefined);
+  }
+  return parts;
 }
 
 // ── Deterministic graph-guided file planning ───────────────────────────────────
@@ -594,8 +657,8 @@ export async function planQuery(opts: {
     return FALLBACK_PLAN;
   }
 
-  const plan = parsePlannerResponse(result.content);
-  if (!plan) {
+  const parsedPlan = parsePlannerResponse(result.content);
+  if (!parsedPlan) {
     console.warn(
       JSON.stringify({
         scope: "query-planner",
@@ -611,10 +674,26 @@ export async function planQuery(opts: {
   // Only enrich when we have a project ID and the project has a completed scan
   // (metricsVerified = true).  Skipping on un-scanned projects avoids wasted
   // DB queries against an empty graph.
+  const plan: QueryPlan = {
+    ...parsedPlan,
+    originalIntent: parsedPlan.originalIntent || message,
+    compoundParts:
+      parsedPlan.compoundParts.length > 0 ? parsedPlan.compoundParts : inferCompoundParts(message),
+  };
+  const normalizedPlan: QueryPlan = {
+    ...plan,
+    subQueries:
+      plan.subQueries.length >= 2
+        ? plan.subQueries
+        : plan.compoundParts.length >= 2
+          ? plan.compoundParts.map((part) => part.question).slice(0, MAX_SUBQUERIES)
+          : plan.subQueries,
+  };
+
   const enriched =
     projectId && projectContext.metricsVerified
-      ? await enrichPlanWithGraph(plan, projectId)
-      : plan;
+      ? await enrichPlanWithGraph(normalizedPlan, projectId)
+      : normalizedPlan;
 
   console.info(
     JSON.stringify({

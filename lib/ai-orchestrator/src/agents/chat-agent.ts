@@ -113,7 +113,7 @@ import {
   buildTaskExecutionPartialReport,
   type TaskExecutionPartialReason,
 } from "../task-execution-partial-report.js";
-import { executeHierarchical } from "./hierarchical-executor.js";
+import { executeHierarchical, validateCompoundSynthesis } from "./hierarchical-executor.js";
 import { executeExecutionNodePlan } from "../execution-node-coordinator.js";
 import { stripReadFileWrapper, executeFileTool } from "../tools/file-tools.js";
 import { classifyForensicTerminal, classifyObjectiveVerdict } from "../audit-telemetry.js";
@@ -4757,12 +4757,18 @@ export async function chat(opts: {
         rootPath,
         pendingChanges,
         cache: toolCallCache,
+        compoundParts: queryPlan.compoundParts ?? [],
       });
 
       const mergedSources = [
         ...prefetchSources,
         ...hierarchicalResult.toolSources,
       ];
+      for (const evidence of hierarchicalResult.sourceEvidence) {
+        if (!forensicFileContents.has(evidence.file)) {
+          forensicFileContents.set(evidence.file, evidence.excerpt);
+        }
+      }
 
       // AI-OBJ-005/007: the hierarchical executor's final-synthesis response is
       // a terminal finalization path — it MUST route through the shared
@@ -4771,6 +4777,22 @@ export async function chat(opts: {
       // text word-by-word. An unanswered objective never surfaces the model's
       // claimed-completed/proven text, even on the broad-query streaming early
       // return.
+      const compoundParts = queryPlan.compoundParts ?? [];
+      const compoundCoverage = compoundParts.length > 0
+        ? hierarchicalResult.coverage ??
+          validateCompoundSynthesis(
+            hierarchicalResult.response,
+            compoundParts,
+            hierarchicalResult.sourceEvidence,
+          )
+        : undefined;
+      const compoundFallback = /[\u0600-\u06FF]/.test(message)
+        ? `ANALYSIS_INCOMPLETE — تعذر إغلاق أجزاء السؤال المركب: ${
+          compoundCoverage?.violations.join("؛ ") || "الأدلة المقروءة لا تكفي"
+        }. لم تُستخدم المصادر المقترحة كدليل.`
+        : `ANALYSIS_INCOMPLETE — the compound answer could not close every requested part: ${
+          compoundCoverage?.violations.join("; ") || "completed reads were insufficient"
+        }. Planned or suggested sources were not used as evidence.`;
       const hierarchicalCandidate = finalizeTaskResponse(
         repairPlanExecution
           ? buildRepairPlanExecutionResponse(
@@ -4781,7 +4803,9 @@ export async function chat(opts: {
               undefined,
               executionDiagnosticDetails,
             )
-          : hierarchicalResult.response ||
+          : (compoundCoverage && !compoundCoverage.valid
+            ? compoundFallback
+            : hierarchicalResult.response) ||
             "The analysis was too broad to complete. Try breaking your question into more specific parts.",
       );
       const hierarchicalObjectiveFinalized = finalizeObjectiveAndStream({

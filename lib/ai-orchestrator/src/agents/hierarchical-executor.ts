@@ -26,6 +26,7 @@ import type { ToolDefinitionLike } from "../tool-policy.js";
 import type { PendingChange } from "../schemas/chat.schema.js";
 import type { RawMessage } from "../groq-client.js";
 import { executeToolLoop } from "../tool-execution-engine.js";
+import type { CompoundQueryPart } from "./query-planner.js";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -75,6 +76,15 @@ export type HierarchicalExecutorOpts = {
   maxToolCallsPerTask?: number;
   /** Maximum number of compatible sub-tasks in one scheduling wave. */
   maxParallelTasks?: number;
+  /** Optional coverage contract for a compound question. */
+  compoundParts?: CompoundQueryPart[];
+};
+
+export type SourceEvidence = {
+  file: string;
+  excerpt: string;
+  startLine: number;
+  endLine: number;
 };
 
 export type HierarchicalResult = {
@@ -82,6 +92,9 @@ export type HierarchicalResult = {
   response: string;
   /** Deduplicated union of all tool sources accessed across all sub-loops. */
   toolSources: string[];
+  /** Bodies returned by completed read tools, never planner hints. */
+  sourceEvidence: SourceEvidence[];
+  coverage?: CompoundSynthesisValidation;
 };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -98,6 +111,7 @@ type SubResult = {
   intent: string;
   text: string;
   toolSources: string[];
+  sourceEvidence: SourceEvidence[];
 };
 
 /**
@@ -142,7 +156,20 @@ async function runSubTask(
         ? (loopResult.result.content ?? "")
         : `[Analysis for "${task.intent}" — iteration budget exhausted before a complete answer was produced]`;
 
-    return { intent: task.intent, text, toolSources: loopResult.toolSources };
+    const sourceEvidence: SourceEvidence[] = Array.from(loopResult.fileContents ?? new Map<string, string>()).map(([file, content]) => {
+      const raw = content
+        .replace(/^File:\s*[^\n]+\n```[^\n]*\n/u, "")
+        .replace(/\n```\s*$/u, "")
+        .trim();
+      const excerpt = raw.slice(0, 4_000);
+      return {
+        file,
+        excerpt,
+        startLine: 1,
+        endLine: Math.max(1, excerpt.split("\n").length),
+      };
+    });
+    return { intent: task.intent, text, toolSources: loopResult.toolSources, sourceEvidence };
   } catch (err) {
     console.warn(
       JSON.stringify({
@@ -156,6 +183,7 @@ async function runSubTask(
       intent: task.intent,
       text: `[Analysis for "${task.intent}" encountered an error]`,
       toolSources: [],
+      sourceEvidence: [],
     };
   }
 }
@@ -220,16 +248,84 @@ function takeSchedulingWave(
  * Includes all sub-results separated by section headers so the model can
  * cite specific findings rather than hallucinating.
  */
-function buildSynthesisUserTurn(subResults: SubResult[]): string {
+function buildSynthesisUserTurn(
+  subResults: SubResult[],
+  compoundParts: CompoundQueryPart[] = [],
+): string {
   const sections = subResults
     .map((r, i) => `## Sub-analysis ${i + 1}: ${r.intent}\n\n${r.text}`)
     .join("\n\n---\n\n");
+  const evidence = [...new Map(
+    subResults.flatMap((r) => r.sourceEvidence)
+      .map((item) => [`${item.file}:${item.startLine}:${item.endLine}`, item]),
+  ).values()];
+  const evidenceManifest = evidence.length > 0
+    ? evidence.map((item) =>
+      `- ${item.file}:${item.startLine}-${item.endLine}\n  ${item.excerpt}`,
+    ).join("\n")
+    : "(No completed source body was returned by a read tool.)";
+  const coverage = compoundParts.length > 0
+    ? compoundParts.map((part) =>
+      `- ${part.id} (${part.kind})${part.requiredCount ? ` — exactly ${part.requiredCount} items` : ""}: ${part.question}`,
+    ).join("\n")
+    : "(No explicit compound coverage contract.)";
 
   return (
+    `Original compound-question coverage contract:\n${coverage}\n\n` +
+    `Verified source evidence (only these read bodies may be cited):\n${evidenceManifest}\n\n` +
     `Here are the results of each sub-analysis:\n\n${sections}\n\n` +
-    `Synthesize these into one clear, comprehensive answer. ` +
-    `Cite specific findings. Do not call any tools.`
+    `Synthesize every requested part without dropping any part. ` +
+    `Classify each material statement as FACT (حقيقة مؤكدة), INFERENCE (استنتاج), or PROPOSAL (اقتراح/أولوية). ` +
+    `Every FACT and every PROPOSAL must cite a file and line range from the verified source evidence manifest. ` +
+    `An INFERENCE must be labeled as such and must not be stated as a fact. ` +
+    `If a part has no supporting read evidence, write NOT PROVEN / غير مثبت for that part; do not replace it with generic advice. ` +
+    `Honor exact requested counts. Do not call any tools.`
   );
+}
+
+export type CompoundSynthesisValidation = {
+  valid: boolean;
+  missingPartIds: string[];
+  invalidCitations: string[];
+  violations: string[];
+};
+
+export function validateCompoundSynthesis(
+  response: string,
+  parts: readonly CompoundQueryPart[],
+  sourceEvidence: readonly SourceEvidence[],
+): CompoundSynthesisValidation {
+  const lower = response.toLocaleLowerCase();
+  const knownFiles = new Set(sourceEvidence.map((item) => item.file.replace(/^\.\/+/, "")));
+  const missingPartIds = parts
+    .filter((part) => !lower.includes(part.id.toLocaleLowerCase()) &&
+      !lower.includes(part.kind.toLocaleLowerCase()) &&
+      !(
+        (part.kind === "FEATURES" && /feature|ميزة|وظيف/iu.test(response)) ||
+        (part.kind === "GAPS" && /gap|فجوة|ثغر|نقص/iu.test(response)) ||
+        (part.kind === "PRIORITIES" && /priorit|أولوية|أولويات/iu.test(response)) ||
+        (part.kind === "CURRENT_STATE" && /current|حالي|موجود/iu.test(response))
+      ))
+    .map((part) => part.id);
+  const citedFiles = [
+    ...[...response.matchAll(
+      /`((?:\.{0,2}\/|lib\/|src\/|artifacts\/|packages\/)[\w.@/-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|rb|sql|md|json|yaml|yml|toml))`/g,
+    )].map((match) => match[1]!),
+    ...[...response.matchAll(
+      /(?<![\w/@.`])((?:\.{0,2}\/|lib\/|src\/|artifacts\/|packages\/)[\w.@/-]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|rb|sql|md|json|yaml|yml|toml))/g,
+    )].map((match) => match[1]!),
+  ].map((file) => file.replace(/^\.\/+/, ""));
+  const invalidCitations = citedFiles.filter((file) => !knownFiles.has(file));
+  const violations: string[] = [];
+  if (missingPartIds.length > 0) violations.push(`missing compound parts: ${missingPartIds.join(", ")}`);
+  if (invalidCitations.length > 0) violations.push(`citations are not completed reads: ${invalidCitations.join(", ")}`);
+  if (parts.some((part) => part.requiresCitation) && citedFiles.length === 0) {
+    violations.push("compound claims contain no citation to a completed source read");
+  }
+  if (parts.some((part) => part.requiresCitation) && sourceEvidence.length === 0) {
+    violations.push("compound claims have no completed source evidence");
+  }
+  return { valid: violations.length === 0, missingPartIds, invalidCitations, violations };
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
@@ -294,6 +390,10 @@ export async function executeHierarchical(
   // ── 2. Deduplicate all sources ────────────────────────────────────────────
   const allSources = subResults.flatMap((r) => r.toolSources);
   const uniqueSources = [...new Set(allSources)];
+  const sourceEvidence = [...new Map(
+    subResults.flatMap((r) => r.sourceEvidence)
+      .map((item) => [`${item.file}:${item.startLine}:${item.endLine}`, item]),
+  ).values()];
 
   // ── 3. Synthesis call (no tools) ─────────────────────────────────────────
   const synthesisMessages: RawMessage[] = [
@@ -307,7 +407,7 @@ export async function executeHierarchical(
     },
     {
       role: "user",
-      content: buildSynthesisUserTurn(subResults),
+      content: buildSynthesisUserTurn(subResults, opts.compoundParts),
     },
   ];
 
@@ -346,8 +446,13 @@ export async function executeHierarchical(
     }),
   );
 
+  const coverage = opts.compoundParts?.length
+    ? validateCompoundSynthesis(synthesisText, opts.compoundParts, sourceEvidence)
+    : undefined;
   return {
     response: synthesisText,
     toolSources: uniqueSources,
+    sourceEvidence,
+    ...(coverage ? { coverage } : {}),
   };
 }

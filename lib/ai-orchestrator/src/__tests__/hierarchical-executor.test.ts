@@ -13,7 +13,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ProviderStrategy } from "../provider-strategy.js";
 import type { RawGroqResponse } from "../groq-client.js";
-import type { HierarchicalTask } from "../agents/hierarchical-executor.js";
+import {
+  validateCompoundSynthesis,
+  type HierarchicalTask,
+  type SourceEvidence,
+} from "../agents/hierarchical-executor.js";
 
 /** Build a minimal but type-correct RawGroqResponse stub. */
 function mockResponse(content: string): RawGroqResponse {
@@ -393,5 +397,50 @@ describe("executeHierarchical — resilience", () => {
     const callOpts = vi.mocked(strategy.call).mock.calls[0][1];
     // tools must be absent (undefined) from the synthesis call options
     expect(callOpts).not.toHaveProperty("tools");
+  });
+});
+
+describe("compound synthesis evidence contract", () => {
+  const parts = [
+    { id: "features", kind: "FEATURES" as const, question: "What exists?", requiresCitation: true },
+    { id: "gaps", kind: "GAPS" as const, question: "What is missing?", requiresCitation: true },
+    { id: "priorities", kind: "PRIORITIES" as const, question: "What are the top priorities?", requiredCount: 3, requiresCitation: true },
+  ];
+  const evidence: SourceEvidence[] = [{
+    file: "src/current.ts",
+    excerpt: "export const feature = true;",
+    startLine: 1,
+    endLine: 1,
+  }];
+
+  it("rejects a planned source that was never returned by a completed read", () => {
+    const result = validateCompoundSynthesis(
+      "FEATURES: fact from `src/planned.ts`.",
+      parts,
+      evidence,
+    );
+    expect(result.valid).toBe(false);
+    expect(result.invalidCitations).toEqual(["src/planned.ts"]);
+    expect(result.missingPartIds).toEqual(["gaps", "priorities"]);
+  });
+
+  it("requires every compound part and a citation to completed evidence", () => {
+    const result = validateCompoundSynthesis(
+      "FEATURES: FACT from src/current.ts. GAPS: NOT PROVEN. PRIORITIES: NOT PROVEN.",
+      parts,
+      evidence,
+    );
+    expect(result.valid).toBe(true);
+    expect(result.missingPartIds).toEqual([]);
+  });
+
+  it("fails closed when no source body was actually read", () => {
+    const result = validateCompoundSynthesis(
+      "FEATURES: FACT. GAPS: INFERENCE. PRIORITIES: PROPOSAL.",
+      parts,
+      [],
+    );
+    expect(result.valid).toBe(false);
+    expect(result.violations).toContain("compound claims have no completed source evidence");
   });
 });
