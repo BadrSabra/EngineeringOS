@@ -73,3 +73,13 @@ flow such as \`return\`, \`if\`, \`switch\`, \`throw\`, or a call—not only a
 declaration or filename. End with a one-line overall score,
 e.g. "X/7 capabilities demonstrated". Use plain text rather than a JSON
 object, and do not include a repair plan.`;
+
+/**
+ * The probe's source boundary is part of its contract, not merely prompt
+ * guidance. Consumers use this manifest when deciding whether a response can
+ * be promoted from an evidence inventory to a completed probe.
+ */
+export const CAPABILITY_PROBE_SOURCE_FILES = [
+  "lib/ai-orchestrator/src/prompts/profile-classifier.ts",
+  "lib/ai-orchestrator/src/tools/file-tools.ts",
+] as const;

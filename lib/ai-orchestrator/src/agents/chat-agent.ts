@@ -53,6 +53,7 @@ import { GroqClientError, type AgentErrorCode } from "../errors.js";
 import type { RawMessage, ToolDefinition } from "../groq-client.js";
 import type { ProjectContext } from "../context-builder.js";
 import { buildChatSystemPrompt, type ActiveTask } from "../prompts/chat.prompt.js";
+import { CAPABILITY_PROBE_SOURCE_FILES } from "../prompts/capability-probe.js";
 import { classifyRequest } from "../prompts/profile-classifier.js";
 import { resolveTurnIntent, type TurnIntent } from "../turn-intent.js";
 import {
@@ -664,6 +665,23 @@ export function hasUnverifiedPositiveForensicClaim(
 export function isCapabilityProbeRequest(message: string): boolean {
   return /(?:^|\n)\s*#\s*AI Model Capability Probe\b/i.test(message) ||
     /\bAI Model Capability Probe\b[\s\S]*\bC[1-7]\b/i.test(message);
+}
+
+/**
+ * Capability reports are only meaningful after both explicitly named source
+ * bodies have been retained. A tool-source label, search hit, or one completed
+ * body is not enough to prove the two-file C1–C7 contract.
+ */
+function hasCompleteCapabilityProbeEvidence(
+  fileContents: ReadonlyMap<string, string>,
+): boolean {
+  if (fileContents.size !== CAPABILITY_PROBE_SOURCE_FILES.length) return false;
+  return CAPABILITY_PROBE_SOURCE_FILES.every((file) => {
+    const body = fileContents.get(file);
+    return typeof body === "string" &&
+      body.trim().length > 0 &&
+      !/\[\.\.\.\s*(?:output truncated|forensic read exceeded)/i.test(body);
+  });
 }
 
 function validateCapabilityProbeResponse(response: string): string[] {
@@ -6343,7 +6361,11 @@ export async function chat(opts: {
   // `response` property. Recover that envelope before asking for a second
   // synthesis pass; otherwise the parser discards a potentially useful report
   // and sends only a generic fallback into capability recovery.
-  if (capabilityProbeRequest && !parsed.ok && forensicFileContents.size > 0) {
+  if (
+    capabilityProbeRequest &&
+    !parsed.ok &&
+    hasCompleteCapabilityProbeEvidence(forensicFileContents)
+  ) {
     const normalizedInitial = normalizeCapabilityProbeRecoveryContent(content, forensicFileContents);
     if (
       normalizedInitial &&
@@ -8079,7 +8101,7 @@ export async function chat(opts: {
    */
   if (
     capabilityProbeRequest &&
-    forensicFileContents.size > 0 &&
+    hasCompleteCapabilityProbeEvidence(forensicFileContents) &&
     (
       validateCapabilityProbeResponse(responseBeforeBehaviorEvidence).length > 0 ||
       behaviorEvidenceValidation.evidence.length === 0
@@ -8514,8 +8536,12 @@ export async function chat(opts: {
     /(?:\bsource\b|`[^`]+\.(?:ts|tsx|js|jsx|py|go|rs|java|kt|rb|sql|sh)`)/i.test(
       responseBeforeBehaviorEvidence,
     );
+  const capabilityProbeEvidenceIncomplete =
+    capabilityProbeRequest && !hasCompleteCapabilityProbeEvidence(forensicFileContents);
   const finalResponse =
-    providerReturnedEmptyEvidenceResponse
+    capabilityProbeEvidenceIncomplete
+      ? "ANALYSIS_INCOMPLETE — the capability probe did not retain complete source bodies for both named files; no C1–C7 result is proven."
+      : providerReturnedEmptyEvidenceResponse
       ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
       : insufficientAcceptedBehaviorEvidence
       ? buildBehaviorEvidenceIncompleteResponse(message, forensicFileContents)
