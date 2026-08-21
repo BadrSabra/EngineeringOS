@@ -7,20 +7,39 @@ on:
     branches: [main]
 
 # PR-5: A dedicated fast-path job runs codegen:check + typecheck whenever the
-# OpenAPI spec changes. It completes in ~60 s and catches drift before the full
-# test suite (which takes several minutes) even starts. The full job always runs
-# in parallel so neither blocks the other.
+# OpenAPI contract or one of its focused dashboard consumers changes. It
+# completes in ~60 s and catches drift before the full test suite (which takes
+# several minutes) even starts. The full job always runs in parallel so neither
+# blocks the other.
 jobs:
   contract-drift:
     name: OpenAPI contract drift guard
     runs-on: ubuntu-latest
-    # Only worth running when the spec or generated outputs might have changed.
-    # The full `validate` job still runs unconditionally as the final gate.
+    # Keep this focused on contract sources and production API consumers rather
+    # than all dashboard edits. The full `validate` job still runs
+    # unconditionally as the final gate.
     if: |
       github.event_name == 'push' ||
       contains(github.event.pull_request.changed_files, 'lib/api-spec/openapi.yaml') ||
       contains(github.event.pull_request.changed_files, 'lib/api-zod/src/generated') ||
-      contains(github.event.pull_request.changed_files, 'lib/api-client-react/src/generated')
+      contains(github.event.pull_request.changed_files, 'lib/api-client-react/src/generated') ||
+      contains(github.event.pull_request.changed_files, 'lib/api-client-react/src/use-ai-chat-stream.ts') ||
+      contains(github.event.pull_request.changed_files, 'scripts/validate-dashboard-client-contract.mjs') ||
+      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/lib/api-fetch.ts') ||
+      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/components/GitPanel.tsx') ||
+      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/AiChat.tsx') ||
+      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Dashboard.tsx') ||
+      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx') ||
+      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Events.tsx') ||
+      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/FlightDeck.tsx') ||
+      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Graph.tsx') ||
+      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Metrics.tsx') ||
+      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/MissionControl.tsx') ||
+      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/ProjectDetail.tsx') ||
+      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Projects.tsx') ||
+      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Rules.tsx') ||
+      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Tasks.tsx') ||
+      contains(github.event.pull_request.changed_files, 'artifacts/dashboard/src/pages/Workflows.tsx')
     steps:
       - uses: actions/checkout@v4
 
