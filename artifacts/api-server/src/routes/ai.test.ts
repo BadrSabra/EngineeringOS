@@ -26,7 +26,10 @@ import {
 } from "@workspace/db";
 import { buildPatchHunks, hashPatchBase } from "@workspace/ai-orchestrator";
 import * as repairValidation from "../lib/ai-repair-validation.js";
-import { canCreateProposal } from "./ai/chat.js";
+import {
+  canCreateProposal,
+  serializeMissionCorrelationReport,
+} from "./ai/chat.js";
 import { scheduleAiTaskExecution } from "./ai/tasks.js";
 
 describe("verified repair proposal gate", () => {
@@ -71,6 +74,48 @@ describe("verified repair proposal gate", () => {
   it("rejects proposal creation until Finding claims are closed", () => {
     expect(canCreateProposal([change] as never, repairPlan, true, traceWithAcceptedClaims(0))).toBe(false);
     expect(canCreateProposal([change] as never, repairPlan, true, traceWithAcceptedClaims(1))).toBe(true);
+  });
+});
+
+describe("mission correlation report persistence contract", () => {
+  it("rejects malformed reports with a bounded actionable error", () => {
+    const malformed = {
+      kind: "mission-correlation-report",
+      version: 1,
+      redacted: true,
+      counts: {},
+    };
+    expect(() => serializeMissionCorrelationReport(malformed)).toThrow(
+      "does not match the supported versioned contract",
+    );
+    try {
+      serializeMissionCorrelationReport(malformed);
+      throw new Error("expected malformed report to be rejected");
+    } catch (error) {
+      expect(error).toMatchObject({ code: "mission_correlation_report_invalid" });
+    }
+  });
+
+  it("rejects unsupported report versions without exposing internal identifiers", () => {
+    let error: unknown;
+    try {
+      serializeMissionCorrelationReport({
+        kind: "mission-correlation-report",
+        version: 99,
+        redacted: true,
+        operationId: "internal-operation-id",
+        projectId: "internal-project-id",
+        sessionId: "internal-session-id",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe(
+      "Mission correlation report does not match the supported versioned contract.",
+    );
+    expect((error as Error).message).not.toContain("internal-");
   });
 });
 

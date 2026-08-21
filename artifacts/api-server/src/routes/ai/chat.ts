@@ -75,6 +75,7 @@ import type {
   ValidationResult,
 } from "@workspace/ai-orchestrator";
 import type { ValidationProfile } from "@workspace/ai-orchestrator";
+import { ListAiChatMessagesResponseItem } from "@workspace/api-zod";
 import {
   RepairPlanMetadataSchema,
   type RepairPlanMetadata,
@@ -253,6 +254,33 @@ function parseTaskResult(value: string | null | undefined): ChatTaskResult | und
 
 function serializeTaskResult(value: ChatTaskResult | undefined): string | null {
   return value ? JSON.stringify(redactUserFacingValue(value)) : null;
+}
+
+const StoredMissionCorrelationReportSchema =
+  ListAiChatMessagesResponseItem.shape.missionCorrelationReport;
+
+export class MissionCorrelationReportValidationError extends Error {
+  readonly code = "mission_correlation_report_invalid";
+
+  constructor() {
+    super("Mission correlation report does not match the supported versioned contract.");
+    this.name = "MissionCorrelationReportValidationError";
+  }
+}
+
+/**
+ * Validate before any historical report reaches the database. The generated
+ * response schema is deliberately the source of truth here; serialising its
+ * parsed value also removes fields that are not part of the public contract.
+ */
+export function serializeMissionCorrelationReport(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+
+  const parsed = StoredMissionCorrelationReportSchema.safeParse(value);
+  if (!parsed.success || parsed.data === null || parsed.data === undefined) {
+    throw new MissionCorrelationReportValidationError();
+  }
+  return JSON.stringify(redactUserFacingValue(parsed.data));
 }
 
 // A turn is persisted only after its provider call completes, but history must
@@ -1541,6 +1569,22 @@ router.post("/ai/chat", async (req, res) => {
       );
     }
 
+    let missionCorrelationReport: string | null;
+    try {
+      missionCorrelationReport = serializeMissionCorrelationReport(
+        (result as { missionCorrelationReport?: unknown }).missionCorrelationReport,
+      );
+    } catch (error) {
+      if (error instanceof MissionCorrelationReportValidationError) {
+        return res.status(422).json({
+          error: error.message,
+          code: error.code,
+          hint: "Retry the mission so the server can generate a supported report.",
+        });
+      }
+      throw error;
+    }
+
     // Chat turns don't modify project data — no cache invalidation needed.
     // Full invalidation happens only in /apply-changes when files are written.
 
@@ -1640,6 +1684,7 @@ router.post("/ai/chat", async (req, res) => {
           toolTrace: serializeToolTrace(traceSteps),
           repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
           behaviorEvidence: serializeBehaviorEvidence(result.behaviorEvidence),
+          missionCorrelationReport,
           taskResult: serializeTaskResult(result.taskResult),
           executionId: null,
           createdAt: msgNow,
@@ -3131,6 +3176,24 @@ router.post("/ai/chat/stream", async (req, res) => {
     });
 
     const aiExecutionId = aiExecution.id;
+    let missionCorrelationReport: string | null;
+    try {
+      missionCorrelationReport = serializeMissionCorrelationReport(
+        (result as { missionCorrelationReport?: unknown }).missionCorrelationReport,
+      );
+    } catch (error) {
+      if (error instanceof MissionCorrelationReportValidationError) {
+        sse({
+          type: "error",
+          code: error.code,
+          message: error.message,
+          suggestedFix: "Retry the mission so the server can generate a supported report.",
+        });
+        res.end();
+        return;
+      }
+      throw error;
+    }
     let assistantOperationId: string | undefined = aiExecution.operationId ?? effectiveBuildPlanMessageId;
     const assistantMsg = await db.transaction(async (tx) => {
       if (existingSession) {
@@ -3191,6 +3254,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           toolTrace: serializeToolTrace(traceSteps, true, streamAuditScopeDescription),
           repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
           behaviorEvidence: serializeBehaviorEvidence(result.behaviorEvidence),
+          missionCorrelationReport,
           taskResult: serializeTaskResult(result.taskResult),
           createdAt: msgNow,
         })
