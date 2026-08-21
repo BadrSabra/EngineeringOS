@@ -1,7 +1,8 @@
 import { strict as assert } from "node:assert";
 import { spawnSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
@@ -132,6 +133,72 @@ test("reports a controlled recovery failure by name", async () => {
     /Real process-recovery validation requires provider\/database configuration/,
     "deployment output must name the blocked process-recovery validation",
   );
+});
+
+test("stops release validation after an API typecheck diagnostic", async () => {
+  const temporaryDirectory = await mkdtemp(
+    resolve(tmpdir(), "release-typecheck-failure-"),
+  );
+  const tracePath = resolve(temporaryDirectory, "pnpm-trace.log");
+  const shimPath = resolve(temporaryDirectory, "pnpm");
+  const realPnpm = spawnSync("sh", ["-c", "command -v pnpm"], {
+    encoding: "utf8",
+  }).stdout.trim();
+
+  await writeFile(
+    shimPath,
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "$RELEASE_VALIDATION_TRACE"
+if [ "$1" = "--filter" ] && [ "$2" = "@workspace/api-server" ] && [ "$3" = "run" ] && [ "$4" = "typecheck" ]; then
+  echo "src/routes/project.ts(42,7): error TS2322: Type 'string' is not assignable to type 'number'." >&2
+  exit 1
+fi
+exec "${realPnpm}" "$@"
+`,
+    "utf8",
+  );
+  await chmod(shimPath, 0o755);
+
+  try {
+    const result = spawnSync(
+      "pnpm",
+      ["run", "validate:release"],
+      {
+        cwd: workspaceRoot,
+        env: {
+          ...process.env,
+          PATH: `${temporaryDirectory}:${process.env.PATH ?? ""}`,
+          RELEASE_VALIDATION_TRACE: tracePath,
+        },
+        encoding: "utf8",
+      },
+    );
+    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+    const trace = await readFile(tracePath, "utf8");
+
+    assert.notEqual(
+      result.status,
+      0,
+      `release validation must fail when the API typecheck fails:\n${output}`,
+    );
+    assert.match(
+      output,
+      /src\/routes\/project\.ts\(42,7\): error TS2322: Type 'string' is not assignable to type 'number'\./,
+      "the API compiler diagnostic must remain visible in release output",
+    );
+    assert.match(
+      trace,
+      /--filter @workspace\/api-server run typecheck/,
+      "the API typecheck must be the first release step",
+    );
+    assert.doesNotMatch(
+      trace,
+      /run test:dashboard-journey-contract|run test:mission-correlation-report|run test:process-recovery/,
+      "later fixture and browser checks must not start after the API typecheck fails",
+    );
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
 });
 
 test("keeps the local Project workflow and release validation separate", async () => {
