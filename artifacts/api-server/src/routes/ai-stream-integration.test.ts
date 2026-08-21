@@ -606,7 +606,7 @@ describe("Durable AI execution crash/reconnect", () => {
           repairPlan,
         },
         effectiveProvider: "groq" as const,
-      } as Awaited<ReturnType<typeof chatWithFallback>>;
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
     });
 
     const first = await request(app)
@@ -669,7 +669,7 @@ describe("Durable AI execution crash/reconnect", () => {
           pendingChanges: [],
         },
         effectiveProvider: "groq" as const,
-      } as Awaited<ReturnType<typeof chatWithFallback>>;
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
     });
 
     const resumed = await request(app)
@@ -1688,7 +1688,7 @@ describe("Phase 6 — Arabic evidence persistence and history rehydration", () =
           taskResult,
         },
         effectiveProvider: "groq" as const,
-      } as Awaited<ReturnType<typeof chatWithFallback>>;
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
     });
 
     const stream = await request(app)
@@ -1798,7 +1798,7 @@ describe("Concurrent Arabic chat turns", () => {
       return {
         result: resultFor(firstResponse, "first-turn"),
         effectiveProvider: "groq" as const,
-      } as Awaited<ReturnType<typeof chatWithFallback>>;
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
     }).mockImplementationOnce(async (...args) => {
       await new Promise((resolve) => setTimeout(resolve, 5));
       args[3]?.(secondResponse);
@@ -1983,7 +1983,7 @@ describe("Concurrent chat ordering and ownership", () => {
       return {
         result: resultFor(turn),
         effectiveProvider: "groq" as const,
-      } as Awaited<ReturnType<typeof chatWithFallback>>;
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
     });
 
     const requests = Promise.all([
@@ -2065,7 +2065,7 @@ describe("Concurrent chat ordering and ownership", () => {
       return {
         result: resultFor(turn),
         effectiveProvider: "groq" as const,
-      } as Awaited<ReturnType<typeof chatWithFallback>>;
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
     });
 
     const requests = Promise.all([

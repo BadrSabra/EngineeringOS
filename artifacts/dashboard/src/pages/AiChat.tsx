@@ -4578,7 +4578,11 @@ function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentActivity
         kind: 'plan',
         label: `${PLAN_STAGE_LABELS[entry.stage] ?? 'Plan activity'}${entry.stepTitle ? ` · ${entry.stepTitle}` : ''}`,
         detail: approval ?? entry.resultSummary ?? (entry.nextStepTitle ? `Next: ${entry.nextStepTitle}` : undefined),
-        status: entry.status === 'active' ? 'active' : entry.status === 'done' ? 'done' : 'info',
+        status: (entry.status as 'active' | 'done' | 'info' | undefined) === 'active'
+          ? 'active'
+          : (entry.status as 'active' | 'done' | 'info' | undefined) === 'done'
+            ? 'done'
+            : 'info',
       });
       continue;
     }

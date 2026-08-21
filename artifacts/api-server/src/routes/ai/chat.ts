@@ -759,7 +759,7 @@ type PersistedToolTraceEntry = {
   packetIndex?: number;
   packetCount?: number;
   fileCount?: number;
-  status?: "STARTED" | "ACCEPTED" | "REJECTED" | "FAILED";
+  status?: "STARTED" | "ACCEPTED" | "REJECTED" | "FAILED" | "active" | "done" | "info";
   diagnosticCodes?: string[];
   details?: string[];
   model?: string;

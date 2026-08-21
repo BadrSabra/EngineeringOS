@@ -451,7 +451,6 @@ export async function chatWithFallback(
         onExecutionNodes: baseParams.onExecutionNodes,
         signal: baseParams.signal,
         turnIntent: baseParams.turnIntent,
-        // @ts-expect-error additive orchestrator option; see compatibility note above
         retainedEvidence,
       } as Parameters<typeof chat>[0]);
       return { result, effectiveProvider: providerEntry.provider };
