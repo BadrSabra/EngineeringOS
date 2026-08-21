@@ -55,7 +55,10 @@ pnpm run validate:dashboard-journey
 ```
 
 The run is bounded by `DASHBOARD_E2E_LIVE_TIMEOUT_MS` (default 120 seconds)
-and exports a redacted report keyed by the provider-backed `operationId` and
+and the live browser test allows an additional five seconds for Playwright
+cleanup and report collection. The normal journey remains non-executing: the
+provider-backed path is skipped unless `DASHBOARD_E2E_LIVE_PROVIDER=1` is set.
+When enabled, it exports a redacted report keyed by the provider-backed `operationId` and
 the latest Git `workspaceRevision`. The report verifies persisted messages,
 SSE events, execution checkpoints, evidence, proposals, validation, and
 Mission Control state. `COMPLETED`-class states are success; provider

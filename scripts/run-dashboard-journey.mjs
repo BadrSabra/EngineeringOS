@@ -20,6 +20,9 @@ const testEmail =
 const timeoutMs = Number(
   process.env.DASHBOARD_E2E_PREFLIGHT_TIMEOUT_MS ?? 30_000,
 );
+const liveTimeoutMs = Number(
+  process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
+);
 
 function redact(value) {
   const secretValues = Object.values(process.env).filter(
@@ -121,6 +124,8 @@ function runConcurrentChatContractChecks() {
         testRun.file,
         "-t",
         testRun.pattern,
+        "--test-timeout",
+        "30000",
       ],
       {
         env: {
@@ -214,6 +219,9 @@ const child = spawn(
       CI: "true",
       DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
       DASHBOARD_E2E_EMAIL: testEmail,
+      ...(Number.isFinite(liveTimeoutMs) && liveTimeoutMs > 0
+        ? { DASHBOARD_E2E_LIVE_TIMEOUT_MS: String(liveTimeoutMs) }
+        : {}),
     },
     stdio: "inherit",
   },

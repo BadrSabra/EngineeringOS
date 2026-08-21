@@ -16,6 +16,15 @@ const TEST_USER = {
     "engineeringos-dashboard-smoke@example.com",
 };
 const EXECUTION_ID = "e2e-controlled-execution";
+const DEFAULT_LIVE_TIMEOUT_MS = 120_000;
+const LIVE_TEST_TIMEOUT_MARGIN_MS = 5_000;
+
+function liveTimeoutMs(): number {
+  const configured = Number(process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_LIVE_TIMEOUT_MS;
+}
 
 const dashboardFixture = {
   projectCount: 1,
@@ -431,6 +440,9 @@ async function liveOptionalRecord(page: Page, path: string): Promise<Record<stri
 
 test.describe("EngineeringOS dashboard browser journey", () => {
   test("exports one redacted live-provider mission correlation report", async ({ page }) => {
+    // The Playwright deadline must leave room for the provider-bound request
+    // and polling loop to consume their complete configured budget.
+    test.setTimeout(liveTimeoutMs() + LIVE_TEST_TIMEOUT_MARGIN_MS);
     test.skip(
       process.env.DASHBOARD_E2E_LIVE_PROVIDER !== "1",
       "Live-provider release journey is opt-in.",
@@ -446,7 +458,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
           ?? "Run one bounded read-only mission and report the verified evidence.",
         idempotencyKey: `dashboard-live-${Date.now()}`,
       },
-      timeout: Number(process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000),
+      timeout: liveTimeoutMs(),
     });
     if (!streamResponse.ok()) {
       throw new Error(`Live-provider mission failed to start (${streamResponse.status()}).`);
@@ -457,7 +469,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     if (!executionId) throw new Error("Live-provider stream did not emit execution_started.");
 
     let execution: Record<string, any> = {};
-    const deadline = Date.now() + Number(process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000);
+    const deadline = Date.now() + liveTimeoutMs();
     while (Date.now() < deadline) {
       execution = await liveJson(page, `/api/ai/executions/${executionId}`);
       if (["completed", "failed", "cancelled"].includes(String(execution.status))) break;
