@@ -97,6 +97,60 @@ function runClerkHandoffContracts() {
   });
 }
 
+function runConcurrentChatContractChecks() {
+  return new Promise((resolve, reject) => {
+    const contractTests = spawn(
+      "pnpm",
+      [
+        "--filter",
+        "@workspace/api-server",
+        "exec",
+        "vitest",
+        "run",
+        "src/routes/ai.test.ts",
+        "src/routes/ai-stream-integration.test.ts",
+        "-t",
+        "keeps the newer resumable contract when concurrent JSON turns finish out of order|keeps the newest resumable contract when same-session turns finish out of order",
+      ],
+      {
+        env: {
+          ...process.env,
+          CI: "true",
+          NODE_ENV: "test",
+          OPENROUTER_API_KEY: "",
+        },
+        stdio: "inherit",
+      },
+    );
+
+    contractTests.on("error", (error) => {
+      reject(
+        new Error(
+          `Unable to start concurrent chat contract checks: ${redact(error.message)}`,
+        ),
+      );
+    });
+
+    contractTests.on("exit", (code, signal) => {
+      if (signal) {
+        reject(
+          new Error(`Concurrent chat contract checks stopped by ${signal}.`),
+        );
+        return;
+      }
+      if (code !== 0) {
+        reject(
+          new Error(
+            `Concurrent chat contract checks failed with exit code ${code ?? 1}; browser startup was skipped.`,
+          ),
+        );
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
 await runClerkHandoffContracts();
 console.log("Dashboard Clerk handoff response contracts passed.");
 
@@ -115,6 +169,9 @@ if (apiHealth?.status !== "ok") {
     `API health check did not report status=ok (${apiHealthUrl}).`,
   );
 }
+
+await runConcurrentChatContractChecks();
+console.log("Concurrent chat continuation contracts passed.");
 
 console.log(`Dashboard workflow healthy at ${dashboardBaseUrl}`);
 console.log(`API workflow healthy at ${apiHealthUrl}`);
