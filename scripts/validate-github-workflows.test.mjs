@@ -80,3 +80,43 @@ test("reports structural failures from every parseable workflow", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("reports structural failures with the complete path for nested workflows", async () => {
+  const root = await mkdtemp(join(tmpdir(), "github-workflows-"));
+  const workflowsDirectory = join(root, ".github", "workflows");
+  const nestedWorkflowPath = join(
+    workflowsDirectory,
+    "deployment",
+    "production",
+    "release.yml",
+  );
+
+  try {
+    await mkdir(join(workflowsDirectory, "deployment", "production"), {
+      recursive: true,
+    });
+    await writeFile(
+      nestedWorkflowPath,
+      [
+        "name: Invalid nested workflow",
+        "on: [push]",
+        "jobs:",
+        "  deploy: []",
+        "",
+      ].join("\n"),
+    );
+
+    await assert.rejects(
+      validateWorkflows(workflowsDirectory, root),
+      (error) => {
+        assert.match(
+          error.message,
+          /\.github\/workflows\/deployment\/production\/release\.yml: job `deploy` must be a YAML mapping\./,
+        );
+        return true;
+      },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
