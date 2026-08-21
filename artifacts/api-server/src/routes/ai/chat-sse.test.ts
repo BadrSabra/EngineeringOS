@@ -284,7 +284,7 @@ vi.mock("../../lib/db-rate-limiter.js", () => ({
 
 vi.mock("../../lib/rootpath-validator.js", () => ({
   resolveRootPath: vi.fn().mockResolvedValue({
-    validRootPath: null,
+    validRootPath: undefined,
     fallbackUsed: false,
     originalPath: null,
   }),
@@ -505,7 +505,7 @@ beforeEach(async () => {
     release: vi.fn().mockResolvedValue(undefined),
   });
   vi.mocked(resolveRootPath).mockResolvedValue({
-    validRootPath: null,
+    validRootPath: undefined,
     fallbackUsed: false,
     originalPath: null,
   });
