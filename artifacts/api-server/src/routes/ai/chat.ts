@@ -280,6 +280,13 @@ function normalizePlanFilePath(value: string, rootPath: string): string {
   return path.posix.normalize(candidate).replace(/^(\.\/)+/, "");
 }
 
+function safePlanFiles(files: readonly string[] | undefined, rootPath: string | undefined): string[] {
+  if (!files) return [];
+  return [...new Set(files.map((file) => normalizePlanFilePath(file, rootPath ?? ""))
+    .filter((file) => file && file !== "." && !file.startsWith("../") && !path.isAbsolute(file)))]
+    .slice(0, 12);
+}
+
 function getImplementationPlanScope(
   plan: ApprovedImplementationPlan,
   rootPath: string,
@@ -862,7 +869,21 @@ function serializeToolTrace(
           tool: step.tool,
           source: step.source,
           cached: step.cached,
+          ...(step.resultSummary ? { resultSummary: step.resultSummary } : {}),
           ...("prefetched" in step && step.prefetched ? { prefetched: true } : {}),
+        };
+      case "plan_activity":
+        return {
+          kind: step.kind,
+          stage: step.stage,
+          status: step.status,
+          ...(step.stepTitle ? { stepTitle: step.stepTitle } : {}),
+          ...(step.action ? { action: step.action } : {}),
+          ...(step.files ? { files: step.files } : {}),
+          ...(step.resultSummary ? { resultSummary: step.resultSummary } : {}),
+          ...(step.nextStepTitle ? { nextStepTitle: step.nextStepTitle } : {}),
+          ...(step.approvalRequired ? { approvalRequired: true } : {}),
+          ...(step.approvalReason ? { approvalReason: step.approvalReason } : {}),
         };
       case "validation":
         return {
@@ -2384,6 +2405,44 @@ router.post("/ai/chat/stream", async (req, res) => {
     // searches it runs, and how many iterations it has taken.
     function onStep(step: AgentStep): void {
       traceSteps.push(step);
+      if (
+        step.kind === "tool_result" &&
+        (step.tool === "read_file" || step.tool === "read_file_range") &&
+        executionPlanForRun?.implementationPlan
+      ) {
+        const plan = executionPlanForRun.implementationPlan;
+        const current = plan.steps[executionPlanForRun.currentStepIndex];
+        const source = step.source?.replaceAll("\\", "/");
+        if (
+          current?.action === "inspect" &&
+          source &&
+          current.files.some((file) => normalizePlanFilePath(file, validRootPath ?? "") === normalizePlanFilePath(source, validRootPath ?? ""))
+        ) {
+          const next = plan.steps[executionPlanForRun.currentStepIndex + 1];
+          onStep({
+            kind: "plan_activity",
+            stage: "execute",
+            status: "done",
+            stepTitle: current.title,
+            action: current.action,
+            files: safePlanFiles(current.files, validRootPath),
+            resultSummary: step.resultSummary ?? "Read completed.",
+            nextStepTitle: next?.title,
+          });
+          if (next && ["create", "modify", "delete", "configure"].includes(next.action)) {
+            onStep({
+              kind: "plan_activity",
+              stage: "execute",
+              status: "info",
+              stepTitle: next.title,
+              action: next.action,
+              files: safePlanFiles(next.files, validRootPath),
+              approvalRequired: true,
+              approvalReason: "Approval is required before changing these files. No files have been changed.",
+            });
+          }
+        }
+      }
       if (step.kind === "validation") {
         if (step.result.status === "passed" && isProvenValidation(step.result)) {
           executionEvidenceVerdict = "PARTIAL";
@@ -2421,7 +2480,21 @@ router.post("/ai/chat/stream", async (req, res) => {
           tool: step.tool,
           source: step.source ? redactUserFacingText(step.source) : step.source,
           cached: step.cached,
+          ...(step.resultSummary ? { resultSummary: redactUserFacingText(step.resultSummary).slice(0, 240) } : {}),
           ...("prefetched" in step && step.prefetched ? { prefetched: true } : {}),
+        });
+      } else if (step.kind === "plan_activity") {
+        sse({
+          type: "plan_activity",
+          stage: step.stage,
+          status: step.status,
+          ...(step.stepTitle ? { stepTitle: redactUserFacingText(step.stepTitle) } : {}),
+          ...(step.action ? { action: step.action } : {}),
+          ...(step.files ? { files: step.files.map((file) => redactUserFacingText(file)).slice(0, 12) } : {}),
+          ...(step.resultSummary ? { resultSummary: redactUserFacingText(step.resultSummary).slice(0, 240) } : {}),
+          ...(step.nextStepTitle ? { nextStepTitle: redactUserFacingText(step.nextStepTitle) } : {}),
+          ...(step.approvalRequired ? { approvalRequired: true } : {}),
+          ...(step.approvalReason ? { approvalReason: redactUserFacingText(step.approvalReason).slice(0, 240) } : {}),
         });
       } else if (step.kind === "validation") {
         sse({
@@ -2593,6 +2666,33 @@ router.post("/ai/chat/stream", async (req, res) => {
           type: "execution_diagnostic",
           code: step.code,
           ...(visibleDiagnosticDetails ? { details: visibleDiagnosticDetails } : {}),
+        });
+      }
+    }
+
+    // Persist the same safe lifecycle representation that the live dashboard
+    // receives. Only plan-owned relative file names are projected; roots,
+    // fingerprints, execution IDs, and provider details stay server-side.
+    if (streamImplementationPlanResume && executionPlanForRun?.implementationPlan) {
+      const plan = executionPlanForRun.implementationPlan;
+      const current = plan.steps[executionPlanForRun.currentStepIndex];
+      onStep({ kind: "plan_activity", stage: "understand", status: "done" });
+      onStep({ kind: "plan_activity", stage: "scope", status: "done", files: safePlanFiles(current?.files, validRootPath) });
+      onStep({ kind: "plan_activity", stage: "plan", status: "done", stepTitle: current?.title });
+      if (current) {
+        onStep({
+          kind: "plan_activity",
+          stage: "execute",
+          status: "active",
+          stepTitle: current.title,
+          action: current.action,
+          files: safePlanFiles(current.files, validRootPath),
+          ...(["create", "modify", "delete", "configure"].includes(current.action)
+            ? {
+                approvalRequired: true,
+                approvalReason: "Approval is required before changing these files. No files have been changed.",
+              }
+            : {}),
         });
       }
     }

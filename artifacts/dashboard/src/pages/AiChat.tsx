@@ -497,6 +497,14 @@ type ToolTraceEntry = {
   source?: string;
   cached?: boolean;
   prefetched?: boolean;
+  resultSummary?: string;
+  stage?: string;
+  stepTitle?: string;
+  action?: string;
+  files?: string[];
+  nextStepTitle?: string;
+  approvalRequired?: boolean;
+  approvalReason?: string;
   /**
    * The agent's reasoning for why it called this tool — present only on fresh
    * (non-cached) read/write tool_call steps where the model produced text
@@ -4520,11 +4528,19 @@ type LiveAgentToolStep = {
 
 type LiveAgentActivityEvent = {
   id: number;
-  kind: 'stage' | 'tool' | 'model' | 'iteration' | 'synthesis' | 'validation' | 'repair_state' | 'diagnostic' | 'guard';
+  kind: 'stage' | 'plan' | 'tool' | 'model' | 'iteration' | 'synthesis' | 'validation' | 'repair_state' | 'diagnostic' | 'guard';
   label: string;
   tool?: string;
   detail?: string;
   status: 'active' | 'done' | 'info';
+};
+
+const PLAN_STAGE_LABELS: Record<string, string> = {
+  understand: 'Understand',
+  scope: 'Scope',
+  plan: 'Plan',
+  execute: 'Execute',
+  validate: 'Validate',
 };
 
 function liveToolLabel(step: LiveAgentToolStep): string {
@@ -4553,6 +4569,19 @@ function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentActivity
   let nextId = 0;
 
   for (const entry of trace) {
+    if (entry.kind === 'plan_activity' && entry.stage) {
+      const approval = entry.approvalRequired
+        ? `Approval required before changing: ${(entry.files ?? []).join(', ') || 'approved files'}`
+        : undefined;
+      events.push({
+        id: nextId++,
+        kind: 'plan',
+        label: `${PLAN_STAGE_LABELS[entry.stage] ?? 'Plan activity'}${entry.stepTitle ? ` · ${entry.stepTitle}` : ''}`,
+        detail: approval ?? entry.resultSummary ?? (entry.nextStepTitle ? `Next: ${entry.nextStepTitle}` : undefined),
+        status: entry.status === 'active' ? 'active' : entry.status === 'done' ? 'done' : 'info',
+      });
+      continue;
+    }
     if (entry.kind === 'tool_call' && entry.tool) {
       events.push({
         id: nextId++,
@@ -4583,6 +4612,7 @@ function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentActivity
             ? `${entry.cached ? 'cached · ' : ''}${entry.source}`
             : entry.cached ? 'cached' : undefined,
         };
+        if (entry.resultSummary) events[eventIndex].detail = entry.resultSummary;
       }
       continue;
     }
@@ -7220,6 +7250,18 @@ export default function AiChat() {
              agentActivityEventsRef.current = next;
              setAgentActivityEvents(next);
            }
+        },
+        onPlanActivity: (event) => {
+          if (generation !== streamGenerationRef.current) return;
+          const files = event.files?.slice(0, 12);
+          appendLiveActivityEvent({
+            kind: 'plan',
+            label: `${PLAN_STAGE_LABELS[event.stage] ?? 'Plan activity'}${event.stepTitle ? ` · ${event.stepTitle}` : ''}`,
+            detail: event.approvalRequired
+              ? `Approval required before changing: ${files?.join(', ') || 'approved files'}`
+              : event.resultSummary ?? (event.nextStepTitle ? `Next: ${event.nextStepTitle}` : undefined),
+            status: event.status,
+          });
         },
         onValidation: (event) => {
           if (generation !== streamGenerationRef.current) return;

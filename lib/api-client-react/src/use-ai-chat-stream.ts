@@ -195,6 +195,21 @@ export type AiStreamToolResultEvent = {
   /** Ground-truth source label (e.g. file path) when available. */
   source?: string;
   cached: boolean;
+  /** Bounded, content-free summary of the completed result. */
+  resultSummary?: string;
+};
+
+export type AiStreamPlanActivityEvent = {
+  type: 'plan_activity';
+  stage: 'understand' | 'scope' | 'plan' | 'execute' | 'validate';
+  status: 'active' | 'done' | 'info';
+  stepTitle?: string;
+  action?: 'inspect' | 'create' | 'modify' | 'delete' | 'test' | 'configure';
+  files?: string[];
+  resultSummary?: string;
+  nextStepTitle?: string;
+  approvalRequired?: boolean;
+  approvalReason?: string;
 };
 
 export type AiStreamValidationEvent = {
@@ -505,6 +520,7 @@ export type AiStreamEvent =
   | AiStreamResetEvent
   | AiStreamToolCallEvent
   | AiStreamToolResultEvent
+  | AiStreamPlanActivityEvent
   | AiStreamValidationEvent
   | AiStreamRepairStateEvent
   | AiStreamModelCallEvent
@@ -558,6 +574,7 @@ export type AiChatStreamCallbacks = {
   onToolCall?: (event: AiStreamToolCallEvent) => void;
   /** Called when a tool call completes and a result has been received. */
   onToolResult?: (event: AiStreamToolResultEvent) => void;
+  onPlanActivity?: (event: AiStreamPlanActivityEvent) => void;
   /** Called after a server-owned validation profile completes or is blocked. */
   onValidation?: (event: AiStreamValidationEvent) => void;
   /** Called when the approval-gated repair loop changes named state. */
@@ -674,6 +691,9 @@ export async function processAiStream(
         case 'tool_result':
           callbacks.onToolResult?.(event);
           break;
+        case 'plan_activity':
+          callbacks.onPlanActivity?.(event);
+          break;
         case 'validation':
           callbacks.onValidation?.(event);
           break;
@@ -776,6 +796,7 @@ export function useAiChatStream() {
       onError: (event) => { if (isCurrent()) callbacks.onError?.(event); },
       onToolCall: (event) => { if (isCurrent()) callbacks.onToolCall?.(event); },
       onToolResult: (event) => { if (isCurrent()) callbacks.onToolResult?.(event); },
+      onPlanActivity: (event) => { if (isCurrent()) callbacks.onPlanActivity?.(event); },
       onValidation: (event) => { if (isCurrent()) callbacks.onValidation?.(event); },
       onRepairState: (event) => { if (isCurrent()) callbacks.onRepairState?.(event); },
       onModelCall: (event) => { if (isCurrent()) callbacks.onModelCall?.(event); },

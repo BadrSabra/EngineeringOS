@@ -1577,6 +1577,15 @@ paths:
              execution status endpoint and explicitly resume with the token after a
              server restart. The token is only returned on the initial claim.
 
+           { "type": "plan_activity", "stage": "understand" | "scope" | "plan" | "execute" | "validate",
+             "status": "active" | "done" | "info", "stepTitle"?: "...",
+             "action"?: "inspect" | "create" | "modify" | "delete" | "test" | "configure",
+             "files"?: ["..."], "resultSummary"?: "...", "nextStepTitle"?: "...",
+             "approvalRequired"?: true, "approvalReason"?: "..." }
+             — Safe implementation-plan progress. File names are the approved
+             relative scope only; source contents, runtime roots, fingerprints,
+             execution IDs, and provider diagnostics are never included.
+
            { "type": "execution_nodes", "executionId": "...", "nodes": [
              { "id": "...", "title": "...", "status": "queued" | "running" | "passed" | "failed" | "blocked",
                "allowedFiles": ["..."], "dependencies": ["..."],

@@ -1159,6 +1159,18 @@ export type AgentDiagnosticCode =
  * for streaming live tool-call progress to the UI without polling.
  */
 export type AgentStep =
+  | {
+      kind: "plan_activity";
+      stage: "understand" | "scope" | "plan" | "execute" | "validate";
+      status: "active" | "done" | "info";
+      stepTitle?: string;
+      action?: "inspect" | "create" | "modify" | "delete" | "test" | "configure";
+      files?: string[];
+      resultSummary?: string;
+      nextStepTitle?: string;
+      approvalRequired?: boolean;
+      approvalReason?: string;
+    }
   | { kind: "iteration_start"; iter: number; maxIterations: number }
   | { kind: "model_call";      model: string; provider: string }
   | { kind: "recovery_model_call"; model: string; provider: string; attempt: number }
@@ -1184,6 +1196,8 @@ export type AgentStep =
       source?: string;
       cached: boolean;
       outputLength: number;
+      /** Bounded, content-free summary safe for activity timelines. */
+      resultSummary?: string;
       /** True when the read happened during forensic prefetch, before the loop. */
       prefetched?: boolean;
     }
@@ -3337,6 +3351,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             source: cachedSource,
             cached: true,
             outputLength: cached.length,
+            ...((tc.function.name === "read_file" || tc.function.name === "read_file_range")
+              ? { resultSummary: `Read completed (${cached.length} characters).` }
+              : {}),
           });
         } catch { /* ignore */ }
         console.warn(
@@ -3715,7 +3732,18 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         toolSources.push(toolResult.source);
       }
       emitReadEvidenceLinked(tc.function.name, args.path, result.content, toolResult.output);
-      try { onStep?.({ kind: "tool_result", tool: tc.function.name, source: toolResult.source, cached: false, outputLength: toolResult.output.length }); } catch { /* ignore */ }
+      try {
+        onStep?.({
+          kind: "tool_result",
+          tool: tc.function.name,
+          source: toolResult.source,
+          cached: false,
+          outputLength: toolResult.output.length,
+          ...((tc.function.name === "read_file" || tc.function.name === "read_file_range")
+            ? { resultSummary: `Read completed (${toolResult.output.length} characters).` }
+            : {}),
+        });
+      } catch { /* ignore */ }
       messages.push({ role: "tool", tool_call_id: tc.id, content: toolResult.output });
     }
 
