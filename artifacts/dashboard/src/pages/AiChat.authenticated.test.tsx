@@ -949,6 +949,11 @@ describe('AiChat authenticated generated mutations', () => {
         uniqueFilesRead: 8,
         evidenceFileCount: 6,
         acceptedEvidenceCount: 3,
+         objectiveType: 'PRODUCTION_REACHABILITY',
+         requiredEdges: ['client->server', 'server->database'],
+         provenEdges: ['client->server'],
+         completionGateResult: 'PARTIALLY_PROVEN',
+         finalAnswerType: 'PRODUCTION_REACHABILITY_ANSWER',
       },
       {
         kind: 'done',
@@ -971,6 +976,11 @@ describe('AiChat authenticated generated mutations', () => {
 
     expect(await screen.findByText('Telemetry reconciliation')).toBeInTheDocument();
     expect(screen.getByText('TELEMETRY_INCONSISTENT')).toBeInTheDocument();
+    expect(screen.getByText('Objective proof')).toBeInTheDocument();
+    expect(screen.getByText('PARTIALLY_PROVEN')).toBeInTheDocument();
+    expect(screen.getByText('PRODUCTION REACHABILITY')).toBeInTheDocument();
+    expect(screen.getByText('Objective type:')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
     expect(screen.getByText('src/routes/ai/chat.ts')).toBeInTheDocument();
     expect(screen.getAllByText('8').length).toBeGreaterThan(0); // uniqueFilesRead + legacy completed-read fallback
   });

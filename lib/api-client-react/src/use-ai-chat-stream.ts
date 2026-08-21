@@ -497,6 +497,12 @@ export type AiStreamEvidenceIntegrityEvent = {
   uniqueFilesRead?: number;
   evidenceFileCount?: number;
   acceptedEvidenceCount?: number;
+  /** Objective completion proof, present when the request declared an objective. */
+  objectiveType?: string;
+  requiredEdges?: string[];
+  provenEdges?: string[];
+  completionGateResult?: string;
+  finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
   evidenceSourceCoverage?: {
     status: 'COMPLETE' | 'PARTIAL' | 'NONE';
     requestedFiles?: string[];

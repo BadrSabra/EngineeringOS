@@ -2165,6 +2165,11 @@ describe("Concurrent chat ordering and ownership", () => {
         acceptedEvidenceCount: 1,
         completedReadFiles: [turn.source],
         acceptedEvidenceFiles: [turn.source],
+        objectiveType: "PRODUCTION_REACHABILITY",
+        requiredEdges: ["client->server", "server->database"],
+        provenEdges: ["client->server"],
+        completionGateResult: "PARTIALLY_PROVEN",
+        finalAnswerType: "PRODUCTION_REACHABILITY_ANSWER",
       });
       await barrier.waitForTurn(key);
       onDelta?.(turn.response);
@@ -2197,6 +2202,11 @@ describe("Concurrent chat ordering and ownership", () => {
       expect(evidence).toMatchObject({
         completedReadFiles: [turn.source],
         acceptedEvidenceFiles: [turn.source],
+        objectiveType: "PRODUCTION_REACHABILITY",
+        requiredEdges: ["client->server", "server->database"],
+        provenEdges: ["client->server"],
+        completionGateResult: "PARTIALLY_PROVEN",
+        finalAnswerType: "PRODUCTION_REACHABILITY_ANSWER",
       });
       expect(done?.sessionId).toBe(sessionId);
       expect((done?.message as Record<string, unknown>).content).toBe(turn.response);

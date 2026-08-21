@@ -594,6 +594,11 @@ type ToolTraceEntry = {
   retainedBodyFiles?: string[];
   acceptedEvidenceFiles?: string[];
   acceptedClaimCount?: number;
+  objectiveType?: string;
+  requiredEdges?: string[];
+  provenEdges?: string[];
+  completionGateResult?: string;
+  finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
   evidenceSourceCoverage?: {
     status: 'COMPLETE' | 'PARTIAL' | 'NONE';
     requestedFiles?: string[];
@@ -1014,6 +1019,11 @@ type ForensicEvidenceSummary = {
     uniqueFilesRead: number;
     evidenceFileCount: number;
     acceptedEvidenceCount: number;
+    objectiveType?: string;
+    requiredEdges: string[];
+    provenEdges: string[];
+    completionGateResult?: string;
+    finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
     completedReadFiles: string[];
     retainedBodyFiles: string[];
     acceptedEvidenceFiles: string[];
@@ -1202,6 +1212,20 @@ function extractEvidenceIntegrity(trace: ToolTraceEntry[]): {
       uniqueFilesRead: typeof entry.uniqueFilesRead === 'number' ? entry.uniqueFilesRead : 0,
       evidenceFileCount: typeof entry.evidenceFileCount === 'number' ? entry.evidenceFileCount : 0,
       acceptedEvidenceCount: typeof entry.acceptedEvidenceCount === 'number' ? entry.acceptedEvidenceCount : 0,
+      objectiveType: typeof entry.objectiveType === 'string' ? entry.objectiveType : undefined,
+      requiredEdges: Array.isArray(entry.requiredEdges)
+        ? entry.requiredEdges.filter((edge): edge is string => typeof edge === 'string')
+        : [],
+      provenEdges: Array.isArray(entry.provenEdges)
+        ? entry.provenEdges.filter((edge): edge is string => typeof edge === 'string')
+        : [],
+      completionGateResult: typeof entry.completionGateResult === 'string' ? entry.completionGateResult : undefined,
+      finalAnswerType:
+        entry.finalAnswerType === 'PRODUCTION_REACHABILITY_ANSWER' ||
+        entry.finalAnswerType === 'BEHAVIORAL_ANSWER' ||
+        entry.finalAnswerType === 'NO_ANSWER'
+          ? entry.finalAnswerType
+          : undefined,
       completedReadFiles: Array.isArray(entry.completedReadFiles)
         ? entry.completedReadFiles.filter((path): path is string => typeof path === 'string')
         : [],
@@ -1644,6 +1668,57 @@ function ForensicEvidenceCard({
                   <span className="text-[10px] text-muted-foreground"> accepted claims</span>
                 </div>
               </div>
+              {(evidence.evidenceIntegrity.objectiveType ||
+                evidence.evidenceIntegrity.completionGateResult ||
+                evidence.evidenceIntegrity.finalAnswerType ||
+                evidence.evidenceIntegrity.requiredEdges.length > 0 ||
+                evidence.evidenceIntegrity.provenEdges.length > 0) && (
+                <div className="mt-2 rounded border border-primary/20 bg-primary/5 px-2.5 py-2" aria-label="Objective proof details">
+                  <div className="text-[10px] font-semibold text-primary">Objective proof</div>
+                  <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-4">
+                    <div>
+                      <div className="text-[10px] text-muted-foreground">Completion</div>
+                      <div className="font-semibold text-foreground">
+                        {evidence.evidenceIntegrity.completionGateResult ?? 'Not declared'}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-muted-foreground">Required edges</div>
+                      <div className="font-semibold text-foreground">{evidence.evidenceIntegrity.requiredEdges.length}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-muted-foreground">Proven edges</div>
+                      <div className="font-semibold text-green-300">{evidence.evidenceIntegrity.provenEdges.length}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-muted-foreground">Final answer</div>
+                      <div className="break-words font-semibold text-foreground">
+                        {evidence.evidenceIntegrity.finalAnswerType
+                          ? evidence.evidenceIntegrity.finalAnswerType.replace(/_ANSWER$/, '').replace(/_/g, ' ')
+                          : 'Not recorded'}
+                      </div>
+                    </div>
+                  </div>
+                  {evidence.evidenceIntegrity.objectiveType && (
+                    <div className="mt-1.5 border-t border-border/40 pt-1.5 text-[10px] text-muted-foreground">
+                      Objective type: <span className="font-semibold text-foreground">{evidence.evidenceIntegrity.objectiveType}</span>
+                    </div>
+                  )}
+                  {evidence.evidenceIntegrity.requiredEdges.length > 0 && (
+                    <div className="mt-1.5 space-y-0.5 border-t border-border/40 pt-1.5">
+                      <div className="text-[10px] text-muted-foreground">Edge proof ledger</div>
+                      {evidence.evidenceIntegrity.requiredEdges.map((edge) => (
+                        <div key={edge} className="font-mono text-[10px] text-foreground/80">
+                          <span className={evidence.evidenceIntegrity!.provenEdges.includes(edge) ? 'text-green-300' : 'text-amber-200'}>
+                            {evidence.evidenceIntegrity!.provenEdges.includes(edge) ? '✓' : '○'}
+                          </span>{' '}
+                          {edge}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               {evidence.evidenceIntegrity.sourceCoverage && (
                 <div className="mt-1.5 border-t border-border/40 pt-1.5 text-[10px] text-muted-foreground">
                   Canonical source coverage:{' '}
@@ -5966,7 +6041,15 @@ function AgentExecutionProofPanel({
   pendingChanges: PendingChange[];
   commitReadyPaths: string[];
   pushReady: boolean;
-  evidenceIntegrity: { consistent: boolean; violations: string[] } | null;
+  evidenceIntegrity: {
+    consistent: boolean;
+    violations: string[];
+    objectiveType?: string;
+    requiredEdges?: string[];
+    provenEdges?: string[];
+    completionGateResult?: string;
+    finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
+  } | null;
   isFixtureLocal: boolean;
   verdictScope?: {
     scope?: 'PRODUCTION' | 'FIXTURE_LOCAL' | 'TEST_LOCAL' | 'SPEC_LOCAL' | 'MIXED' | 'NOT_PROVEN';
@@ -6038,6 +6121,8 @@ function AgentExecutionProofPanel({
         ?? 'Declared engineering objective',
       )
     : 'No objective was retained for this execution.';
+  const requiredEdges = evidenceIntegrity?.requiredEdges ?? [];
+  const provenEdges = evidenceIntegrity?.provenEdges ?? [];
   const riskLabel = pendingChanges.some((change) => change.risk === 'high')
     ? 'High risk change present'
     : pendingChanges.some((change) => change.risk === 'medium')
@@ -6170,6 +6255,57 @@ function AgentExecutionProofPanel({
           <div className={`mt-0.5 text-[11px] font-medium ${riskLabel.startsWith('High') || riskLabel.startsWith('Evidence') ? 'text-red-200' : 'text-amber-200'}`}>{riskLabel}</div>
         </div>
       </div>
+      {evidenceIntegrity && (
+        evidenceIntegrity.objectiveType ||
+        evidenceIntegrity.completionGateResult ||
+        evidenceIntegrity.finalAnswerType ||
+        requiredEdges.length > 0 ||
+        provenEdges.length > 0
+      ) && (
+        <div className="border-t border-border/40 px-3 py-2.5" aria-label="Objective proof details">
+          <div className="text-[10px] font-semibold text-primary">Objective proof</div>
+          <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-4">
+            <div>
+              <div className="text-[10px] text-muted-foreground">Completion</div>
+              <div className="font-semibold text-foreground">{evidenceIntegrity.completionGateResult ?? 'Not declared'}</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-muted-foreground">Required edges</div>
+              <div className="font-semibold text-foreground">{requiredEdges.length}</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-muted-foreground">Proven edges</div>
+              <div className="font-semibold text-green-300">{provenEdges.length}</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-muted-foreground">Final answer</div>
+              <div className="break-words font-semibold text-foreground">
+                {evidenceIntegrity.finalAnswerType
+                  ? evidenceIntegrity.finalAnswerType.replace(/_ANSWER$/, '').replace(/_/g, ' ')
+                  : 'Not recorded'}
+              </div>
+            </div>
+          </div>
+          {evidenceIntegrity.objectiveType && (
+            <div className="mt-1.5 border-t border-border/40 pt-1.5 text-[10px] text-muted-foreground">
+              Objective type: <span className="font-semibold text-foreground">{evidenceIntegrity.objectiveType}</span>
+            </div>
+          )}
+          {requiredEdges.length > 0 && (
+            <div className="mt-1.5 space-y-0.5 border-t border-border/40 pt-1.5">
+              <div className="text-[10px] text-muted-foreground">Edge proof ledger</div>
+              {requiredEdges.map((edge) => (
+                <div key={edge} className="font-mono text-[10px] text-foreground/80">
+                  <span className={provenEdges.includes(edge) ? 'text-green-300' : 'text-amber-200'}>
+                    {provenEdges.includes(edge) ? '✓' : '○'}
+                  </span>{' '}
+                  {edge}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {(execution?.checkpointVersion !== undefined || execution?.resumable || evidenceIntegrity?.violations.length) && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/40 px-3 py-2 text-[10px] text-muted-foreground">
@@ -6284,6 +6420,11 @@ export default function AiChat() {
   const [liveEvidenceIntegrity, setLiveEvidenceIntegrity] = useState<{
     consistent: boolean;
     violations: string[];
+    objectiveType?: string;
+    requiredEdges: string[];
+    provenEdges: string[];
+    completionGateResult?: string;
+    finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
   } | null>(null);
 
   // Keep the opaque resume token across tab refreshes. The server stores only
@@ -7453,7 +7594,15 @@ export default function AiChat() {
         },
         onEvidenceIntegrity: (event) => {
           if (generation !== streamGenerationRef.current) return;
-          setLiveEvidenceIntegrity({ consistent: event.consistent, violations: event.violations });
+          setLiveEvidenceIntegrity({
+            consistent: event.consistent,
+            violations: event.violations,
+            objectiveType: event.objectiveType,
+            requiredEdges: event.requiredEdges ?? [],
+            provenEdges: event.provenEdges ?? [],
+            completionGateResult: event.completionGateResult,
+            finalAnswerType: event.finalAnswerType,
+          });
         },
         // Task #58: surface the verdict's proof scope live in the audit panel
         // as soon as the task router decides it — before the report lands.

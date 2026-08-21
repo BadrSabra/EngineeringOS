@@ -1113,6 +1113,11 @@ function serializeToolTrace(
           ...(step.retainedBodyFiles ? { retainedBodyFiles: step.retainedBodyFiles } : {}),
           ...(step.acceptedEvidenceFiles ? { acceptedEvidenceFiles: step.acceptedEvidenceFiles } : {}),
           ...(step.acceptedClaimCount !== undefined ? { acceptedClaimCount: step.acceptedClaimCount } : {}),
+          ...(step.objectiveType ? { objectiveType: step.objectiveType } : {}),
+          ...(step.requiredEdges ? { requiredEdges: step.requiredEdges } : {}),
+          ...(step.provenEdges ? { provenEdges: step.provenEdges } : {}),
+          ...(step.completionGateResult ? { completionGateResult: step.completionGateResult } : {}),
+          ...(step.finalAnswerType ? { finalAnswerType: step.finalAnswerType } : {}),
           ...(step.evidenceSourceCoverage
             ? { evidenceSourceCoverage: step.evidenceSourceCoverage }
             : {}),
@@ -2710,6 +2715,11 @@ router.post("/ai/chat/stream", async (req, res) => {
           ...(step.retainedBodyFiles ? { retainedBodyFiles: step.retainedBodyFiles } : {}),
           ...(step.acceptedEvidenceFiles ? { acceptedEvidenceFiles: step.acceptedEvidenceFiles } : {}),
           ...(step.acceptedClaimCount !== undefined ? { acceptedClaimCount: step.acceptedClaimCount } : {}),
+          ...(step.objectiveType ? { objectiveType: step.objectiveType } : {}),
+          ...(step.requiredEdges ? { requiredEdges: step.requiredEdges } : {}),
+          ...(step.provenEdges ? { provenEdges: step.provenEdges } : {}),
+          ...(step.completionGateResult ? { completionGateResult: step.completionGateResult } : {}),
+          ...(step.finalAnswerType ? { finalAnswerType: step.finalAnswerType } : {}),
           ...(step.evidenceSourceCoverage
             ? { evidenceSourceCoverage: step.evidenceSourceCoverage }
             : {}),
