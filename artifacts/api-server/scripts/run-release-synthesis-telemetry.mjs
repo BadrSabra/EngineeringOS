@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { acquireReleaseLock, lockPath } from "./run-release-ai-stream.mjs";
 
 const checks = [
   [
@@ -30,8 +31,12 @@ if (process.env.DATABASE_URL) {
   );
 }
 
-for (const args of checks) {
-  const result = spawnSync("pnpm", args, {
+let cleanup;
+let exitCode = 0;
+try {
+  if (process.env.DATABASE_URL) cleanup = await acquireReleaseLock(lockPath);
+  for (const args of checks) {
+    const result = spawnSync("pnpm", args, {
     cwd: process.cwd(),
     env: {
       ...process.env,
@@ -39,16 +44,22 @@ for (const args of checks) {
       OPENROUTER_API_KEY: "",
     },
     stdio: "inherit",
-  });
+    });
 
-  if (result.error) {
-    console.error(`Release synthesis telemetry validation could not start: ${result.error.message}`);
-    process.exit(1);
-  }
+    if (result.error) {
+      console.error(`Release synthesis telemetry validation could not start: ${result.error.message}`);
+      exitCode = 1;
+      break;
+    }
 
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
+    if (result.status !== 0) {
+      exitCode = result.status ?? 1;
+      break;
+    }
   }
+} finally {
+  if (cleanup) await cleanup();
 }
 
+if (exitCode !== 0) process.exit(exitCode);
 console.log("Release synthesis telemetry validation completed successfully.");

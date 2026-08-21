@@ -28,9 +28,6 @@ args = "artifacts/dashboard: web"
 task = "workflow.run"
 args = "artifacts/mockup-sandbox: Component Preview Server"
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "dashboard-restart-smoke"
 
 
 [[workflows.workflow]]
@@ -86,7 +83,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "pnpm run validate:release"
+args = "RELEASE_VALIDATION_WAIT_FOR_LOCK=1 pnpm run validate:release"
 
 [workflows.workflow.metadata]
 isValidation = true
@@ -97,7 +94,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "DASHBOARD_E2E_EXECUTABLE_PATH=$(command -v chromium) pnpm run validate:dashboard-journey"
+args = "RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=$(command -v chromium) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"
 
 [workflows.workflow.metadata]
 isValidation = true

@@ -13,8 +13,13 @@ function start() {
   const child = spawn('pnpm', ['run', 'dev'], {
     cwd: new URL('..', import.meta.url),
     env,
-    stdio: 'ignore',
+    stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
+  });
+  child.stdout.on('data', (chunk) => process.stdout.write(chunk));
+  child.stderr.on('data', (chunk) => process.stderr.write(chunk));
+  child.on('error', (error) => {
+    child.startupError = error;
   });
   processes.push(child);
   return child;
@@ -60,12 +65,20 @@ async function waitForExit(child, timeoutMs = 10000) {
   return child.exitCode !== null;
 }
 
-function stop(child) {
+async function stop(child) {
   if (!child || child.exitCode !== null) return;
   try {
     process.kill(-child.pid, 'SIGTERM');
   } catch (error) {
     if (error.code !== 'ESRCH') throw error;
+  }
+  if (!(await waitForExit(child, 3000))) {
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch (error) {
+      if (error.code !== 'ESRCH') throw error;
+    }
+    await waitForExit(child, 3000);
   }
 }
 
@@ -78,9 +91,11 @@ try {
       `The old Dashboard listener was not stopped on port ${port}; restart left the original process running.`,
     );
   }
-  if (second.exitCode !== null) {
+  if (second.startupError || second.exitCode !== null) {
     throw new Error(
-      `The replacement Dashboard process failed to bind port ${port} (exited with code ${second.exitCode}).`,
+      `The replacement Dashboard process failed to bind port ${port} ${
+        second.startupError?.message ?? `(exited with code ${second.exitCode})`
+      }.`,
     );
   }
   try {
@@ -98,6 +113,8 @@ try {
   }
   console.log('Dashboard restart smoke check passed.');
 } finally {
-  for (const child of processes) stop(child);
-  await new Promise((resolve) => setTimeout(resolve, 200));
+  for (const child of processes) await stop(child);
+  await waitForPort(false, 5000).catch(() => {
+    throw new Error(`Dashboard restart smoke cleanup left port ${port} open.`);
+  });
 }

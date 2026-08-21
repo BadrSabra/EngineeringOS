@@ -149,13 +149,14 @@ test("keeps the local Project workflow and release validation separate", async (
   assert.ok(projectWorkflowStart >= 0);
   assert.ok(releaseWorkflowStart > projectWorkflowStart);
 
-  const projectWorkflow = replitConfig.slice(
-    projectWorkflowStart,
-    releaseWorkflowStart,
+  const nextWorkflowStart = replitConfig.indexOf(
+    "[[workflows.workflow]]",
+    projectWorkflowStart + "[[workflows.workflow]]".length,
   );
+  const projectWorkflow = replitConfig.slice(projectWorkflowStart, nextWorkflowStart);
   assert.doesNotMatch(
     projectWorkflow,
-    /validate:release|release-process-recovery/,
+    /validate:release|release-process-recovery|dashboard-restart-smoke/,
   );
 
   const releaseWorkflowCommands = commandsBetween(
@@ -164,7 +165,7 @@ test("keeps the local Project workflow and release validation separate", async (
     "[workflows.workflow.metadata]",
   );
   assert.deepEqual(releaseWorkflowCommands, [
-    'args = "pnpm run validate:release"',
+    'args = "RELEASE_VALIDATION_WAIT_FOR_LOCK=1 pnpm run validate:release"',
   ]);
 
   const normalTestCommand = packageJson.scripts?.test;
@@ -181,4 +182,19 @@ test("keeps the local Project workflow and release validation separate", async (
     "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
   );
   assert.notEqual(normalTestCommand, releaseTestCommand);
+});
+
+test("keeps the standalone journey responsible for service orchestration", async () => {
+  const replitConfig = await readWorkspaceFile(".replit");
+  const journeyStart = replitConfig.indexOf('name = "release-dashboard-journey"');
+  assert.ok(journeyStart >= 0);
+  const journeySection = replitConfig.slice(journeyStart);
+  assert.match(
+    journeySection,
+    /args = "RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=\$\(command -v chromium\) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"/,
+  );
+  assert.doesNotMatch(
+    replitConfig.slice(0, journeyStart),
+    /name = "release-dashboard-journey"/,
+  );
 });

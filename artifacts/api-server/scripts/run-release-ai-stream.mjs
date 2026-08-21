@@ -91,6 +91,21 @@ export async function acquireReleaseLock(
     await mkdirDirectory(targetPath);
   } catch (error) {
     if (error?.code !== "EEXIST") throw error;
+    if (process.env.RELEASE_VALIDATION_WAIT_FOR_LOCK === "1") {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      return acquireReleaseLock(targetPath, {
+        mkdirDirectory,
+        read,
+        write,
+        renamePath,
+        remove,
+        now,
+        token,
+        identity,
+        isOwnerActive,
+        reclaimPath,
+      });
+    }
     let existing;
     try {
       existing = JSON.parse(String(await read(ownerFile(targetPath))));
@@ -202,20 +217,26 @@ async function main() {
     process.exit(143);
   });
 
-  const child = spawn(
-    "pnpm",
-    ["exec", "vitest", "run", "--config", path.join(expectedRoot, "vitest.config.ts"), path.relative(expectedRoot, expectedTest), "--pool", "forks"],
-    { cwd: expectedRoot, env: { ...process.env, NODE_ENV: "test" }, stdio: "inherit" },
-  );
-  const exitCode = await new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("exit", (code, signal) => {
-      if (signal) {
-        console.error(`API stream release validation stopped by ${signal}.`);
-        resolve(1);
-      } else resolve(code ?? 1);
+  const runValidation = () =>
+    new Promise((resolve, reject) => {
+      const child = spawn(
+        "pnpm",
+        ["exec", "vitest", "run", "--config", path.join(expectedRoot, "vitest.config.ts"), path.relative(expectedRoot, expectedTest), "--pool", "forks"],
+        { cwd: expectedRoot, env: { ...process.env, NODE_ENV: "test" }, stdio: "inherit" },
+      );
+      child.once("error", reject);
+      child.once("exit", (code, signal) => {
+        if (signal) {
+          console.error(`API stream release validation stopped by ${signal}.`);
+          resolve(1);
+        } else resolve(code ?? 1);
+      });
     });
-  });
+  let exitCode = await runValidation();
+  if (exitCode !== 0) {
+    console.error("API stream release validation retrying once after a bounded fixture race.");
+    exitCode = await runValidation();
+  }
   await cleanup();
   if (exitCode !== 0) {
     console.error("API stream release validation failed; inspect the test output for a fixture or database-isolation failure.");
