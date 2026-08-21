@@ -65,6 +65,7 @@ import type { ValidationResult } from '@workspace/ai-orchestrator';
 // Keep the shared structured error type for translating SSE failures into
 // the same user-facing error format as regular API requests.
 import { ApiError } from '@/lib/api-fetch';
+import { readStoredMissionCorrelationReport } from '@/lib/mission-correlation-report';
 
 type Project = { id: string; name: string; language: string };
 type BenchmarkScorecard = {
@@ -111,6 +112,8 @@ type ChatMessage = {
   outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED' | null;
   errorCode?: string | null;
   errorMessage?: string | null;
+  /** Optional persisted release report attached to a historical run. */
+  missionCorrelationReport?: unknown;
   /** Safe operational timeline captured from the live SSE run. */
   activityEvents?: LiveAgentActivityEvent[];
   /** Accepted behavior-evidence excerpts, optionally with an exact source line span. */
@@ -6177,6 +6180,7 @@ export default function AiChat() {
   });
   const [input, setInput] = useState('');
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+  const [historicalReportError, setHistoricalReportError] = useState<string | null>(null);
   const [planDecisionPending, setPlanDecisionPending] = useState<string | null>(null);
   const [planBuildPending, setPlanBuildPending] = useState<string | null>(null);
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
@@ -6702,7 +6706,19 @@ export default function AiChat() {
   );
 
   useEffect(() => {
-    if (messagesFetched) setLocalMessages(serverMessages);
+    if (!messagesFetched) return;
+    try {
+      for (const message of serverMessages) {
+        if (message.missionCorrelationReport !== undefined) {
+          readStoredMissionCorrelationReport(message.missionCorrelationReport);
+        }
+      }
+      setHistoricalReportError(null);
+      setLocalMessages(serverMessages);
+    } catch (error) {
+      setHistoricalReportError(error instanceof Error ? error.message : String(error));
+      setLocalMessages([]);
+    }
   }, [messagesFetched, serverMessages]);
 
   useEffect(() => {
@@ -7934,6 +7950,11 @@ export default function AiChat() {
             </div>
           ) : (
             <div className="mx-auto min-w-0 w-full max-w-3xl">
+              {historicalReportError && (
+                <div role="alert" className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                  Historical run unavailable: {historicalReportError}
+                </div>
+              )}
                {showExecutionProof && (
                  <AgentExecutionProofPanel
                    execution={activeExecutionStatus}
