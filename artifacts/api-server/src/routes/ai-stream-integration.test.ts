@@ -3669,6 +3669,85 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
     expect(parseAiExecutionCheckpoint(executions.at(-1)?.checkpoint ?? "")?.stage).toBe("failed");
   });
 
+  it("keeps a resumed required-analysis failure terminal when the analysis remains unavailable", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+    const unavailable = async (...args: Parameters<typeof chatWithFallback>) => {
+      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+      onStep?.({
+        kind: "tool_result",
+        tool: "query_knowledge_graph",
+        resultKind: "unavailable",
+        diagnosticCode: "TOOL_UNAVAILABLE",
+        resultSummary: "Analysis tool query_knowledge_graph was unavailable; the operation did not complete.",
+      });
+      onStep?.({
+        kind: "done",
+        iterations: 1,
+        maxIterations: 24,
+        toolCalls: 0,
+        prefetchToolCalls: 0,
+        loopToolCalls: 0,
+        stopReason: "tool_failure",
+        synthesisStarted: false,
+        diagnosticCodes: ["TOOL_UNAVAILABLE"],
+      });
+      return {
+        result: {
+          response: "The analysis was unavailable.",
+          sources: [],
+          pendingChanges: [],
+        },
+        effectiveProvider: "groq" as const,
+      } as unknown as Awaited<ReturnType<typeof chatWithFallback>>;
+    };
+    vi.mocked(chatWithFallback)
+      .mockImplementationOnce(unavailable)
+      .mockImplementationOnce(unavailable);
+
+    const first = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({ projectId, message: "تحقق من الكود الفعلي واكتشف الفجوات وحدد الأسباب الجذرية" });
+    const firstEvents = parseSseEvents(first.text);
+    const started = firstEvents.find((event) => event.type === "execution_started") as
+      | { executionId?: string; resumeToken?: string }
+      | undefined;
+    const sessionStarted = firstEvents.find((event) => event.type === "session_started") as
+      | { sessionId?: string }
+      | undefined;
+    expect(started?.executionId).toEqual(expect.any(String));
+    expect(started?.resumeToken).toEqual(expect.any(String));
+    expect(firstEvents.find((event) => event.type === "done")).toBeUndefined();
+
+    const resumed = await request(app)
+      .post("/api/ai/chat/stream")
+      .set("Content-Type", "application/json")
+      .send({
+        projectId,
+        sessionId: sessionStarted?.sessionId,
+        message: "تحقق من الكود الفعلي واكتشف الفجوات وحدد الأسباب الجذرية",
+        executionId: started?.executionId,
+        resumeToken: started?.resumeToken,
+      });
+    const resumedEvents = parseSseEvents(resumed.text);
+    expect(resumed.status).toBe(200);
+    expect(resumedEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "execution_started", status: "running" }),
+      expect.objectContaining({ type: "error", code: "TOOL_UNAVAILABLE" }),
+    ]));
+    expect(resumedEvents.find((event) => event.type === "done")).toBeUndefined();
+
+    const messages = await db
+      .select({ role: aiChatMessagesTable.role, outcome: aiChatMessagesTable.outcome })
+      .from(aiChatMessagesTable)
+      .where(eq(aiChatMessagesTable.sessionId, String(sessionStarted?.sessionId)));
+    const assistantMessages = messages.filter((message) => message.role === "assistant");
+    expect(assistantMessages).toHaveLength(2);
+    expect(assistantMessages.every((message) => message.outcome === "FAILED")).toBe(true);
+  });
+
   it("records zero-read evidence stops as failed, not completed", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

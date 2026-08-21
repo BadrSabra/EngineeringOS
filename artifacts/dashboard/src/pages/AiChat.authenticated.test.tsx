@@ -389,6 +389,47 @@ describe('AiChat authenticated generated mutations', () => {
     })));
   });
 
+  it('keeps a resumed analysis failure incomplete and refreshes its durable state', async () => {
+    mocks.activeExecutionStatus = { status: 'failed' };
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-failed-resume',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      resumeToken: 'opaque-resume-token',
+      message: 'Verify the analysis evidence',
+    }));
+
+    const { invalidateQueries } = renderAiChat();
+    expect(await screen.findByText('A saved AI execution is ready to resume')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
+
+    await waitFor(() => expect(mocks.sentParams).toEqual(expect.objectContaining({
+      executionId: 'execution-failed-resume',
+      resumeToken: 'opaque-resume-token',
+      message: 'Verify the analysis evidence',
+    })));
+
+    act(() => {
+      (mocks.streamCallbacks as { onError?: (error: Record<string, unknown>) => void }).onError?.({
+        executionId: 'execution-failed-resume',
+        code: 'TOOL_UNAVAILABLE',
+        message: 'The required analysis did not complete.',
+      });
+    });
+
+    await waitFor(() => {
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['ai-execution', 'execution-failed-resume'],
+      });
+      expect(invalidateQueries).toHaveBeenCalledWith({
+        queryKey: ['ai-messages', 'session-1'],
+      });
+    });
+    expect(screen.queryByText(/COMPLETED/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Persisted execution proof')).not.toBeInTheDocument();
+  });
+
   it('hydrates persisted chat data and clears stale storage when the server completed offline', async () => {
     mocks.activeExecutionStatus = { status: 'completed' };
     localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');

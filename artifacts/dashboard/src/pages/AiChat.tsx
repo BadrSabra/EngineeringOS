@@ -7705,6 +7705,15 @@ export default function AiChat() {
           setLiveEvidenceIntegrity(null);
           setLiveVerdictScope(null);
           setLocalMessages((prev) => prev.filter((m) => !m.id.startsWith('opt-')));
+          const failedExecutionId = err.executionId ?? activeExecutionRef.current?.id;
+          if (failedExecutionId) {
+            void qc.invalidateQueries({ queryKey: ['ai-execution', failedExecutionId] });
+          }
+          const failedSessionId = activeExecutionRef.current?.sessionId ?? sessionId;
+          if (failedSessionId) {
+            void qc.invalidateQueries({ queryKey: ['ai-messages', failedSessionId] });
+          }
+          void qc.invalidateQueries({ queryKey: ['ai-sessions', requestProjectId] });
           toast({ title: 'Failed to send message', description: describeStreamError(err), variant: 'destructive' });
         },
       },
