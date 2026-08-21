@@ -772,7 +772,7 @@ type PersistedToolTraceEntry = {
   toolCalls?: number;
   prefetchToolCalls?: number;
   loopToolCalls?: number;
-  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "cancelled";
+  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
   synthesisStarted?: boolean;
   synthesisAttempts?: number;
   synthesisMaxAttempts?: number;
@@ -878,6 +878,8 @@ type PersistedToolTraceEntry = {
   validationAttempt?: number;
   validationMaxAttempts?: number;
   validationDetail?: string;
+  resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
+  diagnosticCode?: string;
 };
 
 /**
@@ -915,6 +917,8 @@ function serializeToolTrace(
           tool: step.tool,
           source: step.source,
           cached: step.cached,
+          ...("resultKind" in step && step.resultKind ? { resultKind: step.resultKind } : {}),
+          ...("diagnosticCode" in step && step.diagnosticCode ? { diagnosticCode: step.diagnosticCode } : {}),
           ...(step.resultSummary ? { resultSummary: step.resultSummary } : {}),
           ...("prefetched" in step && step.prefetched ? { prefetched: true } : {}),
         };
@@ -2435,7 +2439,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           toolCalls: number;
           prefetchToolCalls: number;
           loopToolCalls: number;
-          stopReason: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "cancelled";
+          stopReason: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
           synthesisStarted: boolean;
            synthesisAttempts?: number;
            synthesisMaxAttempts?: number;
@@ -2563,6 +2567,8 @@ router.post("/ai/chat/stream", async (req, res) => {
           tool: step.tool,
           source: step.source ? redactUserFacingText(step.source) : step.source,
           cached: step.cached,
+          ...("resultKind" in step && step.resultKind ? { resultKind: step.resultKind } : {}),
+          ...("diagnosticCode" in step && step.diagnosticCode ? { diagnosticCode: step.diagnosticCode } : {}),
           ...(step.resultSummary ? { resultSummary: redactUserFacingText(step.resultSummary).slice(0, 240) } : {}),
           ...("prefetched" in step && step.prefetched ? { prefetched: true } : {}),
         });

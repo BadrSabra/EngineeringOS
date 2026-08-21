@@ -416,6 +416,13 @@ export type SingleToolResult =
       kind: "unknown_tool";
       /** Human-readable error forwarded to the model as the tool message. */
       errorMessage: string;
+    }
+  | {
+      kind: "failed";
+      failureKind: "execution" | "unavailable" | "cancelled";
+      diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
+      /** Safe, bounded context forwarded to the model. Raw diagnostics stay in logs. */
+      safeMessage: string;
     };
 
 /**
@@ -646,13 +653,19 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
   try {
     if (isExecutionTool && !opts.allowExecutionTools) {
       return {
-        kind: "ok",
-        output: "Error: execution tools are blocked for this agent mode.",
-        source: undefined,
+        kind: "failed",
+        failureKind: "unavailable",
+        diagnosticCode: "TOOL_UNAVAILABLE",
+        safeMessage: `Tool "${name}" is unavailable in this agent mode; the operation did not complete.`,
       };
     }
     if (isAnalysisTool && !opts.analysisToolRunner) {
-      return { kind: "ok", output: "Analysis tools are unavailable for this turn.", source: undefined };
+      return {
+        kind: "failed",
+        failureKind: "unavailable",
+        diagnosticCode: "TOOL_UNAVAILABLE",
+        safeMessage: `Tool "${name}" is unavailable for this turn; the operation did not complete.`,
+      };
     }
     let analysisStatus: "complete" | "unavailable" | "failed" | undefined;
     const output = await (isGitTool
@@ -708,12 +721,21 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
 
     return { kind: "ok", output, source };
   } catch (error) {
-    // Fall through: continue execution even if tool fails
     const errorMessage = error instanceof Error ? error.message : String(error);
+    const cancelled = opts.signal?.aborted === true;
+    console.error(JSON.stringify({
+      scope: "tool-execution-engine",
+      code: cancelled ? "TOOL_CANCELLED" : "TOOL_EXECUTION_FAILED",
+      tool: name,
+      error: errorMessage,
+    }));
     return {
-      kind: "ok",
-      output: `Error executing tool "${name}": ${errorMessage}`, // Return error as output to allow continuation
-      source: undefined,
+      kind: "failed",
+      failureKind: cancelled ? "cancelled" : "execution",
+      diagnosticCode: cancelled ? "TOOL_CANCELLED" : "TOOL_EXECUTION_FAILED",
+      safeMessage: cancelled
+        ? `Tool "${name}" was cancelled; the operation did not complete.`
+        : `Tool "${name}" failed; the operation did not complete. Do not claim that it completed.`,
     };
   }
 }
@@ -1094,6 +1116,16 @@ export type ToolLoopResult =
       reason?: "iteration_budget" | "empty_response";
     }
   | {
+      /** A required tool failed; no completed operation may be claimed. */
+      kind: "failed";
+      toolSources: string[];
+      fileContents?: Map<string, string>;
+      sourceRetrieval?: SourceRetrievalTelemetry;
+      tool: string;
+      failureKind: "execution" | "unavailable" | "cancelled";
+      diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
+    }
+  | {
       /**
        * Deterministic safety stop after a repeated tool-call loop. The caller
        * must surface this reason instead of describing the run as successful.
@@ -1143,6 +1175,9 @@ export type AgentDiagnosticCode =
   | "EXECUTION_NO_EDIT_TOOL"
   | "EXECUTION_NODE_TRANSITION_BLOCKED"
   | "EXECUTION_BEHAVIORAL_PROOF_FAILED"
+  | "TOOL_EXECUTION_FAILED"
+  | "TOOL_UNAVAILABLE"
+  | "TOOL_CANCELLED"
   // First-Evidence Gate: the explicit primary evidence target is read directly
   // before any graph/prefetch work.
   | "FIRST_EVIDENCE_READ_ALLOWED"
@@ -1226,6 +1261,8 @@ export type AgentStep =
       source?: string;
       cached: boolean;
       outputLength: number;
+       resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
+       diagnosticCode?: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
       /** Bounded, content-free summary safe for activity timelines. */
       resultSummary?: string;
       /** True when the read happened during forensic prefetch, before the loop. */
@@ -1356,7 +1393,8 @@ export type AgentStep =
         | "soft_limit"
         | "repeated_tool_call"
         | "empty_response"
-        | "provider_timeout"
+         | "provider_timeout"
+         | "tool_failure"
         | "cancelled";
       synthesisStarted: boolean;
       /** Bounded final-synthesis telemetry for operator diagnostics. */
@@ -2059,6 +2097,44 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       });
     } catch { /* ignore */ }
     return { kind: "cancelled", toolSources, fileContents, sourceRetrieval };
+  };
+  const failedToolResult = (
+    tool: string,
+    failureKind: "execution" | "unavailable" | "cancelled",
+    diagnosticCode: Extract<AgentDiagnosticCode, `TOOL_${string}`>,
+    safeMessage: string,
+  ): ToolLoopResult => {
+    try {
+      onStep?.({ kind: "diagnostic", code: diagnosticCode, details: [`${tool}: ${failureKind}`] });
+      onStep?.({
+        kind: "tool_result",
+        tool,
+        cached: false,
+        outputLength: safeMessage.length,
+        resultKind: failureKind === "execution" ? "failed" : failureKind,
+        diagnosticCode,
+        resultSummary: safeMessage,
+      });
+      onStep?.({
+        kind: "done",
+        iterations: 0,
+        maxIterations,
+        ...executionCounts(),
+        stopReason: "tool_failure",
+        synthesisStarted,
+        diagnosticCodes: [diagnosticCode],
+        sourceRetrieval,
+      });
+    } catch { /* observers must not change the terminal result */ }
+    return {
+      kind: "failed",
+      toolSources,
+      fileContents,
+      sourceRetrieval,
+      tool,
+      failureKind,
+      diagnosticCode,
+    };
   };
 
   for (let iter = 0; iter < maxIterations; iter++) {
@@ -3578,12 +3654,27 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             knownExecution: [...EXECUTION_TOOL_NAMES],
           }),
         );
+        messages.push({ role: "tool", tool_call_id: tc.id, content: "The requested tool is not available. The operation did not complete." });
+        return failedToolResult(
+          tc.function.name,
+          "unavailable",
+          "TOOL_UNAVAILABLE",
+          "The requested tool is not available. The operation did not complete.",
+        );
+      }
+
+      if (toolResult.kind === "failed") {
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
-          content: `Error: ${toolResult.errorMessage}`,
+          content: `${toolResult.safeMessage} Diagnostic code: ${toolResult.diagnosticCode}.`,
         });
-        continue;
+        return failedToolResult(
+          tc.function.name,
+          toolResult.failureKind,
+          toolResult.diagnosticCode,
+          toolResult.safeMessage,
+        );
       }
 
       // Successful execution — consume budget, cache, record source.

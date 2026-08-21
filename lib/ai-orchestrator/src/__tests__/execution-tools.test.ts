@@ -63,8 +63,9 @@ describe("execution tools", () => {
       allowExecutionTools: false,
     });
 
-    expect(result.kind).toBe("ok");
-    expect(result.kind === "ok" && result.output).toMatch(/blocked/i);
+    expect(result.kind).toBe("failed");
+    expect(result.kind === "failed" && result.diagnosticCode).toBe("TOOL_UNAVAILABLE");
+    expect(result.kind === "failed" && result.safeMessage).toMatch(/did not complete/i);
     expect(runner).not.toHaveBeenCalled();
   });
 

@@ -2390,7 +2390,7 @@ describe("executeToolLoop", () => {
     );
   });
 
-  it("rejects unknown tool names with an error message without consuming budget", async () => {
+  it("fails closed for unknown tool names without consuming execution budget", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const strategy = makeStrategy([
       // Model requests an unknown tool, then a known one
@@ -2414,15 +2414,48 @@ describe("executeToolLoop", () => {
       maxToolCalls: 1, // Budget of 1: unknown tool should NOT consume it
     });
 
-    expect(result.kind).toBe("response");
-    // The known tool should have been executed (budget was not consumed by unknown tool).
-    expect(FILE_TOOL_MOCK).toHaveBeenCalledWith("read_file", { path: "src/app.ts" }, "/project", []);
-    // The error message for the unknown tool should appear in messages.
+    expect(result.kind).toBe("failed");
+    if (result.kind === "failed") {
+      expect(result.diagnosticCode).toBe("TOOL_UNAVAILABLE");
+      expect(result.tool).toBe("delete_everything");
+    }
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
     const toolMessages = messages.filter((m) => m.role === "tool");
     const errorMsg = toolMessages.find(
-      (m) => m.role === "tool" && m.content.includes("not registered"),
+      (m) => m.role === "tool" && m.content.includes("did not complete"),
     );
     expect(errorMsg).toBeDefined();
+  });
+
+  it("fails closed with a bounded diagnostic when a file tool throws", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    FILE_TOOL_MOCK.mockRejectedValueOnce(new Error("/secret/workspace/private.txt leaked"));
+    const steps: AgentStep[] = [];
+    const messages = makeMessages();
+    const result = await executeToolLoop({
+      messages,
+      strategy: makeStrategy([
+        makeResponse("", [makeToolCall("tc1", "read_file", { path: "src/app.ts" })]),
+      ]),
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{ type: "function", function: { name: "read_file", description: "", parameters: {} } }],
+      rootPath: "/project",
+      pendingChanges: [],
+      onStep: (step) => steps.push(step),
+    });
+
+    expect(result.kind).toBe("failed");
+    expect(JSON.stringify(messages)).not.toContain("private.txt");
+    expect(steps).toContainEqual(expect.objectContaining({
+      kind: "diagnostic",
+      code: "TOOL_EXECUTION_FAILED",
+    }));
+    expect(steps).toContainEqual(expect.objectContaining({
+      kind: "done",
+      stopReason: "tool_failure",
+    }));
   });
 
   it("accumulates toolSources for multiple different file reads", async () => {

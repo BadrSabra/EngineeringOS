@@ -507,6 +507,8 @@ type ToolTraceEntry = {
   cached?: boolean;
   prefetched?: boolean;
   resultSummary?: string;
+  resultKind?: 'ok' | 'failed' | 'unavailable' | 'cancelled';
+  diagnosticCode?: string;
   stage?: string;
   stepTitle?: string;
   action?: string;
@@ -779,6 +781,7 @@ const EXECUTION_STOP_REASONS = [
   'repeated_tool_call',
   'empty_response',
   'provider_timeout',
+  'tool_failure',
   // Cancellation is a terminal audit state. Keep its persisted execution
   // summary available after history reload so the incomplete report's
   // recovery context is not replaced by a clean/no-finding fallback.
@@ -1336,6 +1339,8 @@ function formatStopReason(reason: string, synthesisStarted = false): string {
         : 'empty provider response';
     case 'provider_timeout':
       return 'provider timed out — partial report returned';
+    case 'tool_failure':
+      return 'required tool failed — operation blocked';
     default:
       return reason.replace(/_/g, ' ');
   }
@@ -2126,6 +2131,11 @@ function ExecutionSummaryBanner({
       <span className="text-amber-300">Execution diagnostic:</span>{' '}
       {summary.diagnosticCodes.some((code) => code === 'EXECUTION_PROVIDER_FAILURE') ? (
         <span className="text-red-300">provider failure — </span>
+      ) : null}
+      {String(summary.stopReason) === 'tool_failure' || summary.diagnosticCodes.some((code) =>
+        code === 'TOOL_EXECUTION_FAILED' || code === 'TOOL_UNAVAILABLE' || code === 'TOOL_CANCELLED',
+      ) ? (
+        <span className="font-semibold text-red-300">required tool did not complete — BLOCKED/INCOMPLETE; no completed operation may be claimed — </span>
       ) : null}
       {summary.diagnosticCodes.some((code) => code === 'EXECUTION_NO_EDIT_TOOL') ? (
         <span className="text-amber-200">stopped before an edit tool — </span>
@@ -4631,12 +4641,26 @@ function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentActivity
         const event = events[eventIndex]!;
         events[eventIndex] = {
           ...event,
-          status: 'done',
+          status: entry.resultKind === 'failed' || entry.resultKind === 'unavailable' || entry.resultKind === 'cancelled'
+            ? 'info'
+            : 'done',
           detail: entry.source
             ? `${entry.cached ? 'cached · ' : ''}${entry.source}`
-            : entry.cached ? 'cached' : undefined,
+            : entry.resultKind
+              ? `${entry.resultKind}${entry.diagnosticCode ? ` · ${entry.diagnosticCode}` : ''}`
+              : entry.cached ? 'cached' : undefined,
         };
         if (entry.resultSummary) events[eventIndex].detail = entry.resultSummary;
+      }
+      if (entry.resultKind === 'failed' || entry.resultKind === 'unavailable' || entry.resultKind === 'cancelled') {
+        events.push({
+          id: nextId++,
+          kind: 'diagnostic',
+          tool: entry.tool,
+          label: entry.resultKind === 'cancelled' ? 'Tool cancelled' : 'Tool failed',
+          detail: entry.diagnosticCode ?? entry.resultSummary ?? 'The operation did not complete.',
+          status: 'info',
+        });
       }
       continue;
     }

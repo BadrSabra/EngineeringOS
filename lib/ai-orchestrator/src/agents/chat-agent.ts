@@ -5701,6 +5701,18 @@ export async function chat(opts: {
     };
   }
 
+  if (loopResult.kind === "failed") {
+    const isArabic = /[\u0600-\u06FF]/.test(message);
+    const blockedResponse = isArabic
+      ? `تم حظر العملية لأن الأداة \`${loopResult.tool}\` لم تكتمل (${loopResult.diagnosticCode}). لم يتم تنفيذ العملية المطلوبة، ولا يمكنني الادعاء بأنها اكتملت.`
+      : `The operation is BLOCKED because tool "${loopResult.tool}" did not complete (${loopResult.diagnosticCode}). I cannot claim the requested analysis, validation, repair, or change was completed.`;
+    return {
+      response: finalizeTaskResponse(blockedResponse),
+      sources: toolSources,
+      pendingChanges: getExecutionPendingChanges(),
+    };
+  }
+
   // ── Final response from model (kind:"response" or kind:"partial") ─────────
   const result = loopResult.kind === "cancelled"
     ? {
