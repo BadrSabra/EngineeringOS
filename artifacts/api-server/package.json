@@ -8,7 +8,7 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run && node --test scripts/stop-old-api.test.mjs",
+    "test": "vitest run && node --test scripts/stop-old-api.test.mjs scripts/release-lock.test.mjs",
     "test:release-synthesis-telemetry": "node ./scripts/run-release-ai-stream.mjs && node ./scripts/run-release-synthesis-telemetry.mjs",
     "test:process-recovery": "node ./scripts/run-real-process-recovery.mjs",
     "test:live-empty-model-response": "node ./scripts/run-live-empty-model-response.mjs",
