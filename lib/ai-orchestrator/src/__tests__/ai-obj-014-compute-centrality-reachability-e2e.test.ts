@@ -513,9 +513,24 @@ describe("AI-OBJ-014: prove/refute production reachability of computeCentrality 
 
         const integrity = [...steps].reverse().find((step) => step.kind === "evidence_integrity");
         expect(integrity?.kind).toBe("evidence_integrity");
+        const telemetry = captures.telemetryLedgers.at(-1)!;
         if (integrity?.kind === "evidence_integrity") {
           expect(integrity.code).toBe("TELEMETRY_CONSISTENT");
           expect(integrity.consistent).toBe(true);
+          // AI-OBJ-011: every finalization mode exposes the same attached
+          // objective ledger, rather than native SSE exposing only delivery
+          // integrity counts.
+          expect(integrity).toMatchObject({
+            objectiveType: telemetry.objectiveType,
+            requiredClaims: telemetry.requiredClaims,
+            completedClaims: telemetry.completedClaims,
+            missingClaims: telemetry.missingClaims,
+            requiredEdges: telemetry.requiredEdges,
+            provenEdges: telemetry.provenEdges,
+            failedEdges: telemetry.failedEdges,
+            completionGateResult: telemetry.completionGateResult,
+            finalAnswerType: telemetry.finalAnswerType,
+          });
         }
         expect(captures.reconciles.at(-1)?.consistent).toBe(true);
       } finally {

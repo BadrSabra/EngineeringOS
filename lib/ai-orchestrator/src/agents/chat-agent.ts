@@ -1447,6 +1447,50 @@ function buildCapabilityMicroProbeMessages(
   };
 }
 
+/**
+ * AI-OBJ-011: publish the post-gate objective ledger on every streamed
+ * finalization seam. Native SSE does not expose the internal RunLedger built
+ * by reconcileAndGateVerdict, so its evidence-integrity event must be stamped
+ * from the same ObjectiveCompletionGateResult used to gate the response.
+ */
+function relayObjectiveTelemetry(
+  relayAgentStep: (step: AgentStep) => void,
+  objective: ObjectiveContract | undefined,
+  gate: ObjectiveCompletionGateResult | null,
+  ledger: import("../evidence-integrity.js").RunLedger,
+  reconciliation: import("../evidence-integrity.js").TelemetryReconciliation,
+): void {
+  if (!objective || !gate) return;
+  relayAgentStep({
+    kind: "evidence_integrity",
+    code: reconciliation.consistent ? "TELEMETRY_CONSISTENT" : "TELEMETRY_INCONSISTENT",
+    consistent: reconciliation.consistent,
+    violations: reconciliation.consistent ? [] : reconciliation.violations.slice(0, 4),
+    readAttempts: ledger.readAttempts,
+    uniqueFilesRead: ledger.uniqueFilesRead,
+    evidenceFileCount: ledger.evidenceFileCount,
+    acceptedEvidenceCount: ledger.acceptedEvidenceCount,
+    completedReadFiles: ledger.completedReadFiles,
+    retainedBodyFiles: ledger.retainedBodyFiles,
+    acceptedEvidenceFiles: ledger.acceptedEvidenceFiles,
+    acceptedClaimCount: ledger.acceptedClaimCount,
+    evidenceSourceCoverage: ledger.sourceCoverage,
+    scopeExpansions: ledger.scopeExpansions,
+    unjustifiedReads: ledger.unjustifiedReads,
+    objectiveType: objective.objectiveType,
+    requiredClaims: ledger.requiredClaims,
+    completedClaims: ledger.completedClaims,
+    missingClaims: ledger.missingClaims,
+    requiredEdges: ledger.requiredEdges,
+    provenEdges: ledger.provenEdges,
+    failedEdges: ledger.failedEdges,
+    recoveryTriggered: ledger.recoveryTriggered,
+    recoveryTarget: ledger.recoveryTarget,
+    completionGateResult: ledger.completionGateResult,
+    finalAnswerType: ledger.finalAnswerType,
+  });
+}
+
 function extractCapabilityMicroProbeLines(
   raw: string,
   labels: readonly string[],
@@ -5751,6 +5795,7 @@ export async function chat(opts: {
     gatedResponse: string;
     blocked: boolean;
     rejectionReason: string | undefined;
+    runtimeLedger: import("../evidence-integrity.js").RunLedger;
   } => {
     const recoveryAttempts = input.recoveryAttempts ?? 0;
     const runId = `run-${createHash("sha1")
@@ -5808,25 +5853,30 @@ export async function chat(opts: {
         }),
       );
     }
-    relayAgentStep({
-      kind: "evidence_integrity",
-      code: telemetryReconciliation.consistent
-        ? "TELEMETRY_CONSISTENT"
-        : "TELEMETRY_INCONSISTENT",
-      consistent: telemetryReconciliation.consistent,
-      violations: telemetryReconciliation.consistent ? [] : telemetryReconciliation.violations.slice(0, 4),
-      readAttempts: runtimeLedger.readAttempts,
-      uniqueFilesRead: runtimeLedger.uniqueFilesRead,
-      evidenceFileCount: runtimeLedger.evidenceFileCount,
-      acceptedEvidenceCount: runtimeLedger.acceptedEvidenceCount,
-      completedReadFiles: runtimeLedger.completedReadFiles,
-      retainedBodyFiles: runtimeLedger.retainedBodyFiles,
-      acceptedEvidenceFiles: runtimeLedger.acceptedEvidenceFiles,
-      acceptedClaimCount: runtimeLedger.acceptedClaimCount,
-      evidenceSourceCoverage: runtimeLedger.sourceCoverage,
-      scopeExpansions: runtimeLedger.scopeExpansions,
-      unjustifiedReads: runtimeLedger.unjustifiedReads,
-    });
+    // Objective runs emit the post-attachment ledger below, after the
+    // Objective Completion Gate has been evaluated. Keep this pre-gate event
+    // for ordinary runs, where it remains the authoritative integrity event.
+    if (!objective) {
+      relayAgentStep({
+        kind: "evidence_integrity",
+        code: telemetryReconciliation.consistent
+          ? "TELEMETRY_CONSISTENT"
+          : "TELEMETRY_INCONSISTENT",
+        consistent: telemetryReconciliation.consistent,
+        violations: telemetryReconciliation.consistent ? [] : telemetryReconciliation.violations.slice(0, 4),
+        readAttempts: runtimeLedger.readAttempts,
+        uniqueFilesRead: runtimeLedger.uniqueFilesRead,
+        evidenceFileCount: runtimeLedger.evidenceFileCount,
+        acceptedEvidenceCount: runtimeLedger.acceptedEvidenceCount,
+        completedReadFiles: runtimeLedger.completedReadFiles,
+        retainedBodyFiles: runtimeLedger.retainedBodyFiles,
+        acceptedEvidenceFiles: runtimeLedger.acceptedEvidenceFiles,
+        acceptedClaimCount: runtimeLedger.acceptedClaimCount,
+        evidenceSourceCoverage: runtimeLedger.sourceCoverage,
+        scopeExpansions: runtimeLedger.scopeExpansions,
+        unjustifiedReads: runtimeLedger.unjustifiedReads,
+      });
+    }
     // EI-029/030: apply the scoped verdict label on the non-blocked candidate so
     // both streaming paths (direct-content and native-SSE) emit the correctly
     // scoped text.  Uses the same FINDING[_ ]PROVEN regex as the non-streaming
@@ -5844,7 +5894,7 @@ export async function chat(opts: {
         ? "غير مثبت — لم تُنتَج نتيجة قاطعة؛ التعارض أو النقص في تتبع القراءات يمنع قبول الادعاء."
         : "NOT PROVEN — the verdict could not be accepted: the run's telemetry did not reconcile with its cited evidence (or the answer lacked a verifiable excerpt from a completed source read)."
       : input.candidateResponse.replace(scopingRe, scopedLabel);
-    return { gatedResponse, blocked, rejectionReason };
+    return { gatedResponse, blocked, rejectionReason, runtimeLedger };
   };
 
   // ── Streaming path ────────────────────────────────────────────────────────
@@ -5970,6 +6020,19 @@ export async function chat(opts: {
         relayAgentStep,
       });
       const emittedGatedResponse = streamingObjectiveGate.gatedResponse;
+      const streamingTelemetryLedger = attachObjectiveTelemetry(
+        streamingGateResult.runtimeLedger,
+        streamingObjectiveGate.gate,
+        objective,
+      );
+      const streamingTelemetryReconciliation = validateTelemetry(streamingTelemetryLedger);
+      relayObjectiveTelemetry(
+        relayAgentStep,
+        objective,
+        streamingObjectiveGate.gate,
+        streamingTelemetryLedger,
+        streamingTelemetryReconciliation,
+      );
 
       if (isForensicOrEvidenceRun) {
         relayForensicTerminal({
@@ -6217,6 +6280,19 @@ export async function chat(opts: {
         relayAgentStep,
       });
       nativeSseResponse = nativeSseObjectiveGate.gatedResponse;
+      const nativeSseTelemetryLedger = attachObjectiveTelemetry(
+        nativeSseGateResult.runtimeLedger,
+        nativeSseObjectiveGate.gate,
+        objective,
+      );
+      const nativeSseTelemetryReconciliation = validateTelemetry(nativeSseTelemetryLedger);
+      relayObjectiveTelemetry(
+        relayAgentStep,
+        objective,
+        nativeSseObjectiveGate.gate,
+        nativeSseTelemetryLedger,
+        nativeSseTelemetryReconciliation,
+      );
       // AI-OBJ-010: native SSE reaches this seam before the non-streaming
       // final-answer validator below. An explicit production-reachability
       // request backed only by the transport trace must therefore be blocked

@@ -1354,6 +1354,18 @@ export type AgentStep =
       evidenceSourceCoverage?: CanonicalSourceCoverage;
       scopeExpansions?: ScopeExpansion[];
       unjustifiedReads?: string[];
+      /** AI-OBJ-011: objective completion telemetry, when an objective was declared. */
+      objectiveType?: string;
+      requiredClaims?: string[];
+      completedClaims?: string[];
+      missingClaims?: string[];
+      requiredEdges?: string[];
+      provenEdges?: string[];
+      failedEdges?: string[];
+      recoveryTriggered?: boolean;
+      recoveryTarget?: string;
+      completionGateResult?: string;
+      finalAnswerType?: "PRODUCTION_REACHABILITY_ANSWER" | "BEHAVIORAL_ANSWER" | "NO_ANSWER";
     }
   | { kind: "decision_trace"; trace: ForensicDecisionTrace }
   | { kind: "production_trace"; trace: ProductionReachabilityTrace }
