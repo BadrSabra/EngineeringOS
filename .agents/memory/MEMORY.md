@@ -41,3 +41,4 @@
 - [GitHub PR file filtering](github-pr-file-filter.md) — pull_request.changed_files is a count; use an API-backed changed-path filter for conditional jobs.
 - [Workflow transition serialization](workflow-transition-lock.md) — phase advancement must lock the full read/check/claim sequence to prevent sequential double-advances.
 - [Graph project boundaries](graph-project-boundaries.md) — traversal must validate both endpoint entities; legacy null edge ownership is safe only with project-scoped endpoints.
+- [Browser paging assertions](browser-paging-assertions.md) — page transitions can be served from query cache; assert visible state, not a repeated request.

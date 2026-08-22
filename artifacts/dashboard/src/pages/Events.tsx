@@ -1,18 +1,41 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useListEvents, useListProjects } from '@workspace/api-client-react';
 import { Search, Filter, X } from 'lucide-react';
 
 const SEVERITIES = ['info', 'warning', 'error', 'success'] as const;
 const PAGE_SIZE = 50;
 
+function initialEventViewState() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    projectId: params.get('projectId') ?? '',
+    severity: params.get('severity') ?? '',
+    correlationId: params.get('correlationId') ?? '',
+    searchTerm: params.get('search') ?? '',
+    page: Math.max(1, Number(params.get('page')) || 1),
+  };
+}
+
 export default function Events() {
   const { data: projects } = useListProjects();
-  const [projectId, setProjectId] = useState('');
-  const [severity, setSeverity] = useState('');
-  const [correlationId, setCorrelationId] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [page, setPage] = useState(1);
+  const [viewState] = useState(initialEventViewState);
+  const [projectId, setProjectId] = useState(viewState.projectId);
+  const [severity, setSeverity] = useState(viewState.severity);
+  const [correlationId, setCorrelationId] = useState(viewState.correlationId);
+  const [searchTerm, setSearchTerm] = useState(viewState.searchTerm);
+  const [page, setPage] = useState(viewState.page);
   const [showFilters, setShowFilters] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (projectId) params.set('projectId', projectId);
+    if (severity) params.set('severity', severity);
+    if (correlationId.trim()) params.set('correlationId', correlationId.trim());
+    if (searchTerm.trim()) params.set('search', searchTerm.trim());
+    if (page > 1) params.set('page', String(page));
+    const query = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+  }, [projectId, severity, correlationId, searchTerm, page]);
 
   const { data: events, isLoading, isError, error, refetch } = useListEvents({
     limit: PAGE_SIZE,
@@ -51,6 +74,7 @@ export default function Events() {
             />
           </div>
           <button
+            aria-label="Toggle event filters"
             onClick={() => setShowFilters((v) => !v)}
             className={`p-2 border rounded-md transition-colors relative ${
               showFilters || activeFilterCount > 0

@@ -156,6 +156,7 @@ async function installApiFixtures(
       resumedStreamBody: string;
     };
     projects?: Array<Record<string, unknown>>;
+    events?: Array<Record<string, unknown>>;
   },
 ) {
   await page.route("**/api/**", async (route) => {
@@ -272,8 +273,29 @@ async function installApiFixtures(
         ),
       );
     }
-    if (path === "/api/events")
-      return route.fulfill(jsonResponse(dashboardFixture.recentEvents));
+    if (path === "/api/events") {
+      const events = overrides?.events ?? dashboardFixture.recentEvents;
+      const search = url.searchParams.get("search")?.toLowerCase();
+      const filteredEvents = events.filter((event) => {
+        const projectId = url.searchParams.get("projectId");
+        const severity = url.searchParams.get("severity");
+        const correlationId = url.searchParams.get("correlationId");
+        return (
+          (!projectId || event.projectId === projectId) &&
+          (!severity || event.severity === severity) &&
+          (!correlationId || event.correlationId === correlationId) &&
+          (!search ||
+            [event.message, event.type, event.correlationId]
+              .filter((value): value is string => typeof value === "string")
+              .some((value) => value.toLowerCase().includes(search)))
+        );
+      });
+      const limit = Number(url.searchParams.get("limit")) || 50;
+      const page = Number(url.searchParams.get("page")) || 1;
+      return route.fulfill(
+        jsonResponse(filteredEvents.slice((page - 1) * limit, page * limit)),
+      );
+    }
     if (
       overrides?.resumeFailure &&
       path ===
@@ -1398,6 +1420,86 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText("PROVEN", { exact: true }).first(),
     ).toBeVisible();
+  });
+
+  test("pages and reloads the filtered event stream without losing its window", async ({
+    page,
+  }) => {
+    const events = Array.from({ length: 51 }, (_, index) => ({
+      id: `e2e-event-${index}`,
+      projectId: "e2e-project",
+      type: "AuditEvent",
+      severity: index < 2 ? "success" : "info",
+      correlationId: index < 2 ? "release-42" : null,
+      message:
+        index < 2 ? `Filtered release event ${index}` : `Older event ${index}`,
+      timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, 51 - index)).toISOString(),
+    }));
+    const eventRequests: string[] = [];
+    page.on("request", (request) => {
+      if (new URL(request.url()).pathname.endsWith("/api/events"))
+        eventRequests.push(request.url());
+    });
+    await installApiFixtures(page, {
+      events,
+      projects: [
+        {
+          id: "e2e-project",
+          name: "Smoke Project",
+          language: "TypeScript",
+          framework: "React",
+          status: "active",
+          rootPath: "/controlled/smoke",
+          qualityScore: 92,
+        },
+      ],
+    });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}events`);
+
+    await expect(page.getByText("Older event 49", { exact: true })).toBeVisible();
+    await expect(page.getByText("Older event 50", { exact: true })).not.toBeVisible();
+    const firstRequest = new URL(eventRequests.at(-1)!);
+    expect(firstRequest.searchParams.get("limit")).toBe("50");
+    expect(firstRequest.searchParams.get("page")).toBe("1");
+
+    await Promise.all([
+      page.waitForRequest((request) => {
+        const url = new URL(request.url());
+        return (
+          url.pathname.endsWith("/api/events") &&
+          url.searchParams.get("page") === "2"
+        );
+      }),
+      page.getByRole("button", { name: "Older" }).click(),
+    ]);
+    await expect(page.getByText("Page 2.", { exact: false })).toBeVisible();
+    await expect(page.getByText("Older event 50", { exact: true })).toBeVisible();
+    await expect(page.getByText("Filtered release event 0", { exact: true })).not.toBeVisible();
+    expect(new URL(eventRequests.at(-1)!).searchParams.get("page")).toBe("2");
+    await page.getByRole("button", { name: "Newer" }).click();
+    await expect(page.getByText("Page 1.", { exact: false })).toBeVisible();
+    await expect(page.getByText("Filtered release event 0", { exact: true })).toBeVisible();
+
+    await page.getByPlaceholder("Search logs...").fill("Filtered release");
+    await page.getByRole("button", { name: "Toggle event filters" }).click();
+    await page.locator("select").nth(1).selectOption("success");
+    await expect(page.getByText("Filtered release event 0", { exact: true })).toBeVisible();
+    await expect(page.getByText("Older event 1", { exact: true })).not.toBeVisible();
+    await expect(page).toHaveURL(/search=Filtered\+release/);
+    await expect(page).toHaveURL(/severity=success/);
+
+    await page.reload();
+    await expect(page.getByText("Filtered release event 0", { exact: true })).toBeVisible();
+    await expect(page.getByText("Older event 1", { exact: true })).not.toBeVisible();
+    await expect(page.getByPlaceholder("Search logs...")).toHaveValue("Filtered release");
+    await page.getByRole("button", { name: "Toggle event filters" }).click();
+    await expect(page.locator("select").nth(1)).toHaveValue("success");
+    const filteredRequest = new URL(eventRequests.at(-1)!);
+    expect(filteredRequest.searchParams.get("limit")).toBe("50");
+    expect(filteredRequest.searchParams.get("page")).toBe("1");
+    expect(filteredRequest.searchParams.get("search")).toBe("Filtered release");
+    expect(filteredRequest.searchParams.get("severity")).toBe("success");
   });
 
   test("renders an Arabic source-backed AI answer without internal diagnostics", async ({
