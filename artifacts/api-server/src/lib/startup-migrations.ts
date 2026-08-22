@@ -132,6 +132,22 @@ const VALIDATION_PUBLIC_KEYS = new Set([
 ]);
 
 /**
+ * Retention policy for operational AI diagnostics:
+ * - Chat tool traces older than 90 days retain only public validation status,
+ *   proof evidence, and exit codes. All provider/tool output is removed.
+ * - Terminal execution checkpoints older than 30 days retain their terminal
+ *   stage, sequence, proof verdict, and validation metadata, but not the
+ *   resumable progress trace.
+ *
+ * User-visible chat content, task results, outcomes, error codes, and the
+ * execution rows themselves are not deleted by this policy. This means proof
+ * status and exit-code metadata remain available in history while operational
+ * traces have a bounded lifetime.
+ */
+export const AI_CHAT_TRACE_RETENTION_DAYS = 90;
+export const AI_EXECUTION_CHECKPOINT_RETENTION_DAYS = 30;
+
+/**
  * Remove validation payloads written before the public validation contract was
  * enforced. This deliberately uses an allow-list rather than redaction: test
  * output and failure messages are arbitrary source-controlled text and cannot
@@ -193,6 +209,45 @@ export function scrubHistoricalValidationRecord(value: unknown): unknown {
   );
 }
 
+/**
+ * Produce the intentionally small representation retained from an old chat
+ * trace. Validation records are the only trace entries that can contribute to
+ * the user-visible proof panel; arbitrary tool/provider records are discarded.
+ */
+export function retainHistoricalValidationMetadata(value: unknown): unknown {
+  const scrubbed = scrubHistoricalValidationRecord(value);
+  if (Array.isArray(scrubbed)) {
+    return scrubbed.filter(
+      (item): item is HistoricalJsonRecord =>
+        Boolean(item && typeof item === "object" && !Array.isArray(item) && (item as HistoricalJsonRecord).kind === "validation"),
+    );
+  }
+  if (scrubbed && typeof scrubbed === "object" && (scrubbed as HistoricalJsonRecord).kind === "validation") {
+    return scrubbed;
+  }
+  return [];
+}
+
+/**
+ * Compact an old terminal checkpoint without losing the proof/validation
+ * metadata needed to explain its outcome. This is pure so the retention
+ * contract can be tested without mutating a database.
+ */
+export function retainHistoricalCheckpoint(value: unknown): unknown {
+  const scrubbed = scrubHistoricalValidationRecord(value);
+  if (!scrubbed || typeof scrubbed !== "object" || Array.isArray(scrubbed)) return scrubbed;
+  const record = scrubbed as HistoricalJsonRecord;
+  const retained: HistoricalJsonRecord = {};
+  for (const key of ["stage", "sequence", "updatedAt", "evidenceVerdict", "evidenceReason", "proofRequired"]) {
+    if (key in record) retained[key] = record[key];
+  }
+  const validationMetadata = retainHistoricalValidationMetadata(record.recentSteps);
+  if (Array.isArray(validationMetadata) && validationMetadata.length > 0) {
+    retained.recentSteps = validationMetadata;
+  }
+  return retained;
+}
+
 function scrubHistoricalJson(raw: string | null): string | null {
   if (!raw) return raw;
   try {
@@ -247,5 +302,68 @@ export async function scrubHistoricalValidationDetails(): Promise<void> {
   } catch (err) {
     logger.error({ scope: "startup-migrations", fn: "scrubHistoricalValidationDetails", err },
       "Failed to scrub historical validation details — will retry on the next startup");
+  }
+}
+
+/**
+ * Apply the bounded operational-diagnostics retention policy. This is
+ * best-effort and safe on every startup: updates compare the original value,
+ * so already-compacted rows are not rewritten and concurrent writers are not
+ * overwritten.
+ */
+export async function pruneHistoricalAiDiagnostics(now = new Date()): Promise<void> {
+  try {
+    const chatCutoff = new Date(now.getTime() - AI_CHAT_TRACE_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const messages = await pool.query<{
+      id: string;
+      tool_trace: string | null;
+    }>(
+      "SELECT id, tool_trace FROM ai_chat_messages WHERE created_at < $1 AND tool_trace IS NOT NULL",
+      [chatCutoff],
+    );
+    for (const row of messages.rows) {
+      if (!row.tool_trace) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(row.tool_trace);
+      } catch {
+        // Opaque values cannot be safely interpreted; leave them untouched.
+        continue;
+      }
+      const retained = JSON.stringify(retainHistoricalValidationMetadata(parsed));
+      if (retained !== row.tool_trace) {
+        await pool.query(
+          "UPDATE ai_chat_messages SET tool_trace = $1 WHERE id = $2 AND tool_trace = $3",
+          [retained, row.id, row.tool_trace],
+        );
+      }
+    }
+
+    const executionCutoff = new Date(now.getTime() - AI_EXECUTION_CHECKPOINT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const executions = await pool.query<{
+      id: string;
+      checkpoint: string;
+    }>(
+      "SELECT id, checkpoint FROM ai_executions WHERE updated_at < $1 AND status IN ('cancelled', 'completed', 'failed') AND checkpoint IS NOT NULL",
+      [executionCutoff],
+    );
+    for (const row of executions.rows) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(row.checkpoint);
+      } catch {
+        continue;
+      }
+      const retained = JSON.stringify(retainHistoricalCheckpoint(parsed));
+      if (retained !== row.checkpoint) {
+        await pool.query(
+          "UPDATE ai_executions SET checkpoint = $1 WHERE id = $2 AND checkpoint = $3",
+          [retained, row.id, row.checkpoint],
+        );
+      }
+    }
+  } catch (err) {
+    logger.error({ scope: "startup-migrations", fn: "pruneHistoricalAiDiagnostics", err },
+      "Failed to prune historical AI diagnostics — will retry on the next startup");
   }
 }

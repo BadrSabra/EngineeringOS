@@ -4,6 +4,8 @@ import { db, projectsTable } from "@workspace/db";
 import { randomUUID } from "crypto";
 import {
   reportDeadRootPaths,
+  retainHistoricalCheckpoint,
+  retainHistoricalValidationMetadata,
   scrubHistoricalValidationRecord,
 } from "./startup-migrations";
 
@@ -159,5 +161,60 @@ describe("scrubHistoricalValidationRecord", () => {
       { kind: "tool_result", tool: "read_file", resultSummary: "safe summary" },
       { kind: "validation", validation: { status: "passed", exitCode: 0 } },
     ]);
+  });
+});
+
+describe("historical AI diagnostic retention", () => {
+  it("retains proof and exit metadata while dropping arbitrary trace data", () => {
+    const trace = [
+      { kind: "tool_result", tool: "read_file", resultSummary: "private source" },
+      {
+        kind: "validation",
+        repairState: "BLOCKED",
+        validation: {
+          status: "failed",
+          exitCode: 17,
+          evidence: { evidenceId: "validation-result:old", artifactRef: "validation-result:old" },
+          stderr: "private output",
+        },
+      },
+    ];
+
+    expect(retainHistoricalValidationMetadata(trace)).toEqual([{
+      kind: "validation",
+      repairState: "BLOCKED",
+      validation: {
+        status: "failed",
+        exitCode: 17,
+        evidence: { evidenceId: "validation-result:old", artifactRef: "validation-result:old" },
+      },
+    }]);
+  });
+
+  it("compacts a terminal checkpoint and is stable when repeated", () => {
+    const checkpoint = {
+      stage: "failed",
+      sequence: 42,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      evidenceVerdict: "BLOCKED",
+      evidenceReason: "Validation failed",
+      proofRequired: true,
+      detail: "private provider diagnostic",
+      recentSteps: [
+        { kind: "tool_result", result: "private source" },
+        { kind: "validation", status: "failed", exitCode: 2, stdout: "private output" },
+      ],
+    };
+    const compacted = retainHistoricalCheckpoint(checkpoint);
+    expect(compacted).toEqual({
+      stage: "failed",
+      sequence: 42,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      evidenceVerdict: "BLOCKED",
+      evidenceReason: "Validation failed",
+      proofRequired: true,
+      recentSteps: [{ kind: "validation", validation: { status: "failed", exitCode: 2 } }],
+    });
+    expect(retainHistoricalCheckpoint(compacted)).toEqual(compacted);
   });
 });

@@ -10,6 +10,7 @@ import {
   reportDeadRootPaths,
   ensureEncryptionKey,
   scrubHistoricalValidationDetails,
+  pruneHistoricalAiDiagnostics,
 } from "./lib/startup-migrations";
 import { heavyJobQueue } from "./lib/job-queue";
 import { assertAuditOutboxSchema, pool } from "@workspace/db";
@@ -153,6 +154,8 @@ await reportDeadRootPaths();
 // files from records written by older server builds. The migration is
 // idempotent and preserves proof/exit metadata.
 await scrubHistoricalValidationDetails();
+// Compact old terminal traces while preserving proof status and exit codes.
+await pruneHistoricalAiDiagnostics();
 
 // Reload audit writes that failed in a previous process before accepting
 // traffic, then let the normal retry worker drain them in the background.
