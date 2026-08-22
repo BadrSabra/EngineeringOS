@@ -22,7 +22,7 @@
  *   giving up.
  */
 import { FREE_MODELS, type ModelCapability, type OpenRouterFreeModel } from "./model-catalog.js";
-import { getDynamicModelIds, isDynamicCatalogLoaded } from "./dynamic-catalog.js";
+import { getUsableDynamicModelIds, isDynamicCatalogLoaded } from "./dynamic-catalog.js";
 import { isModelBehaviorallyDemoted } from "../behavioral-scorecard.js";
 import type { TaskType } from "../quality/task-profile.js";
 
@@ -31,8 +31,24 @@ export type { ModelCapability, OpenRouterFreeModel };
 export function isCatalogFreeModel(modelId: string): boolean {
   const model = FREE_MODELS.find((candidate) => candidate.id === modelId.trim());
   if (!model || !model.free) return false;
-  const liveIds = getDynamicModelIds();
+  const liveIds = getUsableDynamicModelIds();
   return !isDynamicCatalogLoaded() || liveIds?.has(model.id) === true;
+}
+
+export type FreeModelCapabilityOptions = {
+  capability?: ModelCapability;
+  requireTools?: boolean;
+};
+
+export function isCatalogFreeModelForCapability(
+  modelId: string,
+  options: FreeModelCapabilityOptions = {},
+): boolean {
+  if (!isCatalogFreeModel(modelId)) return false;
+  const model = FREE_MODELS.find((candidate) => candidate.id === modelId.trim());
+  return !!model &&
+    (!options.capability || model.capabilities.includes(options.capability)) &&
+    (!options.requireTools || model.supportsTools);
 }
 
 export type ResolvedModel = {
@@ -78,7 +94,7 @@ export function emitModelDecisionTrace(trace: ModelDecisionTrace): void {
 function partitionByLiveCatalog(
   models: OpenRouterFreeModel[],
 ): { live: OpenRouterFreeModel[]; stale: OpenRouterFreeModel[] } {
-  const dynamicIds = getDynamicModelIds();
+  const dynamicIds = getUsableDynamicModelIds();
   if (!dynamicIds) return { live: models, stale: [] }; // catalog not loaded yet
 
   const live:  OpenRouterFreeModel[] = [];
@@ -223,16 +239,24 @@ export function resolveModel(opts: ResolveModelOpts): ResolvedModel {
  * If the model ID is not in the catalog (e.g. custom/paid), returns [id] with
  * no fallback — the caller retries once then fails cleanly.
  */
-export function buildFallbackChainFromId(initialModelId: string, taskType?: TaskType): string[] {
+export function buildFallbackChainFromId(
+  initialModelId: string,
+  taskType?: TaskType,
+  capabilityOptions: FreeModelCapabilityOptions = {},
+): string[] {
   const initial = FREE_MODELS.find((m) => m.id === initialModelId);
   if (!initial) return [initialModelId];
+  if (!isCatalogFreeModelForCapability(initialModelId, capabilityOptions)) return [];
 
   const quality = initial.quality;
 
+  const isCapable = (m: OpenRouterFreeModel) =>
+    (!capabilityOptions.capability || m.capabilities.includes(capabilityOptions.capability)) &&
+    (!capabilityOptions.requireTools || m.supportsTools);
   const sameQualityRaw = FREE_MODELS
-    .filter((m) => m.quality === quality && m.id !== initialModelId);
+    .filter((m) => m.quality === quality && m.id !== initialModelId && isCapable(m));
   const otherQualityRaw = FREE_MODELS
-    .filter((m) => m.quality !== quality);
+    .filter((m) => m.quality !== quality && isCapable(m));
 
   // PR-002 / RC-02: filter peers against dynamic catalog (free-tier only).
   // RC-02: if the catalog IS loaded but filtered a peer group to empty, don't

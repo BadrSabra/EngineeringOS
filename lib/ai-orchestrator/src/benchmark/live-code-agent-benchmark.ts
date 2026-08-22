@@ -22,6 +22,7 @@ import {
   type ProviderHealthProbeResult,
 } from "./provider-health-probe.js";
 import type { ProviderId } from "../provider-registry.js";
+import { isCatalogFreeModelForCapability } from "../openrouter/model-resolver.js";
 
 export type ChatCodeAgentBenchmarkExecutorOptions = {
   rootPath: string;
@@ -64,6 +65,8 @@ export type ChatCodeAgentBenchmarkExecutorOptions = {
   }>;
   /** Benchmark fixtures may include approved test sources in their read scope. */
   includeTestSources?: boolean;
+  /** Require every OpenRouter attempt to remain free and tool-capable. */
+  freeOnly?: boolean;
 };
 
 function latestValidation(steps: readonly AgentStep[]): Extract<AgentStep, { kind: "validation" }> | undefined {
@@ -152,6 +155,16 @@ function telemetryFromChatResult(
     (step.kind === "diagnostic" && /CONFLICT|REBASE/i.test(step.code)) ||
     (step.kind === "execution_guard" && /CONFLICT|REBASE/i.test(step.message)),
   );
+  const attemptedModels = steps
+    .filter((step): step is Extract<AgentStep, { kind: "model_call" | "recovery_model_call" }> =>
+      step.kind === "model_call" || step.kind === "recovery_model_call")
+    .map((step) => step.model);
+  const uniqueAttemptedModels = [...new Set(attemptedModels)];
+  const providerModelsFree = uniqueAttemptedModels.length > 0 &&
+    uniqueAttemptedModels.every((model) => isCatalogFreeModelForCapability(model, {
+      capability: "tool_calling",
+      requireTools: true,
+    }));
 
   return {
     actualTerminal: terminalFromChatResult(result, steps),
@@ -176,7 +189,19 @@ function telemetryFromChatResult(
     testsPassed,
     latencyMs: Math.round(performance.now() - startedAt),
     providerUnavailable,
+    providerAttemptedModels: uniqueAttemptedModels,
+    ...(uniqueAttemptedModels.at(-1) ? { providerFinalModel: uniqueAttemptedModels.at(-1) } : {}),
+    ...(providerIdForTelemetry(steps) === "openrouter"
+      ? { providerModelsFree, providerCapabilityValid: providerModelsFree }
+      : {}),
   };
+}
+
+function providerIdForTelemetry(steps: readonly AgentStep[]): string | undefined {
+  return [...steps].reverse().find(
+    (step): step is Extract<AgentStep, { kind: "model_call" | "recovery_model_call" }> =>
+      step.kind === "model_call" || step.kind === "recovery_model_call",
+  )?.provider;
 }
 
 /**
@@ -324,12 +349,16 @@ export function createChatCodeAgentBenchmarkExecutor(
         }
       }
 
-      const telemetry = telemetryFromChatResult(
+       let telemetry = telemetryFromChatResult(
         result,
         steps,
         allowedPaths,
         startedAt,
       );
+      if (opts.freeOnly && opts.provider === "openrouter" &&
+        (telemetry.providerModelsFree !== true || telemetry.providerCapabilityValid !== true)) {
+        telemetry = { ...telemetry, actualTerminal: "BLOCKED", providerCapabilityValid: false };
+      }
       const oracle = await opts.oracleForCase?.({
         rootPath: opts.rootPath,
         testCase,

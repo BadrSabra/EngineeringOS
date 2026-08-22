@@ -217,6 +217,7 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
       apiKey: provider.apiKey,
       model: provider.model,
       providerHealth: health,
+      freeOnly: opts.mode === "free-only",
       validationRunner,
     includeTestSources: true,
         validationProfileForCase: (testCase) => getCodeAgentBenchmarkFixture(testCase).validationProfile,

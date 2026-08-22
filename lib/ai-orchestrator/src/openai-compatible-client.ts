@@ -20,7 +20,7 @@ import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./gr
 import { GroqClientError, type GroqErrorCode } from "./errors.js";
 import {
   buildFallbackChainFromId,
-  isCatalogFreeModel,
+  isCatalogFreeModelForCapability,
   resolveFallbackChain,
 } from "./openrouter/model-resolver.js";
 import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
@@ -58,7 +58,10 @@ export type OpenAICompatibleOptions = {
 export type OpenAICompatibleStreamOptions = Omit<
   OpenAICompatibleOptions,
   "tools" | "responseFormat"
->;
+> & {
+  quality?: "fast" | "powerful";
+  capability?: ModelCapability;
+};
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 
@@ -512,6 +515,21 @@ function classifyStatus(
   }
 
   if (providerName === "OpenRouter" && status === 402) {
+    const accountQuota =
+      normalizedBody.includes("quota") ||
+      normalizedBody.includes("credits exhausted") ||
+      normalizedBody.includes("credit balance") ||
+      normalizedBody.includes("insufficient funds") ||
+      normalizedBody.includes("insufficient credits") ||
+      normalizedBody.includes("balance is") ||
+      normalizedBody.includes("account limit");
+    if (accountQuota) {
+      return new GroqClientError(
+        "QUOTA",
+        `OpenRouter account quota or credits exhausted (402) — stop safely and check your account`,
+        { context: ctx },
+      );
+    }
     return new GroqClientError(
       "PLAN_RESTRICTED",
       `OpenRouter model requires a paid plan or free-tier credit balance (402). ${body.slice(0, 200)}`,
@@ -1150,10 +1168,12 @@ export async function openrouterCompleteWithFallback(
   opts: OpenRouterFallbackOptions,
 ): Promise<RawGroqResponse> {
   const initialModel = opts.model;
-  if (initialModel && !isCatalogFreeModel(initialModel)) {
+  const capability = opts.capability ?? "chat";
+  const requireTools = !!(opts.tools?.length);
+  if (initialModel && !isCatalogFreeModelForCapability(initialModel, { capability, requireTools })) {
     throw new GroqClientError(
       "INVALID_CONFIG",
-      "OpenRouter fallback requires a currently-free catalog model",
+      `OpenRouter fallback requires a currently-free model matching capability="${capability}"`,
       { context: { providerName: "OpenRouter", providerModel: initialModel } },
     );
   }
@@ -1163,11 +1183,11 @@ export async function openrouterCompleteWithFallback(
   // `quality` and `capability` let callers express intent (e.g. "powerful" for
   // code-review) without hardcoding a specific model ID that may become stale.
   const resolvedChain = initialModel
-    ? buildFallbackChainFromId(initialModel, opts.taskType)
+    ? buildFallbackChainFromId(initialModel, opts.taskType, { capability, requireTools })
     : resolveFallbackChain({
-        capability: opts.capability ?? "chat",
+        capability,
         quality:    opts.quality    ?? "fast",
-        requireTools: !!(opts.tools?.length),
+        requireTools,
          taskType: opts.taskType,
       }).map((m) => m.id);
   const maxFallbackModels =
@@ -1269,28 +1289,90 @@ export async function* openrouterCompleteStream(
     extraHeaders: OPENROUTER_EXTRA_HEADERS,
   };
 
-  try {
-    yield* oacCompleteStream(trimmed, fullOpts);
-  } catch (err) {
-    if (
-      err instanceof GroqClientError &&
-      err.code === "RATE_LIMITED" &&
-      err.retryAfterMs !== undefined
-    ) {
-      throw err;
-    }
-    if (!isTransientError(err)) throw err;
-    console.warn(
-      JSON.stringify({
-        scope: "openrouter-client",
-        code: "TRANSIENT_STREAM_RETRY",
-        errorCode: err.code,
-        backoffMs: 1500,
-      }),
+  const capability = opts.capability;
+  const initialModel = opts.model;
+  if (initialModel && capability && !isCatalogFreeModelForCapability(initialModel, { capability })) {
+    throw new GroqClientError(
+      "INVALID_CONFIG",
+      `OpenRouter stream requires a currently-free model matching capability="${capability}"`,
+      { context: { providerName: "OpenRouter", providerModel: initialModel } },
     );
-    await sleep(1500);
-    yield* oacCompleteStream(trimmed, fullOpts);
   }
+  const resolved = initialModel
+    ? buildFallbackChainFromId(initialModel, opts.taskType, capability ? { capability } : {})
+    : resolveFallbackChain({
+        capability: capability ?? "chat",
+        quality: opts.quality ?? "fast",
+      }).map((model) => model.id);
+  const maxFallbackModels =
+    Number.isInteger(opts.maxFallbackModels) && opts.maxFallbackModels! > 0
+      ? opts.maxFallbackModels
+      : undefined;
+  const chain = (maxFallbackModels ? resolved.slice(0, maxFallbackModels) : resolved);
+  const attemptedModels: string[] = [];
+  let lastError: GroqClientError | undefined;
+
+  for (let index = 0; index < chain.length; index++) {
+    const model = chain[index]!;
+    attemptedModels.push(model);
+    let emitted = false;
+    let transientRetried = false;
+    while (true) {
+      try {
+        for await (const delta of oacCompleteStream(trimmed, { ...fullOpts, model })) {
+          emitted = true;
+          yield delta;
+        }
+        return;
+      } catch (err) {
+        const providerError = err instanceof GroqClientError ? err : undefined;
+        // Once bytes have been emitted, retrying would duplicate or splice the
+        // answer. The caller must terminalize the partial stream instead.
+        if (emitted || !providerError) throw err;
+        if (
+          !transientRetried &&
+          opts.retryTransient !== false &&
+          isTransientError(providerError) &&
+          providerError.retryAfterMs === undefined
+        ) {
+          transientRetried = true;
+          await sleep(1500);
+          continue;
+        }
+        const canAdvance = isModelUnavailableError(providerError) ||
+          (opts.retryTransient === false && isTransientError(providerError));
+        if (!canAdvance || index >= chain.length - 1) {
+          throw new GroqClientError(providerError.code, providerError.message, {
+            cause: providerError,
+            context: {
+              ...providerError.toProviderContext(),
+              providerModel: providerError.providerModel ?? model,
+              providerAttemptedModels: [...attemptedModels],
+            },
+          });
+        }
+        lastError = providerError;
+        console.warn(JSON.stringify({
+          scope: "openrouter-fallback",
+          code: "STREAM_MODEL_FALLBACK",
+          reason: providerError.code,
+          failedModel: model,
+          nextModel: chain[index + 1],
+          attempt: index + 1,
+        }));
+        break;
+      }
+    }
+  }
+  if (lastError) {
+    throw new GroqClientError(lastError.code, lastError.message, {
+      cause: lastError,
+      context: { ...lastError.toProviderContext(), providerAttemptedModels: attemptedModels },
+    });
+  }
+  throw new GroqClientError("MODEL_NOT_FOUND", "No OpenRouter free model satisfies the stream capability", {
+    context: { providerAttemptedModels: attemptedModels },
+  });
 }
 
 // ── Pre-built Gemini client functions ─────────────────────────────────────────

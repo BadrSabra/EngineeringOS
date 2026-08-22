@@ -346,6 +346,7 @@ const providers: ApiCodeAgentBenchmarkProvider[] = configuredProviders.flatMap((
       requestedModels: configuredModels.length > 0 ? configuredModels : singleModel ? [singleModel] : undefined,
       maxModels: Number.parseInt(process.env.BENCHMARK_FREE_MODEL_LIMIT ?? "4", 10),
       catalog: FREE_MODELS,
+      requiredCapability: "tool_calling",
     });
     if (selection.rejectedModels.length > 0) {
       throw new Error(`BENCHMARK_FREE_ONLY rejected non-free or unavailable models: ${selection.rejectedModels.join(", ")}`);

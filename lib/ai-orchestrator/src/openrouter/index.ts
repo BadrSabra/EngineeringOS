@@ -13,9 +13,12 @@ export type { ResolvedModel, ResolveModelOpts, ModelDecisionTrace } from "./mode
 export {
   refreshDynamicCatalog,
   getDynamicModelIds,
+  getUsableDynamicModelIds,
   isDynamicCatalogLoaded,
+  getDynamicCatalogStatus,
   auditStaticCatalog,
 } from "./dynamic-catalog.js";
+export type { DynamicCatalogStatus } from "./dynamic-catalog.js";
 
 // PR-07: circuit breaker
 export {

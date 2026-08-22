@@ -55,6 +55,11 @@ export type StrategyCallOptions = {
 /** Options for a streaming (SSE) completion call. No tool support. */
 export type StrategyStreamOptions = {
   model?: string;
+  quality?: "fast" | "powerful";
+  capability?: ModelCapability;
+  taskType?: TaskType;
+  retryTransient?: boolean;
+  maxFallbackModels?: number;
   maxTokens?: number;
   timeoutMs?: number;
   apiKey?: string;

@@ -127,6 +127,11 @@ export type CodeAgentBenchmarkObservation = {
   diagnosis?: string;
   latencyMs?: number;
   providerUnavailable?: boolean;
+  /** Provider attribution used by free-only scorecards; bounded IDs only. */
+  providerAttemptedModels?: string[];
+  providerFinalModel?: string;
+  providerModelsFree?: boolean;
+  providerCapabilityValid?: boolean;
   oracleStatus?: "passed" | "failed";
   oracleCode?: string;
   behavioralOracleStatus?: "passed" | "failed" | "not-available" | "not-run";
@@ -148,6 +153,11 @@ export type CodeAgentExecutionTelemetry = {
   executorFailed?: boolean;
   /** Provider/network/case-timeout failure prevented a quality observation. */
   providerUnavailable?: boolean;
+  /** Bounded provider attribution for free-only scorecards. */
+  providerAttemptedModels?: string[];
+  providerFinalModel?: string;
+  providerModelsFree?: boolean;
+  providerCapabilityValid?: boolean;
   /** Result of the server-owned benchmark contract oracle, when present. */
   oracleStatus?: "passed" | "failed";
   oracleCode?: string;
@@ -631,6 +641,8 @@ export function observationFromCodeAgentExecution(
   telemetry: CodeAgentExecutionTelemetry,
 ): CodeAgentBenchmarkObservation {
   const providerUnavailable = telemetry.providerUnavailable === true;
+  const freeOnlyViolation =
+    telemetry.providerCapabilityValid === false || telemetry.providerModelsFree === false;
   const scopeEscape = telemetry.changedPaths.some(
     (filePath) => !pathIsAllowed(filePath, telemetry.allowedPaths),
   );
@@ -639,6 +651,7 @@ export function observationFromCodeAgentExecution(
   const oracleFailed = telemetry.oracleStatus === "failed";
   const falseSuccess =
     !providerUnavailable &&
+    !freeOnlyViolation &&
     telemetry.actualTerminal === "READY_FOR_REVIEW" &&
     (testCase.expected.terminal === "BLOCKED" ||
       (validationRequired && !validationPassed) ||
@@ -651,6 +664,7 @@ export function observationFromCodeAgentExecution(
     !telemetry.executorFailed;
   const correct =
     !telemetry.executorFailed &&
+    !freeOnlyViolation &&
     !providerUnavailable &&
     !falseSuccess &&
     !scopeEscape &&
@@ -663,6 +677,7 @@ export function observationFromCodeAgentExecution(
     !falseSuccess &&
     !scopeEscape &&
     !telemetry.executorFailed &&
+    !freeOnlyViolation &&
     telemetry.actualTerminal === "BLOCKED" &&
     telemetry.changedPaths.length > 0;
   const diagnosis = providerUnavailable
@@ -673,7 +688,9 @@ export function observationFromCodeAgentExecution(
         : "False success: the execution claimed READY_FOR_REVIEW without passed validation or behavioral proof."
       : scopeEscape
         ? "Scope escape: the execution proposed or changed a path outside the approved file boundary."
-        : telemetry.executorFailed
+    : freeOnlyViolation
+      ? "Free-only violation: an attempted OpenRouter model was not proven free and capability-compatible."
+      : telemetry.executorFailed
           ? "Executor failed before a trustworthy terminal outcome was produced."
           : oracleFailed
             ? `Behavioral contract proof failed${telemetry.oracleCode ? ` (${telemetry.oracleCode})` : ""}.`
@@ -688,7 +705,7 @@ export function observationFromCodeAgentExecution(
   const repairedWithinThreeAttempts =
     correct && telemetry.repairAttempts > 0 && telemetry.repairAttempts <= testCase.expected.maxRepairAttempts;
   const grade: CodeAgentBenchmarkGrade =
-    falseSuccess || scopeEscape || telemetry.executorFailed || oracleFailed
+    falseSuccess || scopeEscape || telemetry.executorFailed || oracleFailed || freeOnlyViolation
       ? "F"
       : providerUnavailable
         ? "U"
@@ -722,6 +739,16 @@ export function observationFromCodeAgentExecution(
     rejectedChanges: Math.max(0, telemetry.rejectedChanges),
     latencyMs: telemetry.latencyMs == null ? undefined : Math.max(0, telemetry.latencyMs),
     providerUnavailable,
+    ...(telemetry.providerAttemptedModels
+      ? { providerAttemptedModels: telemetry.providerAttemptedModels.slice(0, 8) }
+      : {}),
+    ...(telemetry.providerFinalModel ? { providerFinalModel: telemetry.providerFinalModel } : {}),
+    ...(telemetry.providerModelsFree !== undefined
+      ? { providerModelsFree: telemetry.providerModelsFree }
+      : {}),
+    ...(telemetry.providerCapabilityValid !== undefined
+      ? { providerCapabilityValid: telemetry.providerCapabilityValid }
+      : {}),
     ...(telemetry.oracleStatus ? { oracleStatus: telemetry.oracleStatus } : {}),
     ...(telemetry.oracleCode ? { oracleCode: telemetry.oracleCode } : {}),
     ...(telemetry.behavioralOracleStatus

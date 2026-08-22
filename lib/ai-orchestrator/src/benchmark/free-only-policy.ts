@@ -1,4 +1,5 @@
 import { FREE_MODELS } from "../openrouter/model-catalog.js";
+import type { ModelCapability } from "../openrouter/model-catalog.js";
 
 type FreeOnlyCatalogModel = {
   id: string;
@@ -11,6 +12,7 @@ export type FreeOnlyModelSelectionOptions = {
   requestedModels?: readonly string[];
   maxModels?: number;
   catalog?: readonly FreeOnlyCatalogModel[];
+  requiredCapability?: ModelCapability;
 };
 
 export type FreeOnlyModelSelection = {
@@ -29,7 +31,13 @@ export function selectFreeOnlyBenchmarkModels(
   const catalog = options.catalog ?? FREE_MODELS;
   const maxModels = Math.max(1, Math.floor(options.maxModels ?? 4));
   const supported = catalog
-    .filter((model) => model.free && model.supportsTools && options.liveModelIds.has(model.id))
+    .filter((model) =>
+      model.free &&
+      model.supportsTools &&
+      options.liveModelIds.has(model.id) &&
+      (!options.requiredCapability ||
+        (model as FreeOnlyCatalogModel & { capabilities?: readonly string[] }).capabilities?.includes(options.requiredCapability)),
+    )
     .map((model) => model.id);
   const supportedSet = new Set(supported);
   const requested = [...(options.requestedModels ?? [])]

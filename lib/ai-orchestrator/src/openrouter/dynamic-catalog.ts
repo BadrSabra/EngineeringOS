@@ -27,22 +27,51 @@ type OpenRouterModelEntry = {
 let _availableIds: Set<string> | null = null;
 let _lastFetchMs = 0;
 let _inFlight: Promise<void> | null = null;
+let _refreshAttempted = false;
+let _lastRefreshStatus: "never" | "success" | "failed" | "empty" = "never";
+let _lastRefreshError: string | null = null;
 
 /**
  * Whether the dynamic catalog has been loaded at least once.
  * Used by the resolver to decide whether to apply the filter.
  */
 export function isDynamicCatalogLoaded(): boolean {
-  return _availableIds !== null;
+  // An attempted but failed/expired refresh is intentionally considered
+  // loaded: the resolver must not silently fall back to stale static IDs.
+  return _refreshAttempted;
 }
 
 /**
- * Return the set of model IDs currently available on OpenRouter.
- * Returns null when the catalog has not been loaded yet — callers
- * must fall back to the static list in that case.
+ * Return the last successful set of model IDs. Consumers that make routing
+ * decisions must use getUsableDynamicModelIds(), which applies the TTL.
  */
 export function getDynamicModelIds(): Set<string> | null {
   return _availableIds;
+}
+
+/** IDs from the last successful refresh only when that snapshot is still valid. */
+export function getUsableDynamicModelIds(): Set<string> | null {
+  if (!_availableIds || Date.now() - _lastFetchMs >= CATALOG_TTL_MS) return null;
+  return _availableIds;
+}
+
+export type DynamicCatalogStatus = {
+  loaded: boolean;
+  usable: boolean;
+  ageMs: number | null;
+  lastRefreshStatus: "never" | "success" | "failed" | "empty";
+  lastRefreshError: string | null;
+};
+
+export function getDynamicCatalogStatus(): DynamicCatalogStatus {
+  const ageMs = _lastFetchMs > 0 ? Math.max(0, Date.now() - _lastFetchMs) : null;
+  return {
+    loaded: _refreshAttempted,
+    usable: getUsableDynamicModelIds() !== null,
+    ageMs,
+    lastRefreshStatus: _lastRefreshStatus,
+    lastRefreshError: _lastRefreshError,
+  };
 }
 
 /**
@@ -61,6 +90,9 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
   if (_inFlight) return _inFlight;
 
   _inFlight = (async () => {
+    _refreshAttempted = true;
+    _lastRefreshStatus = "failed";
+    _lastRefreshError = null;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
@@ -75,6 +107,7 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
       });
 
       if (!res.ok) {
+        _lastRefreshError = `http_${res.status}`;
         console.warn(
           JSON.stringify({
             scope: "dynamic-catalog",
@@ -90,6 +123,8 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
       const models = data?.data ?? [];
 
       if (models.length === 0) {
+        _lastRefreshStatus = "empty";
+        _lastRefreshError = "empty_response";
         console.warn(
           JSON.stringify({
             scope: "dynamic-catalog",
@@ -113,6 +148,8 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
       const ids = new Set(freeModels.map((m) => m.id));
 
       if (ids.size === 0) {
+        _lastRefreshStatus = "empty";
+        _lastRefreshError = "no_free_models";
         // OpenRouter occasionally returns no free models (e.g. API auth issue
         // or a temporary catalog gap) — keep previous catalog in that case.
         console.warn(
@@ -128,6 +165,8 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
 
       _availableIds = ids;
       _lastFetchMs  = Date.now();
+      _lastRefreshStatus = "success";
+      _lastRefreshError = null;
 
       console.info(
         JSON.stringify({
@@ -139,6 +178,8 @@ export async function refreshDynamicCatalog(apiKey?: string): Promise<void> {
       );
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
+      _lastRefreshStatus = "failed";
+      _lastRefreshError = reason.slice(0, 120);
       console.warn(
         JSON.stringify({
           scope: "dynamic-catalog",
@@ -184,4 +225,7 @@ export function _resetForTest(): void {
   _availableIds = null;
   _lastFetchMs  = 0;
   _inFlight     = null;
+  _refreshAttempted = false;
+  _lastRefreshStatus = "never";
+  _lastRefreshError = null;
 }

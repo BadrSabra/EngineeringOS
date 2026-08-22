@@ -91,6 +91,7 @@ export { resolveExecutionProvider } from "./model-selection/provider-strategy.js
 export type { ExecutionProviderDecision } from "./model-selection/provider-strategy.js";
 export { resolveExecutionModel } from "./model-selection/model-resolver.js";
 export type { ExecutionModelDecision } from "./model-selection/model-resolver.js";
+export { resolveFreeModelOverride, isFreeOpenRouterModel } from "./model-selection/model-resolver.js";
 
 export { buildExecutionPlan } from "./quality/quality-planner.js";
 export type { ExecutionPlan } from "./quality/quality-planner.js";
@@ -549,6 +550,8 @@ export type { WorkflowState, OrchestrationDecision, WorkflowDecisionResult } fro
 export {
   refreshDynamicCatalog,
   getDynamicModelIds,
+  getUsableDynamicModelIds,
+  getDynamicCatalogStatus,
   isDynamicCatalogLoaded,
   auditStaticCatalog,
 } from "./openrouter/dynamic-catalog.js";

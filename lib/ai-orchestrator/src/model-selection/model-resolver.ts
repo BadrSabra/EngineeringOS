@@ -1,5 +1,10 @@
 import type { ModelCapability } from "../openrouter/model-catalog.js";
-import { isCatalogFreeModel, resolveFallbackChain } from "../openrouter/model-resolver.js";
+import {
+  isCatalogFreeModel,
+  isCatalogFreeModelForCapability,
+  resolveFallbackChain,
+  type FreeModelCapabilityOptions,
+} from "../openrouter/model-resolver.js";
 import { loadProvider, type ProviderId } from "../provider-registry.js";
 import type { ExecutionPlan } from "./execution-plan.js";
 
@@ -16,10 +21,17 @@ export function isFreeOpenRouterModel(modelId: string): boolean {
   return isCatalogFreeModel(modelId);
 }
 
-export function resolveFreeModelOverride(modelId: string): string {
+export function resolveFreeModelOverride(
+  modelId: string,
+  options: ModelCapability | FreeModelCapabilityOptions = {},
+): string {
   const normalized = modelId.trim();
-  if (!isFreeOpenRouterModel(normalized)) {
-    throw new Error(`OpenRouter model override is not a currently-free catalog model: ${normalized}`);
+  const capabilityOptions = typeof options === "string" ? { capability: options } : options;
+  if (!isCatalogFreeModelForCapability(normalized, capabilityOptions)) {
+    const detail = capabilityOptions.capability
+      ? `; missing capability="${capabilityOptions.capability}"`
+      : "";
+    throw new Error(`OpenRouter model override is not a currently-free catalog model: ${normalized}${detail}`);
   }
   return normalized;
 }
@@ -84,7 +96,12 @@ export function resolveExecutionModel(
     // this override environment-only so ordinary provider-free validation and
     // normal free-tier routing retain the catalog-driven fallback chain.
     const configuredModel = process.env.OPENROUTER_MODEL?.trim() || undefined;
-    const liveModel = configuredModel ? resolveFreeModelOverride(configuredModel) : undefined;
+    const liveModel = configuredModel
+      ? resolveFreeModelOverride(configuredModel, {
+          capability,
+          requireTools: plan.strictHints.requireTools ?? false,
+        })
+      : undefined;
     if (fallbackChain.length === 0 && !liveModel) {
       throw new Error(
         `No currently-free OpenRouter model satisfies capability="${capability}"`,
