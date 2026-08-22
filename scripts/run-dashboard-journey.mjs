@@ -3,7 +3,10 @@
 import { execFileSync, spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
-import { acquireReleaseLock, lockPath } from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
+import {
+  acquireReleaseLock,
+  lockPath,
+} from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
 
 if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
   console.error(
@@ -91,7 +94,9 @@ function listeningUsers(port) {
       { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
     );
     return [
-      ...new Set([...output.matchAll(/\b\d+\b/g)].map((match) => Number(match[0]))),
+      ...new Set(
+        [...output.matchAll(/\b\d+\b/g)].map((match) => Number(match[0])),
+      ),
     ];
   } catch {
     return [];
@@ -123,8 +128,19 @@ async function waitForPortClosed(port, timeoutMs = 5_000) {
   throw error;
 }
 
+async function waitForPortOpen(port, timeoutMs = 2_500) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (listeningUsers(port).length > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Teardown fixture did not open port ${port}.`);
+}
+
 async function ensureReleasePortFree(port) {
-  for (const pid of listeningUsers(port).filter((item) => item !== process.pid)) {
+  for (const pid of listeningUsers(port).filter(
+    (item) => item !== process.pid,
+  )) {
     try {
       process.kill(pid, "SIGTERM");
     } catch (error) {
@@ -135,7 +151,9 @@ async function ensureReleasePortFree(port) {
     await waitForPortClosed(port, 2_500);
     return;
   } catch {
-    for (const pid of listeningUsers(port).filter((item) => item !== process.pid)) {
+    for (const pid of listeningUsers(port).filter(
+      (item) => item !== process.pid,
+    )) {
       try {
         process.kill(pid, "SIGKILL");
       } catch (error) {
@@ -234,7 +252,15 @@ async function stopServices() {
   } else {
     console.error(
       `Release services surviving teardown: ${survivingServices
-        .map(({ label, port, pids }) => `${label} (port ${port}, pid ${pids.join(",")})`)
+        .map(
+          ({ label, port, pids }) =>
+            `${label} (configured release port ${port}; surviving process IDs: ${pids.join(
+              ", ",
+            )}; release process group: ${
+              services.find((service) => service.label === label)?.child.pid ??
+              "unknown"
+            })`,
+        )
         .join("; ")}`,
     );
   }
@@ -257,7 +283,9 @@ async function stopServices() {
         }`,
         `release process group: ${service?.child.pid ?? "unknown"}`,
       ].join("; ");
-      console.error(redact(`${diagnostic}. ${error?.message ?? String(error)}`));
+      console.error(
+        redact(`${diagnostic}. ${error?.message ?? String(error)}`),
+      );
       teardownFailed = true;
     }
   }
@@ -269,6 +297,26 @@ async function startReleaseServices() {
     releaseLockCleanup = await acquireReleaseLock(lockPath);
   }
   await mkdir(outputDir, { recursive: true });
+  if (process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1") {
+    const descendantScript = [
+      "const { spawn } = require('node:child_process');",
+      "const listener = spawn(process.execPath, ['-e',",
+      "  \"require('node:net').createServer().listen(Number(process.argv[1]), '127.0.0.1')\",",
+      "  process.env.PORT], { detached: true, stdio: 'ignore' });",
+      "listener.unref();",
+      "process.on('SIGTERM', () => {});",
+      "setInterval(() => {}, 1_000);",
+    ].join(" ");
+    startService(
+      "API release service",
+      process.execPath,
+      ["-e", descendantScript],
+      { PORT: String(apiPort) },
+      apiPort,
+    );
+    await waitForPortOpen(apiPort);
+    return;
+  }
   const chromium = process.env.DASHBOARD_E2E_EXECUTABLE_PATH;
   if (!chromium) {
     throw new Error(
@@ -306,7 +354,10 @@ async function startReleaseServices() {
     dashboardPort,
   );
   await waitFor(apiHealthUrl, "API workflow");
-  const dashboardResponse = await waitFor(dashboardBaseUrl, "Dashboard workflow");
+  const dashboardResponse = await waitFor(
+    dashboardBaseUrl,
+    "Dashboard workflow",
+  );
   const dashboardHtml = await dashboardResponse.text();
   if (!dashboardHtml.includes("/dashboard/")) {
     throw new Error(
@@ -361,10 +412,14 @@ function runClerkHandoffContracts() {
 
 function runDashboardJourneyContracts() {
   return new Promise((resolve, reject) => {
-    const contractTests = spawn("pnpm", ["run", "test:dashboard-journey-contract"], {
-      env: { ...process.env, CI: "true" },
-      stdio: "inherit",
-    });
+    const contractTests = spawn(
+      "pnpm",
+      ["run", "test:dashboard-journey-contract"],
+      {
+        env: { ...process.env, CI: "true" },
+        stdio: "inherit",
+      },
+    );
 
     contractTests.on("error", (error) => {
       reject(
@@ -375,9 +430,15 @@ function runDashboardJourneyContracts() {
     });
     contractTests.on("exit", (code, signal) => {
       if (signal) {
-        reject(new Error(`Dashboard journey contract checks stopped by ${signal}.`));
+        reject(
+          new Error(`Dashboard journey contract checks stopped by ${signal}.`),
+        );
       } else if (code !== 0) {
-        reject(new Error(`Dashboard journey contract checks failed with exit code ${code ?? 1}.`));
+        reject(
+          new Error(
+            `Dashboard journey contract checks failed with exit code ${code ?? 1}.`,
+          ),
+        );
       } else {
         resolve();
       }
@@ -387,10 +448,14 @@ function runDashboardJourneyContracts() {
 
 function runMissionCorrelationReportContracts() {
   return new Promise((resolve, reject) => {
-    const contractTests = spawn("pnpm", ["run", "test:mission-correlation-report"], {
-      env: { ...process.env, CI: "true" },
-      stdio: "inherit",
-    });
+    const contractTests = spawn(
+      "pnpm",
+      ["run", "test:mission-correlation-report"],
+      {
+        env: { ...process.env, CI: "true" },
+        stdio: "inherit",
+      },
+    );
 
     contractTests.on("error", (error) => {
       reject(
@@ -401,7 +466,11 @@ function runMissionCorrelationReportContracts() {
     });
     contractTests.on("exit", (code, signal) => {
       if (signal) {
-        reject(new Error(`Mission correlation report contract checks stopped by ${signal}.`));
+        reject(
+          new Error(
+            `Mission correlation report contract checks stopped by ${signal}.`,
+          ),
+        );
       } else if (code !== 0) {
         reject(
           new Error(
@@ -419,65 +488,80 @@ function runConcurrentChatContractChecks() {
   const testRuns = [
     {
       file: "src/routes/ai.test.ts",
-      pattern: "keeps the newer resumable contract when concurrent JSON turns finish out of order",
+      pattern:
+        "keeps the newer resumable contract when concurrent JSON turns finish out of order",
     },
     {
       file: "src/routes/ai-stream-integration.test.ts",
-      pattern: "keeps the newest resumable contract when same-session turns finish out of order|keeps a streamed forensic cancellation incomplete after recovery retains partial evidence",
+      pattern:
+        "keeps the newest resumable contract when same-session turns finish out of order|keeps a streamed forensic cancellation incomplete after recovery retains partial evidence",
     },
   ];
 
-  return testRuns.reduce((chain, testRun) => chain.then(() => new Promise((resolve, reject) => {
-    const contractTests = spawn(
-      "pnpm",
-      [
-        "--filter",
-        "@workspace/api-server",
-        "exec",
-        "vitest",
-        "run",
-        testRun.file,
-        "-t",
-        testRun.pattern,
-        "--test-timeout",
-        process.env.DASHBOARD_E2E_CONTRACT_TIMEOUT_MS ?? "120000",
-      ],
-      {
-        env: {
-          ...process.env,
-          CI: "true",
-          NODE_ENV: "test",
-           GROQ_API_KEY: "",
-           GEMINI_API_KEY: "",
-           DEEPSEEK_API_KEY: "",
-          OPENROUTER_API_KEY: "",
-        },
-        stdio: "inherit",
-      },
-    );
+  return testRuns.reduce(
+    (chain, testRun) =>
+      chain.then(
+        () =>
+          new Promise((resolve, reject) => {
+            const contractTests = spawn(
+              "pnpm",
+              [
+                "--filter",
+                "@workspace/api-server",
+                "exec",
+                "vitest",
+                "run",
+                testRun.file,
+                "-t",
+                testRun.pattern,
+                "--test-timeout",
+                process.env.DASHBOARD_E2E_CONTRACT_TIMEOUT_MS ?? "120000",
+              ],
+              {
+                env: {
+                  ...process.env,
+                  CI: "true",
+                  NODE_ENV: "test",
+                  GROQ_API_KEY: "",
+                  GEMINI_API_KEY: "",
+                  DEEPSEEK_API_KEY: "",
+                  OPENROUTER_API_KEY: "",
+                },
+                stdio: "inherit",
+              },
+            );
 
-    contractTests.on("error", (error) => {
-      reject(
-        new Error(
-          `Unable to start chat contract checks for ${testRun.file}: ${redact(error.message)}`,
-        ),
-      );
-    });
+            contractTests.on("error", (error) => {
+              reject(
+                new Error(
+                  `Unable to start chat contract checks for ${testRun.file}: ${redact(error.message)}`,
+                ),
+              );
+            });
 
-    contractTests.on("exit", (code, signal) => {
-      if (signal) {
-        reject(new Error(`Chat contract checks for ${testRun.file} stopped by ${signal}.`));
-        return;
-      }
-      if (code !== 0) {
-        reject(new Error(
-          `Chat contract checks for ${testRun.file} failed with exit code ${code ?? 1}; browser startup was skipped.`,
-        ));
-        return;
-      }
-      resolve();
-    });
-  })), Promise.resolve());
+            contractTests.on("exit", (code, signal) => {
+              if (signal) {
+                reject(
+                  new Error(
+                    `Chat contract checks for ${testRun.file} stopped by ${signal}.`,
+                  ),
+                );
+                return;
+              }
+              if (code !== 0) {
+                reject(
+                  new Error(
+                    `Chat contract checks for ${testRun.file} failed with exit code ${code ?? 1}; browser startup was skipped.`,
+                  ),
+                );
+                return;
+              }
+              resolve();
+            });
+          }),
+      ),
+    Promise.resolve(),
+  );
 }
 
 function runLiveCorrelationReportCheck() {
@@ -500,73 +584,89 @@ function runLiveCorrelationReportCheck() {
     );
     check.on("error", reject);
     check.on("exit", (code, signal) => {
-      if (signal) reject(new Error(`Live mission correlation check stopped by ${signal}.`));
-      else if (code !== 0) reject(new Error(`Live mission correlation report failed with exit code ${code ?? 1}.`));
+      if (signal)
+        reject(
+          new Error(`Live mission correlation check stopped by ${signal}.`),
+        );
+      else if (code !== 0)
+        reject(
+          new Error(
+            `Live mission correlation report failed with exit code ${code ?? 1}.`,
+          ),
+        );
       else resolve();
     });
   });
 }
 
 try {
-  await runDashboardJourneyContracts();
-  console.log("Dashboard journey timeout and provider-mode contracts passed.");
-  await runMissionCorrelationReportContracts();
-  console.log("Mission correlation report contracts passed.");
-  await runClerkHandoffContracts();
-  console.log("Dashboard Clerk handoff response contracts passed.");
-  if (process.env.DASHBOARD_E2E_SKIP_API_CONTRACTS !== "1") {
-    await runConcurrentChatContractChecks();
-    console.log("Concurrent chat continuation contracts passed.");
+  if (process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1") {
+    await startReleaseServices();
   } else {
+    await runDashboardJourneyContracts();
     console.log(
-      "Skipping duplicate API concurrency contracts; release validation owns the shared database fixture.",
+      "Dashboard journey timeout and provider-mode contracts passed.",
     );
-  }
-  await startReleaseServices();
-  const apiHealth = await (await fetch(apiHealthUrl)).json();
-  if (apiHealth?.status !== "ok") {
-    throw new Error(`API health check did not report status=ok (${apiHealthUrl}).`);
-  }
-  console.log(`Dashboard workflow healthy at ${dashboardBaseUrl}`);
-  console.log(`API workflow healthy at ${apiHealthUrl}`);
-  console.log(`Using isolated Clerk journey user ${testEmail}`);
-  const journey = spawn(
-    "pnpm",
-    ["--filter", "@workspace/dashboard", "run", "test:e2e"],
-    {
-      cwd: workspaceRoot,
-      env: {
-        ...process.env,
-        CI: "true",
-        DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
-        DASHBOARD_E2E_API_BASE_URL:
-          process.env.DASHBOARD_E2E_API_BASE_URL ??
-          dashboardBaseUrl,
-        DASHBOARD_E2E_EMAIL: testEmail,
-        DASHBOARD_E2E_EXECUTABLE_PATH: process.env.DASHBOARD_E2E_EXECUTABLE_PATH,
-        PLAYWRIGHT_OUTPUT_DIR: outputDir,
-        DASHBOARD_E2E_LIVE_REPORT_PATH: resolve(
-          workspaceRoot,
-          process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
-            "test-results/dashboard-journey/live-mission-correlation.json",
-        ),
-        ...(Number.isFinite(liveTimeoutMs) && liveTimeoutMs > 0
-          ? { DASHBOARD_E2E_LIVE_TIMEOUT_MS: String(liveTimeoutMs) }
-          : {}),
+    await runMissionCorrelationReportContracts();
+    console.log("Mission correlation report contracts passed.");
+    await runClerkHandoffContracts();
+    console.log("Dashboard Clerk handoff response contracts passed.");
+    if (process.env.DASHBOARD_E2E_SKIP_API_CONTRACTS !== "1") {
+      await runConcurrentChatContractChecks();
+      console.log("Concurrent chat continuation contracts passed.");
+    } else {
+      console.log(
+        "Skipping duplicate API concurrency contracts; release validation owns the shared database fixture.",
+      );
+    }
+    await startReleaseServices();
+    const apiHealth = await (await fetch(apiHealthUrl)).json();
+    if (apiHealth?.status !== "ok") {
+      throw new Error(
+        `API health check did not report status=ok (${apiHealthUrl}).`,
+      );
+    }
+    console.log(`Dashboard workflow healthy at ${dashboardBaseUrl}`);
+    console.log(`API workflow healthy at ${apiHealthUrl}`);
+    console.log(`Using isolated Clerk journey user ${testEmail}`);
+    const journey = spawn(
+      "pnpm",
+      ["--filter", "@workspace/dashboard", "run", "test:e2e"],
+      {
+        cwd: workspaceRoot,
+        env: {
+          ...process.env,
+          CI: "true",
+          DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
+          DASHBOARD_E2E_API_BASE_URL:
+            process.env.DASHBOARD_E2E_API_BASE_URL ?? dashboardBaseUrl,
+          DASHBOARD_E2E_EMAIL: testEmail,
+          DASHBOARD_E2E_EXECUTABLE_PATH:
+            process.env.DASHBOARD_E2E_EXECUTABLE_PATH,
+          PLAYWRIGHT_OUTPUT_DIR: outputDir,
+          DASHBOARD_E2E_LIVE_REPORT_PATH: resolve(
+            workspaceRoot,
+            process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+              "test-results/dashboard-journey/live-mission-correlation.json",
+          ),
+          ...(Number.isFinite(liveTimeoutMs) && liveTimeoutMs > 0
+            ? { DASHBOARD_E2E_LIVE_TIMEOUT_MS: String(liveTimeoutMs) }
+            : {}),
+        },
+        stdio: "inherit",
       },
-      stdio: "inherit",
-    },
-  );
-  const result = await new Promise((resolveResult, reject) => {
-    journey.on("error", reject);
-    journey.on("exit", (code, signal) =>
-      resolveResult(signal ? 1 : code ?? 1),
     );
-  });
-  if (result !== 0) process.exitCode = result;
-  if (result === 0 && process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1") {
-    await runLiveCorrelationReportCheck();
-    console.log("Live mission correlation report passed.");
+    const result = await new Promise((resolveResult, reject) => {
+      journey.on("error", reject);
+      journey.on("exit", (code, signal) =>
+        resolveResult(signal ? 1 : (code ?? 1)),
+      );
+    });
+    if (result !== 0) process.exitCode = result;
+    if (result === 0 && process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1") {
+      await runLiveCorrelationReportCheck();
+      console.log("Live mission correlation report passed.");
+    }
   }
 } catch (error) {
   console.error(redact(error instanceof Error ? error.message : String(error)));

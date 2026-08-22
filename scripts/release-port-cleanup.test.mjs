@@ -14,7 +14,11 @@ const cleanupScript = resolve(
 function startListener(port) {
   const child = spawn(
     process.execPath,
-    ["-e", "require('net').createServer().listen(Number(process.argv[1]), '127.0.0.1')", String(port)],
+    [
+      "-e",
+      "require('net').createServer().listen(Number(process.argv[1]), '127.0.0.1')",
+      String(port),
+    ],
     { stdio: "ignore" },
   );
   return new Promise((resolveChild, reject) => {
@@ -56,6 +60,45 @@ function runCleanup(port) {
   });
 }
 
+function runTeardownFixture(apiPort, dashboardPort) {
+  return new Promise((resolveRun, reject) => {
+    const child = spawn(
+      process.execPath,
+      [resolve(root, "scripts/run-dashboard-journey.mjs")],
+      {
+        env: {
+          ...process.env,
+          RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+          DASHBOARD_E2E_TEARDOWN_FIXTURE: "1",
+          DASHBOARD_E2E_API_PORT: String(apiPort),
+          DASHBOARD_E2E_PORT: String(dashboardPort),
+          DATABASE_URL: "",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let output = "";
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (signal || code !== 0) {
+        reject(
+          new Error(
+            `Teardown fixture exited with ${signal ?? code}.\n${output}`,
+          ),
+        );
+      } else {
+        resolveRun(output);
+      }
+    });
+  });
+}
+
 test("release port cleanup supports consecutive runs", async () => {
   const port = 30_000 + Math.floor(Math.random() * 2_000);
   const first = await startListener(port);
@@ -67,11 +110,35 @@ test("release port cleanup supports consecutive runs", async () => {
   second.kill("SIGTERM");
 
   await runCleanup(port);
-  assert.ok(true, "a second cleanup run must remain successful after the listener is gone");
+  assert.ok(
+    true,
+    "a second cleanup run must remain successful after the listener is gone",
+  );
 });
 
-test("release journey teardown diagnostics identify each service and surviving process group", async () => {
-  const journey = await readFile(resolve(root, "scripts/run-dashboard-journey.mjs"), "utf8");
+test("release journey teardown diagnostics identify a real surviving descendant", async () => {
+  const apiPort = 30_000 + Math.floor(Math.random() * 1_000);
+  const dashboardPort = apiPort + 1;
+  const output = await runTeardownFixture(apiPort, dashboardPort);
+
+  assert.match(
+    output,
+    new RegExp(
+      `Release services surviving teardown: API release service \\(configured release port ${apiPort}; surviving process IDs: \\d+; release process group: \\d+\\)`,
+    ),
+  );
+  assert.match(output, new RegExp(`configured release port ${apiPort}`));
+  assert.match(output, /surviving process IDs: \d+/);
+  assert.match(output, /release process group: \d+/);
+
+  await runCleanup(apiPort);
+});
+
+test("release journey teardown diagnostics keep both service labels and process-group details", async () => {
+  const journey = await readFile(
+    resolve(root, "scripts/run-dashboard-journey.mjs"),
+    "utf8",
+  );
 
   assert.match(journey, /configured release port \$\{port\}/);
   assert.match(journey, /surviving process IDs/);
