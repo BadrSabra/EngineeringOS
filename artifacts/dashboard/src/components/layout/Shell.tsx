@@ -16,9 +16,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
         />
       )}
       <Sidebar mobileOpen={mobileNavOpen} onMobileClose={() => setMobileNavOpen(false)} />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="h-14 border-b border-border bg-card flex items-center gap-2 justify-between px-3 sm:px-4 shrink-0">
-          <div className="flex items-center gap-2 min-w-0 flex-1 max-w-96 relative">
+          <div className="relative flex min-w-0 max-w-96 flex-1 items-center gap-2">
             <button
               type="button"
               onClick={() => setMobileNavOpen(true)}
@@ -47,7 +47,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
         </header>
-        <main className="flex-1 overflow-auto bg-background p-3 sm:p-6">
+        <main className="min-h-0 flex-1 overflow-auto overflow-x-hidden bg-background p-3 sm:p-6">
           <div className="max-w-7xl mx-auto w-full">{children}</div>
         </main>
       </div>

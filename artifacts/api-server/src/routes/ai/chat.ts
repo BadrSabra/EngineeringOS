@@ -259,6 +259,19 @@ function serializeTaskResult(value: ChatTaskResult | undefined): string | null {
 const StoredMissionCorrelationReportSchema =
   ListAiChatMessagesResponseItem.shape.missionCorrelationReport;
 
+function parseMissionCorrelationReportForHistory(value: string | null | undefined): {
+  report?: unknown;
+  unavailable: boolean;
+} {
+  if (value === null || value === undefined) return { report: value, unavailable: false };
+  const parsed = parseStoredJson(value);
+  if (parsed === undefined) return { unavailable: true };
+  const result = StoredMissionCorrelationReportSchema.safeParse(parsed);
+  return result.success
+    ? { report: redactUserFacingValue(result.data), unavailable: false }
+    : { unavailable: true };
+}
+
 export class MissionCorrelationReportValidationError extends Error {
   readonly code = "mission_correlation_report_invalid";
 
@@ -3745,27 +3758,30 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
     .where(eq(aiChatMessagesTable.sessionId, sessionId))
     .orderBy(aiChatMessagesTable.createdAt);
 
-  return res.json(messages.map((message) => ({
-    ...message,
-    content: redactUserFacingText(message.content),
-    sources: message.sources
-      ? JSON.stringify(redactUserFacingValue(parseStoredJson(message.sources)))
-      : message.sources,
-    toolTrace: message.toolTrace
-      ? redactUserFacingText(message.toolTrace)
-      : message.toolTrace,
-    turnIntent: message.turnIntent,
-    executionId: message.executionId,
-    outcome: message.outcome,
-    errorCode: message.errorCode,
-    errorMessage: message.errorMessage ? redactUserFacingText(message.errorMessage) : message.errorMessage,
-    repairPlan: redactUserFacingValue(parseRepairPlanMetadata(message.repairPlanMetadata)),
-    behaviorEvidence: redactUserFacingValue(parseBehaviorEvidence(message.behaviorEvidence)),
-    missionCorrelationReport: message.missionCorrelationReport
-      ? redactUserFacingValue(parseStoredJson(message.missionCorrelationReport))
-      : message.missionCorrelationReport,
-    taskResult: redactUserFacingValue(parseTaskResult(message.taskResult)),
-  })));
+  return res.json(messages.map((message) => {
+    const historicalReport = parseMissionCorrelationReportForHistory(message.missionCorrelationReport);
+    return {
+      ...message,
+      content: redactUserFacingText(message.content),
+      sources: message.sources
+        ? JSON.stringify(redactUserFacingValue(parseStoredJson(message.sources)))
+        : message.sources,
+      toolTrace: message.toolTrace
+        ? redactUserFacingText(message.toolTrace)
+        : message.toolTrace,
+      turnIntent: message.turnIntent,
+      executionId: message.executionId,
+      outcome: message.outcome,
+      errorCode: message.errorCode,
+      errorMessage: message.errorMessage ? redactUserFacingText(message.errorMessage) : message.errorMessage,
+      repairPlan: redactUserFacingValue(parseRepairPlanMetadata(message.repairPlanMetadata)),
+      behaviorEvidence: redactUserFacingValue(parseBehaviorEvidence(message.behaviorEvidence)),
+      ...(historicalReport.unavailable
+        ? { missionCorrelationReport: undefined, missionCorrelationReportError: true }
+        : { missionCorrelationReport: historicalReport.report }),
+      taskResult: redactUserFacingValue(parseTaskResult(message.taskResult)),
+    };
+  }));
 });
 
 // ── POST /api/ai/chat/plans/:messageId/decision ──────────────────────────────

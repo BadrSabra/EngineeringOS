@@ -115,6 +115,8 @@ type ChatMessage = {
   errorMessage?: string | null;
   /** Optional persisted release report attached to a historical run. */
   missionCorrelationReport?: MissionCorrelationReport | null;
+  /** The API found a non-null persisted report that is not readable by this dashboard. */
+  missionCorrelationReportError?: boolean;
   /** Safe operational timeline captured from the live SSE run. */
   activityEvents?: LiveAgentActivityEvent[];
   /** Accepted behavior-evidence excerpts, optionally with an exact source line span. */
@@ -6873,18 +6875,33 @@ export default function AiChat() {
 
   useEffect(() => {
     if (!messagesFetched) return;
-    try {
-      for (const message of serverMessages) {
-        if (message.missionCorrelationReport !== undefined) {
-          readStoredMissionCorrelationReport(message.missionCorrelationReport);
-        }
+
+    // A mission report is optional enrichment on an otherwise useful message.
+    // Validate each one independently so one old/corrupt report cannot discard
+    // the complete conversation or expose parser details in the UI.
+    let hasUnavailableReport = false;
+    const safeMessages = serverMessages.map((message) => {
+      if (message.missionCorrelationReportError) {
+        hasUnavailableReport = true;
+        return { ...message, missionCorrelationReport: undefined };
       }
-      setHistoricalReportError(null);
-      setLocalMessages(serverMessages);
-    } catch (error) {
-      setHistoricalReportError(error instanceof Error ? error.message : String(error));
-      setLocalMessages([]);
-    }
+      if (message.missionCorrelationReport === undefined || message.missionCorrelationReport === null) {
+        return message;
+      }
+      try {
+        readStoredMissionCorrelationReport(message.missionCorrelationReport);
+        return message;
+      } catch {
+        hasUnavailableReport = true;
+        return { ...message, missionCorrelationReport: undefined };
+      }
+    });
+    setHistoricalReportError(
+      hasUnavailableReport
+        ? 'A historical mission report could not be loaded. Your conversation is still available.'
+        : null,
+    );
+    setLocalMessages(safeMessages);
   }, [messagesFetched, serverMessages]);
 
   useEffect(() => {
@@ -7955,7 +7972,7 @@ export default function AiChat() {
   );
 
   return (
-    <div className="relative flex h-full min-w-0 overflow-hidden">
+    <div className="relative flex h-full min-h-0 min-w-0 max-w-full overflow-hidden">
       {/* UI-01: closeable mobile drawer backdrop */}
       {sidebarOpen && (
         <button
@@ -7970,7 +7987,7 @@ export default function AiChat() {
       {/* UI-01: desktop sidebar; mobile drawer overlays the chat instead of
        * shrinking it to a narrow unreadable column. */}
       <div
-        className={`${sidebarOpen ? 'flex' : 'hidden'} absolute inset-y-0 left-0 z-30 w-64 max-w-[calc(100vw-1rem)] border-r border-border flex-col shrink-0 bg-background shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:flex md:w-56 md:max-w-none md:shadow-none`}
+        className={`${sidebarOpen ? 'flex' : 'hidden'} absolute inset-y-0 left-0 z-30 w-64 max-w-[calc(100vw-1rem)] min-w-0 border-r border-border flex-col shrink-0 bg-background shadow-2xl transition-transform md:relative md:inset-y-auto md:z-auto md:flex md:w-56 md:max-w-none md:shadow-none`}
       >
         <div className="p-3 border-b border-border flex items-center justify-between">
           <span className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Sessions</span>
@@ -8107,8 +8124,21 @@ export default function AiChat() {
         {/* Messages */}
         <ScrollArea className="min-h-0 min-w-0 flex-1 px-3 py-3 sm:px-4 sm:py-4">
           {historicalReportError && (
-            <div role="alert" className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-              Historical run unavailable: {historicalReportError}
+            <div role="alert" className="mb-4 flex min-w-0 items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              <span className="min-w-0 flex-1">{historicalReportError}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 shrink-0 px-2 text-[11px]"
+                onClick={() => {
+                  if (sessionId) {
+                    void qc.invalidateQueries({ queryKey: ['ai-messages', sessionId] });
+                  }
+                }}
+              >
+                Retry
+              </Button>
             </div>
           )}
           {isEmpty ? (
@@ -8122,7 +8152,7 @@ export default function AiChat() {
                   {getStatusSubtitle()}
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-2 w-full max-w-sm">
+               <div className="grid w-full max-w-sm grid-cols-2 gap-2">
                 {AI_ACTIONS.map((action) => (
                   <button
                     key={action.id}
@@ -8298,7 +8328,7 @@ export default function AiChat() {
         </ScrollArea>
 
         {/* Input */}
-        <div className="shrink-0 border-t border-border p-3 sm:p-4">
+         <div className="shrink-0 border-t border-border p-3 sm:p-4">
           {activeExecution && !isAgentBusy && (
             <div className="mx-auto mb-3 flex w-full max-w-3xl items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
               <div className="min-w-0">
@@ -8323,14 +8353,14 @@ export default function AiChat() {
               )}
             </div>
           )}
-          <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
+          <div className="mx-auto flex w-full min-w-0 max-w-3xl items-end gap-2">
             <Textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={applyMutation.isPending ? 'Applying changes… please wait' : isAgentBusy ? 'Working… progress is shown above' : getPlaceholder()}
-              className="min-h-[44px] max-h-32 resize-none bg-secondary border-border text-sm"
+              className="min-h-[44px] min-w-0 max-h-32 flex-1 resize-none bg-secondary border-border text-sm"
               rows={1}
               disabled={!isLoaded || projectsLoading || !selectedProjectId || applyMutation.isPending || isAgentBusy}
             />

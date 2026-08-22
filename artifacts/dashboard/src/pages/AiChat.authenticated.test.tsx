@@ -2035,20 +2035,27 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByText('Existing response')).toBeInTheDocument();
   });
 
-  it('fails closed when historical mission report version is incompatible', async () => {
+  it.each([
+    ['null', null],
+    ['scalar', 'not-a-report'],
+    ['unsupported version', { ...storedMissionCorrelationReport, version: 2 }],
+  ])('keeps history when the stored mission report is %s', async (_label, report) => {
     mocks.serverProposal = { proposalId: 'incompatible-report', changes: [] };
-    mocks.proposalMessages[0].missionCorrelationReport = {
-      ...storedMissionCorrelationReport,
-      version: 2,
-    };
+    mocks.proposalMessages[0].missionCorrelationReport = report as Record<string, unknown>;
     renderAiChat();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Unsupported mission correlation report version: expected 1, got 2.',
-    );
-    expect(screen.queryByText('Existing response')).not.toBeInTheDocument();
+    if (_label === 'null') {
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    } else {
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'A historical mission report could not be loaded.',
+      );
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toHaveTextContent('expected 1');
+    }
+    expect(screen.getByText('Existing response')).toBeInTheDocument();
   });
 
   it('renders persisted execution proof after reloading a completed assistant message', async () => {

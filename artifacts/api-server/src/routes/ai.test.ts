@@ -1544,6 +1544,48 @@ describe("GET /api/ai/chat/:sessionId/messages", () => {
     });
   });
 
+  it("keeps ordinary history when a stored mission correlation report is invalid", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = randomUUID();
+    const now = new Date();
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Malformed mission report session",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(aiChatMessagesTable).values([
+      {
+        id: randomUUID(),
+        sessionId,
+        role: "user",
+        content: "Keep this message",
+        createdAt: now,
+      },
+      {
+        id: randomUUID(),
+        sessionId,
+        role: "assistant",
+        content: "The report is optional.",
+        missionCorrelationReport: JSON.stringify({ version: 99, payload: "private" }),
+        createdAt: new Date(now.getTime() + 1),
+      },
+    ]);
+
+    const res = await request(app).get(`/api/ai/chat/${sessionId}/messages`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(2);
+    expect(res.body[0].content).toBe("Keep this message");
+    expect(res.body[1]).toMatchObject({
+      content: "The report is optional.",
+      missionCorrelationReportError: true,
+    });
+    expect(res.body[1].missionCorrelationReport).toBeUndefined();
+    expect(JSON.stringify(res.body)).not.toContain("private");
+  });
+
   it("renders generic assistant messages without a taskResult (null-equivalent)", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
