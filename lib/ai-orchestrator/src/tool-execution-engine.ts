@@ -30,6 +30,7 @@ import type { ProviderStrategy } from "./provider-strategy.js";
 import type { ToolDefinitionLike } from "./tool-policy.js";
 import type { PendingChange } from "./schemas/chat.schema.js";
 import type { TaskType } from "./quality/task-profile.js";
+import { getPhaseBudget, isToolAllowedInPhase, type ExecutionPhase } from "./quality/execution-phases.js";
 import {
   classifyObjectiveScopePath,
   normalizeObjectivePath,
@@ -969,6 +970,8 @@ export type ToolLoopOpts = {
 
   /** Accumulated pending changes — mutated in place by write_file calls. */
   pendingChanges: PendingChange[];
+  /** Server-owned phase; caps budgets and filters tools when provided. */
+  phase?: ExecutionPhase;
 
   /**
    * Structured forensic mode: every uncached read_file call requests the
@@ -1486,12 +1489,13 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     provider,
     apiKey,
     taskType,
+    phase,
     requiresEvidence = true,
     deterministicTaskExecution = taskType === "task_execution",
     rootPath,
     pendingChanges,
-    maxIterations = DEFAULT_MAX_ITERATIONS,
-    maxToolCalls = DEFAULT_MAX_TOOL_CALLS,
+    maxIterations: requestedMaxIterations,
+    maxToolCalls: requestedMaxToolCalls,
     toolCallsDisabledAfter,
     synthesisTimeoutMs = DEFAULT_SYNTHESIS_TIMEOUT_MS,
     synthesisMaxAttempts = DEFAULT_SYNTHESIS_MAX_ATTEMPTS,
@@ -1511,6 +1515,15 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     requireDependencyProof = false,
     onStep,
   } = opts;
+  const phaseBudget = phase ? getPhaseBudget(phase) : undefined;
+  const maxIterations = Math.min(
+    requestedMaxIterations ?? DEFAULT_MAX_ITERATIONS,
+    phaseBudget?.maxModelCalls ?? Number.POSITIVE_INFINITY,
+  );
+  const maxToolCalls = Math.min(
+    requestedMaxToolCalls ?? DEFAULT_MAX_TOOL_CALLS,
+    phaseBudget?.maxToolCalls ?? Number.POSITIVE_INFINITY,
+  );
   const boundedMaxValidationAttempts = Math.max(
     1,
     Math.min(
@@ -1746,7 +1759,18 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     return opts.tools;
   };
 
-  const allowedTools = allowedToolNames ? new Set(allowedToolNames) : null;
+  const allowedTools = (() => {
+    const requested = allowedToolNames ? new Set(allowedToolNames) : null;
+    if (!phase) return requested;
+    const phaseTools = new Set(
+      (opts.tools ?? [])
+        .map((tool) => tool.function.name)
+        .filter((name) => isToolAllowedInPhase(phase, name)),
+    );
+    return requested
+      ? new Set([...requested].filter((name) => phaseTools.has(name)))
+      : phaseTools;
+  })();
   // First-Evidence Gate: the explicit primary evidence target is always
   // readable as the first source read, even under an allow-list policy. The
   // gate expands tool permission for exactly this one path.

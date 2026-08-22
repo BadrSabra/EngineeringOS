@@ -75,6 +75,14 @@ export { buildQualityHints, buildQualityPlan, assessStructuredOutput, sortProvid
 export type { QualityAssessment, QualityPlan, QualityProfile, QualitySortOptions } from "./quality-engine.js";
 export { buildExecutionPlan as buildModelSelectionExecutionPlan } from "./model-selection/execution-plan.js";
 export type { ExecutionPlan as ModelSelectionExecutionPlan, ExecutionPlanOptions as ModelSelectionExecutionPlanOptions } from "./model-selection/execution-plan.js";
+export {
+  EXECUTION_PHASES,
+  PHASE_BUDGETS,
+  PHASE_TOOL_POLICY,
+  getPhaseBudget,
+  isToolAllowedInPhase,
+} from "./quality/execution-phases.js";
+export type { ExecutionPhase, PhaseBudget } from "./quality/execution-phases.js";
 export { resolveExecutionDecision } from "./model-selection/decision-engine.js";
 export type { ResolveExecutionDecisionOptions } from "./model-selection/decision-engine.js";
 export { resolveExecutionProvider } from "./model-selection/provider-strategy.js";

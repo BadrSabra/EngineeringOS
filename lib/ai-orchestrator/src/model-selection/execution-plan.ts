@@ -18,5 +18,13 @@ export type {
   GraphMode,
   HistoryMode,
 } from "../quality/task-profile.js";
+export {
+  EXECUTION_PHASES,
+  PHASE_BUDGETS,
+  PHASE_TOOL_POLICY,
+  getPhaseBudget,
+  isToolAllowedInPhase,
+} from "../quality/execution-phases.js";
+export type { ExecutionPhase, PhaseBudget } from "../quality/execution-phases.js";
 
 export { buildExecutionPlan } from "../quality/quality-planner.js";

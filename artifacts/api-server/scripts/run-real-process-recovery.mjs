@@ -52,7 +52,12 @@ const child = spawn(
       RUN_REAL_API_PROCESS_RECOVERY: "1",
       LIVE_RECOVERY_PROVIDER: liveProvider,
       ...(liveProvider === "openrouter"
-        ? { OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || "openai/gpt-4o" }
+        ? {
+            // This child is an explicit controlled-live check. It may use the
+            // operator-selected paid model, unlike provider-free validation.
+            RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+            OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || "openai/gpt-4o",
+          }
         : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],

@@ -21,12 +21,16 @@ import { GroqClientError } from "./errors.js";
 import { buildFallbackChainFromId, resolveFallbackChain } from "./openrouter/model-resolver.js";
 import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
 import type { TaskType } from "./quality/task-profile.js";
+import type { ExecutionPhase } from "./quality/execution-phases.js";
+import { getPhaseBudget } from "./quality/execution-phases.js";
 
 export type OpenAICompatibleOptions = {
   model?: string;
   taskType?: TaskType;
   temperature?: number;
   maxTokens?: number;
+  /** Selects a bounded output contract when maxTokens is not supplied. */
+  outputPhase?: ExecutionPhase;
   timeoutMs?: number;
   /** Disable transient retry when the caller owns bounded model fallback. */
   retryTransient?: boolean;
@@ -647,7 +651,7 @@ export async function oacCompleteRaw(
   const {
     model = FALLBACK_DEFAULT_MODEL,  // PR-001: no hardcoded string
     temperature = 0.2,
-    maxTokens = 4096,
+    maxTokens = opts.outputPhase ? getPhaseBudget(opts.outputPhase).maxOutputTokens : 4096,
     timeoutMs = DEFAULT_TIMEOUT_MS,
     apiKey,
     tools,

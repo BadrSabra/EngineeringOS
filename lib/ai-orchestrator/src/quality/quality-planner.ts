@@ -10,6 +10,7 @@ import {
   type GraphMode,
   type HistoryMode,
 } from "./task-profile.js";
+import { getPhaseBudget, type ExecutionPhase, type PhaseBudget } from "./execution-phases.js";
 
 export type CacheMode = "aggressive" | "normal" | "bypass";
 
@@ -30,6 +31,8 @@ export type ExecutionPlan = {
   memoryDepth: number;
   /** Cache aggressiveness driven by context intensity. */
   cacheMode: CacheMode;
+  /** Server-owned phase contract; phase budgets cannot be shared by loops. */
+  phases: Readonly<Record<ExecutionPhase, PhaseBudget>>;
 };
 
 export type ExecutionPlanOptions = {
@@ -93,5 +96,13 @@ export function buildExecutionPlan(
     historyDepth:  HISTORY_DEPTH[historyMode],
     memoryDepth:   MEMORY_DEPTH[memoryMode],
     cacheMode:     CACHE_MODE_BY_INTENSITY[contextIntensity],
+    phases: {
+      localization: getPhaseBudget("localization"),
+      evidence: getPhaseBudget("evidence"),
+      patch_proposal: getPhaseBudget("patch_proposal"),
+      validation: getPhaseBudget("validation"),
+      repair_recovery: getPhaseBudget("repair_recovery"),
+      report: getPhaseBudget("report"),
+    },
   };
 }

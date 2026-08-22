@@ -6,7 +6,16 @@
  * security or correctness boundary.
  */
 
-export type BehavioralFailureKind = "loop" | "soft_limit" | "malformed_json";
+export type BehavioralFailureKind =
+  | "loop"
+  | "soft_limit"
+  | "malformed_json"
+  | "invalid_tool_call"
+  | "ungrounded_output"
+  | "validation_failure"
+  | "false_success"
+  | "empty_response"
+  | "provider_unavailable";
 
 export type BehavioralScorecard = {
   model: string;
@@ -17,11 +26,23 @@ export type BehavioralScorecard = {
   duplicateToolCallCount: number;
   softLimitCount: number;
   malformedJsonCount: number;
+  invalidToolCallCount: number;
+  ungroundedOutputCount: number;
+  validationFailureCount: number;
+  falseSuccessCount: number;
+  emptyResponseCount: number;
+  providerUnavailableCount: number;
   loopRate: number | null;
   /** Explicit rate of samples marked by DUPLICATE_TOOL_CALL. */
   duplicateToolCallRate: number | null;
   softLimitRate: number | null;
   malformedJsonRate: number | null;
+  invalidToolCallRate: number | null;
+  ungroundedOutputRate: number | null;
+  validationFailureRate: number | null;
+  falseSuccessRate: number | null;
+  emptyResponseRate: number | null;
+  providerUnavailableRate: number | null;
   demoted: boolean;
   lastEventAt: string | null;
 };
@@ -92,6 +113,12 @@ export function getBehavioralScorecards(now = Date.now()): BehavioralScorecard[]
     const loopCount = count("loop");
     const softLimitCount = count("soft_limit");
     const malformedJsonCount = count("malformed_json");
+    const invalidToolCallCount = count("invalid_tool_call");
+    const ungroundedOutputCount = count("ungrounded_output");
+    const validationFailureCount = count("validation_failure");
+    const falseSuccessCount = count("false_success");
+    const emptyResponseCount = count("empty_response");
+    const providerUnavailableCount = count("provider_unavailable");
     const loopRate = loopCount / samples.length;
 
     scorecards.push({
@@ -102,10 +129,22 @@ export function getBehavioralScorecards(now = Date.now()): BehavioralScorecard[]
       duplicateToolCallCount: loopCount,
       softLimitCount,
       malformedJsonCount,
+      invalidToolCallCount,
+      ungroundedOutputCount,
+      validationFailureCount,
+      falseSuccessCount,
+      emptyResponseCount,
+      providerUnavailableCount,
       loopRate,
       duplicateToolCallRate: loopRate,
       softLimitRate: softLimitCount / samples.length,
       malformedJsonRate: malformedJsonCount / samples.length,
+      invalidToolCallRate: invalidToolCallCount / samples.length,
+      ungroundedOutputRate: ungroundedOutputCount / samples.length,
+      validationFailureRate: validationFailureCount / samples.length,
+      falseSuccessRate: falseSuccessCount / samples.length,
+      emptyResponseRate: emptyResponseCount / samples.length,
+      providerUnavailableRate: providerUnavailableCount / samples.length,
       demoted:
         samples.length >= BEHAVIORAL_SCORECARD_CONFIG.minSamples &&
         loopRate > BEHAVIORAL_SCORECARD_CONFIG.loopRateThreshold,

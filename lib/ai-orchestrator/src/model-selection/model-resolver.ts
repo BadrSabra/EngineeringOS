@@ -1,5 +1,7 @@
 import type { ModelCapability } from "../openrouter/model-catalog.js";
 import { resolveFallbackChain } from "../openrouter/model-resolver.js";
+import { FREE_MODELS } from "../openrouter/model-catalog.js";
+import { getDynamicModelIds, isDynamicCatalogLoaded } from "../openrouter/dynamic-catalog.js";
 import { loadProvider, type ProviderId } from "../provider-registry.js";
 import type { ExecutionPlan } from "./execution-plan.js";
 
@@ -11,6 +13,23 @@ export type ExecutionModelDecision = {
   capability: ModelCapability;
   source: "openrouter-catalog" | "provider-registry";
 };
+
+export function isFreeOpenRouterModel(modelId: string): boolean {
+  const model = FREE_MODELS.find((candidate) => candidate.id === modelId.trim());
+  if (!model || !model.free) return false;
+  const liveIds = getDynamicModelIds();
+  return !isDynamicCatalogLoaded() || liveIds?.has(model.id) === true;
+}
+
+/** Controlled-live is the only path allowed to use a non-free override. */
+export function resolveFreeModelOverride(modelId: string): string {
+  const normalized = modelId.trim();
+  if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1") return normalized;
+  if (!isFreeOpenRouterModel(normalized)) {
+    throw new Error(`OpenRouter model override is not a currently-free catalog model: ${normalized}`);
+  }
+  return normalized;
+}
 
 function wantsPowerfulModel(plan: ExecutionPlan): boolean {
   const taskType = plan.taskProfile.taskType;
@@ -71,7 +90,8 @@ export function resolveExecutionModel(
     // Controlled live checks may opt into a known paid OpenRouter model. Keep
     // this override environment-only so ordinary provider-free validation and
     // normal free-tier routing retain the catalog-driven fallback chain.
-    const liveModel = process.env.OPENROUTER_MODEL?.trim() || undefined;
+    const configuredModel = process.env.OPENROUTER_MODEL?.trim() || undefined;
+    const liveModel = configuredModel ? resolveFreeModelOverride(configuredModel) : undefined;
     const model = liveModel ?? fallbackChain[0] ?? provider.defaultModels.fast;
     const powerModel = liveModel ?? fallbackChain[1] ?? fallbackChain[0] ?? provider.defaultModels.powerful;
 

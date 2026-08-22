@@ -5,6 +5,13 @@ export type RetryDecision = {
   shouldRetry: boolean;
   useRelaxedHints: boolean;
   reason: string;
+  action:
+    | "retry_json"
+    | "collect_missing_context"
+    | "send_validation_failure"
+    | "change_model"
+    | "shrink_context"
+    | "stop";
 };
 
 const RETRYABLE_GROQ_CODES = new Set<GroqErrorCode>([
@@ -37,30 +44,35 @@ export function decideRetry(options: {
       shouldRetry: false,
       useRelaxedHints: false,
       reason: "retry budget exhausted",
+      action: "stop",
     };
   } else if (options.parseError) {
     decision = {
       shouldRetry: true,
       useRelaxedHints: true,
       reason: `parse failure (${options.parseError.code})`,
+      action: "retry_json",
     };
   } else if (options.assessment?.decision === "retry") {
     decision = {
       shouldRetry: true,
       useRelaxedHints: true,
       reason: describeAssessment(options.assessment),
+      action: "collect_missing_context",
     };
   } else if (isRetryableTransportError(options.transportError)) {
     decision = {
       shouldRetry: true,
       useRelaxedHints: true,
       reason: `transport error (${options.transportError.code})`,
+      action: options.transportError.code === "TIMEOUT" ? "change_model" : "shrink_context",
     };
   } else {
     decision = {
       shouldRetry: false,
       useRelaxedHints: false,
       reason: "no retry signal",
+      action: "stop",
     };
   }
 
