@@ -1,6 +1,6 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import AiChat, { BenchmarkMissionControlPanel } from './AiChat';
 import storedMissionCorrelationReport from '../lib/fixtures/stored-mission-correlation-report.json';
 
@@ -303,17 +303,28 @@ function renderAiChat(isDesktop = true) {
 }
 
 beforeEach(() => {
+  cleanup();
+  vi.clearAllMocks();
   mocks.toast.mockReset();
   mocks.serverProposal = undefined;
   mocks.projects = [{ id: 'project-1', name: 'demo-service', language: 'TypeScript' }];
   mocks.sessions = [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }];
-  mocks.proposalMessages[0].content = 'Existing response';
-  mocks.proposalMessages[0].operationMode = undefined;
+  mocks.proposalMessages[0] = {
+    ...mocks.proposalMessages[0],
+    id: 'message-1',
+    role: 'assistant',
+    content: 'Existing response',
+    toolTrace: undefined,
+    behaviorEvidence: undefined,
+    missionCorrelationReport: undefined,
+    taskResult: undefined,
+    operationMode: undefined,
+    outcome: undefined,
+    executionId: undefined,
+    errorCode: undefined,
+    errorMessage: undefined,
+  };
   mocks.operationEvents = [];
-  mocks.proposalMessages[0].toolTrace = undefined;
-  mocks.proposalMessages[0].behaviorEvidence = undefined;
-  mocks.proposalMessages[0].missionCorrelationReport = undefined;
-  mocks.proposalMessages[0].taskResult = undefined;
   for (const mutation of Object.values(mocks.mutations)) {
     mutation.mutate.mockReset();
     mutation.isPending = false;
@@ -335,6 +346,10 @@ beforeEach(() => {
   mocks.taskStreamCallbacks = undefined;
   mocks.taskSentParams = undefined;
   localStorage.clear();
+});
+
+afterEach(() => {
+  cleanup();
 });
 
 describe('AiChat authenticated generated mutations', () => {
