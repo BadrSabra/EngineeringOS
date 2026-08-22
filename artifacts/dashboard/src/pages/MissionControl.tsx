@@ -232,8 +232,27 @@ function csvCell(value: unknown): string {
   return `"${formatValue(value).replace(/"/g, '""')}"`;
 }
 
-function downloadFilteredHistory(executions: MissionExecution[], benchmark: unknown): void {
+type HistoryExportFormat = 'csv' | 'json';
+
+function downloadFilteredHistory(
+  executions: MissionExecution[],
+  benchmark: unknown,
+  format: HistoryExportFormat,
+): void {
   if (executions.length === 0) return;
+  const date = new Date().toISOString().slice(0, 10);
+  if (format === 'json') {
+    const json = JSON.stringify({ executions, benchmark }, null, 2);
+    const blob = new Blob([`${json}\n`], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `mission-control-history-${date}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    return;
+  }
+
   const benchmarkRecord = asRecord(benchmark);
   const scorecard = asRecord(benchmarkRecord?.scorecard);
   const baseline = asRecord(benchmarkRecord?.baseline);
@@ -276,7 +295,7 @@ function downloadFilteredHistory(executions: MissionExecution[], benchmark: unkn
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `mission-control-history-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.download = `mission-control-history-${date}.csv`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -357,6 +376,7 @@ export default function MissionControl() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [historyQuery, setHistoryQuery] = useState('');
   const [historyState, setHistoryState] = useState('ALL');
+  const [historyExportFormat, setHistoryExportFormat] = useState<HistoryExportFormat>('csv');
   const [historyPage, setHistoryPage] = useState(1);
   const historyPageSize = 8;
   const { data, error, isError, isLoading, isFetching, refetch } = useGetAiMissionControl({
@@ -552,12 +572,24 @@ export default function MissionControl() {
                  <option value="ALL">All states</option>
                  {historyStates.map((state) => <option key={state} value={state}>{state.replace(/_/g, ' ')}</option>)}
                </select>
+               <label className="flex shrink-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2 text-[11px] text-muted-foreground">
+                 <span>Format</span>
+                 <select
+                   value={historyExportFormat}
+                   onChange={(event) => setHistoryExportFormat(event.target.value as HistoryExportFormat)}
+                   aria-label="Export format"
+                   className="h-7 bg-transparent text-xs font-semibold text-foreground outline-none"
+                 >
+                   <option value="csv">CSV</option>
+                   <option value="json">JSON</option>
+                 </select>
+               </label>
                <button
                  type="button"
-                 onClick={() => downloadFilteredHistory(filteredExecutions, typedData?.benchmark)}
+                 onClick={() => downloadFilteredHistory(filteredExecutions, typedData?.benchmark, historyExportFormat)}
                  disabled={filteredExecutions.length === 0}
                  aria-label={filteredExecutions.length === 0 ? 'Export filtered history (no matching executions)' : 'Export filtered history'}
-                 title={filteredExecutions.length === 0 ? 'No matching executions to export' : 'Download all matching executions as CSV'}
+                 title={filteredExecutions.length === 0 ? 'No matching executions to export' : `Download all matching executions as ${historyExportFormat.toUpperCase()}`}
                  className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary hover-elevate disabled:cursor-not-allowed disabled:opacity-45"
                >
                  <Download className="h-3.5 w-3.5" /> Export filtered history

@@ -255,6 +255,49 @@ describe('Mission Control', () => {
     vi.unstubAllGlobals();
   });
 
+  it('exports filtered executions and the full benchmark context as nested JSON', async () => {
+    const nestedEvidence = {
+      verdict: 'PROVEN',
+      checks: [{ name: 'recovery', passed: true }],
+      benchmarkDetails: { threshold: 0.95 },
+    };
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: [
+        { ...missionControlFixture.executions[0], id: 'included', evidence: nestedEvidence },
+        { ...missionControlFixture.executions[0], id: 'excluded', objective: 'Unrelated execution' },
+      ],
+    };
+    const createObjectURL = vi.fn(() => 'blob:mission-control-json');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    renderPage();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search execution history' }), {
+      target: { value: 'included' },
+    });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Export format' }), {
+      target: { value: 'json' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Export filtered history' }));
+
+    const blob = createObjectURL.mock.calls[0][0] as Blob;
+    const exported = JSON.parse(await blob.text()) as {
+      executions: Array<typeof missionControlFixture.executions[number]>;
+      benchmark: typeof missionControlFixture.benchmark;
+    };
+    expect(exported.executions).toHaveLength(1);
+    expect(exported.executions[0]).toMatchObject({ id: 'included', evidence: nestedEvidence });
+    expect(exported.benchmark).toEqual(missionControlFixture.benchmark);
+    expect(blob.type).toBe('application/json;charset=utf-8');
+    expect(click).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mission-control-json');
+
+    click.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
   it('clearly disables export when the active filters match no executions', async () => {
     renderPage();
 
@@ -264,6 +307,7 @@ describe('Mission Control', () => {
 
     const exportButton = screen.getByRole('button', { name: 'Export filtered history (no matching executions)' });
     expect(exportButton).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Export format' })).toBeEnabled();
     expect(screen.getByRole('status')).toHaveTextContent('There are no matching executions to export.');
   });
 });
