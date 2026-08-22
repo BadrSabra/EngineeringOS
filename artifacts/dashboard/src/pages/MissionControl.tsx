@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Clock3,
   Cpu,
+  Download,
   ExternalLink,
   Gauge,
   GitBranch,
@@ -225,6 +226,59 @@ function recoveryDetail(execution: MissionExecution, key: string): string | unde
     if (result) return result;
   }
   return undefined;
+}
+
+function csvCell(value: unknown): string {
+  return `"${formatValue(value).replace(/"/g, '""')}"`;
+}
+
+function downloadFilteredHistory(executions: MissionExecution[], benchmark: unknown): void {
+  if (executions.length === 0) return;
+  const benchmarkRecord = asRecord(benchmark);
+  const scorecard = asRecord(benchmarkRecord?.scorecard);
+  const baseline = asRecord(benchmarkRecord?.baseline);
+  const serialize = (value: unknown) => {
+    if (!value) return 'Not recorded';
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return formatValue(value);
+    }
+  };
+  const benchmarkSuite = textValue(scorecard?.suiteVersion, benchmarkRecord?.suiteVersion) ?? 'Not recorded';
+  const benchmarkBaselineId = textValue(baseline?.baselineId, benchmarkRecord?.baselineId) ?? 'Not recorded';
+  const benchmarkScorecard = serialize(scorecard?.metrics);
+  const benchmarkBaseline = serialize(baseline?.metrics);
+  const headers = [
+    'Execution ID', 'Objective', 'State', 'Provider', 'Model',
+    'Failure Category', 'Recovery Action', 'Evidence Status', 'Attempts',
+    'Benchmark Suite Version', 'Benchmark Baseline ID', 'Benchmark Scorecard', 'Benchmark Baseline Metrics',
+  ];
+  const rows = executions.map((execution) => [
+    execution.id,
+    objectiveText(execution.objective),
+    stateText(execution.state),
+    textValue(execution.provider) ?? 'Not recorded',
+    textValue(execution.model) ?? 'Not recorded',
+    recoveryDetail(execution, 'failureCategory') ?? 'Not categorized',
+    recoveryDetail(execution, 'recoveryAction') ?? 'No recovery action',
+    recoveryDetail(execution, 'evidenceStatus')
+      ?? textValue(asRecord(execution.evidence)?.verdict)
+      ?? (execution.evidence ? 'Recorded' : 'Not recorded'),
+    numberValue(execution.attempts) ?? 0,
+    benchmarkSuite,
+    benchmarkBaselineId,
+    benchmarkScorecard,
+    benchmarkBaseline,
+  ]);
+  const csv = [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
+  const blob = new Blob([`${csv}\r\n`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `mission-control-history-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function metricEntries(value: unknown, prefix = '', depth = 0): MetricEntry[] {
@@ -498,7 +552,22 @@ export default function MissionControl() {
                  <option value="ALL">All states</option>
                  {historyStates.map((state) => <option key={state} value={state}>{state.replace(/_/g, ' ')}</option>)}
                </select>
+               <button
+                 type="button"
+                 onClick={() => downloadFilteredHistory(filteredExecutions, typedData?.benchmark)}
+                 disabled={filteredExecutions.length === 0}
+                 aria-label={filteredExecutions.length === 0 ? 'Export filtered history (no matching executions)' : 'Export filtered history'}
+                 title={filteredExecutions.length === 0 ? 'No matching executions to export' : 'Download all matching executions as CSV'}
+                 className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md border border-primary/35 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary hover-elevate disabled:cursor-not-allowed disabled:opacity-45"
+               >
+                 <Download className="h-3.5 w-3.5" /> Export filtered history
+               </button>
              </div>
+             {filteredExecutions.length === 0 && (
+               <p className="mt-2 text-[11px] text-muted-foreground" role="status">
+                 There are no matching executions to export. Adjust the search or state filter.
+               </p>
+             )}
           </div>
           <div className="divide-y divide-border/60">
              {visibleExecutions.map((execution) => {

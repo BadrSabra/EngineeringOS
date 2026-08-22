@@ -213,4 +213,57 @@ describe('Mission Control', () => {
     });
     expect(screen.getByText('No executions match this search or state filter.')).toBeInTheDocument();
   });
+
+  it('exports every filtered execution with recovery and benchmark context, not just the current page', async () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: Array.from({ length: 10 }, (_, index) => ({
+        ...missionControlFixture.executions[0],
+        id: `execution-${index + 1}`,
+        objective: index === 9 ? 'Investigate the quota recovery path' : `Repair run ${index + 1}`,
+        state: index === 9 ? 'BLOCKED' : 'READY_FOR_REVIEW',
+        failureCategory: index === 9 ? 'RATE_LIMIT' : undefined,
+        recoveryAction: index === 9 ? 'Switch provider' : undefined,
+        evidenceStatus: index === 9 ? 'INCOMPLETE' : undefined,
+      })),
+    };
+    const createObjectURL = vi.fn(() => 'blob:mission-control');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    renderPage();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search execution history' }), {
+      target: { value: 'repair run' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Export filtered history' }));
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    const blob = createObjectURL.mock.calls[0][0] as Blob;
+    const csv = await blob.text();
+    expect(csv).toContain('"Execution ID","Objective","State","Provider","Model","Failure Category","Recovery Action","Evidence Status","Attempts"');
+    expect(csv).toContain('"execution-1"');
+    expect(csv).toContain('"execution-9"');
+    expect(csv).not.toContain('"execution-10"');
+    expect(csv).toContain('"flight-deck-v2"');
+    expect(csv).toContain('""correctCompletionRate"":1');
+    expect(csv).toContain('"baseline-clean-witness"');
+    expect(click).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mission-control');
+
+    click.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('clearly disables export when the active filters match no executions', async () => {
+    renderPage();
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search execution history' }), {
+      target: { value: 'does-not-exist' },
+    });
+
+    const exportButton = screen.getByRole('button', { name: 'Export filtered history (no matching executions)' });
+    expect(exportButton).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('There are no matching executions to export.');
+  });
 });
