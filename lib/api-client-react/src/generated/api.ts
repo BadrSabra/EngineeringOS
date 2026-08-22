@@ -108,6 +108,7 @@ import type {
   Project,
   ProjectSummary,
   ProviderKeyStatus,
+  RecoverAiExecutionResumeCapability200,
   RegenerateMissionCorrelationReport200,
   RollbackWorkflowPhaseInput,
   Rule,
@@ -4710,6 +4711,78 @@ export function useGetAiExecution<TData = Awaited<ReturnType<typeof getAiExecuti
 
 
 
+
+export const getRecoverAiExecutionResumeCapabilityUrl = (executionId: string,) => {
+
+
+
+
+  return `/api/ai/executions/${executionId}/resume-capability`
+}
+
+/**
+ * Owner-scoped recovery for paused or failed executions. The stored token hash and provider diagnostics are never returned.
+ * @summary Rotate and return a one-time opaque resume capability
+ */
+export const recoverAiExecutionResumeCapability = async (executionId: string, options?: RequestInit): Promise<RecoverAiExecutionResumeCapability200> => {
+
+  return customFetch<RecoverAiExecutionResumeCapability200>(getRecoverAiExecutionResumeCapabilityUrl(executionId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRecoverAiExecutionResumeCapabilityMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recoverAiExecutionResumeCapability>>, TError,{executionId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof recoverAiExecutionResumeCapability>>, TError,{executionId: string}, TContext> => {
+
+const mutationKey = ['recoverAiExecutionResumeCapability'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recoverAiExecutionResumeCapability>>, {executionId: string}> = (props) => {
+          const {executionId} = props ?? {};
+
+          return  recoverAiExecutionResumeCapability(executionId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecoverAiExecutionResumeCapabilityMutationResult = NonNullable<Awaited<ReturnType<typeof recoverAiExecutionResumeCapability>>>
+
+    export type RecoverAiExecutionResumeCapabilityMutationError = ErrorType<ApiError>
+
+    /**
+ * @summary Rotate and return a one-time opaque resume capability
+ */
+export const useRecoverAiExecutionResumeCapability = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recoverAiExecutionResumeCapability>>, TError,{executionId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof recoverAiExecutionResumeCapability>>,
+        TError,
+        {executionId: string},
+        TContext
+      > => {
+      return useMutation(getRecoverAiExecutionResumeCapabilityMutationOptions(options));
+    }
 
 export const getCancelAiExecutionByIdUrl = (executionId: string,) => {
 

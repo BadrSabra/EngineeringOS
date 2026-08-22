@@ -499,6 +499,68 @@ describe("AI provider key persistence", () => {
   });
 });
 
+describe("AI execution resume-capability recovery", () => {
+  it("rotates a paused execution token, invalidates the old token, and rejects terminal runs", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = randomUUID();
+    const now = new Date();
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Resume capability",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const created = await createAiExecution({
+      userId: "test-user",
+      request: {
+        projectId,
+        sessionId,
+        message: "resume",
+        modelMessage: "resume",
+        validationTargetPaths: [],
+      },
+      idempotencyKey: randomUUID(),
+      projectId,
+      sessionId,
+    });
+    await db.update(aiExecutionsTable)
+      .set({ status: "paused", updatedAt: new Date() })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+
+    const recovered = await request(app)
+      .post(`/api/ai/executions/${created.execution.id}/resume-capability`);
+    expect(recovered.status).toBe(200);
+    expect(recovered.body).toEqual({
+      executionId: created.execution.id,
+      resumeToken: expect.any(String),
+    });
+    expect(recovered.body.resumeToken).not.toBe(created.resumeToken);
+    expect((await claimAiExecution({
+      executionId: created.execution.id,
+      userId: "test-user",
+      workerId: randomUUID(),
+      resumeToken: created.resumeToken,
+    }))).toBeUndefined();
+    expect((await claimAiExecution({
+      executionId: created.execution.id,
+      userId: "test-user",
+      workerId: randomUUID(),
+      resumeToken: recovered.body.resumeToken,
+    }))?.status).toBe("running");
+
+    await db.update(aiExecutionsTable)
+      .set({ status: "completed", updatedAt: new Date() })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+    const terminal = await request(app)
+      .post(`/api/ai/executions/${created.execution.id}/resume-capability`);
+    expect(terminal.status).toBe(409);
+    expect(terminal.body).toMatchObject({ code: "EXECUTION_NOT_RESUMABLE", status: "completed" });
+    expect(JSON.stringify(terminal.body)).not.toContain("resumeTokenHash");
+  });
+});
+
 describe("Durable AI execution crash/reconnect", () => {
   it.runIf(runRealApiProcessRecovery)(
     "recovers a forensic stream after the API process exits",

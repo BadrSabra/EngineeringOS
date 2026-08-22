@@ -107,6 +107,7 @@ import {
   createAiExecution,
   failAiExecution,
   getAiExecutionForUser,
+  recoverAiExecutionResumeToken,
   parseAiExecutionCheckpoint,
   parseExecutionRequest,
   requestAiExecutionCancel,
@@ -3811,6 +3812,27 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     startedAt: execution.startedAt,
     completedAt: execution.completedAt,
     resumable: execution.status === "paused" || execution.status === "failed",
+  });
+});
+
+router.post("/ai/executions/:executionId/resume-capability", async (req, res) => {
+  const recovered = await recoverAiExecutionResumeToken({
+    executionId: req.params.executionId,
+    userId: req.userId,
+  });
+  if (recovered) {
+    return res.json({
+      executionId: recovered.execution.id,
+      resumeToken: recovered.resumeToken,
+    });
+  }
+
+  const current = await getAiExecutionForUser(req.params.executionId, req.userId);
+  if (!current) return res.status(404).json({ error: "AI execution not found" });
+  return res.status(409).json({
+    error: "This AI execution is no longer eligible for resume.",
+    code: "EXECUTION_NOT_RESUMABLE",
+    status: current.status,
   });
 });
 

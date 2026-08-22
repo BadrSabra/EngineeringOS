@@ -404,6 +404,63 @@ describe('AiChat authenticated generated mutations', () => {
     })));
   });
 
+  it('recovers a missing resume token before offering the saved execution', async () => {
+    mocks.activeExecutionStatus = { status: 'paused' };
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-missing-token',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      message: 'Continue after refresh',
+    }));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({
+        executionId: 'execution-missing-token',
+        resumeToken: 'recovered-opaque-resume-token',
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+
+    renderAiChat();
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledWith(
+        '/api/ai/executions/execution-missing-token/resume-capability',
+        expect.objectContaining({ method: 'POST', credentials: 'include' }),
+      );
+      expect(JSON.parse(localStorage.getItem('eos_ai_execution_project-1_session-1') ?? '{}').resumeToken)
+        .toBe('recovered-opaque-resume-token');
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Resume' }));
+    await waitFor(() => expect(mocks.sentParams).toEqual(expect.objectContaining({
+      executionId: 'execution-missing-token',
+      resumeToken: 'recovered-opaque-resume-token',
+      message: 'Continue after refresh',
+    })));
+    fetchSpy.mockRestore();
+  });
+
+  it('shows a retryable non-resumable state when capability recovery is denied', async () => {
+    mocks.activeExecutionStatus = { status: 'failed' };
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-stale-token',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      message: 'Retry the saved run',
+    }));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      JSON.stringify({ error: 'This AI execution is no longer eligible for resume.' }),
+      { status: 409, headers: { 'Content-Type': 'application/json' } },
+    ));
+
+    renderAiChat();
+
+    expect(await screen.findByText('This AI execution is no longer eligible for resume.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    fetchSpy.mockRestore();
+  });
+
   it('keeps a resumed analysis failure incomplete and refreshes its durable state', async () => {
     mocks.activeExecutionStatus = { status: 'failed' };
     localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');

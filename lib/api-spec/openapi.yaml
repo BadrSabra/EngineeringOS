@@ -1491,6 +1491,42 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /api/ai/executions/{executionId}/resume-capability:
+    post:
+      operationId: recoverAiExecutionResumeCapability
+      summary: Rotate and return a one-time opaque resume capability
+      description: Owner-scoped recovery for paused or failed executions. The stored token hash and provider diagnostics are never returned.
+      tags: [AI]
+      parameters:
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+            description: UUID of the AI execution
+      responses:
+        "200":
+          description: Newly rotated resume capability
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [executionId, resumeToken]
+                properties:
+                  executionId: { type: string }
+                  resumeToken: { type: string, minLength: 32 }
+        "404":
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Execution is not paused or failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
   /api/ai/executions/{executionId}/cancel:
     post:
       operationId: cancelAiExecutionById

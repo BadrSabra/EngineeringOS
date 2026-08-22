@@ -6465,6 +6465,9 @@ export default function AiChat() {
   const [agentModelHistory, setAgentModelHistory] = useState<Array<{ id: string; provider: string }>>([]);
   const [agentDiagnostics, setAgentDiagnostics] = useState<string[]>([]);
   const [activeExecution, setActiveExecution] = useState<ActiveExecution | null>(null);
+  const [resumeRecoveryError, setResumeRecoveryError] = useState<string | null>(null);
+  const [resumeRecoveryAttempt, setResumeRecoveryAttempt] = useState(0);
+  const resumeRecoveryPendingRef = useRef<string | null>(null);
   const [executionNodes, setExecutionNodes] = useState<AiExecutionNodeSnapshot[]>([]);
   const activeExecutionRef = useRef<ActiveExecution | null>(null);
   /** True once a live forensic_status SSE step reports isFixtureLocal — lets
@@ -6620,6 +6623,63 @@ export default function AiChat() {
     sessionId,
     executionPointerKey,
     executionStorageKey,
+  ]);
+
+  useEffect(() => {
+    const execution = activeExecution;
+    const status = activeExecutionStatus?.status;
+    if (
+      !execution?.id ||
+      execution.resumeToken ||
+      !status ||
+      !['paused', 'failed'].includes(status) ||
+      resumeRecoveryPendingRef.current === execution.id
+    ) return;
+
+    let cancelled = false;
+    resumeRecoveryPendingRef.current = execution.id;
+    setResumeRecoveryError(null);
+    void fetch(`/api/ai/executions/${encodeURIComponent(execution.id)}/resume-capability`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
+      .then(async (response) => {
+        const body = await response.json().catch(() => ({})) as {
+          executionId?: string;
+          resumeToken?: string;
+          error?: string;
+        };
+        if (!response.ok || body.executionId !== execution.id || !body.resumeToken) {
+          throw new Error(body.error || 'Resume is no longer available for this execution.');
+        }
+        if (cancelled) return;
+        const recovered = { ...execution, resumeToken: body.resumeToken };
+        activeExecutionRef.current = recovered;
+        setActiveExecution(recovered);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setResumeRecoveryError(
+            error instanceof Error
+              ? error.message
+              : 'Could not recover the resume capability. Try again.',
+          );
+        }
+      })
+      .finally(() => {
+        if (resumeRecoveryPendingRef.current === execution.id) {
+          resumeRecoveryPendingRef.current = null;
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeExecution?.id,
+    activeExecution?.resumeToken,
+    activeExecutionStatus?.status,
+    resumeRecoveryAttempt,
   ]);
 
   function clearLiveActivityEvents() {
@@ -7837,10 +7897,11 @@ export default function AiChat() {
     const execution = activeExecutionRef.current;
     if (!execution?.resumeToken) {
       toast({
-        title: 'Resume token unavailable',
-        description: 'Refresh the execution status before attempting a resume.',
+        title: resumeRecoveryError ? 'Resume unavailable' : 'Recovering resume capability',
+        description: resumeRecoveryError ?? 'The saved execution capability is being refreshed.',
         variant: 'destructive',
       });
+      if (resumeRecoveryError) setResumeRecoveryAttempt((attempt) => attempt + 1);
       return;
     }
     sendMessage(execution.message, {
@@ -8439,10 +8500,22 @@ export default function AiChat() {
               {(activeExecutionStatus?.status === 'paused' ||
                 activeExecutionStatus?.status === 'failed' ||
                 !activeExecutionStatus) && (
-                <Button size="sm" variant="outline" onClick={resumeActiveExecution} className="shrink-0">
+                <div className="flex shrink-0 items-center gap-2">
+                  {resumeRecoveryError && (
+                    <span className="max-w-40 text-right text-[10px] text-destructive">
+                      {resumeRecoveryError}
+                    </span>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={resumeActiveExecution}
+                    disabled={!activeExecution.resumeToken && !resumeRecoveryError}
+                  >
                   <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                  Resume
-                </Button>
+                    {resumeRecoveryError ? 'Retry' : activeExecution.resumeToken ? 'Resume' : 'Recovering…'}
+                  </Button>
+                </div>
               )}
             </div>
           )}

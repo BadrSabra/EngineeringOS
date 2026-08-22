@@ -2686,6 +2686,24 @@ export const GetAiExecutionResponse = zod.object({
 
 
 /**
+ * Owner-scoped recovery for paused or failed executions. The stored token hash and provider diagnostics are never returned.
+ * @summary Rotate and return a one-time opaque resume capability
+ */
+export const RecoverAiExecutionResumeCapabilityParams = zod.object({
+  "executionId": zod.coerce.string()
+})
+
+export const recoverAiExecutionResumeCapabilityResponseResumeTokenMin = 32;
+
+
+
+export const RecoverAiExecutionResumeCapabilityResponse = zod.object({
+  "executionId": zod.string(),
+  "resumeToken": zod.string().min(recoverAiExecutionResumeCapabilityResponseResumeTokenMin)
+})
+
+
+/**
  * @summary Request cancellation of a durable AI execution
  */
 export const CancelAiExecutionByIdParams = zod.object({

@@ -2426,6 +2426,12 @@ export type GetAiExecution200 = {
   completedAt?: string | null;
 };
 
+export type RecoverAiExecutionResumeCapability200 = {
+  executionId: string;
+  /** @minLength 32 */
+  resumeToken: string;
+};
+
 export type CancelAiExecutionById200Status = typeof CancelAiExecutionById200Status[keyof typeof CancelAiExecutionById200Status];
 
 

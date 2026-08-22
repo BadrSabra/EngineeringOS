@@ -354,6 +354,26 @@ export async function getAiExecutionForUser(
   return execution;
 }
 
+export async function recoverAiExecutionResumeToken(params: {
+  executionId: string;
+  userId: string;
+}): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
+  const resumeToken = createResumeToken();
+  const [execution] = await db
+    .update(aiExecutionsTable)
+    .set({
+      resumeTokenHash: hashResumeToken(resumeToken),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.userId, params.userId),
+      inArray(aiExecutionsTable.status, ["paused", "failed"]),
+    ))
+    .returning();
+  return execution ? { execution, resumeToken } : undefined;
+}
+
 export async function claimAiExecution(params: {
   executionId: string;
   userId: string;

@@ -230,6 +230,7 @@ export * from './projectStatus';
 export * from './projectSummary';
 export * from './projectSummaryTaskCounts';
 export * from './providerKeyStatus';
+export * from './recoverAiExecutionResumeCapability200';
 export * from './regenerateMissionCorrelationReport200';
 export * from './rollbackWorkflowPhaseInput';
 export * from './rule';
