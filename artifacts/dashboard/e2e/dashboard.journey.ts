@@ -659,6 +659,29 @@ function apiUrl(page: Page, path: string): string {
   return new URL(path, apiBaseUrl ? apiBaseUrl : page.url()).toString();
 }
 
+async function liveRequest(
+  page: Page,
+  path: string,
+  options?: { method?: string; body?: unknown },
+): Promise<{ status: number; body: string }> {
+  return page.evaluate(
+    async ({ url, method, body }) => {
+      const response = await fetch(url, {
+        method,
+        credentials: "include",
+        headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      return { status: response.status, body: await response.text() };
+    },
+    {
+      url: apiUrl(page, path),
+      method: options?.method ?? "GET",
+      body: options?.body,
+    },
+  );
+}
+
 function parseSse(body: string): Array<Record<string, unknown>> {
   return body
     .split(/\n\n+/)
@@ -680,24 +703,30 @@ function parseSse(body: string): Array<Record<string, unknown>> {
 }
 
 async function liveJson(page: Page, path: string): Promise<Record<string, any>> {
-  const response = await page.request.get(apiUrl(page, path));
-  if (!response.ok()) throw new Error(`Live correlation request failed: ${path} (${response.status()})`);
-  return (await response.json()) as Record<string, any>;
+  const response = await liveRequest(page, path);
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Live correlation request failed: ${path} (${response.status})`);
+  }
+  return JSON.parse(response.body) as Record<string, any>;
 }
 
 async function liveArray(page: Page, path: string): Promise<Array<Record<string, any>>> {
-  const response = await page.request.get(apiUrl(page, path));
-  if (response.status() === 404) return [];
-  if (!response.ok()) throw new Error(`Live correlation request failed: ${path} (${response.status()})`);
-  const value = await response.json();
+  const response = await liveRequest(page, path);
+  if (response.status === 404) return [];
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Live correlation request failed: ${path} (${response.status})`);
+  }
+  const value = JSON.parse(response.body);
   return Array.isArray(value) ? value : [];
 }
 
 async function liveOptionalRecord(page: Page, path: string): Promise<Record<string, any> | undefined> {
-  const response = await page.request.get(apiUrl(page, path));
-  if (response.status() === 404) return undefined;
-  if (!response.ok()) throw new Error(`Live correlation request failed: ${path} (${response.status()})`);
-  const value = await response.json();
+  const response = await liveRequest(page, path);
+  if (response.status === 404) return undefined;
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Live correlation request failed: ${path} (${response.status})`);
+  }
+  const value = JSON.parse(response.body);
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, any>
     : undefined;
@@ -716,19 +745,19 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     if (!projectId) throw new Error("DASHBOARD_E2E_LIVE_PROJECT_ID is required for the live-provider journey.");
 
     await programmaticSignIn(page);
-    const streamResponse = await page.request.post(apiUrl(page, "/api/ai/chat/stream"), {
-      data: {
+    const streamResponse = await liveRequest(page, "/api/ai/chat/stream", {
+      method: "POST",
+      body: {
         projectId,
         message: process.env.DASHBOARD_E2E_LIVE_PROMPT
           ?? "Run one bounded read-only mission and report the verified evidence.",
         idempotencyKey: `dashboard-live-${Date.now()}`,
       },
-      timeout: liveTimeoutMs(),
     });
-    if (!streamResponse.ok()) {
-      throw new Error(`Live-provider mission failed to start (${streamResponse.status()}).`);
+    if (streamResponse.status < 200 || streamResponse.status >= 300) {
+      throw new Error(`Live-provider mission failed to start (${streamResponse.status}).`);
     }
-    const sseEvents = parseSse(await streamResponse.text());
+    const sseEvents = parseSse(streamResponse.body);
     const started = sseEvents.find((event) => event.type === "execution_started");
     const executionId = typeof started?.executionId === "string" ? started.executionId : undefined;
     if (!executionId) throw new Error("Live-provider stream did not emit execution_started.");
