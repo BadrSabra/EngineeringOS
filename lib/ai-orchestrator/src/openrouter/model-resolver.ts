@@ -28,6 +28,13 @@ import type { TaskType } from "../quality/task-profile.js";
 
 export type { ModelCapability, OpenRouterFreeModel };
 
+export function isCatalogFreeModel(modelId: string): boolean {
+  const model = FREE_MODELS.find((candidate) => candidate.id === modelId.trim());
+  if (!model || !model.free) return false;
+  const liveIds = getDynamicModelIds();
+  return !isDynamicCatalogLoaded() || liveIds?.has(model.id) === true;
+}
+
 export type ResolvedModel = {
   id: string;
   label: string;
@@ -106,11 +113,10 @@ export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
       (!requireTools || m.supportsTools),
   );
 
-  const rawPool: OpenRouterFreeModel[] =
-    capable.length > 0
-      ? [...capable]
-      : // No exact capability match — degrade to tool-constraint-only filter.
-        FREE_MODELS.filter((m) => !requireTools || m.supportsTools).slice() as OpenRouterFreeModel[];
+  // Never silently select a model that does not advertise the requested
+  // capability. A missing capability is a configuration/catalog failure, not
+  // a reason to send the request to an arbitrary free model.
+  const rawPool: OpenRouterFreeModel[] = [...capable];
 
   // PR-002: remove models no longer available on OpenRouter (free tier only).
   const { live: pool } = partitionByLiveCatalog(rawPool);

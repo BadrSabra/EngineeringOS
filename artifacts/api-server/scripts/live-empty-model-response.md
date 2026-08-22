@@ -21,7 +21,8 @@ pnpm run validate:live-empty-model-response
 ```
 
 The provider key is selected by the provider (`OPENROUTER_API_KEY` for
-`openrouter`, `GEMINI_API_KEY` for `gemini`); credentials are never required by
+`openrouter`, `GEMINI_API_KEY` for `gemini`); OpenRouter models must be explicitly
+marked `:free`; credentials are never required by
 ordinary tests and neither command runs as part of `pnpm test`, normal API
 validation, deployment, or dashboard checks. The model must be configured by
 the operator to return no final text for the controlled prompt; a normal

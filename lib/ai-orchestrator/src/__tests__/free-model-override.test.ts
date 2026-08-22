@@ -17,8 +17,8 @@ describe("free OpenRouter model overrides", () => {
     expect(() => resolveFreeModelOverride("openai/gpt-4o")).toThrow(/currently-free/);
   });
 
-  it("keeps non-free models isolated to explicit controlled-live runs", () => {
+  it("rejects non-free models even when controlled-live validation is enabled", () => {
     process.env.RUN_CONTROLLED_RELEASE_VALIDATION = "1";
-    expect(resolveFreeModelOverride("openai/gpt-4o")).toBe("openai/gpt-4o");
+    expect(() => resolveFreeModelOverride("openai/gpt-4o")).toThrow(/currently-free/);
   });
 });

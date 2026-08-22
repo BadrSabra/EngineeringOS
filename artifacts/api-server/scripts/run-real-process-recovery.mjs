@@ -14,6 +14,13 @@ const liveProvider =
 const requiredEnvironment = ["DATABASE_URL", providerEnvironment[liveProvider]];
 const missingEnvironment = requiredEnvironment.filter((name) => !name || !process.env[name]);
 
+if (process.env.RUN_REAL_API_PROCESS_RECOVERY !== "1") {
+  console.error(
+    "SKIP: real process-recovery validation is opt-in. Set RUN_REAL_API_PROCESS_RECOVERY=1 to run it.",
+  );
+  process.exit(0);
+}
+
 if (!liveProvider || missingEnvironment.length > 0) {
   console.error(
     `Real process-recovery validation requires provider/database configuration: ${missingEnvironment.filter(Boolean).join(", ")}.`,
@@ -21,6 +28,15 @@ if (!liveProvider || missingEnvironment.length > 0) {
   console.error(
     "This check is intentionally opt-in; run it only in a controlled release-validation environment.",
   );
+  process.exit(2);
+}
+
+if (
+  liveProvider === "openrouter" &&
+  process.env.OPENROUTER_MODEL &&
+  !process.env.OPENROUTER_MODEL.trim().endsWith(":free")
+) {
+  console.error("OpenRouter recovery accepts only a model explicitly marked :free.");
   process.exit(2);
 }
 
@@ -35,6 +51,13 @@ function redact(value) {
   );
 }
 
+const childEnvironment = { ...process.env };
+// Do not let an unrelated parent override select a model for this check.
+delete childEnvironment.OPENROUTER_MODEL;
+if (liveProvider === "openrouter" && process.env.OPENROUTER_MODEL) {
+  childEnvironment.OPENROUTER_MODEL = process.env.OPENROUTER_MODEL.trim();
+}
+
 const child = spawn(
   "pnpm",
   [
@@ -47,18 +70,10 @@ const child = spawn(
   ],
   {
     env: {
-      ...process.env,
+      ...childEnvironment,
       NODE_ENV: "test",
       RUN_REAL_API_PROCESS_RECOVERY: "1",
       LIVE_RECOVERY_PROVIDER: liveProvider,
-      ...(liveProvider === "openrouter"
-        ? {
-            // This child is an explicit controlled-live check. It may use the
-            // operator-selected paid model, unlike provider-free validation.
-            RUN_CONTROLLED_RELEASE_VALIDATION: "1",
-            OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || "openai/gpt-4o",
-          }
-        : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
   },

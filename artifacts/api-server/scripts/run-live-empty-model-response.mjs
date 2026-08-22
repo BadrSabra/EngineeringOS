@@ -25,9 +25,9 @@ const missingEnvironment = requiredEnvironment.filter((name) => !process.env[nam
 
 if (process.env.RUN_LIVE_EMPTY_MODEL_RESPONSE !== "1") {
   console.error(
-    "Live empty-model-response validation is opt-in. Set RUN_LIVE_EMPTY_MODEL_RESPONSE=1.",
+    "SKIP: live empty-model-response validation is opt-in. Set RUN_LIVE_EMPTY_MODEL_RESPONSE=1 to run it.",
   );
-  process.exit(2);
+  process.exit(0);
 }
 
 if (missingEnvironment.length > 0) {
@@ -37,6 +37,11 @@ if (missingEnvironment.length > 0) {
   console.error(
     "Set EMPTY_MODEL_RESPONSE_TEST_PROVIDER and EMPTY_MODEL_RESPONSE_TEST_MODEL to a documented provider/model used for the controlled empty-response scenario.",
   );
+  process.exit(2);
+}
+
+if (provider === "openrouter" && !process.env.EMPTY_MODEL_RESPONSE_TEST_MODEL.endsWith(":free")) {
+  console.error("OpenRouter live checks accept only a model explicitly marked :free.");
   process.exit(2);
 }
 

@@ -115,6 +115,13 @@ export type { RetryDecision } from "./quality/retry-controller.js";
 
 export { GroqClientError } from "./errors.js";
 export type { AgentErrorCode, GroqErrorCode } from "./errors.js";
+export {
+  classifyOpenRouterFailure,
+} from "./openai-compatible-client.js";
+export type {
+  OpenRouterFailureAction,
+  OpenRouterFailureDisposition,
+} from "./openai-compatible-client.js";
 
 export { EXECUTION_LIMITS, runBoundedCommand } from "./execution-kernel.js";
 export type {

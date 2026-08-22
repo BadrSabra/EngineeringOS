@@ -17,8 +17,12 @@
  * PR-008: QUOTA code for billing exhaustion; MODEL_UNAVAILABLE for 410/422.
  */
 import type { RawMessage, ToolDefinition, ToolCall, RawGroqResponse } from "./groq-client.js";
-import { GroqClientError } from "./errors.js";
-import { buildFallbackChainFromId, resolveFallbackChain } from "./openrouter/model-resolver.js";
+import { GroqClientError, type GroqErrorCode } from "./errors.js";
+import {
+  buildFallbackChainFromId,
+  isCatalogFreeModel,
+  resolveFallbackChain,
+} from "./openrouter/model-resolver.js";
 import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
 import type { TaskType } from "./quality/task-profile.js";
 import type { ExecutionPhase } from "./quality/execution-phases.js";
@@ -279,6 +283,52 @@ function isTransientError(err: unknown): err is GroqClientError {
       err.code === "TIMEOUT" ||
       err.code === "NETWORK_ERROR")
   );
+}
+
+export type OpenRouterFailureAction =
+  | "retry"
+  | "choose-alternative"
+  | "wait"
+  | "narrow-request"
+  | "stop-safely";
+
+export type OpenRouterFailureDisposition = {
+  action: OpenRouterFailureAction;
+  terminal: boolean;
+  evidenceStatus: "complete" | "incomplete";
+};
+
+/**
+ * Stable, provider-free policy used by recovery callers and diagnostics.
+ * Authentication/quota failures never consume a paid fallback, while an
+ * empty or interrupted result can never be presented as a verified finding.
+ */
+export function classifyOpenRouterFailure(
+  code: GroqErrorCode,
+): OpenRouterFailureDisposition {
+  switch (code) {
+    case "RATE_LIMITED":
+      return { action: "wait", terminal: false, evidenceStatus: "incomplete" };
+    case "TIMEOUT":
+    case "NETWORK_ERROR":
+    case "SERVER_ERROR":
+      return { action: "retry", terminal: false, evidenceStatus: "incomplete" };
+    case "MODEL_NOT_FOUND":
+    case "MODEL_UNAVAILABLE":
+    case "PLAN_RESTRICTED":
+    case "EMPTY_RESPONSE":
+      return {
+        action: "choose-alternative",
+        terminal: false,
+        evidenceStatus: "incomplete",
+      };
+    case "NON_200":
+      return { action: "narrow-request", terminal: true, evidenceStatus: "incomplete" };
+    case "AUTH_ERROR":
+    case "QUOTA":
+    case "INVALID_CONFIG":
+      return { action: "stop-safely", terminal: true, evidenceStatus: "incomplete" };
+  }
 }
 
 /**
@@ -1100,6 +1150,13 @@ export async function openrouterCompleteWithFallback(
   opts: OpenRouterFallbackOptions,
 ): Promise<RawGroqResponse> {
   const initialModel = opts.model;
+  if (initialModel && !isCatalogFreeModel(initialModel)) {
+    throw new GroqClientError(
+      "INVALID_CONFIG",
+      "OpenRouter fallback requires a currently-free catalog model",
+      { context: { providerName: "OpenRouter", providerModel: initialModel } },
+    );
+  }
 
   // RC-04 / PR-01: when no model is specified, use the resolver to build a full
   // fallback chain from the live free-tier catalog at call time.

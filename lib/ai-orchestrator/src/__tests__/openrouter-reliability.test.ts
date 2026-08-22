@@ -33,6 +33,7 @@ import {
   _resetForTest as _resetDynamicCatalog,
 } from "../openrouter/dynamic-catalog.js";
 import { FREE_MODELS } from "../openrouter/model-catalog.js";
+import { classifyOpenRouterFailure } from "../openai-compatible-client.js";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -168,6 +169,57 @@ describe("dynamic catalog — runtime model refresh", () => {
     for (const entry of chain) {
       expect(staticIds.has(entry.id)).toBe(true);
     }
+  });
+
+  it("keeps only free live IDs and preserves the last catalog on an empty refresh", async () => {
+    vi.useFakeTimers({ now: Date.now() });
+    const liveFree = FREE_MODELS[0].id;
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({
+          data: [
+            { id: liveFree, pricing: { prompt: "0", completion: "0" } },
+            { id: "paid/provider-model", pricing: { prompt: "0.001", completion: "0.002" } },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ data: [] }),
+      }) as typeof fetch;
+
+    await refreshDynamicCatalog("test-key");
+    expect(getDynamicModelIds()).toEqual(new Set([liveFree]));
+    const filtered = resolveFallbackChain({ capability: "chat" });
+    expect(filtered.map((model) => model.id)).toEqual([liveFree]);
+
+    // Force a second fetch without allowing the empty response to erase
+    // usable evidence from the previous refresh.
+    vi.advanceTimersByTime(10 * 60 * 1_000 + 1);
+    await refreshDynamicCatalog("test-key");
+    expect(getDynamicModelIds()).toEqual(new Set([liveFree]));
+    expect(isDynamicCatalogLoaded()).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it("uses a loaded live catalog as a hard boundary for stale candidates", async () => {
+    const liveFree = FREE_MODELS[0].id;
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        data: [{ id: liveFree, pricing: { prompt: "0", completion: "0" } }],
+      }),
+    }) as typeof fetch;
+    await refreshDynamicCatalog();
+
+    const chain = resolveFallbackChain({ capability: "chat" });
+    expect(chain).toHaveLength(1);
+    expect(chain[0]?.id).toBe(liveFree);
+    expect(chain.every((model) => model.id.endsWith(":free"))).toBe(true);
   });
 });
 
@@ -360,6 +412,32 @@ describe("error classification", () => {
       e instanceof GroqClientError && e.code === "MODEL_UNAVAILABLE",
     );
   });
+
+  it("maps every terminal and recoverable failure to a safe disposition", () => {
+    expect(classifyOpenRouterFailure("MODEL_NOT_FOUND")).toMatchObject({
+      action: "choose-alternative",
+      terminal: false,
+      evidenceStatus: "incomplete",
+    });
+    expect(classifyOpenRouterFailure("MODEL_UNAVAILABLE").action).toBe("choose-alternative");
+    expect(classifyOpenRouterFailure("PLAN_RESTRICTED").action).toBe("choose-alternative");
+    expect(classifyOpenRouterFailure("EMPTY_RESPONSE")).toMatchObject({
+      action: "choose-alternative",
+      evidenceStatus: "incomplete",
+    });
+    expect(classifyOpenRouterFailure("RATE_LIMITED").action).toBe("wait");
+    expect(classifyOpenRouterFailure("TIMEOUT").action).toBe("retry");
+    expect(classifyOpenRouterFailure("NETWORK_ERROR").action).toBe("retry");
+    expect(classifyOpenRouterFailure("SERVER_ERROR").action).toBe("retry");
+    expect(classifyOpenRouterFailure("AUTH_ERROR")).toMatchObject({
+      action: "stop-safely",
+      terminal: true,
+    });
+    expect(classifyOpenRouterFailure("QUOTA")).toMatchObject({
+      action: "stop-safely",
+      terminal: true,
+    });
+  });
 });
 
 // ── Fallback chain — model removed scenario ───────────────────────────────────
@@ -463,7 +541,7 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
     expect(callCount).toBeGreaterThan(1);
   });
 
-  it("throws MODEL_NOT_FOUND after all fallbacks exhausted", async () => {
+  it("rejects an unknown or paid model before any provider request", async () => {
     const { openrouterCompleteWithFallback } = await import(
       "../openai-compatible-client.js"
     );
@@ -475,14 +553,70 @@ describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
     }) as typeof fetch;
 
     // Use a model not in FREE_MODELS → chain = [id] → one attempt → throws
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as typeof fetch;
     await expect(
       openrouterCompleteWithFallback(
         [{ role: "user", content: "hi" }],
         { apiKey: "sk-test", model: "some/unknown-paid-model" },
       ),
     ).rejects.toSatisfy((e: unknown) =>
-      e instanceof GroqClientError && e.code === "MODEL_NOT_FOUND",
+      e instanceof GroqClientError && e.code === "INVALID_CONFIG",
     );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not try a paid or alternate model after authentication failure", async () => {
+    const { openrouterCompleteWithFallback } = await import(
+      "../openai-compatible-client.js"
+    );
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: () => Promise.resolve(JSON.stringify({ error: { message: "invalid key" } })),
+    });
+    global.fetch = fetchMock as typeof fetch;
+
+    await expect(
+      openrouterCompleteWithFallback(
+        [{ role: "user", content: "hi" }],
+        { apiKey: "sk-test", model: FREE_MODELS[0].id },
+      ),
+    ).rejects.toSatisfy((e: unknown) =>
+      e instanceof GroqClientError && e.code === "AUTH_ERROR",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    for (const call of fetchMock.mock.calls) {
+      expect(JSON.parse(call[1].body as string).model).toMatch(/:free$/);
+    }
+  });
+
+  it("advances after an empty response without treating it as success", async () => {
+    const { openrouterCompleteWithFallback } = await import(
+      "../openai-compatible-client.js"
+    );
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ choices: [{ message: { content: "" } }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(okResponse()),
+      });
+    global.fetch = fetchMock as typeof fetch;
+
+    const result = await openrouterCompleteWithFallback(
+      [{ role: "user", content: "hi" }],
+      { apiKey: "sk-test", model: FREE_MODELS[0].id, maxFallbackModels: 2 },
+    );
+    expect(result.content).toBe("Hello!");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.every((call) =>
+      JSON.parse(call[1].body as string).model.endsWith(":free"),
+    )).toBe(true);
   });
 });
 
