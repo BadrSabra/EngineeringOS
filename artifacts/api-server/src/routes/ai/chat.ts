@@ -849,6 +849,8 @@ type PersistedToolTraceEntry = {
   status?: "STARTED" | "ACCEPTED" | "REJECTED" | "FAILED" | "active" | "done" | "info";
   diagnosticCodes?: string[];
   details?: string[];
+  /** Structured, safe context for phase-policy rejection diagnostics. */
+  phase?: "localization" | "evidence" | "patch_proposal" | "validation" | "repair_recovery" | "report";
   model?: string;
   provider?: string;
   attempt?: number;
@@ -1102,6 +1104,9 @@ function serializeToolTrace(
           kind: step.kind,
           code: step.code,
           ...(includeDiagnosticDetails && step.details ? { details: step.details } : {}),
+          ...(step.code === "EXECUTION_PHASE_TOOL_REJECTED" && step.phase
+            ? { phase: step.phase, tool: step.tool }
+            : {}),
         };
       case "model_call":
         return { kind: step.kind, model: step.model, provider: step.provider };
@@ -2829,6 +2834,9 @@ router.post("/ai/chat/stream", async (req, res) => {
           type: "execution_diagnostic",
           code: step.code,
           ...(visibleDiagnosticDetails ? { details: visibleDiagnosticDetails } : {}),
+          ...(step.code === "EXECUTION_PHASE_TOOL_REJECTED" && step.phase
+            ? { phase: step.phase, tool: step.tool }
+            : {}),
         });
       }
     }

@@ -400,7 +400,11 @@ describe("executeToolLoop", () => {
     expect(diagnostics).toContainEqual(expect.objectContaining({
       kind: "diagnostic",
       code: "EXECUTION_PHASE_TOOL_REJECTED",
+      phase: "evidence",
+      tool: "write_file",
+      details: ["write_file is not allowed in evidence"],
     }));
+    expect(JSON.stringify(diagnostics)).not.toContain("unsafe");
   });
 
   it("returns a cancelled result when AbortSignal interrupts the provider turn", async () => {

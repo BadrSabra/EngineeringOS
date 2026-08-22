@@ -2428,6 +2428,27 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.queryByRole('generic', { name: 'Repair attempt diff' })).toBeNull();
   });
 
+  it('distinguishes phase-policy rejections in rehydrated execution activity', async () => {
+    mocks.serverProposal = { proposalId: 'phase-policy-proof', changes: [] };
+    mocks.proposalMessages[0].content = 'The requested action was blocked by the active repair phase.';
+    mocks.proposalMessages[0].toolTrace = JSON.stringify([
+      {
+        kind: 'diagnostic',
+        code: 'EXECUTION_PHASE_TOOL_REJECTED',
+        phase: 'evidence',
+        tool: 'write_file',
+        details: ['write_file is not allowed in evidence'],
+      },
+    ]);
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    expect(await screen.findByText('Phase policy blocked action')).toBeInTheDocument();
+    expect(screen.getByText('write_file rejected during evidence phase')).toBeInTheDocument();
+    expect(screen.queryByText('Execution diagnostic')).not.toBeInTheDocument();
+  });
+
   it('renders the evidence claim linked to an execution read', async () => {
     mocks.serverProposal = { proposalId: 'flight-recorder-evidence-link', changes: [] };
     mocks.proposalMessages[0].toolTrace = JSON.stringify([

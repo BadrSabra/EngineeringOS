@@ -580,6 +580,8 @@ type ToolTraceEntry = {
   attempt?: number;
   diagnosticCodes?: string[];
   details?: string[];
+  /** Structured, safe context for phase-policy rejection diagnostics. */
+  phase?: 'localization' | 'evidence' | 'patch_proposal' | 'validation' | 'repair_recovery' | 'report';
   diagnosticDetails?: string[];
   model?: string;
   provider?: string;
@@ -4635,7 +4637,7 @@ type LiveAgentToolStep = {
 
 type LiveAgentActivityEvent = {
   id: number;
-  kind: 'stage' | 'plan' | 'tool' | 'model' | 'iteration' | 'synthesis' | 'validation' | 'repair_state' | 'diagnostic' | 'guard';
+  kind: 'stage' | 'plan' | 'tool' | 'model' | 'iteration' | 'synthesis' | 'validation' | 'repair_state' | 'diagnostic' | 'phase_rejection' | 'guard';
   label: string;
   tool?: string;
   detail?: string;
@@ -4821,11 +4823,15 @@ function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentActivity
     }
 
     if (entry.kind === 'diagnostic' && entry.code) {
+      const isPhaseRejection = entry.code === 'EXECUTION_PHASE_TOOL_REJECTED';
       events.push({
         id: nextId++,
-        kind: 'diagnostic',
-        label: 'Execution diagnostic',
-        detail: entry.code.replace(/_/g, ' ').toLowerCase(),
+        kind: isPhaseRejection ? 'phase_rejection' : 'diagnostic',
+        tool: entry.tool,
+        label: isPhaseRejection ? 'Phase policy blocked action' : 'Execution diagnostic',
+        detail: isPhaseRejection && entry.phase && entry.tool
+          ? `${entry.tool} rejected during ${entry.phase} phase`
+          : entry.code.replace(/_/g, ' ').toLowerCase(),
         status: 'info',
       });
       continue;
@@ -7593,9 +7599,13 @@ export default function AiChat() {
             `Execution diagnostic: ${diagnostic}${detail ? ` — ${detail}` : ''}`,
           );
           appendLiveActivityEvent({
-            kind: 'diagnostic',
-            label: 'Execution diagnostic',
-            detail: detail ? `${diagnostic} — ${detail}` : diagnostic,
+             kind: event.code === 'EXECUTION_PHASE_TOOL_REJECTED' ? 'phase_rejection' : 'diagnostic',
+             label: event.code === 'EXECUTION_PHASE_TOOL_REJECTED'
+               ? 'Phase policy blocked action'
+               : 'Execution diagnostic',
+             detail: event.code === 'EXECUTION_PHASE_TOOL_REJECTED' && event.phase && event.tool
+               ? `${event.tool} rejected during ${event.phase} phase`
+               : detail ? `${diagnostic} — ${detail}` : diagnostic,
             status: 'info',
           });
         },

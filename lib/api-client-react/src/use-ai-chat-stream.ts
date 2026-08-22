@@ -410,9 +410,13 @@ export type AiStreamExecutionDiagnosticEvent = {
     | 'EXECUTION_JSON_CORRECTION_FAILED'
     | 'EXECUTION_JSON_CORRECTION_RETRY_FAILED'
     | 'EXECUTION_PROVIDER_FAILURE'
-    | 'EXECUTION_NO_EDIT_TOOL';
+    | 'EXECUTION_NO_EDIT_TOOL'
+    | 'EXECUTION_PHASE_TOOL_REJECTED';
   /** Bounded contract metadata only; never source contents or model text. */
   details?: string[];
+  /** Present only for a server-owned phase-policy rejection. */
+  phase?: 'localization' | 'evidence' | 'patch_proposal' | 'validation' | 'repair_recovery' | 'report';
+  tool?: string;
 };
 
 export type AiStreamExecutionSummary = {

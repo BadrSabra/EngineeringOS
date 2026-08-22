@@ -1427,6 +1427,9 @@ export type AgentStep =
       code: AgentDiagnosticCode;
       /** Bounded contract metadata; never contains model/source content. */
       details?: string[];
+      /** Server-owned context for phase-policy rejections only. */
+      phase?: ExecutionPhase;
+      tool?: string;
     }
   | { kind: "execution_guard"; code: "REPEATED_TOOL_CALL"; tool: string; message: string }
   | {
@@ -3064,6 +3067,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
       }
 
       if (phase && !isToolAllowedInPhase(phase, tc.function.name)) {
+        const rejectedTool = tc.function.name.slice(0, 120);
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -3075,7 +3079,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           onStep?.({
             kind: "diagnostic",
             code: "EXECUTION_PHASE_TOOL_REJECTED",
-            details: [`${tc.function.name} is not allowed in ${phase}`],
+            details: [`${rejectedTool} is not allowed in ${phase}`],
+            phase,
+            tool: rejectedTool,
           });
         } catch { /* observers must not change execution semantics */ }
         continue;
