@@ -29,6 +29,7 @@ import { buildPatchHunks, hashPatchBase } from "@workspace/ai-orchestrator";
 import * as repairValidation from "../lib/ai-repair-validation.js";
 import {
   canCreateProposal,
+  projectMissionCorrelationReportForExport,
   serializeMissionCorrelationReport,
 } from "./ai/chat.js";
 import { scheduleAiTaskExecution } from "./ai/tasks.js";
@@ -153,6 +154,90 @@ describe("mission correlation report persistence contract", () => {
     });
     expect(JSON.parse(serialized!)).toMatchObject({
       generatedAt: "2026-08-22T12:34:56.000Z",
+    });
+  });
+
+  it("projects report exports with regeneration timing but no internal identifiers", () => {
+    const exported = projectMissionCorrelationReportForExport({
+      kind: "mission-correlation-report",
+      version: 1,
+      redacted: true,
+      operationId: "123e4567-e89b-12d3-a456-426614174000",
+      projectId: "223e4567-e89b-12d3-a456-426614174001",
+      sessionId: "323e4567-e89b-12d3-a456-426614174002",
+      workspaceRevision: "revision",
+      generatedAt: new Date("2026-08-22T12:34:56.000Z"),
+      terminalState: "COMPLETED",
+      outcomeClass: "success",
+      counts: {
+        messages: 1,
+        sseEvents: 0,
+        executionCheckpoints: 0,
+        evidence: 0,
+        proposals: 0,
+        validation: 0,
+        correlatedEvents: 0,
+      },
+      agreement: {
+        execution: false,
+        messages: true,
+        sse: true,
+        checkpoints: true,
+        dashboard: true,
+        evidence: true,
+        proposals: true,
+        validation: true,
+      },
+    });
+
+    expect(exported).toMatchObject({
+      generatedAt: "2026-08-22T12:34:56.000Z",
+      operationId: "[internal id]",
+      projectId: "[internal id]",
+      sessionId: "[internal id]",
+    });
+    expect(JSON.stringify(exported)).not.toContain("123e4567-e89b-12d3-a456-426614174000");
+    expect(JSON.stringify(exported)).not.toContain("223e4567-e89b-12d3-a456-426614174001");
+    expect(JSON.stringify(exported)).not.toContain("323e4567-e89b-12d3-a456-426614174002");
+  });
+
+  it("leaves reports without regeneration provenance unchanged", () => {
+    const report = {
+      kind: "mission-correlation-report",
+      version: 1,
+      redacted: true,
+      operationId: "123e4567-e89b-12d3-a456-426614174000",
+      projectId: "223e4567-e89b-12d3-a456-426614174001",
+      sessionId: "323e4567-e89b-12d3-a456-426614174002",
+      workspaceRevision: "revision",
+      terminalState: "COMPLETED",
+      outcomeClass: "success",
+      counts: {
+        messages: 1,
+        sseEvents: 0,
+        executionCheckpoints: 0,
+        evidence: 0,
+        proposals: 0,
+        validation: 0,
+        correlatedEvents: 0,
+      },
+      agreement: {
+        execution: false,
+        messages: true,
+        sse: true,
+        checkpoints: true,
+        dashboard: true,
+        evidence: true,
+        proposals: true,
+        validation: true,
+      },
+    };
+
+    expect(projectMissionCorrelationReportForExport(report)).toEqual({
+      ...report,
+      operationId: "[internal id]",
+      projectId: "[internal id]",
+      sessionId: "[internal id]",
     });
   });
 });

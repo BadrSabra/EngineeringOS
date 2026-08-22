@@ -268,7 +268,7 @@ function parseMissionCorrelationReportForHistory(value: string | null | undefine
   if (parsed === undefined) return { unavailable: true };
   const result = StoredMissionCorrelationReportSchema.safeParse(parsed);
   return result.success
-    ? { report: redactUserFacingValue(result.data), unavailable: false }
+    ? { report: projectMissionCorrelationReportForExport(result.data), unavailable: false }
     : { unavailable: true };
 }
 
@@ -424,11 +424,23 @@ export function serializeMissionCorrelationReport(value: unknown): string | null
   if (!parsed.success || parsed.data === null || parsed.data === undefined) {
     throw new MissionCorrelationReportValidationError();
   }
-  const report = parsed.data as Record<string, unknown>;
+  return JSON.stringify(projectMissionCorrelationReportForExport(parsed.data));
+}
+
+/**
+ * Build the public report projection used by JSON responses and historical
+ * audit exports. Keep the optional generatedAt field after schema parsing
+ * (Zod coerces it to Date in typed consumers), while applying the normal
+ * redaction boundary to identifiers and any provider-derived values.
+ */
+export function projectMissionCorrelationReportForExport(
+  value: unknown,
+): Record<string, unknown> {
+  const report = value as Record<string, unknown>;
   const normalized = report.generatedAt instanceof Date
     ? { ...report, generatedAt: report.generatedAt.toISOString() }
     : report;
-  return JSON.stringify(redactUserFacingValue(normalized));
+  return redactUserFacingValue(normalized) as Record<string, unknown>;
 }
 
 // A turn is persisted only after its provider call completes, but history must
@@ -3998,7 +4010,7 @@ router.post("/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/
   if (!updated) return res.status(404).json({ error: "Chat message not found", code: "MESSAGE_NOT_FOUND" });
   return res.json({
     messageId: updated.id,
-    missionCorrelationReport: redactUserFacingValue(parseStoredJson(serialized)),
+    missionCorrelationReport: projectMissionCorrelationReportForExport(parseStoredJson(serialized)),
   });
 });
 
