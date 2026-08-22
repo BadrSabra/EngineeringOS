@@ -418,6 +418,22 @@ const SENSITIVE_VALIDATION_STEP: Extract<AgentStep, { kind: "validation" }> = {
   },
 };
 
+const PASSED_VALIDATION_STEP: Extract<AgentStep, { kind: "validation" }> = {
+  ...SENSITIVE_VALIDATION_STEP,
+  repairState: "READY_FOR_REVIEW",
+  result: {
+    ...SENSITIVE_VALIDATION_STEP.result,
+    status: "passed",
+    exitCode: 0,
+    command: "pnpm run private-passed-command",
+    stdout: "PRIVATE_PASSED_OUTPUT=do-not-save",
+    stderr: "passed private stderr",
+    failedTests: [],
+    changedFiles: ["src/private-passed.ts"],
+    detail: "Validation passed for secret@example.com token: abc123",
+  },
+};
+
 /**
  * Accepted behavior-evidence with exact line spans. Mirrors what the
  * orchestrator returns so the SSE route must forward it verbatim as a parsed
@@ -1217,6 +1233,56 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
 });
 
 describe("POST /api/ai/chat/stream — validation privacy boundary", () => {
+  it.each([
+    { label: "failed", step: SENSITIVE_VALIDATION_STEP },
+    { label: "passed", step: PASSED_VALIDATION_STEP },
+  ])("emits the public nested validation schema for $label events", async ({ step }) => {
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+        (onStep as ((s: AgentStep) => void) | undefined)?.(step);
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "hello" });
+
+    expect(res.status).toBe(200);
+    const frames = parseSseFrames(res.text);
+    const validationFrame = frames.find(
+      (frame): frame is Record<string, unknown> =>
+        typeof frame === "object"
+        && frame !== null
+        && (frame as Record<string, unknown>).type === "validation",
+    );
+    expect(validationFrame).toBeDefined();
+
+    // This is the public wire contract. Keep raw command results and source
+    // details out of the nested payload even while compatibility fields remain
+    // on the outer event for older clients.
+    expect(validationFrame!.validation).toEqual({
+      profile: step.result.profile,
+      status: step.result.status,
+      scenario: step.result.scenario,
+      exitCode: step.result.exitCode,
+      evidence: step.result.evidence,
+      detail: step.result.detail
+        ?.replace(/\s+/g, " ")
+        .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted email]")
+        .replace(/\b(?:bearer|token|secret|password|api[_ -]?key)\s*[:=]\s*\S+/gi, "[redacted credential]"),
+    });
+    expect(validationFrame!.validation).not.toHaveProperty("command");
+    expect(validationFrame!.validation).not.toHaveProperty("stdout");
+    expect(validationFrame!.validation).not.toHaveProperty("stderr");
+    expect(validationFrame!.validation).not.toHaveProperty("failedTests");
+    expect(validationFrame!.validation).not.toHaveProperty("changedFiles");
+    expect(res.text).not.toContain(step.result.command);
+    expect(res.text).not.toContain(step.result.stdout);
+    expect(res.text).not.toContain(step.result.stderr);
+    expect(res.text).not.toContain(step.result.changedFiles[0]);
+  });
+
   it("removes command output and test/source details from SSE and persisted trace", async () => {
     vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
       async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
