@@ -662,15 +662,16 @@ function apiUrl(page: Page, path: string): string {
 async function liveRequest(
   page: Page,
   path: string,
-  options?: { method?: string; body?: unknown },
+  options?: { method?: string; body?: unknown; timeout?: number },
 ): Promise<{ status: number; body: string }> {
   return page.evaluate(
-    async ({ url, method, body }) => {
+    async ({ url, method, body, timeout }) => {
       const response = await fetch(url, {
         method,
         credentials: "include",
         headers: body === undefined ? undefined : { "Content-Type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal: timeout ? AbortSignal.timeout(timeout) : undefined,
       });
       return { status: response.status, body: await response.text() };
     },
@@ -678,6 +679,7 @@ async function liveRequest(
       url: apiUrl(page, path),
       method: options?.method ?? "GET",
       body: options?.body,
+      timeout: options?.timeout,
     },
   );
 }
@@ -747,6 +749,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await programmaticSignIn(page);
     const streamResponse = await liveRequest(page, "/api/ai/chat/stream", {
       method: "POST",
+      timeout: liveTimeoutMs(),
       body: {
         projectId,
         message: process.env.DASHBOARD_E2E_LIVE_PROMPT
