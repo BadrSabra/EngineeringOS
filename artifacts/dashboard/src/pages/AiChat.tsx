@@ -2210,6 +2210,9 @@ function ExecutionSummaryBanner({
 
   return (
     <div className="mt-1 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-[11px] text-muted-foreground">
+      {summary.stopReason !== 'response' && (
+        <span className="mr-1 font-semibold text-amber-200">INCOMPLETE:</span>
+      )}
       <span className="text-amber-300">Execution diagnostic:</span>{' '}
       {summary.diagnosticCodes.some((code) => code === 'EXECUTION_PROVIDER_FAILURE') ? (
         <span className="text-red-300">provider failure — </span>

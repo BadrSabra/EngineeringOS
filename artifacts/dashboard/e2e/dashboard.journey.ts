@@ -97,6 +97,7 @@ async function installApiFixtures(
   overrides?: {
     arabicAi?: ArabicAiFixture;
     alternateAi?: ArabicAiFixture;
+    disconnectAi?: ArabicAiFixture;
     resumeFailure?: {
       fixture: ArabicAiFixture;
       execution: Record<string, unknown>;
@@ -109,7 +110,8 @@ async function installApiFixtures(
     const path = url.pathname;
     const arabicAi = overrides?.arabicAi;
     const alternateAi = overrides?.alternateAi;
-    const aiFixtures = [arabicAi, alternateAi].filter(
+    const disconnectAi = overrides?.disconnectAi;
+    const aiFixtures = [arabicAi, alternateAi, disconnectAi].filter(
       (fixture): fixture is ArabicAiFixture => Boolean(fixture),
     );
 
@@ -144,12 +146,13 @@ async function installApiFixtures(
         });
       }
     }
-    if (arabicAi && path.endsWith("/api/ai/chat/stream"))
+    const streamFixture = disconnectAi ?? arabicAi;
+    if (streamFixture && path.endsWith("/api/ai/chat/stream"))
       return route.fulfill({
         status: 200,
         contentType: "text/event-stream",
         headers: { "Cache-Control": "no-cache" },
-        body: arabicAi.streamBody,
+        body: streamFixture.streamBody,
       });
     const messageFixture = aiFixtures.find((fixture) =>
       path.endsWith(`/api/ai/chat/${fixture.sessionId}/messages`),
@@ -422,6 +425,70 @@ function installToolFailureFixture(): ArabicAiFixture {
     answer,
     source,
     sessionId,
+    streamBody,
+    message,
+  };
+}
+
+function installDisconnectedAiFixture(): ArabicAiFixture {
+  const sessionId = "e2e-disconnected-ai-session";
+  const executionId = "e2e-disconnected-ai-execution";
+  const question = "What happens when the model disconnects after starting an answer?";
+  const answer = "The model started an answer, but the provider disconnected before completion.";
+  const diagnosticCode = "EXECUTION_PROVIDER_FAILURE";
+  const toolTrace = [
+    {
+      kind: "done",
+      stopReason: "provider_timeout",
+      iterations: 1,
+      maxIterations: 8,
+      toolCalls: 0,
+      prefetchToolCalls: 0,
+      loopToolCalls: 0,
+      synthesisStarted: false,
+      diagnosticCodes: [diagnosticCode],
+      diagnosticDetails: ["The provider disconnected after visible response text."],
+    },
+  ];
+  const message = {
+    id: "e2e-disconnected-ai-message",
+    sessionId,
+    role: "assistant",
+    content: answer,
+    toolTrace: JSON.stringify(toolTrace),
+    outcome: "SUCCEEDED",
+    executionId,
+    createdAt: "2026-01-01T00:02:00.000Z",
+  };
+  const sse = (event: Record<string, unknown>) => `data: ${JSON.stringify(event)}\n\n`;
+  const streamBody = [
+    sse({ type: "session_started", sessionId }),
+    sse({
+      type: "execution_started",
+      executionId,
+      status: "running",
+      resumable: true,
+    }),
+    sse({ type: "stage", stage: "calling-model" }),
+    sse({ type: "delta", delta: answer }),
+    // The real route emits this after a provider disconnect so the client
+    // drops the transient bubble before rendering the persisted result.
+    sse({ type: "stream_reset" }),
+    sse({
+      type: "done",
+      sessionId,
+      executionId,
+      message,
+      pendingChanges: [],
+    }),
+  ].join("");
+
+  return {
+    question,
+    answer,
+    source: "provider",
+    sessionId,
+    executionId,
     streamBody,
     message,
   };
@@ -1128,6 +1195,33 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     const reloadedText = await page.locator("body").innerText();
     expect(reloadedText).not.toMatch(/raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i);
+  });
+
+  test("preserves one partial answer after a provider disconnect and marks it incomplete", async ({
+    page,
+  }) => {
+    const fixture = installDisconnectedAiFixture();
+    await installApiFixtures(page, { disconnectAi: fixture });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(fixture.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+
+    const answer = page.getByText(fixture.answer, { exact: true });
+    await expect(answer).toHaveCount(1);
+    await expect(answer).toBeVisible();
+    await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
+    await expect(
+      page.getByText("provider failure", { exact: false }).last(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("stopped: provider timeout", { exact: false }).last(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("The provider disconnected after visible response text.", { exact: true }),
+    ).toBeVisible();
   });
 
   test("resumes a failed analysis and keeps the execution incomplete", async ({ page }) => {
