@@ -1,5 +1,6 @@
-import { GroqClientError, type GroqErrorCode } from "../errors.js";
+import { GroqClientError, redactProviderErrorText, type GroqErrorCode } from "../errors.js";
 import { getStrategy, type ProviderId } from "../provider-registry.js";
+import type { OpenRouterFailureAction } from "../openai-compatible-client.js";
 import type {
   ProviderStrategy,
   RawGroqResponse,
@@ -34,6 +35,31 @@ export type ProviderHealthFailureCode =
   | "MALFORMED_TOOL_ARGUMENTS"
   | "UNEXPECTED_TOOL_CALL";
 
+export type ProviderHealthFailureCategory =
+  | "authentication"
+  | "quota"
+  | "rate-limit"
+  | "catalog"
+  | "empty-response"
+  | "network"
+  | "server"
+  | "request"
+  | "capability"
+  | "unknown";
+
+export type ProviderHealthReport = {
+  kind: "provider-health-report";
+  version: 1;
+  provider: ProviderId;
+  model: string | null;
+  status: ProviderHealthStatus;
+  evidenceStatus: "complete" | "incomplete";
+  failureCategory: ProviderHealthFailureCategory | null;
+  recoveryAction: OpenRouterFailureAction | null;
+  attemptCount: number;
+  attemptedModels: string[];
+};
+
 export type ProviderHealthProbeResult = {
   provider: ProviderId;
   model: string | null;
@@ -44,6 +70,8 @@ export type ProviderHealthProbeResult = {
   latencyMs: number;
   failureCode?: ProviderHealthFailureCode;
   failureReason?: string;
+  /** Bounded operator-facing summary; it intentionally excludes provider text. */
+  report?: ProviderHealthReport;
 };
 
 export type ProviderHealthProbeOptions = {
@@ -61,6 +89,10 @@ function unavailableResult(
   startedAt: number,
   fields: Pick<ProviderHealthProbeResult, "model" | "failureCode" | "failureReason">,
 ): ProviderHealthProbeResult {
+  const model = fields.model ?? options.model ?? null;
+  const attemptedModels = model ? [redactProviderErrorText(model).slice(0, 200)] : [];
+  const failureCategory = failureCategoryFor(fields.failureCode);
+  const recoveryAction = recoveryActionFor(fields.failureCode);
   return {
     provider: options.provider,
     status: "unavailable",
@@ -69,8 +101,66 @@ function unavailableResult(
     structuredArguments: false,
     latencyMs: Math.max(0, Date.now() - startedAt),
     ...fields,
-    model: fields.model ?? options.model ?? null,
+    model,
+    report: {
+      kind: "provider-health-report",
+      version: 1,
+      provider: options.provider,
+      model: model ? redactProviderErrorText(model).slice(0, 200) : null,
+      status: "unavailable",
+      evidenceStatus: "incomplete",
+      failureCategory,
+      recoveryAction,
+      attemptCount: 1,
+      attemptedModels,
+    },
   };
+}
+
+function failureCategoryFor(code?: ProviderHealthFailureCode): ProviderHealthFailureCategory {
+  switch (code) {
+    case "AUTH_ERROR":
+      return "authentication";
+    case "QUOTA":
+      return "quota";
+    case "RATE_LIMITED":
+      return "rate-limit";
+    case "MODEL_NOT_FOUND":
+    case "MODEL_UNAVAILABLE":
+    case "PLAN_RESTRICTED":
+      return "catalog";
+    case "EMPTY_RESPONSE":
+      return "empty-response";
+    case "NETWORK_ERROR":
+    case "TIMEOUT":
+      return "network";
+    case "SERVER_ERROR":
+      return "server";
+    case "NON_200":
+    case "INVALID_CONFIG":
+      return "request";
+    case "TOOL_CALL_UNSUPPORTED":
+    case "MALFORMED_TOOL_ARGUMENTS":
+    case "UNEXPECTED_TOOL_CALL":
+      return "capability";
+    default:
+      return "unknown";
+  }
+}
+
+function recoveryActionFor(code?: ProviderHealthFailureCode): OpenRouterFailureAction {
+  if (
+    code === "AUTH_ERROR" ||
+    code === "QUOTA" ||
+    code === "INVALID_CONFIG"
+  ) return "stop-safely";
+  if (code === "RATE_LIMITED") return "wait";
+  if (code === "NETWORK_ERROR" || code === "TIMEOUT" || code === "SERVER_ERROR") return "retry";
+  if (code === "MODEL_NOT_FOUND" || code === "MODEL_UNAVAILABLE" || code === "PLAN_RESTRICTED" || code === "EMPTY_RESPONSE") {
+    return "choose-alternative";
+  }
+  if (code === "NON_200") return "narrow-request";
+  return "stop-safely";
 }
 
 function parseProbeArguments(
@@ -124,6 +214,20 @@ function parseProbeArguments(
     toolCalling: true,
     structuredArguments: true,
     latencyMs: Math.max(0, Date.now() - startedAt),
+    report: {
+      kind: "provider-health-report",
+      version: 1,
+      provider: options.provider,
+      model: response.model ?? options.model
+        ? redactProviderErrorText(response.model ?? options.model!).slice(0, 200)
+        : null,
+      status: "usable",
+      evidenceStatus: "complete",
+      failureCategory: null,
+      recoveryAction: null,
+      attemptCount: 1,
+      attemptedModels: response.model ?? options.model ? [redactProviderErrorText(response.model ?? options.model!).slice(0, 200)] : [],
+    },
   };
 }
 
@@ -165,13 +269,26 @@ export async function probeProviderHealth(
     return parseProbeArguments(await strategy.call(messages, callOptions), options, startedAt);
   } catch (error) {
     const isProviderError = error instanceof GroqClientError;
-    return unavailableResult(options, startedAt, {
-      model: options.model ?? null,
+    const attemptedModels = isProviderError
+      ? error.providerAttemptedModels
+      : undefined;
+    const result = unavailableResult(options, startedAt, {
+      model: isProviderError ? error.providerModel ?? options.model ?? null : options.model ?? null,
       failureCode: isProviderError ? error.code : "NETWORK_ERROR",
       failureReason: isProviderError
         ? `Provider probe failed with ${error.code}.`
         : "Provider probe failed before a capability response.",
     });
+    if (attemptedModels?.length) {
+      const safeModels = attemptedModels
+        .slice(0, 8)
+        .map((model) => redactProviderErrorText(model).slice(0, 200));
+      if (result.report) {
+        result.report.attemptedModels = safeModels;
+        result.report.attemptCount = safeModels.length;
+      }
+    }
+    return result;
   }
 }
 

@@ -8,6 +8,7 @@ import {
 import {
   createChatCodeAgentBenchmarkExecutor,
 } from "./live-code-agent-benchmark.js";
+import { GroqClientError } from "../errors.js";
 
 function response(toolCalls: RawGroqResponse["toolCalls"]): RawGroqResponse {
   return {
@@ -49,6 +50,15 @@ describe("providerHealthProbe", () => {
       structuredArguments: true,
       model: "test-model",
     });
+    expect(result.report).toMatchObject({
+      kind: "provider-health-report",
+      status: "usable",
+      evidenceStatus: "complete",
+      failureCategory: null,
+      recoveryAction: null,
+      attemptCount: 1,
+      attemptedModels: ["test-model"],
+    });
   });
 
   it("classifies malformed tool arguments as provider unavailable", async () => {
@@ -64,6 +74,12 @@ describe("providerHealthProbe", () => {
     expect(result.status).toBe("unavailable");
     expect(result.providerUnavailable).toBe(true);
     expect(result.failureCode).toBe("MALFORMED_TOOL_ARGUMENTS");
+    expect(result.report).toMatchObject({
+      evidenceStatus: "incomplete",
+      failureCategory: "capability",
+      recoveryAction: "stop-safely",
+      attemptCount: 1,
+    });
   });
 
   it("classifies transport errors as U without leaking raw provider content", async () => {
@@ -83,6 +99,48 @@ describe("providerHealthProbe", () => {
     expect(result.failureCode).toBe("NETWORK_ERROR");
     expect(result.failureReason).toBe("Provider probe failed before a capability response.");
     expect(result.failureReason).not.toContain("private response body");
+    expect(result.report).toMatchObject({
+      provider: "openrouter",
+      model: null,
+      evidenceStatus: "incomplete",
+      failureCategory: "network",
+      recoveryAction: "retry",
+      attemptCount: 1,
+      attemptedModels: [],
+    });
+  });
+
+  it("summarizes quota recovery without exposing provider messages or credentials", async () => {
+    const secret = "sk-or-v1-health-secret";
+    const strategy: ProviderStrategy = {
+      ...strategyReturning(response(null)),
+      async call() {
+        throw new GroqClientError("QUOTA", `quota body ${secret}`, {
+          context: {
+            providerName: "OpenRouter",
+            providerModel: "model-without-secret",
+            providerMessage: `raw provider message ${secret}`,
+            providerAttemptedModels: [
+              "first-model:free",
+              `second-model?token=${secret}`,
+              ...Array.from({ length: 10 }, (_, index) => `extra-${index}:free`),
+            ],
+          },
+        });
+      },
+    };
+
+    const result = await probeProviderHealth({ provider: "openrouter", strategy });
+
+    expect(result.report).toMatchObject({
+      failureCategory: "quota",
+      recoveryAction: "stop-safely",
+      evidenceStatus: "incomplete",
+      attemptCount: 8,
+    });
+    expect(result.report?.attemptedModels).toHaveLength(8);
+    expect(JSON.stringify(result.report)).not.toContain(secret);
+    expect(JSON.stringify(result.report)).not.toContain("raw provider message");
   });
 });
 

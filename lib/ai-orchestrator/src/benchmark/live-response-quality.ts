@@ -1,4 +1,5 @@
 import { validateResponseLanguage, type ForensicTaskType } from "../task-contracts.js";
+import type { ProviderHealthReport } from "./provider-health-probe.js";
 
 /**
  * Versioned quality benchmark for the user-facing chat path. The executor is
@@ -159,6 +160,7 @@ export type LiveResponseQualitySnapshot = {
   scopeAdhered: boolean;
   terminalState: "SUCCEEDED" | "BLOCKED" | "FAILED" | "UNAVAILABLE";
   providerUnavailable?: boolean;
+  providerHealthReport?: ProviderHealthReport;
   fixtureRevision: string;
 };
 
@@ -176,6 +178,7 @@ export type LiveResponseQualityScore = {
   fixtureRevision: string;
   failureCodes: string[];
   latencyMs?: number;
+  providerHealthReport?: ProviderHealthReport;
 };
 
 export type LiveResponseQualityMetrics = {
@@ -268,6 +271,7 @@ export function scoreLiveResponseQualityCase(
       intentCorrect, languageCorrect, complete, evidenceGrounded, citationsValid,
       scopeAdhered: snapshot.scopeAdhered, falseSuccess: false,
       userVisibleVerdictCorrect, fixtureRevision: snapshot.fixtureRevision, failureCodes: ["PROVIDER_UNAVAILABLE"],
+      providerHealthReport: snapshot.providerHealthReport,
     };
   }
   const grade = expectedBlocked && snapshot.terminalState === "BLOCKED" && failures.length === 0
@@ -279,6 +283,7 @@ export function scoreLiveResponseQualityCase(
     intentCorrect, languageCorrect, complete, evidenceGrounded, citationsValid,
     scopeAdhered: snapshot.scopeAdhered, falseSuccess, userVisibleVerdictCorrect,
     fixtureRevision: snapshot.fixtureRevision, failureCodes: failures,
+    providerHealthReport: snapshot.providerHealthReport,
   };
 }
 

@@ -27,6 +27,8 @@ export {
   PROBE_TOOL_NAME,
   type ProviderHealthProbeOptions,
   type ProviderHealthProbeResult,
+  type ProviderHealthReport,
+  type ProviderHealthFailureCategory,
   type ProviderHealthStatus,
   type ProviderHealthFailureCode,
 } from "./benchmark/provider-health-probe.js";
