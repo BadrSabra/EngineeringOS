@@ -22,6 +22,9 @@ const EnvSchema = z.object({
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
+  // Comma-separated browser origins that are allowed to call the API with
+  // Clerk credentials. The API host itself is always allowed as well.
+  APP_ORIGINS: z.string().default(""),
 });
 
 function loadConfig() {
@@ -36,6 +39,10 @@ function loadConfig() {
     nodeEnv: parsed.data.NODE_ENV,
     isProduction: parsed.data.NODE_ENV === "production",
     logLevel: parsed.data.LOG_LEVEL,
+    applicationOrigins: parsed.data.APP_ORIGINS
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean),
   } as const;
 }
 

@@ -18,6 +18,64 @@ import { requireAuth } from "./middlewares/requireAuth.js";
 
 const app: Express = express();
 
+function isAllowedApplicationOrigin(origin: string, req: Request): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    return false;
+  }
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
+    return false;
+  }
+
+  const normalizedOrigin = parsed.origin;
+  const requestOrigin = `${req.protocol}://${req.get("host")}`;
+  if (normalizedOrigin === requestOrigin) return true;
+  if (config.applicationOrigins.includes(normalizedOrigin)) return true;
+
+  // The development dashboard may run on a local port or a Replit preview
+  // domain. These are intentionally not accepted in production.
+  if (!config.isProduction) {
+    const hostname = parsed.hostname.toLowerCase();
+    if (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1" ||
+      hostname.endsWith(".replit.dev") ||
+      hostname.endsWith(".repl.co")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function rejectCrossOriginMutations(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+    next();
+    return;
+  }
+
+  const origin = req.get("origin");
+  const fetchSite = req.get("sec-fetch-site");
+  if (
+    (origin && !isAllowedApplicationOrigin(origin, req)) ||
+    (!origin && fetchSite === "cross-site")
+  ) {
+    res.status(403).json({
+      error: "Cross-origin state-changing requests are not allowed",
+      code: "cross_origin_request",
+    });
+    return;
+  }
+  next();
+}
+
 // Express auto-generates an ETag for every JSON response by default. That
 // lets a client (or an intermediate proxy) send a conditional GET later and
 // get back a bodyless 304 — which fetch() treats as a failed response
@@ -75,7 +133,17 @@ app.use(
     },
   }),
 );
-app.use(cors({ credentials: true, origin: true }));
+// Never reflect an arbitrary Origin while also enabling credentials. The
+// request host and explicitly configured application origins are trusted;
+// rejected origins receive no CORS permission and cannot use Clerk cookies.
+app.use((req, res, next) =>
+  cors({
+    credentials: true,
+    origin: (origin, callback) => {
+      callback(null, origin ? isAllowedApplicationOrigin(origin, req) : false);
+    },
+  })(req, res, next),
+);
 // Cap body size — prevent oversized payload attacks
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: "2mb" }));
@@ -119,7 +187,7 @@ if (config.nodeEnv !== "test") {
 // requireProjectAccess/requireProjectWriteAccess (for path-param :projectId
 // routes) or loadProjectByIdForUser (for routes with projectId in query/body).
 // See middlewares/requireProjectAccess.ts.
-app.use("/api", requireAuth, router);
+app.use("/api", rejectCrossOriginMutations, requireAuth, router);
 
 // Centralized error handler — maps Zod validation errors to 400, everything else to 500.
 // In production, internal error details are never forwarded to the client.

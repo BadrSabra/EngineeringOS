@@ -592,6 +592,30 @@ afterEach(async () => {
 // ─── POST /api/ai/chat ────────────────────────────────────────────────────────
 
 describe("POST /api/ai/chat", () => {
+  it("allows same-origin mutations to reach normal request validation", async () => {
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .set("Origin", "http://127.0.0.1")
+      .send({ message: "hello" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/projectId/i);
+    expect(res.headers["access-control-allow-origin"]).toBe("http://127.0.0.1");
+    expect(res.headers["access-control-allow-credentials"]).toBe("true");
+  });
+
+  it("rejects hostile origins before an authenticated mutation runs", async () => {
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .set("Origin", "https://attacker.example")
+      .send({ message: "steal the account" });
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({
+      error: "Cross-origin state-changing requests are not allowed",
+      code: "cross_origin_request",
+    });
+    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
   it("returns 400 when projectId is missing", async () => {
     const res = await request(app).post("/api/ai/chat").send({ message: "hello" });
     expect(res.status).toBe(400);
