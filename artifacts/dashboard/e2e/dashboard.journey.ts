@@ -19,6 +19,12 @@ const EXECUTION_ID = "e2e-controlled-execution";
 const DEFAULT_LIVE_TIMEOUT_MS = 120_000;
 const LIVE_TEST_TIMEOUT_MARGIN_MS = 5_000;
 const HOSTILE_ORIGIN = "https://attacker.example";
+const ORIGIN_DIAGNOSTIC_HEADERS = [
+  "access-control-allow-origin",
+  "access-control-allow-methods",
+  "access-control-allow-headers",
+  "vary",
+] as const;
 const DEFAULT_LIVE_PROMPT =
   "Perform a bounded forensic audit of this disposable project using read-only tools. " +
   "Produce at least one accepted evidence item and one validation checkpoint, and do not " +
@@ -901,6 +907,40 @@ async function liveRequest(
   );
 }
 
+type OriginDiagnostic = {
+  origin: string;
+  phase: "GET" | "preflight" | "mutation" | "rejection";
+  status?: number;
+  headers?: Record<string, string>;
+  error?: string;
+};
+const recordedOriginDiagnostics: OriginDiagnostic[] = [];
+
+function originDiagnosticPath(): string | undefined {
+  return process.env.DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH;
+}
+
+function relevantOriginHeaders(
+  headers: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    ORIGIN_DIAGNOSTIC_HEADERS.flatMap((name) =>
+      headers[name] ? [[name, headers[name]]] : [],
+    ),
+  );
+}
+
+async function writeOriginDiagnostics() {
+  const outputPath = originDiagnosticPath();
+  if (!outputPath) return;
+  await mkdir(dirname(outputPath), { recursive: true });
+  await writeFile(
+    outputPath,
+    `${JSON.stringify({ diagnostics: recordedOriginDiagnostics }, null, 2)}\n`,
+    "utf8",
+  );
+}
+
 async function expectOriginCanUseApi(page: Page, origin: string) {
   const apiBaseUrl = process.env.DASHBOARD_E2E_API_BASE_URL;
   if (!apiBaseUrl) {
@@ -912,44 +952,82 @@ async function expectOriginCanUseApi(page: Page, origin: string) {
   const mutationUrl = new URL("/api/ai/chat", apiBaseUrl).toString();
   const commonHeaders = { Origin: origin };
 
-  const getResponse = await page.request.get(healthUrl, {
-    headers: commonHeaders,
-  });
-  expect(getResponse.status(), `${origin} credentialed GET status`).toBe(200);
-  expect(getResponse.headers()["access-control-allow-origin"]).toBe(origin);
-  expect(getResponse.headers()["access-control-allow-credentials"]).toBe(
-    "true",
-  );
+  const diagnostics: OriginDiagnostic[] = [];
+  const check = async (
+    phase: OriginDiagnostic["phase"],
+    request: () => Promise<import("@playwright/test").APIResponse>,
+    assertion: (response: import("@playwright/test").APIResponse) => Promise<void>,
+  ) => {
+    try {
+      const response = await request();
+      diagnostics.push({
+        origin,
+        phase,
+        status: response.status(),
+        headers: relevantOriginHeaders(response.headers()),
+      });
+      recordedOriginDiagnostics.push(diagnostics.at(-1)!);
+      await assertion(response);
+    } catch (error) {
+      const current = diagnostics.at(-1);
+      if (current?.phase !== phase) {
+        diagnostics.push({ origin, phase });
+      }
+      diagnostics.at(-1)!.error = "origin check failed";
+      await writeOriginDiagnostics();
+      throw error;
+    }
+  };
 
-  const preflightResponse = await page.request.fetch(mutationUrl, {
-    method: "OPTIONS",
-    headers: {
-      ...commonHeaders,
-      "Access-Control-Request-Method": "POST",
-      "Access-Control-Request-Headers": "content-type",
+  await check(
+    "GET",
+    () => page.request.get(healthUrl, { headers: commonHeaders }),
+    async (response) => {
+      expect(response.status(), `${origin} credentialed GET status`).toBe(200);
+      expect(response.headers()["access-control-allow-origin"]).toBe(origin);
+      expect(response.headers()["access-control-allow-credentials"]).toBe(
+        "true",
+      );
     },
-  });
-  expect(
-    preflightResponse.status(),
-    `${origin} mutation preflight status`,
-  ).toBe(204);
-  expect(preflightResponse.headers()["access-control-allow-origin"]).toBe(
-    origin,
   );
-  const mutationResponse = await page.request.post(mutationUrl, {
-    headers: { ...commonHeaders, "Content-Type": "application/json" },
-    data: { message: "origin contract" },
-  });
-  expect(
-    mutationResponse.status(),
-    `${origin} state-changing request must pass origin protection`,
-  ).not.toBe(403);
-  expect(mutationResponse.headers()["access-control-allow-origin"]).toBe(
-    origin,
+  await check(
+    "preflight",
+    () =>
+      page.request.fetch(mutationUrl, {
+        method: "OPTIONS",
+        headers: {
+          ...commonHeaders,
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "content-type",
+        },
+      }),
+    async (response) => {
+      expect(
+        response.status(),
+        `${origin} mutation preflight status`,
+      ).toBe(204);
+      expect(response.headers()["access-control-allow-origin"]).toBe(origin);
+    },
   );
-  expect(mutationResponse.headers()["access-control-allow-credentials"]).toBe(
-    "true",
+  await check(
+    "mutation",
+    () =>
+      page.request.post(mutationUrl, {
+        headers: { ...commonHeaders, "Content-Type": "application/json" },
+        data: { message: "origin contract" },
+      }),
+    async (response) => {
+      expect(
+        response.status(),
+        `${origin} state-changing request must pass origin protection`,
+      ).not.toBe(403);
+      expect(response.headers()["access-control-allow-origin"]).toBe(origin);
+      expect(response.headers()["access-control-allow-credentials"]).toBe(
+        "true",
+      );
+    },
   );
+  await writeOriginDiagnostics();
 }
 
 async function expectHostileOriginRejected(page: Page) {
@@ -959,18 +1037,32 @@ async function expectHostileOriginRejected(page: Page) {
       "DASHBOARD_E2E_API_BASE_URL is required for origin checks.",
     );
   const mutationUrl = new URL("/api/ai/chat", apiBaseUrl).toString();
-  const response = await page.request.post(mutationUrl, {
-    headers: {
-      Origin: HOSTILE_ORIGIN,
-      "Content-Type": "application/json",
-    },
-    data: { message: "hostile origin contract" },
-  });
-  expect(response.status()).toBe(403);
-  expect(response.headers()["access-control-allow-origin"]).toBeUndefined();
-  expect(
-    response.headers()["access-control-allow-credentials"],
-  ).toBeUndefined();
+  const diagnostic: OriginDiagnostic = {
+    origin: HOSTILE_ORIGIN,
+    phase: "rejection",
+  };
+  recordedOriginDiagnostics.push(diagnostic);
+  try {
+    const response = await page.request.post(mutationUrl, {
+      headers: {
+        Origin: HOSTILE_ORIGIN,
+        "Content-Type": "application/json",
+      },
+      data: { message: "hostile origin contract" },
+    });
+    diagnostic.status = response.status();
+    diagnostic.headers = relevantOriginHeaders(response.headers());
+    expect(response.status()).toBe(403);
+    expect(response.headers()["access-control-allow-origin"]).toBeUndefined();
+    expect(
+      response.headers()["access-control-allow-credentials"],
+    ).toBeUndefined();
+  } catch (error) {
+    diagnostic.error = "origin rejection check failed";
+    await writeOriginDiagnostics();
+    throw error;
+  }
+  await writeOriginDiagnostics();
 }
 
 function parseSse(body: string): Array<Record<string, unknown>> {

@@ -244,3 +244,38 @@ test("release journey passes the complete approved origin list to API and browse
     "The browser journey must reject hostile state-changing origins.",
   );
 });
+
+test("origin failures preserve only sanitized phase and CORS diagnostics", () => {
+  assert.match(
+    journeySource,
+    /DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH/,
+    "The browser journey must write origin diagnostics for the release runner.",
+  );
+  for (const phase of ["GET", "preflight", "mutation", "rejection"]) {
+    assert.match(
+      journeySource,
+      new RegExp(`"${phase}"`),
+      `Origin diagnostics must identify the ${phase} request phase.`,
+    );
+  }
+  assert.match(
+    journeySource,
+    /access-control-allow-origin[\s\S]*access-control-allow-methods[\s\S]*access-control-allow-headers[\s\S]*vary/,
+    "Origin diagnostics must retain only relevant CORS response headers.",
+  );
+  assert.match(
+    runnerSource,
+    /DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH: originDiagnosticsPath/,
+    "The release runner must pass the diagnostics path to Playwright.",
+  );
+  assert.match(
+    runnerSource,
+    /\.\.\.originDiagnostics/,
+    "The release teardown artifact must retain origin diagnostics.",
+  );
+  assert.doesNotMatch(
+    journeySource,
+    /headers\[["'](?:cookie|set-cookie|authorization)["']\]/i,
+    "Origin diagnostics must not read cookie or credential headers.",
+  );
+});

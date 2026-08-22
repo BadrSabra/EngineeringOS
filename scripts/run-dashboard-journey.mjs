@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   acquireReleaseLock,
@@ -52,6 +52,10 @@ const outputDir = resolve(
 const teardownArtifactPath = resolve(
   process.env.DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH ??
     resolve(outputDir, "release-teardown.json"),
+);
+const originDiagnosticsPath = resolve(
+  process.env.DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH ??
+    resolve(outputDir, "origin-diagnostics.json"),
 );
 const services = [];
 let releaseLockCleanup;
@@ -313,8 +317,10 @@ async function stopServices() {
       });
     }
   }
+  const originDiagnostics = await readOriginDiagnostics();
   const teardownArtifact = {
     outcome: teardownFailed ? "failed" : "passed",
+    ...originDiagnostics,
     services: services.map(({ label, child, port }, index) => {
       const lifecycle = teardownResults[index];
       const survivor = survivingServices.find((item) => item.port === port);
@@ -337,6 +343,22 @@ async function stopServices() {
       };
     }),
   };
+  if (originDiagnostics.originDiagnostics?.length) {
+    console.log("Release origin diagnostics:");
+    for (const diagnostic of originDiagnostics.originDiagnostics) {
+      console.log(
+        `- ${JSON.stringify({
+          origin: diagnostic.origin,
+          phase: diagnostic.phase,
+          ...(diagnostic.status === undefined
+            ? {}
+            : { status: diagnostic.status }),
+          ...(diagnostic.headers ? { headers: diagnostic.headers } : {}),
+          ...(diagnostic.error ? { error: diagnostic.error } : {}),
+        })}`,
+      );
+    }
+  }
   try {
     await mkdir(resolve(teardownArtifactPath, ".."), { recursive: true });
     await writeFile(
@@ -358,11 +380,36 @@ async function stopServices() {
   if (teardownFailed) process.exitCode = process.exitCode || 1;
 }
 
+async function readOriginDiagnostics() {
+  try {
+    const parsed = JSON.parse(await readFile(originDiagnosticsPath, "utf8"));
+    if (
+      !parsed ||
+      !Array.isArray(parsed.diagnostics) ||
+      parsed.diagnostics.some(
+        (item) =>
+          !item ||
+          typeof item.origin !== "string" ||
+          typeof item.phase !== "string" ||
+          Object.keys(item).some(
+            (key) => !["origin", "phase", "status", "headers", "error"].includes(key),
+          )
+        )
+    ) {
+      throw new Error("invalid origin diagnostics");
+    }
+    return { originDiagnostics: parsed.diagnostics };
+  } catch {
+    return {};
+  }
+}
+
 async function startReleaseServices() {
   if (process.env.DATABASE_URL) {
     releaseLockCleanup = await acquireReleaseLock(lockPath);
   }
   await mkdir(outputDir, { recursive: true });
+  await writeFile(originDiagnosticsPath, '{"diagnostics":[]}\n', "utf8");
   if (process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1") {
     const descendantScript = [
       "const { spawn } = require('node:child_process');",
@@ -730,6 +777,7 @@ try {
             process.env.DASHBOARD_E2E_API_BASE_URL ?? dashboardBaseUrl,
           DASHBOARD_E2E_EMAIL: testEmail,
           DASHBOARD_E2E_APPROVED_ORIGINS: approvedDashboardOrigins.join(","),
+          DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH: originDiagnosticsPath,
           DASHBOARD_E2E_EXECUTABLE_PATH:
             process.env.DASHBOARD_E2E_EXECUTABLE_PATH,
           PLAYWRIGHT_OUTPUT_DIR: outputDir,
