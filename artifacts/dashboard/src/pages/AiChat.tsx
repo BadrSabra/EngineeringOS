@@ -66,7 +66,10 @@ import type { ValidationResult } from '@workspace/ai-orchestrator';
 // Keep the shared structured error type for translating SSE failures into
 // the same user-facing error format as regular API requests.
 import { ApiError } from '@/lib/api-fetch';
-import { readStoredMissionCorrelationReport } from '@/lib/mission-correlation-report';
+import {
+  readMissionCorrelationReportGeneratedAt,
+  readStoredMissionCorrelationReport,
+} from '@/lib/mission-correlation-report';
 
 type Project = { id: string; name: string; language: string };
 type BenchmarkScorecard = {
@@ -3982,6 +3985,9 @@ function MessageBubble({
     (isForensicFallback || finalVerdict !== null || isForensicRejection(executionSummary, finalVerdict))
     ? parseForensicEvidence(toolTrace, executionSummary)
     : null;
+  const reportGeneratedAt = !isUser
+    ? readMissionCorrelationReportGeneratedAt(msg.missionCorrelationReport)
+    : null;
 
   return (
     <div className={`flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
@@ -4086,6 +4092,15 @@ function MessageBubble({
                 {reportRegenerationPending ? 'Regenerating…' : 'Regenerate report'}
               </Button>
             )}
+          </div>
+        )}
+        {reportGeneratedAt && (
+          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Clock3 className="h-3 w-3" aria-hidden="true" />
+            <span>Report regenerated at </span>
+            <time dateTime={reportGeneratedAt}>
+              {new Date(reportGeneratedAt).toLocaleString()}
+            </time>
           </div>
         )}
         {isForensicFallback

@@ -118,6 +118,43 @@ describe("mission correlation report persistence contract", () => {
     );
     expect((error as Error).message).not.toContain("internal-");
   });
+
+  it("accepts a safe regeneration timestamp as optional provenance", () => {
+    const serialized = serializeMissionCorrelationReport({
+      kind: "mission-correlation-report",
+      version: 1,
+      redacted: true,
+      operationId: "operation",
+      projectId: "project",
+      sessionId: "session",
+      workspaceRevision: "revision",
+      generatedAt: "2026-08-22T12:34:56.000Z",
+      terminalState: "COMPLETED",
+      outcomeClass: "success",
+      counts: {
+        messages: 1,
+        sseEvents: 0,
+        executionCheckpoints: 0,
+        evidence: 0,
+        proposals: 0,
+        validation: 0,
+        correlatedEvents: 0,
+      },
+      agreement: {
+        execution: false,
+        messages: true,
+        sse: true,
+        checkpoints: true,
+        dashboard: true,
+        evidence: true,
+        proposals: true,
+        validation: true,
+      },
+    });
+    expect(JSON.parse(serialized!)).toMatchObject({
+      generatedAt: "2026-08-22T12:34:56.000Z",
+    });
+  });
 });
 
 // ─── Orchestrator mock ────────────────────────────────────────────────────────

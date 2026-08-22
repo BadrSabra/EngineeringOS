@@ -20,6 +20,8 @@ export interface MissionCorrelationReport {
   projectId: string;
   sessionId: string;
   workspaceRevision: string;
+  /** When an unavailable historical report was regenerated from retained evidence */
+  generatedAt?: Date;
   terminalState: MissionCorrelationReportTerminalState;
   outcomeClass: string;
   counts: MissionCorrelationReportCounts;

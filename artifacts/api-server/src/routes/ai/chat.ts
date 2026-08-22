@@ -392,6 +392,7 @@ function buildRegeneratedMissionCorrelationReport(params: {
     operationId,
     projectId: params.projectId,
     sessionId: params.sessionId,
+    generatedAt: new Date().toISOString(),
     workspaceRevision: typeof request.workspaceRevision === "string"
       ? request.workspaceRevision
       : params.projectUpdatedAt.toISOString(),
@@ -423,7 +424,11 @@ export function serializeMissionCorrelationReport(value: unknown): string | null
   if (!parsed.success || parsed.data === null || parsed.data === undefined) {
     throw new MissionCorrelationReportValidationError();
   }
-  return JSON.stringify(redactUserFacingValue(parsed.data));
+  const report = parsed.data as Record<string, unknown>;
+  const normalized = report.generatedAt instanceof Date
+    ? { ...report, generatedAt: report.generatedAt.toISOString() }
+    : report;
+  return JSON.stringify(redactUserFacingValue(normalized));
 }
 
 // A turn is persisted only after its provider call completes, but history must

@@ -2459,6 +2459,7 @@ export const AiChatResponse = zod.object({
   "projectId": zod.string(),
   "sessionId": zod.string(),
   "workspaceRevision": zod.string(),
+  "generatedAt": zod.coerce.date().optional().describe('When an unavailable historical report was regenerated from retained evidence'),
   "terminalState": zod.enum(['COMPLETED', 'READY_FOR_REVIEW', 'APPLIED', 'COMMITTED', 'PUSHED', 'BLOCKED', 'CANCELLED', 'FAILED', 'UNAVAILABLE']),
   "outcomeClass": zod.string(),
   "counts": zod.object({
@@ -3413,6 +3414,7 @@ export const ListAiChatMessagesResponseItem = zod.object({
   "projectId": zod.string(),
   "sessionId": zod.string(),
   "workspaceRevision": zod.string(),
+  "generatedAt": zod.coerce.date().optional().describe('When an unavailable historical report was regenerated from retained evidence'),
   "terminalState": zod.enum(['COMPLETED', 'READY_FOR_REVIEW', 'APPLIED', 'COMMITTED', 'PUSHED', 'BLOCKED', 'CANCELLED', 'FAILED', 'UNAVAILABLE']),
   "outcomeClass": zod.string(),
   "counts": zod.object({
@@ -3497,6 +3499,7 @@ export const RegenerateMissionCorrelationReportResponse = zod.object({
   "projectId": zod.string(),
   "sessionId": zod.string(),
   "workspaceRevision": zod.string(),
+  "generatedAt": zod.coerce.date().optional().describe('When an unavailable historical report was regenerated from retained evidence'),
   "terminalState": zod.enum(['COMPLETED', 'READY_FOR_REVIEW', 'APPLIED', 'COMMITTED', 'PUSHED', 'BLOCKED', 'CANCELLED', 'FAILED', 'UNAVAILABLE']),
   "outcomeClass": zod.string(),
   "counts": zod.object({

@@ -33,3 +33,18 @@ export function readStoredMissionCorrelationReport(
     report as StoredMissionCorrelationReport,
   );
 }
+
+/**
+ * Regenerated reports carry an optional server-generated timestamp. Keep the
+ * display boundary defensive so old reports and malformed optional metadata
+ * never affect the conversation UI.
+ */
+export function readMissionCorrelationReportGeneratedAt(
+  report: { generatedAt?: unknown } | null | undefined,
+): string | null {
+  if (!report || typeof report.generatedAt !== 'string' || !report.generatedAt.trim()) {
+    return null;
+  }
+  const timestamp = Date.parse(report.generatedAt);
+  return Number.isFinite(timestamp) ? report.generatedAt : null;
+}

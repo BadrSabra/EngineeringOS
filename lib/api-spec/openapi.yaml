@@ -3649,6 +3649,10 @@ components:
           type: string
         workspaceRevision:
           type: string
+        generatedAt:
+          type: string
+          format: date-time
+          description: When an unavailable historical report was regenerated from retained evidence
         terminalState:
           type: string
           enum: [COMPLETED, READY_FOR_REVIEW, APPLIED, COMMITTED, PUSHED, BLOCKED, CANCELLED, FAILED, UNAVAILABLE]
