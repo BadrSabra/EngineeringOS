@@ -173,8 +173,20 @@ describe("free-tier quality envelope", () => {
     });
     expect(JSON.stringify(corpus)).not.toContain("raw provider details");
 
+    const envelope = buildFreeTierQualityEnvelope({ corpus });
+    expect(envelope.providerRecoverySummaries).toEqual([{
+      provider: "openrouter",
+      model: "test-model:free",
+      failureCategory: "quota",
+      recoveryAction: "stop-safely",
+      evidenceStatus: "incomplete",
+      attemptCount: 8,
+    }]);
+
     const oldCorpus = buildFreeTierReplayCorpus({ runs: [run] });
+    const oldEnvelope = buildFreeTierQualityEnvelope({ corpus: oldCorpus });
     expect(oldCorpus.entries[0]).not.toHaveProperty("providerHealthReport");
+    expect(oldEnvelope).not.toHaveProperty("providerRecoverySummaries");
   });
 
   it("rejects unallowlisted provider report text and bounds report fields", () => {

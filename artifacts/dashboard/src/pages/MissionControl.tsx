@@ -117,6 +117,33 @@ function formatDate(value: unknown): string | undefined {
   });
 }
 
+function ProviderRecoverySummary({ value }: { value: unknown }) {
+  const summary = asRecord(value);
+  if (!summary || summary.provider !== 'openrouter') return null;
+  const model = textValue(summary.model) ?? 'Model not recorded';
+  const category = textValue(summary.failureCategory) ?? 'Not categorized';
+  const action = textValue(summary.recoveryAction) ?? 'No recovery action';
+  const evidence = textValue(summary.evidenceStatus) ?? 'Not recorded';
+  const attempts = numberValue(summary.attemptCount);
+  return (
+    <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
+      <div className="flex items-center gap-2">
+        <ShieldCheck className="h-4 w-4 text-amber-200" />
+        <span className="text-sm font-semibold">Provider recovery</span>
+        <span className="ml-auto rounded-full border border-amber-500/35 px-1.5 py-0.5 text-[10px] uppercase text-amber-200">
+          {evidence}
+        </span>
+      </div>
+      <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+        <div><div className="text-muted-foreground">Provider / model</div><div className="mt-0.5 font-medium">{summary.provider} · {model}</div></div>
+        <div><div className="text-muted-foreground">Failure category</div><div className="mt-0.5 font-medium">{category}</div></div>
+        <div><div className="text-muted-foreground">Recovery action</div><div className="mt-0.5 font-medium">{action}</div></div>
+        <div><div className="text-muted-foreground">Attempts</div><div className="mt-0.5 font-medium">{attempts ?? 'Not recorded'}</div></div>
+      </div>
+    </div>
+  );
+}
+
 function objectiveText(value: unknown): string {
   if (typeof value === 'string' && value.trim()) return value;
   const object = asRecord(value);
@@ -273,6 +300,12 @@ export default function MissionControl() {
     [typedData?.benchmark?.baseline],
   );
   const baselineByKey = useMemo(() => new Map(baselineMetrics.map((metric) => [metric.key, metric])), [baselineMetrics]);
+  const recoverySummaries = useMemo(() => {
+    const envelope = asRecord(asRecord(typedData?.benchmark)?.freeTierEnvelope);
+    return Array.isArray(envelope?.providerRecoverySummaries)
+      ? envelope.providerRecoverySummaries
+      : [];
+  }, [typedData?.benchmark]);
   const selectedEvidenceRows = evidenceRows(selectedExecution?.evidence);
   const selectedEvents = Array.isArray(selectedExecution?.recentEvents) ? selectedExecution.recentEvents : [];
   const updatedLabel = formatDate(typedData?.updatedAt);
@@ -484,6 +517,16 @@ export default function MissionControl() {
               </div>
             </div>
             <div className="p-4">
+              {recoverySummaries.length > 0 && (
+                <div className="mb-4 space-y-2" aria-label="Historical provider recovery summaries">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Historical report recovery details
+                  </div>
+                  {recoverySummaries.map((summary, index) => (
+                    <ProviderRecoverySummary key={index} value={summary} />
+                  ))}
+                </div>
+              )}
               {scorecardMetrics.length === 0 && baselineMetrics.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-border/70 bg-background/20 p-5 text-center text-xs text-muted-foreground">No benchmark metrics were returned.</p>
               ) : (

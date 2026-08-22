@@ -45,6 +45,15 @@ export type FreeTierReplayCorpus = {
   entries: FreeTierReplayEntry[];
 };
 
+export type FreeTierProviderRecoverySummary = {
+  provider: ProviderHealthReport["provider"];
+  model: string | null;
+  failureCategory: ProviderHealthReport["failureCategory"];
+  recoveryAction: ProviderHealthReport["recoveryAction"];
+  evidenceStatus: ProviderHealthReport["evidenceStatus"];
+  attemptCount: number;
+};
+
 export type FreeTierQualityEnvelope = {
   kind: "free-tier-quality-envelope";
   version: typeof FREE_TIER_QUALITY_ENVELOPE_VERSION;
@@ -73,6 +82,8 @@ export type FreeTierQualityEnvelope = {
   rolloutAllowed: false;
   rolloutBlockers: string[];
   failureAnalysis: FreeTierFailureAnalysis[];
+  /** Safe operator-facing provider summaries retained for historical reports. */
+  providerRecoverySummaries?: FreeTierProviderRecoverySummary[];
 };
 
 const RUN_KEYS = new Set([
@@ -503,6 +514,19 @@ export function buildFreeTierQualityEnvelope(args: {
     ...(missingCaseIds.length > 0 ? ["free-tier replay corpus is incomplete"] : []),
   ];
   const complete = observedCases === totalCases;
+  const providerRecoverySummaries = [...new Map(
+    args.corpus.entries
+      .map((entry) => entry.providerHealthReport)
+      .filter((report): report is ProviderHealthReport => Boolean(report))
+      .map((report) => [report.provider, {
+        provider: report.provider,
+        model: report.model,
+        failureCategory: report.failureCategory,
+        recoveryAction: report.recoveryAction,
+        evidenceStatus: report.evidenceStatus,
+        attemptCount: report.attemptCount,
+      }]),
+  ).values()];
   return {
     kind: "free-tier-quality-envelope",
     version: FREE_TIER_QUALITY_ENVELOPE_VERSION,
@@ -531,6 +555,7 @@ export function buildFreeTierQualityEnvelope(args: {
     rolloutAllowed: false,
     rolloutBlockers: [...new Set(rolloutBlockers)],
     failureAnalysis: buildFreeTierFailureAnalysis(scorecard.cases),
+    ...(providerRecoverySummaries.length > 0 ? { providerRecoverySummaries } : {}),
   };
 }
 

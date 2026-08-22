@@ -42,6 +42,23 @@ type BoundedBenchmarkScorecard = {
   cases?: Array<Record<string, unknown>>;
 };
 
+type BoundedProviderRecoverySummary = {
+  provider: "openrouter";
+  model: string | null;
+  failureCategory: string | null;
+  recoveryAction: string | null;
+  evidenceStatus: "complete" | "incomplete";
+  attemptCount: number;
+};
+
+type BoundedFreeTierEnvelope = {
+  kind: "free-tier-quality-envelope";
+  version: number;
+  generatedAt?: string;
+  suiteVersion?: string;
+  providerRecoverySummaries?: BoundedProviderRecoverySummary[];
+};
+
 function scorecardPath(): string {
   return path.resolve(
     process.env.BENCHMARK_OUTPUT_DIR ??
@@ -306,6 +323,62 @@ function baselinePath(): string {
   );
 }
 
+function freeTierEnvelopePath(): string {
+  return path.resolve(
+    process.env.BENCHMARK_OUTPUT_DIR ??
+      path.join(process.cwd(), "../../lib/ai-orchestrator/benchmark-results"),
+    "free-tier-quality-envelope.json",
+  );
+}
+
+const SAFE_FAILURE_CATEGORIES = new Set([
+  "authentication", "quota", "rate-limit", "catalog", "empty-response",
+  "network", "server", "request", "capability", "unknown",
+]);
+const SAFE_RECOVERY_ACTIONS = new Set([
+  "retry", "choose-alternative", "wait", "narrow-request", "stop-safely",
+]);
+
+function projectBoundedFreeTierEnvelope(value: unknown): BoundedFreeTierEnvelope | undefined {
+  if (!isRecord(value) || value.kind !== "free-tier-quality-envelope" || typeof value.version !== "number") {
+    return undefined;
+  }
+  const summaries = Array.isArray(value.providerRecoverySummaries)
+    ? value.providerRecoverySummaries.flatMap((raw): BoundedProviderRecoverySummary[] => {
+        if (!isRecord(raw) || raw.provider !== "openrouter") return [];
+        const failureCategory = raw.failureCategory === null || (
+          typeof raw.failureCategory === "string" && SAFE_FAILURE_CATEGORIES.has(raw.failureCategory)
+        ) ? raw.failureCategory : null;
+        const recoveryAction = raw.recoveryAction === null || (
+          typeof raw.recoveryAction === "string" && SAFE_RECOVERY_ACTIONS.has(raw.recoveryAction)
+        ) ? raw.recoveryAction : null;
+        const evidenceStatus = raw.evidenceStatus === "complete" || raw.evidenceStatus === "incomplete"
+          ? raw.evidenceStatus
+          : undefined;
+        const attemptCount = typeof raw.attemptCount === "number" &&
+          Number.isInteger(raw.attemptCount) && raw.attemptCount >= 0 && raw.attemptCount <= 100
+          ? raw.attemptCount
+          : undefined;
+        if (evidenceStatus === undefined || attemptCount === undefined) return [];
+        return [{
+          provider: "openrouter",
+          model: raw.model === null ? null : typeof raw.model === "string" ? raw.model.slice(0, 200) : null,
+          failureCategory,
+          recoveryAction,
+          evidenceStatus,
+          attemptCount,
+        }];
+      })
+    : [];
+  return {
+    kind: "free-tier-quality-envelope",
+    version: value.version,
+    ...(typeof value.generatedAt === "string" ? { generatedAt: value.generatedAt } : {}),
+    ...(typeof value.suiteVersion === "string" ? { suiteVersion: value.suiteVersion } : {}),
+    ...(summaries.length > 0 ? { providerRecoverySummaries: summaries.slice(0, 8) } : {}),
+  };
+}
+
 /**
  * Returns only bounded benchmark metadata. The live runner deliberately does
  * not persist model responses or source bodies, and this route does not expose
@@ -337,9 +410,10 @@ router.get("/ai/benchmark/scorecard", async (_req, res) => {
  */
 router.get("/ai/mission-control", async (req, res) => {
   try {
-    const [rawScorecard, rawBaseline, executions] = await Promise.all([
+    const [rawScorecard, rawBaseline, rawFreeTierEnvelope, executions] = await Promise.all([
       readOptionalJson(scorecardPath()),
       readOptionalJson(baselinePath()),
+      readOptionalJson(freeTierEnvelopePath()),
       db
         .select()
         .from(aiExecutionsTable)
@@ -376,10 +450,13 @@ router.get("/ai/mission-control", async (req, res) => {
             },
           }
         : undefined;
+    const freeTierEnvelope = projectBoundedFreeTierEnvelope(rawFreeTierEnvelope);
 
     return res.json({
       updatedAt: new Date().toISOString(),
-      benchmark: scorecard || baseline ? { scorecard, baseline } : null,
+      benchmark: scorecard || baseline || freeTierEnvelope
+        ? { scorecard, baseline, freeTierEnvelope }
+        : null,
       executions: executions.map(projectExecution),
     });
   } catch (error) {

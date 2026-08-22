@@ -8,10 +8,16 @@ import app from "../../app.js";
 const originalOutputDir = process.env.BENCHMARK_OUTPUT_DIR;
 const outputDir = path.join(os.tmpdir(), `engineeringos-benchmark-route-${process.pid}`);
 const scorecardFile = path.join(outputDir, "code-agent-benchmark-live.json");
+const envelopeFile = path.join(outputDir, "free-tier-quality-envelope.json");
 
 async function writeScorecard(value: unknown): Promise<void> {
   await fs.mkdir(outputDir, { recursive: true });
   await fs.writeFile(scorecardFile, `${JSON.stringify(value)}\n`, "utf8");
+}
+
+async function writeEnvelope(value: unknown): Promise<void> {
+  await fs.mkdir(outputDir, { recursive: true });
+  await fs.writeFile(envelopeFile, `${JSON.stringify(value)}\n`, "utf8");
 }
 
 afterEach(async () => {
@@ -101,6 +107,22 @@ describe.sequential("GET /api/ai/mission-control", () => {
       },
       rolloutAllowed: true,
     });
+    await writeEnvelope({
+      kind: "free-tier-quality-envelope",
+      version: 1,
+      suiteVersion: "flight-deck-v2",
+      generatedAt: "2026-08-19T01:03:24.000Z",
+      providerRecoverySummaries: [{
+        provider: "openrouter",
+        model: "test-model:free",
+        failureCategory: "quota",
+        recoveryAction: "choose-alternative",
+        evidenceStatus: "incomplete",
+        attemptCount: 3,
+        providerMessage: "do not expose this",
+      }],
+      rawResponse: "do not expose this",
+    });
 
     const response = await request(app).get("/api/ai/mission-control");
 
@@ -116,5 +138,22 @@ describe.sequential("GET /api/ai/mission-control", () => {
     expect(Array.isArray(response.body.executions)).toBe(true);
     expect(response.body.executions[0]?.request).toBeUndefined();
     expect(response.body.executions[0]?.resumeToken).toBeUndefined();
+    expect(response.body.benchmark.freeTierEnvelope.providerRecoverySummaries).toEqual([{
+      provider: "openrouter",
+      model: "test-model:free",
+      failureCategory: "quota",
+      recoveryAction: "choose-alternative",
+      evidenceStatus: "incomplete",
+      attemptCount: 3,
+    }]);
+    expect(JSON.stringify(response.body)).not.toContain("do not expose this");
+  });
+
+  it("keeps historical reports compatible when the optional envelope is absent", async () => {
+    process.env.BENCHMARK_OUTPUT_DIR = outputDir;
+    const response = await request(app).get("/api/ai/mission-control");
+
+    expect(response.status).toBe(200);
+    expect(response.body.benchmark?.freeTierEnvelope).toBeUndefined();
   });
 });
