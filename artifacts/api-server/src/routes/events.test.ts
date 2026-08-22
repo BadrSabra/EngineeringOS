@@ -1,5 +1,5 @@
 /**
- * Tests for events.ts: list with projectId, type, correlationId, and limit filters.
+ * Tests for events.ts: all-project and project-scoped list filters and ownership.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import request from "supertest";
@@ -66,9 +66,25 @@ describe("GET /events — list", () => {
     expect(Array.isArray(res.body)).toBe(true);
   });
 
-  it("returns 400 when projectId is omitted", async () => {
+  it("returns events from all projects owned by the authenticated user when projectId is omitted", async () => {
+    const firstProjectId = await insertProject();
+    const secondProjectId = await insertProject();
+    projectIds.push(firstProjectId, secondProjectId);
+    const firstEventId = await insertEvent({ projectId: firstProjectId, message: "first project event" });
+    const secondEventId = await insertEvent({ projectId: secondProjectId, message: "second project event" });
+
     const res = await request(app).get("/api/events");
-    expect(res.status).toBe(400);
+
+    expect(res.status).toBe(200);
+    const ids = (res.body as { id: string }[]).map((event) => event.id);
+    expect(ids).toEqual(expect.arrayContaining([firstEventId, secondEventId]));
+  });
+
+  it("returns an empty array when the authenticated user owns no projects", async () => {
+    const res = await request(app).get("/api/events");
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual([]);
   });
 
   it("filters events by projectId", async () => {
@@ -217,5 +233,35 @@ describe("GET /events — ownership isolation", () => {
 
     const res = await request(app).get(`/api/events?projectId=${id}`);
     expect(res.status).toBe(403);
+  });
+
+  it("excludes events from projects owned by another user in all-project mode", async () => {
+    const ownedProjectId = await insertProject();
+    projectIds.push(ownedProjectId);
+    const otherProjectId = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id: otherProjectId,
+      ownerId: "other-user",
+      name: `other-user-project-${otherProjectId.slice(0, 8)}`,
+      rootPath: "/tmp/other-user-events-all",
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    projectIds.push(otherProjectId);
+    const ownedEventId = await insertEvent({ projectId: ownedProjectId });
+    const otherEventId = await insertEvent({ projectId: otherProjectId });
+
+    const res = await request(app).get("/api/events");
+
+    expect(res.status).toBe(200);
+    const ids = (res.body as { id: string }[]).map((event) => event.id);
+    expect(ids).toContain(ownedEventId);
+    expect(ids).not.toContain(otherEventId);
+    for (const event of res.body as { projectId: string }[]) {
+      expect(event.projectId).not.toBe(otherProjectId);
+    }
   });
 });

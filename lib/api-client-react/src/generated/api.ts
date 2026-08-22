@@ -2771,7 +2771,7 @@ export const getListEventsUrl = (params?: ListEventsParams,) => {
 }
 
 /**
- * @summary List system events
+ * @summary List system events for one project or all owned projects
  */
 export const listEvents = async (params?: ListEventsParams, options?: RequestInit): Promise<Event[]> => {
 
@@ -2818,7 +2818,7 @@ export type ListEventsQueryError = ErrorType<unknown>
 
 
 /**
- * @summary List system events
+ * @summary List system events for one project or all owned projects
  */
 
 export function useListEvents<TData = Awaited<ReturnType<typeof listEvents>>, TError = ErrorType<unknown>>(

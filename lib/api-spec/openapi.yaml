@@ -727,7 +727,7 @@ paths:
   /api/events:
     get:
       operationId: listEvents
-      summary: List system events
+      summary: List system events for one project or all owned projects
       tags: [Events]
       parameters:
         - name: projectId

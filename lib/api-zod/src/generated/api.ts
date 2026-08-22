@@ -934,7 +934,7 @@ export const RollbackWorkflowPhaseResponse = zod.object({
 
 
 /**
- * @summary List system events
+ * @summary List system events for one project or all owned projects
  */
 export const listEventsQueryLimitDefault = 50;
 

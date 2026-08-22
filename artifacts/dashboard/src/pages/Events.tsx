@@ -12,7 +12,7 @@ export default function Events() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
 
-  const { data: events, isLoading } = useListEvents({
+  const { data: events, isLoading, isError, error, refetch } = useListEvents({
     limit: 200,
     ...(projectId ? { projectId } : {}),
     ...(correlationId.trim() ? { correlationId: correlationId.trim() } : {}),
@@ -145,6 +145,17 @@ export default function Events() {
           {isLoading ? (
             <div className="p-4 text-primary animate-pulse flex items-center gap-2">
               <span className="w-2 h-2 bg-primary rounded-full animate-ping"></span> Loading events…
+            </div>
+          ) : isError ? (
+            <div className="p-8 text-red-300">
+              <p>Unable to load events{error instanceof Error && error.message ? `: ${error.message}` : '.'}</p>
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                className="mt-3 rounded-md border border-red-400/50 px-3 py-1.5 text-xs text-red-200 hover:bg-red-950/40"
+              >
+                Retry
+              </button>
             </div>
           ) : (events?.length ?? 0) === 0 ? (
             <div className="p-8 text-muted-foreground opacity-50">No events recorded.</div>

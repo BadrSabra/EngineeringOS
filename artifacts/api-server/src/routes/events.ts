@@ -1,7 +1,6 @@
 import { Router } from "express";
-import { db } from "@workspace/db";
-import { eventsTable } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { db, eventsTable, projectsTable } from "@workspace/db";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 
@@ -14,23 +13,15 @@ router.use(requireAuth);
 /**
  * GET /events
  *
- * Returns events scoped to a single project. Ownership is verified before
- * returning any rows — a user cannot read events from a project they don't own.
- * projectId is required; without it we would either return nothing useful or
- * expose events across projects.
+ * Returns events scoped to a single project, or across all projects owned by
+ * the authenticated user when projectId is omitted. Ownership is verified
+ * before returning any rows — a user cannot read events from a project they
+ * don't own.
  *
  * Optional filters: type, correlationId, limit (default 50, max 500).
  * Results are ordered newest-first.
  */
 router.get("/events", async (req, res) => {
-  // Ownership check — 400 if missing, 404/403 if not found/not owner
-  const project = await loadProjectByIdForUser(
-    typeof req.query.projectId === "string" ? req.query.projectId : undefined,
-    req.userId,
-    res,
-  );
-  if (!project) return; // response already sent
-
   const requestedLimit = Number.isFinite(Number(req.query.limit))
     ? Math.floor(Number(req.query.limit))
     : 50;
@@ -46,7 +37,26 @@ router.get("/events", async (req, res) => {
   const typeFilter =
     typeof req.query.type === "string" ? req.query.type : undefined;
 
-  const conditions: ReturnType<typeof eq>[] = [eq(eventsTable.projectId, project.id)];
+  const projectId =
+    typeof req.query.projectId === "string" ? req.query.projectId : undefined;
+  let projectIds: string[];
+  if (projectId) {
+    // Explicit project requests retain the existing 404/403 ownership semantics.
+    const project = await loadProjectByIdForUser(projectId, req.userId, res);
+    if (!project) return; // response already sent
+    projectIds = [project.id];
+  } else {
+    // Resolve ownership first, then constrain the event query to those IDs.
+    // This avoids exposing events from projects owned by another user.
+    const ownedProjects = await db
+      .select({ id: projectsTable.id })
+      .from(projectsTable)
+      .where(eq(projectsTable.ownerId, req.userId));
+    projectIds = ownedProjects.map(({ id }) => id);
+    if (projectIds.length === 0) return res.json([]);
+  }
+
+  const conditions: ReturnType<typeof eq>[] = [inArray(eventsTable.projectId, projectIds)];
   if (typeFilter) conditions.push(eq(eventsTable.type, typeFilter));
   if (correlationIdFilter)
     conditions.push(eq(eventsTable.correlationId, correlationIdFilter));
