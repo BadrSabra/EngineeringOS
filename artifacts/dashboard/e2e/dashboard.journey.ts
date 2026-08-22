@@ -18,6 +18,7 @@ const TEST_USER = {
 const EXECUTION_ID = "e2e-controlled-execution";
 const DEFAULT_LIVE_TIMEOUT_MS = 120_000;
 const LIVE_TEST_TIMEOUT_MARGIN_MS = 5_000;
+const HOSTILE_ORIGIN = "https://attacker.example";
 const DEFAULT_LIVE_PROMPT =
   "Perform a bounded forensic audit of this disposable project using read-only tools. " +
   "Produce at least one accepted evidence item and one validation checkpoint, and do not " +
@@ -28,6 +29,32 @@ function liveTimeoutMs(): number {
   return Number.isFinite(configured) && configured > 0
     ? configured
     : DEFAULT_LIVE_TIMEOUT_MS;
+}
+
+function approvedDashboardOrigins(): string[] {
+  const origins = (process.env.DASHBOARD_E2E_APPROVED_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  if (origins.length === 0) {
+    throw new Error(
+      "DASHBOARD_E2E_APPROVED_ORIGINS must contain every approved dashboard origin.",
+    );
+  }
+  return origins.map((origin) => {
+    const parsed = new URL(origin);
+    if (
+      parsed.origin !== origin ||
+      parsed.pathname !== "/" ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      throw new Error(
+        `Dashboard journey origin must be a bare origin: ${origin}`,
+      );
+    }
+    return parsed.origin;
+  });
 }
 
 const dashboardFixture = {
@@ -151,7 +178,9 @@ async function installApiFixtures(
       } catch {
         // The normal provider-free fallback below handles malformed requests.
       }
-      if (requestBody.executionId === overrides.resumeFailure.fixture.executionId) {
+      if (
+        requestBody.executionId === overrides.resumeFailure.fixture.executionId
+      ) {
         return route.fulfill({
           status: 200,
           contentType: "text/event-stream",
@@ -172,16 +201,18 @@ async function installApiFixtures(
       path.endsWith(`/api/ai/chat/${fixture.sessionId}/messages`),
     );
     if (messageFixture)
-      return route.fulfill(jsonResponse([
-        {
-          id: `${messageFixture.sessionId}-user-message`,
-          sessionId: messageFixture.sessionId,
-          role: "user",
-          content: messageFixture.question,
-          createdAt: "2026-01-01T00:01:00.000Z",
-        },
-        messageFixture.message,
-      ]));
+      return route.fulfill(
+        jsonResponse([
+          {
+            id: `${messageFixture.sessionId}-user-message`,
+            sessionId: messageFixture.sessionId,
+            role: "user",
+            content: messageFixture.question,
+            createdAt: "2026-01-01T00:01:00.000Z",
+          },
+          messageFixture.message,
+        ]),
+      );
 
     if (path === "/api/dashboard")
       return route.fulfill(jsonResponse(dashboardFixture));
@@ -206,7 +237,8 @@ async function installApiFixtures(
       return route.fulfill(jsonResponse(dashboardFixture.recentEvents));
     if (
       overrides?.resumeFailure &&
-      path === `/api/ai/executions/${overrides.resumeFailure.fixture.executionId}`
+      path ===
+        `/api/ai/executions/${overrides.resumeFailure.fixture.executionId}`
     ) {
       return route.fulfill(jsonResponse(overrides.resumeFailure.execution));
     }
@@ -246,28 +278,42 @@ async function installArabicAiFixture(
     "ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟";
   const answer =
     "عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.";
-  const evidence = [{
-    source,
-    ...(blocked
-      ? {
-          excerpt: "provider timeout is handled here",
-          supportsClaim: false,
-          evidenceClass: "READ_CONFIRMED",
-          citationStatus: "BLOCKED",
-          citationReason: "MISSING_LITERAL_MATCH",
-        }
-      : {
-          excerpt: 'return partialFromCollectedEvidence("provider timeout");',
-          sourceSpan: { startLine: 42, endLine: 42 },
-          supportsClaim: true,
-          evidenceClass: "BEHAVIOR_PROVEN",
-          citationStatus: "ACCEPTED",
-          citationReason: "ACCEPTED_SOURCE_SPAN",
-        }),
-  }];
+  const evidence = [
+    {
+      source,
+      ...(blocked
+        ? {
+            excerpt: "provider timeout is handled here",
+            supportsClaim: false,
+            evidenceClass: "READ_CONFIRMED",
+            citationStatus: "BLOCKED",
+            citationReason: "MISSING_LITERAL_MATCH",
+          }
+        : {
+            excerpt: 'return partialFromCollectedEvidence("provider timeout");',
+            sourceSpan: { startLine: 42, endLine: 42 },
+            supportsClaim: true,
+            evidenceClass: "BEHAVIOR_PROVEN",
+            citationStatus: "ACCEPTED",
+            citationReason: "ACCEPTED_SOURCE_SPAN",
+          }),
+    },
+  ];
   const toolTrace = [
-    { kind: "tool_call", tool: "read_file", args: { path: source }, cached: false, prefetched: true },
-    { kind: "tool_result", tool: "read_file", source, cached: false, prefetched: true },
+    {
+      kind: "tool_call",
+      tool: "read_file",
+      args: { path: source },
+      cached: false,
+      prefetched: true,
+    },
+    {
+      kind: "tool_result",
+      tool: "read_file",
+      source,
+      cached: false,
+      prefetched: true,
+    },
     {
       kind: "evidence_integrity",
       code: "EVIDENCE_INTEGRITY_OK",
@@ -311,14 +357,32 @@ async function installArabicAiFixture(
     taskResult,
     createdAt: "2026-01-01T00:02:00.000Z",
   };
-  const sse = (event: Record<string, unknown>) => `data: ${JSON.stringify(event)}\n\n`;
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
   const streamBody = [
     sse({ type: "session_started", sessionId }),
-    sse({ type: "execution_started", executionId: "e2e-execution", status: "running", resumable: true }),
+    sse({
+      type: "execution_started",
+      executionId: "e2e-execution",
+      status: "running",
+      resumable: true,
+    }),
     sse({ type: "stage", stage: "building-context" }),
     sse({ type: "stage", stage: "calling-model" }),
-    sse({ type: "tool_call", tool: "read_file", args: { path: source }, cached: false, prefetched: true }),
-    sse({ type: "tool_result", tool: "read_file", source, cached: false, prefetched: true }),
+    sse({
+      type: "tool_call",
+      tool: "read_file",
+      args: { path: source },
+      cached: false,
+      prefetched: true,
+    }),
+    sse({
+      type: "tool_result",
+      tool: "read_file",
+      source,
+      cached: false,
+      prefetched: true,
+    }),
     sse({
       type: "evidence_integrity",
       code: "EVIDENCE_INTEGRITY_OK",
@@ -401,7 +465,8 @@ function installToolFailureFixture(): ArabicAiFixture {
     toolTrace: JSON.stringify(toolTrace),
     createdAt: "2026-01-01T00:02:00.000Z",
   };
-  const sse = (event: Record<string, unknown>) => `data: ${JSON.stringify(event)}\n\n`;
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
   const streamBody = [
     sse({ type: "session_started", sessionId }),
     sse({
@@ -447,8 +512,10 @@ function installToolFailureFixture(): ArabicAiFixture {
 function installDisconnectedAiFixture(): ArabicAiFixture {
   const sessionId = "e2e-disconnected-ai-session";
   const executionId = "e2e-disconnected-ai-execution";
-  const question = "What happens when the model disconnects after starting an answer?";
-  const answer = "The model started an answer, but the provider disconnected before completion.";
+  const question =
+    "What happens when the model disconnects after starting an answer?";
+  const answer =
+    "The model started an answer, but the provider disconnected before completion.";
   const diagnosticCode = "EXECUTION_PROVIDER_FAILURE";
   const toolTrace = [
     {
@@ -461,7 +528,9 @@ function installDisconnectedAiFixture(): ArabicAiFixture {
       loopToolCalls: 0,
       synthesisStarted: false,
       diagnosticCodes: [diagnosticCode],
-      diagnosticDetails: ["The provider disconnected after visible response text."],
+      diagnosticDetails: [
+        "The provider disconnected after visible response text.",
+      ],
     },
   ];
   const message = {
@@ -476,7 +545,8 @@ function installDisconnectedAiFixture(): ArabicAiFixture {
     executionId,
     createdAt: "2026-01-01T00:02:00.000Z",
   };
-  const sse = (event: Record<string, unknown>) => `data: ${JSON.stringify(event)}\n\n`;
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
   const streamBody = [
     sse({ type: "session_started", sessionId }),
     sse({
@@ -518,7 +588,8 @@ function installResumedAnalysisFailureFixture() {
   const answer =
     "ANALYSIS_INCOMPLETE: The required analysis did not complete, so no verified result is available.";
   const diagnosticCode = "TOOL_UNAVAILABLE";
-  const sse = (event: Record<string, unknown>) => `data: ${JSON.stringify(event)}\n\n`;
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
   const streamBody = [
     sse({ type: "session_started", sessionId }),
     sse({
@@ -683,7 +754,10 @@ async function liveRequest(
       const response = await fetch(url, {
         method,
         credentials: "include",
-        headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+        headers:
+          body === undefined
+            ? undefined
+            : { "Content-Type": "application/json" },
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: timeout ? AbortSignal.timeout(timeout) : undefined,
       });
@@ -698,58 +772,145 @@ async function liveRequest(
   );
 }
 
-function parseSse(body: string): Array<Record<string, unknown>> {
-  return body
-    .split(/\n\n+/)
-    .flatMap((chunk) => {
-      const data = chunk
-        .split("\n")
-        .find((line) => line.startsWith("data: "))
-        ?.slice("data: ".length);
-      if (!data) return [];
-      try {
-        const value = JSON.parse(data) as unknown;
-        return value && typeof value === "object"
-          ? [value as Record<string, unknown>]
-          : [];
-      } catch {
-        return [];
-      }
-    });
+async function expectOriginCanUseApi(page: Page, origin: string) {
+  const apiBaseUrl = process.env.DASHBOARD_E2E_API_BASE_URL;
+  if (!apiBaseUrl) {
+    throw new Error(
+      "DASHBOARD_E2E_API_BASE_URL is required for origin checks.",
+    );
+  }
+  const healthUrl = new URL("/api/healthz", apiBaseUrl).toString();
+  const mutationUrl = new URL("/api/ai/chat", apiBaseUrl).toString();
+  const commonHeaders = { Origin: origin };
+
+  const getResponse = await page.request.get(healthUrl, {
+    headers: commonHeaders,
+  });
+  expect(getResponse.status(), `${origin} credentialed GET status`).toBe(200);
+  expect(getResponse.headers()["access-control-allow-origin"]).toBe(origin);
+  expect(getResponse.headers()["access-control-allow-credentials"]).toBe(
+    "true",
+  );
+
+  const preflightResponse = await page.request.fetch(mutationUrl, {
+    method: "OPTIONS",
+    headers: {
+      ...commonHeaders,
+      "Access-Control-Request-Method": "POST",
+      "Access-Control-Request-Headers": "content-type",
+    },
+  });
+  expect(
+    preflightResponse.status(),
+    `${origin} mutation preflight status`,
+  ).toBe(204);
+  expect(preflightResponse.headers()["access-control-allow-origin"]).toBe(
+    origin,
+  );
+  const mutationResponse = await page.request.post(mutationUrl, {
+    headers: { ...commonHeaders, "Content-Type": "application/json" },
+    data: { message: "origin contract" },
+  });
+  expect(
+    mutationResponse.status(),
+    `${origin} state-changing request must pass origin protection`,
+  ).not.toBe(403);
+  expect(mutationResponse.headers()["access-control-allow-origin"]).toBe(
+    origin,
+  );
+  expect(mutationResponse.headers()["access-control-allow-credentials"]).toBe(
+    "true",
+  );
 }
 
-async function liveJson(page: Page, path: string): Promise<Record<string, any>> {
+async function expectHostileOriginRejected(page: Page) {
+  const apiBaseUrl = process.env.DASHBOARD_E2E_API_BASE_URL;
+  if (!apiBaseUrl)
+    throw new Error(
+      "DASHBOARD_E2E_API_BASE_URL is required for origin checks.",
+    );
+  const mutationUrl = new URL("/api/ai/chat", apiBaseUrl).toString();
+  const response = await page.request.post(mutationUrl, {
+    headers: {
+      Origin: HOSTILE_ORIGIN,
+      "Content-Type": "application/json",
+    },
+    data: { message: "hostile origin contract" },
+  });
+  expect(response.status()).toBe(403);
+  expect(response.headers()["access-control-allow-origin"]).toBeUndefined();
+  expect(
+    response.headers()["access-control-allow-credentials"],
+  ).toBeUndefined();
+}
+
+function parseSse(body: string): Array<Record<string, unknown>> {
+  return body.split(/\n\n+/).flatMap((chunk) => {
+    const data = chunk
+      .split("\n")
+      .find((line) => line.startsWith("data: "))
+      ?.slice("data: ".length);
+    if (!data) return [];
+    try {
+      const value = JSON.parse(data) as unknown;
+      return value && typeof value === "object"
+        ? [value as Record<string, unknown>]
+        : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+async function liveJson(
+  page: Page,
+  path: string,
+): Promise<Record<string, any>> {
   const response = await liveRequest(page, path);
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(`Live correlation request failed: ${path} (${response.status})`);
+    throw new Error(
+      `Live correlation request failed: ${path} (${response.status})`,
+    );
   }
   return JSON.parse(response.body) as Record<string, any>;
 }
 
-async function liveArray(page: Page, path: string): Promise<Array<Record<string, any>>> {
+async function liveArray(
+  page: Page,
+  path: string,
+): Promise<Array<Record<string, any>>> {
   const response = await liveRequest(page, path);
   if (response.status === 404) return [];
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(`Live correlation request failed: ${path} (${response.status})`);
+    throw new Error(
+      `Live correlation request failed: ${path} (${response.status})`,
+    );
   }
   const value = JSON.parse(response.body);
   return Array.isArray(value) ? value : [];
 }
 
-async function liveOptionalRecord(page: Page, path: string): Promise<Record<string, any> | undefined> {
+async function liveOptionalRecord(
+  page: Page,
+  path: string,
+): Promise<Record<string, any> | undefined> {
   const response = await liveRequest(page, path);
   if (response.status === 404) return undefined;
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(`Live correlation request failed: ${path} (${response.status})`);
+    throw new Error(
+      `Live correlation request failed: ${path} (${response.status})`,
+    );
   }
   const value = JSON.parse(response.body);
   return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, any>
+    ? (value as Record<string, any>)
     : undefined;
 }
 
 test.describe("EngineeringOS dashboard browser journey", () => {
-  test("exports one redacted live-provider mission correlation report", async ({ page }) => {
+  test("exports one redacted live-provider mission correlation report", async ({
+    page,
+  }) => {
     // The Playwright deadline must leave room for the provider-bound request
     // and polling loop to consume their complete configured budget.
     test.setTimeout(liveTimeoutMs() + LIVE_TEST_TIMEOUT_MARGIN_MS);
@@ -758,7 +919,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       "Live-provider release journey is opt-in.",
     );
     const projectId = process.env.DASHBOARD_E2E_LIVE_PROJECT_ID;
-    if (!projectId) throw new Error("DASHBOARD_E2E_LIVE_PROJECT_ID is required for the live-provider journey.");
+    if (!projectId)
+      throw new Error(
+        "DASHBOARD_E2E_LIVE_PROJECT_ID is required for the live-provider journey.",
+      );
 
     await programmaticSignIn(page);
     const streamResponse = await liveRequest(page, "/api/ai/chat/stream", {
@@ -766,50 +930,77 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       timeout: liveTimeoutMs(),
       body: {
         projectId,
-        message: process.env.DASHBOARD_E2E_LIVE_PROMPT
-          ?? DEFAULT_LIVE_PROMPT,
+        message: process.env.DASHBOARD_E2E_LIVE_PROMPT ?? DEFAULT_LIVE_PROMPT,
         idempotencyKey: `dashboard-live-${Date.now()}`,
       },
     });
     if (streamResponse.status < 200 || streamResponse.status >= 300) {
-      throw new Error(`Live-provider mission failed to start (${streamResponse.status}).`);
+      throw new Error(
+        `Live-provider mission failed to start (${streamResponse.status}).`,
+      );
     }
     const sseEvents = parseSse(streamResponse.body);
-    const started = sseEvents.find((event) => event.type === "execution_started");
-    const executionId = typeof started?.executionId === "string" ? started.executionId : undefined;
-    if (!executionId) throw new Error("Live-provider stream did not emit execution_started.");
+    const started = sseEvents.find(
+      (event) => event.type === "execution_started",
+    );
+    const executionId =
+      typeof started?.executionId === "string"
+        ? started.executionId
+        : undefined;
+    if (!executionId)
+      throw new Error("Live-provider stream did not emit execution_started.");
 
     let execution: Record<string, any> = {};
     const deadline = Date.now() + liveTimeoutMs();
     while (Date.now() < deadline) {
       execution = await liveJson(page, `/api/ai/executions/${executionId}`);
-      if (["completed", "failed", "cancelled"].includes(String(execution.status))) break;
+      if (
+        ["completed", "failed", "cancelled"].includes(String(execution.status))
+      )
+        break;
       await new Promise((resolve) => setTimeout(resolve, 750));
     }
-    if (!["completed", "failed", "cancelled"].includes(String(execution.status))) {
-      throw new Error("Live-provider mission did not reach a terminal state within its bound.");
+    if (
+      !["completed", "failed", "cancelled"].includes(String(execution.status))
+    ) {
+      throw new Error(
+        "Live-provider mission did not reach a terminal state within its bound.",
+      );
     }
 
     const sessionId = String(execution.sessionId);
-    const messages = await liveArray(page, `/api/ai/chat/${sessionId}/messages`);
+    const messages = await liveArray(
+      page,
+      `/api/ai/chat/${sessionId}/messages`,
+    );
     const events = await liveArray(
       page,
       `/api/events?projectId=${encodeURIComponent(projectId)}&correlationId=${encodeURIComponent(String(execution.operationId ?? ""))}`,
     );
-    const proposal = await liveOptionalRecord(page, `/api/ai/chat/${sessionId}/pending-proposal`);
+    const proposal = await liveOptionalRecord(
+      page,
+      `/api/ai/chat/${sessionId}/pending-proposal`,
+    );
     const gitLog = await liveJson(page, `/api/projects/${projectId}/git/log`);
     const missionControl = await liveJson(page, "/api/ai/mission-control");
     const dashboardState = await liveJson(page, "/api/dashboard");
-    const checkpoint = execution.checkpoint && typeof execution.checkpoint === "object"
-      ? execution.checkpoint as Record<string, any>
-      : {};
-    const recentSteps = Array.isArray(checkpoint.recentSteps) ? checkpoint.recentSteps : [];
-    const validation = recentSteps.filter((step) => step?.kind === "validation");
+    const checkpoint =
+      execution.checkpoint && typeof execution.checkpoint === "object"
+        ? (execution.checkpoint as Record<string, any>)
+        : {};
+    const recentSteps = Array.isArray(checkpoint.recentSteps)
+      ? checkpoint.recentSteps
+      : [];
+    const validation = recentSteps.filter(
+      (step) => step?.kind === "validation",
+    );
     const evidenceCount = recentSteps.reduce(
       (count, step) => count + (Number(step?.acceptedEvidenceCount) || 0),
       0,
     );
-    const terminalState = String(execution.flightState ?? execution.status).toUpperCase();
+    const terminalState = String(
+      execution.flightState ?? execution.status,
+    ).toUpperCase();
     const successStates = new Set([
       "COMPLETED",
       "READY_FOR_REVIEW",
@@ -823,14 +1014,16 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ) {
       throw new Error(
         `Live-provider mission reported ${terminalState} without accepted evidence and validation ` +
-        `(evidence=${evidenceCount}, validation=${validation.length}).`,
+          `(evidence=${evidenceCount}, validation=${validation.length}).`,
       );
     }
     const capture = {
       projectId,
       sessionId,
       operationId: execution.operationId,
-      workspaceRevision: gitLog.commits?.[0]?.shortHash ?? gitLog.commits?.[0]?.hash?.slice(0, 12),
+      workspaceRevision:
+        gitLog.commits?.[0]?.shortHash ??
+        gitLog.commits?.[0]?.hash?.slice(0, 12),
       terminalState,
       execution: {
         id: execution.id,
@@ -840,32 +1033,77 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         status: execution.status,
         flightState: execution.flightState,
       },
-      messages: messages.map(({ id, sessionId: messageSession, role, executionId: messageExecution, outcome }) => ({
-        id, sessionId: messageSession, role, executionId: messageExecution, outcome,
-      })),
-      sseEvents: sseEvents.map(({ type, executionId: eventExecution, sessionId: eventSession, outcome, code }) => ({
-        type, executionId: eventExecution, sessionId: eventSession, outcome, code,
-      })),
-      checkpoints: [{ sequence: checkpoint.sequence, stage: checkpoint.stage, updatedAt: checkpoint.updatedAt }],
+      messages: messages.map(
+        ({
+          id,
+          sessionId: messageSession,
+          role,
+          executionId: messageExecution,
+          outcome,
+        }) => ({
+          id,
+          sessionId: messageSession,
+          role,
+          executionId: messageExecution,
+          outcome,
+        }),
+      ),
+      sseEvents: sseEvents.map(
+        ({
+          type,
+          executionId: eventExecution,
+          sessionId: eventSession,
+          outcome,
+          code,
+        }) => ({
+          type,
+          executionId: eventExecution,
+          sessionId: eventSession,
+          outcome,
+          code,
+        }),
+      ),
+      checkpoints: [
+        {
+          sequence: checkpoint.sequence,
+          stage: checkpoint.stage,
+          updatedAt: checkpoint.updatedAt,
+        },
+      ],
       evidenceCount,
       proposals: proposal
-        ? [{ id: proposal.id, revision: proposal.revision, status: proposal.status }]
+        ? [
+            {
+              id: proposal.id,
+              revision: proposal.revision,
+              status: proposal.status,
+            },
+          ]
         : [],
       validation: validation.map((step) => ({
         status: step.validation?.status ?? step.status,
         profile: step.validation?.profile ?? step.validationProfile,
       })),
-      events: events.map(({ type, severity, correlationId }) => ({ type, severity, correlationId })),
+      events: events.map(({ type, severity, correlationId }) => ({
+        type,
+        severity,
+        correlationId,
+      })),
       dashboard: missionControl,
       dashboardState: {
         projectCount: dashboardState.projectCount,
         activeTaskCount: dashboardState.activeTaskCount,
       },
     };
-    const outputPath = process.env.DASHBOARD_E2E_LIVE_REPORT_PATH
-      ?? "test-results/dashboard-journey/live-mission-correlation.json";
+    const outputPath =
+      process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+      "test-results/dashboard-journey/live-mission-correlation.json";
     await mkdir(dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, `${JSON.stringify(capture, null, 2)}\n`, "utf8");
+    await writeFile(
+      outputPath,
+      `${JSON.stringify(capture, null, 2)}\n`,
+      "utf8",
+    );
   });
 
   test("signs in and traverses the authenticated operational shell", async ({
@@ -873,6 +1111,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   }) => {
     await installApiFixtures(page);
     await programmaticSignIn(page);
+    for (const origin of approvedDashboardOrigins()) {
+      await expectOriginCanUseApi(page, origin);
+    }
+    await expectHostileOriginRejected(page);
 
     await expect(
       page.getByRole("heading", { name: "System Overview" }),
@@ -957,15 +1199,31 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const streamResponse = await streamResponsePromise;
     expect(streamResponse.status()).toBe(200);
 
-    await expect(page.getByText(fixture.question, { exact: true }).last()).toBeVisible();
-    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
-    await expect(page.getByText("Agent activity", { exact: false })).toBeVisible();
-    await page.locator("summary").filter({ hasText: "Agent activity" }).click();
-    await expect(page.getByText("Reading source", { exact: false })).toBeVisible();
-    await expect(page.getByText(fixture.source, { exact: true }).last()).toBeVisible();
-    await expect(page.getByText(/Behavior evidence · 1 excerpt/i).last()).toBeVisible();
     await expect(
-      page.getByText('return partialFromCollectedEvidence("provider timeout");', { exact: true }).last(),
+      page.getByText(fixture.question, { exact: true }).last(),
+    ).toBeVisible();
+    await expect(
+      page.getByText(fixture.answer, { exact: true }).last(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Agent activity", { exact: false }),
+    ).toBeVisible();
+    await page.locator("summary").filter({ hasText: "Agent activity" }).click();
+    await expect(
+      page.getByText("Reading source", { exact: false }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(fixture.source, { exact: true }).last(),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/Behavior evidence · 1 excerpt/i).last(),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByText('return partialFromCollectedEvidence("provider timeout");', {
+          exact: true,
+        })
+        .last(),
     ).toBeVisible();
 
     const visibleText = await page.locator("body").innerText();
@@ -974,7 +1232,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(visibleText).toContain("The required analysis did not complete.");
   });
 
-  test("keeps the AI session drawer overlaid on a phone viewport", async ({
+  test("keeps the AI session drawer overlaid on a phone viewport with accepted evidence", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -987,17 +1245,37 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await composer.fill(fixture.question);
     await composer.locator("xpath=..").getByRole("button").click();
 
-    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
     await expect(
-      page.getByText("required tool did not complete — BLOCKED/INCOMPLETE", { exact: false }).last(),
+      page.getByText(fixture.answer, { exact: true }).last(),
     ).toBeVisible();
-    await page.locator("summary").filter({ hasText: "Agent activity" }).last().click();
+    await expect(
+      page
+        .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
+          exact: false,
+        })
+        .last(),
+    ).toBeVisible();
+    await page
+      .locator("summary")
+      .filter({ hasText: "Agent activity" })
+      .last()
+      .click();
     await expect(page.locator("body")).toContainText("Reading source");
-    await expect(page.locator("body")).toContainText("src/missing-release-fixture.ts");
+    await expect(page.locator("body")).toContainText(
+      "src/missing-release-fixture.ts",
+    );
     await expect(page.locator("body")).toContainText("Tool failed");
     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-    await page.locator("summary").filter({ hasText: "Persisted execution proof" }).last().click();
-    await expect(page.getByText("required tool failed — operation blocked", { exact: true }).last()).toBeVisible();
+    await page
+      .locator("summary")
+      .filter({ hasText: "Persisted execution proof" })
+      .last()
+      .click();
+    await expect(
+      page
+        .getByText("required tool failed — operation blocked", { exact: true })
+        .last(),
+    ).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
     const visibleText = await page.locator("body").innerText();
@@ -1006,7 +1284,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
   });
 
-  test("keeps safe citation state across browser back and forward navigation", async ({
+  test("keeps safe citation state across browser back and forward navigation with blocked evidence", async ({
     page,
   }) => {
     const accepted = await installArabicAiFixture(page, {
@@ -1018,7 +1296,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       sessionId: "e2e-history-blocked-session",
       question: "ما هو الدليل المحجوب عند الرجوع عبر سجل المتصفح؟",
     });
-    await installApiFixtures(page, { arabicAi: accepted, alternateAi: blocked });
+    await installApiFixtures(page, {
+      arabicAi: accepted,
+      alternateAi: blocked,
+    });
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
 
@@ -1026,17 +1307,37 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await composer.fill(fixture.question);
     await composer.locator("xpath=..").getByRole("button").click();
 
-    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
     await expect(
-      page.getByText("required tool did not complete — BLOCKED/INCOMPLETE", { exact: false }).last(),
+      page.getByText(fixture.answer, { exact: true }).last(),
     ).toBeVisible();
-    await page.locator("summary").filter({ hasText: "Agent activity" }).last().click();
+    await expect(
+      page
+        .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
+          exact: false,
+        })
+        .last(),
+    ).toBeVisible();
+    await page
+      .locator("summary")
+      .filter({ hasText: "Agent activity" })
+      .last()
+      .click();
     await expect(page.locator("body")).toContainText("Reading source");
-    await expect(page.locator("body")).toContainText("src/missing-release-fixture.ts");
+    await expect(page.locator("body")).toContainText(
+      "src/missing-release-fixture.ts",
+    );
     await expect(page.locator("body")).toContainText("Tool failed");
     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-    await page.locator("summary").filter({ hasText: "Persisted execution proof" }).last().click();
-    await expect(page.getByText("required tool failed — operation blocked", { exact: true }).last()).toBeVisible();
+    await page
+      .locator("summary")
+      .filter({ hasText: "Persisted execution proof" })
+      .last()
+      .click();
+    await expect(
+      page
+        .getByText("required tool failed — operation blocked", { exact: true })
+        .last(),
+    ).toBeVisible();
 
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toMatch(
@@ -1044,7 +1345,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
   });
 
-  test("keeps safe citation state across browser back and forward navigation", async ({
+  test("keeps safe citation state when switching projects", async ({
     page,
   }) => {
     const accepted = await installArabicAiFixture(page, {
@@ -1083,33 +1384,57 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
 
-    await page.getByRole("button", { name: accepted.question, exact: true }).click();
-    await expect(page.getByText(accepted.answer, { exact: true }).last()).toBeVisible();
-    await expect(page.getByText(`${accepted.source}:42`, { exact: false }).last()).toBeVisible();
+    await page
+      .getByRole("button", { name: accepted.question, exact: true })
+      .click();
+    await expect(
+      page.getByText(accepted.answer, { exact: true }).last(),
+    ).toBeVisible();
+    await expect(
+      page.getByText(`${accepted.source}:42`, { exact: false }).last(),
+    ).toBeVisible();
     await expect(
       page.getByText("Accepted: source span verified.", { exact: true }).last(),
     ).toBeVisible();
 
     await page.getByRole("combobox").selectOption("e2e-project-two");
-    await expect(page.getByRole("button", { name: blocked.question, exact: true })).toBeVisible();
-    await expect(page.getByText(accepted.answer, { exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: blocked.question, exact: true }).click();
     await expect(
-      page.getByText("Blocked: no matching source text was found.", { exact: true }).last(),
+      page.getByRole("button", { name: blocked.question, exact: true }),
     ).toBeVisible();
-    await expect(page.getByText(`${blocked.source}:42`, { exact: false })).toHaveCount(0);
+    await expect(page.getByText(accepted.answer, { exact: true })).toHaveCount(
+      0,
+    );
+    await page
+      .getByRole("button", { name: blocked.question, exact: true })
+      .click();
+    await expect(
+      page
+        .getByText("Blocked: no matching source text was found.", {
+          exact: true,
+        })
+        .last(),
+    ).toBeVisible();
+    await expect(
+      page.getByText(`${blocked.source}:42`, { exact: false }),
+    ).toHaveCount(0);
     await expect(
       page.getByText("Accepted: source span verified.", { exact: true }),
     ).toHaveCount(0);
 
     await page.getByRole("combobox").selectOption("e2e-project-one");
-    await page.getByRole("button", { name: accepted.question, exact: true }).click();
-    await expect(page.getByText(`${accepted.source}:42`, { exact: false }).last()).toBeVisible();
+    await page
+      .getByRole("button", { name: accepted.question, exact: true })
+      .click();
+    await expect(
+      page.getByText(`${accepted.source}:42`, { exact: false }).last(),
+    ).toBeVisible();
     await expect(
       page.getByText("Accepted: source span verified.", { exact: true }).last(),
     ).toBeVisible();
     await expect(
-      page.getByText("Blocked: no matching source text was found.", { exact: true }),
+      page.getByText("Blocked: no matching source text was found.", {
+        exact: true,
+      }),
     ).toHaveCount(0);
 
     const visibleText = await page.locator("body").innerText();
@@ -1118,7 +1443,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
   });
 
-  test("keeps safe citation state across browser back and forward navigation", async ({
+  test("keeps safe citation state across repeated navigation", async ({
     page,
   }) => {
     const accepted = await installArabicAiFixture(page, {
@@ -1130,25 +1455,42 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       sessionId: "e2e-history-blocked-session",
       question: "ما هو الدليل المحجوب عند الرجوع عبر سجل المتصفح؟",
     });
-    await installApiFixtures(page, { arabicAi: accepted, alternateAi: blocked });
+    await installApiFixtures(page, {
+      arabicAi: accepted,
+      alternateAi: blocked,
+    });
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
 
     const assertAcceptedCitation = async () => {
-      await expect(page.getByText(accepted.answer, { exact: true }).last()).toBeVisible();
-      await expect(page.getByText(`${accepted.source}:42`, { exact: false }).last()).toBeVisible();
       await expect(
-        page.getByText("Accepted: source span verified.", { exact: true }).last(),
+        page.getByText(accepted.answer, { exact: true }).last(),
       ).toBeVisible();
       await expect(
-        page.getByText("Blocked: no matching source text was found.", { exact: true }),
+        page.getByText(`${accepted.source}:42`, { exact: false }).last(),
+      ).toBeVisible();
+      await expect(
+        page
+          .getByText("Accepted: source span verified.", { exact: true })
+          .last(),
+      ).toBeVisible();
+      await expect(
+        page.getByText("Blocked: no matching source text was found.", {
+          exact: true,
+        }),
       ).toHaveCount(0);
     };
     const assertBlockedCitation = async () => {
       await expect(
-        page.getByText("Blocked: no matching source text was found.", { exact: true }).last(),
+        page
+          .getByText("Blocked: no matching source text was found.", {
+            exact: true,
+          })
+          .last(),
       ).toBeVisible();
-      await expect(page.getByText(`${blocked.source}:42`, { exact: false })).toHaveCount(0);
+      await expect(
+        page.getByText(`${blocked.source}:42`, { exact: false }),
+      ).toHaveCount(0);
       await expect(
         page.getByText("Accepted: source span verified.", { exact: true }),
       ).toHaveCount(0);
@@ -1160,13 +1502,19 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       );
     };
 
-    await page.getByRole("button", { name: accepted.question, exact: true }).click();
+    await page
+      .getByRole("button", { name: accepted.question, exact: true })
+      .click();
     await assertAcceptedCitation();
 
     await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
     await page.goBack();
-    await expect(page).toHaveURL(new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`));
-    await page.getByRole("button", { name: accepted.question, exact: true }).click();
+    await expect(page).toHaveURL(
+      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
+    );
+    await page
+      .getByRole("button", { name: accepted.question, exact: true })
+      .click();
     await assertAcceptedCitation();
     await assertNoInternalCitationDetails();
 
@@ -1175,17 +1523,27 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}projects$`),
     );
     await page.goBack();
-    await expect(page).toHaveURL(new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`));
-    await page.getByRole("button", { name: accepted.question, exact: true }).click();
+    await expect(page).toHaveURL(
+      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
+    );
+    await page
+      .getByRole("button", { name: accepted.question, exact: true })
+      .click();
     await assertAcceptedCitation();
 
-    await page.getByRole("button", { name: blocked.question, exact: true }).click();
+    await page
+      .getByRole("button", { name: blocked.question, exact: true })
+      .click();
     await assertBlockedCitation();
 
     await openNavigation(page, "Event Stream", `${DASHBOARD_PATH}events`);
     await page.goBack();
-    await expect(page).toHaveURL(new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`));
-    await page.getByRole("button", { name: blocked.question, exact: true }).click();
+    await expect(page).toHaveURL(
+      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
+    );
+    await page
+      .getByRole("button", { name: blocked.question, exact: true })
+      .click();
     await assertBlockedCitation();
     await assertNoInternalCitationDetails();
 
@@ -1194,8 +1552,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}events$`),
     );
     await page.goBack();
-    await expect(page).toHaveURL(new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`));
-    await page.getByRole("button", { name: blocked.question, exact: true }).click();
+    await expect(page).toHaveURL(
+      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
+    );
+    await page
+      .getByRole("button", { name: blocked.question, exact: true })
+      .click();
     await assertBlockedCitation();
     await assertNoInternalCitationDetails();
   });
@@ -1212,17 +1574,37 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await composer.fill(fixture.question);
     await composer.locator("xpath=..").getByRole("button").click();
 
-    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
     await expect(
-      page.getByText("required tool did not complete — BLOCKED/INCOMPLETE", { exact: false }).last(),
+      page.getByText(fixture.answer, { exact: true }).last(),
     ).toBeVisible();
-    await page.locator("summary").filter({ hasText: "Agent activity" }).last().click();
+    await expect(
+      page
+        .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
+          exact: false,
+        })
+        .last(),
+    ).toBeVisible();
+    await page
+      .locator("summary")
+      .filter({ hasText: "Agent activity" })
+      .last()
+      .click();
     await expect(page.locator("body")).toContainText("Reading source");
-    await expect(page.locator("body")).toContainText("src/missing-release-fixture.ts");
+    await expect(page.locator("body")).toContainText(
+      "src/missing-release-fixture.ts",
+    );
     await expect(page.locator("body")).toContainText("Tool failed");
     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-    await page.locator("summary").filter({ hasText: "Persisted execution proof" }).last().click();
-    await expect(page.getByText("required tool failed — operation blocked", { exact: true }).last()).toBeVisible();
+    await page
+      .locator("summary")
+      .filter({ hasText: "Persisted execution proof" })
+      .last()
+      .click();
+    await expect(
+      page
+        .getByText("required tool failed — operation blocked", { exact: true })
+        .last(),
+    ).toBeVisible();
 
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toContain("COMPLETED");
@@ -1230,7 +1612,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(visibleText).toContain("The required analysis did not complete.");
   });
 
-  test("keeps the AI session drawer overlaid on a phone viewport", async ({
+  test("keeps the failed AI session drawer overlaid on a phone viewport", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -1243,39 +1625,85 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await composer.fill(fixture.question);
     await composer.locator("xpath=..").getByRole("button").click();
 
-    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
     await expect(
-      page.getByText("required tool did not complete — BLOCKED/INCOMPLETE", { exact: false }).last(),
+      page.getByText(fixture.answer, { exact: true }).last(),
     ).toBeVisible();
-    await page.locator("summary").filter({ hasText: "Agent activity" }).last().click();
+    await expect(
+      page
+        .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
+          exact: false,
+        })
+        .last(),
+    ).toBeVisible();
+    await page
+      .locator("summary")
+      .filter({ hasText: "Agent activity" })
+      .last()
+      .click();
     await expect(page.locator("body")).toContainText("Reading source");
-    await expect(page.locator("body")).toContainText("src/missing-release-fixture.ts");
+    await expect(page.locator("body")).toContainText(
+      "src/missing-release-fixture.ts",
+    );
     await expect(page.locator("body")).toContainText("Tool failed");
     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-    await page.locator("summary").filter({ hasText: "Persisted execution proof" }).last().click();
-    await expect(page.getByText("required tool failed — operation blocked", { exact: true }).last()).toBeVisible();
+    await page
+      .locator("summary")
+      .filter({ hasText: "Persisted execution proof" })
+      .last()
+      .click();
+    await expect(
+      page
+        .getByText("required tool failed — operation blocked", { exact: true })
+        .last(),
+    ).toBeVisible();
 
     const visibleText = await page.locator("body").innerText();
-    expect(visibleText).not.toMatch(/raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i);
+    expect(visibleText).not.toMatch(
+      /raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i,
+    );
 
     await page.reload();
-    await page.getByRole("button", { name: fixture.question, exact: true }).click();
+    await page
+      .getByRole("button", { name: fixture.question, exact: true })
+      .click();
 
-    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
     await expect(
-      page.getByText("required tool did not complete — BLOCKED/INCOMPLETE", { exact: false }).last(),
+      page.getByText(fixture.answer, { exact: true }).last(),
     ).toBeVisible();
-    await page.locator("summary").filter({ hasText: "Agent activity" }).last().click();
+    await expect(
+      page
+        .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
+          exact: false,
+        })
+        .last(),
+    ).toBeVisible();
+    await page
+      .locator("summary")
+      .filter({ hasText: "Agent activity" })
+      .last()
+      .click();
     await expect(page.locator("body")).toContainText("Reading source");
-    await expect(page.locator("body")).toContainText("src/missing-release-fixture.ts");
+    await expect(page.locator("body")).toContainText(
+      "src/missing-release-fixture.ts",
+    );
     await expect(page.locator("body")).toContainText("Tool failed");
     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-    await page.locator("summary").filter({ hasText: "Persisted execution proof" }).last().click();
-    await expect(page.getByText("required tool failed — operation blocked", { exact: true }).last()).toBeVisible();
+    await page
+      .locator("summary")
+      .filter({ hasText: "Persisted execution proof" })
+      .last()
+      .click();
+    await expect(
+      page
+        .getByText("required tool failed — operation blocked", { exact: true })
+        .last(),
+    ).toBeVisible();
 
     const reloadedText = await page.locator("body").innerText();
     await expectNoHorizontalOverflow(page);
-    expect(reloadedText).not.toMatch(/raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i);
+    expect(reloadedText).not.toMatch(
+      /raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i,
+    );
   });
 
   test("preserves one partial answer after a provider disconnect and marks it incomplete", async ({
@@ -1301,13 +1729,19 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByText("stopped: provider timeout", { exact: false }).last(),
     ).toBeVisible();
     await expect(
-      page.getByText("The provider disconnected after visible response text.", { exact: true }),
+      page.getByText("The provider disconnected after visible response text.", {
+        exact: true,
+      }),
     ).toBeVisible();
 
     await page.reload();
-    await page.getByRole("button", { name: fixture.question, exact: true }).click();
+    await page
+      .getByRole("button", { name: fixture.question, exact: true })
+      .click();
 
-    await expect(page.getByText(fixture.answer, { exact: true })).toHaveCount(1);
+    await expect(page.getByText(fixture.answer, { exact: true })).toHaveCount(
+      1,
+    );
     await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
     await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
     await expect(
@@ -1317,11 +1751,15 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByText("stopped: provider timeout", { exact: false }).last(),
     ).toBeVisible();
     await expect(
-      page.getByText("The provider disconnected after visible response text.", { exact: true }),
+      page.getByText("The provider disconnected after visible response text.", {
+        exact: true,
+      }),
     ).toBeVisible();
   });
 
-  test("resumes a failed analysis and keeps the execution incomplete", async ({ page }) => {
+  test("resumes a failed analysis and keeps the execution incomplete", async ({
+    page,
+  }) => {
     const { fixture, execution } = installResumedAnalysisFailureFixture();
     await installApiFixtures(page, {
       arabicAi: fixture,
@@ -1329,45 +1767,68 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     });
     await programmaticSignIn(page);
 
-    await page.evaluate(({ sessionId, executionId, projectId, resumeToken, message }) => {
-      localStorage.setItem(`eos_ai_execution_current_${projectId}`, sessionId);
-      localStorage.setItem(
-        `eos_ai_execution_${projectId}_${sessionId}`,
-        JSON.stringify({ id: executionId, projectId, sessionId, resumeToken, message }),
-      );
-    }, {
-      sessionId: fixture.sessionId,
-      executionId: fixture.executionId,
-      projectId: "e2e-project",
-      resumeToken: "e2e-resumed-analysis-failure-token-opaque",
-      message: fixture.question,
-    });
+    await page.evaluate(
+      ({ sessionId, executionId, projectId, resumeToken, message }) => {
+        localStorage.setItem(
+          `eos_ai_execution_current_${projectId}`,
+          sessionId,
+        );
+        localStorage.setItem(
+          `eos_ai_execution_${projectId}_${sessionId}`,
+          JSON.stringify({
+            id: executionId,
+            projectId,
+            sessionId,
+            resumeToken,
+            message,
+          }),
+        );
+      },
+      {
+        sessionId: fixture.sessionId,
+        executionId: fixture.executionId,
+        projectId: "e2e-project",
+        resumeToken: "e2e-resumed-analysis-failure-token-opaque",
+        message: fixture.question,
+      },
+    );
     await page.goto(`${DASHBOARD_PATH}ai`);
 
-    await expect(page.getByText("A saved AI execution is ready to resume")).toBeVisible();
-    const resumeRequest = page.waitForRequest((request) =>
-      request.url().includes("/api/ai/chat/stream") &&
-      request.method() === "POST",
+    await expect(
+      page.getByText("A saved AI execution is ready to resume"),
+    ).toBeVisible();
+    const resumeRequest = page.waitForRequest(
+      (request) =>
+        request.url().includes("/api/ai/chat/stream") &&
+        request.method() === "POST",
     );
     await page.getByRole("button", { name: "Resume", exact: true }).click();
-    const requestBody = JSON.parse((await resumeRequest).postData() ?? "{}") as Record<string, unknown>;
-    expect(requestBody).toEqual(expect.objectContaining({
-      projectId: "e2e-project",
-      sessionId: fixture.sessionId,
-      executionId: fixture.executionId,
-      resumeToken: "e2e-resumed-analysis-failure-token-opaque",
-      message: fixture.question,
-    }));
+    const requestBody = JSON.parse(
+      (await resumeRequest).postData() ?? "{}",
+    ) as Record<string, unknown>;
+    expect(requestBody).toEqual(
+      expect.objectContaining({
+        projectId: "e2e-project",
+        sessionId: fixture.sessionId,
+        executionId: fixture.executionId,
+        resumeToken: "e2e-resumed-analysis-failure-token-opaque",
+        message: fixture.question,
+      }),
+    );
 
-    await expect(page.getByText("Failed to send message", { exact: true })).toBeVisible();
-    await expect(page.getByText("A saved AI execution is ready to resume")).toBeVisible();
+    await expect(
+      page.getByText("Failed to send message", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("A saved AI execution is ready to resume"),
+    ).toBeVisible();
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toContain("COMPLETED");
     expect(visibleText).not.toContain("Persisted execution proof");
     expect(visibleText).toContain("The required analysis did not complete.");
   });
 
-  test("keeps the AI session drawer overlaid on a phone viewport", async ({
+  test("keeps the resumed AI session drawer overlaid on a phone viewport", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -1383,14 +1844,19 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await page.getByRole("button", { name: "Open sessions" }).click();
     await expect(page.getByText("Sessions", { exact: true })).toBeVisible();
-    const drawer = page.getByText("Sessions", { exact: true }).locator("..").locator("..");
+    const drawer = page
+      .getByText("Sessions", { exact: true })
+      .locator("..")
+      .locator("..");
     const drawerBox = await drawer.boundingBox();
     expect(drawerBox?.width).toBeLessThanOrEqual(390);
     const duringOpen = await composer.boundingBox();
     expect(duringOpen?.width).toBeGreaterThan(250);
 
     await page.getByRole("button", { name: "Close sidebar" }).click();
-    await expect(page.getByRole("button", { name: "Open sessions" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Open sessions" }),
+    ).toBeVisible();
     await expectNoHorizontalOverflow(page);
   });
 

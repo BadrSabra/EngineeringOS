@@ -4,7 +4,10 @@ import test from "node:test";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
-const journeyPath = resolve(root, "artifacts/dashboard/e2e/dashboard.journey.ts");
+const journeyPath = resolve(
+  root,
+  "artifacts/dashboard/e2e/dashboard.journey.ts",
+);
 const runnerPath = resolve(root, "scripts/run-dashboard-journey.mjs");
 
 const [journeySource, runnerSource] = await Promise.all([
@@ -13,9 +16,7 @@ const [journeySource, runnerSource] = await Promise.all([
 ]);
 
 function constant(source, name) {
-  const match = source.match(
-    new RegExp(`const ${name} = ([0-9_]+);`),
-  );
+  const match = source.match(new RegExp(`const ${name} = ([0-9_]+);`));
   assert.ok(match, `Expected ${name} to remain a numeric constant.`);
   return Number(match[1].replaceAll("_", ""));
 }
@@ -30,7 +31,10 @@ function runnerDefaultTimeout(source) {
 
 test("live journey timeout has Playwright headroom", () => {
   const providerTimeout = constant(journeySource, "DEFAULT_LIVE_TIMEOUT_MS");
-  const testTimeoutMargin = constant(journeySource, "LIVE_TEST_TIMEOUT_MARGIN_MS");
+  const testTimeoutMargin = constant(
+    journeySource,
+    "LIVE_TEST_TIMEOUT_MARGIN_MS",
+  );
   const runnerTimeout = runnerDefaultTimeout(runnerSource);
 
   assert.equal(
@@ -69,7 +73,10 @@ test("the standard release journey remains provider-free", () => {
   const browserEnvironment = runnerSource.match(
     /const child = spawn\([\s\S]*?env:\s*\{([\s\S]*?)\n\s*\},\s*\n\s*stdio:/,
   );
-  assert.ok(browserEnvironment, "Could not locate the browser journey environment.");
+  assert.ok(
+    browserEnvironment,
+    "Could not locate the browser journey environment.",
+  );
   assert.doesNotMatch(
     browserEnvironment[1],
     /DASHBOARD_E2E_LIVE_PROVIDER\s*:/,
@@ -202,5 +209,38 @@ test("release output reports redacted proof counts and non-success status", () =
     runnerSource,
     /console\.log\(formatMissionCorrelationSummary\(report\)\)/,
     "The release runner must print the validated summary.",
+  );
+});
+
+test("release journey passes the complete approved origin list to API and browser checks", () => {
+  assert.match(
+    runnerSource,
+    /const approvedDashboardOrigins = \(process\.env\.APP_ORIGINS \?\? ""\)/,
+    "The release runner must derive checks from the configured APP_ORIGINS list.",
+  );
+  assert.match(
+    runnerSource,
+    /APP_ORIGINS: approvedDashboardOrigins\.join\(","\)/,
+    "The release API must receive the same approved origin list.",
+  );
+  assert.match(
+    runnerSource,
+    /DASHBOARD_E2E_APPROVED_ORIGINS: approvedDashboardOrigins\.join\(","\)/,
+    "Playwright must receive the same approved origin list.",
+  );
+  assert.match(
+    journeySource,
+    /for \(const origin of approvedDashboardOrigins\(\)\)/,
+    "The browser journey must check every approved origin.",
+  );
+  assert.match(
+    journeySource,
+    /credentials.*allow-origin|access-control-allow-credentials/,
+    "Approved-origin checks must verify credentialed CORS permission.",
+  );
+  assert.match(
+    journeySource,
+    /HOSTILE_ORIGIN[\s\S]*status\(\)\)\.toBe\(403\)/,
+    "The browser journey must reject hostile state-changing origins.",
   );
 });

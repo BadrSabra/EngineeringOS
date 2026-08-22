@@ -36,6 +36,15 @@ const timeoutMs = Number(
 const liveTimeoutMs = Number(
   process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
 );
+const approvedDashboardOrigins = (process.env.APP_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+if (approvedDashboardOrigins.length === 0) {
+  throw new Error(
+    "APP_ORIGINS must contain every approved dashboard origin for the release journey.",
+  );
+}
 const workspaceRoot = resolve(new URL("..", import.meta.url).pathname);
 const outputDir = resolve(
   process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
@@ -392,7 +401,11 @@ async function startReleaseServices() {
     "API release service",
     "node",
     ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
-    { NODE_ENV: "development", PORT: String(apiPort) },
+    {
+      NODE_ENV: "development",
+      PORT: String(apiPort),
+      APP_ORIGINS: approvedDashboardOrigins.join(","),
+    },
     apiPort,
   );
   /*
@@ -716,6 +729,7 @@ try {
           DASHBOARD_E2E_API_BASE_URL:
             process.env.DASHBOARD_E2E_API_BASE_URL ?? dashboardBaseUrl,
           DASHBOARD_E2E_EMAIL: testEmail,
+          DASHBOARD_E2E_APPROVED_ORIGINS: approvedDashboardOrigins.join(","),
           DASHBOARD_E2E_EXECUTABLE_PATH:
             process.env.DASHBOARD_E2E_EXECUTABLE_PATH,
           PLAYWRIGHT_OUTPUT_DIR: outputDir,
