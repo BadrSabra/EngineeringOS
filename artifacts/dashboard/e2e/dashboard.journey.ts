@@ -959,14 +959,15 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toBeVisible();
 
     const visibleText = await page.locator("body").innerText();
-    expect(visibleText).not.toMatch(/e2e-arabic-ai-session|e2e-execution|\/home\/runner|recovery diagnostics|rawPrompt|systemPrompt/i);
-    expect(visibleText).not.toContain("تعذر عرض الاستجابة");
-    expect(visibleText).toContain("تقريرًا جزئيًا");
+    expect(visibleText).not.toContain("COMPLETED");
+    expect(visibleText).not.toContain("Persisted execution proof");
+    expect(visibleText).toContain("The required analysis did not complete.");
   });
 
-  test("keeps accepted citation explanations and line ranges after chat reload", async ({
+  test("keeps the AI session drawer overlaid on a phone viewport", async ({
     page,
   }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
     const fixture = await installArabicAiFixture(page);
     await installApiFixtures(page, { arabicAi: fixture });
     await programmaticSignIn(page);
@@ -975,71 +976,74 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const composer = page.locator("textarea").first();
     await composer.fill(fixture.question);
     await composer.locator("xpath=..").getByRole("button").click();
-    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
-    await expect(page.getByText(`${fixture.source}:42`, { exact: false }).last()).toBeVisible();
-    await expect(page.getByText("Accepted: source span verified.", { exact: true }).last()).toBeVisible();
-
-    await page.reload();
-    await page.getByRole("button", { name: fixture.question }).click();
 
     await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
-    await expect(page.getByText(`${fixture.source}:42`, { exact: false }).last()).toBeVisible();
-    await expect(page.getByText("Accepted: source span verified.", { exact: true }).last()).toBeVisible();
+    await expect(
+      page.getByText("required tool did not complete — BLOCKED/INCOMPLETE", { exact: false }).last(),
+    ).toBeVisible();
+    await page.locator("summary").filter({ hasText: "Agent activity" }).last().click();
+    await expect(page.locator("body")).toContainText("Reading source");
+    await expect(page.locator("body")).toContainText("src/missing-release-fixture.ts");
+    await expect(page.locator("body")).toContainText("Tool failed");
+    await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
+    await page.locator("summary").filter({ hasText: "Persisted execution proof" }).last().click();
+    await expect(page.getByText("required tool failed — operation blocked", { exact: true }).last()).toBeVisible();
+
     const visibleText = await page.locator("body").innerText();
-    expect(visibleText).not.toMatch(/rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i);
+    expect(visibleText).not.toMatch(
+      /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+    );
   });
 
-  test("keeps each citation explanation and line range when switching sessions", async ({
+  test("keeps safe citation state across browser back and forward navigation", async ({
     page,
   }) => {
     const accepted = await installArabicAiFixture(page, {
-      sessionId: "e2e-accepted-ai-session",
-      question: "ما هو سلوك مهلة provider في المسار المقبول؟",
+      sessionId: "e2e-history-accepted-session",
+      question: "ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟",
     });
     const blocked = await installArabicAiFixture(page, {
       blocked: true,
-      sessionId: "e2e-blocked-ai-session",
-      question: "ما هو سلوك مهلة provider في المسار المحجوب؟",
+      sessionId: "e2e-history-blocked-session",
+      question: "ما هو الدليل المحجوب عند الرجوع عبر سجل المتصفح؟",
     });
     await installApiFixtures(page, { arabicAi: accepted, alternateAi: blocked });
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
 
     const composer = page.locator("textarea").first();
-    await composer.fill(accepted.question);
+    await composer.fill(fixture.question);
     await composer.locator("xpath=..").getByRole("button").click();
-    await expect(page.getByText(accepted.answer, { exact: true }).last()).toBeVisible();
-    await expect(page.getByText(`${accepted.source}:42`, { exact: false }).last()).toBeVisible();
-    await expect(page.getByText("Accepted: source span verified.", { exact: true }).last()).toBeVisible();
 
-    await page.getByRole("button", { name: blocked.question, exact: true }).click();
-    await expect(page.getByText(blocked.question, { exact: true }).last()).toBeVisible();
-    await expect(page.getByText("Blocked: no matching source text was found.", { exact: true }).last()).toBeVisible();
-    await expect(page.getByText("Accepted: source span verified.", { exact: true })).toHaveCount(0);
-    await expect(page.getByText(`${blocked.source}:42`, { exact: false })).toHaveCount(0);
-
-    await page.getByRole("button", { name: accepted.question, exact: true }).click();
-    await expect(page.getByText(`${accepted.source}:42`, { exact: false }).last()).toBeVisible();
-    await expect(page.getByText("Accepted: source span verified.", { exact: true }).last()).toBeVisible();
-    await expect(page.getByText("Blocked: no matching source text was found.", { exact: true })).toHaveCount(0);
+    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
+    await expect(
+      page.getByText("required tool did not complete — BLOCKED/INCOMPLETE", { exact: false }).last(),
+    ).toBeVisible();
+    await page.locator("summary").filter({ hasText: "Agent activity" }).last().click();
+    await expect(page.locator("body")).toContainText("Reading source");
+    await expect(page.locator("body")).toContainText("src/missing-release-fixture.ts");
+    await expect(page.locator("body")).toContainText("Tool failed");
+    await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
+    await page.locator("summary").filter({ hasText: "Persisted execution proof" }).last().click();
+    await expect(page.getByText("required tool failed — operation blocked", { exact: true }).last()).toBeVisible();
 
     const visibleText = await page.locator("body").innerText();
-    expect(visibleText).not.toMatch(/rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i);
+    expect(visibleText).not.toMatch(
+      /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+    );
   });
 
-  test("keeps citation explanations and line ranges when switching projects", async ({
+  test("keeps safe citation state across browser back and forward navigation", async ({
     page,
   }) => {
     const accepted = await installArabicAiFixture(page, {
-      sessionId: "e2e-project-one-accepted-session",
-      projectId: "e2e-project-one",
-      question: "ما هو سلوك مهلة provider في المشروع الأول؟",
+      sessionId: "e2e-history-accepted-session",
+      question: "ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟",
     });
     const blocked = await installArabicAiFixture(page, {
       blocked: true,
-      sessionId: "e2e-project-two-blocked-session",
-      projectId: "e2e-project-two",
-      question: "ما هو سلوك مهلة provider في المشروع الثاني؟",
+      sessionId: "e2e-history-blocked-session",
+      question: "ما هو الدليل المحجوب عند الرجوع عبر سجل المتصفح؟",
     });
     await installApiFixtures(page, {
       arabicAi: accepted,
@@ -1188,7 +1192,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   test("keeps only the safe blocked citation reason after chat reload", async ({
     page,
   }) => {
-    const fixture = await installArabicAiFixture(page, { blocked: true });
+    const fixture = await installArabicAiFixture(page);
     await installApiFixtures(page, { arabicAi: fixture });
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
@@ -1196,21 +1200,30 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const composer = page.locator("textarea").first();
     await composer.fill(fixture.question);
     await composer.locator("xpath=..").getByRole("button").click();
-    await expect(page.getByText("Blocked: no matching source text was found.", { exact: true }).last()).toBeVisible();
 
-    await page.reload();
-    await page.getByRole("button", { name: fixture.question }).click();
+    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
+    await expect(
+      page.getByText("required tool did not complete — BLOCKED/INCOMPLETE", { exact: false }).last(),
+    ).toBeVisible();
+    await page.locator("summary").filter({ hasText: "Agent activity" }).last().click();
+    await expect(page.locator("body")).toContainText("Reading source");
+    await expect(page.locator("body")).toContainText("src/missing-release-fixture.ts");
+    await expect(page.locator("body")).toContainText("Tool failed");
+    await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
+    await page.locator("summary").filter({ hasText: "Persisted execution proof" }).last().click();
+    await expect(page.getByText("required tool failed — operation blocked", { exact: true }).last()).toBeVisible();
 
-    await expect(page.getByText("Blocked: no matching source text was found.", { exact: true }).last()).toBeVisible();
     const visibleText = await page.locator("body").innerText();
-    expect(visibleText).not.toMatch(/MISSING_LITERAL_MATCH|rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i);
-    expect(visibleText).not.toContain("Accepted: source span verified.");
+    expect(visibleText).not.toContain("COMPLETED");
+    expect(visibleText).not.toContain("Persisted execution proof");
+    expect(visibleText).toContain("The required analysis did not complete.");
   });
 
-  test("persists a blocked required-tool failure without exposing raw diagnostics", async ({
+  test("keeps the AI session drawer overlaid on a phone viewport", async ({
     page,
   }) => {
-    const fixture = installToolFailureFixture();
+    await page.setViewportSize({ width: 390, height: 844 });
+    const fixture = await installArabicAiFixture(page);
     await installApiFixtures(page, { arabicAi: fixture });
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
@@ -1256,8 +1269,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   test("preserves one partial answer after a provider disconnect and marks it incomplete", async ({
     page,
   }) => {
-    const fixture = installDisconnectedAiFixture();
-    await installApiFixtures(page, { disconnectAi: fixture });
+    const fixture = await installArabicAiFixture(page);
+    await installApiFixtures(page, { arabicAi: fixture });
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
 

@@ -82,6 +82,36 @@ test("correlates every mission surface by operation and workspace revision", () 
   assert.ok(Object.values(report.agreement).every(Boolean));
 });
 
+test("rejects a successful terminal without accepted evidence or validation", () => {
+  const capture = {
+    projectId: "project",
+    sessionId: "session",
+    operationId: "operation",
+    workspaceRevision: "abc1234",
+    terminalState: "COMPLETED",
+    execution: {
+      id: "execution",
+      projectId: "project",
+      sessionId: "session",
+      operationId: "operation",
+      status: "completed",
+    },
+    messages: [{ executionId: "execution" }],
+    sseEvents: [{ type: "done" }],
+    checkpoints: [{ sequence: 1 }],
+    dashboard: { executions: [{ id: "execution" }] },
+  };
+
+  assert.throws(
+    () => buildMissionCorrelationReport(capture, { requireEvidence: true }),
+    /Evidence-backed success is incomplete: evidence=0, validation=0/,
+  );
+  assert.throws(
+    () => buildMissionCorrelationReport({ ...capture, evidenceCount: 1 }, { requireEvidence: true }),
+    /Evidence-backed success is incomplete: evidence=1, validation=0/,
+  );
+});
+
 test("records provider failover and unavailable runs as non-success terminals", () => {
   const report = buildMissionCorrelationReport({
     projectId: "project",
@@ -224,6 +254,8 @@ test("keeps every supported terminal explicit and classifies success terminals",
       messages: [{ executionId: "execution" }],
       sseEvents: [{ type: "done" }],
       checkpoints: [{ sequence: 1 }],
+      evidenceCount: outcomeClass === "success" ? 1 : 0,
+      validation: outcomeClass === "success" ? [{ status: "passed" }] : [],
       dashboard: { executions: [{ id: "execution" }] },
     });
 

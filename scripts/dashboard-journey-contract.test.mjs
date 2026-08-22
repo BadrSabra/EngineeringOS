@@ -77,6 +77,29 @@ test("the standard release journey remains provider-free", () => {
   );
 });
 
+test("the opt-in live journey requests and captures forensic proof", () => {
+  assert.match(
+    journeySource,
+    /Perform a bounded forensic audit of this disposable project using read-only tools/,
+    "The live journey must use an explicit forensic objective.",
+  );
+  assert.match(
+    journeySource,
+    /at least one accepted evidence item and one validation checkpoint/,
+    "The live objective must require both proof surfaces.",
+  );
+  assert.match(
+    journeySource,
+    /evidenceCount/,
+    "The live report capture must include accepted evidence.",
+  );
+  assert.match(
+    journeySource,
+    /const validation = recentSteps\.filter/,
+    "The live report capture must include validation checkpoints.",
+  );
+});
+
 test("runs the mission correlation report contract before browser startup", () => {
   assert.match(
     runnerSource,

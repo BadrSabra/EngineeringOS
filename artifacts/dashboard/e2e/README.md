@@ -73,6 +73,11 @@ SSE events, execution checkpoints, evidence, proposals, validation, and
 Mission Control state. `COMPLETED`-class states are success; provider
 failover, unavailable, failed, and cancelled terminals are retained as
 explicit non-success outcomes rather than being treated as passing runs.
+The live objective is an explicit, bounded forensic review of
+`scripts/mission-correlation-report.mjs`, requiring at least one accepted
+evidence item and one validation checkpoint. A successful `COMPLETED` report
+is rejected if either proof surface is empty; provider-unavailable, blocked,
+cancelled, failed, and otherwise incomplete outcomes remain non-success.
 
 ## Failure diagnostics
 

@@ -100,13 +100,14 @@ export function buildMissionCorrelationReport(input, options = {}) {
   }
 
   const success = ["COMPLETED", "READY_FOR_REVIEW", "APPLIED", "COMMITTED", "PUSHED"].includes(terminalState);
+  const evidenceCount = Number(input.evidenceCount ?? 0);
   if (
     options.requireEvidence === true &&
     success &&
-    (Number(input.evidenceCount ?? 0) < 1 || validation.length < 1)
+    (!Number.isFinite(evidenceCount) || evidenceCount < 1 || validation.length < 1)
   ) {
     throw new Error(
-      `Evidence-backed success is incomplete: evidence=${Number(input.evidenceCount ?? 0)}, ` +
+      `Evidence-backed success is incomplete: evidence=${evidenceCount}, ` +
       `validation=${validation.length}.`,
     );
   }
@@ -124,14 +125,14 @@ export function buildMissionCorrelationReport(input, options = {}) {
       messages: messages.length,
       sseEvents: Array.isArray(input.sseEvents) ? input.sseEvents.length : 0,
       executionCheckpoints: checkpoints.length,
-      evidence: Number(input.evidenceCount ?? 0),
+      evidence: evidenceCount,
       proposals: proposals.length,
       validation: validation.length,
       correlatedEvents: events.length,
     },
     agreement: {
       ...coreAgreement,
-      evidence: Number(input.evidenceCount ?? 0) > 0 || !success,
+      evidence: evidenceCount > 0 || !success,
       proposals: proposals.length > 0 || !success,
       validation: validation.length > 0 || !success,
       dashboard: Boolean(missionExecution),
