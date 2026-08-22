@@ -1,12 +1,14 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
-import { db, projectsTable } from "@workspace/db";
+import { db, pool, projectsTable } from "@workspace/db";
 import { randomUUID } from "crypto";
 import {
   reportDeadRootPaths,
   retainHistoricalCheckpoint,
   retainHistoricalValidationMetadata,
   scrubHistoricalValidationRecord,
+  getAiDiagnosticsRetentionHealth,
+  pruneHistoricalAiDiagnostics,
 } from "./startup-migrations";
 
 async function insertProject(rootPath: string): Promise<string> {
@@ -165,6 +167,40 @@ describe("scrubHistoricalValidationRecord", () => {
 });
 
 describe("historical AI diagnostic retention", () => {
+  it("reports a successful no-op sweep with bounded counts and timestamps", async () => {
+    const runAt = new Date("2026-08-22T00:00:00.000Z");
+    await pruneHistoricalAiDiagnostics(runAt);
+
+    expect(getAiDiagnosticsRetentionHealth()).toEqual({
+      status: "success",
+      attemptedAt: runAt.toISOString(),
+      completedAt: runAt.toISOString(),
+      chatRowsScanned: expect.any(Number),
+      chatRowsPruned: expect.any(Number),
+      executionRowsScanned: expect.any(Number),
+      executionRowsPruned: expect.any(Number),
+    });
+  });
+
+  it("reports a failed sweep without exposing the error and leaves it retryable", async () => {
+    const query = vi.spyOn(pool, "query").mockRejectedValueOnce(new Error("database details"));
+    const runAt = new Date("2026-08-22T01:00:00.000Z");
+
+    await expect(pruneHistoricalAiDiagnostics(runAt)).resolves.toBeUndefined();
+
+    expect(getAiDiagnosticsRetentionHealth()).toEqual({
+      status: "failed",
+      attemptedAt: runAt.toISOString(),
+      completedAt: null,
+      chatRowsScanned: 0,
+      chatRowsPruned: 0,
+      executionRowsScanned: 0,
+      executionRowsPruned: 0,
+    });
+    expect(JSON.stringify(getAiDiagnosticsRetentionHealth())).not.toContain("database details");
+    query.mockRestore();
+  });
+
   it("retains proof and exit metadata while dropping arbitrary trace data", () => {
     const trace = [
       { kind: "tool_result", tool: "read_file", resultSummary: "private source" },

@@ -47,6 +47,8 @@ export * from './aiCodeIssueSeverity';
 export * from './aiCodeIssueType';
 export * from './aiCodeReview';
 export * from './aiCodeReviewVerdict';
+export * from './aiDiagnosticsRetentionHealth';
+export * from './aiDiagnosticsRetentionHealthStatus';
 export * from './aiFileContent';
 export * from './aiFileContentLine';
 export * from './aiFilePatchHunk';

@@ -21,7 +21,16 @@ export const GetHealthResponse = zod.object({
   "operationalCounters": zod.object({
   "auditWriteFailures": zod.number().describe('Number of audit_logs insert failures since last startup. Non-zero means state changes went unrecorded in the traceability trail.\n'),
   "rateLimiterFailOpenCount": zod.number().describe('Number of times the LLM rate limiter failed open due to a DB error. Non-zero means the per-project call budget was not enforced for those calls.\n')
-}).optional().describe('PR-2: In-process counters for degraded subsystems. Resets to zero on process restart. A non-zero value means a best-effort or fail-open fallback was triggered and should be investigated via logs.\n')
+}).optional().describe('PR-2: In-process counters for degraded subsystems. Resets to zero on process restart. A non-zero value means a best-effort or fail-open fallback was triggered and should be investigated via logs.\n'),
+  "aiDiagnosticsRetention": zod.object({
+  "status": zod.enum(['success', 'failed']),
+  "attemptedAt": zod.coerce.date().nullable(),
+  "completedAt": zod.coerce.date().nullable(),
+  "chatRowsScanned": zod.number(),
+  "chatRowsPruned": zod.number(),
+  "executionRowsScanned": zod.number(),
+  "executionRowsPruned": zod.number()
+}).optional().describe('Content-free status of the most recent historical AI diagnostics retention sweep. A failed sweep is retried on the next startup.\n')
 })
 
 

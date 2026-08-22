@@ -244,10 +244,32 @@ export interface OperationalCounters {
   rateLimiterFailOpenCount: number;
 }
 
+export type AiDiagnosticsRetentionHealthStatus = typeof AiDiagnosticsRetentionHealthStatus[keyof typeof AiDiagnosticsRetentionHealthStatus];
+
+
+export const AiDiagnosticsRetentionHealthStatus = {
+  success: 'success',
+  failed: 'failed',
+} as const;
+
+/**
+ * Content-free status of the most recent historical AI diagnostics retention sweep. A failed sweep is retried on the next startup.
+ */
+export interface AiDiagnosticsRetentionHealth {
+  status: AiDiagnosticsRetentionHealthStatus;
+  attemptedAt: string | null;
+  completedAt: string | null;
+  chatRowsScanned: number;
+  chatRowsPruned: number;
+  executionRowsScanned: number;
+  executionRowsPruned: number;
+}
+
 export interface HealthStatus {
   status: HealthStatusStatus;
   jobQueue?: JobQueueStats;
   operationalCounters?: OperationalCounters;
+  aiDiagnosticsRetention?: AiDiagnosticsRetentionHealth;
 }
 
 export interface GroqKeyStatus {

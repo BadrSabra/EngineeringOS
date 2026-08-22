@@ -3279,6 +3279,42 @@ components:
           $ref: "#/components/schemas/JobQueueStats"
         operationalCounters:
           $ref: "#/components/schemas/OperationalCounters"
+        aiDiagnosticsRetention:
+          $ref: "#/components/schemas/AiDiagnosticsRetentionHealth"
+
+    AiDiagnosticsRetentionHealth:
+      type: object
+      required:
+        - status
+        - attemptedAt
+        - completedAt
+        - chatRowsScanned
+        - chatRowsPruned
+        - executionRowsScanned
+        - executionRowsPruned
+      description: >
+        Content-free status of the most recent historical AI diagnostics
+        retention sweep. A failed sweep is retried on the next startup.
+      properties:
+        status:
+          type: string
+          enum: [success, failed]
+        attemptedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        chatRowsScanned:
+          type: integer
+        chatRowsPruned:
+          type: integer
+        executionRowsScanned:
+          type: integer
+        executionRowsPruned:
+          type: integer
 
     JobQueueStats:
       type: object

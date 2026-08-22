@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { AiDiagnosticsRetentionHealth } from './aiDiagnosticsRetentionHealth';
 import type { HealthStatusStatus } from './healthStatusStatus';
 import type { JobQueueStats } from './jobQueueStats';
 import type { OperationalCounters } from './operationalCounters';
@@ -13,4 +14,5 @@ export interface HealthStatus {
   status: HealthStatusStatus;
   jobQueue?: JobQueueStats;
   operationalCounters?: OperationalCounters;
+  aiDiagnosticsRetention?: AiDiagnosticsRetentionHealth;
 }

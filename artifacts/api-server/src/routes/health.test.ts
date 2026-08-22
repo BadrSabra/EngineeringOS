@@ -10,6 +10,17 @@ describe("GET /healthz", () => {
     const res = await request(app).get("/api/healthz");
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("ok");
+    expect(res.body.aiDiagnosticsRetention).toHaveProperty("status");
+    expect(res.body.aiDiagnosticsRetention).toHaveProperty("attemptedAt");
+    expect(res.body.aiDiagnosticsRetention).toHaveProperty("completedAt");
+    for (const key of [
+      "chatRowsScanned",
+      "chatRowsPruned",
+      "executionRowsScanned",
+      "executionRowsPruned",
+    ]) {
+      expect(res.body.aiDiagnosticsRetention[key]).toEqual(expect.any(Number));
+    }
   });
 
   it("is accessible without auth (health checks must never be gated)", async () => {

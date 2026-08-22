@@ -147,6 +147,33 @@ const VALIDATION_PUBLIC_KEYS = new Set([
 export const AI_CHAT_TRACE_RETENTION_DAYS = 90;
 export const AI_EXECUTION_CHECKPOINT_RETENTION_DAYS = 30;
 
+export type AiDiagnosticsRetentionStatus = "success" | "failed";
+
+export interface AiDiagnosticsRetentionHealth {
+  status: AiDiagnosticsRetentionStatus;
+  attemptedAt: string | null;
+  completedAt: string | null;
+  chatRowsScanned: number;
+  chatRowsPruned: number;
+  executionRowsScanned: number;
+  executionRowsPruned: number;
+}
+
+const aiDiagnosticsRetentionHealth: AiDiagnosticsRetentionHealth = {
+  status: "failed",
+  attemptedAt: null,
+  completedAt: null,
+  chatRowsScanned: 0,
+  chatRowsPruned: 0,
+  executionRowsScanned: 0,
+  executionRowsPruned: 0,
+};
+
+/** Return content-free status for the most recent retention attempt. */
+export function getAiDiagnosticsRetentionHealth(): AiDiagnosticsRetentionHealth {
+  return { ...aiDiagnosticsRetentionHealth };
+}
+
 /**
  * Remove validation payloads written before the public validation contract was
  * enforced. This deliberately uses an allow-list rather than redaction: test
@@ -312,6 +339,19 @@ export async function scrubHistoricalValidationDetails(): Promise<void> {
  * overwritten.
  */
 export async function pruneHistoricalAiDiagnostics(now = new Date()): Promise<void> {
+  const attemptedAt = now.toISOString();
+  let chatRowsScanned = 0;
+  let chatRowsPruned = 0;
+  let executionRowsScanned = 0;
+  let executionRowsPruned = 0;
+  aiDiagnosticsRetentionHealth.status = "failed";
+  aiDiagnosticsRetentionHealth.attemptedAt = attemptedAt;
+  aiDiagnosticsRetentionHealth.completedAt = null;
+  aiDiagnosticsRetentionHealth.chatRowsScanned = 0;
+  aiDiagnosticsRetentionHealth.chatRowsPruned = 0;
+  aiDiagnosticsRetentionHealth.executionRowsScanned = 0;
+  aiDiagnosticsRetentionHealth.executionRowsPruned = 0;
+
   try {
     const chatCutoff = new Date(now.getTime() - AI_CHAT_TRACE_RETENTION_DAYS * 24 * 60 * 60 * 1000);
     const messages = await pool.query<{
@@ -322,6 +362,7 @@ export async function pruneHistoricalAiDiagnostics(now = new Date()): Promise<vo
       [chatCutoff],
     );
     for (const row of messages.rows) {
+      chatRowsScanned++;
       if (!row.tool_trace) continue;
       let parsed: unknown;
       try {
@@ -336,6 +377,7 @@ export async function pruneHistoricalAiDiagnostics(now = new Date()): Promise<vo
           "UPDATE ai_chat_messages SET tool_trace = $1 WHERE id = $2 AND tool_trace = $3",
           [retained, row.id, row.tool_trace],
         );
+        chatRowsPruned++;
       }
     }
 
@@ -348,6 +390,7 @@ export async function pruneHistoricalAiDiagnostics(now = new Date()): Promise<vo
       [executionCutoff],
     );
     for (const row of executions.rows) {
+      executionRowsScanned++;
       let parsed: unknown;
       try {
         parsed = JSON.parse(row.checkpoint);
@@ -360,9 +403,21 @@ export async function pruneHistoricalAiDiagnostics(now = new Date()): Promise<vo
           "UPDATE ai_executions SET checkpoint = $1 WHERE id = $2 AND checkpoint = $3",
           [retained, row.id, row.checkpoint],
         );
+        executionRowsPruned++;
       }
     }
+
+    aiDiagnosticsRetentionHealth.status = "success";
+    aiDiagnosticsRetentionHealth.completedAt = attemptedAt;
+    aiDiagnosticsRetentionHealth.chatRowsScanned = chatRowsScanned;
+    aiDiagnosticsRetentionHealth.chatRowsPruned = chatRowsPruned;
+    aiDiagnosticsRetentionHealth.executionRowsScanned = executionRowsScanned;
+    aiDiagnosticsRetentionHealth.executionRowsPruned = executionRowsPruned;
   } catch (err) {
+    aiDiagnosticsRetentionHealth.chatRowsScanned = chatRowsScanned;
+    aiDiagnosticsRetentionHealth.chatRowsPruned = chatRowsPruned;
+    aiDiagnosticsRetentionHealth.executionRowsScanned = executionRowsScanned;
+    aiDiagnosticsRetentionHealth.executionRowsPruned = executionRowsPruned;
     logger.error({ scope: "startup-migrations", fn: "pruneHistoricalAiDiagnostics", err },
       "Failed to prune historical AI diagnostics — will retry on the next startup");
   }
