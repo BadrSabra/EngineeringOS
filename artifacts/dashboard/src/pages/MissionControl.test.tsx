@@ -173,4 +173,44 @@ describe('Mission Control', () => {
     expect(screen.queryByText('Historical report recovery details')).not.toBeInTheDocument();
     expect(screen.queryByText('Provider recovery')).not.toBeInTheDocument();
   });
+
+  it('helps operators search, filter, and page through the complete execution history', async () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: Array.from({ length: 10 }, (_, index) => ({
+        ...missionControlFixture.executions[0],
+        id: `execution-${index + 1}`,
+        objective: index === 9 ? 'Investigate the quota recovery path' : `Repair run ${index + 1}`,
+        state: index === 9 ? 'BLOCKED' : 'READY_FOR_REVIEW',
+        failureCategory: index === 9 ? 'RATE_LIMIT' : undefined,
+        recoveryAction: index === 9 ? 'Switch provider' : undefined,
+        evidenceStatus: index === 9 ? 'INCOMPLETE' : undefined,
+      })),
+    };
+    renderPage();
+
+    expect(await screen.findByText('10 of 10 runs')).toBeInTheDocument();
+    expect(screen.getByText('Showing 1–8 of 10')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next history page' })).toBeEnabled();
+    expect(screen.queryByText('Investigate the quota recovery path')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next history page' }));
+    expect(screen.getByText('Showing 9–10 of 10')).toBeInTheDocument();
+    expect(screen.getByText('Investigate the quota recovery path')).toBeInTheDocument();
+    expect(screen.getByText('Failure: RATE_LIMIT')).toBeInTheDocument();
+    expect(screen.getByText('Action: Switch provider')).toBeInTheDocument();
+    expect(screen.getByText('Evidence: INCOMPLETE')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search execution history' }), {
+      target: { value: 'quota' },
+    });
+    expect(screen.getByText('1 of 10 runs')).toBeInTheDocument();
+    expect(screen.getByText('Showing 1–1 of 1')).toBeInTheDocument();
+    expect(screen.getByText('Investigate the quota recovery path')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter execution history by state' }), {
+      target: { value: 'READY_FOR_REVIEW' },
+    });
+    expect(screen.getByText('No executions match this search or state filter.')).toBeInTheDocument();
+  });
 });

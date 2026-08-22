@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
   ArrowUpRight,
   CheckCircle2,
   CircleDashed,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Cpu,
   ExternalLink,
@@ -14,6 +16,7 @@ import {
   Layers3,
   RefreshCw,
   ShieldCheck,
+  Search,
   TerminalSquare,
   Wrench,
   XCircle,
@@ -38,6 +41,11 @@ type MissionExecution = {
   checkpointVersion?: unknown;
   eventCount?: unknown;
   recentEvents?: unknown;
+  recovery?: unknown;
+  recoverySummary?: unknown;
+  failureCategory?: unknown;
+  recoveryAction?: unknown;
+  evidenceStatus?: unknown;
 };
 
 type MetricEntry = {
@@ -204,6 +212,21 @@ function evidenceRows(evidence: unknown): Array<{ label: string; value: string }
   }));
 }
 
+function recoveryDetail(execution: MissionExecution, key: string): string | undefined {
+  const sources = [
+    asRecord(execution.recoverySummary),
+    asRecord(execution.recovery),
+    execution as unknown as JsonRecord,
+    asRecord(execution.evidence),
+  ];
+  for (const source of sources) {
+    const value = source?.[key];
+    const result = textValue(value);
+    if (result) return result;
+  }
+  return undefined;
+}
+
 function metricEntries(value: unknown, prefix = '', depth = 0): MetricEntry[] {
   const record = asRecord(value);
   if (!record || depth > 2) return [];
@@ -278,6 +301,10 @@ function MissionSkeleton() {
 
 export default function MissionControl() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [historyQuery, setHistoryQuery] = useState('');
+  const [historyState, setHistoryState] = useState('ALL');
+  const [historyPage, setHistoryPage] = useState(1);
+  const historyPageSize = 8;
   const { data, error, isError, isLoading, isFetching, refetch } = useGetAiMissionControl({
     query: {
       queryKey: ['ai-mission-control'],
@@ -288,7 +315,35 @@ export default function MissionControl() {
 
   const typedData = data as AiMissionControl | undefined;
   const executions = useMemo(() => asExecutions(typedData?.executions), [typedData?.executions]);
+  const filteredExecutions = useMemo(() => {
+    const query = historyQuery.trim().toLowerCase();
+    return executions.filter((execution) => {
+      const state = textValue(execution.state)?.toUpperCase() ?? 'UNKNOWN';
+      if (historyState !== 'ALL' && state !== historyState) return false;
+      if (!query) return true;
+      const searchable = [
+        execution.id,
+        objectiveText(execution.objective),
+        execution.provider,
+        execution.model,
+        recoveryDetail(execution, 'failureCategory'),
+        recoveryDetail(execution, 'recoveryAction'),
+        recoveryDetail(execution, 'evidenceStatus'),
+        execution.evidence,
+      ].map(formatValue).join(' ').toLowerCase();
+      return searchable.includes(query);
+    });
+  }, [executions, historyQuery, historyState]);
+  const historyPageCount = Math.max(1, Math.ceil(filteredExecutions.length / historyPageSize));
+  const visibleExecutions = filteredExecutions.slice(
+    (historyPage - 1) * historyPageSize,
+    historyPage * historyPageSize,
+  );
   const selectedExecution = executions.find((execution) => execution.id === selectedId) ?? executions[0];
+  const historyStates = useMemo(
+    () => Array.from(new Set(executions.map((execution) => textValue(execution.state)?.toUpperCase() ?? 'UNKNOWN'))),
+    [executions],
+  );
   const completedCount = executions.filter((execution) => COMPLETE_STATES.has(textValue(execution.state)?.toUpperCase() ?? '')).length;
   const remainingCount = Math.max(0, executions.length - completedCount);
   const scorecardMetrics = useMemo(
@@ -309,6 +364,10 @@ export default function MissionControl() {
   const selectedEvidenceRows = evidenceRows(selectedExecution?.evidence);
   const selectedEvents = Array.isArray(selectedExecution?.recentEvents) ? selectedExecution.recentEvents : [];
   const updatedLabel = formatDate(typedData?.updatedAt);
+
+  useEffect(() => {
+    if (historyPage > historyPageCount) setHistoryPage(historyPageCount);
+  }, [historyPage, historyPageCount]);
 
   if (isLoading) return <MissionSkeleton />;
 
@@ -410,18 +469,45 @@ export default function MissionControl() {
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(330px,0.75fr)]">
         <section className="min-w-0 rounded-xl border border-border bg-card">
-          <div className="flex items-center justify-between border-b border-border/70 px-4 py-3.5">
+           <div className="border-b border-border/70 px-4 py-3.5">
+             <div className="flex items-center justify-between">
             <div>
               <h2 className="font-semibold">Execution ledger</h2>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">Select a run to inspect its recorder output.</p>
+               <p className="mt-0.5 text-[11px] text-muted-foreground">Scan the persisted history, then select a run to inspect its recorder output.</p>
             </div>
-            <span className="rounded-full border border-border/70 bg-background/35 px-2 py-1 font-mono text-[10px] text-muted-foreground">{executions.length} runs</span>
+             <span className="rounded-full border border-border/70 bg-background/35 px-2 py-1 font-mono text-[10px] text-muted-foreground">{filteredExecutions.length} of {executions.length} runs</span>
+             </div>
+             <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+               <label className="relative min-w-0 flex-1">
+                 <Search className="pointer-events-none absolute left-2.5 top-2 h-3.5 w-3.5 text-muted-foreground" />
+                 <input
+                   type="search"
+                   value={historyQuery}
+                   onChange={(event) => { setHistoryQuery(event.target.value); setHistoryPage(1); }}
+                   placeholder="Search ID, objective, provider, model, failure, action…"
+                   aria-label="Search execution history"
+                   className="h-8 w-full rounded-md border border-border bg-background/50 pl-8 pr-3 text-xs text-foreground outline-none placeholder:text-muted-foreground focus:border-primary/60 focus:ring-1 focus:ring-primary/30"
+                 />
+               </label>
+               <select
+                 value={historyState}
+                 onChange={(event) => { setHistoryState(event.target.value); setHistoryPage(1); }}
+                 aria-label="Filter execution history by state"
+                 className="h-8 rounded-md border border-border bg-background/50 px-2 text-xs text-foreground outline-none focus:border-primary/60"
+               >
+                 <option value="ALL">All states</option>
+                 {historyStates.map((state) => <option key={state} value={state}>{state.replace(/_/g, ' ')}</option>)}
+               </select>
+             </div>
           </div>
           <div className="divide-y divide-border/60">
-            {executions.map((execution) => {
+             {visibleExecutions.map((execution) => {
               const isSelected = selectedExecution?.id === execution.id;
               const evidence = asRecord(execution.evidence);
               const eventCount = numberValue(execution.eventCount) ?? (Array.isArray(execution.recentEvents) ? execution.recentEvents.length : 0);
+               const failureCategory = recoveryDetail(execution, 'failureCategory');
+               const recoveryAction = recoveryDetail(execution, 'recoveryAction');
+               const evidenceStatus = recoveryDetail(execution, 'evidenceStatus') ?? textValue(evidence?.verdict);
               return (
                 <button
                   type="button"
@@ -441,10 +527,12 @@ export default function MissionControl() {
                           <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${stateTone(execution.state)}`}>{stateText(execution.state)}</span>
                         </div>
                         <h3 className="mt-2 line-clamp-2 text-sm font-medium leading-5 text-foreground">{objectiveText(execution.objective)}</h3>
-                        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[10px] text-muted-foreground">
+                         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[10px] text-muted-foreground">
                           <span className="inline-flex items-center gap-1"><Cpu className="h-3 w-3 text-primary/80" />{textValue(execution.provider) ?? 'Provider not recorded'} / {textValue(execution.model) ?? 'model not recorded'}</span>
                           <span className="inline-flex items-center gap-1"><Wrench className="h-3 w-3 text-amber-300/80" />{numberValue(execution.attempts) ?? 0} repair attempts</span>
                           <span className="inline-flex items-center gap-1"><TerminalSquare className="h-3 w-3 text-muted-foreground" />{eventCount} events</span>
+                           {failureCategory && <span>Failure: {failureCategory}</span>}
+                           {recoveryAction && <span>Action: {recoveryAction}</span>}
                         </div>
                       </div>
                       <ExternalLink className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -452,7 +540,7 @@ export default function MissionControl() {
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border/50 pt-3 text-[10px]">
                       <span className={`inline-flex items-center gap-1 ${evidenceTone(execution.evidence)}`}>
                         <EvidenceIcon evidence={execution.evidence} />
-                        Evidence: {textValue(evidence?.verdict) ?? (execution.evidence ? 'Recorded' : 'Not recorded')}
+                         Evidence: {evidenceStatus ?? (execution.evidence ? 'Recorded' : 'Not recorded')}
                       </span>
                       <span className="text-muted-foreground">Validation failures: {numberValue(execution.validationFailures) ?? 0}</span>
                       <Link
@@ -467,10 +555,27 @@ export default function MissionControl() {
                 </button>
               );
             })}
+             {visibleExecutions.length === 0 && (
+               <div className="p-8 text-center text-xs text-muted-foreground">No executions match this search or state filter.</div>
+             )}
           </div>
+           <div className="flex flex-col gap-2 border-t border-border/70 px-4 py-3 text-[11px] text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+             <span>
+               {filteredExecutions.length === 0 ? '0 runs' : `Showing ${(historyPage - 1) * historyPageSize + 1}–${Math.min(historyPage * historyPageSize, filteredExecutions.length)} of ${filteredExecutions.length}`}
+             </span>
+             <div className="flex items-center gap-2">
+               <button type="button" onClick={() => setHistoryPage((page) => Math.max(1, page - 1))} disabled={historyPage === 1} aria-label="Previous history page" className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 hover-elevate disabled:opacity-40">
+                 <ChevronLeft className="h-3.5 w-3.5" /> Previous
+               </button>
+               <span className="font-mono text-[10px]">Page {historyPage} / {historyPageCount}</span>
+               <button type="button" onClick={() => setHistoryPage((page) => Math.min(historyPageCount, page + 1))} disabled={historyPage === historyPageCount} aria-label="Next history page" className="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 hover-elevate disabled:opacity-40">
+                 Next <ChevronRight className="h-3.5 w-3.5" />
+               </button>
+             </div>
+           </div>
         </section>
 
-        <div className="min-w-0 space-y-5">
+         <div className="min-w-0 space-y-5 lg:sticky lg:top-4 lg:self-start">
           <section className="rounded-xl border border-border bg-card">
             <div className="border-b border-border/70 px-4 py-3.5">
               <div className="flex items-center gap-2">
