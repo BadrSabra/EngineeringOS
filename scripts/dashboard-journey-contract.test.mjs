@@ -136,6 +136,44 @@ test("release teardown reports each service and any surviving listener", () => {
   );
 });
 
+test("release teardown writes a structured CI artifact", () => {
+  assert.match(
+    runnerSource,
+    /release-teardown\.json/,
+    "The release runner must write a stable teardown artifact.",
+  );
+  assert.match(
+    runnerSource,
+    /owningService: label/,
+    "The teardown artifact must preserve the owning service.",
+  );
+  assert.match(
+    runnerSource,
+    /configuredPort: port/,
+    "The teardown artifact must preserve the configured port.",
+  );
+  assert.match(
+    runnerSource,
+    /survivingPids:/,
+    "The teardown artifact must preserve surviving process IDs.",
+  );
+  assert.match(
+    runnerSource,
+    /processGroup: child\.pid/,
+    "The teardown artifact must preserve the release process group.",
+  );
+  assert.match(
+    runnerSource,
+    /cleanupOutcome:/,
+    "The teardown artifact must preserve cleanup outcome.",
+  );
+  assert.match(
+    runnerSource,
+    /Release teardown artifact:/,
+    "The release logs must surface the teardown artifact path.",
+  );
+});
+
 test("live recovery requires an evidence-backed success", () => {
   assert.match(
     journeySource,

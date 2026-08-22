@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawn } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   acquireReleaseLock,
@@ -36,6 +36,10 @@ const liveTimeoutMs = Number(
 const workspaceRoot = resolve(new URL("..", import.meta.url).pathname);
 const outputDir = resolve(
   process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
+);
+const teardownArtifactPath = resolve(
+  process.env.DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH ??
+    resolve(outputDir, "release-teardown.json"),
 );
 const services = [];
 let releaseLockCleanup;
@@ -243,10 +247,12 @@ async function stopServices() {
         : `exit ${result.code ?? "unknown"}`;
     console.log(`- ${label}: ${status}`);
   });
-  const survivingServices = services.flatMap(({ label, port }) => {
+  const survivingServices = services.flatMap(({ label, port, child }) => {
     if (!port) return [];
     const pids = listeningUsers(port);
-    return pids.length > 0 ? [{ label, port, pids }] : [];
+    return pids.length > 0
+      ? [{ label, port, pids, processGroup: child.pid ?? null }]
+      : [];
   });
   if (survivingServices.length === 0) {
     console.log("Release services surviving teardown: none.");
@@ -267,6 +273,7 @@ async function stopServices() {
   }
 
   let teardownFailed = false;
+  const cleanupFailures = new Map();
   for (const port of releasePorts) {
     try {
       await ensureReleasePortFree(port);
@@ -288,7 +295,53 @@ async function stopServices() {
         redact(`${diagnostic}. ${error?.message ?? String(error)}`),
       );
       teardownFailed = true;
+      cleanupFailures.set(port, {
+        message: redact(error?.message ?? String(error)),
+        survivingPids: remainingPids,
+      });
     }
+  }
+  const teardownArtifact = {
+    outcome: teardownFailed ? "failed" : "passed",
+    services: services.map(({ label, child, port }, index) => {
+      const lifecycle = teardownResults[index];
+      const survivor = survivingServices.find((item) => item.port === port);
+      const failure = port ? cleanupFailures.get(port) : undefined;
+      return {
+        owningService: label,
+        configuredPort: port ?? null,
+        survivingPids: survivor?.pids ?? failure?.survivingPids ?? [],
+        processGroup: child.pid ?? null,
+        cleanupOutcome: failure
+          ? "failed"
+          : lifecycle.forced
+            ? "forced"
+            : "passed",
+        exitCode: lifecycle.code,
+        signal: lifecycle.signal,
+        forced: lifecycle.forced,
+        finalSurvivingPids: port ? listeningUsers(port) : [],
+        ...(failure ? { error: failure.message } : {}),
+      };
+    }),
+  };
+  try {
+    await mkdir(resolve(teardownArtifactPath, ".."), { recursive: true });
+    await writeFile(
+      teardownArtifactPath,
+      `${JSON.stringify(teardownArtifact, null, 2)}\n`,
+      "utf8",
+    );
+    console.log(`Release teardown artifact: ${teardownArtifactPath}`);
+  } catch (error) {
+    console.error(
+      redact(
+        `Unable to write release teardown artifact ${teardownArtifactPath}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      ),
+    );
+    teardownFailed = true;
   }
   if (teardownFailed) process.exitCode = process.exitCode || 1;
 }
