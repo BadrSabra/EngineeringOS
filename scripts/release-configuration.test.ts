@@ -611,3 +611,45 @@ test("keeps the standalone journey responsible for service orchestration", async
     /name = "release-dashboard-journey"/,
   );
 });
+
+test("keeps release teardown evidence attached to the controlled journey", async () => {
+  const workflow = await readWorkspaceFile(".github/workflows/ci.yml");
+  const releaseJobStart = workflow.indexOf("  release-validation:");
+  assert.ok(releaseJobStart >= 0, "release-validation job must remain configured");
+
+  const nextJobOffset = workflow
+    .slice(releaseJobStart + 1)
+    .search(/\n  \S/);
+  const nextJobStart =
+    nextJobOffset >= 0 ? releaseJobStart + 1 + nextJobOffset : -1;
+  const releaseJob = workflow.slice(
+    releaseJobStart,
+    nextJobStart >= 0 ? nextJobStart : workflow.length,
+  );
+
+  assert.match(
+    releaseJob,
+    /pnpm run validate:dashboard-journey/,
+    "release validation must run the controlled dashboard journey",
+  );
+  assert.match(
+    releaseJob,
+    /DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH:\s*test-results\/dashboard-journey\/release-teardown\.json/,
+    "release validation must configure the teardown report path",
+  );
+  assert.match(
+    releaseJob,
+    /name:\s*release-validation-\$\{\{\s*github\.run_id\s*\}\}-teardown/,
+    "release teardown evidence must use a run-specific artifact name",
+  );
+  assert.match(
+    releaseJob,
+    /if:\s*always\(\)/,
+    "release teardown evidence must upload even after validation fails",
+  );
+  assert.match(
+    releaseJob,
+    /path:\s*test-results\/dashboard-journey\/release-teardown\.json/,
+    "release teardown upload must use the configured report path",
+  );
+});
