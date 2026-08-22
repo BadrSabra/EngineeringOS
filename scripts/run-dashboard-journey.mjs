@@ -490,7 +490,13 @@ function runLiveCorrelationReportCheck() {
     const check = spawn(
       "node",
       ["scripts/mission-correlation-report.mjs", reportPath],
-      { env: { ...process.env }, stdio: "inherit" },
+      {
+        env: {
+          ...process.env,
+          MISSION_CORRELATION_REQUIRE_EVIDENCE: "1",
+        },
+        stdio: "inherit",
+      },
     );
     check.on("error", reject);
     check.on("exit", (code, signal) => {

@@ -18,6 +18,10 @@ const TEST_USER = {
 const EXECUTION_ID = "e2e-controlled-execution";
 const DEFAULT_LIVE_TIMEOUT_MS = 120_000;
 const LIVE_TEST_TIMEOUT_MARGIN_MS = 5_000;
+const DEFAULT_LIVE_PROMPT =
+  "Perform a bounded forensic audit of this disposable project using read-only tools. " +
+  "Produce at least one accepted evidence item and one validation checkpoint, and do not " +
+  "report COMPLETED unless both are present. Report only verified evidence.";
 
 function liveTimeoutMs(): number {
   const configured = Number(process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS);
@@ -753,7 +757,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       body: {
         projectId,
         message: process.env.DASHBOARD_E2E_LIVE_PROMPT
-          ?? "Run one bounded read-only mission and report the verified evidence.",
+          ?? DEFAULT_LIVE_PROMPT,
         idempotencyKey: `dashboard-live-${Date.now()}`,
       },
     });
@@ -795,12 +799,29 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       (count, step) => count + (Number(step?.acceptedEvidenceCount) || 0),
       0,
     );
+    const terminalState = String(execution.flightState ?? execution.status).toUpperCase();
+    const successStates = new Set([
+      "COMPLETED",
+      "READY_FOR_REVIEW",
+      "APPLIED",
+      "COMMITTED",
+      "PUSHED",
+    ]);
+    if (
+      successStates.has(terminalState) &&
+      (evidenceCount < 1 || validation.length < 1)
+    ) {
+      throw new Error(
+        `Live-provider mission reported ${terminalState} without accepted evidence and validation ` +
+        `(evidence=${evidenceCount}, validation=${validation.length}).`,
+      );
+    }
     const capture = {
       projectId,
       sessionId,
       operationId: execution.operationId,
       workspaceRevision: gitLog.commits?.[0]?.shortHash ?? gitLog.commits?.[0]?.hash?.slice(0, 12),
-      terminalState: execution.flightState ?? execution.status,
+      terminalState,
       execution: {
         id: execution.id,
         projectId: execution.projectId,

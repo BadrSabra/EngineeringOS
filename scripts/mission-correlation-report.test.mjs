@@ -248,3 +248,61 @@ test("keeps every supported terminal explicit and classifies success terminals",
     );
   }
 });
+
+test("strict live validation rejects success without evidence and validation", () => {
+  assert.throws(
+    () =>
+      buildMissionCorrelationReport(
+        {
+          projectId: "project",
+          sessionId: "session",
+          operationId: "operation",
+          workspaceRevision: "abc1234",
+          terminalState: "COMPLETED",
+          execution: {
+            id: "execution",
+            projectId: "project",
+            sessionId: "session",
+            operationId: "operation",
+            status: "completed",
+          },
+          messages: [{ executionId: "execution" }],
+          sseEvents: [{ type: "done" }],
+          checkpoints: [{ sequence: 1 }],
+          dashboard: { executions: [{ id: "execution" }] },
+        },
+        { requireEvidence: true },
+      ),
+    /Evidence-backed success is incomplete: evidence=0, validation=0/,
+  );
+});
+
+test("strict live validation accepts completed evidence-backed missions", () => {
+  const report = buildMissionCorrelationReport(
+    {
+      projectId: "project",
+      sessionId: "session",
+      operationId: "operation",
+      workspaceRevision: "abc1234",
+      terminalState: "COMPLETED",
+      execution: {
+        id: "execution",
+        projectId: "project",
+        sessionId: "session",
+        operationId: "operation",
+        status: "completed",
+      },
+      messages: [{ executionId: "execution" }],
+      sseEvents: [{ type: "done" }],
+      checkpoints: [{ sequence: 1 }],
+      evidenceCount: 1,
+      validation: [{ status: "passed" }],
+      dashboard: { executions: [{ id: "execution" }] },
+    },
+    { requireEvidence: true },
+  );
+
+  assert.equal(report.outcomeClass, "success");
+  assert.equal(report.agreement.evidence, true);
+  assert.equal(report.agreement.validation, true);
+});

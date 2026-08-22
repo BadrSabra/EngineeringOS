@@ -42,7 +42,7 @@ export function assertSupportedMissionCorrelationReportVersion(report) {
   return report;
 }
 
-export function buildMissionCorrelationReport(input) {
+export function buildMissionCorrelationReport(input, options = {}) {
   const execution = input.execution ?? {};
   const operationId = requireValue(
     input.operationId ?? execution.operationId,
@@ -100,6 +100,16 @@ export function buildMissionCorrelationReport(input) {
   }
 
   const success = ["COMPLETED", "READY_FOR_REVIEW", "APPLIED", "COMMITTED", "PUSHED"].includes(terminalState);
+  if (
+    options.requireEvidence === true &&
+    success &&
+    (Number(input.evidenceCount ?? 0) < 1 || validation.length < 1)
+  ) {
+    throw new Error(
+      `Evidence-backed success is incomplete: evidence=${Number(input.evidenceCount ?? 0)}, ` +
+      `validation=${validation.length}.`,
+    );
+  }
   return {
     kind: "mission-correlation-report",
     version: SUPPORTED_MISSION_CORRELATION_REPORT_VERSION,
@@ -137,7 +147,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   }
   try {
     const input = JSON.parse(await fs.readFile(inputPath, "utf8"));
-    console.log(JSON.stringify(buildMissionCorrelationReport(input), null, 2));
+    console.log(
+      JSON.stringify(
+        buildMissionCorrelationReport(input, {
+          requireEvidence: process.env.MISSION_CORRELATION_REQUIRE_EVIDENCE === "1",
+        }),
+        null,
+        2,
+      ),
+    );
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

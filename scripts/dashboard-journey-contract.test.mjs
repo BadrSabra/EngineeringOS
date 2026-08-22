@@ -112,3 +112,21 @@ test("release teardown reports each service and any surviving listener", () => {
     "Residual listeners must still be cleaned up after being reported.",
   );
 });
+
+test("live recovery requires an evidence-backed success", () => {
+  assert.match(
+    journeySource,
+    /DEFAULT_LIVE_PROMPT[\s\S]*accepted evidence item[\s\S]*validation checkpoint/,
+    "The live journey must request an evidence-producing forensic mission by default.",
+  );
+  assert.match(
+    journeySource,
+    /successStates\.has\(terminalState\)[\s\S]*evidenceCount < 1[\s\S]*validation\.length < 1/,
+    "A successful live terminal must not pass without evidence and validation.",
+  );
+  assert.match(
+    runnerSource,
+    /MISSION_CORRELATION_REQUIRE_EVIDENCE:\s*"1"/,
+    "The live report validator must enforce evidence-backed success.",
+  );
+});
