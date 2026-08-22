@@ -513,9 +513,22 @@ describe("verified repair loop through the real SSE route and chat engine", () =
         ["passed", "READY_FOR_REVIEW", 2],
       ]);
     expect(validationEvents[0]).toMatchObject({
-      failedTests: ["App.tsx: brokenRepair has the wrong type"],
-      affectedFiles: [targetPath],
+      validation: {
+        profile: "workspace-typecheck",
+        status: "failed",
+        scenario: "Run the workspace TypeScript typecheck.",
+        exitCode: 1,
+        evidence: {
+          evidenceId: expect.any(String),
+          observedAt: expect.any(String),
+          artifactRef: expect.any(String),
+        },
+      },
     });
+    expect(validationEvents[0]).not.toHaveProperty("failedTests");
+    expect(validationEvents[0]).not.toHaveProperty("affectedFiles");
+    expect(validationEvents[0].validation).not.toHaveProperty("failedTests");
+    expect(validationEvents[0].validation).not.toHaveProperty("changedFiles");
     expect(doneEvent).toMatchObject({ proposalId: expect.any(String) });
     const repairedPendingChanges = doneEvent?.pendingChanges as Array<Record<string, unknown>>;
     expect(repairedPendingChanges.some((change) =>
