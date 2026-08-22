@@ -4371,3 +4371,57 @@ describe("INT-007 — chatWithFallback call counts prove the resolver controls r
     expect(globalFetchCallsAfter).toBe(globalFetchCallsBefore);
   });
 });
+
+describe("INT-008 — concurrent idempotent stream retries", () => {
+  it("returns one execution identity to both callers and invokes the provider once", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const sessionId = randomUUID();
+    const now = new Date();
+    await db.insert(aiChatSessionsTable).values({
+      id: sessionId,
+      projectId,
+      title: "Concurrent retry",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const idempotencyKey = `retry-${randomUUID()}`;
+    const { chatWithFallback } = await import("../lib/ai-route-helpers.js");
+    vi.mocked(chatWithFallback).mockClear();
+
+    const first = request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId,
+        sessionId,
+        message: "Concurrent retry should share one AI execution",
+        idempotencyKey,
+      });
+    const second = request(app)
+      .post("/api/ai/chat/stream")
+      .send({
+        projectId,
+        sessionId,
+        message: "Concurrent retry should share one AI execution",
+        idempotencyKey,
+      });
+
+    const [firstResponse, secondResponse] = await Promise.all([first, second]);
+    expect(firstResponse.status).toBe(200);
+    expect(secondResponse.status).toBe(200);
+
+    const executionIds = [firstResponse, secondResponse].map((response) => {
+      const events = parseSseEvents(response.text);
+      const identityEvent = events.find((event) =>
+        typeof event["executionId"] === "string"
+        && ["execution_started", "error"].includes(String(event["type"])),
+      );
+      return identityEvent?.["executionId"];
+    });
+
+    expect(executionIds[0]).toEqual(expect.any(String));
+    expect(executionIds[1]).toBe(executionIds[0]);
+    expect(vi.mocked(chatWithFallback)).toHaveBeenCalledTimes(1);
+  });
+});

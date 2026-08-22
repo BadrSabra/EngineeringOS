@@ -2460,7 +2460,12 @@ router.post("/ai/chat/stream", async (req, res) => {
         workerId: executionWorkerId,
       });
       if (!claimed) {
-        sse({ type: "error", code: "EXECUTION_CLAIM_CONFLICT", message: "Failed to claim AI execution" });
+        sse({
+          type: "error",
+          code: "EXECUTION_CLAIM_CONFLICT",
+          message: "Another request won the execution claim. Retry after refreshing its status.",
+          executionId: aiExecution.id,
+        });
         res.end();
         return;
       }
