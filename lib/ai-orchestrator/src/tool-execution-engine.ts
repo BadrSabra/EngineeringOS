@@ -1216,6 +1216,7 @@ export type AgentDiagnosticCode =
   | "EXECUTION_DETERMINISTIC_PARTIAL_REPORT"
   | "EXECUTION_NO_EDIT_TOOL"
   | "EXECUTION_NODE_TRANSITION_BLOCKED"
+  | "EXECUTION_PHASE_TOOL_REJECTED"
   | "EXECUTION_BEHAVIORAL_PROOF_FAILED"
   | "TOOL_EXECUTION_FAILED"
   | "TOOL_UNAVAILABLE"
@@ -3059,6 +3060,24 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
                 "Read the relevant file to make progress, then synthesize.") +
             " No other tool may run until the required read completes.",
         });
+        continue;
+      }
+
+      if (phase && !isToolAllowedInPhase(phase, tc.function.name)) {
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content:
+            `Tool "${tc.function.name}" is not allowed during the ${phase} phase. ` +
+            "Wait for the server to advance the execution phase.",
+        });
+        try {
+          onStep?.({
+            kind: "diagnostic",
+            code: "EXECUTION_PHASE_TOOL_REJECTED",
+            details: [`${tc.function.name} is not allowed in ${phase}`],
+          });
+        } catch { /* observers must not change execution semantics */ }
         continue;
       }
 

@@ -19,6 +19,21 @@ export type PhaseBudget = {
   maxOutputTokens: number;
 };
 
+export type ValidationEvidenceStatus = "passed" | "failed" | "unavailable";
+
+export type ExecutionPhaseState = {
+  phase: ExecutionPhase;
+  completed: readonly ExecutionPhase[];
+  validationEvidence?: ValidationEvidenceStatus;
+  repairAttempts: number;
+};
+
+export type PhaseTransitionResult =
+  | { ok: true; state: ExecutionPhaseState }
+  | { ok: false; reason: string; state: ExecutionPhaseState };
+
+export const MAX_PHASE_REPAIR_ATTEMPTS = 3;
+
 export const EXECUTION_PHASES: readonly ExecutionPhase[] = [
   "localization",
   "evidence",
@@ -52,4 +67,73 @@ export function getPhaseBudget(phase: ExecutionPhase): PhaseBudget {
 
 export function isToolAllowedInPhase(phase: ExecutionPhase, toolName: string): boolean {
   return PHASE_TOOL_POLICY[phase].includes(toolName);
+}
+
+export function createExecutionPhaseState(): ExecutionPhaseState {
+  return { phase: "localization", completed: [], repairAttempts: 0 };
+}
+
+/**
+ * Advance the server-owned repair journey. The model can provide evidence,
+ * but it cannot skip a phase or turn an unvalidated repair into a report.
+ */
+export function transitionExecutionPhase(
+  state: ExecutionPhaseState,
+  nextPhase: ExecutionPhase,
+  validationEvidence?: ValidationEvidenceStatus,
+): PhaseTransitionResult {
+  const currentIndex = EXECUTION_PHASES.indexOf(state.phase);
+  const nextIndex = EXECUTION_PHASES.indexOf(nextPhase);
+  const sequential = nextIndex === currentIndex + 1;
+  const validationToReport =
+    state.phase === "validation" && nextPhase === "report";
+  const recoveryToValidation =
+    state.phase === "repair_recovery" && nextPhase === "validation";
+  if (!sequential && !validationToReport && !recoveryToValidation) {
+    return {
+      ok: false,
+      reason: `Cannot transition from ${state.phase} to ${nextPhase}; phases must advance in order.`,
+      state,
+    };
+  }
+
+  if (state.phase === "validation" && !validationEvidence) {
+    return {
+      ok: false,
+      reason: "Validation evidence is required before leaving the validation phase.",
+      state,
+    };
+  }
+  if (nextPhase === "repair_recovery" && validationEvidence === "passed") {
+    return {
+      ok: false,
+      reason: "Passed validation cannot enter repair recovery.",
+      state,
+    };
+  }
+  if (nextPhase === "repair_recovery" && state.repairAttempts >= MAX_PHASE_REPAIR_ATTEMPTS) {
+    return {
+      ok: false,
+      reason: "The bounded repair recovery budget has been exhausted.",
+      state,
+    };
+  }
+  if (nextPhase === "report" && (state.phase !== "validation" || validationEvidence !== "passed")) {
+    return {
+      ok: false,
+      reason: "A report requires passed validation evidence.",
+      state,
+    };
+  }
+
+  const completed = [...state.completed, state.phase];
+  return {
+    ok: true,
+    state: {
+      phase: nextPhase,
+      completed,
+      ...(validationEvidence ? { validationEvidence } : {}),
+      repairAttempts: state.repairAttempts + (nextPhase === "repair_recovery" ? 1 : 0),
+    },
+  };
 }

@@ -24,7 +24,15 @@ export {
   PHASE_TOOL_POLICY,
   getPhaseBudget,
   isToolAllowedInPhase,
+  createExecutionPhaseState,
+  transitionExecutionPhase,
 } from "../quality/execution-phases.js";
-export type { ExecutionPhase, PhaseBudget } from "../quality/execution-phases.js";
+export type {
+  ExecutionPhase,
+  PhaseBudget,
+  ExecutionPhaseState,
+  PhaseTransitionResult,
+  ValidationEvidenceStatus,
+} from "../quality/execution-phases.js";
 
 export { buildExecutionPlan } from "../quality/quality-planner.js";

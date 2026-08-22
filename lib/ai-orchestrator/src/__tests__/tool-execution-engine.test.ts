@@ -368,6 +368,41 @@ describe("executeToolLoop", () => {
     expect(result.kind).toBe("response");
   });
 
+  it("rejects a tool emitted outside the server-owned phase", async () => {
+    const { executeToolLoop } = await import("../tool-execution-engine.js");
+    const diagnostics: AgentStep[] = [];
+    const strategy = makeStrategy([
+      makeResponse("", [makeToolCall("phase-1", "write_file", {
+        path: "src/example.ts",
+        content: "unsafe",
+      })]),
+      makeResponse("phase stopped"),
+    ]);
+    const result = await executeToolLoop({
+      messages: makeMessages(),
+      strategy,
+      model: "fast",
+      powerModel: "powerful",
+      provider: "test",
+      tools: [{
+        type: "function",
+        function: { name: "write_file", description: "", parameters: {} },
+      }],
+      rootPath: "/project",
+      pendingChanges: [],
+      phase: "evidence",
+      maxIterations: 2,
+      onStep: (step) => diagnostics.push(step),
+    });
+
+    expect(result.kind).toBe("response");
+    expect(FILE_TOOL_MOCK).not.toHaveBeenCalled();
+    expect(diagnostics).toContainEqual(expect.objectContaining({
+      kind: "diagnostic",
+      code: "EXECUTION_PHASE_TOOL_REJECTED",
+    }));
+  });
+
   it("returns a cancelled result when AbortSignal interrupts the provider turn", async () => {
     const { executeToolLoop } = await import("../tool-execution-engine.js");
     const controller = new AbortController();
