@@ -17,7 +17,7 @@ async function insertProject(): Promise<string> {
     id,
     ownerId: "test-user",
     name: `graph-test-project-${id.slice(0, 8)}`,
-    rootPath: "/tmp/graph-test",
+    rootPath: `/tmp/graph-test-${id}`,
     language: "typescript",
     status: "active",
     createdAt: now,
@@ -962,6 +962,84 @@ describe("Ownership isolation — graph", () => {
 
     const res = await request(app).get(`/api/graph/entities/${entityId}/neighbors`);
     expect(res.status).toBe(403);
+  });
+
+  it("does not disclose cross-project topology, names, paths, or evidence", async () => {
+    const projectId = await insertProject();
+    const now = new Date();
+    const foreignProjectId = randomUUID();
+    await db.insert(projectsTable).values({
+      id: foreignProjectId,
+      ownerId: "test-user",
+      name: `graph-foreign-project-${foreignProjectId.slice(0, 8)}`,
+      rootPath: `/tmp/graph-foreign-${foreignProjectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    isolationCleanup.push(projectId, foreignProjectId);
+    const sourceId = randomUUID();
+    const foreignId = randomUUID();
+    await db.insert(graphEntitiesTable).values([
+      { id: sourceId, projectId, type: "file", name: "public.ts", path: "src/public.ts", createdAt: now },
+      { id: foreignId, projectId: foreignProjectId, type: "file", name: "secret.ts", path: "private/secret.ts", createdAt: now },
+    ]);
+    await db.insert(graphRelationshipsTable).values({
+      id: randomUUID(),
+      projectId,
+      sourceId,
+      targetId: foreignId,
+      relation: "imports",
+      evidenceJson: [{ file: "private/secret.ts", line: 7, snippet: "TOP SECRET", kind: "import-statement" }],
+      evidenceCount: 1,
+      createdAt: now,
+    });
+
+    const neighbors = await request(app).get(`/api/graph/entities/${sourceId}/neighbors`);
+    expect(neighbors.status).toBe(200);
+    expect(neighbors.body.outgoing).toEqual([]);
+    expect(neighbors.body.neighbors).toEqual([]);
+
+    const impact = await request(app).get("/api/graph/impact").query({ entityId: sourceId });
+    expect(impact.status).toBe(200);
+    expect(impact.body.impacted).toEqual([]);
+
+    const path = await request(app).get("/api/graph/path").query({ fromId: sourceId, toId: foreignId });
+    expect(path.status).toBe(200);
+    expect(path.body.found).toBe(false);
+    expect(JSON.stringify(path.body)).not.toContain("secret.ts");
+
+    const neighborhood = await request(app).get("/api/graph/semantic-neighborhood")
+      .query({ entityId: sourceId, depth: 1 });
+    expect(neighborhood.status).toBe(200);
+    expect(neighborhood.body.entities).toEqual([]);
+    expect(JSON.stringify(neighborhood.body)).not.toContain("private/secret.ts");
+
+    const evidence = await request(app).get(`/api/graph/evidence/${sourceId}`);
+    expect(evidence.status).toBe(200);
+    expect(evidence.body.evidence).toEqual([]);
+    expect(JSON.stringify(evidence.body)).not.toContain("TOP SECRET");
+  });
+
+  it("reports pagination and truncation metadata for bounded graph lists", async () => {
+    const projectId = await insertProject();
+    isolationCleanup.push(projectId);
+    const now = new Date();
+    await db.insert(graphEntitiesTable).values(
+      Array.from({ length: 3 }, (_, index) => ({
+        id: randomUUID(),
+        projectId,
+        type: "module" as const,
+        name: `module-${index}`,
+        createdAt: now,
+      })),
+    );
+    const entities = await request(app).get("/api/graph/entities")
+      .query({ projectId, page: 2, pageSize: 2 });
+    expect(entities.status).toBe(200);
+    expect(entities.body.items).toHaveLength(1);
+    expect(entities.body.meta).toEqual({ page: 2, pageSize: 2, total: 3, truncated: true });
   });
 });
 

@@ -9,4 +9,13 @@
 export type ListGraphRelationshipsParams = {
 projectId?: string;
 sourceId?: string;
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 1000
+ */
+pageSize?: number;
 };

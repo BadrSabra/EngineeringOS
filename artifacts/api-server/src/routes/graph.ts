@@ -7,7 +7,7 @@ import {
   GetGraphEntityImpactQueryParams,
   GetGraphPathQueryParams,
 } from "@workspace/api-zod";
-import { eq, and, inArray, gte } from "drizzle-orm";
+import { eq, and, inArray, gte, isNull, or } from "drizzle-orm";
 import {
   getImpactedEntities,
   getShortestPath,
@@ -31,6 +31,12 @@ import {
 } from "../middlewares/requireProjectAccess.js";
 
 const router = Router();
+
+function listWindow(query: Record<string, unknown>) {
+  const page = Math.max(1, Number.parseInt(String(query.page ?? "1"), 10) || 1);
+  const pageSize = Math.min(1000, Math.max(1, Number.parseInt(String(query.pageSize ?? "1000"), 10) || 1000));
+  return { page, pageSize, offset: (page - 1) * pageSize };
+}
 
 // Defense-in-depth: requireAuth is already applied globally in app.ts, but
 // adding it here too means this router is safe even if mounted without it.
@@ -103,13 +109,18 @@ router.get("/graph/entities", async (req, res) => {
     conditions.push(eq(graphEntitiesTable.isDocumented, true));
   }
 
-  const entities = await db
+  const allEntities = await db
     .select()
     .from(graphEntitiesTable)
     .where(and(...conditions))
-    .limit(1000);
+    ;
+  const { page, pageSize, offset } = listWindow(req.query as Record<string, unknown>);
+  const entities = allEntities.slice(offset, offset + pageSize);
 
-  return res.json(entities);
+  return res.json({
+    items: entities,
+    meta: { page, pageSize, total: allEntities.length, truncated: offset > 0 || offset + entities.length < allEntities.length },
+  });
 });
 
 // ─── List graph relationships ─────────────────────────────────────────────────
@@ -128,21 +139,27 @@ router.get("/graph/relationships", async (req, res) => {
   const filters = parseKgFilters(req.query as Record<string, unknown>);
   if (filters.edgeTypes || filters.minConfidence !== undefined ||
       filters.sourceTypes || filters.observedOnly || filters.heuristicOnly) {
-    const rels = await getEdgesByType(db, project.id, filters);
+    const rels = await getEdgesByType(db, project.id, filters, params.sourceId);
     if (params.sourceId) {
-      return res.json(rels.filter((r) => r.sourceId === params.sourceId));
+      const { page, pageSize, offset } = listWindow(req.query as Record<string, unknown>);
+      const items = rels.slice(offset, offset + pageSize);
+      return res.json({ items, meta: { page, pageSize, total: rels.length, truncated: offset > 0 || offset + items.length < rels.length || rels.length >= 2000 } });
     }
-    return res.json(rels);
+    const { page, pageSize, offset } = listWindow(req.query as Record<string, unknown>);
+    const items = rels.slice(offset, offset + pageSize);
+    return res.json({ items, meta: { page, pageSize, total: rels.length, truncated: rels.length >= 2000 || offset > 0 || offset + items.length < rels.length } });
   }
 
   // Fallback: fetch entity IDs first to scope relationships to the project
-  const entities = await db
+  const allEntities = await db
     .select({ id: graphEntitiesTable.id })
     .from(graphEntitiesTable)
     .where(eq(graphEntitiesTable.projectId, project.id))
-    .limit(1000);
-  const entityIds = new Set(entities.map((e: { id: string }) => e.id));
-  if (entityIds.size === 0) return res.json([]);
+    ;
+  const entityIds = new Set(allEntities.map((e: { id: string }) => e.id));
+  if (entityIds.size === 0) {
+    return res.json({ items: [], meta: { page: 1, pageSize: 1000, total: 0, truncated: false } });
+  }
 
   const directConditions = [];
   if (params.sourceId)
@@ -153,16 +170,23 @@ router.get("/graph/relationships", async (req, res) => {
       ? await db
           .select()
           .from(graphRelationshipsTable)
-          .where(and(...directConditions))
-          .limit(1000)
-      : await db.select().from(graphRelationshipsTable).limit(1000);
+           .where(and(
+             ...directConditions,
+             inArray(graphRelationshipsTable.sourceId, [...entityIds]),
+             inArray(graphRelationshipsTable.targetId, [...entityIds]),
+             or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, project.id))!,
+           ))
+       : await db.select().from(graphRelationshipsTable).where(and(
+           inArray(graphRelationshipsTable.sourceId, [...entityIds]),
+           inArray(graphRelationshipsTable.targetId, [...entityIds]),
+           or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, project.id))!,
+         ));
 
-  return res.json(
-    rels.filter(
-      (r: { sourceId: string; targetId: string }) =>
-        entityIds.has(r.sourceId) || entityIds.has(r.targetId),
-    ),
-  );
+  const scoped = rels.filter((r: { sourceId: string; targetId: string }) =>
+    entityIds.has(r.sourceId) && entityIds.has(r.targetId));
+  const { page, pageSize, offset } = listWindow(req.query as Record<string, unknown>);
+  const items = scoped.slice(offset, offset + pageSize);
+  return res.json({ items, meta: { page, pageSize, total: scoped.length, truncated: offset > 0 || offset + items.length < scoped.length } });
 });
 
 // ─── Direct neighbors ─────────────────────────────────────────────────────────
@@ -187,11 +211,17 @@ router.get("/graph/entities/:entityId/neighbors", async (req, res) => {
   const outgoing = await db
     .select()
     .from(graphRelationshipsTable)
-    .where(eq(graphRelationshipsTable.sourceId, entityId));
+    .where(and(
+      eq(graphRelationshipsTable.sourceId, entityId),
+      or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, ownerProject.id))!,
+    ));
   const incoming = await db
     .select()
     .from(graphRelationshipsTable)
-    .where(eq(graphRelationshipsTable.targetId, entityId));
+    .where(and(
+      eq(graphRelationshipsTable.targetId, entityId),
+      or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, ownerProject.id))!,
+    ));
 
   const neighborIds = new Set<string>();
   for (const r of outgoing) neighborIds.add(r.targetId);
@@ -202,10 +232,19 @@ router.get("/graph/entities/:entityId/neighbors", async (req, res) => {
       ? await db
           .select()
           .from(graphEntitiesTable)
-          .where(inArray(graphEntitiesTable.id, [...neighborIds]))
+           .where(and(
+             inArray(graphEntitiesTable.id, [...neighborIds]),
+             eq(graphEntitiesTable.projectId, ownerProject.id),
+           ))
       : [];
 
-  return res.json({ entity, outgoing, incoming, neighbors });
+  const neighborIdSet = new Set(neighbors.map((neighbor) => neighbor.id));
+  return res.json({
+    entity,
+    outgoing: outgoing.filter((relationship) => neighborIdSet.has(relationship.targetId)),
+    incoming: incoming.filter((relationship) => neighborIdSet.has(relationship.sourceId)),
+    neighbors,
+  });
 });
 
 // ─── Impact analysis ──────────────────────────────────────────────────────────
@@ -226,7 +265,7 @@ router.get("/graph/impact", async (req, res) => {
   const ownerProject = await loadProjectByIdForUser(entity.projectId, req.userId, res);
   if (!ownerProject) return;
 
-  const result = await getImpactedEntities(db, entityId, maxDepth ?? 4);
+  const result = await getImpactedEntities(db, entityId, maxDepth ?? 4, ownerProject.id);
   if (!result) return res.status(404).json({ error: "Entity not found" });
 
   return res.json({
@@ -254,6 +293,12 @@ router.get("/graph/path", async (req, res) => {
 
   const ownerProject = await loadProjectByIdForUser(entity.projectId, req.userId, res);
   if (!ownerProject) return;
+  const destinationRows = await db
+    .select({ id: graphEntitiesTable.id })
+    .from(graphEntitiesTable)
+    .where(and(eq(graphEntitiesTable.id, toId), eq(graphEntitiesTable.projectId, ownerProject.id)))
+    .limit(1);
+  if (!destinationRows[0]) return res.json({ found: false, meta: { depthLimit: 8 } });
 
   // Use high-confidence path if minConfidence is specified
   const minConf = typeof req.query.minConfidence === "string"
@@ -262,8 +307,8 @@ router.get("/graph/path", async (req, res) => {
 
   const result =
     minConf !== undefined && !isNaN(minConf)
-      ? await getHighConfidencePath(db, fromId, toId, minConf, maxDepth ?? 5)
-      : await getShortestPath(db, fromId, toId, maxDepth ?? 5);
+       ? await getHighConfidencePath(db, fromId, toId, minConf, maxDepth ?? 5, ownerProject.id)
+       : await getShortestPath(db, fromId, toId, maxDepth ?? 5, ownerProject.id);
 
   // PR-03: always annotate path steps so the response explains *why* each hop
   // was traversed (confidence, sourceType, evidence) rather than returning
@@ -405,7 +450,7 @@ router.get("/graph/semantic-neighborhood", async (req, res) => {
   const depth = Math.min(requestedDepth, 4);
   const filters = parseKgFilters(req.query as Record<string, unknown>);
 
-  const result = await getSemanticNeighborhood(db, entityId, depth, filters);
+  const result = await getSemanticNeighborhood(db, entityId, depth, filters, ownerProject.id);
   return res.json({
     ...result,
     // KG-05: depth is always capped at 4; expose effectiveDepth and whether
@@ -433,7 +478,7 @@ router.get("/graph/evidence/:entityId", async (req, res) => {
   const ownerProject = await loadProjectByIdForUser(entity.projectId, req.userId, res);
   if (!ownerProject) return;
 
-  const evidence = await getEvidenceForNode(db, entityId);
+  const evidence = await getEvidenceForNode(db, entityId, ownerProject.id);
   // PR-03: lift entity.provenance to a dedicated key so callers can immediately
   // see who extracted this entity without parsing the full entity row.
   // Each item in `evidence` is now an EvidenceBundle with confidence,

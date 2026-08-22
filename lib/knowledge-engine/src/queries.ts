@@ -4,7 +4,7 @@
  * All functions are pure async — they take a db instance and return typed
  * results. No side effects, no writes. Safe to call from any context.
  */
-import { eq, inArray, and, gte, isNotNull, desc, sql, SQL } from "drizzle-orm";
+import { eq, inArray, and, gte, isNotNull, desc, sql, SQL, isNull, or } from "drizzle-orm";
 import {
   db as DbType,
   graphEntitiesTable,
@@ -103,12 +103,19 @@ function applySemanticTagsFilter(
 async function fetchOutgoing(
   db: Db,
   sourceIds: string[],
+  projectId?: string,
 ): Promise<GraphRelationship[]> {
   if (sourceIds.length === 0) return [];
+  const conditions: SQL[] = [inArray(graphRelationshipsTable.sourceId, sourceIds)];
+  if (projectId) {
+    conditions.push(
+      or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, projectId))!,
+    );
+  }
   return db
     .select()
     .from(graphRelationshipsTable)
-    .where(inArray(graphRelationshipsTable.sourceId, sourceIds));
+    .where(and(...conditions));
 }
 
 /**
@@ -117,12 +124,15 @@ async function fetchOutgoing(
 async function fetchEntitiesByIds(
   db: Db,
   ids: string[],
+  projectId?: string,
 ): Promise<GraphEntity[]> {
   if (ids.length === 0) return [];
+  const conditions: SQL[] = [inArray(graphEntitiesTable.id, ids)];
+  if (projectId) conditions.push(eq(graphEntitiesTable.projectId, projectId));
   return db
     .select()
     .from(graphEntitiesTable)
-    .where(inArray(graphEntitiesTable.id, ids));
+    .where(and(...conditions));
 }
 
 // ─── Impact analysis ─────────────────────────────────────────────────────────
@@ -141,13 +151,14 @@ export async function getImpactedEntities(
   db: Db,
   entityId: string,
   maxDepth = 4,
+  projectId?: string,
 ): Promise<ImpactResult | null> {
   const depth = Math.min(maxDepth, 6);
 
   const rootRows = await db
     .select()
     .from(graphEntitiesTable)
-    .where(eq(graphEntitiesTable.id, entityId))
+    .where(and(eq(graphEntitiesTable.id, entityId), ...(projectId ? [eq(graphEntitiesTable.projectId, projectId)] : [])))
     .limit(1);
 
   if (!rootRows[0]) return null;
@@ -159,7 +170,7 @@ export async function getImpactedEntities(
   let currentDepth = 0;
 
   while (frontier.length > 0 && currentDepth < depth) {
-    const outgoing = await fetchOutgoing(db, frontier);
+    const outgoing = await fetchOutgoing(db, frontier, projectId);
     const nextIds = outgoing
       .map((r) => r.targetId)
       .filter((id) => !visited.has(id));
@@ -170,7 +181,7 @@ export async function getImpactedEntities(
     }
 
     const nextDepth = currentDepth + 1;
-    const nextEntities = await fetchEntitiesByIds(db, [...new Set(nextIds)]);
+    const nextEntities = await fetchEntitiesByIds(db, [...new Set(nextIds)], projectId);
     const entityMap = new Map(nextEntities.map((e) => [e.id, e]));
 
     for (const rel of outgoing) {
@@ -212,12 +223,13 @@ export async function getShortestPath(
   fromId: string,
   toId: string,
   maxDepth = 5,
+  projectId?: string,
 ): Promise<PathResult> {
   if (fromId === toId) {
     const rows = await db
       .select()
       .from(graphEntitiesTable)
-      .where(eq(graphEntitiesTable.id, fromId))
+      .where(and(eq(graphEntitiesTable.id, fromId), ...(projectId ? [eq(graphEntitiesTable.projectId, projectId)] : [])))
       .limit(1);
     if (!rows[0]) return { found: false };
     return { found: true, path: [{ entity: rows[0], relationship: null }], length: 0 };
@@ -231,7 +243,7 @@ export async function getShortestPath(
   const fromRows = await db
     .select()
     .from(graphEntitiesTable)
-    .where(eq(graphEntitiesTable.id, fromId))
+    .where(and(eq(graphEntitiesTable.id, fromId), ...(projectId ? [eq(graphEntitiesTable.projectId, projectId)] : [])))
     .limit(1);
   if (!fromRows[0]) return { found: false };
 
@@ -244,9 +256,9 @@ export async function getShortestPath(
     const node = queue.shift()!;
     if (node.path.length > depth) break;
 
-    const outgoing = await fetchOutgoing(db, [node.entityId]);
+    const outgoing = await fetchOutgoing(db, [node.entityId], projectId);
     const targetIds = outgoing.map((r) => r.targetId).filter((id) => !visited.has(id));
-    const entities = await fetchEntitiesByIds(db, [...new Set(targetIds)]);
+    const entities = await fetchEntitiesByIds(db, [...new Set(targetIds)], projectId);
     const entityMap = new Map(entities.map((e) => [e.id, e]));
 
     for (const rel of outgoing) {
@@ -457,7 +469,13 @@ export async function fetchProjectGraph(
   const relationships = await db
     .select()
     .from(graphRelationshipsTable)
-    .where(inArray(graphRelationshipsTable.sourceId, entityIds));
+    .where(
+      and(
+        or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, projectId))!,
+        inArray(graphRelationshipsTable.sourceId, entityIds),
+        inArray(graphRelationshipsTable.targetId, entityIds),
+      ),
+    );
 
   return { entities, relationships };
 }
@@ -475,8 +493,20 @@ export async function getEdgesByType(
   db: Db,
   projectId: string,
   filters: GraphQueryFilters = {},
+  sourceId?: string,
 ): Promise<GraphRelationship[]> {
-  const conditions: SQL[] = [eq(graphRelationshipsTable.projectId, projectId)];
+  const projectEntities = await db
+    .select({ id: graphEntitiesTable.id })
+    .from(graphEntitiesTable)
+    .where(eq(graphEntitiesTable.projectId, projectId));
+  const entityIds = projectEntities.map((entity) => entity.id);
+  if (entityIds.length === 0) return [];
+  const conditions: SQL[] = [
+    eq(graphRelationshipsTable.projectId, projectId),
+    inArray(graphRelationshipsTable.sourceId, entityIds),
+    inArray(graphRelationshipsTable.targetId, entityIds),
+  ];
+  if (sourceId) conditions.push(eq(graphRelationshipsTable.sourceId, sourceId));
 
   if (filters.edgeTypes && filters.edgeTypes.length > 0) {
     conditions.push(inArray(graphRelationshipsTable.relationType, filters.edgeTypes));
@@ -531,18 +561,33 @@ export async function getEdgesByType(
 export async function getEvidenceForNode(
   db: Db,
   entityId: string,
+  projectId?: string,
 ): Promise<EvidenceBundle[]> {
+  const conditions: SQL[] = [
+    eq(graphRelationshipsTable.sourceId, entityId),
+    isNotNull(graphRelationshipsTable.evidenceJson),
+  ];
+  if (projectId) conditions.push(eq(graphRelationshipsTable.projectId, projectId));
   const rels = await db
     .select()
     .from(graphRelationshipsTable)
     .where(
-      and(
-        eq(graphRelationshipsTable.sourceId, entityId),
-        isNotNull(graphRelationshipsTable.evidenceJson),
-      ),
+      and(...conditions),
     );
+  const validTargetIds = projectId
+    ? new Set(
+        (
+          await fetchEntitiesByIds(
+            db,
+            [...new Set(rels.map((relationship) => relationship.targetId))],
+            projectId,
+          )
+        ).map((entity) => entity.id),
+      )
+    : undefined;
 
   return rels
+    .filter((relationship) => !validTargetIds || validTargetIds.has(relationship.targetId))
     .filter((r) => {
       const ev = r.evidenceJson as unknown[] | null | undefined;
       return ev && ev.length > 0;
@@ -568,6 +613,7 @@ export async function getSemanticNeighborhood(
   entityId: string,
   depth = 2,
   filters: GraphQueryFilters = {},
+  projectId?: string,
 ): Promise<{
   root: GraphEntity | null;
   entities: GraphEntity[];
@@ -576,7 +622,7 @@ export async function getSemanticNeighborhood(
   const rootRows = await db
     .select()
     .from(graphEntitiesTable)
-    .where(eq(graphEntitiesTable.id, entityId))
+    .where(and(eq(graphEntitiesTable.id, entityId), ...(projectId ? [eq(graphEntitiesTable.projectId, projectId)] : [])))
     .limit(1);
 
   if (!rootRows[0]) return { root: null, entities: [], relationships: [] };
@@ -589,6 +635,11 @@ export async function getSemanticNeighborhood(
   for (let d = 0; d < Math.min(depth, 4); d++) {
     // Build conditions for this hop's outgoing edges
     const conditions: SQL[] = [inArray(graphRelationshipsTable.sourceId, frontier)];
+    if (projectId) {
+      conditions.push(
+        or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, projectId))!,
+      );
+    }
     if (filters.edgeTypes && filters.edgeTypes.length > 0) {
       conditions.push(inArray(graphRelationshipsTable.relationType, filters.edgeTypes));
     }
@@ -621,14 +672,17 @@ export async function getSemanticNeighborhood(
 
     const nextIds = new Set<string>();
     for (const rel of outgoing) {
-      allRelationships.push(rel);
       if (!visited.has(rel.targetId)) nextIds.add(rel.targetId);
     }
 
     const newIds = [...nextIds].filter((id) => !visited.has(id));
     if (newIds.length === 0) break;
 
-    const entities = await fetchEntitiesByIds(db, newIds);
+    const entities = await fetchEntitiesByIds(db, newIds, projectId);
+    const validEntityIds = new Set(entities.map((entity) => entity.id));
+    for (const rel of outgoing) {
+      if (validEntityIds.has(rel.targetId)) allRelationships.push(rel);
+    }
     allEntities.push(...entities);
     for (const e of entities) visited.add(e.id);
     frontier = newIds;
@@ -654,12 +708,13 @@ export async function getHighConfidencePath(
   toId: string,
   minConfidence = 0.8,
   maxDepth = 5,
+  projectId?: string,
 ): Promise<PathResult> {
   if (fromId === toId) {
     const rows = await db
       .select()
       .from(graphEntitiesTable)
-      .where(eq(graphEntitiesTable.id, fromId))
+      .where(and(eq(graphEntitiesTable.id, fromId), ...(projectId ? [eq(graphEntitiesTable.projectId, projectId)] : [])))
       .limit(1);
     if (!rows[0]) return { found: false };
     return { found: true, path: [{ entity: rows[0], relationship: null }], length: 0 };
@@ -669,7 +724,7 @@ export async function getHighConfidencePath(
   const fromRows = await db
     .select()
     .from(graphEntitiesTable)
-    .where(eq(graphEntitiesTable.id, fromId))
+    .where(and(eq(graphEntitiesTable.id, fromId), ...(projectId ? [eq(graphEntitiesTable.projectId, projectId)] : [])))
     .limit(1);
   if (!fromRows[0]) return { found: false };
 
@@ -692,12 +747,15 @@ export async function getHighConfidencePath(
             and(
               eq(graphRelationshipsTable.sourceId, node.entityId),
               gte(graphRelationshipsTable.confidence, minConfidence),
+              ...(projectId
+                ? [or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, projectId))!]
+                : []),
             ),
           )
       : [];
 
     const targetIds = outgoing.map((r) => r.targetId).filter((id) => !visited.has(id));
-    const entities = await fetchEntitiesByIds(db, [...new Set(targetIds)]);
+    const entities = await fetchEntitiesByIds(db, [...new Set(targetIds)], projectId);
     const entityMap = new Map(entities.map((e) => [e.id, e]));
 
     for (const rel of outgoing) {
@@ -771,12 +829,18 @@ export async function getObservedRuntimeSubgraph(
     entityIds.add(r.targetId);
   }
 
-  const entities = await fetchEntitiesByIds(db, [...entityIds]);
-  const stats = computeLayerStats(relationships);
+  const entities = await fetchEntitiesByIds(db, [...entityIds], projectId);
+  const validEntityIds = new Set(entities.map((entity) => entity.id));
+  const scopedRelationships = relationships.filter(
+    (relationship) =>
+      validEntityIds.has(relationship.sourceId) &&
+      validEntityIds.has(relationship.targetId),
+  );
+  const stats = computeLayerStats(scopedRelationships);
 
   return {
     entities,
-    relationships,
+    relationships: scopedRelationships,
     provenanceSummary: {
       layer: "runtime",
       edgeCount: relationships.length,
@@ -810,7 +874,16 @@ export async function getLayeredGraphView(
     .from(graphEntitiesTable)
     .where(eq(graphEntitiesTable.projectId, projectId));
 
-  const baseConditions: SQL[] = [eq(graphRelationshipsTable.projectId, projectId)];
+  const entityIds = entities.map((entity) => entity.id);
+  const baseConditions: SQL[] = [
+    eq(graphRelationshipsTable.projectId, projectId),
+    ...(entityIds.length > 0
+      ? [
+          inArray(graphRelationshipsTable.sourceId, entityIds),
+          inArray(graphRelationshipsTable.targetId, entityIds),
+        ]
+      : []),
+  ];
   if (filters.edgeTypes && filters.edgeTypes.length > 0) {
     baseConditions.push(inArray(graphRelationshipsTable.relationType, filters.edgeTypes));
   }

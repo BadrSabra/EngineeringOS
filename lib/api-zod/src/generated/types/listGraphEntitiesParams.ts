@@ -10,4 +10,13 @@ import type { EntityType } from './entityType';
 export type ListGraphEntitiesParams = {
 projectId?: string;
 type?: EntityType;
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 1000
+ */
+pageSize?: number;
 };

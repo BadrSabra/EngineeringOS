@@ -1837,6 +1837,23 @@ export interface GraphRelationship {
   createdAt: string;
 }
 
+export interface GraphListMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+  truncated: boolean;
+}
+
+export interface GraphEntityList {
+  items: GraphEntity[];
+  meta: GraphListMeta;
+}
+
+export interface GraphRelationshipList {
+  items: GraphRelationship[];
+  meta: GraphListMeta;
+}
+
 export interface GraphImpactHop {
   entity: GraphEntity;
   viaRelationship: GraphRelationship;
@@ -2248,11 +2265,29 @@ projectId?: string;
 export type ListGraphEntitiesParams = {
 projectId?: string;
 type?: EntityType;
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 1000
+ */
+pageSize?: number;
 };
 
 export type ListGraphRelationshipsParams = {
 projectId?: string;
 sourceId?: string;
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 1000
+ */
+pageSize?: number;
 };
 
 export type GetGraphEntityImpactParams = {

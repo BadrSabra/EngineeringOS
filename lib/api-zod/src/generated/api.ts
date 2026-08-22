@@ -1021,17 +1021,27 @@ export const GetLatestMetricsResponse = zod.array(GetLatestMetricsResponseItem)
 /**
  * @summary List knowledge graph entities
  */
+export const listGraphEntitiesQueryPageDefault = 1;
+
+export const listGraphEntitiesQueryPageSizeDefault = 1000;
+export const listGraphEntitiesQueryPageSizeMax = 1000;
+
+
+
 export const ListGraphEntitiesQueryParams = zod.object({
   "projectId": zod.coerce.string().optional(),
-  "type": zod.enum(['file', 'function', 'class', 'api', 'task', 'rule', 'phase', 'module']).optional()
+  "type": zod.enum(['file', 'function', 'class', 'api', 'task', 'rule', 'phase', 'module']).optional(),
+  "page": zod.coerce.number().min(1).default(listGraphEntitiesQueryPageDefault),
+  "pageSize": zod.coerce.number().min(1).max(listGraphEntitiesQueryPageSizeMax).default(listGraphEntitiesQueryPageSizeDefault)
 })
 
-export const listGraphEntitiesResponseConfidenceMin = 0;
-export const listGraphEntitiesResponseConfidenceMax = 1;
+export const listGraphEntitiesResponseItemsItemConfidenceMin = 0;
+export const listGraphEntitiesResponseItemsItemConfidenceMax = 1;
 
 
 
-export const ListGraphEntitiesResponseItem = zod.object({
+export const ListGraphEntitiesResponse = zod.object({
+  "items": zod.array(zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
   "scanJobId": zod.string().optional().describe('The scan job that produced this entity, if any'),
@@ -1046,7 +1056,7 @@ export const ListGraphEntitiesResponseItem = zod.object({
   "isDocumented": zod.boolean().optional().describe('True when the entity has JSDoc, a docstring, or equivalent documentation'),
   "semanticTags": zod.array(zod.string()).optional().describe('Free-form semantic classification tags (e.g. auth, public-api, deprecated)'),
   "description": zod.string().optional().describe('Short description from doc comment or declaration signature'),
-  "confidence": zod.number().min(listGraphEntitiesResponseConfidenceMin).max(listGraphEntitiesResponseConfidenceMax).optional().describe('Extraction confidence — 1.0 = AST certainty, 0.5 = heuristic, 0.0 = unknown'),
+  "confidence": zod.number().min(listGraphEntitiesResponseItemsItemConfidenceMin).max(listGraphEntitiesResponseItemsItemConfidenceMax).optional().describe('Extraction confidence — 1.0 = AST certainty, 0.5 = heuristic, 0.0 = unknown'),
   "domain": zod.string().optional().describe('Business domain (e.g. auth, payments, infra)'),
   "lifecycle": zod.string().optional().describe('Lifecycle stage — stable | experimental | deprecated | internal'),
   "provenance": zod.object({
@@ -1062,27 +1072,43 @@ export const ListGraphEntitiesResponseItem = zod.object({
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
 }).optional().describe('Provenance record for a graph entity or relationship. All fields are optional for backwards compatibility.\n'),
   "createdAt": zod.coerce.date()
+})),
+  "meta": zod.object({
+  "page": zod.number(),
+  "pageSize": zod.number(),
+  "total": zod.number(),
+  "truncated": zod.boolean()
 })
-export const ListGraphEntitiesResponse = zod.array(ListGraphEntitiesResponseItem)
+})
 
 
 /**
  * @summary List knowledge graph relationships
  */
+export const listGraphRelationshipsQueryPageDefault = 1;
+
+export const listGraphRelationshipsQueryPageSizeDefault = 1000;
+export const listGraphRelationshipsQueryPageSizeMax = 1000;
+
+
+
 export const ListGraphRelationshipsQueryParams = zod.object({
   "projectId": zod.coerce.string().optional(),
-  "sourceId": zod.coerce.string().optional()
+  "sourceId": zod.coerce.string().optional(),
+  "page": zod.coerce.number().min(1).default(listGraphRelationshipsQueryPageDefault),
+  "pageSize": zod.coerce.number().min(1).max(listGraphRelationshipsQueryPageSizeMax).default(listGraphRelationshipsQueryPageSizeDefault)
 })
 
-export const listGraphRelationshipsResponseWeightMin = 0;
-export const listGraphRelationshipsResponseWeightMax = 1;
+export const listGraphRelationshipsResponseItemsItemWeightMin = 0;
+export const listGraphRelationshipsResponseItemsItemWeightMax = 1;
 
-export const listGraphRelationshipsResponseConfidenceMin = 0;
-export const listGraphRelationshipsResponseConfidenceMax = 1;
+export const listGraphRelationshipsResponseItemsItemConfidenceMin = 0;
+export const listGraphRelationshipsResponseItemsItemConfidenceMax = 1;
 
 
 
-export const ListGraphRelationshipsResponseItem = zod.object({
+export const ListGraphRelationshipsResponse = zod.object({
+  "items": zod.array(zod.object({
   "id": zod.string(),
   "sourceId": zod.string(),
   "targetId": zod.string(),
@@ -1091,8 +1117,8 @@ export const ListGraphRelationshipsResponseItem = zod.object({
   "scanJobId": zod.string().optional().describe('The scan job that produced this relationship, if any'),
   "relationType": zod.enum(['imports', 'calls', 'extends', 'implements', 'uses', 'emits', 'observes', 'produces', 'depends_on']).optional().describe('Typed relationship category for Knowledge Graph 2.0'),
   "relationSubtype": zod.string().optional().describe('Fine-grained sub-classification (e.g. static-import, type-only-import)'),
-  "weight": zod.number().min(listGraphRelationshipsResponseWeightMin).max(listGraphRelationshipsResponseWeightMax).optional().describe('Edge weight for weighted graph algorithms (typically equals confidence)'),
-  "confidence": zod.number().min(listGraphRelationshipsResponseConfidenceMin).max(listGraphRelationshipsResponseConfidenceMax).optional().describe('Extraction confidence [0,1] — lower values indicate heuristic inference'),
+  "weight": zod.number().min(listGraphRelationshipsResponseItemsItemWeightMin).max(listGraphRelationshipsResponseItemsItemWeightMax).optional().describe('Edge weight for weighted graph algorithms (typically equals confidence)'),
+  "confidence": zod.number().min(listGraphRelationshipsResponseItemsItemConfidenceMin).max(listGraphRelationshipsResponseItemsItemConfidenceMax).optional().describe('Extraction confidence [0,1] — lower values indicate heuristic inference'),
   "isHeuristic": zod.boolean().optional().describe('True when inferred by heuristic rules rather than direct parse evidence'),
   "isRuntimeObserved": zod.boolean().optional().describe('True when observed at runtime, not inferred by static analysis'),
   "evidenceJson": zod.array(zod.object({
@@ -1122,8 +1148,14 @@ export const ListGraphRelationshipsResponseItem = zod.object({
 }).describe('A single piece of evidence that justifies a graph entity or relationship')).optional().describe('Source location records that justify this element')
 }).optional().describe('Provenance record for a graph entity or relationship. All fields are optional for backwards compatibility.\n'),
   "createdAt": zod.coerce.date()
+})),
+  "meta": zod.object({
+  "page": zod.number(),
+  "pageSize": zod.number(),
+  "total": zod.number(),
+  "truncated": zod.boolean()
 })
-export const ListGraphRelationshipsResponse = zod.array(ListGraphRelationshipsResponseItem)
+})
 
 
 /**

@@ -81,11 +81,11 @@ import type {
   GitPushInput,
   GitPushResult,
   GitStatus,
-  GraphEntity,
+  GraphEntityList,
   GraphEvidenceResponse,
   GraphImpactResult,
   GraphPathResult,
-  GraphRelationship,
+  GraphRelationshipList,
   GraphRuntimeSubgraph,
   GraphSemanticNeighborhood,
   GraphSubgraph,
@@ -3025,9 +3025,9 @@ export const getListGraphEntitiesUrl = (params?: ListGraphEntitiesParams,) => {
 /**
  * @summary List knowledge graph entities
  */
-export const listGraphEntities = async (params?: ListGraphEntitiesParams, options?: RequestInit): Promise<GraphEntity[]> => {
+export const listGraphEntities = async (params?: ListGraphEntitiesParams, options?: RequestInit): Promise<GraphEntityList> => {
 
-  return customFetch<GraphEntity[]>(getListGraphEntitiesUrl(params),
+  return customFetch<GraphEntityList>(getListGraphEntitiesUrl(params),
   {
     ...options,
     method: 'GET'
@@ -3109,9 +3109,9 @@ export const getListGraphRelationshipsUrl = (params?: ListGraphRelationshipsPara
 /**
  * @summary List knowledge graph relationships
  */
-export const listGraphRelationships = async (params?: ListGraphRelationshipsParams, options?: RequestInit): Promise<GraphRelationship[]> => {
+export const listGraphRelationships = async (params?: ListGraphRelationshipsParams, options?: RequestInit): Promise<GraphRelationshipList> => {
 
-  return customFetch<GraphRelationship[]>(getListGraphRelationshipsUrl(params),
+  return customFetch<GraphRelationshipList>(getListGraphRelationshipsUrl(params),
   {
     ...options,
     method: 'GET'

@@ -825,15 +825,26 @@ paths:
           in: query
           schema:
             $ref: "#/components/schemas/EntityType"
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 1000
       responses:
         "200":
           description: List of entities
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/GraphEntity"
+                $ref: "#/components/schemas/GraphEntityList"
 
   /api/graph/relationships:
     get:
@@ -849,15 +860,26 @@ paths:
           in: query
           schema:
             type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 1000
       responses:
         "200":
           description: List of relationships
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/GraphRelationship"
+                $ref: "#/components/schemas/GraphRelationshipList"
 
   /api/graph/impact:
     get:
@@ -5235,6 +5257,38 @@ components:
         createdAt:
           type: string
           format: date-time
+    GraphListMeta:
+      type: object
+      required: [page, pageSize, total, truncated]
+      properties:
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+        truncated:
+          type: boolean
+    GraphEntityList:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEntity"
+        meta:
+          $ref: "#/components/schemas/GraphListMeta"
+    GraphRelationshipList:
+      type: object
+      required: [items, meta]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphRelationship"
+        meta:
+          $ref: "#/components/schemas/GraphListMeta"
 
     GraphImpactHop:
       type: object
