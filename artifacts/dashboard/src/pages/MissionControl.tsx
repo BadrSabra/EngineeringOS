@@ -11,6 +11,7 @@ import {
   Cpu,
   Download,
   ExternalLink,
+  FileUp,
   Gauge,
   GitBranch,
   History,
@@ -56,6 +57,11 @@ type MetricEntry = {
   numericValue?: number;
 };
 
+type HistorySnapshot = {
+  executions: MissionExecution[];
+  benchmark: JsonRecord;
+};
+
 const COMPLETE_STATES = new Set(['READY_FOR_REVIEW', 'COMPLETED', 'COMMITTED', 'PUSHED', 'APPLIED']);
 
 function asRecord(value: unknown): JsonRecord | null {
@@ -70,6 +76,32 @@ function asExecutions(value: unknown): MissionExecution[] {
     const record = asRecord(item);
     return Boolean(record && typeof record.id === 'string');
   });
+}
+
+function validateHistorySnapshot(value: unknown): { snapshot?: HistorySnapshot; error?: string } {
+  const root = asRecord(value);
+  if (!root) return { error: 'The file must contain a JSON object.' };
+  if (!Array.isArray(root.executions) || root.executions.length === 0) {
+    return { error: 'The JSON must contain a non-empty executions array.' };
+  }
+  const invalidExecutionIndex = root.executions.findIndex((execution) => {
+    const record = asRecord(execution);
+    return !record || typeof record.id !== 'string' || !record.id.trim();
+  });
+  if (invalidExecutionIndex >= 0) {
+    return { error: `Execution ${invalidExecutionIndex + 1} must be an object with a non-empty string id.` };
+  }
+  const benchmark = asRecord(root.benchmark);
+  if (!benchmark) return { error: 'The JSON must contain a benchmark object.' };
+  const scorecard = asRecord(benchmark.scorecard);
+  const baseline = asRecord(benchmark.baseline);
+  if (!scorecard || !asRecord(scorecard.metrics)) {
+    return { error: 'Benchmark scorecard.metrics must be a nested object.' };
+  }
+  if (!baseline || !asRecord(baseline.metrics)) {
+    return { error: 'Benchmark baseline.metrics must be a nested object.' };
+  }
+  return { snapshot: { executions: asExecutions(root.executions), benchmark } };
 }
 
 function textValue(...values: unknown[]): string | undefined {
@@ -378,6 +410,9 @@ export default function MissionControl() {
   const [historyState, setHistoryState] = useState('ALL');
   const [historyExportFormat, setHistoryExportFormat] = useState<HistoryExportFormat>('csv');
   const [historyPage, setHistoryPage] = useState(1);
+  const [importedHistory, setImportedHistory] = useState<HistorySnapshot | null>(null);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const historyPageSize = 8;
   const { data, error, isError, isLoading, isFetching, refetch } = useGetAiMissionControl({
     query: {
@@ -429,6 +464,25 @@ export default function MissionControl() {
     [typedData?.benchmark?.baseline],
   );
   const baselineByKey = useMemo(() => new Map(baselineMetrics.map((metric) => [metric.key, metric])), [baselineMetrics]);
+  const importedScorecardMetrics = useMemo(
+    () => metricEntries(asRecord(importedHistory?.benchmark.scorecard)?.metrics),
+    [importedHistory],
+  );
+  const importedBaselineMetrics = useMemo(
+    () => metricEntries(asRecord(importedHistory?.benchmark.baseline)?.metrics),
+    [importedHistory],
+  );
+  const importedCompletedCount = importedHistory?.executions.filter(
+    (execution) => COMPLETE_STATES.has(textValue(execution.state)?.toUpperCase() ?? ''),
+  ).length ?? 0;
+  const importedValidationFailures = importedHistory?.executions.reduce(
+    (total, execution) => total + (numberValue(execution.validationFailures) ?? 0),
+    0,
+  ) ?? 0;
+  const importedBaselineByKey = useMemo(
+    () => new Map(importedBaselineMetrics.map((metric) => [metric.key, metric])),
+    [importedBaselineMetrics],
+  );
   const recoverySummaries = useMemo(() => {
     const envelope = asRecord(asRecord(typedData?.benchmark)?.freeTierEnvelope);
     return Array.isArray(envelope?.providerRecoverySummaries)
@@ -438,6 +492,26 @@ export default function MissionControl() {
   const selectedEvidenceRows = evidenceRows(selectedExecution?.evidence);
   const selectedEvents = Array.isArray(selectedExecution?.recentEvents) ? selectedExecution.recentEvents : [];
   const updatedLabel = formatDate(typedData?.updatedAt);
+
+  async function handleHistoryImport(event: React.ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    setImportError(null);
+    setImportStatus(null);
+    if (!file) return;
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      const result = validateHistorySnapshot(parsed);
+      if (result.error) {
+        setImportError(result.error);
+        return;
+      }
+      setImportedHistory(result.snapshot ?? null);
+      setImportStatus(`Imported ${result.snapshot?.executions.length ?? 0} executions from ${file.name}.`);
+    } catch {
+      setImportError('This file is not valid JSON. Choose a JSON history exported from Mission Control.');
+    }
+  }
 
   useEffect(() => {
     if (historyPage > historyPageCount) setHistoryPage(historyPageCount);
@@ -465,7 +539,7 @@ export default function MissionControl() {
     );
   }
 
-  if (executions.length === 0) {
+  if (executions.length === 0 && !importedHistory) {
     return (
       <div className="space-y-5">
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -478,6 +552,16 @@ export default function MissionControl() {
           <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-muted-foreground">
             New AI executions will appear here once their server-owned checkpoints and recorder events exist.
           </p>
+           <label className="mt-6 inline-flex cursor-pointer items-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary hover-elevate">
+             <FileUp className="h-4 w-4" /> Import JSON history
+             <input
+               type="file"
+               accept="application/json,.json"
+               onChange={(event) => void handleHistoryImport(event)}
+               aria-label="Import JSON recovery history"
+               className="sr-only"
+             />
+           </label>
           <Link href="/ai" className="mt-6 inline-flex items-center gap-2 rounded-md border border-primary/35 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary hover-elevate">
             Open AI Assistant <ArrowUpRight className="h-4 w-4" />
           </Link>
@@ -594,7 +678,19 @@ export default function MissionControl() {
                >
                  <Download className="h-3.5 w-3.5" /> Export filtered history
                </button>
+                <label className="inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-md border border-border bg-background/50 px-3 py-2 text-xs font-semibold text-foreground hover-elevate">
+                  <FileUp className="h-3.5 w-3.5 text-primary" /> Import JSON history
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={(event) => void handleHistoryImport(event)}
+                    aria-label="Import JSON recovery history"
+                    className="sr-only"
+                  />
+                </label>
              </div>
+              {importError && <p className="mt-2 text-[11px] text-red-200" role="alert">{importError}</p>}
+              {importStatus && <p className="mt-2 text-[11px] text-emerald-200" role="status">{importStatus}</p>}
              {filteredExecutions.length === 0 && (
                <p className="mt-2 text-[11px] text-muted-foreground" role="status">
                  There are no matching executions to export. Adjust the search or state filter.
@@ -764,6 +860,74 @@ export default function MissionControl() {
           </section>
         </div>
       </div>
+
+      {importedHistory && (
+        <section className="rounded-xl border border-primary/25 bg-card" aria-label="Imported history comparison">
+          <div className="flex flex-col gap-2 border-b border-border/70 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <FileUp className="h-4 w-4 text-primary" />
+                <h2 className="font-semibold">Imported history comparison</h2>
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                A read-only comparison. The live execution ledger has not been changed.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setImportedHistory(null); setImportStatus(null); }}
+              className="self-start rounded-md border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover-elevate"
+            >
+              Clear comparison
+            </button>
+          </div>
+          <div className="grid gap-4 p-4 md:grid-cols-2">
+            {[
+              {
+                label: 'Live history',
+                executions: executions.length,
+                completed: completedCount,
+                failures: executions.reduce((total, execution) => total + (numberValue(execution.validationFailures) ?? 0), 0),
+                metrics: scorecardMetrics,
+                baseline: baselineByKey,
+              },
+              {
+                label: 'Imported history',
+                executions: importedHistory.executions.length,
+                completed: importedCompletedCount,
+                failures: importedValidationFailures,
+                metrics: importedScorecardMetrics,
+                baseline: importedBaselineByKey,
+              },
+            ].map((column) => (
+              <div key={column.label} className="rounded-lg border border-border/60 bg-background/20 p-3">
+                <h3 className="text-sm font-semibold">{column.label}</h3>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <SummaryMetric label="Runs" value={String(column.executions)} detail="recorded executions" icon={<History className="h-3.5 w-3.5 text-primary" />} />
+                  <SummaryMetric label="Complete" value={String(column.completed)} detail="terminal states" icon={<CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />} tone="text-emerald-200" />
+                  <SummaryMetric label="Validation" value={String(column.failures)} detail="failure count" icon={<ShieldCheck className="h-3.5 w-3.5 text-amber-300" />} tone="text-amber-200" />
+                </div>
+                <div className="mt-3 space-y-1.5">
+                  {column.metrics.slice(0, 6).map((metric) => {
+                    const baseline = column.baseline.get(metric.key);
+                    return (
+                      <div key={metric.key} className="flex items-center gap-2 rounded-md border border-border/45 px-2.5 py-1.5 text-[11px]">
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">{metric.label}</span>
+                        <span className="font-mono text-foreground">{metric.value}</span>
+                        <span className="font-mono text-[10px] text-muted-foreground">{baseline ? `base ${baseline.value}` : 'no baseline'}</span>
+                      </div>
+                    );
+                  })}
+                  {column.metrics.length === 0 && <p className="text-xs text-muted-foreground">No scorecard metrics recorded.</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="border-t border-border/70 px-4 py-3 text-[11px] text-muted-foreground">
+            Imported executions: {importedHistory.executions.map((execution) => execution.id).join(', ')}
+          </div>
+        </section>
+      )}
 
       <section className="rounded-xl border border-border bg-card">
         <div className="flex flex-col gap-2 border-b border-border/70 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">

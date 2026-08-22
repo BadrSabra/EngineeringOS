@@ -310,4 +310,50 @@ describe('Mission Control', () => {
     expect(screen.getByRole('combobox', { name: 'Export format' })).toBeEnabled();
     expect(screen.getByRole('status')).toHaveTextContent('There are no matching executions to export.');
   });
+
+  it('imports a nested JSON history and shows a read-only side-by-side comparison', async () => {
+    renderPage();
+    const imported = {
+      executions: [{
+        id: 'archived-execution',
+        state: 'COMPLETED',
+        objective: 'Archived recovery',
+        validationFailures: 4,
+        evidence: { verdict: 'VERIFIED', checks: [{ passed: true }] },
+      }],
+      benchmark: {
+        scorecard: { suiteVersion: 'archived-suite', metrics: { correctCompletionRate: 0.75 } },
+        baseline: { baselineId: 'archived-baseline', metrics: { correctCompletionRate: 0.5 } },
+      },
+    };
+    const file = new File([JSON.stringify(imported)], 'recovery-history.json', { type: 'application/json' });
+
+    fireEvent.change(screen.getByLabelText('Import JSON recovery history'), { target: { files: [file] } });
+
+    expect(await screen.findByRole('heading', { name: 'Imported history comparison' })).toBeInTheDocument();
+    expect(screen.getByText('A read-only comparison. The live execution ledger has not been changed.')).toBeInTheDocument();
+    expect(screen.getByText('Imported 1 executions from recovery-history.json.')).toBeInTheDocument();
+    expect(screen.getByText(/Imported executions: archived-execution/)).toBeInTheDocument();
+    expect(screen.getAllByText('Live history')).toHaveLength(1);
+    expect(screen.getAllByText('Imported history')).toHaveLength(1);
+    expect(screen.queryByText('archived-suite')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Correct Completion Rate')).toHaveLength(3);
+    expect(screen.getByText('0.75')).toBeInTheDocument();
+    expect(screen.getByText('base 0.50')).toBeInTheDocument();
+    expect(screen.getByText('Repair the auth scope check')).toBeInTheDocument();
+  });
+
+  it('rejects JSON histories with missing nested benchmark metrics', async () => {
+    renderPage();
+    const file = new File([JSON.stringify({
+      executions: [{ id: 'archived-execution', state: 'COMPLETED' }],
+      benchmark: { scorecard: { metrics: {} }, baseline: { baselineId: 'missing-metrics' } },
+    })], 'invalid-history.json', { type: 'application/json' });
+
+    fireEvent.change(screen.getByLabelText('Import JSON recovery history'), { target: { files: [file] } });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Benchmark baseline.metrics must be a nested object.');
+    expect(screen.queryByRole('heading', { name: 'Imported history comparison' })).not.toBeInTheDocument();
+    expect(screen.getByText('Repair the auth scope check')).toBeInTheDocument();
+  });
 });
