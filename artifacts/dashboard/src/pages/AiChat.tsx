@@ -5186,11 +5186,12 @@ function CompletedActivityTimeline({
   );
 }
 
-type FlightRecorderFilter = 'all' | 'tools' | 'validation' | 'repair' | 'guards';
+type FlightRecorderFilter = 'all' | 'tools' | 'validation' | 'repair' | 'guards' | 'phase_rejections';
 
 function flightRecorderCategory(entry: ToolTraceEntry): Exclude<FlightRecorderFilter, 'all'> {
   if (entry.kind === 'validation') return 'validation';
   if (entry.kind === 'repair_state') return 'repair';
+  if (entry.kind === 'diagnostic' && entry.code === 'EXECUTION_PHASE_TOOL_REJECTED') return 'phase_rejections';
   if (entry.kind === 'execution_guard' || entry.kind === 'diagnostic') return 'guards';
   return 'tools';
 }
@@ -5234,6 +5235,9 @@ function flightRecorderLabel(entry: ToolTraceEntry): string {
   }
   if (entry.kind === 'evidence_integrity') return 'Evidence reconciliation';
   if (entry.kind === 'execution_guard') return 'Execution guard';
+  if (entry.kind === 'diagnostic' && entry.code === 'EXECUTION_PHASE_TOOL_REJECTED') {
+    return 'Phase policy blocked action';
+  }
   if (entry.kind === 'diagnostic' && entry.code === 'READ_EVIDENCE_LINKED') {
     return 'Evidence linked';
   }
@@ -5245,6 +5249,13 @@ function flightRecorderLabel(entry: ToolTraceEntry): string {
 }
 
 function flightRecorderDetail(entry: ToolTraceEntry): string | undefined {
+  if (entry.kind === 'diagnostic' && entry.code === 'EXECUTION_PHASE_TOOL_REJECTED') {
+    return [
+      entry.phase && `active phase: ${entry.phase}`,
+      entry.tool && `rejected tool: ${entry.tool}`,
+      entry.details?.[0],
+    ].filter(Boolean).join(' · ') || entry.code;
+  }
   if (entry.tool && entry.source) return entry.source;
   if (entry.tool && entry.args) {
     const firstArg = Object.values(entry.args)[0];
@@ -5583,6 +5594,7 @@ function FlightRecorder({ trace }: { trace: ToolTraceEntry[] }) {
               <option value="validation">Validation ({counts.validation ?? 0})</option>
               <option value="repair">Repair ({counts.repair ?? 0})</option>
               <option value="guards">Guards ({counts.guards ?? 0})</option>
+              <option value="phase_rejections">Phase blocks ({counts.phase_rejections ?? 0})</option>
             </select>
             <span className="ml-auto text-[10px] text-muted-foreground">
               Persisted trace · display-only replay · no actions are replayed

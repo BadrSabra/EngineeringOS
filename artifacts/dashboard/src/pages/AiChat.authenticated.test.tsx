@@ -2449,6 +2449,46 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.queryByText('Execution diagnostic')).not.toBeInTheDocument();
   });
 
+  it('filters phase-policy rejections while preserving the active phase and rejected tool', async () => {
+    mocks.serverProposal = { proposalId: 'phase-policy-filter', changes: [] };
+    mocks.proposalMessages[0].toolTrace = JSON.stringify([
+      {
+        kind: 'tool_call',
+        tool: 'read_file',
+        args: { path: 'src/routes/flight.ts' },
+      },
+      {
+        kind: 'diagnostic',
+        code: 'EXECUTION_PHASE_TOOL_REJECTED',
+        phase: 'evidence',
+        tool: 'write_file',
+        details: ['write_file is not allowed in evidence'],
+      },
+      {
+        kind: 'execution_guard',
+        code: 'WRITE_APPROVAL_REQUIRED',
+        message: 'Writes remain approval-gated.',
+      },
+    ]);
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    const recorder = await screen.findByRole('generic', { name: 'Flight Recorder' });
+    fireEvent.click(screen.getByRole('button', { name: /Flight Recorder/ }));
+    expect(recorder).toHaveTextContent('3 events');
+
+    fireEvent.change(screen.getByLabelText('Flight Recorder filter'), {
+      target: { value: 'phase_rejections' },
+    });
+
+    expect(recorder).toHaveTextContent('Phase policy blocked action');
+    expect(recorder).toHaveTextContent('active phase: evidence');
+    expect(recorder).toHaveTextContent('rejected tool: write_file');
+    expect(recorder).not.toHaveTextContent('Called read_file');
+    expect(recorder).not.toHaveTextContent('Execution guard');
+  });
+
   it('renders the evidence claim linked to an execution read', async () => {
     mocks.serverProposal = { proposalId: 'flight-recorder-evidence-link', changes: [] };
     mocks.proposalMessages[0].toolTrace = JSON.stringify([
