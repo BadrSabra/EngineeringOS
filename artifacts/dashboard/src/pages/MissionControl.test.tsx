@@ -56,6 +56,13 @@ const historicalRecoveryFixture = vi.hoisted(() => ({
         recoveryAction: 'Switched to a bounded retry',
         evidenceStatus: 'RECOVERED',
         attemptCount: 3,
+        }, {
+          provider: 'openai',
+          model: 'gpt-4o-mini',
+          failureCategory: 'CONTEXT_LENGTH',
+          recoveryAction: 'Compacted the evidence window',
+          evidenceStatus: 'VERIFIED',
+          attemptCount: 2,
       }],
     },
   },
@@ -117,8 +124,14 @@ describe('Mission Control', () => {
     expect(screen.getByText('RATE_LIMIT')).toBeInTheDocument();
     expect(screen.getByText('Switched to a bounded retry')).toBeInTheDocument();
     expect(screen.getByText('RECOVERED')).toBeInTheDocument();
-    expect(screen.getByText('Attempts')).toBeInTheDocument();
+    expect(screen.getByText('openai · gpt-4o-mini')).toBeInTheDocument();
+    expect(screen.getByText('CONTEXT_LENGTH')).toBeInTheDocument();
+    expect(screen.getByText('Compacted the evidence window')).toBeInTheDocument();
+    expect(screen.getByText('VERIFIED')).toBeInTheDocument();
+    expect(screen.getAllByText('Attempts')).toHaveLength(2);
     expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('3')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('2')).toBeInTheDocument();
+    expect(screen.getByText('Correct Completion Rate')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     expect(refetchMissionControl).toHaveBeenCalledTimes(1);
@@ -133,7 +146,13 @@ describe('Mission Control', () => {
     expect(screen.getByText('RATE_LIMIT')).toBeInTheDocument();
     expect(screen.getByText('Switched to a bounded retry')).toBeInTheDocument();
     expect(screen.getByText('RECOVERED')).toBeInTheDocument();
+    expect(screen.getByText('openai · gpt-4o-mini')).toBeInTheDocument();
+    expect(screen.getByText('CONTEXT_LENGTH')).toBeInTheDocument();
+    expect(screen.getByText('Compacted the evidence window')).toBeInTheDocument();
+    expect(screen.getByText('VERIFIED')).toBeInTheDocument();
     expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('3')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('2')).toBeInTheDocument();
+    expect(screen.getByText('Correct Completion Rate')).toBeInTheDocument();
   });
 
   it('renders the normal benchmark view for a legacy envelope without recovery summaries', async () => {

@@ -119,7 +119,7 @@ function formatDate(value: unknown): string | undefined {
 
 function ProviderRecoverySummary({ value }: { value: unknown }) {
   const summary = asRecord(value);
-  if (!summary || summary.provider !== 'openrouter') return null;
+  if (!summary) return null;
   const model = textValue(summary.model) ?? 'Model not recorded';
   const category = textValue(summary.failureCategory) ?? 'Not categorized';
   const action = textValue(summary.recoveryAction) ?? 'No recovery action';
@@ -135,7 +135,7 @@ function ProviderRecoverySummary({ value }: { value: unknown }) {
         </span>
       </div>
       <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
-        <div><div className="text-muted-foreground">Provider / model</div><div className="mt-0.5 font-medium">{summary.provider} · {model}</div></div>
+        <div><div className="text-muted-foreground">Provider / model</div><div className="mt-0.5 font-medium">{textValue(summary.provider) ?? 'Provider not recorded'} · {model}</div></div>
         <div><div className="text-muted-foreground">Failure category</div><div className="mt-0.5 font-medium">{category}</div></div>
         <div><div className="text-muted-foreground">Recovery action</div><div className="mt-0.5 font-medium">{action}</div></div>
         <div><div className="text-muted-foreground">Attempts</div><div className="mt-0.5 font-medium">{attempts ?? 'Not recorded'}</div></div>
