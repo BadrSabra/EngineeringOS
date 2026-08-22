@@ -161,15 +161,17 @@ export default function Graph() {
 
   const effectiveProjectId = selectedProjectId || (projects?.[0]?.id ?? '');
 
-  const { data: entities = [], isLoading: entitiesLoading } = useListGraphEntities(
+  const { data: entitiesResponse, isLoading: entitiesLoading } = useListGraphEntities(
     { projectId: effectiveProjectId },
     { query: { queryKey: getListGraphEntitiesQueryKey({ projectId: effectiveProjectId }), enabled: !!effectiveProjectId, staleTime: 30_000 } },
   );
+  const entities = entitiesResponse?.items ?? [];
 
-  const { data: relationships = [] } = useListGraphRelationships(
+  const { data: relationshipsResponse } = useListGraphRelationships(
     { projectId: effectiveProjectId },
     { query: { queryKey: getListGraphRelationshipsQueryKey({ projectId: effectiveProjectId }), enabled: !!effectiveProjectId, staleTime: 30_000 } },
   );
+  const relationships = relationshipsResponse?.items ?? [];
 
   const { data: summary } = useGetGraphSummary(
     effectiveProjectId,
