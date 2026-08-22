@@ -7,6 +7,7 @@ import {
   acquireReleaseLock,
   lockPath,
 } from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
+import { formatMissionCorrelationSummary } from "./mission-correlation-report.mjs";
 
 if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
   console.error(
@@ -579,11 +580,15 @@ function runLiveCorrelationReportCheck() {
           ...process.env,
           MISSION_CORRELATION_REQUIRE_EVIDENCE: "1",
         },
-        stdio: "inherit",
+        stdio: ["ignore", "pipe", "inherit"],
       },
     );
+    let output = "";
+    check.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
     check.on("error", reject);
-    check.on("exit", (code, signal) => {
+    check.on("close", (code, signal) => {
       if (signal)
         reject(
           new Error(`Live mission correlation check stopped by ${signal}.`),
@@ -594,7 +599,21 @@ function runLiveCorrelationReportCheck() {
             `Live mission correlation report failed with exit code ${code ?? 1}.`,
           ),
         );
-      else resolve();
+      else {
+        try {
+          const report = JSON.parse(output);
+          console.log(formatMissionCorrelationSummary(report));
+          resolve(report);
+        } catch (error) {
+          reject(
+            new Error(
+              `Live mission correlation report produced invalid output: ${
+                error instanceof Error ? error.message : String(error)
+              }.`,
+            ),
+          );
+        }
+      }
     });
   });
 }
@@ -665,7 +684,6 @@ try {
     if (result !== 0) process.exitCode = result;
     if (result === 0 && process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1") {
       await runLiveCorrelationReportCheck();
-      console.log("Live mission correlation report passed.");
     }
   }
 } catch (error) {

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   assertSupportedMissionCorrelationReportVersion,
   buildMissionCorrelationReport,
+  formatMissionCorrelationSummary,
   SUPPORTED_MISSION_CORRELATION_REPORT_VERSION,
 } from "./mission-correlation-report.mjs";
 
@@ -29,6 +30,30 @@ test("keeps the mission correlation report version compatible with stored report
   assert.equal(SUPPORTED_MISSION_CORRELATION_REPORT_VERSION, 1);
   assert.equal(report.version, SUPPORTED_MISSION_CORRELATION_REPORT_VERSION);
   assert.equal(assertSupportedMissionCorrelationReportVersion(report), report);
+});
+
+test("formats a redacted release summary with evidence and validation counts", () => {
+  assert.equal(
+    formatMissionCorrelationSummary({
+      terminalState: "COMPLETED",
+      outcomeClass: "success",
+      counts: { evidence: 2, validation: 3 },
+    }),
+    "Live mission correlation report: outcome=success terminal=COMPLETED evidence=2 validation=3.",
+  );
+});
+
+test("labels non-success release terminals without exposing report contents", () => {
+  assert.equal(
+    formatMissionCorrelationSummary({
+      terminalState: "UNAVAILABLE",
+      outcomeClass: "non-success",
+      counts: { evidence: 0, validation: 0 },
+      prompt: "secret prompt",
+      response: "secret model response",
+    }),
+    "Live mission correlation report: outcome=non-success terminal=UNAVAILABLE evidence=0 validation=0.",
+  );
 });
 
 test("rejects incompatible mission correlation report versions with an upgrade action", () => {

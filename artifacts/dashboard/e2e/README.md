@@ -78,6 +78,10 @@ The live objective is an explicit, bounded forensic review of
 evidence item and one validation checkpoint. A successful `COMPLETED` report
 is rejected if either proof surface is empty; provider-unavailable, blocked,
 cancelled, failed, and otherwise incomplete outcomes remain non-success.
+The release log also prints a redacted one-line result with the terminal,
+outcome class, accepted evidence count, and validation checkpoint count. It
+does not print prompts, source contents, provider credentials, or model
+responses; non-success terminals are labeled `outcome=non-success`.
 
 ## Failure diagnostics
 

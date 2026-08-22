@@ -42,6 +42,23 @@ export function assertSupportedMissionCorrelationReportVersion(report) {
   return report;
 }
 
+export function formatMissionCorrelationSummary(report) {
+  const counts = report?.counts ?? {};
+  const evidence = Number.isSafeInteger(counts.evidence) && counts.evidence >= 0
+    ? counts.evidence
+    : 0;
+  const validation = Number.isSafeInteger(counts.validation) && counts.validation >= 0
+    ? counts.validation
+    : 0;
+  const terminalState = text(report?.terminalState, "UNKNOWN");
+  const outcomeClass = report?.outcomeClass === "success" ? "success" : "non-success";
+
+  return (
+    `Live mission correlation report: outcome=${outcomeClass} ` +
+    `terminal=${terminalState} evidence=${evidence} validation=${validation}.`
+  );
+}
+
 export function buildMissionCorrelationReport(input, options = {}) {
   const execution = input.execution ?? {};
   const operationId = requireValue(

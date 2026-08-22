@@ -153,3 +153,16 @@ test("live recovery requires an evidence-backed success", () => {
     "The live report validator must enforce evidence-backed success.",
   );
 });
+
+test("release output reports redacted proof counts and non-success status", () => {
+  assert.match(
+    runnerSource,
+    /formatMissionCorrelationSummary/,
+    "The release runner must format the validated redacted report.",
+  );
+  assert.match(
+    runnerSource,
+    /console\.log\(formatMissionCorrelationSummary\(report\)\)/,
+    "The release runner must print the validated summary.",
+  );
+});
