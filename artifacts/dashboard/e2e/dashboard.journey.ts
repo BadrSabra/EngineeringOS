@@ -85,6 +85,16 @@ function jsonResponse(body: unknown, status = 200) {
   };
 }
 
+async function expectNoHorizontalOverflow(page: Page) {
+  const overflow = await page.evaluate(() => ({
+    document: document.documentElement.scrollWidth,
+    body: document.body.scrollWidth,
+    viewport: window.innerWidth,
+  }));
+  expect(overflow.document).toBeLessThanOrEqual(overflow.viewport + 1);
+  expect(overflow.body).toBeLessThanOrEqual(overflow.viewport + 1);
+}
+
 type ArabicAiFixture = {
   question: string;
   answer: string;
@@ -988,6 +998,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
     await page.locator("summary").filter({ hasText: "Persisted execution proof" }).last().click();
     await expect(page.getByText("required tool failed — operation blocked", { exact: true }).last()).toBeVisible();
+    await expectNoHorizontalOverflow(page);
 
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toMatch(
@@ -1263,6 +1274,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(page.getByText("required tool failed — operation blocked", { exact: true }).last()).toBeVisible();
 
     const reloadedText = await page.locator("body").innerText();
+    await expectNoHorizontalOverflow(page);
     expect(reloadedText).not.toMatch(/raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i);
   });
 
@@ -1379,6 +1391,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
 
     await page.getByRole("button", { name: "Close sidebar" }).click();
     await expect(page.getByRole("button", { name: "Open sessions" })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
   });
 
   test("renders a user-visible API failure state", async ({ page }) => {

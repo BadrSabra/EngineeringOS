@@ -3993,7 +3993,7 @@ function MessageBubble({
     : null;
 
   return (
-    <div className={`flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
+    <div className={`chat-message flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
       <div
         className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
           isUser ? 'bg-primary text-primary-foreground' : 'bg-secondary border border-border'
@@ -4001,9 +4001,9 @@ function MessageBubble({
       >
         {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4 text-primary" />}
       </div>
-      <div className={`flex min-w-0 max-w-[calc(100%-2.75rem)] flex-col gap-1 ${isUser ? 'items-end' : 'items-start'} sm:max-w-[75%]`}>
+      <div className={`chat-message-content flex min-w-0 max-w-[calc(100%-2.75rem)] flex-col gap-1 ${isUser ? 'items-end' : 'items-start'} sm:max-w-[75%]`}>
         {!isStructuredPlan && <div
-          className={`min-w-0 max-w-full overflow-hidden rounded-xl px-4 py-3 text-sm leading-relaxed [overflow-wrap:anywhere] ${
+          className={`chat-message-bubble min-w-0 max-w-full overflow-hidden rounded-xl px-4 py-3 text-sm leading-relaxed [overflow-wrap:anywhere] ${
             isUser
               ? 'bg-primary text-primary-foreground rounded-tr-sm whitespace-pre-wrap'
               : 'bg-secondary border border-border rounded-tl-sm prose prose-sm prose-invert'
@@ -4064,7 +4064,7 @@ function MessageBubble({
         {sources.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
             {sources.map((s) => (
-              <Badge key={s} variant="outline" className="text-xs font-mono text-muted-foreground">
+              <Badge key={s} variant="outline" className="max-w-full whitespace-normal break-all text-xs font-mono text-muted-foreground">
                 {s}
               </Badge>
             ))}
@@ -8258,7 +8258,7 @@ export default function AiChat() {
               </div>
             </div>
           ) : (
-            <div className="mx-auto min-w-0 w-full max-w-3xl">
+            <div className="chat-content mx-auto min-w-0 w-full max-w-3xl">
                {showExecutionProof && (
                  <AgentExecutionProofPanel
                    execution={activeExecutionStatus}
@@ -8300,11 +8300,11 @@ export default function AiChat() {
               ))}
               {isAgentBusy ? (
                 /* Single unified live bubble — steps always visible above streaming text */
-                <div className="flex min-w-0 max-w-full gap-3 mb-4">
+                <div className="chat-message flex min-w-0 max-w-full gap-3 mb-4">
                   <div className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center shrink-0 mt-0.5">
                     <Bot className="w-4 h-4 text-primary" />
                   </div>
-                  <div className="min-w-0 max-w-[calc(100%-2.75rem)] rounded-xl rounded-tl-sm border border-border bg-secondary px-3 py-3 flex flex-col gap-2 sm:max-w-[75%] sm:px-4">
+                  <div className="chat-message-content min-w-0 max-w-[calc(100%-2.75rem)] rounded-xl rounded-tl-sm border border-border bg-secondary px-3 py-3 flex flex-col gap-2 sm:max-w-[75%] sm:px-4">
                       <LiveAgentActivity
                        stage={agentStage}
                        steps={agentSteps}
