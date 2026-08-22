@@ -185,6 +185,108 @@ function ProviderRecoverySummary({ value }: { value: unknown }) {
   );
 }
 
+function ComparisonRunColumn({
+  label,
+  execution,
+}: {
+  label: string;
+  execution: MissionExecution | undefined;
+}) {
+  if (!execution) {
+    return (
+      <div className="rounded-lg border border-dashed border-border/70 bg-background/20 p-5 text-center text-xs text-muted-foreground">
+        No run selected.
+      </div>
+    );
+  }
+
+  const evidence = asRecord(execution.evidence);
+  const evidenceStatus = recoveryDetail(execution, 'evidenceStatus') ?? textValue(evidence?.verdict);
+  const failureCategory = recoveryDetail(execution, 'failureCategory');
+  const recoveryAction = recoveryDetail(execution, 'recoveryAction');
+  const events = Array.isArray(execution.recentEvents) ? execution.recentEvents : [];
+  const eventCount = numberValue(execution.eventCount) ?? events.length;
+  const evidenceRowsForRun = evidenceRows(execution.evidence);
+  const details = [
+    ['State', stateText(execution.state)],
+    ['Provider / model', `${textValue(execution.provider) ?? 'Not recorded'} / ${textValue(execution.model) ?? 'Not recorded'}`],
+    ['Attempts', formatValue(execution.attempts ?? 0)],
+    ['Validation failures', formatValue(execution.validationFailures ?? 0)],
+    ['Event count', String(eventCount)],
+    ['Failure category', failureCategory ?? 'Not categorized'],
+    ['Recovery action', recoveryAction ?? 'No recovery action'],
+  ];
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-background/20 p-3" data-testid={`comparison-run-${label.toLowerCase().replace(/\s+/g, '-')}`}>
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">{label}</div>
+          <div className="mt-1 break-all font-mono text-xs text-foreground">{execution.id}</div>
+        </div>
+        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${stateTone(execution.state)}`}>
+          {stateText(execution.state)}
+        </span>
+      </div>
+
+      <div className="mt-3 grid gap-1.5">
+        {details.map(([detailLabel, value]) => (
+          <div key={detailLabel} className="grid grid-cols-[minmax(105px,0.75fr)_minmax(0,1.25fr)] gap-3 rounded-md border border-border/45 px-2.5 py-2 text-[11px]">
+            <span className="text-muted-foreground">{detailLabel}</span>
+            <span className="break-words text-right font-medium text-foreground">{value}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 rounded-md border border-border/45 px-2.5 py-2.5">
+        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <ShieldCheck className="h-3.5 w-3.5 text-primary" /> Evidence
+          <span className={`ml-auto ${evidenceTone(execution.evidence)}`}>{evidenceStatus ?? (evidence ? 'Recorded' : 'Not recorded')}</span>
+        </div>
+        {evidenceRowsForRun.length > 0 ? (
+          <div className="mt-2 space-y-1.5">
+            {evidenceRowsForRun.slice(0, 4).map((row) => (
+              <div key={row.label} className="text-[11px]">
+                <span className="text-muted-foreground">{row.label}: </span>
+                <span className="break-words text-foreground/90">{row.value}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-[11px] text-muted-foreground">No recorder evidence returned.</p>
+        )}
+      </div>
+
+      <div className="mt-3 rounded-md border border-border/45 px-2.5 py-2.5">
+        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <History className="h-3.5 w-3.5 text-primary" /> Event timeline
+          <span className="ml-auto font-mono text-foreground">{eventCount} total</span>
+        </div>
+        {events.length > 0 ? (
+          <div className="mt-2 space-y-1.5">
+            {events.slice(0, 6).map((event, index) => {
+              const parts = eventParts(event);
+              return (
+                <div key={`${parts.title}-${parts.time ?? index}`} className="flex gap-2 text-[11px]">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                  <div className="min-w-0">
+                    <span className="font-medium text-foreground">{parts.title}</span>
+                    {parts.time && <span className="ml-1.5 font-mono text-[10px] text-muted-foreground">{parts.time}</span>}
+                    {parts.detail && parts.detail !== parts.title && <div className="break-words text-muted-foreground">{parts.detail}</div>}
+                  </div>
+                </div>
+              );
+            })}
+            {events.length > 6 && <p className="text-[10px] text-muted-foreground">Showing 6 of {events.length} returned events.</p>}
+          </div>
+        ) : (
+          <p className="mt-2 text-[11px] text-muted-foreground">No timeline events returned.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function objectiveText(value: unknown): string {
   if (typeof value === 'string' && value.trim()) return value;
   const object = asRecord(value);
@@ -406,6 +508,8 @@ function MissionSkeleton() {
 
 export default function MissionControl() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [comparisonLiveId, setComparisonLiveId] = useState<string | null>(null);
+  const [comparisonImportedId, setComparisonImportedId] = useState<string | null>(null);
   const [historyQuery, setHistoryQuery] = useState('');
   const [historyState, setHistoryState] = useState('ALL');
   const [historyExportFormat, setHistoryExportFormat] = useState<HistoryExportFormat>('csv');
@@ -449,6 +553,7 @@ export default function MissionControl() {
     historyPage * historyPageSize,
   );
   const selectedExecution = executions.find((execution) => execution.id === selectedId) ?? executions[0];
+  const comparisonLiveExecution = executions.find((execution) => execution.id === comparisonLiveId) ?? executions[0];
   const historyStates = useMemo(
     () => Array.from(new Set(executions.map((execution) => textValue(execution.state)?.toUpperCase() ?? 'UNKNOWN'))),
     [executions],
@@ -507,6 +612,7 @@ export default function MissionControl() {
         return;
       }
       setImportedHistory(result.snapshot ?? null);
+      setComparisonImportedId(result.snapshot?.executions[0]?.id ?? null);
       setImportStatus(`Imported ${result.snapshot?.executions.length ?? 0} executions from ${file.name}.`);
     } catch {
       setImportError('This file is not valid JSON. Choose a JSON history exported from Mission Control.');
@@ -880,6 +986,54 @@ export default function MissionControl() {
             >
               Clear comparison
             </button>
+          </div>
+          <div className="border-b border-border/70 px-4 py-4">
+            <div className="flex items-center gap-2">
+              <GitBranch className="h-4 w-4 text-primary" />
+              <div>
+                <h3 className="text-sm font-semibold">Run-to-run investigation</h3>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  Match one live execution with one archived execution. Imported data stays outside the live ledger.
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <label className="text-[11px] font-semibold text-muted-foreground">
+                Live run
+                <select
+                  aria-label="Select live run for comparison"
+                  value={comparisonLiveExecution?.id ?? ''}
+                  onChange={(event) => setComparisonLiveId(event.target.value || null)}
+                  className="mt-1 h-9 w-full rounded-md border border-border bg-background/50 px-2 text-xs font-normal text-foreground outline-none focus:border-primary/60"
+                  disabled={executions.length === 0}
+                >
+                  {executions.length === 0 && <option value="">No live runs available</option>}
+                  {executions.map((execution) => (
+                    <option key={execution.id} value={execution.id}>{execution.id} — {objectiveText(execution.objective)}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-[11px] font-semibold text-muted-foreground">
+                Imported run
+                <select
+                  aria-label="Select imported run for comparison"
+                  value={importedHistory.executions.find((execution) => execution.id === comparisonImportedId)?.id ?? importedHistory.executions[0]?.id ?? ''}
+                  onChange={(event) => setComparisonImportedId(event.target.value || null)}
+                  className="mt-1 h-9 w-full rounded-md border border-border bg-background/50 px-2 text-xs font-normal text-foreground outline-none focus:border-primary/60"
+                >
+                  {importedHistory.executions.map((execution) => (
+                    <option key={execution.id} value={execution.id}>{execution.id} — {objectiveText(execution.objective)}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
+          <div className="grid gap-4 p-4 md:grid-cols-2" aria-label="Selected run comparison">
+            <ComparisonRunColumn label="Live run" execution={comparisonLiveExecution} />
+            <ComparisonRunColumn
+              label="Imported run"
+              execution={importedHistory.executions.find((execution) => execution.id === comparisonImportedId) ?? importedHistory.executions[0]}
+            />
           </div>
           <div className="grid gap-4 p-4 md:grid-cols-2">
             {[

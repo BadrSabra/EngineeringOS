@@ -343,6 +343,54 @@ describe('Mission Control', () => {
     expect(screen.getByText('Repair the auth scope check')).toBeInTheDocument();
   });
 
+  it('lets operators switch the live and imported runs without mutating either history', async () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: [
+        missionControlFixture.executions[0],
+        {
+          ...missionControlFixture.executions[0],
+          id: 'execution-2',
+          state: 'BLOCKED',
+          objective: 'Repair the billing timeout',
+          validationFailures: 3,
+          eventCount: 1,
+          evidence: { verdict: 'BLOCKED', reason: 'The provider remained unavailable.' },
+          recoveryAction: 'Escalate to operator',
+          failureCategory: 'PROVIDER_UNAVAILABLE',
+          recentEvents: [{ kind: 'provider_failure', detail: 'Provider unavailable.' }],
+        },
+      ],
+    };
+    renderPage();
+    const imported = {
+      executions: [
+        { id: 'archived-1', state: 'COMPLETED', objective: 'Archived first', attempts: 1, eventCount: 2, evidence: { verdict: 'VERIFIED' }, recoveryAction: 'Retry' },
+        { id: 'archived-2', state: 'FAILED', objective: 'Archived second', attempts: 4, eventCount: 5, evidence: { verdict: 'FAILED' }, recoveryAction: 'Escalate' },
+      ],
+      benchmark: {
+        scorecard: { metrics: { correctCompletionRate: 0.5 } },
+        baseline: { metrics: { correctCompletionRate: 0.5 } },
+      },
+    };
+    const file = new File([JSON.stringify(imported)], 'comparison.json', { type: 'application/json' });
+    fireEvent.change(screen.getByLabelText('Import JSON recovery history'), { target: { files: [file] } });
+
+    expect(await screen.findByTestId('comparison-run-live-run')).toHaveTextContent('execution-1');
+    expect(screen.getByTestId('comparison-run-imported-run')).toHaveTextContent('archived-1');
+    expect(screen.getByTestId('comparison-run-live-run')).toHaveTextContent('3 total');
+    expect(screen.getByTestId('comparison-run-imported-run')).toHaveTextContent('2 total');
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Select live run for comparison' }), { target: { value: 'execution-2' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Select imported run for comparison' }), { target: { value: 'archived-2' } });
+
+    expect(screen.getByTestId('comparison-run-live-run')).toHaveTextContent('execution-2');
+    expect(screen.getByTestId('comparison-run-live-run')).toHaveTextContent('Escalate to operator');
+    expect(screen.getByTestId('comparison-run-imported-run')).toHaveTextContent('archived-2');
+    expect(screen.getByTestId('comparison-run-imported-run')).toHaveTextContent('5 total');
+    expect(screen.getByText(/Imported executions: archived-1, archived-2/)).toBeInTheDocument();
+  });
+
   it('rejects JSON histories with missing nested benchmark metrics', async () => {
     renderPage();
     const file = new File([JSON.stringify({
