@@ -18,7 +18,7 @@ function commandsBetween(value: string, start: string, end: string): string[] {
   const startIndex = value.indexOf(start);
   const endIndex = value.indexOf(end, startIndex);
   const section = value.slice(startIndex, endIndex);
-  return section.match(/args\s*=\s*"([^"]+)"/g) ?? [];
+  return section.match(/args\s*=\s*"((?:\\"|[^"])*)"/g) ?? [];
 }
 
 type ReleaseFailureScenario = {
@@ -152,6 +152,7 @@ exec "${realPnpm}" "$@"
       cwd: workspaceRoot,
       env: {
         ...process.env,
+        APP_ORIGINS: "https://dashboard.example.com",
         PATH: `${temporaryDirectory}:${process.env.PATH ?? ""}`,
         RELEASE_VALIDATION_TRACE: tracePath,
       },
@@ -201,6 +202,7 @@ exit 0
       cwd: workspaceRoot,
       env: {
         ...process.env,
+        APP_ORIGINS: "https://dashboard.example.com",
         PATH: `${temporaryDirectory}:${process.env.PATH ?? ""}`,
         RELEASE_VALIDATION_TRACE: tracePath,
       },
@@ -248,6 +250,7 @@ exit 0
     cwd: workspaceRoot,
     env: {
       ...process.env,
+      APP_ORIGINS: "https://dashboard.example.com",
       PATH: `${temporaryDirectory}:${process.env.PATH ?? ""}`,
       RELEASE_VALIDATION_TRACE: tracePath,
     },
@@ -388,7 +391,7 @@ test("runs deployment checks in order and prunes only after successful release v
   );
 });
 
-test("reports a controlled recovery failure by name", async () => {
+test("reports a missing production origin before controlled recovery", async () => {
   const result = spawnSync(
     "pnpm",
     ["run", "validate:release"],
@@ -398,6 +401,7 @@ test("reports a controlled recovery failure by name", async () => {
         ...process.env,
         DATABASE_URL: "",
         OPENROUTER_API_KEY: "",
+        APP_ORIGINS: "",
       },
       encoding: "utf8",
     },
@@ -412,8 +416,8 @@ test("reports a controlled recovery failure by name", async () => {
   );
   assert.match(
     output,
-    /Real process-recovery validation requires provider\/database configuration/,
-    "deployment output must name the blocked process-recovery validation",
+    /APP_ORIGINS must contain at least one approved dashboard origin in production/,
+    "deployment output must name the missing production origin configuration",
   );
 });
 
@@ -449,6 +453,7 @@ exec "${realPnpm}" "$@"
         cwd: workspaceRoot,
         env: {
           ...process.env,
+          APP_ORIGINS: "https://dashboard.example.com",
           PATH: `${temporaryDirectory}:${process.env.PATH ?? ""}`,
           RELEASE_VALIDATION_TRACE: tracePath,
         },
@@ -573,7 +578,7 @@ test("keeps the local Project workflow and release validation separate", async (
     "[workflows.workflow.metadata]",
   );
   assert.deepEqual(releaseWorkflowCommands, [
-    'args = "RELEASE_VALIDATION_WAIT_FOR_LOCK=1 pnpm run validate:release"',
+    'args = "APP_ORIGINS=\\"https://${REPLIT_DEV_DOMAIN}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 pnpm run validate:release"',
   ]);
 
   const normalTestCommand = packageJson.scripts?.test;
@@ -583,7 +588,7 @@ test("keeps the local Project workflow and release validation separate", async (
   assert.equal(normalTestCommand, "pnpm -r --if-present run test");
   assert.equal(
     releaseTestCommand,
-    "pnpm --filter @workspace/api-server run typecheck && pnpm run test:dashboard-journey-contract && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+    "pnpm run validate:app-origins && pnpm --filter @workspace/api-server run typecheck && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
   );
   assert.equal(
     controlledReleaseTestCommand,
@@ -599,7 +604,7 @@ test("keeps the standalone journey responsible for service orchestration", async
   const journeySection = replitConfig.slice(journeyStart);
   assert.match(
     journeySection,
-    /args = "RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=\$\(command -v chromium\) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"/,
+    /args = "APP_ORIGINS=\\"https:\/\/\$\{REPLIT_DEV_DOMAIN\}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=\$\(command -v chromium\) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"/,
   );
   assert.doesNotMatch(
     replitConfig.slice(0, journeyStart),

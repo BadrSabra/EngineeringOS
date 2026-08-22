@@ -27,6 +27,59 @@ const EnvSchema = z.object({
   APP_ORIGINS: z.string().default(""),
 });
 
+const ApplicationOriginSchema = z
+  .string()
+  .url()
+  .superRefine((value, ctx) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      ctx.addIssue({ code: "custom", message: "must be a valid URL" });
+      return;
+    }
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      ctx.addIssue({ code: "custom", message: "must use http or https" });
+    }
+    if (parsed.username || parsed.password) {
+      ctx.addIssue({ code: "custom", message: "must not contain credentials" });
+    }
+    if (parsed.pathname !== "/" || parsed.search || parsed.hash) {
+      ctx.addIssue({ code: "custom", message: "must be a bare origin without a path, query, or hash" });
+    }
+  });
+
+/**
+ * Parse the comma-separated browser origin allowlist. Keeping this separate
+ * from loadConfig makes the production deployment contract easy to validate
+ * without booting Express.
+ */
+export function parseApplicationOrigins(raw: string, isProduction: boolean): string[] {
+  const entries = raw.split(",").map((origin) => origin.trim());
+  if (isProduction && (entries.length === 0 || entries.every((origin) => !origin))) {
+    throw new Error("APP_ORIGINS must contain at least one approved dashboard origin in production");
+  }
+
+  const origins: string[] = [];
+  for (const entry of entries.filter(Boolean)) {
+    const result = ApplicationOriginSchema.safeParse(entry);
+    if (!result.success) {
+      const details = result.error.issues.map((issue) => issue.message).join(", ");
+      throw new Error(`Invalid APP_ORIGINS entry "${entry}": ${details}`);
+    }
+    const normalized = new URL(entry).origin;
+    if (origins.includes(normalized)) {
+      throw new Error(`Duplicate APP_ORIGINS entry "${entry}"`);
+    }
+    origins.push(normalized);
+  }
+  return origins;
+}
+
+function expandApplicationOriginVariables(raw: string): string {
+  return raw.replace(/\$([A-Z][A-Z0-9_]*)/g, (_, name: string) => process.env[name] ?? "");
+}
+
 function loadConfig() {
   const parsed = EnvSchema.safeParse(process.env);
   if (!parsed.success) {
@@ -39,10 +92,10 @@ function loadConfig() {
     nodeEnv: parsed.data.NODE_ENV,
     isProduction: parsed.data.NODE_ENV === "production",
     logLevel: parsed.data.LOG_LEVEL,
-    applicationOrigins: parsed.data.APP_ORIGINS
-      .split(",")
-      .map((origin) => origin.trim())
-      .filter(Boolean),
+    applicationOrigins: parseApplicationOrigins(
+      expandApplicationOriginVariables(parsed.data.APP_ORIGINS),
+      parsed.data.NODE_ENV === "production",
+    ),
   } as const;
 }
 

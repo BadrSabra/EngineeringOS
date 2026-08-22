@@ -6,7 +6,7 @@ deploymentTarget = "autoscale"
 
 [deployment.postBuild]
 args = ["pnpm", "run", "deployment:post-build"]
-env = { "CI" = "true" }
+env = { "CI" = "true", "APP_ORIGINS" = "https://${REPLIT_DEV_DOMAIN}" }
 
 [workflows]
 runButton = "Project"
@@ -83,7 +83,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "RELEASE_VALIDATION_WAIT_FOR_LOCK=1 pnpm run validate:release"
+args = "APP_ORIGINS=\"https://${REPLIT_DEV_DOMAIN}\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 pnpm run validate:release"
 
 [workflows.workflow.metadata]
 isValidation = true
@@ -94,7 +94,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=$(command -v chromium) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"
+args = "APP_ORIGINS=\"https://${REPLIT_DEV_DOMAIN}\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=$(command -v chromium) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"
 
 [workflows.workflow.metadata]
 isValidation = true

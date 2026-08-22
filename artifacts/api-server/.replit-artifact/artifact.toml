@@ -27,6 +27,9 @@ args = ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
 [services.production.run.env]
 PORT = "8080"
 NODE_ENV = "production"
+# Keep every dashboard deployment origin in the same explicit allowlist.
+# The deployment environment resolves REPLIT_DEV_DOMAIN to its public host.
+APP_ORIGINS = "https://$REPLIT_DEV_DOMAIN"
 
 [services.production.health.startup]
 path = "/api/healthz"
