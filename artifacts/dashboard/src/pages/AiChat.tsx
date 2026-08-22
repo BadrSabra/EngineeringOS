@@ -4010,15 +4010,18 @@ function MessageBubble({
           }`}
         >
           {failedTurn ? (
-            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-200">
-              <div className="font-medium">
-                {msg.outcome === 'INTERRUPTED' ? 'Execution interrupted' : 'Execution failed'}
+            <>
+              <div className="mb-2 whitespace-pre-wrap">{userFacingContent}</div>
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-200">
+                <div className="font-medium">
+                  {msg.outcome === 'INTERRUPTED' ? 'Execution interrupted' : 'Execution failed'}
+                </div>
+                {msg.errorMessage && <div className="mt-1 text-xs">{msg.errorMessage}</div>}
+                {msg.executionId && (
+                  <div className="mt-1 text-[10px] opacity-70">Durable execution: {msg.executionId}</div>
+                )}
               </div>
-              {msg.errorMessage && <div className="mt-1 text-xs">{msg.errorMessage}</div>}
-              {msg.executionId && (
-                <div className="mt-1 text-[10px] opacity-70">Durable execution: {msg.executionId}</div>
-              )}
-            </div>
+            </>
           ) : isUser ? userFacingContent : (
             <ReactMarkdown
               components={{

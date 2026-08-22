@@ -456,7 +456,9 @@ function installDisconnectedAiFixture(): ArabicAiFixture {
     role: "assistant",
     content: answer,
     toolTrace: JSON.stringify(toolTrace),
-    outcome: "SUCCEEDED",
+    outcome: "FAILED",
+    errorCode: diagnosticCode,
+    errorMessage: "The provider disconnected before completion.",
     executionId,
     createdAt: "2026-01-01T00:02:00.000Z",
   };
@@ -1212,6 +1214,22 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const answer = page.getByText(fixture.answer, { exact: true });
     await expect(answer).toHaveCount(1);
     await expect(answer).toBeVisible();
+    await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
+    await expect(
+      page.getByText("provider failure", { exact: false }).last(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("stopped: provider timeout", { exact: false }).last(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("The provider disconnected after visible response text.", { exact: true }),
+    ).toBeVisible();
+
+    await page.reload();
+    await page.getByRole("button", { name: fixture.question, exact: true }).click();
+
+    await expect(page.getByText(fixture.answer, { exact: true })).toHaveCount(1);
+    await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
     await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
     await expect(
       page.getByText("provider failure", { exact: false }).last(),
