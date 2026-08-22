@@ -1,0 +1,101 @@
+{
+  "projectId": "bd616b51-a9d3-4fc1-8663-d71c9954f424",
+  "sessionId": "bd600fd8-a9ef-4ba0-8d1f-2e4c8d7778f9",
+  "operationId": "231391d5-bb65-4f28-b946-861d9314de02",
+  "workspaceRevision": "6654dba",
+  "terminalState": "BLOCKED",
+  "execution": {
+    "id": "231391d5-bb65-4f28-b946-861d9314de02",
+    "projectId": "bd616b51-a9d3-4fc1-8663-d71c9954f424",
+    "sessionId": "bd600fd8-a9ef-4ba0-8d1f-2e4c8d7778f9",
+    "operationId": "231391d5-bb65-4f28-b946-861d9314de02",
+    "status": "failed",
+    "flightState": "BLOCKED"
+  },
+  "messages": [
+    {
+      "id": "84113cdd-86a2-499f-81d4-93cbc532724a",
+      "sessionId": "bd600fd8-a9ef-4ba0-8d1f-2e4c8d7778f9",
+      "role": "user",
+      "executionId": "231391d5-bb65-4f28-b946-861d9314de02",
+      "outcome": "SUCCEEDED"
+    },
+    {
+      "id": "e122ea5a-f047-452b-a755-473ea03b6a99",
+      "sessionId": "bd600fd8-a9ef-4ba0-8d1f-2e4c8d7778f9",
+      "role": "assistant",
+      "executionId": "231391d5-bb65-4f28-b946-861d9314de02",
+      "outcome": "FAILED"
+    }
+  ],
+  "sseEvents": [
+    {
+      "type": "session_started",
+      "sessionId": "bd600fd8-a9ef-4ba0-8d1f-2e4c8d7778f9"
+    },
+    {
+      "type": "execution_started",
+      "executionId": "231391d5-bb65-4f28-b946-861d9314de02"
+    },
+    {
+      "type": "stage"
+    },
+    {
+      "type": "intent"
+    },
+    {
+      "type": "stage"
+    },
+    {
+      "type": "error",
+      "code": "AUTH_ERROR"
+    }
+  ],
+  "checkpoints": [
+    {
+      "sequence": 1787417141938,
+      "stage": "failed",
+      "updatedAt": "2026-08-22T16:45:41.938Z"
+    }
+  ],
+  "evidenceCount": 0,
+  "proposals": [
+    {}
+  ],
+  "validation": [],
+  "events": [],
+  "dashboard": {
+    "updatedAt": "2026-08-22T16:45:42.139Z",
+    "benchmark": null,
+    "executions": [
+      {
+        "id": "231391d5-bb65-4f28-b946-861d9314de02",
+        "projectId": "bd616b51-a9d3-4fc1-8663-d71c9954f424",
+        "state": "BLOCKED",
+        "executionStatus": "failed",
+        "objective": "Engineering execution",
+        "attempts": 0,
+        "validationFailures": 0,
+        "evidence": {
+          "verdict": "NOT_RECORDED",
+          "reason": "Execution ended before reaching a terminal result.",
+          "validationEvents": 0,
+          "readEvents": 0
+        },
+        "checkpointVersion": 3,
+        "eventCount": 0,
+        "completedNodes": 0,
+        "totalNodes": 0,
+        "recentEvents": [],
+        "createdAt": "2026-08-22T16:45:41.625Z",
+        "updatedAt": "2026-08-22T16:45:41.938Z",
+        "startedAt": "2026-08-22T16:45:41.631Z",
+        "completedAt": "2026-08-22T16:45:41.938Z"
+      }
+    ]
+  },
+  "dashboardState": {
+    "projectCount": 1,
+    "activeTaskCount": 0
+  }
+}
