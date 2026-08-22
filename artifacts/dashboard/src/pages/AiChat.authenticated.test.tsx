@@ -2050,6 +2050,25 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByText('Existing response')).toBeInTheDocument();
   });
 
+  it('shows regenerated report provenance without exposing internal identifiers', async () => {
+    const regeneratedAt = '2026-08-22T12:34:56.000Z';
+    mocks.serverProposal = { proposalId: 'historical-regenerated-report', changes: [] };
+    mocks.proposalMessages[0].missionCorrelationReport = {
+      ...storedMissionCorrelationReport,
+      generatedAt: regeneratedAt,
+    };
+    renderAiChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    const provenance = await screen.findByText('Report regenerated at', { exact: false });
+    expect(provenance.parentElement).toHaveTextContent(new Date(regeneratedAt).toLocaleString());
+    expect(provenance.parentElement?.querySelector('time')).toHaveAttribute('dateTime', regeneratedAt);
+    expect(screen.queryByText('stored-operation')).not.toBeInTheDocument();
+    expect(screen.queryByText('stored-project')).not.toBeInTheDocument();
+    expect(screen.queryByText('stored-session')).not.toBeInTheDocument();
+  });
+
   it.each([
     ['null', null],
     ['scalar', 'not-a-report'],
