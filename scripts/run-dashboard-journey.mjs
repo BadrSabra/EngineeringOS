@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { acquireReleaseLock, lockPath } from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
@@ -12,8 +12,8 @@ if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
   process.exit(2);
 }
 
-const apiPort = Number(process.env.DASHBOARD_E2E_API_PORT ?? 8080);
-const dashboardPort = Number(process.env.DASHBOARD_E2E_PORT ?? 23183);
+const apiPort = Number(process.env.DASHBOARD_E2E_API_PORT ?? 18081);
+const dashboardPort = Number(process.env.DASHBOARD_E2E_PORT ?? 23184);
 const dashboardBaseUrl =
   process.env.DASHBOARD_E2E_BASE_URL ??
   `http://127.0.0.1:${dashboardPort}/dashboard/`;
@@ -35,6 +35,7 @@ const outputDir = resolve(
 );
 const services = [];
 let releaseLockCleanup;
+const releasePorts = [apiPort, dashboardPort];
 
 function redact(value) {
   const secretValues = Object.values(process.env).filter(
@@ -82,6 +83,66 @@ function startService(label, command, args, env) {
   return child;
 }
 
+function listeningUsers(port) {
+  try {
+    const output = execFileSync(
+      "lsof",
+      ["-nP", "-t", `-iTCP:${port}`, "-sTCP:LISTEN"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    );
+    return [
+      ...new Set([...output.matchAll(/\b\d+\b/g)].map((match) => Number(match[0]))),
+    ];
+  } catch {
+    return [];
+  }
+}
+
+function signalProcessGroup(child, signal) {
+  if (!child.pid) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    if (error?.code !== "ESRCH") throw error;
+  }
+}
+
+async function waitForPortClosed(port, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (listeningUsers(port).length === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Release port ${port} did not become available.`);
+}
+
+async function ensureReleasePortFree(port) {
+  for (const pid of listeningUsers(port).filter((item) => item !== process.pid)) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch (error) {
+      if (error?.code !== "ESRCH") throw error;
+    }
+  }
+  try {
+    await waitForPortClosed(port, 2_500);
+    return;
+  } catch {
+    for (const pid of listeningUsers(port).filter((item) => item !== process.pid)) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch (error) {
+        if (error?.code !== "ESRCH") throw error;
+      }
+    }
+    await waitForPortClosed(port);
+  }
+}
+
+async function ensureReleasePortsFree() {
+  for (const port of releasePorts) await ensureReleasePortFree(port);
+}
+
 async function waitForChild(child, label) {
   const result = await new Promise((resolveResult, reject) => {
     child.on("error", reject);
@@ -100,11 +161,10 @@ async function waitForChild(child, label) {
 
 async function stopServices() {
   for (const { child } of services) {
-    if (child.exitCode !== null) continue;
     try {
-      process.kill(-child.pid, "SIGTERM");
+      signalProcessGroup(child, "SIGTERM");
     } catch (error) {
-      if (error?.code !== "ESRCH") console.error(redact(String(error)));
+      console.error(redact(String(error)));
     }
   }
   await Promise.all(
@@ -114,9 +174,9 @@ async function stopServices() {
           if (child.exitCode !== null) return resolve();
           const timer = setTimeout(() => {
             try {
-              process.kill(-child.pid, "SIGKILL");
+              signalProcessGroup(child, "SIGKILL");
             } catch (error) {
-              if (error?.code !== "ESRCH") console.error(redact(String(error)));
+              console.error(redact(String(error)));
             }
             resolve();
           }, 5_000);
@@ -127,6 +187,7 @@ async function stopServices() {
         }),
     ),
   );
+  await ensureReleasePortsFree();
 }
 
 async function startReleaseServices() {
@@ -140,6 +201,7 @@ async function startReleaseServices() {
       "release-dashboard-journey requires DASHBOARD_E2E_EXECUTABLE_PATH; configure Chromium before starting services.",
     );
   }
+  await ensureReleasePortsFree();
   const apiBuild = startService(
     "API release build",
     "pnpm",
