@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import MissionControl from './MissionControl';
@@ -43,14 +43,35 @@ const missionControlFixture = vi.hoisted(() => ({
   }],
 }));
 
+const historicalRecoveryFixture = vi.hoisted(() => ({
+  ...missionControlFixture,
+  updatedAt: '2026-08-21T12:15:00.000Z',
+  benchmark: {
+    ...missionControlFixture.benchmark,
+    freeTierEnvelope: {
+      providerRecoverySummaries: [{
+        provider: 'openrouter',
+        model: 'openai/gpt-4.1-mini',
+        failureCategory: 'RATE_LIMIT',
+        recoveryAction: 'Switched to a bounded retry',
+        evidenceStatus: 'RECOVERED',
+        attemptCount: 3,
+      }],
+    },
+  },
+}));
+
+let currentMissionControl = missionControlFixture;
+const refetchMissionControl = vi.hoisted(() => vi.fn());
+
 vi.mock('@workspace/api-client-react', () => ({
   useGetAiMissionControl: () => ({
-    data: missionControlFixture,
+    data: currentMissionControl,
     error: null,
     isError: false,
     isLoading: false,
     isFetching: false,
-    refetch: vi.fn(),
+    refetch: refetchMissionControl,
   }),
 }));
 
@@ -58,14 +79,19 @@ function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MissionControl />
-    </QueryClientProvider>,
-  );
+  return render(<MissionControl />, {
+    wrapper: function QueryWrapper({ children }: { children: React.ReactNode }) {
+      return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    },
+  });
 }
 
 describe('Mission Control', () => {
+  beforeEach(() => {
+    currentMissionControl = missionControlFixture;
+    refetchMissionControl.mockReset();
+  });
+
   it('shows execution state, operational metrics, evidence, and Flight Deck link', async () => {
     renderPage();
 
@@ -81,5 +107,51 @@ describe('Mission Control', () => {
       'href',
       '/flight-deck?executionId=execution-1',
     );
+  });
+
+  it('keeps historical provider recovery details visible after the query is reloaded', async () => {
+    currentMissionControl = historicalRecoveryFixture;
+    const { rerender } = renderPage();
+
+    expect(await screen.findByText('openrouter · openai/gpt-4.1-mini')).toBeInTheDocument();
+    expect(screen.getByText('RATE_LIMIT')).toBeInTheDocument();
+    expect(screen.getByText('Switched to a bounded retry')).toBeInTheDocument();
+    expect(screen.getByText('RECOVERED')).toBeInTheDocument();
+    expect(screen.getByText('Attempts')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('3')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(refetchMissionControl).toHaveBeenCalledTimes(1);
+
+    currentMissionControl = {
+      ...historicalRecoveryFixture,
+      updatedAt: '2026-08-22T09:30:00.000Z',
+    };
+    rerender(<MissionControl />);
+
+    expect(await screen.findByText('openrouter · openai/gpt-4.1-mini')).toBeInTheDocument();
+    expect(screen.getByText('RATE_LIMIT')).toBeInTheDocument();
+    expect(screen.getByText('Switched to a bounded retry')).toBeInTheDocument();
+    expect(screen.getByText('RECOVERED')).toBeInTheDocument();
+    expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('3')).toBeInTheDocument();
+  });
+
+  it('renders the normal benchmark view for a legacy envelope without recovery summaries', async () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      benchmark: {
+        ...missionControlFixture.benchmark,
+        freeTierEnvelope: {
+          schemaVersion: 1,
+          verdict: 'PASS',
+        },
+      },
+    };
+    renderPage();
+
+    expect(await screen.findByText('Baseline comparison')).toBeInTheDocument();
+    expect(screen.getByText('Correct Completion Rate')).toBeInTheDocument();
+    expect(screen.queryByText('Historical report recovery details')).not.toBeInTheDocument();
+    expect(screen.queryByText('Provider recovery')).not.toBeInTheDocument();
   });
 });
