@@ -434,6 +434,94 @@ function downloadFilteredHistory(
   URL.revokeObjectURL(url);
 }
 
+function comparisonExportRow(label: 'live' | 'imported', execution: MissionExecution): JsonRecord {
+  const events = Array.isArray(execution.recentEvents) ? execution.recentEvents : [];
+  return {
+    side: label,
+    id: execution.id,
+    objective: objectiveText(execution.objective),
+    state: stateText(execution.state),
+    provider: textValue(execution.provider) ?? 'Not recorded',
+    model: textValue(execution.model) ?? 'Not recorded',
+    attempts: numberValue(execution.attempts) ?? 0,
+    validationFailures: numberValue(execution.validationFailures) ?? 0,
+    eventCount: numberValue(execution.eventCount) ?? events.length,
+    failureCategory: recoveryDetail(execution, 'failureCategory') ?? 'Not categorized',
+    recoveryAction: recoveryDetail(execution, 'recoveryAction') ?? 'No recovery action',
+    evidenceStatus: recoveryDetail(execution, 'evidenceStatus')
+      ?? textValue(asRecord(execution.evidence)?.verdict)
+      ?? (execution.evidence ? 'Recorded' : 'Not recorded'),
+    evidence: execution.evidence ?? null,
+    recovery: execution.recovery ?? execution.recoverySummary ?? null,
+    timestamps: execution.timestamps ?? null,
+    timeline: events,
+  };
+}
+
+function downloadComparisonPair(
+  liveExecution: MissionExecution | undefined,
+  importedExecution: MissionExecution | undefined,
+  format: HistoryExportFormat,
+): void {
+  if (!liveExecution || !importedExecution) return;
+  const live = comparisonExportRow('live', liveExecution);
+  const imported = comparisonExportRow('imported', importedExecution);
+  const date = new Date().toISOString().slice(0, 10);
+  if (format === 'json') {
+    const json = JSON.stringify({
+      exportType: 'mission-control-selected-comparison',
+      exportedAt: new Date().toISOString(),
+      live,
+      imported,
+      alignment: {
+        evidence: { live: live.evidence, imported: imported.evidence },
+        recovery: { live: live.recovery, imported: imported.recovery },
+        states: { live: live.state, imported: imported.state },
+        eventCounts: { live: live.eventCount, imported: imported.eventCount },
+        timelines: { live: live.timeline, imported: imported.timeline },
+      },
+    }, null, 2);
+    const blob = new Blob([`${json}\n`], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `mission-control-comparison-${live.id}-${imported.id}-${date}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    return;
+  }
+
+  const headers = [
+    'Side', 'Execution ID', 'Objective', 'State', 'Provider', 'Model',
+    'Attempts', 'Validation Failures', 'Event Count', 'Failure Category',
+    'Recovery Action', 'Evidence Status', 'Evidence', 'Recovery', 'Timestamps', 'Event Timeline',
+  ];
+  const rows = [live, imported].map((row) => [
+    row.side, row.id, row.objective, row.state, row.provider, row.model,
+    row.attempts, row.validationFailures, row.eventCount, row.failureCategory,
+    row.recoveryAction, row.evidenceStatus, row.evidence, row.recovery,
+    row.timestamps, row.timeline,
+  ]);
+  const serialize = (value: unknown) => {
+    if (value === null || value === undefined) return 'Not recorded';
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return formatValue(value);
+    }
+  };
+  const csv = [headers, ...rows]
+    .map((row) => row.map((value, index) => csvCell(index >= 12 ? serialize(value) : value)).join(','))
+    .join('\r\n');
+  const blob = new Blob([`${csv}\r\n`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `mission-control-comparison-${live.id}-${imported.id}-${date}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function metricEntries(value: unknown, prefix = '', depth = 0): MetricEntry[] {
   const record = asRecord(value);
   if (!record || depth > 2) return [];
@@ -596,6 +684,8 @@ export default function MissionControl() {
   }, [typedData?.benchmark]);
   const selectedEvidenceRows = evidenceRows(selectedExecution?.evidence);
   const selectedEvents = Array.isArray(selectedExecution?.recentEvents) ? selectedExecution.recentEvents : [];
+  const selectedImportedExecution = importedHistory?.executions.find((execution) => execution.id === comparisonImportedId)
+    ?? importedHistory?.executions[0];
   const updatedLabel = formatDate(typedData?.updatedAt);
 
   async function handleHistoryImport(event: React.ChangeEvent<HTMLInputElement>): Promise<void> {
@@ -979,13 +1069,25 @@ export default function MissionControl() {
                 A read-only comparison. The live execution ledger has not been changed.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => { setImportedHistory(null); setImportStatus(null); }}
-              className="self-start rounded-md border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover-elevate"
-            >
-              Clear comparison
-            </button>
+              <div className="flex flex-wrap gap-2 self-start">
+                <button
+                  type="button"
+                  onClick={() => downloadComparisonPair(comparisonLiveExecution, selectedImportedExecution, historyExportFormat)}
+                  disabled={!comparisonLiveExecution || !selectedImportedExecution}
+                  aria-label="Export selected live and imported run pair"
+                  title={`Download the selected pair as ${historyExportFormat.toUpperCase()}`}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/35 bg-primary/10 px-2.5 py-1.5 text-[11px] font-semibold text-primary hover-elevate disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <Download className="h-3.5 w-3.5" /> Export selected pair
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setImportedHistory(null); setImportStatus(null); }}
+                  className="rounded-md border border-border px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover-elevate"
+                >
+                  Clear comparison
+                </button>
+              </div>
           </div>
           <div className="border-b border-border/70 px-4 py-4">
             <div className="flex items-center gap-2">
@@ -1032,7 +1134,7 @@ export default function MissionControl() {
             <ComparisonRunColumn label="Live run" execution={comparisonLiveExecution} />
             <ComparisonRunColumn
               label="Imported run"
-              execution={importedHistory.executions.find((execution) => execution.id === comparisonImportedId) ?? importedHistory.executions[0]}
+              execution={selectedImportedExecution}
             />
           </div>
           <div className="grid gap-4 p-4 md:grid-cols-2">

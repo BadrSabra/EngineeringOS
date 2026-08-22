@@ -391,6 +391,81 @@ describe('Mission Control', () => {
     expect(screen.getByText(/Imported executions: archived-1, archived-2/)).toBeInTheDocument();
   });
 
+  it('exports the selected live and imported pair with aligned evidence, recovery, and timelines', async () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: [{
+        ...missionControlFixture.executions[0],
+        id: 'live-selected',
+        state: 'BLOCKED',
+        eventCount: 2,
+        failureCategory: 'RATE_LIMIT',
+        recoveryAction: 'Bounded retry',
+        evidenceStatus: 'INCOMPLETE',
+        recovery: { attempt: 2, provider: 'openrouter' },
+        timestamps: { startedAt: '2026-08-22T10:00:00.000Z' },
+        recentEvents: [
+          { type: 'provider_failure', timestamp: '2026-08-22T10:01:00.000Z', detail: 'Rate limited' },
+          { type: 'retry', timestamp: '2026-08-22T10:02:00.000Z', detail: 'Retry bounded' },
+        ],
+      }],
+    };
+    const imported = {
+      executions: [{
+        id: 'archived-selected',
+        state: 'COMPLETED',
+        objective: 'Archived recovery',
+        eventCount: 1,
+        evidence: { verdict: 'VERIFIED', proof: 'Archived proof' },
+        recoverySummary: { recoveryAction: 'Imported retry', attemptCount: 3 },
+        timestamps: { completedAt: '2026-08-21T10:00:00.000Z' },
+        recentEvents: [{ type: 'complete', timestamp: '2026-08-21T10:01:00.000Z' }],
+      }],
+      benchmark: {
+        scorecard: { metrics: { correctCompletionRate: 0.75 } },
+        baseline: { metrics: { correctCompletionRate: 0.5 } },
+      },
+    };
+    const file = new File([JSON.stringify(imported)], 'comparison.json', { type: 'application/json' });
+    const createObjectURL = vi.fn(() => 'blob:selected-comparison');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    renderPage();
+    fireEvent.change(screen.getByLabelText('Import JSON recovery history'), { target: { files: [file] } });
+    expect(await screen.findByRole('heading', { name: 'Imported history comparison' })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Export format' }), { target: { value: 'json' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Export selected live and imported run pair' }));
+
+    const blob = createObjectURL.mock.calls.at(-1)?.[0] as Blob;
+    const exported = JSON.parse(await blob.text()) as {
+      exportType: string;
+      live: Record<string, unknown>;
+      imported: Record<string, unknown>;
+      alignment: Record<string, Record<string, unknown>>;
+    };
+    expect(exported.exportType).toBe('mission-control-selected-comparison');
+    expect(exported.live).toMatchObject({
+      id: 'live-selected',
+      state: 'BLOCKED',
+      failureCategory: 'RATE_LIMIT',
+      recoveryAction: 'Bounded retry',
+      eventCount: 2,
+      timeline: currentMissionControl.executions[0].recentEvents,
+    });
+    expect(exported.imported).toMatchObject({
+      id: 'archived-selected',
+      state: 'COMPLETED',
+      recoveryAction: 'Imported retry',
+      eventCount: 1,
+    });
+    expect(exported.alignment.states).toEqual({ live: 'BLOCKED', imported: 'COMPLETED' });
+    expect(exported.alignment.eventCounts).toEqual({ live: 2, imported: 1 });
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:selected-comparison');
+    expect(refetchMissionControl).not.toHaveBeenCalled();
+  });
+
   it('rejects JSON histories with missing nested benchmark metrics', async () => {
     renderPage();
     const file = new File([JSON.stringify({
