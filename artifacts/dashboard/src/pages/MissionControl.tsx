@@ -510,9 +510,10 @@ function downloadComparisonPair(
       return formatValue(value);
     }
   };
-  const csv = [headers, ...rows]
-    .map((row) => row.map((value, index) => csvCell(index >= 12 ? serialize(value) : value)).join(','))
-    .join('\r\n');
+  const csv = [
+    headers.map(csvCell).join(','),
+    ...rows.map((row) => row.map((value, index) => csvCell(index >= 12 ? serialize(value) : value)).join(',')),
+  ].join('\r\n');
   const blob = new Blob([`${csv}\r\n`], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

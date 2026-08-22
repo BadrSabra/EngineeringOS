@@ -466,6 +466,88 @@ describe('Mission Control', () => {
     expect(refetchMissionControl).not.toHaveBeenCalled();
   });
 
+  it('exports both selected pair rows completely as CSV without refetching or mutating history', async () => {
+    currentMissionControl = {
+      ...missionControlFixture,
+      executions: [{
+        ...missionControlFixture.executions[0],
+        id: 'live-selected',
+        state: 'BLOCKED',
+        eventCount: 2,
+        failureCategory: 'RATE_LIMIT',
+        recoveryAction: 'Bounded retry',
+        evidenceStatus: 'INCOMPLETE',
+        recovery: { attempt: 2, provider: 'openrouter' },
+        timestamps: { startedAt: '2026-08-22T10:00:00.000Z' },
+        recentEvents: [
+          { type: 'provider_failure', timestamp: '2026-08-22T10:01:00.000Z', detail: 'Rate limited' },
+          { type: 'retry', timestamp: '2026-08-22T10:02:00.000Z', detail: 'Retry bounded' },
+        ],
+      }],
+    };
+    const imported = {
+      executions: [{
+        id: 'archived-selected',
+        state: 'COMPLETED',
+        objective: 'Archived recovery',
+        eventCount: 1,
+        evidence: { verdict: 'VERIFIED', proof: 'Archived proof' },
+        recoverySummary: { recoveryAction: 'Imported retry', attemptCount: 3 },
+        timestamps: { completedAt: '2026-08-21T10:00:00.000Z' },
+        recentEvents: [{ type: 'complete', timestamp: '2026-08-21T10:01:00.000Z' }],
+      }],
+      benchmark: {
+        scorecard: { metrics: { correctCompletionRate: 0.75 } },
+        baseline: { metrics: { correctCompletionRate: 0.5 } },
+      },
+    };
+    const file = new File([JSON.stringify(imported)], 'comparison.json', { type: 'application/json' });
+    const createObjectURL = vi.fn(() => 'blob:selected-comparison-csv');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    renderPage();
+    fireEvent.change(screen.getByLabelText('Import JSON recovery history'), { target: { files: [file] } });
+    expect(await screen.findByRole('heading', { name: 'Imported history comparison' })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Export format' }), { target: { value: 'csv' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Export selected live and imported run pair' }));
+
+    const blob = createObjectURL.mock.calls.at(-1)?.[0] as Blob;
+    expect(blob.type).toBe('text/csv;charset=utf-8');
+    const [header, liveRow, importedRow] = (await blob.text()).trim().split('\r\n');
+    expect(header).toBe(
+      '"Side","Execution ID","Objective","State","Provider","Model","Attempts","Validation Failures","Event Count","Failure Category","Recovery Action","Evidence Status","Evidence","Recovery","Timestamps","Event Timeline"',
+    );
+
+    const serializedCsvCell = (value: unknown) => `"${JSON.stringify(value).replace(/"/g, '""')}"`;
+    expect(liveRow).toContain('"live","live-selected"');
+    expect(liveRow).toContain('"BLOCKED"');
+    expect(liveRow).toContain('"RATE_LIMIT"');
+    expect(liveRow).toContain('"Bounded retry"');
+    expect(liveRow).toContain('"2"');
+    expect(liveRow).toContain(serializedCsvCell(currentMissionControl.executions[0].evidence));
+    expect(liveRow).toContain(serializedCsvCell(currentMissionControl.executions[0].recovery));
+    expect(liveRow).toContain(serializedCsvCell(currentMissionControl.executions[0].recentEvents));
+
+    expect(importedRow).toContain('"imported","archived-selected"');
+    expect(importedRow).toContain('"COMPLETED"');
+    expect(importedRow).toContain('"Imported retry"');
+    expect(importedRow).toContain('"1"');
+    expect(importedRow).toContain(serializedCsvCell(imported.executions[0].evidence));
+    expect(importedRow).toContain(serializedCsvCell(imported.executions[0].recoverySummary));
+    expect(importedRow).toContain(serializedCsvCell(imported.executions[0].recentEvents));
+
+    expect(click).toHaveBeenCalled();
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:selected-comparison-csv');
+    expect(refetchMissionControl).not.toHaveBeenCalled();
+    expect(currentMissionControl.executions).toHaveLength(1);
+    expect(imported.executions).toHaveLength(1);
+
+    click.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
   it('rejects JSON histories with missing nested benchmark metrics', async () => {
     renderPage();
     const file = new File([JSON.stringify({
