@@ -33,7 +33,10 @@ import {
   _resetForTest as _resetDynamicCatalog,
 } from "../openrouter/dynamic-catalog.js";
 import { FREE_MODELS } from "../openrouter/model-catalog.js";
-import { classifyOpenRouterFailure } from "../openai-compatible-client.js";
+import {
+  classifyOpenRouterFailure,
+  openrouterCompleteStream,
+} from "../openai-compatible-client.js";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -54,6 +57,30 @@ function okResponse(model = "inclusionai/ling-3.0-flash:free") {
     model,
     usage: { prompt_tokens: 10, completion_tokens: 5 },
   };
+}
+
+function streamResponse(
+  chunks: string[],
+  options: { disconnect?: boolean } = {},
+): Response {
+  const encoder = new TextEncoder();
+  let index = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (index < chunks.length) {
+        controller.enqueue(encoder.encode(chunks[index++]!));
+      } else if (options.disconnect) {
+        controller.error(new Error("fixture stream disconnected"));
+      } else {
+        controller.close();
+      }
+    },
+  });
+  return new Response(body, { status: 200 });
+}
+
+function sseDelta(text: string): string {
+  return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
 }
 
 // ── Circuit Breaker ───────────────────────────────────────────────────────────
@@ -437,6 +464,102 @@ describe("error classification", () => {
       action: "stop-safely",
       terminal: true,
     });
+  });
+});
+
+// ── Streaming reliability ─────────────────────────────────────────────────────
+
+describe("openrouterCompleteStream — bounded retry and disconnect safety", () => {
+  const globalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = globalFetch;
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("retries a transient failure before the first chunk within one bounded retry", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new Error("fixture connection reset"))
+      .mockResolvedValueOnce(streamResponse([sseDelta("recovered"), "data: [DONE]\n\n"]));
+    global.fetch = fetchMock as typeof fetch;
+
+    const chunks: string[] = [];
+    const run = (async () => {
+      for await (const chunk of openrouterCompleteStream(
+        [{ role: "user", content: "hi" }],
+        { apiKey: "fixture-key", model: FREE_MODELS[0].id, maxFallbackModels: 1 },
+      )) {
+        chunks.push(chunk);
+      }
+    })();
+    await vi.advanceTimersByTimeAsync(1_500);
+    await run;
+
+    expect(chunks.join("")).toBe("recovered");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("advances to the next capability-compatible free model when unavailable", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ error: { code: "model_unavailable", message: "fixture unavailable" } }),
+        { status: 422, headers: { "content-type": "application/json" } },
+      ))
+      .mockResolvedValueOnce(streamResponse([sseDelta("fallback"), "data: [DONE]\n\n"]));
+    global.fetch = fetchMock as typeof fetch;
+
+    const chunks: string[] = [];
+    for await (const chunk of openrouterCompleteStream(
+      [{ role: "user", content: "hi" }],
+      {
+        apiKey: "fixture-key",
+        model: FREE_MODELS.find((entry) => entry.capabilities.includes("chat"))!.id,
+        capability: "chat",
+        maxFallbackModels: 2,
+      },
+    )) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks.join("")).toBe("fallback");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const attemptedModels = fetchMock.mock.calls.map((call) =>
+      JSON.parse(String((call[1] as RequestInit).body)).model,
+    );
+    expect(attemptedModels[0]).not.toBe(attemptedModels[1]);
+    expect(attemptedModels.every((model: string) => model.endsWith(":free"))).toBe(true);
+  });
+
+  it("terminalizes a disconnect after the first chunk without retrying or duplicating text", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      streamResponse([sseDelta("first "), sseDelta("answer"), "data: [DONE]\n\n"], { disconnect: true }),
+    );
+    global.fetch = fetchMock as typeof fetch;
+
+    const chunks: string[] = [];
+    let thrown: unknown;
+    try {
+      for await (const chunk of openrouterCompleteStream(
+        [{ role: "user", content: "hi" }],
+        { apiKey: "fixture-key", model: FREE_MODELS[0].id, maxFallbackModels: 2 },
+      )) {
+        chunks.push(chunk);
+      }
+    } catch (err) {
+      thrown = err;
+    }
+
+    expect(chunks.join("")).toBe("first answer");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(thrown).toSatisfy((err: unknown) =>
+      err instanceof GroqClientError &&
+      err.code === "NETWORK_ERROR" &&
+      err.providerAttemptedModels?.length === 1 &&
+      !err.message.includes("fixture-key") &&
+      !JSON.stringify(err.toProviderContext()).includes("fixture-key"),
+    );
   });
 });
 

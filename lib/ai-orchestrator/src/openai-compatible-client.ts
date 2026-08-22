@@ -1048,6 +1048,19 @@ export async function* oacCompleteStream(
         if (before) yield before;
       }
     }
+  } catch (err) {
+    if (err instanceof GroqClientError) throw err;
+    if (controller.signal.aborted) {
+      throw new GroqClientError("TIMEOUT", `${providerName} streaming response timed out`, {
+        cause: err,
+        context: { providerName, providerModel: model },
+      });
+    }
+    throw new GroqClientError(
+      "NETWORK_ERROR",
+      err instanceof Error ? err.message : `Network error reading ${providerName} stream`,
+      { cause: err, context: { providerName, providerModel: model } },
+    );
   } finally {
     cleanup();
     reader.releaseLock();
@@ -1328,7 +1341,21 @@ export async function* openrouterCompleteStream(
         const providerError = err instanceof GroqClientError ? err : undefined;
         // Once bytes have been emitted, retrying would duplicate or splice the
         // answer. The caller must terminalize the partial stream instead.
-        if (emitted || !providerError) throw err;
+        if (emitted || !providerError) {
+          const terminalError = providerError ?? new GroqClientError(
+            "NETWORK_ERROR",
+            err instanceof Error ? err.message : "OpenRouter stream disconnected",
+            { cause: err, context: { providerName: "OpenRouter", providerModel: model } },
+          );
+          throw new GroqClientError(terminalError.code, terminalError.message, {
+            cause: terminalError,
+            context: {
+              ...terminalError.toProviderContext(),
+              providerModel: terminalError.providerModel ?? model,
+              providerAttemptedModels: [...attemptedModels],
+            },
+          });
+        }
         if (
           !transientRetried &&
           opts.retryTransient !== false &&
