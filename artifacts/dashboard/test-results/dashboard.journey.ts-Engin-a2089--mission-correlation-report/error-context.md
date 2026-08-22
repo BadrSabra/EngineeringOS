@@ -12,7 +12,7 @@
 # Error details
 
 ```
-Error: Live-provider mission failed to start (403).
+Error: Live-provider mission failed to start (409).
 ```
 
 # Page snapshot
@@ -68,7 +68,7 @@ Error: Live-provider mission failed to start (403).
           - generic [ref=f1e101]:
             - generic [ref=f1e102]:
               - heading "Active Projects" [level=3] [ref=f1e104]
-              - generic [ref=f1e111]: "0"
+              - generic [ref=f1e111]: "1"
               - generic [ref=f1e112]:
                 - generic [ref=f1e113]: "0"
                 - text: tasks pending
@@ -101,10 +101,12 @@ Error: Live-provider mission failed to start (403).
                     - columnheader "Quality Bar" [ref=f1e158]
                 - rowgroup [ref=f1e159]:
                   - row [ref=f1e160]:
-                    - cell [ref=f1e161]:
-                      - paragraph [ref=f1e162]: No projects yet.
-                      - link "Connect your first repository →" [ref=f1e163] [cursor=pointer]:
-                        - /url: /dashboard/projects
+                    - cell "live-provider-disposable" [ref=f1e161]
+                    - cell "92 / 100" [ref=f1e162]:
+                      - text: "92"
+                      - generic [ref=f1e163]: / 100
+                    - cell "→ stable" [ref=f1e164]
+                    - cell [ref=f1e166]
             - generic [ref=f1e169]:
               - generic [ref=f1e170]:
                 - heading "Event Stream" [level=2] [ref=f1e171]
@@ -219,7 +221,7 @@ Error: Live-provider mission failed to start (403).
   759 |     });
   760 |     if (streamResponse.status < 200 || streamResponse.status >= 300) {
 > 761 |       throw new Error(`Live-provider mission failed to start (${streamResponse.status}).`);
-      |             ^ Error: Live-provider mission failed to start (403).
+      |             ^ Error: Live-provider mission failed to start (409).
   762 |     }
   763 |     const sseEvents = parseSse(streamResponse.body);
   764 |     const started = sseEvents.find((event) => event.type === "execution_started");
