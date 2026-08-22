@@ -68,14 +68,18 @@ export function resolveExecutionModel(
       requireTools: plan.strictHints.requireTools ?? false,
     }).map((model) => model.id);
 
-    const model = fallbackChain[0] ?? provider.defaultModels.fast;
-    const powerModel = fallbackChain[1] ?? fallbackChain[0] ?? provider.defaultModels.powerful;
+    // Controlled live checks may opt into a known paid OpenRouter model. Keep
+    // this override environment-only so ordinary provider-free validation and
+    // normal free-tier routing retain the catalog-driven fallback chain.
+    const liveModel = process.env.OPENROUTER_MODEL?.trim() || undefined;
+    const model = liveModel ?? fallbackChain[0] ?? provider.defaultModels.fast;
+    const powerModel = liveModel ?? fallbackChain[1] ?? fallbackChain[0] ?? provider.defaultModels.powerful;
 
     decision = {
       providerId,
       model,
       powerModel,
-      fallbackChain,
+      fallbackChain: liveModel ? [liveModel] : fallbackChain,
       capability,
       source: "openrouter-catalog",
     };

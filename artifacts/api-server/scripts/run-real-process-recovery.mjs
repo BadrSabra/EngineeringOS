@@ -2,12 +2,21 @@
 
 import { spawn } from "node:child_process";
 
-const requiredEnvironment = ["DATABASE_URL", "OPENROUTER_API_KEY"];
-const missingEnvironment = requiredEnvironment.filter((name) => !process.env[name]);
+const providerEnvironment = {
+  openrouter: "OPENROUTER_API_KEY",
+  gemini: "GEMINI_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+  groq: "GROQ_API_KEY",
+};
+const liveProvider =
+  process.env.LIVE_RECOVERY_PROVIDER ||
+  Object.entries(providerEnvironment).find(([, variable]) => process.env[variable])?.[0];
+const requiredEnvironment = ["DATABASE_URL", providerEnvironment[liveProvider]];
+const missingEnvironment = requiredEnvironment.filter((name) => !name || !process.env[name]);
 
-if (missingEnvironment.length > 0) {
+if (!liveProvider || missingEnvironment.length > 0) {
   console.error(
-    `Real process-recovery validation requires provider/database configuration: ${missingEnvironment.join(", ")}.`,
+    `Real process-recovery validation requires provider/database configuration: ${missingEnvironment.filter(Boolean).join(", ")}.`,
   );
   console.error(
     "This check is intentionally opt-in; run it only in a controlled release-validation environment.",
@@ -41,6 +50,10 @@ const child = spawn(
       ...process.env,
       NODE_ENV: "test",
       RUN_REAL_API_PROCESS_RECOVERY: "1",
+      LIVE_RECOVERY_PROVIDER: liveProvider,
+      ...(liveProvider === "openrouter"
+        ? { OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || "openai/gpt-4o" }
+        : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
   },

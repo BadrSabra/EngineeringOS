@@ -63,6 +63,17 @@ vi.mock("../lib/advisory-lock.js", async (importOriginal) => {
 const execFileAsync = promisify(execFile);
 const validationFixtures: Array<Record<string, unknown>> = [];
 const runRealApiProcessRecovery = process.env.RUN_REAL_API_PROCESS_RECOVERY === "1";
+const liveRecoveryProvider = process.env.LIVE_RECOVERY_PROVIDER ?? "openrouter";
+const liveProviderEnvironment: Record<string, string> = {
+  openrouter: "OPENROUTER_API_KEY",
+  gemini: "GEMINI_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+  groq: "GROQ_API_KEY",
+};
+const liveRecoveryProviderKey = liveProviderEnvironment[liveRecoveryProvider];
+const liveRecoveryProviderApiKey = liveRecoveryProviderKey
+  ? process.env[liveRecoveryProviderKey]
+  : undefined;
 type RecoveryTeardownFixture = {
   projectId: string;
   rootPath: string;
@@ -560,9 +571,16 @@ describe("Durable AI execution crash/reconnect", () => {
         });
 
         // The surrounding fixture suite installs a dummy Groq key for mocked
-        // route tests. Do not let that test-only credential steer the real
-        // recovery child away from the explicitly configured OpenRouter lane.
-        const { GROQ_API_KEY: _fixtureGroqKey, ...liveEnvironment } = process.env;
+        // route tests. The real child must receive only the explicitly selected
+        // live provider key, never a fixture credential or a higher-priority
+        // provider that would steer the request to another lane.
+        const liveEnvironment = { ...process.env };
+        for (const variable of Object.values(liveProviderEnvironment)) {
+          delete liveEnvironment[variable];
+        }
+        if (liveRecoveryProviderKey && liveRecoveryProviderApiKey) {
+          liveEnvironment[liveRecoveryProviderKey] = liveRecoveryProviderApiKey;
+        }
         const childEnv = {
           ...liveEnvironment,
           NODE_ENV: "test",
@@ -583,8 +601,8 @@ describe("Durable AI execution crash/reconnect", () => {
           request: {
             projectId,
             sessionId,
-            message: "forensic audit",
-            modelMessage: "forensic audit",
+            message: "forensic audit of src/process-recovery.ts",
+            modelMessage: "forensic audit of src/process-recovery.ts",
             validationTargetPaths: [],
             proofRequired: true,
           },
@@ -600,7 +618,7 @@ describe("Durable AI execution crash/reconnect", () => {
           body: JSON.stringify({
             projectId,
             sessionId,
-            message: "forensic audit",
+            message: "forensic audit of src/process-recovery.ts",
             executionId: created.execution.id,
             resumeToken: created.resumeToken,
           }),
@@ -640,7 +658,7 @@ describe("Durable AI execution crash/reconnect", () => {
           body: JSON.stringify({
             projectId,
             sessionId,
-            message: "forensic audit",
+            message: "forensic audit of src/process-recovery.ts",
             executionId: created.execution.id,
             resumeToken: created.resumeToken,
           }),
