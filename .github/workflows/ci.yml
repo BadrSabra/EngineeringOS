@@ -227,3 +227,24 @@ jobs:
           name: release-validation-${{ github.run_id }}-teardown
           path: test-results/dashboard-journey/release-teardown.json
           if-no-files-found: warn
+
+      - name: Summarize retained release diagnostics
+        if: always()
+        shell: bash
+        env:
+          TEARDOWN_ARTIFACT: test-results/dashboard-journey/release-teardown.json
+          TEARDOWN_ARTIFACT_NAME: release-validation-${{ github.run_id }}-teardown
+        run: |
+          {
+            echo "## Release validation diagnostics"
+            echo
+            echo "Validation run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            echo "Retained teardown evidence: [$TEARDOWN_ARTIFACT_NAME](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts)"
+            echo
+            if [[ -f "$TEARDOWN_ARTIFACT" ]]; then
+              echo "### Teardown coverage"
+              jq -r '.services[] | "- \(.owningService): port \(.configuredPort // "n/a"), process group \(.processGroup // "n/a"), surviving descendants \((.finalSurvivingPids | length)), cleanup \(.cleanupOutcome)"' "$TEARDOWN_ARTIFACT"
+            else
+              echo "The teardown evidence file was not produced; see the job log for the failure."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

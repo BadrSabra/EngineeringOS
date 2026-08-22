@@ -367,6 +367,21 @@ async function stopServices() {
       "utf8",
     );
     console.log(`Release teardown artifact: ${teardownArtifactPath}`);
+    console.log(
+      `Release teardown evidence summary: validation run ${
+        process.env.GITHUB_RUN_ID ?? "local"
+      }; retained artifact ${teardownArtifactPath}.`,
+    );
+    console.log(
+      `Release teardown evidence coverage: ${teardownArtifact.services
+        .map(
+          (service) =>
+            `${service.owningService} (process group ${
+              service.processGroup ?? "unknown"
+            }; descendants tracked by surviving PIDs)`,
+        )
+        .join("; ")}.`,
+    );
   } catch (error) {
     console.error(
       redact(

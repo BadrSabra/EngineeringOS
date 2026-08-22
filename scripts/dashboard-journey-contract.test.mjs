@@ -9,10 +9,12 @@ const journeyPath = resolve(
   "artifacts/dashboard/e2e/dashboard.journey.ts",
 );
 const runnerPath = resolve(root, "scripts/run-dashboard-journey.mjs");
+const workflowPath = resolve(root, ".github/workflows/ci.yml");
 
-const [journeySource, runnerSource] = await Promise.all([
+const [journeySource, runnerSource, workflowSource] = await Promise.all([
   readFile(journeyPath, "utf8"),
   readFile(runnerPath, "utf8"),
+  readFile(workflowPath, "utf8"),
 ]);
 
 function constant(source, name) {
@@ -178,6 +180,35 @@ test("release teardown writes a structured CI artifact", () => {
     runnerSource,
     /Release teardown artifact:/,
     "The release logs must surface the teardown artifact path.",
+  );
+});
+
+test("release diagnostics expose a run-scoped summary and artifact link", () => {
+  assert.match(
+    runnerSource,
+    /Release teardown evidence summary: validation run/,
+    "The release runner must identify the validation run beside the retained artifact.",
+  );
+  assert.match(
+    runnerSource,
+    /Release teardown evidence coverage:/,
+    "The release runner must identify the services and descendant coverage.",
+  );
+
+  assert.match(
+    workflowSource,
+    /Summarize retained release diagnostics/,
+    "CI must publish a human-readable release diagnostics summary.",
+  );
+  assert.match(
+    workflowSource,
+    /actions\/runs\/\$\{\{ github\.run_id \}\}\/artifacts/,
+    "The CI summary must link directly to the retained run artifacts.",
+  );
+  assert.match(
+    workflowSource,
+    /surviving descendants/,
+    "The CI summary must identify descendant coverage for each service.",
   );
 });
 
