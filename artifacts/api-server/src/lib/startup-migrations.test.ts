@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { db, projectsTable } from "@workspace/db";
 import { randomUUID } from "crypto";
-import { reportDeadRootPaths } from "./startup-migrations";
+import {
+  reportDeadRootPaths,
+  scrubHistoricalValidationRecord,
+} from "./startup-migrations";
 
 async function insertProject(rootPath: string): Promise<string> {
   const id = randomUUID();
@@ -75,5 +78,86 @@ describe("reportDeadRootPaths — never rebinds a dead root", () => {
       .where(eq(projectsTable.id, projectId))
       .limit(1);
     expect(row[0]?.rootPath).toBe(deadRoot);
+  });
+});
+
+describe("scrubHistoricalValidationRecord", () => {
+  it("keeps proof and exit metadata while removing legacy validation diagnostics", () => {
+    const scrubbed = scrubHistoricalValidationRecord({
+      kind: "validation",
+      repairState: "BLOCKED",
+      attempt: 2,
+      maxAttempts: 3,
+      validation: {
+        profile: "workspace-typecheck",
+        status: "failed",
+        scenario: "typecheck",
+        exitCode: 1,
+        command: "pnpm test --filter private",
+        stdout: "PRIVATE_SOURCE=must-not-persist",
+        stderr: "secret@example.com",
+        failedTests: [{ name: "private.test.ts", message: "source details" }],
+        changedFiles: ["src/private.ts"],
+        evidence: {
+          evidenceId: "validation-result:1",
+          observedAt: "2026-08-22T00:00:00.000Z",
+          artifactRef: "validation-result:1",
+        },
+      },
+    }) as Record<string, unknown>;
+
+    expect(scrubbed).toEqual({
+      kind: "validation",
+      repairState: "BLOCKED",
+      attempt: 2,
+      maxAttempts: 3,
+      validation: {
+        profile: "workspace-typecheck",
+        status: "failed",
+        scenario: "typecheck",
+        exitCode: 1,
+        evidence: {
+          evidenceId: "validation-result:1",
+          observedAt: "2026-08-22T00:00:00.000Z",
+          artifactRef: "validation-result:1",
+        },
+      },
+    });
+  });
+
+  it("projects legacy flattened fields and strips their diagnostic payload", () => {
+    const scrubbed = scrubHistoricalValidationRecord({
+      kind: "validation",
+      validationStatus: "passed",
+      validationProfile: "api-ai-tests",
+      validationScenario: "focused tests",
+      validationExitCode: 0,
+      validationCommand: "pnpm test",
+      validationFailedTests: ["secret test output"],
+      validationAffectedFiles: ["src/private.ts"],
+      validationDetail: "raw command output",
+    }) as Record<string, unknown>;
+
+    expect(scrubbed).toEqual({
+      kind: "validation",
+      validation: {
+        profile: "api-ai-tests",
+        status: "passed",
+        scenario: "focused tests",
+        exitCode: 0,
+      },
+    });
+  });
+
+  it("recursively scrubs validation steps without changing unrelated trace entries", () => {
+    const scrubbed = scrubHistoricalValidationRecord([
+      { kind: "tool_result", tool: "read_file", resultSummary: "safe summary" },
+      { kind: "validation", status: "passed", exitCode: 0, command: "pnpm test", stdout: "raw" },
+    ]);
+
+    expect(scrubbed).toEqual([
+      { kind: "tool_result", tool: "read_file", resultSummary: "safe summary" },
+      { kind: "validation", validation: { status: "passed", exitCode: 0 } },
+    ]);
   });
 });

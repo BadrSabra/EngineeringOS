@@ -10,7 +10,7 @@
 
 import fs from "node:fs/promises";
 import { randomBytes } from "node:crypto";
-import { db } from "@workspace/db";
+import { db, pool } from "@workspace/db";
 import { projectsTable } from "@workspace/db";
 import { like } from "drizzle-orm";
 import { logger } from "./logger";
@@ -118,5 +118,134 @@ export async function reportDeadRootPaths(): Promise<void> {
   } catch (err) {
     logger.error({ scope: "startup-migrations", fn: "reportDeadRootPaths", err },
       "Failed to report dead root_paths — continuing startup");
+  }
+}
+
+type HistoricalJsonRecord = Record<string, unknown>;
+
+const VALIDATION_PUBLIC_KEYS = new Set([
+  "profile",
+  "status",
+  "scenario",
+  "exitCode",
+  "evidence",
+]);
+
+/**
+ * Remove validation payloads written before the public validation contract was
+ * enforced. This deliberately uses an allow-list rather than redaction: test
+ * output and failure messages are arbitrary source-controlled text and cannot
+ * be made safe with a few regular expressions.
+ */
+export function scrubHistoricalValidationRecord(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => scrubHistoricalValidationRecord(item));
+  if (!value || typeof value !== "object") return value;
+  const record = value as HistoricalJsonRecord;
+  const isValidation = record.kind === "validation";
+  const nestedValidation = record.validation;
+
+  if (isValidation) {
+    const result: HistoricalJsonRecord = {};
+    for (const key of ["kind", "repairState", "attempt", "maxAttempts"]) {
+      if (key in record) result[key] = record[key];
+    }
+    if (nestedValidation && typeof nestedValidation === "object" && !Array.isArray(nestedValidation)) {
+      const publicValidation: HistoricalJsonRecord = {};
+      for (const key of VALIDATION_PUBLIC_KEYS) {
+        if (key in (nestedValidation as HistoricalJsonRecord)) {
+          publicValidation[key] = (nestedValidation as HistoricalJsonRecord)[key];
+        }
+      }
+      result.validation = publicValidation;
+    } else {
+      // Legacy traces stored these fields directly on the step.
+      for (const [legacyKey, publicKey] of [
+        ["profile", "profile"],
+        ["validationProfile", "profile"],
+        ["scenario", "scenario"],
+        ["validationScenario", "scenario"],
+        ["status", "status"],
+        ["validationStatus", "status"],
+        ["exitCode", "exitCode"],
+        ["validationExitCode", "exitCode"],
+      ]) {
+        if (!(publicKey in result) && legacyKey in record) result[publicKey] = record[legacyKey];
+      }
+      if (Object.keys(result).some((key) => VALIDATION_PUBLIC_KEYS.has(key))) {
+        const publicValidation: HistoricalJsonRecord = {};
+        for (const key of VALIDATION_PUBLIC_KEYS) {
+          if (key in result) publicValidation[key] = result[key];
+        }
+        result.validation = publicValidation;
+        for (const key of VALIDATION_PUBLIC_KEYS) delete result[key];
+      }
+    }
+    return result;
+  }
+
+  return Object.fromEntries(
+    Object.entries(record).map(([key, child]) => [
+      key,
+      Array.isArray(child)
+        ? child.map((item) => scrubHistoricalValidationRecord(item))
+        : scrubHistoricalValidationRecord(child),
+    ]),
+  );
+}
+
+function scrubHistoricalJson(raw: string | null): string | null {
+  if (!raw) return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    const scrubbed = scrubHistoricalValidationRecord(parsed);
+    // Avoid rewriting already-safe rows merely because their JSON whitespace
+    // differs; this keeps the migration genuinely idempotent.
+    return JSON.stringify(scrubbed) === JSON.stringify(parsed)
+      ? raw
+      : JSON.stringify(scrubbed);
+  } catch {
+    // An opaque legacy value is not safe to reinterpret or partially edit.
+    return raw;
+  }
+}
+
+/**
+ * One-time-in-effect, repeatable data migration for records created before
+ * validation output was excluded from durable chat history. It is intentionally
+ * best-effort so a transient database issue cannot prevent the API from
+ * starting; a later restart retries unchanged rows.
+ */
+export async function scrubHistoricalValidationDetails(): Promise<void> {
+  try {
+    const messages = await pool.query<{
+      id: string;
+      tool_trace: string | null;
+    }>("SELECT id, tool_trace FROM ai_chat_messages WHERE tool_trace IS NOT NULL");
+    for (const row of messages.rows) {
+      const scrubbed = scrubHistoricalJson(row.tool_trace);
+      if (scrubbed !== row.tool_trace) {
+        await pool.query(
+          "UPDATE ai_chat_messages SET tool_trace = $1 WHERE id = $2 AND tool_trace = $3",
+          [scrubbed, row.id, row.tool_trace],
+        );
+      }
+    }
+
+    const executions = await pool.query<{
+      id: string;
+      checkpoint: string;
+    }>("SELECT id, checkpoint FROM ai_executions WHERE checkpoint IS NOT NULL");
+    for (const row of executions.rows) {
+      const scrubbed = scrubHistoricalJson(row.checkpoint);
+      if (scrubbed !== row.checkpoint) {
+        await pool.query(
+          "UPDATE ai_executions SET checkpoint = $1 WHERE id = $2 AND checkpoint = $3",
+          [scrubbed, row.id, row.checkpoint],
+        );
+      }
+    }
+  } catch (err) {
+    logger.error({ scope: "startup-migrations", fn: "scrubHistoricalValidationDetails", err },
+      "Failed to scrub historical validation details — will retry on the next startup");
   }
 }

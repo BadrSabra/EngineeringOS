@@ -127,6 +127,7 @@ import {
   redactUserFacingValue,
 } from "../../lib/ai-route-helpers.js";
 import { createProjectAnalysisToolRunner } from "../../lib/ai-analysis-tools.js";
+import { scrubHistoricalValidationRecord } from "../../lib/startup-migrations.js";
 
 const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
   "PROVEN",
@@ -1345,22 +1346,7 @@ function serializeExecutionCheckpointSteps(steps: AgentStep[]): Array<Record<str
 }
 
 function sanitizeExecutionCheckpointForClient(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return redactUserFacingValue(value);
-  }
-  const checkpoint = value as Record<string, unknown>;
-  const recentSteps = Array.isArray(checkpoint.recentSteps)
-    ? checkpoint.recentSteps.map((step) => {
-      if (!step || typeof step !== "object" || Array.isArray(step)) return step;
-      const record = step as Record<string, unknown>;
-      if (record.kind !== "validation" || !record.result || typeof record.result !== "object") return step;
-      return {
-        ...record,
-        result: toPublicValidationResult(record.result as ValidationResult),
-      };
-    })
-    : checkpoint.recentSteps;
-  return redactUserFacingValue({ ...checkpoint, recentSteps });
+  return redactUserFacingValue(scrubHistoricalValidationRecord(value));
 }
 
 // ── Profile → context sections mapping ──────────────────────────────────────
@@ -4078,13 +4064,7 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
           (() => {
             const parsed = parseStoredJson(message.toolTrace);
             if (!Array.isArray(parsed)) return parsed;
-            return parsed.map((entry) => {
-              if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
-              const record = entry as Record<string, unknown>;
-              return record.kind === "validation" && record.validation && typeof record.validation === "object"
-                ? { ...record, validation: toPublicValidationResult(record.validation as ValidationResult) }
-                : record;
-            });
+            return scrubHistoricalValidationRecord(parsed);
           })(),
         ))
         : message.toolTrace,

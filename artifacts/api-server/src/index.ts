@@ -6,7 +6,11 @@ import {
   startDurableJobDispatcher,
   startStaleJobSweep,
 } from "./lib/job-reconciliation";
-import { reportDeadRootPaths, ensureEncryptionKey } from "./lib/startup-migrations";
+import {
+  reportDeadRootPaths,
+  ensureEncryptionKey,
+  scrubHistoricalValidationDetails,
+} from "./lib/startup-migrations";
 import { heavyJobQueue } from "./lib/job-queue";
 import { assertAuditOutboxSchema, pool } from "@workspace/db";
 import {
@@ -144,6 +148,11 @@ await reconcileStuckJobs();
 // are never rewritten — scans of such projects fail with root_unavailable
 // until the project is re-imported via discovery. Never throws.
 await reportDeadRootPaths();
+
+// Remove raw validation commands, output, failed-test details, and changed
+// files from records written by older server builds. The migration is
+// idempotent and preserves proof/exit metadata.
+await scrubHistoricalValidationDetails();
 
 // Reload audit writes that failed in a previous process before accepting
 // traffic, then let the normal retry worker drain them in the background.
