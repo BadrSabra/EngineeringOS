@@ -2245,12 +2245,40 @@ projectId?: string;
 export type ListEventsParams = {
 projectId?: string;
 type?: string;
+/**
+ * Number of events to return per page.
+ * @minimum 1
+ * @maximum 200
+ */
 limit?: number;
+/**
+ * One-based page number, ordered newest first.
+ * @minimum 1
+ */
+page?: number;
 /**
  * Return only events belonging to one logical operation.
  */
 correlationId?: string;
+/**
+ * Return only events with this severity.
+ */
+severity?: ListEventsSeverity;
+/**
+ * Case-insensitive text search across message, type, and operation.
+ */
+search?: string;
 };
+
+export type ListEventsSeverity = typeof ListEventsSeverity[keyof typeof ListEventsSeverity];
+
+
+export const ListEventsSeverity = {
+  info: 'info',
+  warning: 'warning',
+  error: 'error',
+  success: 'success',
+} as const;
 
 export type ListMetricsParams = {
 projectId: string;

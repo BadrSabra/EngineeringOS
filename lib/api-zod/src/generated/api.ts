@@ -937,12 +937,20 @@ export const RollbackWorkflowPhaseResponse = zod.object({
  * @summary List system events for one project or all owned projects
  */
 export const listEventsQueryLimitDefault = 50;
+export const listEventsQueryLimitMax = 200;
+
+export const listEventsQueryPageDefault = 1;
+
+
 
 export const ListEventsQueryParams = zod.object({
   "projectId": zod.coerce.string().optional(),
   "type": zod.coerce.string().optional(),
-  "limit": zod.coerce.number().default(listEventsQueryLimitDefault),
-  "correlationId": zod.coerce.string().optional().describe('Return only events belonging to one logical operation.')
+  "limit": zod.coerce.number().min(1).max(listEventsQueryLimitMax).default(listEventsQueryLimitDefault).describe('Number of events to return per page.'),
+  "page": zod.coerce.number().min(1).default(listEventsQueryPageDefault).describe('One-based page number, ordered newest first.'),
+  "correlationId": zod.coerce.string().optional().describe('Return only events belonging to one logical operation.'),
+  "severity": zod.enum(['info', 'warning', 'error', 'success']).optional().describe('Return only events with this severity.'),
+  "search": zod.coerce.string().optional().describe('Case-insensitive text search across message, type, and operation.')
 })
 
 export const ListEventsResponseItem = zod.object({

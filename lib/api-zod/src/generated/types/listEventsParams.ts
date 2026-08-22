@@ -5,13 +5,32 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { ListEventsSeverity } from './listEventsSeverity';
 
 export type ListEventsParams = {
 projectId?: string;
 type?: string;
+/**
+ * Number of events to return per page.
+ * @minimum 1
+ * @maximum 200
+ */
 limit?: number;
+/**
+ * One-based page number, ordered newest first.
+ * @minimum 1
+ */
+page?: number;
 /**
  * Return only events belonging to one logical operation.
  */
 correlationId?: string;
+/**
+ * Return only events with this severity.
+ */
+severity?: ListEventsSeverity;
+/**
+ * Case-insensitive text search across message, type, and operation.
+ */
+search?: string;
 };

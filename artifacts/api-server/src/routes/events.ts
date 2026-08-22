@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, eventsTable, projectsTable } from "@workspace/db";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, ilike, or } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 
@@ -18,7 +18,8 @@ router.use(requireAuth);
  * before returning any rows — a user cannot read events from a project they
  * don't own.
  *
- * Optional filters: type, correlationId, limit (default 50, max 500).
+ * Optional filters: type, correlationId, severity, search, page, limit
+ * (default 50, max 200). Pagination is applied after all filters.
  * Results are ordered newest-first.
  */
 router.get("/events", async (req, res) => {
@@ -28,14 +29,25 @@ router.get("/events", async (req, res) => {
   if (requestedLimit < 1) {
     return res.status(400).json({ error: "limit must be at least 1" });
   }
-  const limit = Math.min(requestedLimit, 500);
+  const limit = Math.min(requestedLimit, 200);
+  const requestedPage = Number.isFinite(Number(req.query.page))
+    ? Math.floor(Number(req.query.page))
+    : 1;
+  if (requestedPage < 1) {
+    return res.status(400).json({ error: "page must be at least 1" });
+  }
+  const page = requestedPage;
 
-  // correlationId is not in the generated Zod schema yet — parse directly so
-  // callers can already filter "show me everything from one operation".
+  // Parse optional filters at the boundary so blank values do not become
+  // restrictive database predicates.
   const correlationIdFilter =
     typeof req.query.correlationId === "string" ? req.query.correlationId : undefined;
   const typeFilter =
     typeof req.query.type === "string" ? req.query.type : undefined;
+  const severityFilter =
+    typeof req.query.severity === "string" ? req.query.severity : undefined;
+  const searchFilter =
+    typeof req.query.search === "string" ? req.query.search.trim() : undefined;
 
   const projectId =
     typeof req.query.projectId === "string" ? req.query.projectId : undefined;
@@ -60,13 +72,26 @@ router.get("/events", async (req, res) => {
   if (typeFilter) conditions.push(eq(eventsTable.type, typeFilter));
   if (correlationIdFilter)
     conditions.push(eq(eventsTable.correlationId, correlationIdFilter));
+  if (severityFilter) conditions.push(eq(eventsTable.severity, severityFilter as "info" | "warning" | "error" | "success"));
+  if (searchFilter) {
+    const pattern = `%${searchFilter}%`;
+    conditions.push(
+      or(
+        ilike(eventsTable.message, pattern),
+        ilike(eventsTable.type, pattern),
+        ilike(eventsTable.correlationId, pattern),
+      )!,
+    );
+  }
 
   const events = await db
     .select()
     .from(eventsTable)
     .where(and(...conditions))
-    .orderBy(desc(eventsTable.timestamp))
-    .limit(limit);
+    // Keep page boundaries stable when several events share a timestamp.
+    .orderBy(desc(eventsTable.timestamp), desc(eventsTable.id))
+    .limit(limit)
+    .offset((page - 1) * limit);
 
   return res.json(events);
 });

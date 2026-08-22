@@ -148,6 +148,39 @@ describe("GET /events — list", () => {
     expect((res.body as unknown[]).length).toBeLessThanOrEqual(3);
   });
 
+  it("paginates newest-first after applying severity and text filters", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    await insertEvent({ projectId, severity: "success", message: "release one" });
+    await insertEvent({ projectId, severity: "success", message: "release two" });
+    await insertEvent({ projectId, severity: "error", message: "release three" });
+
+    const firstPage = await request(app).get(
+      `/api/events?projectId=${projectId}&severity=success&search=release&limit=1&page=1`,
+    );
+    const secondPage = await request(app).get(
+      `/api/events?projectId=${projectId}&severity=success&search=release&limit=1&page=2`,
+    );
+
+    expect(firstPage.status).toBe(200);
+    expect(secondPage.status).toBe(200);
+    expect(firstPage.body).toHaveLength(1);
+    expect(secondPage.body).toHaveLength(1);
+    expect(firstPage.body[0].severity).toBe("success");
+    expect(secondPage.body[0].severity).toBe("success");
+    expect(firstPage.body[0].id).not.toBe(secondPage.body[0].id);
+  });
+
+  it("rejects page numbers below one", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+
+    const res = await request(app).get(`/api/events?projectId=${projectId}&page=0`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/page must be at least 1/i);
+  });
+
   it("orders events by timestamp descending (most recent first)", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

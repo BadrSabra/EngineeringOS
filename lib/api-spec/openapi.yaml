@@ -743,11 +743,32 @@ paths:
           schema:
             type: integer
             default: 50
+            minimum: 1
+            maximum: 200
+          description: Number of events to return per page.
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: One-based page number, ordered newest first.
         - name: correlationId
           in: query
           schema:
             type: string
           description: Return only events belonging to one logical operation.
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [info, warning, error, success]
+          description: Return only events with this severity.
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Case-insensitive text search across message, type, and operation.
       responses:
         "200":
           description: List of events

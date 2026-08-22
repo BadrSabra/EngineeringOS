@@ -204,6 +204,7 @@ export * from './layeredGraphSummaryByEdgeType';
 export * from './layeredGraphSummaryByLayer';
 export * from './listAiChatSessionsParams';
 export * from './listEventsParams';
+export * from './listEventsSeverity';
 export * from './listGraphEntitiesParams';
 export * from './listGraphRelationshipsParams';
 export * from './listMetricsParams';

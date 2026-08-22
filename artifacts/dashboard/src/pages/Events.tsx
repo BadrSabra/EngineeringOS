@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { useListEvents, useListProjects } from '@workspace/api-client-react';
 import { Search, Filter, X } from 'lucide-react';
 
 const SEVERITIES = ['info', 'warning', 'error', 'success'] as const;
+const PAGE_SIZE = 50;
 
 export default function Events() {
   const { data: projects } = useListProjects();
@@ -10,30 +11,20 @@ export default function Events() {
   const [severity, setSeverity] = useState('');
   const [correlationId, setCorrelationId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
 
   const { data: events, isLoading, isError, error, refetch } = useListEvents({
-    limit: 200,
+    limit: PAGE_SIZE,
+    page,
     ...(projectId ? { projectId } : {}),
     ...(correlationId.trim() ? { correlationId: correlationId.trim() } : {}),
+    ...(severity ? { severity: severity as (typeof SEVERITIES)[number] } : {}),
+    ...(searchTerm.trim() ? { search: searchTerm.trim() } : {}),
   });
 
-  const filteredEvents = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    return (events || []).filter((evt) => {
-      if (severity && evt.severity !== severity) return false;
-      if (
-        term &&
-        !(evt.message || '').toLowerCase().includes(term) &&
-        !evt.type.toLowerCase().includes(term) &&
-        !(evt.correlationId || '').toLowerCase().includes(term)
-      )
-        return false;
-      return true;
-    });
-  }, [events, severity, searchTerm]);
-
-  const activeFilterCount = [projectId, severity, correlationId.trim()].filter(Boolean).length;
+  const activeFilterCount = [projectId, severity, correlationId.trim(), searchTerm.trim()].filter(Boolean).length;
+  const hasNextPage = (events?.length ?? 0) === PAGE_SIZE;
 
   return (
     <div className="space-y-6 h-full flex flex-col">
@@ -42,8 +33,7 @@ export default function Events() {
           <h1 className="text-2xl font-bold tracking-tight">Event Stream</h1>
           <p className="text-muted-foreground text-sm mt-1">
             Real-time log of all system activities.
-            {filteredEvents.length !== (events || []).length &&
-              ` Showing ${filteredEvents.length} of ${events?.length ?? 0}.`}
+            {' '}Page {page}. Filters are applied across your event history.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -52,7 +42,10 @@ export default function Events() {
             <input
               type="text"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+               onChange={(e) => {
+                 setSearchTerm(e.target.value);
+                 setPage(1);
+               }}
               placeholder="Search logs..."
               className="bg-card border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary w-64"
             />
@@ -81,7 +74,10 @@ export default function Events() {
             <span className="text-xs text-muted-foreground font-medium">Project</span>
             <select
               value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
+               onChange={(e) => {
+                 setProjectId(e.target.value);
+                 setPage(1);
+               }}
               className="bg-secondary/50 border border-border rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
             >
               <option value="">All projects</option>
@@ -96,7 +92,10 @@ export default function Events() {
             <span className="text-xs text-muted-foreground font-medium">Severity</span>
             <select
               value={severity}
-              onChange={(e) => setSeverity(e.target.value)}
+               onChange={(e) => {
+                 setSeverity(e.target.value);
+                 setPage(1);
+               }}
               className="bg-secondary/50 border border-border rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
             >
               <option value="">All severities</option>
@@ -111,7 +110,10 @@ export default function Events() {
             <span className="text-xs text-muted-foreground font-medium">Operation</span>
             <input
               value={correlationId}
-              onChange={(e) => setCorrelationId(e.target.value)}
+               onChange={(e) => {
+                 setCorrelationId(e.target.value);
+                 setPage(1);
+               }}
               placeholder="correlationId"
               className="w-64 bg-secondary/50 border border-border rounded-md px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-primary"
             />
@@ -122,6 +124,8 @@ export default function Events() {
                 setProjectId('');
                 setSeverity('');
                 setCorrelationId('');
+                setSearchTerm('');
+                setPage(1);
               }}
               className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
             >
@@ -157,13 +161,13 @@ export default function Events() {
                 Retry
               </button>
             </div>
-          ) : (events?.length ?? 0) === 0 ? (
-            <div className="p-8 text-muted-foreground opacity-50">No events recorded.</div>
-          ) : filteredEvents.length === 0 ? (
-            <div className="p-8 text-muted-foreground opacity-50">No events match the current filters.</div>
-          ) : (
+           ) : (events?.length ?? 0) === 0 ? (
+            <div className="p-8 text-muted-foreground opacity-50">
+              {activeFilterCount > 0 ? 'No events match the current filters.' : 'No events recorded.'}
+            </div>
+           ) : (
             <div className="space-y-0.5">
-              {filteredEvents.map((evt) => {
+              {(events || []).map((evt) => {
                 const color =
                   evt.severity === 'error'
                     ? 'text-red-400 bg-red-950/20'
@@ -196,6 +200,31 @@ export default function Events() {
             </div>
           )}
         </div>
+        {!isLoading && !isError && (events?.length ?? 0) > 0 && (
+          <div className="shrink-0 border-t border-border bg-card/50 px-3 py-2 flex items-center justify-between text-xs text-muted-foreground">
+            <span>
+              Showing {((page - 1) * PAGE_SIZE) + 1}–{((page - 1) * PAGE_SIZE) + (events?.length ?? 0)}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={page === 1}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                className="rounded-md border border-border px-3 py-1.5 hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Newer
+              </button>
+              <button
+                type="button"
+                disabled={!hasNextPage}
+                onClick={() => setPage((current) => current + 1)}
+                className="rounded-md border border-border px-3 py-1.5 hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Older
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
