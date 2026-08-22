@@ -389,6 +389,9 @@ try {
         ...process.env,
         CI: "true",
         DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
+        DASHBOARD_E2E_API_BASE_URL:
+          process.env.DASHBOARD_E2E_API_BASE_URL ??
+          new URL(apiHealthUrl).origin,
         DASHBOARD_E2E_EMAIL: testEmail,
         DASHBOARD_E2E_EXECUTABLE_PATH: process.env.DASHBOARD_E2E_EXECUTABLE_PATH,
         PLAYWRIGHT_OUTPUT_DIR: outputDir,

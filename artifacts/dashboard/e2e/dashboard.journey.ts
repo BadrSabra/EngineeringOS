@@ -655,7 +655,8 @@ async function openNavigation(page: Page, label: string, path: string) {
 }
 
 function apiUrl(page: Page, path: string): string {
-  return new URL(path, page.url()).toString();
+  const apiBaseUrl = process.env.DASHBOARD_E2E_API_BASE_URL;
+  return new URL(path, apiBaseUrl ? apiBaseUrl : page.url()).toString();
 }
 
 function parseSse(body: string): Array<Record<string, unknown>> {

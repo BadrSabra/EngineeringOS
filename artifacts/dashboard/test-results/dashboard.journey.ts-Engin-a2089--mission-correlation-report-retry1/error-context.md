@@ -7,12 +7,12 @@
 # Test info
 
 - Name: dashboard.journey.ts >> EngineeringOS dashboard browser journey >> exports one redacted live-provider mission correlation report
-- Location: e2e/dashboard.journey.ts:706:3
+- Location: e2e/dashboard.journey.ts:707:3
 
 # Error details
 
 ```
-Error: Live-provider mission failed to start (404).
+Error: Live-provider mission failed to start (401).
 ```
 
 # Page snapshot
@@ -66,7 +66,6 @@ Error: Live-provider mission failed to start (404).
 # Test source
 
 ```ts
-  628 |     globalThis.__ENGINEERINGOS_SIGN_IN_CLERK_USER__;
   629 |   if (!helper) {
   630 |     if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
   631 |       throw new Error(
@@ -96,176 +95,177 @@ Error: Live-provider mission failed to start (404).
   655 | }
   656 | 
   657 | function apiUrl(page: Page, path: string): string {
-  658 |   return new URL(path, page.url()).toString();
-  659 | }
-  660 | 
-  661 | function parseSse(body: string): Array<Record<string, unknown>> {
-  662 |   return body
-  663 |     .split(/\n\n+/)
-  664 |     .flatMap((chunk) => {
-  665 |       const data = chunk
-  666 |         .split("\n")
-  667 |         .find((line) => line.startsWith("data: "))
-  668 |         ?.slice("data: ".length);
-  669 |       if (!data) return [];
-  670 |       try {
-  671 |         const value = JSON.parse(data) as unknown;
-  672 |         return value && typeof value === "object"
-  673 |           ? [value as Record<string, unknown>]
-  674 |           : [];
-  675 |       } catch {
-  676 |         return [];
-  677 |       }
-  678 |     });
-  679 | }
-  680 | 
-  681 | async function liveJson(page: Page, path: string): Promise<Record<string, any>> {
-  682 |   const response = await page.request.get(apiUrl(page, path));
-  683 |   if (!response.ok()) throw new Error(`Live correlation request failed: ${path} (${response.status()})`);
-  684 |   return (await response.json()) as Record<string, any>;
-  685 | }
-  686 | 
-  687 | async function liveArray(page: Page, path: string): Promise<Array<Record<string, any>>> {
-  688 |   const response = await page.request.get(apiUrl(page, path));
-  689 |   if (response.status() === 404) return [];
-  690 |   if (!response.ok()) throw new Error(`Live correlation request failed: ${path} (${response.status()})`);
-  691 |   const value = await response.json();
-  692 |   return Array.isArray(value) ? value : [];
-  693 | }
-  694 | 
-  695 | async function liveOptionalRecord(page: Page, path: string): Promise<Record<string, any> | undefined> {
-  696 |   const response = await page.request.get(apiUrl(page, path));
-  697 |   if (response.status() === 404) return undefined;
-  698 |   if (!response.ok()) throw new Error(`Live correlation request failed: ${path} (${response.status()})`);
-  699 |   const value = await response.json();
-  700 |   return value && typeof value === "object" && !Array.isArray(value)
-  701 |     ? value as Record<string, any>
-  702 |     : undefined;
-  703 | }
-  704 | 
-  705 | test.describe("EngineeringOS dashboard browser journey", () => {
-  706 |   test("exports one redacted live-provider mission correlation report", async ({ page }) => {
-  707 |     // The Playwright deadline must leave room for the provider-bound request
-  708 |     // and polling loop to consume their complete configured budget.
-  709 |     test.setTimeout(liveTimeoutMs() + LIVE_TEST_TIMEOUT_MARGIN_MS);
-  710 |     test.skip(
-  711 |       process.env.DASHBOARD_E2E_LIVE_PROVIDER !== "1",
-  712 |       "Live-provider release journey is opt-in.",
-  713 |     );
-  714 |     const projectId = process.env.DASHBOARD_E2E_LIVE_PROJECT_ID;
-  715 |     if (!projectId) throw new Error("DASHBOARD_E2E_LIVE_PROJECT_ID is required for the live-provider journey.");
-  716 | 
-  717 |     await programmaticSignIn(page);
-  718 |     const streamResponse = await page.request.post(apiUrl(page, "/api/ai/chat/stream"), {
-  719 |       data: {
-  720 |         projectId,
-  721 |         message: process.env.DASHBOARD_E2E_LIVE_PROMPT
-  722 |           ?? "Run one bounded read-only mission and report the verified evidence.",
-  723 |         idempotencyKey: `dashboard-live-${Date.now()}`,
-  724 |       },
-  725 |       timeout: liveTimeoutMs(),
-  726 |     });
-  727 |     if (!streamResponse.ok()) {
-> 728 |       throw new Error(`Live-provider mission failed to start (${streamResponse.status()}).`);
-      |             ^ Error: Live-provider mission failed to start (404).
-  729 |     }
-  730 |     const sseEvents = parseSse(await streamResponse.text());
-  731 |     const started = sseEvents.find((event) => event.type === "execution_started");
-  732 |     const executionId = typeof started?.executionId === "string" ? started.executionId : undefined;
-  733 |     if (!executionId) throw new Error("Live-provider stream did not emit execution_started.");
-  734 | 
-  735 |     let execution: Record<string, any> = {};
-  736 |     const deadline = Date.now() + liveTimeoutMs();
-  737 |     while (Date.now() < deadline) {
-  738 |       execution = await liveJson(page, `/api/ai/executions/${executionId}`);
-  739 |       if (["completed", "failed", "cancelled"].includes(String(execution.status))) break;
-  740 |       await new Promise((resolve) => setTimeout(resolve, 750));
-  741 |     }
-  742 |     if (!["completed", "failed", "cancelled"].includes(String(execution.status))) {
-  743 |       throw new Error("Live-provider mission did not reach a terminal state within its bound.");
-  744 |     }
-  745 | 
-  746 |     const sessionId = String(execution.sessionId);
-  747 |     const messages = await liveArray(page, `/api/ai/chat/${sessionId}/messages`);
-  748 |     const events = await liveArray(
-  749 |       page,
-  750 |       `/api/events?projectId=${encodeURIComponent(projectId)}&correlationId=${encodeURIComponent(String(execution.operationId ?? ""))}`,
-  751 |     );
-  752 |     const proposal = await liveOptionalRecord(page, `/api/ai/chat/${sessionId}/pending-proposal`);
-  753 |     const gitLog = await liveJson(page, `/api/projects/${projectId}/git/log`);
-  754 |     const missionControl = await liveJson(page, "/api/ai/mission-control");
-  755 |     const dashboardState = await liveJson(page, "/api/dashboard");
-  756 |     const checkpoint = execution.checkpoint && typeof execution.checkpoint === "object"
-  757 |       ? execution.checkpoint as Record<string, any>
-  758 |       : {};
-  759 |     const recentSteps = Array.isArray(checkpoint.recentSteps) ? checkpoint.recentSteps : [];
-  760 |     const validation = recentSteps.filter((step) => step?.kind === "validation");
-  761 |     const evidenceCount = recentSteps.reduce(
-  762 |       (count, step) => count + (Number(step?.acceptedEvidenceCount) || 0),
-  763 |       0,
-  764 |     );
-  765 |     const capture = {
-  766 |       projectId,
-  767 |       sessionId,
-  768 |       operationId: execution.operationId,
-  769 |       workspaceRevision: gitLog.commits?.[0]?.shortHash ?? gitLog.commits?.[0]?.hash?.slice(0, 12),
-  770 |       terminalState: execution.flightState ?? execution.status,
-  771 |       execution: {
-  772 |         id: execution.id,
-  773 |         projectId: execution.projectId,
-  774 |         sessionId: execution.sessionId,
-  775 |         operationId: execution.operationId,
-  776 |         status: execution.status,
-  777 |         flightState: execution.flightState,
-  778 |       },
-  779 |       messages: messages.map(({ id, sessionId: messageSession, role, executionId: messageExecution, outcome }) => ({
-  780 |         id, sessionId: messageSession, role, executionId: messageExecution, outcome,
-  781 |       })),
-  782 |       sseEvents: sseEvents.map(({ type, executionId: eventExecution, sessionId: eventSession, outcome, code }) => ({
-  783 |         type, executionId: eventExecution, sessionId: eventSession, outcome, code,
-  784 |       })),
-  785 |       checkpoints: [{ sequence: checkpoint.sequence, stage: checkpoint.stage, updatedAt: checkpoint.updatedAt }],
-  786 |       evidenceCount,
-  787 |       proposals: proposal
-  788 |         ? [{ id: proposal.id, revision: proposal.revision, status: proposal.status }]
-  789 |         : [],
-  790 |       validation: validation.map((step) => ({
-  791 |         status: step.validation?.status ?? step.status,
-  792 |         profile: step.validation?.profile ?? step.validationProfile,
-  793 |       })),
-  794 |       events: events.map(({ type, severity, correlationId }) => ({ type, severity, correlationId })),
-  795 |       dashboard: missionControl,
-  796 |       dashboardState: {
-  797 |         projectCount: dashboardState.projectCount,
-  798 |         activeTaskCount: dashboardState.activeTaskCount,
-  799 |       },
-  800 |     };
-  801 |     const outputPath = process.env.DASHBOARD_E2E_LIVE_REPORT_PATH
-  802 |       ?? "test-results/dashboard-journey/live-mission-correlation.json";
-  803 |     await mkdir(dirname(outputPath), { recursive: true });
-  804 |     await writeFile(outputPath, `${JSON.stringify(capture, null, 2)}\n`, "utf8");
-  805 |   });
-  806 | 
-  807 |   test("signs in and traverses the authenticated operational shell", async ({
-  808 |     page,
-  809 |   }) => {
-  810 |     await installApiFixtures(page);
-  811 |     await programmaticSignIn(page);
-  812 | 
-  813 |     await expect(
-  814 |       page.getByRole("heading", { name: "System Overview" }),
-  815 |     ).toBeVisible();
-  816 |     await expect(
-  817 |       page.getByText("SYSTEM ONLINE", { exact: true }),
-  818 |     ).toBeVisible();
-  819 |     await expect(
-  820 |       page.getByText("Smoke Project", { exact: true }).first(),
-  821 |     ).toBeVisible();
-  822 |     await expect(
-  823 |       page.getByText("Dashboard API fixture ready", { exact: true }),
-  824 |     ).toBeVisible();
-  825 | 
-  826 |     await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
-  827 |     await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
-  828 |     await expect(
+  658 |   const apiBaseUrl = process.env.DASHBOARD_E2E_API_BASE_URL;
+  659 |   return new URL(path, apiBaseUrl ? apiBaseUrl : page.url()).toString();
+  660 | }
+  661 | 
+  662 | function parseSse(body: string): Array<Record<string, unknown>> {
+  663 |   return body
+  664 |     .split(/\n\n+/)
+  665 |     .flatMap((chunk) => {
+  666 |       const data = chunk
+  667 |         .split("\n")
+  668 |         .find((line) => line.startsWith("data: "))
+  669 |         ?.slice("data: ".length);
+  670 |       if (!data) return [];
+  671 |       try {
+  672 |         const value = JSON.parse(data) as unknown;
+  673 |         return value && typeof value === "object"
+  674 |           ? [value as Record<string, unknown>]
+  675 |           : [];
+  676 |       } catch {
+  677 |         return [];
+  678 |       }
+  679 |     });
+  680 | }
+  681 | 
+  682 | async function liveJson(page: Page, path: string): Promise<Record<string, any>> {
+  683 |   const response = await page.request.get(apiUrl(page, path));
+  684 |   if (!response.ok()) throw new Error(`Live correlation request failed: ${path} (${response.status()})`);
+  685 |   return (await response.json()) as Record<string, any>;
+  686 | }
+  687 | 
+  688 | async function liveArray(page: Page, path: string): Promise<Array<Record<string, any>>> {
+  689 |   const response = await page.request.get(apiUrl(page, path));
+  690 |   if (response.status() === 404) return [];
+  691 |   if (!response.ok()) throw new Error(`Live correlation request failed: ${path} (${response.status()})`);
+  692 |   const value = await response.json();
+  693 |   return Array.isArray(value) ? value : [];
+  694 | }
+  695 | 
+  696 | async function liveOptionalRecord(page: Page, path: string): Promise<Record<string, any> | undefined> {
+  697 |   const response = await page.request.get(apiUrl(page, path));
+  698 |   if (response.status() === 404) return undefined;
+  699 |   if (!response.ok()) throw new Error(`Live correlation request failed: ${path} (${response.status()})`);
+  700 |   const value = await response.json();
+  701 |   return value && typeof value === "object" && !Array.isArray(value)
+  702 |     ? value as Record<string, any>
+  703 |     : undefined;
+  704 | }
+  705 | 
+  706 | test.describe("EngineeringOS dashboard browser journey", () => {
+  707 |   test("exports one redacted live-provider mission correlation report", async ({ page }) => {
+  708 |     // The Playwright deadline must leave room for the provider-bound request
+  709 |     // and polling loop to consume their complete configured budget.
+  710 |     test.setTimeout(liveTimeoutMs() + LIVE_TEST_TIMEOUT_MARGIN_MS);
+  711 |     test.skip(
+  712 |       process.env.DASHBOARD_E2E_LIVE_PROVIDER !== "1",
+  713 |       "Live-provider release journey is opt-in.",
+  714 |     );
+  715 |     const projectId = process.env.DASHBOARD_E2E_LIVE_PROJECT_ID;
+  716 |     if (!projectId) throw new Error("DASHBOARD_E2E_LIVE_PROJECT_ID is required for the live-provider journey.");
+  717 | 
+  718 |     await programmaticSignIn(page);
+  719 |     const streamResponse = await page.request.post(apiUrl(page, "/api/ai/chat/stream"), {
+  720 |       data: {
+  721 |         projectId,
+  722 |         message: process.env.DASHBOARD_E2E_LIVE_PROMPT
+  723 |           ?? "Run one bounded read-only mission and report the verified evidence.",
+  724 |         idempotencyKey: `dashboard-live-${Date.now()}`,
+  725 |       },
+  726 |       timeout: liveTimeoutMs(),
+  727 |     });
+  728 |     if (!streamResponse.ok()) {
+> 729 |       throw new Error(`Live-provider mission failed to start (${streamResponse.status()}).`);
+      |             ^ Error: Live-provider mission failed to start (401).
+  730 |     }
+  731 |     const sseEvents = parseSse(await streamResponse.text());
+  732 |     const started = sseEvents.find((event) => event.type === "execution_started");
+  733 |     const executionId = typeof started?.executionId === "string" ? started.executionId : undefined;
+  734 |     if (!executionId) throw new Error("Live-provider stream did not emit execution_started.");
+  735 | 
+  736 |     let execution: Record<string, any> = {};
+  737 |     const deadline = Date.now() + liveTimeoutMs();
+  738 |     while (Date.now() < deadline) {
+  739 |       execution = await liveJson(page, `/api/ai/executions/${executionId}`);
+  740 |       if (["completed", "failed", "cancelled"].includes(String(execution.status))) break;
+  741 |       await new Promise((resolve) => setTimeout(resolve, 750));
+  742 |     }
+  743 |     if (!["completed", "failed", "cancelled"].includes(String(execution.status))) {
+  744 |       throw new Error("Live-provider mission did not reach a terminal state within its bound.");
+  745 |     }
+  746 | 
+  747 |     const sessionId = String(execution.sessionId);
+  748 |     const messages = await liveArray(page, `/api/ai/chat/${sessionId}/messages`);
+  749 |     const events = await liveArray(
+  750 |       page,
+  751 |       `/api/events?projectId=${encodeURIComponent(projectId)}&correlationId=${encodeURIComponent(String(execution.operationId ?? ""))}`,
+  752 |     );
+  753 |     const proposal = await liveOptionalRecord(page, `/api/ai/chat/${sessionId}/pending-proposal`);
+  754 |     const gitLog = await liveJson(page, `/api/projects/${projectId}/git/log`);
+  755 |     const missionControl = await liveJson(page, "/api/ai/mission-control");
+  756 |     const dashboardState = await liveJson(page, "/api/dashboard");
+  757 |     const checkpoint = execution.checkpoint && typeof execution.checkpoint === "object"
+  758 |       ? execution.checkpoint as Record<string, any>
+  759 |       : {};
+  760 |     const recentSteps = Array.isArray(checkpoint.recentSteps) ? checkpoint.recentSteps : [];
+  761 |     const validation = recentSteps.filter((step) => step?.kind === "validation");
+  762 |     const evidenceCount = recentSteps.reduce(
+  763 |       (count, step) => count + (Number(step?.acceptedEvidenceCount) || 0),
+  764 |       0,
+  765 |     );
+  766 |     const capture = {
+  767 |       projectId,
+  768 |       sessionId,
+  769 |       operationId: execution.operationId,
+  770 |       workspaceRevision: gitLog.commits?.[0]?.shortHash ?? gitLog.commits?.[0]?.hash?.slice(0, 12),
+  771 |       terminalState: execution.flightState ?? execution.status,
+  772 |       execution: {
+  773 |         id: execution.id,
+  774 |         projectId: execution.projectId,
+  775 |         sessionId: execution.sessionId,
+  776 |         operationId: execution.operationId,
+  777 |         status: execution.status,
+  778 |         flightState: execution.flightState,
+  779 |       },
+  780 |       messages: messages.map(({ id, sessionId: messageSession, role, executionId: messageExecution, outcome }) => ({
+  781 |         id, sessionId: messageSession, role, executionId: messageExecution, outcome,
+  782 |       })),
+  783 |       sseEvents: sseEvents.map(({ type, executionId: eventExecution, sessionId: eventSession, outcome, code }) => ({
+  784 |         type, executionId: eventExecution, sessionId: eventSession, outcome, code,
+  785 |       })),
+  786 |       checkpoints: [{ sequence: checkpoint.sequence, stage: checkpoint.stage, updatedAt: checkpoint.updatedAt }],
+  787 |       evidenceCount,
+  788 |       proposals: proposal
+  789 |         ? [{ id: proposal.id, revision: proposal.revision, status: proposal.status }]
+  790 |         : [],
+  791 |       validation: validation.map((step) => ({
+  792 |         status: step.validation?.status ?? step.status,
+  793 |         profile: step.validation?.profile ?? step.validationProfile,
+  794 |       })),
+  795 |       events: events.map(({ type, severity, correlationId }) => ({ type, severity, correlationId })),
+  796 |       dashboard: missionControl,
+  797 |       dashboardState: {
+  798 |         projectCount: dashboardState.projectCount,
+  799 |         activeTaskCount: dashboardState.activeTaskCount,
+  800 |       },
+  801 |     };
+  802 |     const outputPath = process.env.DASHBOARD_E2E_LIVE_REPORT_PATH
+  803 |       ?? "test-results/dashboard-journey/live-mission-correlation.json";
+  804 |     await mkdir(dirname(outputPath), { recursive: true });
+  805 |     await writeFile(outputPath, `${JSON.stringify(capture, null, 2)}\n`, "utf8");
+  806 |   });
+  807 | 
+  808 |   test("signs in and traverses the authenticated operational shell", async ({
+  809 |     page,
+  810 |   }) => {
+  811 |     await installApiFixtures(page);
+  812 |     await programmaticSignIn(page);
+  813 | 
+  814 |     await expect(
+  815 |       page.getByRole("heading", { name: "System Overview" }),
+  816 |     ).toBeVisible();
+  817 |     await expect(
+  818 |       page.getByText("SYSTEM ONLINE", { exact: true }),
+  819 |     ).toBeVisible();
+  820 |     await expect(
+  821 |       page.getByText("Smoke Project", { exact: true }).first(),
+  822 |     ).toBeVisible();
+  823 |     await expect(
+  824 |       page.getByText("Dashboard API fixture ready", { exact: true }),
+  825 |     ).toBeVisible();
+  826 | 
+  827 |     await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+  828 |     await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  829 |     await expect(
 ```
