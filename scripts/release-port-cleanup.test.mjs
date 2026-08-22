@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { createConnection } from "node:net";
 import test from "node:test";
 import { resolve } from "node:path";
@@ -67,4 +68,14 @@ test("release port cleanup supports consecutive runs", async () => {
 
   await runCleanup(port);
   assert.ok(true, "a second cleanup run must remain successful after the listener is gone");
+});
+
+test("release journey teardown diagnostics identify each service and surviving process group", async () => {
+  const journey = await readFile(resolve(root, "scripts/run-dashboard-journey.mjs"), "utf8");
+
+  assert.match(journey, /configured release port \$\{port\}/);
+  assert.match(journey, /surviving process IDs/);
+  assert.match(journey, /release process group/);
+  assert.match(journey, /API release service/);
+  assert.match(journey, /Dashboard release service/);
 });

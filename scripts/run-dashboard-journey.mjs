@@ -113,7 +113,14 @@ async function waitForPortClosed(port, timeoutMs = 5_000) {
     if (listeningUsers(port).length === 0) return;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  throw new Error(`Release port ${port} did not become available.`);
+  const remainingPids = listeningUsers(port);
+  const error = new Error(
+    `Release port ${port} did not become available; surviving process IDs: ${
+      remainingPids.length > 0 ? remainingPids.join(", ") : "unknown"
+    }.`,
+  );
+  error.remainingPids = remainingPids;
+  throw error;
 }
 
 async function ensureReleasePortFree(port) {
@@ -141,6 +148,12 @@ async function ensureReleasePortFree(port) {
 
 async function ensureReleasePortsFree() {
   for (const port of releasePorts) await ensureReleasePortFree(port);
+}
+
+function releaseServiceForPort(port) {
+  if (port === apiPort) return "API release service";
+  if (port === dashboardPort) return "Dashboard release service";
+  return `Release service on port ${port}`;
 }
 
 async function waitForChild(child, label) {
@@ -201,12 +214,6 @@ async function stopServices() {
         }),
     ),
   );
-
-  const survivingServices = services.flatMap(({ label, port }) => {
-    if (!port) return [];
-    const pids = listeningUsers(port);
-    return pids.length > 0 ? [{ label, port, pids }] : [];
-  });
   console.log("Release service teardown results:");
   services.forEach(({ label }, index) => {
     const result = teardownResults[index];
@@ -217,6 +224,11 @@ async function stopServices() {
         : `exit ${result.code ?? "unknown"}`;
     console.log(`- ${label}: ${status}`);
   });
+  const survivingServices = services.flatMap(({ label, port }) => {
+    if (!port) return [];
+    const pids = listeningUsers(port);
+    return pids.length > 0 ? [{ label, port, pids }] : [];
+  });
   if (survivingServices.length === 0) {
     console.log("Release services surviving teardown: none.");
   } else {
@@ -226,7 +238,30 @@ async function stopServices() {
         .join("; ")}`,
     );
   }
-  await ensureReleasePortsFree();
+
+  let teardownFailed = false;
+  for (const port of releasePorts) {
+    try {
+      await ensureReleasePortFree(port);
+    } catch (error) {
+      const service = services.find((item) => item.port === port);
+      const remainingPids =
+        error?.remainingPids?.length > 0
+          ? error.remainingPids
+          : listeningUsers(port);
+      const diagnostic = [
+        `${service?.label ?? `Release service on port ${port}`} teardown failed`,
+        `(configured release port ${port})`,
+        `surviving process IDs: ${
+          remainingPids.length > 0 ? remainingPids.join(", ") : "unknown"
+        }`,
+        `release process group: ${service?.child.pid ?? "unknown"}`,
+      ].join("; ");
+      console.error(redact(`${diagnostic}. ${error?.message ?? String(error)}`));
+      teardownFailed = true;
+    }
+  }
+  if (teardownFailed) process.exitCode = process.exitCode || 1;
 }
 
 async function startReleaseServices() {
