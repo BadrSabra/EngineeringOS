@@ -69,14 +69,14 @@ async function waitFor(url, label) {
   throw new Error(`${label} did not become healthy: ${lastError} (${url})`);
 }
 
-function startService(label, command, args, env) {
+function startService(label, command, args, env, port) {
   const child = spawn(command, args, {
     cwd: workspaceRoot,
     env: { ...process.env, ...env },
     stdio: "inherit",
     detached: true,
   });
-  services.push({ label, child });
+  services.push({ label, child, port });
   child.on("error", (error) => {
     console.error(`${label} could not start: ${redact(error.message)}`);
   });
@@ -167,26 +167,65 @@ async function stopServices() {
       console.error(redact(String(error)));
     }
   }
-  await Promise.all(
+  const teardownResults = await Promise.all(
     services.map(
       ({ child }) =>
         new Promise((resolve) => {
-          if (child.exitCode !== null) return resolve();
+          if (child.exitCode !== null) {
+            return resolve({
+              code: child.exitCode,
+              signal: null,
+              forced: false,
+            });
+          }
           const timer = setTimeout(() => {
             try {
               signalProcessGroup(child, "SIGKILL");
             } catch (error) {
               console.error(redact(String(error)));
             }
-            resolve();
+            resolve({
+              code: child.exitCode,
+              signal: "SIGKILL",
+              forced: true,
+            });
           }, 5_000);
-          child.once("exit", () => {
+          child.once("exit", (code, signal) => {
             clearTimeout(timer);
-            resolve();
+            resolve({
+              code: code ?? null,
+              signal: signal ?? null,
+              forced: false,
+            });
           });
         }),
     ),
   );
+
+  const survivingServices = services.flatMap(({ label, port }) => {
+    if (!port) return [];
+    const pids = listeningUsers(port);
+    return pids.length > 0 ? [{ label, port, pids }] : [];
+  });
+  console.log("Release service teardown results:");
+  services.forEach(({ label }, index) => {
+    const result = teardownResults[index];
+    const status = result.forced
+      ? "forced SIGKILL"
+      : result.signal
+        ? `signal ${result.signal}`
+        : `exit ${result.code ?? "unknown"}`;
+    console.log(`- ${label}: ${status}`);
+  });
+  if (survivingServices.length === 0) {
+    console.log("Release services surviving teardown: none.");
+  } else {
+    console.error(
+      `Release services surviving teardown: ${survivingServices
+        .map(({ label, port, pids }) => `${label} (port ${port}, pid ${pids.join(",")})`)
+        .join("; ")}`,
+    );
+  }
   await ensureReleasePortsFree();
 }
 
@@ -214,6 +253,7 @@ async function startReleaseServices() {
     "node",
     ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
     { NODE_ENV: "development", PORT: String(apiPort) },
+    apiPort,
   );
   /*
    * Start the dashboard separately from the Project workflow. The release
@@ -228,6 +268,7 @@ async function startReleaseServices() {
       BASE_PATH: "/dashboard/",
       API_PROXY_TARGET: `http://127.0.0.1:${apiPort}`,
     },
+    dashboardPort,
   );
   await waitFor(apiHealthUrl, "API workflow");
   const dashboardResponse = await waitFor(dashboardBaseUrl, "Dashboard workflow");

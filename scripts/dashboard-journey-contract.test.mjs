@@ -89,3 +89,26 @@ test("runs the mission correlation report contract before browser startup", () =
     "The release runner must invoke the provider-free report contract test.",
   );
 });
+
+test("release teardown reports each service and any surviving listener", () => {
+  assert.match(
+    runnerSource,
+    /Release service teardown results:/,
+    "The release runner must report lifecycle results for every managed service.",
+  );
+  assert.match(
+    runnerSource,
+    /Release services surviving teardown: none\./,
+    "The release runner must explicitly report a clean teardown.",
+  );
+  assert.match(
+    runnerSource,
+    /Release services surviving teardown:/,
+    "The release runner must identify a service that remains on its release port.",
+  );
+  assert.match(
+    runnerSource,
+    /ensureReleasePortsFree\(\)/,
+    "Residual listeners must still be cleaned up after being reported.",
+  );
+});
