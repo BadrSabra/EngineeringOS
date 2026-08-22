@@ -104,6 +104,7 @@ vi.mock("@workspace/db", () => {
     return {
       then: (resolve: (v: unknown) => void, reject?: (e: unknown) => void) =>
         Promise.resolve(rows).then(resolve, reject),
+      onConflictDoNothing: () => insertResult(rows),
       returning: () => Promise.resolve(rows),
     };
   }

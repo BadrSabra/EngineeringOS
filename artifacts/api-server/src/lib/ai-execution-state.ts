@@ -312,10 +312,31 @@ export async function createAiExecution(params: {
       createdAt: now,
       updatedAt: now,
     })
+    .onConflictDoNothing({
+      target: [aiExecutionsTable.userId, aiExecutionsTable.idempotencyKey],
+    })
     .returning();
 
-  if (!execution) throw new Error("Failed to create AI execution");
-  return { execution, resumeToken, created: true };
+  if (execution) return { execution, resumeToken, created: true };
+
+  // Another identical request won the unique-key race. Re-read the row rather
+  // than surfacing the expected conflict, so both callers get the same
+  // resumable execution identity. Keep the request binding check here as well:
+  // a conflicting key must never allow a different request to reuse it.
+  const [racedExecution] = await db
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.userId, params.userId),
+      eq(aiExecutionsTable.idempotencyKey, params.idempotencyKey),
+    ))
+    .limit(1);
+  if (!racedExecution) throw new Error("Failed to create AI execution");
+  const racedRequest = parseExecutionRequest(racedExecution.request);
+  if (!racedRequest || racedRequest.projectId !== params.projectId || racedRequest.sessionId !== params.sessionId) {
+    throw new Error("Execution idempotency key is bound to a different request");
+  }
+  return { execution: racedExecution, created: false };
 }
 
 export async function getAiExecutionForUser(
