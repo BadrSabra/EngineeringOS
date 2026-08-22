@@ -42,6 +42,29 @@ export function assertSupportedMissionCorrelationReportVersion(report) {
   return report;
 }
 
+export function parseMissionCorrelationReportOutput(output) {
+  let report;
+  try {
+    report = JSON.parse(output);
+  } catch (error) {
+    throw new Error(
+      `Mission correlation report produced invalid JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }.`,
+    );
+  }
+  assertSupportedMissionCorrelationReportVersion(report);
+  if (report.kind !== "mission-correlation-report") {
+    throw new Error(
+      `Unexpected mission correlation report kind: ${report.kind ?? "missing"}.`,
+    );
+  }
+  if (report.redacted !== true) {
+    throw new Error("Mission correlation report is not marked redacted.");
+  }
+  return report;
+}
+
 export function formatMissionCorrelationSummary(report) {
   const counts = report?.counts ?? {};
   const evidence = Number.isSafeInteger(counts.evidence) && counts.evidence >= 0

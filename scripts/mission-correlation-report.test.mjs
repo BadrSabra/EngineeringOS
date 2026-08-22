@@ -1,11 +1,73 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { resolve } from "node:path";
 import {
   assertSupportedMissionCorrelationReportVersion,
   buildMissionCorrelationReport,
   formatMissionCorrelationSummary,
+  parseMissionCorrelationReportOutput,
   SUPPORTED_MISSION_CORRELATION_REPORT_VERSION,
 } from "./mission-correlation-report.mjs";
+
+const reportScript = resolve(import.meta.dirname, "mission-correlation-report.mjs");
+
+function representativeCapture(terminalState) {
+  const success = terminalState === "COMPLETED";
+  return {
+    projectId: "project",
+    sessionId: "session",
+    operationId: "operation",
+    workspaceRevision: "abc1234",
+    terminalState,
+    execution: {
+      id: "execution",
+      projectId: "project",
+      sessionId: "session",
+      operationId: "operation",
+      status: success ? "completed" : "failed",
+    },
+    messages: [{ executionId: "execution", role: "assistant" }],
+    sseEvents: [{ type: success ? "done" : "error" }],
+    checkpoints: [{ sequence: 1 }],
+    evidenceCount: success ? 2 : 0,
+    validation: success ? [{ status: "passed" }] : [],
+    dashboard: {
+      executions: [{
+        id: "execution",
+        projectId: "project",
+        executionStatus: success ? "completed" : "failed",
+      }],
+    },
+  };
+}
+
+function runReportValidator(capturePath) {
+  return new Promise((resolveRun, reject) => {
+    const child = spawn(process.execPath, [reportScript, capturePath], {
+      env: {
+        ...process.env,
+        MISSION_CORRELATION_REQUIRE_EVIDENCE: "1",
+        GROQ_API_KEY: "provider-secret-that-must-not-leak",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (code, signal) => {
+      if (signal || code !== 0) {
+        reject(new Error(`Report validator failed with ${signal ?? code}: ${stderr}`));
+      } else {
+        resolveRun({ stdout, stderr });
+      }
+    });
+  });
+}
 
 test("keeps the mission correlation report version compatible with stored report readers", () => {
   const report = buildMissionCorrelationReport({
@@ -53,6 +115,62 @@ test("labels non-success release terminals without exposing report contents", ()
       response: "secret model response",
     }),
     "Live mission correlation report: outcome=non-success terminal=UNAVAILABLE evidence=0 validation=0.",
+  );
+});
+
+test("validates child-process release output and keeps the emitted summary redacted", async () => {
+  const directory = await mkdtemp(resolve(tmpdir(), "mission-report-"));
+  const forbidden = [
+    "secret prompt",
+    "source contents",
+    "provider-secret-that-must-not-leak",
+    "secret model response",
+  ];
+  try {
+    for (const terminalState of ["COMPLETED", "UNAVAILABLE"]) {
+      const capture = {
+        ...representativeCapture(terminalState),
+        prompt: forbidden[0],
+        source: forbidden[1],
+        response: forbidden[3],
+      };
+      const capturePath = resolve(directory, `${terminalState}.json`);
+      await writeFile(capturePath, `${JSON.stringify(capture)}\n`, "utf8");
+      const { stdout, stderr } = await runReportValidator(capturePath);
+      const report = parseMissionCorrelationReportOutput(stdout);
+      const summary = formatMissionCorrelationSummary(report);
+
+      assert.equal(report.redacted, true);
+      assert.equal(
+        summary,
+        terminalState === "COMPLETED"
+          ? "Live mission correlation report: outcome=success terminal=COMPLETED evidence=2 validation=1."
+          : "Live mission correlation report: outcome=non-success terminal=UNAVAILABLE evidence=0 validation=0.",
+      );
+      for (const value of forbidden) {
+        const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        assert.doesNotMatch(stdout, new RegExp(escaped));
+        assert.doesNotMatch(summary, new RegExp(escaped));
+      }
+      assert.doesNotMatch(summary, /prompt|source|response|credential|model/i);
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("rejects malformed validator stdout before release summary formatting", () => {
+  assert.throws(
+    () => parseMissionCorrelationReportOutput("{ malformed"),
+    /produced invalid JSON/,
+  );
+  assert.throws(
+    () => parseMissionCorrelationReportOutput(JSON.stringify({
+      kind: "mission-correlation-report",
+      version: SUPPORTED_MISSION_CORRELATION_REPORT_VERSION,
+      redacted: false,
+    })),
+    /not marked redacted/,
   );
 });
 

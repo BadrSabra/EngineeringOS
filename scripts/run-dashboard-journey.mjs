@@ -7,7 +7,10 @@ import {
   acquireReleaseLock,
   lockPath,
 } from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
-import { formatMissionCorrelationSummary } from "./mission-correlation-report.mjs";
+import {
+  formatMissionCorrelationSummary,
+  parseMissionCorrelationReportOutput,
+} from "./mission-correlation-report.mjs";
 
 if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
   console.error(
@@ -654,7 +657,7 @@ function runLiveCorrelationReportCheck() {
         );
       else {
         try {
-          const report = JSON.parse(output);
+          const report = parseMissionCorrelationReportOutput(output);
           console.log(formatMissionCorrelationSummary(report));
           resolve(report);
         } catch (error) {
