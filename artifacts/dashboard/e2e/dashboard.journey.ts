@@ -143,12 +143,18 @@ async function installApiFixtures(
       fixture: ArabicAiFixture;
       execution: Record<string, unknown>;
     };
+    interruptedResume?: {
+      fixture: ArabicAiFixture;
+      execution: Record<string, unknown>;
+      recoveredToken: string;
+      resumedStreamBody: string;
+    };
     projects?: Array<Record<string, unknown>>;
   },
 ) {
   await page.route("**/api/**", async (route) => {
     const url = new URL(route.request().url());
-    const path = url.pathname;
+    const path = url.pathname.replace(/^\/dashboard(?=\/|$)/, "");
     const arabicAi = overrides?.arabicAi;
     const alternateAi = overrides?.alternateAi;
     const disconnectAi = overrides?.disconnectAi;
@@ -186,6 +192,33 @@ async function installApiFixtures(
           contentType: "text/event-stream",
           headers: { "Cache-Control": "no-cache" },
           body: overrides.resumeFailure.fixture.streamBody,
+        });
+      }
+    }
+    if (overrides?.interruptedResume && path.endsWith("/api/ai/chat/stream")) {
+      let requestBody: Record<string, unknown> = {};
+      try {
+        requestBody = route.request().postDataJSON() as Record<string, unknown>;
+      } catch {
+        // The normal provider-free fallback below handles malformed requests.
+      }
+      const { fixture, resumedStreamBody } = overrides.interruptedResume;
+      if (requestBody.executionId === fixture.executionId) {
+        return route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          headers: { "Cache-Control": "no-cache" },
+          body: resumedStreamBody,
+        });
+      }
+      if (!requestBody.executionId) {
+        return route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          headers: { "Cache-Control": "no-cache" },
+          // Deliberately stop after the durable execution identity. This is
+          // the browser-side equivalent of a transport interruption.
+          body: fixture.streamBody,
         });
       }
     }
@@ -241,6 +274,25 @@ async function installApiFixtures(
         `/api/ai/executions/${overrides.resumeFailure.fixture.executionId}`
     ) {
       return route.fulfill(jsonResponse(overrides.resumeFailure.execution));
+    }
+    if (
+      overrides?.interruptedResume &&
+      path ===
+        `/api/ai/executions/${overrides.interruptedResume.fixture.executionId}`
+    ) {
+      return route.fulfill(jsonResponse(overrides.interruptedResume.execution));
+    }
+    if (
+      overrides?.interruptedResume &&
+      path ===
+        `/api/ai/executions/${overrides.interruptedResume.fixture.executionId}/resume-capability`
+    ) {
+      return route.fulfill(
+        jsonResponse({
+          executionId: overrides.interruptedResume.fixture.executionId,
+          resumeToken: overrides.interruptedResume.recoveredToken,
+        }),
+      );
     }
     if (path === `/api/ai/executions/${EXECUTION_ID}`)
       return route.fulfill(jsonResponse(executionFixture));
@@ -645,6 +697,83 @@ function installResumedAnalysisFailureFixture() {
       },
       objective: { objective: question },
       error: "The required analysis did not complete.",
+      startedAt: "2026-01-01T00:01:00.000Z",
+      createdAt: "2026-01-01T00:01:00.000Z",
+      updatedAt: "2026-01-01T00:02:00.000Z",
+    },
+  };
+}
+
+function installInterruptedResumeFixture() {
+  const sessionId = "e2e-interrupted-resume-session";
+  const executionId = "e2e-interrupted-resume-execution";
+  const initialToken = "e2e-interrupted-initial-token";
+  const recoveredToken = "e2e-interrupted-recovered-token";
+  const question = "Continue the interrupted release execution.";
+  const partialAnswer = "The release execution started before the browser disconnected.";
+  const answer = "The original release execution resumed after capability recovery.";
+  const message = {
+    id: "e2e-interrupted-resume-message",
+    sessionId,
+    role: "assistant",
+    content: answer,
+    executionId,
+    outcome: "COMPLETED",
+    createdAt: "2026-01-01T00:03:00.000Z",
+  };
+  const sse = (event: Record<string, unknown>) =>
+    `data: ${JSON.stringify(event)}\n\n`;
+  const fixture: ArabicAiFixture = {
+    question,
+    answer,
+    source: "release-resume",
+    sessionId,
+    executionId,
+    streamBody: [
+      sse({ type: "session_started", sessionId }),
+      sse({
+        type: "execution_started",
+        executionId,
+        status: "running",
+        resumable: true,
+        resumeToken: initialToken,
+      }),
+      sse({ type: "stage", stage: "calling-model" }),
+      sse({ type: "delta", delta: partialAnswer }),
+    ].join(""),
+    message,
+  };
+  return {
+    fixture,
+    initialToken,
+    recoveredToken,
+    resumedStreamBody: [
+      sse({ type: "session_started", sessionId }),
+      sse({
+        type: "execution_started",
+        executionId,
+        status: "running",
+        resumable: true,
+        resumeToken: recoveredToken,
+      }),
+      sse({ type: "stage", stage: "resuming-checkpoint" }),
+      sse({ type: "delta", delta: answer }),
+      sse({ type: "done", sessionId, executionId, message, pendingChanges: [] }),
+    ].join(""),
+    execution: {
+      id: executionId,
+      projectId: "e2e-project",
+      operationId: "e2e-interrupted-resume-operation",
+      sessionId,
+      status: "paused",
+      flightState: "PAUSED",
+      resumable: true,
+      checkpointVersion: 1,
+      checkpoint: {
+        stage: "calling-model",
+        detail: "The browser transport disconnected after the execution started.",
+      },
+      objective: { objective: question },
       startedAt: "2026-01-01T00:01:00.000Z",
       createdAt: "2026-01-01T00:01:00.000Z",
       updatedAt: "2026-01-01T00:02:00.000Z",
@@ -1826,6 +1955,99 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(visibleText).not.toContain("COMPLETED");
     expect(visibleText).not.toContain("Persisted execution proof");
     expect(visibleText).toContain("The required analysis did not complete.");
+  });
+
+  test("recovers a missing token after an interrupted stream and resumes one execution", async ({
+    page,
+  }) => {
+    const recovery = installInterruptedResumeFixture();
+    await installApiFixtures(page, { interruptedResume: recovery });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const streamRequests: Array<Record<string, unknown>> = [];
+    page.on("request", (request) => {
+      if (
+        request.url().includes("/api/ai/chat/stream") &&
+        request.method() === "POST"
+      ) {
+        try {
+          streamRequests.push(request.postDataJSON() as Record<string, unknown>);
+        } catch {
+          // Ignore requests without a JSON body; the assertions below require
+          // both journey requests to have a valid request envelope.
+        }
+      }
+    });
+
+    const composer = page.locator("textarea").first();
+    await composer.fill(recovery.fixture.question);
+    await composer.locator("xpath=..").getByRole("button").click();
+
+    await expect(
+      page.getByText("Execution paused — ready to resume from its durable checkpoint", {
+        exact: true,
+      }),
+    ).toBeVisible();
+
+    const storageKey = "eos_ai_execution_e2e-project_e2e-interrupted-resume-session";
+    const pointerKey = "eos_ai_execution_current_e2e-project";
+    await expect
+      .poll(() => page.evaluate((key) => localStorage.getItem(key), storageKey))
+      .toContain(recovery.initialToken);
+
+    await page.evaluate(
+      ({ storageKey, pointerKey }) => {
+        const saved = JSON.parse(localStorage.getItem(storageKey) ?? "{}");
+        delete saved.resumeToken;
+        localStorage.setItem(storageKey, JSON.stringify(saved));
+        localStorage.setItem(pointerKey, "e2e-interrupted-resume-session");
+      },
+      { storageKey, pointerKey },
+    );
+    await page.reload();
+
+    await expect(
+      page.getByText("A saved AI execution is ready to resume", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate((key) => {
+          const saved = JSON.parse(localStorage.getItem(key) ?? "{}");
+          return saved.resumeToken;
+        }, storageKey),
+      )
+      .toBe(recovery.recoveredToken);
+
+    await page.getByRole("button", { name: "Resume", exact: true }).click();
+    await expect(
+      page.getByText(recovery.fixture.answer, { exact: true }),
+    ).toBeVisible();
+    await expect
+      .poll(() => streamRequests.length)
+      .toBe(2);
+    expect(streamRequests[0]).toEqual(
+      expect.objectContaining({
+        projectId: "e2e-project",
+        message: recovery.fixture.question,
+      }),
+    );
+    expect(streamRequests[0]?.executionId).toBeUndefined();
+    expect(streamRequests[0]?.sessionId).toBeUndefined();
+    expect(streamRequests[1]).toEqual(
+      expect.objectContaining({
+        projectId: "e2e-project",
+        sessionId: recovery.fixture.sessionId,
+        executionId: recovery.fixture.executionId,
+        resumeToken: recovery.recoveredToken,
+        message: recovery.fixture.question,
+      }),
+    );
+    expect(
+      streamRequests.map((request) => request.executionId).filter(Boolean),
+    ).toEqual([recovery.fixture.executionId]);
   });
 
   test("keeps the resumed AI session drawer overlaid on a phone viewport", async ({

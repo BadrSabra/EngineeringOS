@@ -1052,6 +1052,7 @@ describe("Durable AI execution crash/reconnect", () => {
     const input = call?.[1] as { message?: string } | undefined;
     expect(input?.message).toContain("SERVER-OWNED DURABLE RESUME CONTEXT");
     expect(input?.message).toContain("src/resume.ts");
+    expect(vi.mocked(chatWithFallback)).toHaveBeenCalledTimes(1);
 
     const completed = await db
       .select({
