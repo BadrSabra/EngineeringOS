@@ -2008,6 +2008,40 @@ paths:
                 items:
                   $ref: "#/components/schemas/AiChatMessage"
 
+  /api/ai/chat/{sessionId}/messages/{messageId}/mission-correlation-report/regenerate:
+    post:
+      operationId: regenerateMissionCorrelationReport
+      summary: Regenerate an unavailable historical mission report
+      tags: [AI]
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Regenerated report
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [messageId, missionCorrelationReport]
+                properties:
+                  messageId:
+                    type: string
+                  missionCorrelationReport:
+                    $ref: "#/components/schemas/MissionCorrelationReport"
+        "404":
+          description: Session or message not found
+        "409":
+          description: Report is not eligible for regeneration
+
   /api/ai/chat/file-content:
     get:
       operationId: getAiChatFileContent

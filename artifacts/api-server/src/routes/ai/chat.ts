@@ -272,6 +272,136 @@ function parseMissionCorrelationReportForHistory(value: string | null | undefine
     : { unavailable: true };
 }
 
+const REPORT_REGENERATION_MAX_MESSAGES = 100;
+const REPORT_REGENERATION_MAX_EVENTS = 500;
+
+function parseJsonRecord(value: string | null | undefined): Record<string, unknown> {
+  const parsed = value ? parseStoredJson(value) : undefined;
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : {};
+}
+
+/**
+ * Rebuild only the small, redacted correlation envelope from durable evidence.
+ * This intentionally does not call a provider or reinterpret assistant prose:
+ * an unavailable historical report must never change the conversation.
+ */
+function buildRegeneratedMissionCorrelationReport(params: {
+  projectId: string;
+  sessionId: string;
+  messageId: string;
+  projectUpdatedAt: Date;
+  messages: Array<{
+    id: string;
+    role: string;
+    sources: string | null;
+    toolTrace: string | null;
+    behaviorEvidence: string | null;
+    taskResult: string | null;
+    outcome: string | null;
+    errorCode: string | null;
+  }>;
+  execution?: {
+    id: string;
+    operationId: string | null;
+    request: string;
+    checkpoint: string;
+    checkpointVersion: number;
+    status: string;
+  };
+  proposals: number;
+  events: Array<{ type: string }>;
+}) {
+  const target = params.messages.find((message) => message.id === params.messageId);
+  if (!target || target.role !== "assistant") {
+    throw new Error("Historical mission report target is not eligible.");
+  }
+
+  const traces = params.messages.flatMap((message) => {
+    const parsed = message.toolTrace ? parseStoredJson(message.toolTrace) : [];
+    return Array.isArray(parsed) ? parsed.slice(0, REPORT_REGENERATION_MAX_EVENTS) : [];
+  });
+  const evidenceCount = params.messages.reduce((total, message) => {
+    const behaviorEvidence = message.behaviorEvidence ? parseStoredJson(message.behaviorEvidence) : [];
+    const taskResult = message.taskResult ? parseStoredJson(message.taskResult) : undefined;
+    const taskEvidence = taskResult && typeof taskResult === "object" && !Array.isArray(taskResult)
+      ? (taskResult as { evidence?: unknown }).evidence
+      : undefined;
+    return total
+      + (Array.isArray(behaviorEvidence) ? Math.min(behaviorEvidence.length, 20) : 0)
+      + (Array.isArray(taskEvidence) ? Math.min(taskEvidence.length, 20) : 0);
+  }, 0);
+  const sourceCount = params.messages.reduce((total, message) => {
+    const sources = message.sources ? parseStoredJson(message.sources) : [];
+    return total + (Array.isArray(sources) ? Math.min(sources.length, 50) : 0);
+  }, 0);
+  const request = parseJsonRecord(params.execution?.request);
+  const operationId = params.execution?.operationId
+    ?? (typeof request.operationId === "string" ? request.operationId : undefined)
+    ?? params.execution?.id
+    ?? params.messageId;
+  if (
+    !params.execution
+    && traces.length === 0
+    && evidenceCount === 0
+    && sourceCount === 0
+    && params.events.length === 0
+  ) {
+    throw new Error("No retained run evidence is available.");
+  }
+  const checkpoint = parseJsonRecord(params.execution?.checkpoint);
+  const terminalState = params.execution?.status === "cancelled"
+    || target.outcome === "INTERRUPTED"
+    || traces.some((entry) => entry && typeof entry === "object" && (entry as { stopReason?: unknown }).stopReason === "cancelled")
+    ? "CANCELLED"
+    : params.execution?.status === "failed" || target.outcome === "FAILED"
+      ? "FAILED"
+      : "COMPLETED";
+  const validationCount = traces.filter((entry) =>
+    entry && typeof entry === "object" && (
+      (entry as { kind?: unknown }).kind === "validation"
+      || (entry as { phase?: unknown }).phase === "validation"
+    ),
+  ).length + params.events.filter((event) => /validation/i.test(event.type)).length;
+  const counts = {
+    messages: params.messages.length,
+    sseEvents: Math.min(traces.length, REPORT_REGENERATION_MAX_EVENTS),
+    executionCheckpoints: params.execution
+      ? Math.min(1, Math.max(0, params.execution.checkpointVersion > 0 || Object.keys(checkpoint).length > 0 ? 1 : 0))
+      : 0,
+    evidence: evidenceCount + sourceCount,
+    proposals: params.proposals,
+    validation: validationCount,
+    correlatedEvents: params.events.length,
+  };
+  const agreement = {
+    execution: Boolean(params.execution),
+    messages: counts.messages > 0,
+    sse: counts.sseEvents > 0,
+    checkpoints: counts.executionCheckpoints > 0,
+    dashboard: true,
+    evidence: counts.evidence >= 0,
+    proposals: counts.proposals >= 0,
+    validation: counts.validation >= 0,
+  };
+  return {
+    kind: "mission-correlation-report" as const,
+    version: 1 as const,
+    redacted: true as const,
+    operationId,
+    projectId: params.projectId,
+    sessionId: params.sessionId,
+    workspaceRevision: typeof request.workspaceRevision === "string"
+      ? request.workspaceRevision
+      : params.projectUpdatedAt.toISOString(),
+    terminalState,
+    outcomeClass: terminalState === "COMPLETED" ? "success" : "non-success",
+    counts,
+    agreement,
+  };
+}
+
 export class MissionCorrelationReportValidationError extends Error {
   readonly code = "mission_correlation_report_invalid";
 
@@ -3740,6 +3870,131 @@ router.get("/ai/chat/sessions", async (req, res) => {
     }
     return session;
   }));
+});
+
+// ── POST /api/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate
+//
+// This is deliberately report-specific: it updates one nullable enrichment
+// field and never creates a chat message or reruns the conversation.
+router.post("/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate", async (req, res) => {
+  if (req.body && typeof req.body === "object" && Object.keys(req.body).length > 0) {
+    return res.status(400).json({ error: "This report recovery action does not accept a request body.", code: "REPORT_REGENERATION_BODY_NOT_ALLOWED" });
+  }
+  const { sessionId, messageId } = req.params;
+  const sessionRows = await db
+    .select()
+    .from(aiChatSessionsTable)
+    .where(eq(aiChatSessionsTable.id, sessionId))
+    .limit(1);
+  const session = sessionRows[0];
+  if (!session) return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+  if (!project) return;
+
+  const [target] = await db
+    .select({
+      id: aiChatMessagesTable.id,
+      role: aiChatMessagesTable.role,
+      missionCorrelationReport: aiChatMessagesTable.missionCorrelationReport,
+      executionId: aiChatMessagesTable.executionId,
+    })
+    .from(aiChatMessagesTable)
+    .where(and(
+      eq(aiChatMessagesTable.id, messageId),
+      eq(aiChatMessagesTable.sessionId, sessionId),
+    ))
+    .limit(1);
+  if (!target) return res.status(404).json({ error: "Chat message not found", code: "MESSAGE_NOT_FOUND" });
+  if (target.role !== "assistant") {
+    return res.status(409).json({ error: "Only assistant run reports can be regenerated.", code: "REPORT_REGENERATION_NOT_ELIGIBLE" });
+  }
+  if (!target.missionCorrelationReport) {
+    return res.status(409).json({ error: "This historical run has no unavailable report to regenerate.", code: "REPORT_REGENERATION_NOT_ELIGIBLE" });
+  }
+  if (!parseMissionCorrelationReportForHistory(target.missionCorrelationReport).unavailable) {
+    return res.status(409).json({ error: "This historical mission report is already available.", code: "REPORT_ALREADY_AVAILABLE" });
+  }
+
+  const messages = await db
+    .select({
+      id: aiChatMessagesTable.id,
+      role: aiChatMessagesTable.role,
+      sources: aiChatMessagesTable.sources,
+      toolTrace: aiChatMessagesTable.toolTrace,
+      behaviorEvidence: aiChatMessagesTable.behaviorEvidence,
+      taskResult: aiChatMessagesTable.taskResult,
+      outcome: aiChatMessagesTable.outcome,
+      errorCode: aiChatMessagesTable.errorCode,
+    })
+    .from(aiChatMessagesTable)
+    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+    .orderBy(aiChatMessagesTable.createdAt)
+    .limit(REPORT_REGENERATION_MAX_MESSAGES);
+  const [execution] = target.executionId
+    ? await db
+      .select({
+        id: aiExecutionsTable.id,
+        operationId: aiExecutionsTable.operationId,
+        request: aiExecutionsTable.request,
+        checkpoint: aiExecutionsTable.checkpoint,
+        checkpointVersion: aiExecutionsTable.checkpointVersion,
+        status: aiExecutionsTable.status,
+      })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.id, target.executionId),
+        eq(aiExecutionsTable.sessionId, sessionId),
+        eq(aiExecutionsTable.projectId, session.projectId),
+      ))
+      .limit(1)
+    : [];
+  const proposals = await db
+    .select({ id: aiChangeProposalsTable.id })
+    .from(aiChangeProposalsTable)
+    .where(eq(aiChangeProposalsTable.sessionId, sessionId))
+    .limit(REPORT_REGENERATION_MAX_EVENTS);
+  const operationId = execution?.operationId ?? execution?.id ?? target.executionId ?? messageId;
+  const events = await db
+    .select({ type: eventsTable.type })
+    .from(eventsTable)
+    .where(and(
+      eq(eventsTable.projectId, session.projectId),
+      eq(eventsTable.correlationId, operationId),
+    ))
+    .limit(REPORT_REGENERATION_MAX_EVENTS);
+
+  let report: ReturnType<typeof buildRegeneratedMissionCorrelationReport>;
+  try {
+    report = buildRegeneratedMissionCorrelationReport({
+      projectId: session.projectId,
+      sessionId,
+      messageId,
+      projectUpdatedAt: project.updatedAt,
+      messages,
+      execution,
+      proposals: proposals.length,
+      events,
+    });
+  } catch {
+    return res.status(409).json({
+      error: "The retained evidence is insufficient to regenerate this report.",
+      code: "REPORT_REGENERATION_NOT_ELIGIBLE",
+    });
+  }
+  const serialized = serializeMissionCorrelationReport(report);
+  const [updated] = await db
+    .update(aiChatMessagesTable)
+    .set({ missionCorrelationReport: serialized })
+    .where(and(
+      eq(aiChatMessagesTable.id, messageId),
+      eq(aiChatMessagesTable.sessionId, sessionId),
+    ))
+    .returning({ id: aiChatMessagesTable.id, missionCorrelationReport: aiChatMessagesTable.missionCorrelationReport });
+  if (!updated) return res.status(404).json({ error: "Chat message not found", code: "MESSAGE_NOT_FOUND" });
+  return res.json({
+    messageId: updated.id,
+    missionCorrelationReport: redactUserFacingValue(parseStoredJson(serialized)),
+  });
 });
 
 // ── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────

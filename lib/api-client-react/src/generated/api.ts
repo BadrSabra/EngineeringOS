@@ -108,6 +108,7 @@ import type {
   Project,
   ProjectSummary,
   ProviderKeyStatus,
+  RegenerateMissionCorrelationReport200,
   RollbackWorkflowPhaseInput,
   Rule,
   RuleEvaluationResult,
@@ -5788,6 +5789,79 @@ export function useListAiChatMessages<TData = Awaited<ReturnType<typeof listAiCh
 
 
 
+
+export const getRegenerateMissionCorrelationReportUrl = (sessionId: string,
+    messageId: string,) => {
+
+
+
+
+  return `/api/ai/chat/${sessionId}/messages/${messageId}/mission-correlation-report/regenerate`
+}
+
+/**
+ * @summary Regenerate an unavailable historical mission report
+ */
+export const regenerateMissionCorrelationReport = async (sessionId: string,
+    messageId: string, options?: RequestInit): Promise<RegenerateMissionCorrelationReport200> => {
+
+  return customFetch<RegenerateMissionCorrelationReport200>(getRegenerateMissionCorrelationReportUrl(sessionId,messageId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRegenerateMissionCorrelationReportMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof regenerateMissionCorrelationReport>>, TError,{sessionId: string;messageId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof regenerateMissionCorrelationReport>>, TError,{sessionId: string;messageId: string}, TContext> => {
+
+const mutationKey = ['regenerateMissionCorrelationReport'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof regenerateMissionCorrelationReport>>, {sessionId: string;messageId: string}> = (props) => {
+          const {sessionId,messageId} = props ?? {};
+
+          return  regenerateMissionCorrelationReport(sessionId,messageId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RegenerateMissionCorrelationReportMutationResult = NonNullable<Awaited<ReturnType<typeof regenerateMissionCorrelationReport>>>
+
+    export type RegenerateMissionCorrelationReportMutationError = ErrorType<void>
+
+    /**
+ * @summary Regenerate an unavailable historical mission report
+ */
+export const useRegenerateMissionCorrelationReport = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof regenerateMissionCorrelationReport>>, TError,{sessionId: string;messageId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof regenerateMissionCorrelationReport>>,
+        TError,
+        {sessionId: string;messageId: string},
+        TContext
+      > => {
+      return useMutation(getRegenerateMissionCorrelationReportMutationOptions(options));
+    }
 
 export const getGetAiChatFileContentUrl = (params: GetAiChatFileContentParams,) => {
   const normalizedParams = new URLSearchParams();

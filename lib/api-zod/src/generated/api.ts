@@ -3464,6 +3464,65 @@ export const ListAiChatMessagesResponse = zod.array(ListAiChatMessagesResponseIt
 
 
 /**
+ * @summary Regenerate an unavailable historical mission report
+ */
+export const RegenerateMissionCorrelationReportParams = zod.object({
+  "sessionId": zod.coerce.string(),
+  "messageId": zod.coerce.string()
+})
+
+export const regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsMessagesMin = 0;
+
+export const regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsSseEventsMin = 0;
+
+export const regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsExecutionCheckpointsMin = 0;
+
+export const regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsEvidenceMin = 0;
+
+export const regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsProposalsMin = 0;
+
+export const regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsValidationMin = 0;
+
+export const regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsCorrelatedEventsMin = 0;
+
+
+
+export const RegenerateMissionCorrelationReportResponse = zod.object({
+  "messageId": zod.string(),
+  "missionCorrelationReport": zod.object({
+  "kind": zod.enum(['mission-correlation-report']),
+  "version": zod.literal(1).describe('Stored report contract version.'),
+  "redacted": zod.literal(true),
+  "operationId": zod.string(),
+  "projectId": zod.string(),
+  "sessionId": zod.string(),
+  "workspaceRevision": zod.string(),
+  "terminalState": zod.enum(['COMPLETED', 'READY_FOR_REVIEW', 'APPLIED', 'COMMITTED', 'PUSHED', 'BLOCKED', 'CANCELLED', 'FAILED', 'UNAVAILABLE']),
+  "outcomeClass": zod.string(),
+  "counts": zod.object({
+  "messages": zod.number().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsMessagesMin),
+  "sseEvents": zod.number().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsSseEventsMin),
+  "executionCheckpoints": zod.number().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsExecutionCheckpointsMin),
+  "evidence": zod.number().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsEvidenceMin),
+  "proposals": zod.number().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsProposalsMin),
+  "validation": zod.number().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsValidationMin),
+  "correlatedEvents": zod.number().min(regenerateMissionCorrelationReportResponseMissionCorrelationReportCountsCorrelatedEventsMin)
+}),
+  "agreement": zod.object({
+  "execution": zod.boolean(),
+  "messages": zod.boolean(),
+  "sse": zod.boolean(),
+  "checkpoints": zod.boolean(),
+  "dashboard": zod.boolean(),
+  "evidence": zod.boolean(),
+  "proposals": zod.boolean(),
+  "validation": zod.boolean()
+})
+})
+})
+
+
+/**
  * Project-authorized file-content read. Given a project-relative path and a 1-indexed line window, returns the ACTUAL source lines (never a model excerpt) so analysts can verify the exact code a claim cites. The response is "available:false" (with a reason) when the project root or file is unreachable rather than an HTTP error, so clients can degrade gracefully.
  * @summary Get the real source lines behind a behavior-evidence span
  */

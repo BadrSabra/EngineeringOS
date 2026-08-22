@@ -2413,6 +2413,11 @@ export type ListAiChatSessionsParams = {
 projectId: string;
 };
 
+export type RegenerateMissionCorrelationReport200 = {
+  messageId: string;
+  missionCorrelationReport: MissionCorrelationReport;
+};
+
 export type GetAiChatFileContentParams = {
 projectId: string;
 /**

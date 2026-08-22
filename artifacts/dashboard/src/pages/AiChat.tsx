@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/react';
 import { Bot, Send, Plus, ChevronDown, Loader2, User, Zap, Search, Code2, GitMerge, Key, Trash2, Check, FileCode2, ChevronRight, X, Menu, Activity, ShieldAlert, ShieldCheck, CheckCircle2, FileSearch, RotateCcw, Square, Eye, Play, Pause, SkipBack, StepForward, ExternalLink, Clock3 } from 'lucide-react';
 import { Link } from 'wouter';
@@ -3901,6 +3901,8 @@ function MessageBubble({
   planDecisionPending,
   onPlanBuild,
   planBuildPending,
+  onRegenerateReport,
+  reportRegenerationPending,
 }: {
   msg: ChatMessage;
   projectId?: string;
@@ -3909,6 +3911,8 @@ function MessageBubble({
   planDecisionPending?: boolean;
   onPlanBuild?: (messageId: string) => void;
   planBuildPending?: boolean;
+  onRegenerateReport?: (messageId: string) => void;
+  reportRegenerationPending?: boolean;
 }) {
   const isUser = msg.role === 'user';
   const [technicalDetailsExpanded, setTechnicalDetailsExpanded] = useState(false);
@@ -4065,6 +4069,24 @@ function MessageBubble({
             onPlanBuild={onPlanBuild}
             planBuildPending={planBuildPending}
           />
+        )}
+        {!isUser && msg.missionCorrelationReportError && (
+          <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+            <span className="min-w-0 flex-1">The historical mission report is unavailable, but this conversation is preserved.</span>
+            {onRegenerateReport && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 shrink-0 px-2 text-[11px]"
+                onClick={() => onRegenerateReport(msg.id)}
+                disabled={reportRegenerationPending}
+              >
+                {reportRegenerationPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RotateCcw className="mr-1 h-3 w-3" />}
+                {reportRegenerationPending ? 'Regenerating…' : 'Regenerate report'}
+              </Button>
+            )}
+          </div>
         )}
         {isForensicFallback
           ? <ForensicFallbackBanner
@@ -6879,6 +6901,32 @@ export default function AiChat() {
     },
   );
 
+  const regenerateReportMutation = useMutation({
+    mutationFn: async (messageId: string) => {
+      const response = await fetch(
+        `/api/ai/chat/${encodeURIComponent(sessionId ?? '')}/messages/${encodeURIComponent(messageId)}/mission-correlation-report/regenerate`,
+        { method: 'POST', credentials: 'include' },
+      );
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof payload?.error === 'string' ? payload.error : 'The historical report could not be regenerated.');
+      }
+      return payload;
+    },
+    onSuccess: () => {
+      if (sessionId) void qc.invalidateQueries({ queryKey: ['ai-messages', sessionId] });
+      void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+      toast({ title: 'Historical report regenerated', description: 'The report is now available from the retained run evidence.' });
+    },
+    onError: (error) => {
+      toast({
+        title: 'Report regeneration failed',
+        description: error instanceof Error ? error.message : 'The conversation was not changed.',
+        variant: 'destructive',
+      });
+    },
+  });
+
   useEffect(() => {
     if (!messagesFetched) return;
 
@@ -8213,6 +8261,8 @@ export default function AiChat() {
                   planDecisionPending={planDecisionPending === msg.id}
                   onPlanBuild={handlePlanBuild}
                   planBuildPending={planBuildPending === msg.id}
+                  onRegenerateReport={(messageId) => regenerateReportMutation.mutate(messageId)}
+                  reportRegenerationPending={regenerateReportMutation.isPending && regenerateReportMutation.variables === msg.id}
                 />
               ))}
               {isAgentBusy ? (
