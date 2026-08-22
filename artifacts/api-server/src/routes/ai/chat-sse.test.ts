@@ -249,7 +249,10 @@ vi.mock("@workspace/ai-orchestrator", async (importOriginal) => {
 vi.mock("../../lib/ai-route-helpers.js", () => {
   const redactText = (value: string) => value
     .replace(/\/(?:home\/runner(?:\/workspace)?|workspace|tmp|app|srv|var\/task|mnt\/data)\/[^\s`"'<>),;]+/g, "[runtime path]")
-    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[internal id]");
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, "[internal id]")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted email]")
+    .replace(/\b(?:bearer|token|secret|password|api[_ -]?key)\s*[:=]\s*\S+/gi, "[redacted credential]")
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "[redacted token]");
   const redactValue = (value: unknown): unknown => {
     if (typeof value === "string") return redactText(value);
     if (Array.isArray(value)) return value.map(redactValue);
@@ -388,6 +391,30 @@ const MOCK_CHAT_RESULT = {
     _parseError: undefined,
   },
   effectiveProvider: "openai",
+};
+
+const SENSITIVE_VALIDATION_STEP: Extract<AgentStep, { kind: "validation" }> = {
+  kind: "validation",
+  repairState: "BLOCKED",
+  attempt: 1,
+  maxAttempts: 1,
+  result: {
+    profile: "api-ai-tests",
+    status: "failed",
+    scenario: "Run the API tests.",
+    exitCode: 1,
+    command: "pnpm test -- --reporter verbose",
+    stdout: "PRIVATE_SOURCE=do-not-save",
+    stderr: "token: abc123 secret@example.com",
+    failedTests: [{ name: "private.test.ts", file: "src/private.ts", message: "secret@example.com" }],
+    changedFiles: ["src/private.ts"],
+    evidence: {
+      evidenceId: "validation-result:sensitive-test",
+      observedAt: "2026-08-22T12:00:00.000Z",
+      artifactRef: "validation-result:sensitive-test",
+    },
+    detail: "Validation failed for secret@example.com token: abc123",
+  },
 };
 
 /**
@@ -1185,6 +1212,43 @@ describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep inte
       sourceSpan: { startLine: 1396, endLine: 1426 },
     });
     expect(evidence[1].sourceSpan).toEqual({ startLine: 12, endLine: 12 });
+  });
+});
+
+describe("POST /api/ai/chat/stream — validation privacy boundary", () => {
+  it("removes command output and test/source details from SSE and persisted trace", async () => {
+    vi.mocked(chatWithFallback as (...a: unknown[]) => unknown).mockImplementation(
+      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+        (onStep as ((s: AgentStep) => void) | undefined)?.(SENSITIVE_VALIDATION_STEP);
+        return MOCK_CHAT_RESULT;
+      },
+    );
+
+    const res = await request(app)
+      .post("/api/ai/chat/stream")
+      .send({ projectId: "test-project-id", message: "hello" });
+
+    expect(res.status).toBe(200);
+    const body = res.text;
+    expect(body).not.toContain("pnpm test");
+    expect(body).not.toContain("PRIVATE_SOURCE");
+    expect(body).not.toContain("private.test.ts");
+    expect(body).not.toContain("secret@example.com");
+    expect(body).not.toContain("abc123");
+
+    const trace = JSON.parse(chatCapture.assistantToolTrace!) as Array<Record<string, unknown>>;
+    const validation = trace.find((entry) => entry.kind === "validation");
+    expect(validation).toBeDefined();
+    expect(validation!.validation).toEqual(expect.objectContaining({
+      profile: "api-ai-tests",
+      status: "failed",
+      exitCode: 1,
+    }));
+    expect(validation!.validation).not.toHaveProperty("command");
+    expect(validation!.validation).not.toHaveProperty("stdout");
+    expect(validation!.validation).not.toHaveProperty("stderr");
+    expect(validation!.validation).not.toHaveProperty("failedTests");
+    expect(validation!.validation).not.toHaveProperty("changedFiles");
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasValidationEvidence, isProvenValidation } from "../validation-result.js";
+import { hasValidationEvidence, isProvenValidation, toPublicValidationResult } from "../validation-result.js";
 import type { ValidationResult } from "../validation-result.js";
 
 function result(overrides: Partial<ValidationResult> = {}): ValidationResult {
@@ -39,5 +39,30 @@ describe("canonical validation evidence", () => {
       ...result(),
       evidence: { evidenceId: "", observedAt: "", artifactRef: "" },
     })).toBe(false);
+  });
+
+  it("projects only bounded validation metadata for persistence and clients", () => {
+    const publicResult = toPublicValidationResult(result({
+      command: "pnpm test -- --reporter verbose",
+      stdout: "PRIVATE_SOURCE=do-not-save",
+      stderr: "token: abc123",
+      failedTests: [{ name: "private.test.ts", file: "src/private.ts", message: "secret@example.com" }],
+      changedFiles: ["src/private.ts"],
+      detail: "Validation failed; [redacted email] [redacted credential]",
+    }));
+
+    expect(publicResult).toEqual({
+      profile: "workspace-typecheck",
+      status: "passed",
+      scenario: "Run the workspace typecheck.",
+      exitCode: 0,
+      evidence: result().evidence,
+      detail: "Validation failed; [redacted email] [redacted credential]",
+    });
+    expect(publicResult).not.toHaveProperty("command");
+    expect(publicResult).not.toHaveProperty("stdout");
+    expect(publicResult).not.toHaveProperty("stderr");
+    expect(publicResult).not.toHaveProperty("failedTests");
+    expect(publicResult).not.toHaveProperty("changedFiles");
   });
 });

@@ -59,6 +59,7 @@ import {
   buildProjectFileSources,
   deriveFlightDeckState,
   isProvenValidation,
+  toPublicValidationResult,
 } from "@workspace/ai-orchestrator";
 import type {
   AgentStep,
@@ -1052,7 +1053,7 @@ type PersistedToolTraceEntry = {
   scopedFindingStatus?: "PRODUCTION_PROVEN" | "FIXTURE_PROVEN" | "TEST_PROVEN" | "MIXED_EVIDENCE" | "NOT_PROVEN";
   productionTrace?: ProductionReachabilityTrace;
   crossFileTrace?: CrossFileSemanticTrace;
-  validation?: ValidationResult;
+  validation?: import("@workspace/ai-orchestrator").PublicValidationResult;
   /** Deprecated compatibility projection; new consumers must use validation. */
   validationStatus?: ValidationResult["status"];
   repairState?: RepairLoopState;
@@ -1126,25 +1127,23 @@ function serializeToolTrace(
           ...(step.approvalReason ? { approvalReason: step.approvalReason } : {}),
         };
       case "validation":
+        {
+        const publicValidation = redactUserFacingValue(toPublicValidationResult(step.result));
         return {
           kind: step.kind,
-          validation: step.result,
+          validation: publicValidation,
           validationStatus: step.result.status,
           repairState: step.repairState,
           validationProfile: step.result.profile,
           validationScenario: step.result.scenario,
-          validationCommand: step.result.command,
           validationExitCode: step.result.exitCode,
-          validationFailedTests: step.result.failedTests.map((failure) => failure.name || failure.message),
-          validationAffectedFiles: step.result.changedFiles,
-          validationFailedTestDetails: step.result.failedTests,
-          validationChangedFiles: step.result.changedFiles,
+          validationDetail: publicValidation.detail,
           validationAttempt: step.attempt,
           validationMaxAttempts: step.maxAttempts,
-          validationDetail: step.result.detail,
           attempt: step.attempt,
           maxAttempts: step.maxAttempts,
         };
+        }
       case "repair_state":
         return {
           kind: step.kind,
@@ -1330,6 +1329,38 @@ function serializeToolTrace(
   });
   if (scopeDescription) entries.unshift({ kind: "audit_scope", scopeDescription });
   return redactUserFacingText(JSON.stringify(entries));
+}
+
+/**
+ * Checkpoint steps are durable too. Keep validation records in the same
+ * public-safe shape there so a reconnect cannot recover the raw command,
+ * output, failed-test messages, or changed-file list.
+ */
+function serializeExecutionCheckpointSteps(steps: AgentStep[]): Array<Record<string, unknown>> {
+  return steps.slice(-AI_EXECUTION_TRACE_LIMIT).map((step) => (
+    step.kind === "validation"
+      ? { ...step, result: redactUserFacingValue(toPublicValidationResult(step.result)) }
+      : step
+  )) as unknown as Array<Record<string, unknown>>;
+}
+
+function sanitizeExecutionCheckpointForClient(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return redactUserFacingValue(value);
+  }
+  const checkpoint = value as Record<string, unknown>;
+  const recentSteps = Array.isArray(checkpoint.recentSteps)
+    ? checkpoint.recentSteps.map((step) => {
+      if (!step || typeof step !== "object" || Array.isArray(step)) return step;
+      const record = step as Record<string, unknown>;
+      if (record.kind !== "validation" || !record.result || typeof record.result !== "object") return step;
+      return {
+        ...record,
+        result: toPublicValidationResult(record.result as ValidationResult),
+      };
+    })
+    : checkpoint.recentSteps;
+  return redactUserFacingValue({ ...checkpoint, recentSteps });
 }
 
 // ── Profile → context sections mapping ──────────────────────────────────────
@@ -2544,7 +2575,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       persistExecutionCheckpoint({
         stage: "running",
         streamedPreview: streamedContent.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT),
-        recentSteps: traceSteps.slice(-AI_EXECUTION_TRACE_LIMIT) as unknown as Array<Record<string, unknown>>,
+        recentSteps: serializeExecutionCheckpointSteps(traceSteps),
       });
     };
 
@@ -2568,7 +2599,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         persistExecutionCheckpoint({
           stage: "client_disconnected",
           streamedPreview: streamedContent.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT),
-          recentSteps: traceSteps.slice(-AI_EXECUTION_TRACE_LIMIT) as unknown as Array<Record<string, unknown>>,
+          recentSteps: serializeExecutionCheckpointSteps(traceSteps),
         });
       }
     });
@@ -2772,7 +2803,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       persistExecutionCheckpoint({
         stage: step.kind === "model_call" ? "model_call" : "tool_loop",
         streamedPreview: streamedContent.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT),
-        recentSteps: traceSteps.slice(-AI_EXECUTION_TRACE_LIMIT) as unknown as Array<Record<string, unknown>>,
+        recentSteps: serializeExecutionCheckpointSteps(traceSteps),
       });
       if (step.kind === "tool_call") {
         sse({
@@ -2807,23 +2838,19 @@ router.post("/ai/chat/stream", async (req, res) => {
           ...(step.approvalReason ? { approvalReason: redactUserFacingText(step.approvalReason).slice(0, 240) } : {}),
         });
       } else if (step.kind === "validation") {
+        const publicValidation = redactUserFacingValue(toPublicValidationResult(step.result));
         sse({
           type: "validation",
-          validation: step.result,
+          validation: publicValidation,
           // Compatibility projection for clients that predate ValidationResult.
           status: step.result.status,
           repairState: step.repairState,
           profile: step.result.profile,
           scenario: step.result.scenario,
-          command: step.result.command,
           exitCode: step.result.exitCode,
-          failedTests: step.result.failedTests.map((failure) => failure.name || failure.message),
-          affectedFiles: step.result.changedFiles,
-          failedTestDetails: step.result.failedTests,
-          changedFiles: step.result.changedFiles,
           attempt: step.attempt,
           maxAttempts: step.maxAttempts,
-          detail: step.result.detail,
+          detail: publicValidation.detail,
         });
       } else if (step.kind === "repair_state") {
         sse({
@@ -3142,7 +3169,7 @@ router.post("/ai/chat/stream", async (req, res) => {
             cancelled: interrupted,
             nodeStates: executionNodeStates,
             streamedPreview: streamedContent,
-            recentSteps: traceSteps.slice(-AI_EXECUTION_TRACE_LIMIT) as unknown as Array<Record<string, unknown>>,
+            recentSteps: serializeExecutionCheckpointSteps(traceSteps),
           });
           executionTerminal = true;
         }
@@ -3565,7 +3592,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     persistExecutionCheckpoint({
       stage: "finalizing",
       streamedPreview: streamedContent.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT),
-      recentSteps: traceSteps.slice(-AI_EXECUTION_TRACE_LIMIT) as unknown as Array<Record<string, unknown>>,
+      recentSteps: serializeExecutionCheckpointSteps(traceSteps),
     });
     await checkpointChain;
     const finalValidation = [...traceSteps]
@@ -3782,7 +3809,7 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     evidenceReason: typeof checkpointRecord.evidenceReason === "string"
       ? checkpointRecord.evidenceReason
       : undefined,
-    checkpoint,
+         checkpoint: sanitizeExecutionCheckpointForClient(checkpoint),
     checkpointVersion: execution.checkpointVersion,
     finalMessageId: execution.finalMessageId,
     proposalId: execution.proposalId,
@@ -4047,7 +4074,19 @@ router.get("/ai/chat/:sessionId/messages", async (req, res) => {
         ? JSON.stringify(redactUserFacingValue(parseStoredJson(message.sources)))
         : message.sources,
       toolTrace: message.toolTrace
-        ? redactUserFacingText(message.toolTrace)
+        ? JSON.stringify(redactUserFacingValue(
+          (() => {
+            const parsed = parseStoredJson(message.toolTrace);
+            if (!Array.isArray(parsed)) return parsed;
+            return parsed.map((entry) => {
+              if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
+              const record = entry as Record<string, unknown>;
+              return record.kind === "validation" && record.validation && typeof record.validation === "object"
+                ? { ...record, validation: toPublicValidationResult(record.validation as ValidationResult) }
+                : record;
+            });
+          })(),
+        ))
         : message.toolTrace,
       turnIntent: message.turnIntent,
       executionId: message.executionId,

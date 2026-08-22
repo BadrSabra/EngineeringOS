@@ -136,10 +136,12 @@ export type { RepairLoopState, ValidationRunner, ValidationToolResult } from "./
 export {
   hasValidationEvidence,
   isProvenValidation,
+  toPublicValidationResult,
 } from "./validation-result.js";
 export type {
   ValidationEvidence,
   ValidationFailure,
+  PublicValidationResult,
   ValidationResult,
   ValidationStatus,
 } from "./validation-result.js";
