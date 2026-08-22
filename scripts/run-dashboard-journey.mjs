@@ -406,9 +406,11 @@ function runConcurrentChatContractChecks() {
 
 function runLiveCorrelationReportCheck() {
   return new Promise((resolve, reject) => {
-    const reportPath =
+    const reportPath = resolve(
+      workspaceRoot,
       process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
-      "test-results/dashboard-journey/live-mission-correlation.json";
+        "test-results/dashboard-journey/live-mission-correlation.json",
+    );
     const check = spawn(
       "node",
       ["scripts/mission-correlation-report.mjs", reportPath],
@@ -461,6 +463,11 @@ try {
         DASHBOARD_E2E_EMAIL: testEmail,
         DASHBOARD_E2E_EXECUTABLE_PATH: process.env.DASHBOARD_E2E_EXECUTABLE_PATH,
         PLAYWRIGHT_OUTPUT_DIR: outputDir,
+        DASHBOARD_E2E_LIVE_REPORT_PATH: resolve(
+          workspaceRoot,
+          process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+            "test-results/dashboard-journey/live-mission-correlation.json",
+        ),
         ...(Number.isFinite(liveTimeoutMs) && liveTimeoutMs > 0
           ? { DASHBOARD_E2E_LIVE_TIMEOUT_MS: String(liveTimeoutMs) }
           : {}),
