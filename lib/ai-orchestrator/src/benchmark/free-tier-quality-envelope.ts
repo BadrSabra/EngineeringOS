@@ -10,6 +10,8 @@ import {
   buildFreeTierFailureAnalysis,
   type FreeTierFailureAnalysis,
 } from "./free-tier-failure-analysis.js";
+import type { ProviderHealthReport } from "./provider-health-probe.js";
+import { redactProviderErrorText } from "../errors.js";
 
 export const FREE_TIER_QUALITY_ENVELOPE_VERSION = 1;
 
@@ -24,6 +26,7 @@ export type FreeTierReplayEntry = {
   provider: "openrouter" | null;
   model: string | null;
   providerAttempts: number;
+  providerHealthReport?: ProviderHealthReport;
   observation: CodeAgentBenchmarkObservation;
 };
 
@@ -129,6 +132,26 @@ const FORBIDDEN_KEYS = new Set([
 const GRADES = new Set<CodeAgentBenchmarkGrade>(["A", "B", "C", "D", "F", "U"]);
 const MAX_INPUT_BYTES = 512_000;
 const MAX_STRING_LENGTH = 512;
+const FAILURE_CATEGORIES = new Set<ProviderHealthReport["failureCategory"]>([
+  "authentication",
+  "quota",
+  "rate-limit",
+  "catalog",
+  "empty-response",
+  "network",
+  "server",
+  "request",
+  "capability",
+  "unknown",
+  null,
+]);
+const RECOVERY_ACTIONS = new Set<NonNullable<ProviderHealthReport["recoveryAction"]>>([
+  "retry",
+  "choose-alternative",
+  "wait",
+  "narrow-request",
+  "stop-safely",
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -185,6 +208,65 @@ function booleanField(value: unknown, path: string): boolean {
 function nullableBooleanField(value: unknown, path: string): boolean | null {
   if (value !== null && typeof value !== "boolean") fail(path, "expected boolean or null");
   return value as boolean | null;
+}
+
+function boundedModel(value: unknown, path: string): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || value.length === 0 || value.length > 200) {
+    fail(path, "expected a bounded model string or null");
+  }
+  return redactProviderErrorText(value).slice(0, 200);
+}
+
+function parseProviderHealthReport(value: unknown, path: string): ProviderHealthReport {
+  if (!isRecord(value)) fail(path, "expected an object");
+  assertOnlyKeys(value, new Set([
+    "kind",
+    "version",
+    "provider",
+    "model",
+    "status",
+    "evidenceStatus",
+    "failureCategory",
+    "recoveryAction",
+    "attemptCount",
+    "attemptedModels",
+  ]), path);
+  if (value.kind !== "provider-health-report") fail(`${path}.kind`, "unsupported provider health report");
+  if (value.version !== 1) fail(`${path}.version`, "unsupported provider health report version");
+  if (value.provider !== "openrouter") fail(`${path}.provider`, "unsupported provider");
+  if (value.status !== "usable" && value.status !== "unavailable") {
+    fail(`${path}.status`, "unknown provider health status");
+  }
+  if (value.evidenceStatus !== "complete" && value.evidenceStatus !== "incomplete") {
+    fail(`${path}.evidenceStatus`, "unknown evidence status");
+  }
+  if (!FAILURE_CATEGORIES.has(value.failureCategory as ProviderHealthReport["failureCategory"])) {
+    fail(`${path}.failureCategory`, "unknown failure category");
+  }
+  if (value.recoveryAction !== null && !RECOVERY_ACTIONS.has(value.recoveryAction as NonNullable<ProviderHealthReport["recoveryAction"]>)) {
+    fail(`${path}.recoveryAction`, "unknown recovery action");
+  }
+  if (!Array.isArray(value.attemptedModels) || value.attemptedModels.length > 8) {
+    fail(`${path}.attemptedModels`, "expected at most eight attempted models");
+  }
+  const attemptedModels = value.attemptedModels.map((model, index) => {
+    const bounded = boundedModel(model, `${path}.attemptedModels[${index}]`);
+    if (bounded === null) fail(`${path}.attemptedModels[${index}]`, "model cannot be null");
+    return bounded;
+  });
+  return {
+    kind: "provider-health-report",
+    version: 1,
+    provider: "openrouter",
+    model: boundedModel(value.model, `${path}.model`),
+    status: value.status,
+    evidenceStatus: value.evidenceStatus,
+    failureCategory: value.failureCategory as ProviderHealthReport["failureCategory"],
+    recoveryAction: value.recoveryAction as ProviderHealthReport["recoveryAction"],
+    attemptCount: integerField(value.attemptCount, `${path}.attemptCount`, 0, 100),
+    attemptedModels,
+  };
 }
 
 function parseShard(value: unknown, path: string): FreeTierShard {
@@ -283,10 +365,24 @@ function parseRun(value: unknown, path: string): {
   if (!Array.isArray(value.observations) || value.observations.length !== targetCaseCount) {
     fail(`${path}.observations`, "observation count must match targetCaseCount");
   }
+  const healthReports = new Map<string, ProviderHealthReport>();
+  if (value.providerHealth !== undefined) {
+    if (!Array.isArray(value.providerHealth)) fail(`${path}.providerHealth`, "expected an array");
+    value.providerHealth.forEach((health, index) => {
+      if (!isRecord(health)) fail(`${path}.providerHealth[${index}]`, "expected an object");
+      const report = health.report === undefined
+        ? undefined
+        : parseProviderHealthReport(health.report, `${path}.providerHealth[${index}].report`);
+      if (report && healthReports.has(report.provider)) {
+        fail(`${path}.providerHealth[${index}]`, "duplicate provider health report");
+      }
+      if (report) healthReports.set(report.provider, report);
+    });
+  }
 
   const entries = value.observations.map((raw, index) => {
     if (!isRecord(raw)) fail(`${path}.observations[${index}]`, "expected an object");
-    assertOnlyKeys(raw, new Set(["caseId", "provider", "model", "providerAttempts", "observation"]), `${path}.observations[${index}]`);
+    assertOnlyKeys(raw, new Set(["caseId", "provider", "model", "providerAttempts", "providerHealthReport", "observation"]), `${path}.observations[${index}]`);
     const caseId = stringField(raw.caseId, `${path}.observations[${index}].caseId`, 120);
     const provider: "openrouter" | null =
       raw.provider === null
@@ -295,12 +391,15 @@ function parseRun(value: unknown, path: string): {
           ? "openrouter"
           : fail(`${path}.observations[${index}].provider`, "unsupported provider");
     const model = raw.model === null || typeof raw.model === "string"
-      ? raw.model
+      ? raw.model === null ? null : redactProviderErrorText(raw.model).slice(0, 200)
       : fail(`${path}.observations[${index}].model`, "expected string or null");
     if (model !== null && (!model.endsWith(":free") || model.length > 200)) {
       fail(`${path}.observations[${index}].model`, "model is not a bounded free-tier model");
     }
     const providerAttempts = integerField(raw.providerAttempts, `${path}.observations[${index}].providerAttempts`, 0, 100);
+    const providerHealthReport = raw.providerHealthReport === undefined
+      ? healthReports.get("openrouter")
+      : parseProviderHealthReport(raw.providerHealthReport, `${path}.observations[${index}].providerHealthReport`);
     const observation = parseObservation(raw.observation, `${path}.observations[${index}].observation`);
     if (observation.caseId !== caseId) fail(`${path}.observations[${index}]`, "case id mismatch");
     if (observation.grade !== "U" && (provider !== "openrouter" || model === null)) {
@@ -309,7 +408,14 @@ function parseRun(value: unknown, path: string): {
     if (observation.grade === "U" && provider === null && model !== null) {
       fail(`${path}.observations[${index}]`, "provider-less U cannot carry a model");
     }
-    return { caseId, provider, model, providerAttempts, observation };
+    return {
+      caseId,
+      provider,
+      model,
+      providerAttempts,
+      ...(providerHealthReport ? { providerHealthReport } : {}),
+      observation,
+    };
   });
 
   const entryIds = entries.map((entry) => entry.caseId);

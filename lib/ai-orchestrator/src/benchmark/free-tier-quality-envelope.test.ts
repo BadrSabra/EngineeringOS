@@ -134,4 +134,73 @@ describe("free-tier quality envelope", () => {
       "Duplicate free-tier replay run",
     );
   });
+
+  it("retains bounded provider recovery reports while remaining compatible with old envelopes", () => {
+    const cases = getCodeAgentBenchmarkCases();
+    const run = makeRun(0, 1, [cases[0]!], cases[0]!.id);
+    const runWithHealth = {
+      ...run,
+      providerHealth: [{
+        provider: "openrouter",
+        report: {
+          kind: "provider-health-report",
+          version: 1,
+          provider: "openrouter",
+          model: "test-model:free",
+          status: "unavailable",
+          evidenceStatus: "incomplete",
+          failureCategory: "quota",
+          recoveryAction: "stop-safely",
+          attemptCount: 8,
+          attemptedModels: ["test-model:free"],
+        },
+        failureReason: "raw provider details must not be persisted",
+      }],
+    };
+
+    const corpus = buildFreeTierReplayCorpus({ runs: [runWithHealth] });
+    expect(corpus.entries[0]?.providerHealthReport).toEqual({
+      kind: "provider-health-report",
+      version: 1,
+      provider: "openrouter",
+      model: "test-model:free",
+      status: "unavailable",
+      evidenceStatus: "incomplete",
+      failureCategory: "quota",
+      recoveryAction: "stop-safely",
+      attemptCount: 8,
+      attemptedModels: ["test-model:free"],
+    });
+    expect(JSON.stringify(corpus)).not.toContain("raw provider details");
+
+    const oldCorpus = buildFreeTierReplayCorpus({ runs: [run] });
+    expect(oldCorpus.entries[0]).not.toHaveProperty("providerHealthReport");
+  });
+
+  it("rejects unallowlisted provider report text and bounds report fields", () => {
+    const testCase = getCodeAgentBenchmarkCases()[0]!;
+    const run = makeRun(0, 1, [testCase], testCase.id);
+    const withSensitiveReport = {
+      ...run,
+      observations: [{
+        ...(run.observations as Array<Record<string, unknown>>)[0],
+        providerHealthReport: {
+          kind: "provider-health-report",
+          version: 1,
+          provider: "openrouter",
+          model: "test-model:free",
+          status: "unavailable",
+          evidenceStatus: "incomplete",
+          failureCategory: "quota",
+          recoveryAction: "stop-safely",
+          attemptCount: 1,
+          attemptedModels: ["test-model:free"],
+          providerMessage: "sk-or-v1-secret provider response",
+        },
+      }],
+    };
+    expect(() => buildFreeTierReplayCorpus({ runs: [withSensitiveReport] })).toThrow(
+      "unknown field",
+    );
+  });
 });
