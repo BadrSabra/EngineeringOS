@@ -161,7 +161,11 @@ async function startReleaseServices() {
     "Dashboard release service",
     "pnpm",
     ["--filter", "@workspace/dashboard", "run", "dev"],
-    { PORT: String(dashboardPort), BASE_PATH: "/dashboard/" },
+    {
+      PORT: String(dashboardPort),
+      BASE_PATH: "/dashboard/",
+      API_PROXY_TARGET: `http://127.0.0.1:${apiPort}`,
+    },
   );
   await waitFor(apiHealthUrl, "API workflow");
   const dashboardResponse = await waitFor(dashboardBaseUrl, "Dashboard workflow");
@@ -391,7 +395,7 @@ try {
         DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
         DASHBOARD_E2E_API_BASE_URL:
           process.env.DASHBOARD_E2E_API_BASE_URL ??
-          new URL(apiHealthUrl).origin,
+          dashboardBaseUrl,
         DASHBOARD_E2E_EMAIL: testEmail,
         DASHBOARD_E2E_EXECUTABLE_PATH: process.env.DASHBOARD_E2E_EXECUTABLE_PATH,
         PLAYWRIGHT_OUTPUT_DIR: outputDir,

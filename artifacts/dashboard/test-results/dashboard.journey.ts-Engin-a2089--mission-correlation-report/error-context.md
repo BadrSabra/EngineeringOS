@@ -58,7 +58,59 @@ Error: Live-provider mission failed to start (401).
         - generic [ref=f1e80]:
           - generic [ref=f1e81]: v1.0.4-stable
           - button [ref=f1e86]
-      - main [ref=f1e91]
+      - main [ref=f1e91]:
+        - generic [ref=f1e93]:
+          - generic [ref=f1e94]:
+            - generic [ref=f1e95]:
+              - heading "System Overview" [level=1] [ref=f1e96]
+              - paragraph [ref=f1e97]: Real-time status of all autonomous engineering operations.
+            - generic [ref=f1e98]: SYSTEM ONLINE
+          - generic [ref=f1e101]:
+            - generic [ref=f1e102]:
+              - heading "Active Projects" [level=3] [ref=f1e104]
+              - generic [ref=f1e111]: "0"
+              - generic [ref=f1e112]:
+                - generic [ref=f1e113]: "0"
+                - text: tasks pending
+            - generic [ref=f1e114]:
+              - heading "Active Tasks" [level=3] [ref=f1e116]
+              - generic [ref=f1e120]: "0"
+              - generic [ref=f1e121]:
+                - generic [ref=f1e122]: "0"
+                - text: currently executing
+            - generic [ref=f1e123]:
+              - heading "Tasks Completed" [level=3] [ref=f1e125]
+              - generic [ref=f1e130]: "0"
+              - generic [ref=f1e131]: No completions yet
+            - generic [ref=f1e133]:
+              - heading "Failed Tasks" [level=3] [ref=f1e135]
+              - generic [ref=f1e139]: "0"
+              - generic [ref=f1e140]: Require attention
+          - generic [ref=f1e141]:
+            - generic [ref=f1e142]:
+              - generic [ref=f1e143]:
+                - heading "Project Health" [level=2] [ref=f1e144]
+                - link "View All" [ref=f1e150] [cursor=pointer]:
+                  - /url: /dashboard/projects
+              - table [ref=f1e152]:
+                - rowgroup [ref=f1e153]:
+                  - row [ref=f1e154]:
+                    - columnheader "Project" [ref=f1e155]
+                    - columnheader "Score" [ref=f1e156]
+                    - columnheader "Trend" [ref=f1e157]
+                    - columnheader "Quality Bar" [ref=f1e158]
+                - rowgroup [ref=f1e159]:
+                  - row [ref=f1e160]:
+                    - cell [ref=f1e161]:
+                      - paragraph [ref=f1e162]: No projects yet.
+                      - link "Connect your first repository →" [ref=f1e163] [cursor=pointer]:
+                        - /url: /dashboard/projects
+            - generic [ref=f1e169]:
+              - generic [ref=f1e170]:
+                - heading "Event Stream" [level=2] [ref=f1e171]
+                - link "View All" [ref=f1e175] [cursor=pointer]:
+                  - /url: /dashboard/events
+              - generic [ref=f1e176]: No recent events.
   - region "Notifications (F8)":
     - list
 ```
