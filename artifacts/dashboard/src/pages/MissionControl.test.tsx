@@ -93,6 +93,50 @@ function renderPage() {
   });
 }
 
+function parseCsv(csv: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let quoted = false;
+
+  for (let index = 0; index < csv.length; index += 1) {
+    const character = csv[index];
+    const nextCharacter = csv[index + 1];
+
+    if (character === '"') {
+      if (quoted && nextCharacter === '"') {
+        cell += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === ',' && !quoted) {
+      row.push(cell);
+      cell = '';
+    } else if (character === '\r' && nextCharacter === '\n' && !quoted) {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = '';
+      index += 1;
+    } else if (character === '\n' && !quoted) {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = '';
+    } else {
+      cell += character;
+    }
+  }
+
+  if (cell || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
+  }
+
+  return rows;
+}
+
 describe('Mission Control', () => {
   beforeEach(() => {
     currentMissionControl = missionControlFixture;
@@ -473,14 +517,19 @@ describe('Mission Control', () => {
         ...missionControlFixture.executions[0],
         id: 'live-selected',
         state: 'BLOCKED',
+        objective: 'Repair the "auth", scope\ncheck',
         eventCount: 2,
         failureCategory: 'RATE_LIMIT',
-        recoveryAction: 'Bounded retry',
+        recoveryAction: 'Bounded, "safe" retry',
         evidenceStatus: 'INCOMPLETE',
-        recovery: { attempt: 2, provider: 'openrouter' },
+        evidence: {
+          verdict: 'PROVEN',
+          reason: 'Evidence includes commas, "quotes",\nand a second line.',
+        },
+        recovery: { attempt: 2, provider: 'openrouter', note: 'Retry,\nthen verify' },
         timestamps: { startedAt: '2026-08-22T10:00:00.000Z' },
         recentEvents: [
-          { type: 'provider_failure', timestamp: '2026-08-22T10:01:00.000Z', detail: 'Rate limited' },
+          { type: 'provider_failure', timestamp: '2026-08-22T10:01:00.000Z', detail: 'Rate limited, "again"\nplease inspect' },
           { type: 'retry', timestamp: '2026-08-22T10:02:00.000Z', detail: 'Retry bounded' },
         ],
       }],
@@ -489,12 +538,12 @@ describe('Mission Control', () => {
       executions: [{
         id: 'archived-selected',
         state: 'COMPLETED',
-        objective: 'Archived recovery',
+        objective: 'Archived recovery, "verified"\nfrom import',
         eventCount: 1,
-        evidence: { verdict: 'VERIFIED', proof: 'Archived proof' },
+        evidence: { verdict: 'VERIFIED', proof: 'Archived proof, "complete"\nwith details' },
         recoverySummary: { recoveryAction: 'Imported retry', attemptCount: 3 },
         timestamps: { completedAt: '2026-08-21T10:00:00.000Z' },
-        recentEvents: [{ type: 'complete', timestamp: '2026-08-21T10:01:00.000Z' }],
+        recentEvents: [{ type: 'complete', timestamp: '2026-08-21T10:01:00.000Z', detail: 'Imported, "complete"\nwith evidence' }],
       }],
       benchmark: {
         scorecard: { metrics: { correctCompletionRate: 0.75 } },
@@ -515,28 +564,30 @@ describe('Mission Control', () => {
 
     const blob = createObjectURL.mock.calls.at(-1)?.[0] as Blob;
     expect(blob.type).toBe('text/csv;charset=utf-8');
-    const [header, liveRow, importedRow] = (await blob.text()).trim().split('\r\n');
-    expect(header).toBe(
-      '"Side","Execution ID","Objective","State","Provider","Model","Attempts","Validation Failures","Event Count","Failure Category","Recovery Action","Evidence Status","Evidence","Recovery","Timestamps","Event Timeline"',
-    );
-
-    const serializedCsvCell = (value: unknown) => `"${JSON.stringify(value).replace(/"/g, '""')}"`;
-    expect(liveRow).toContain('"live","live-selected"');
-    expect(liveRow).toContain('"BLOCKED"');
-    expect(liveRow).toContain('"RATE_LIMIT"');
-    expect(liveRow).toContain('"Bounded retry"');
-    expect(liveRow).toContain('"2"');
-    expect(liveRow).toContain(serializedCsvCell(currentMissionControl.executions[0].evidence));
-    expect(liveRow).toContain(serializedCsvCell(currentMissionControl.executions[0].recovery));
-    expect(liveRow).toContain(serializedCsvCell(currentMissionControl.executions[0].recentEvents));
-
-    expect(importedRow).toContain('"imported","archived-selected"');
-    expect(importedRow).toContain('"COMPLETED"');
-    expect(importedRow).toContain('"Imported retry"');
-    expect(importedRow).toContain('"1"');
-    expect(importedRow).toContain(serializedCsvCell(imported.executions[0].evidence));
-    expect(importedRow).toContain(serializedCsvCell(imported.executions[0].recoverySummary));
-    expect(importedRow).toContain(serializedCsvCell(imported.executions[0].recentEvents));
+    const rows = parseCsv(await blob.text());
+    expect(rows).toHaveLength(3);
+    expect(rows.every((row) => row.length === 16)).toBe(true);
+    expect(rows[0]).toEqual([
+      'Side', 'Execution ID', 'Objective', 'State', 'Provider', 'Model',
+      'Attempts', 'Validation Failures', 'Event Count', 'Failure Category',
+      'Recovery Action', 'Evidence Status', 'Evidence', 'Recovery', 'Timestamps', 'Event Timeline',
+    ]);
+    expect(rows[1]).toEqual([
+      'live', 'live-selected', 'Repair the "auth", scope\ncheck', 'BLOCKED', 'openrouter', 'openai/gpt-4.1-mini',
+      '2', '1', '2', 'RATE_LIMIT', 'Bounded, "safe" retry', 'INCOMPLETE',
+      JSON.stringify(currentMissionControl.executions[0].evidence),
+      JSON.stringify(currentMissionControl.executions[0].recovery),
+      JSON.stringify(currentMissionControl.executions[0].timestamps),
+      JSON.stringify(currentMissionControl.executions[0].recentEvents),
+    ]);
+    expect(rows[2]).toEqual([
+      'imported', 'archived-selected', 'Archived recovery, "verified"\nfrom import', 'COMPLETED', 'Not recorded', 'Not recorded',
+      '0', '0', '1', 'Not categorized', 'Imported retry', 'VERIFIED',
+      JSON.stringify(imported.executions[0].evidence),
+      JSON.stringify(imported.executions[0].recoverySummary),
+      JSON.stringify(imported.executions[0].timestamps),
+      JSON.stringify(imported.executions[0].recentEvents),
+    ]);
 
     expect(click).toHaveBeenCalled();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:selected-comparison-csv');
