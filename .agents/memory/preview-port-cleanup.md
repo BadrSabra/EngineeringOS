@@ -9,7 +9,7 @@ Preview workflow restart scripts should use the available `lsof` command rather 
 
 **How to apply:** Scope process discovery to the exact TCP listening port, terminate only those PIDs, poll for release, and escalate only after a short grace period.
 
-Release validation should spawn the final API server process directly after its build rather than relying on a package script that may orphan grandchildren; own both service process groups and await their exit in `finally`.
+Release validation should spawn the final API server process directly after its build rather than relying on a package script that may orphan grandchildren; own both service process groups and await their exit in `finally`. Verify release ports are free before each run because a prior detached child can survive successful teardown.
 
 **Why:** A detached package runner can leave the API listener alive after a successful browser journey, contaminating later isolated runs even when the parent command exits cleanly.
 
