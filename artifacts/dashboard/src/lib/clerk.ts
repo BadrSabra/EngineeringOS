@@ -1,6 +1,26 @@
 import { shadcn } from '@clerk/themes';
+import { publishableKeyFromHost } from '@clerk/react/internal';
 
 export const basePath = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+/**
+ * Resolve the host-aware key only after checking the public build
+ * configuration. Clerk's helper intentionally synthesizes a host key when
+ * its fallback is absent; that is useful for custom domains, but would turn a
+ * missing VITE_CLERK_PUBLISHABLE_KEY into a confusing script-load failure.
+ */
+export function resolveClerkPublishableKey(
+  hostname: string,
+  configuredKey: string | undefined,
+): string {
+  const key = configuredKey?.trim();
+  if (!key) {
+    throw new Error(
+      'Clerk is not configured for this dashboard build. Set VITE_CLERK_PUBLISHABLE_KEY (or provision Clerk and restart the dashboard).',
+    );
+  }
+  return publishableKeyFromHost(hostname, key);
+}
 
 // Clerk passes full paths to routerPush/routerReplace, but wouter's
 // setLocation prepends the base — strip it to avoid doubling.

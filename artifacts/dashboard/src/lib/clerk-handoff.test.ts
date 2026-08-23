@@ -2,6 +2,13 @@ import {
   parseClerkSignInTokenResponse,
   parseClerkUserLookupResponse,
 } from "./clerk-handoff";
+import { resolveClerkPublishableKey } from "./clerk";
+
+vi.mock("@clerk/themes", () => ({ shadcn: {} }));
+vi.mock("@clerk/react/internal", () => ({
+  publishableKeyFromHost: (hostname: string, fallback?: string) =>
+    fallback ?? `clerk.${hostname}`,
+}));
 
 describe("Clerk release handoff response contracts", () => {
   it("accepts the bare-array user lookup response", () => {
@@ -38,5 +45,20 @@ describe("Clerk release handoff response contracts", () => {
     expect(parseClerkSignInTokenResponse({ token: "ticket_token" })).toBe(
       "ticket_token",
     );
+  });
+});
+
+describe("Clerk browser configuration", () => {
+  it("rejects a missing public key before Clerk can synthesize a bad host key", () => {
+    expect(() => resolveClerkPublishableKey("preview.example", undefined))
+      .toThrow(
+        "Clerk is not configured for this dashboard build. Set VITE_CLERK_PUBLISHABLE_KEY",
+      );
+  });
+
+  it("passes the public key through host-aware resolution", () => {
+    expect(
+      resolveClerkPublishableKey("custom.example", " pk_test_example "),
+    ).toBe("pk_test_example");
   });
 });

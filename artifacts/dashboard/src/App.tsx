@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { ClerkProvider, Show, useClerk } from '@clerk/react';
-import { publishableKeyFromHost } from '@clerk/react/internal';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
@@ -22,7 +21,12 @@ import MissionControl from '@/pages/MissionControl';
 import Landing from '@/pages/Landing';
 import SignInPage from '@/pages/SignIn';
 import SignUpPage from '@/pages/SignUp';
-import { basePath, stripBase, clerkAppearance } from '@/lib/clerk';
+import {
+  basePath,
+  stripBase,
+  clerkAppearance,
+  resolveClerkPublishableKey,
+} from '@/lib/clerk';
 import { SessionRecoveryBanner } from '@/components/OperatorResilience';
 import { ApiError } from '@workspace/api-client-react';
 
@@ -45,17 +49,13 @@ function notifySessionExpiry(error: unknown) {
 
 // REQUIRED — resolves the key from window.location.hostname so the same
 // build serves multiple Clerk custom domains.
-const clerkPubKey = publishableKeyFromHost(
+const clerkPubKey = resolveClerkPublishableKey(
   window.location.hostname,
   import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
 );
 
 // Empty in dev (Clerk hits dev FAPI directly), auto-set in prod.
 const clerkProxyUrl = import.meta.env.VITE_CLERK_PROXY_URL;
-
-if (!clerkPubKey) {
-  throw new Error('Missing VITE_CLERK_PUBLISHABLE_KEY in .env file');
-}
 
 function HomeRedirect() {
   return (
