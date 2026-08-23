@@ -3875,6 +3875,156 @@ router.get("/ai/executions/:executionId", async (req, res) => {
   });
 });
 
+/**
+ * Return a portable, content-minimized audit record. This deliberately does
+ * not reuse the full execution response: checkpoints may contain model
+ * previews and event payloads may contain implementation details that are not
+ * appropriate for an operator handoff.
+ */
+router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
+  const execution = await getAiExecutionForUser(req.params.executionId, req.userId);
+  if (!execution) return res.status(404).json({ error: "AI execution not found" });
+
+  const parseRecord = (raw: string): Record<string, unknown> => {
+    try {
+      const value: unknown = JSON.parse(raw);
+      return value && typeof value === "object" && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : {};
+    } catch {
+      return {};
+    }
+  };
+  const request = parseRecord(execution.request);
+  const checkpoint = parseRecord(execution.checkpoint);
+  const safePath = (value: unknown): string | undefined => {
+    if (typeof value !== "string" || !value || value.startsWith("/")
+      || value.includes("..") || value.includes("\\")
+      || /(?:^|\/)(?:home|tmp|private|runtime)(?:\/|$)/i.test(value)) return undefined;
+    return value.slice(0, 500);
+  };
+  const safePaths = (value: unknown): string[] => Array.isArray(value)
+    ? value.map(safePath).filter((item): item is string => Boolean(item)).slice(0, 200)
+    : [];
+  const safeText = (value: unknown, limit = 500): string | undefined =>
+    typeof value === "string" ? redactUserFacingText(value).slice(0, limit) : undefined;
+
+  const operationId = execution.operationId ?? execution.correlationId ?? execution.id;
+  const events = await db
+    .select({
+      id: eventsTable.id,
+      type: eventsTable.type,
+      severity: eventsTable.severity,
+      message: eventsTable.message,
+      timestamp: eventsTable.timestamp,
+      payload: eventsTable.payload,
+    })
+    .from(eventsTable)
+    .where(and(
+      eq(eventsTable.projectId, execution.projectId),
+      eq(eventsTable.correlationId, operationId),
+    ))
+    .orderBy(eventsTable.timestamp, eventsTable.id);
+
+  const timeline = [
+    {
+      timestamp: execution.createdAt,
+      type: "execution_created",
+      status: "queued",
+      detail: "Execution created",
+    },
+    ...events.map((event) => {
+      const payload = event.payload ?? {};
+      const safePayload: Record<string, unknown> = {};
+      for (const key of ["status", "phase", "profile", "scenario", "exitCode", "attempt", "checkpointVersion"]) {
+        const value = payload[key];
+        if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+          safePayload[key] = value;
+        }
+      }
+      const paths = safePaths(payload.paths ?? payload.files ?? payload.affectedFiles);
+      if (paths.length) safePayload.files = paths;
+      return {
+        timestamp: event.timestamp,
+        type: event.type,
+        severity: event.severity,
+        detail: safeText(event.message, 500),
+        ...(Object.keys(safePayload).length ? { details: safePayload } : {}),
+      };
+    }),
+    ...(execution.startedAt ? [{
+      timestamp: execution.startedAt,
+      type: "execution_started",
+      status: "running",
+      detail: "Execution started",
+    }] : []),
+    ...(execution.completedAt ? [{
+      timestamp: execution.completedAt,
+      type: `execution_${execution.status}`,
+      status: execution.status,
+      detail: safeText(execution.error ?? checkpoint.detail ?? `Execution ${execution.status}`, 500),
+    }] : []),
+  ].sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
+
+  const checkpointNodes = Array.isArray(checkpoint.nodeStates) ? checkpoint.nodeStates : [];
+  const affectedFiles = Array.from(new Set([
+    ...safePaths(request.validationTargetPaths),
+    ...checkpointNodes.flatMap((node) => node && typeof node === "object"
+      ? safePaths((node as Record<string, unknown>).allowedFiles)
+      : []),
+  ])).sort();
+  const validations = Array.isArray(checkpoint.recentSteps)
+    ? checkpoint.recentSteps.flatMap((step) => {
+      if (!step || typeof step !== "object" || (step as Record<string, unknown>).kind !== "validation") return [];
+      const value = step as Record<string, unknown>;
+      const validation = value.validation && typeof value.validation === "object"
+        ? value.validation as Record<string, unknown>
+        : value;
+      return [{
+        status: safeText(validation.status, 80) ?? "unknown",
+        profile: safeText(validation.profile, 160),
+        scenario: safeText(validation.scenario, 240),
+        exitCode: typeof validation.exitCode === "number" ? validation.exitCode : null,
+        detail: safeText(validation.detail, 500),
+      }];
+    })
+    : [];
+
+  const body = {
+    format: "engineeringos.execution-audit.v1",
+    exportedAt: new Date().toISOString(),
+    execution: {
+      id: execution.id,
+      projectId: execution.projectId,
+      sessionId: execution.sessionId,
+      operationId,
+      objective: safeText(request.objective, 1_000),
+      status: execution.status,
+      terminalState: execution.status,
+      attempt: execution.attempt,
+      revision: safeText(request.workspaceRevision, 200) ?? null,
+      proof: {
+        required: checkpoint.proofRequired === true,
+        verdict: safeText(checkpoint.evidenceVerdict, 80) ?? "NOT_RECORDED",
+        reason: safeText(checkpoint.evidenceReason, 500) ?? null,
+      },
+      checkpointVersion: execution.checkpointVersion,
+      createdAt: execution.createdAt,
+      startedAt: execution.startedAt,
+      completedAt: execution.completedAt,
+      terminalReason: safeText(execution.error ?? checkpoint.detail, 500) ?? null,
+    },
+    timeline,
+    validations,
+    affectedFiles,
+    redaction: {
+      excluded: ["provider secrets", "raw model output", "private runtime paths"],
+    },
+  };
+  res.setHeader("Content-Disposition", `attachment; filename="execution-${execution.id}-audit.json"`);
+  return res.json(body);
+});
+
 router.post("/ai/executions/:executionId/resume-capability", async (req, res) => {
   const recovered = await recoverAiExecutionResumeToken({
     executionId: req.params.executionId,

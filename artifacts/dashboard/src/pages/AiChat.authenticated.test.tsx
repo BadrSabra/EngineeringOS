@@ -565,7 +565,7 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.queryByText('Persisted execution proof')).not.toBeInTheDocument();
   });
 
-  it('hydrates persisted chat data and clears stale storage when the server completed offline', async () => {
+  it('hydrates persisted chat data and keeps the audit pointer when the server completed offline', async () => {
     mocks.activeExecutionStatus = { status: 'completed' };
     localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
     localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
@@ -579,13 +579,14 @@ describe('AiChat authenticated generated mutations', () => {
     const { invalidateQueries } = renderAiChat();
 
     await waitFor(() => {
-      expect(localStorage.getItem('eos_ai_execution_project-1_session-1')).toBeNull();
-      expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBeNull();
+      expect(localStorage.getItem('eos_ai_execution_project-1_session-1')).not.toBeNull();
+      expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBe('session-1');
       expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-messages', 'session-1'] });
       expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-pending-proposal', 'session-1'] });
       expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ai-sessions', 'project-1'] });
     });
-    expect(screen.queryByText('A saved AI execution is ready to resume')).not.toBeInTheDocument();
+    expect(localStorage.getItem('eos_ai_execution_project-1_session-1')).not.toBeNull();
+    expect(localStorage.getItem('eos_ai_execution_current_project-1')).toBe('session-1');
   });
 
   it('replays a persisted analysis failure after dashboard reload without showing completion', async () => {

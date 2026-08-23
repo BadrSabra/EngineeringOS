@@ -2811,6 +2811,25 @@ export const GetAiExecutionResponse = zod.object({
 
 
 /**
+ * Returns the selected execution's portable timeline, terminal state, revision, proof verdict, validation checkpoints, and affected files. Provider secrets, raw model output, and private runtime paths are excluded.
+ * @summary Download a redacted durable AI execution audit
+ */
+export const ExportAiExecutionAuditParams = zod.object({
+  "executionId": zod.coerce.string()
+})
+
+export const ExportAiExecutionAuditResponse = zod.object({
+  "format": zod.string(),
+  "exportedAt": zod.coerce.date(),
+  "execution": zod.record(zod.string(), zod.unknown()),
+  "timeline": zod.array(zod.record(zod.string(), zod.unknown())),
+  "validations": zod.array(zod.record(zod.string(), zod.unknown())),
+  "affectedFiles": zod.array(zod.string()),
+  "redaction": zod.record(zod.string(), zod.unknown())
+})
+
+
+/**
  * Owner-scoped recovery for paused or failed executions. The stored token hash and provider diagnostics are never returned.
  * @summary Rotate and return a one-time opaque resume capability
  */

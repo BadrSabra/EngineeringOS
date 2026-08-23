@@ -2648,6 +2648,24 @@ export type GetAiExecution200 = {
   completedAt?: string | null;
 };
 
+export type ExportAiExecutionAudit200Execution = { [key: string]: unknown };
+
+export type ExportAiExecutionAudit200TimelineItem = { [key: string]: unknown };
+
+export type ExportAiExecutionAudit200ValidationsItem = { [key: string]: unknown };
+
+export type ExportAiExecutionAudit200Redaction = { [key: string]: unknown };
+
+export type ExportAiExecutionAudit200 = {
+  format: string;
+  exportedAt: string;
+  execution: ExportAiExecutionAudit200Execution;
+  timeline: ExportAiExecutionAudit200TimelineItem[];
+  validations: ExportAiExecutionAudit200ValidationsItem[];
+  affectedFiles: string[];
+  redaction: ExportAiExecutionAudit200Redaction;
+};
+
 export type RecoverAiExecutionResumeCapability200 = {
   executionId: string;
   /** @minLength 32 */

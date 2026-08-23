@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/react';
-import { Bot, Send, Plus, ChevronDown, Loader2, User, Zap, Search, Code2, GitMerge, Key, Trash2, Check, FileCode2, ChevronRight, X, Menu, Activity, ShieldAlert, ShieldCheck, CheckCircle2, FileSearch, RotateCcw, Square, Eye, Play, Pause, SkipBack, StepForward, ExternalLink, Clock3 } from 'lucide-react';
+import { Bot, Send, Plus, ChevronDown, Loader2, User, Zap, Search, Code2, GitMerge, Key, Trash2, Check, FileCode2, ChevronRight, X, Menu, Activity, ShieldAlert, ShieldCheck, CheckCircle2, FileSearch, RotateCcw, Square, Eye, Play, Pause, SkipBack, StepForward, ExternalLink, Clock3, Download } from 'lucide-react';
 import { Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -6040,6 +6040,7 @@ function AgentExecutionProofPanel({
   verdictScope,
   onCancel,
   onResume,
+  onExport,
   controlPending,
 }: {
   execution?: AgentExecutionProofStatus | null;
@@ -6069,6 +6070,7 @@ function AgentExecutionProofPanel({
   } | null;
   onCancel?: () => void;
   onResume?: () => void;
+  onExport?: () => void;
   controlPending?: boolean;
 }) {
   const persistedStatus = execution?.status;
@@ -6194,8 +6196,21 @@ function AgentExecutionProofPanel({
             <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
               {busy ? `${formatElapsed(elapsedSeconds)} elapsed` : 'Persisted proof'}
             </span>
-            {(canCancel || canResume) && (
+            {(executionId && onExport) || canCancel || canResume ? (
               <div className="flex shrink-0 items-center gap-1.5">
+                {executionId && onExport && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={onExport}
+                    disabled={controlPending}
+                    title="Download the redacted execution audit"
+                  >
+                    <Download className="mr-1.5 h-3.5 w-3.5" />
+                    Export audit
+                  </Button>
+                )}
                 {canCancel && (
                   <Button
                     type="button"
@@ -6223,7 +6238,7 @@ function AgentExecutionProofPanel({
                   </Button>
                 )}
               </div>
-            )}
+            ) : null}
           </div>
           <p className="mt-1 break-words text-[10px] leading-4 text-muted-foreground">{phase}</p>
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
@@ -6397,6 +6412,7 @@ export default function AiChat() {
     return params.get('taskId') ?? undefined;
   });
   const [input, setInput] = useState('');
+  const [auditExportPending, setAuditExportPending] = useState(false);
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [historicalReportError, setHistoricalReportError] = useState<string | null>(null);
   const [planDecisionPending, setPlanDecisionPending] = useState<string | null>(null);
@@ -6545,6 +6561,40 @@ export default function AiChat() {
     },
   );
 
+  async function exportExecutionAudit() {
+    const executionId = activeExecution?.id;
+    if (!executionId || auditExportPending) return;
+    setAuditExportPending(true);
+    try {
+      const response = await fetch(`/api/ai/executions/${encodeURIComponent(executionId)}/audit-export`, {
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(body.error || 'The execution audit could not be exported.');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `execution-${executionId}-audit.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      toast({ title: 'Audit exported', description: 'The redacted execution timeline is ready for handoff.' });
+    } catch (error) {
+      toast({
+        title: 'Audit export failed',
+        description: error instanceof Error ? error.message : 'The execution audit could not be exported.',
+        variant: 'destructive',
+      });
+    } finally {
+      setAuditExportPending(false);
+    }
+  }
+
   useEffect(() => {
     if (!executionStorageKey || hydratedExecutionScopeRef.current === executionStorageKey) return;
     hydratedExecutionScopeRef.current = executionStorageKey;
@@ -6596,11 +6646,14 @@ export default function AiChat() {
         void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', recoveredSessionId] });
       }
       void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
-      activeExecutionRef.current = null;
-      setActiveExecution(null);
-      if (executionStorageKey) localStorage.removeItem(executionStorageKey);
-      if (executionPointerKey) localStorage.removeItem(executionPointerKey);
-      setAgentStage(null);
+      // Keep the durable pointer and proof panel after terminal completion.
+      // Operators must be able to export the record after a reconnect or
+      // refresh, not only while the SSE subscriber is still attached.
+      setAgentStage(
+        activeExecutionStatus.status === 'completed'
+          ? 'Execution completed — audit export is available'
+          : 'Execution cancelled — audit export is available',
+      );
       return;
     }
     if (activeExecutionStatus.status === 'paused' || activeExecutionStatus.status === 'failed') {
@@ -8399,6 +8452,7 @@ export default function AiChat() {
                    verdictScope={liveVerdictScope}
                    onCancel={cancelActiveExecution}
                    onResume={resumeActiveExecution}
+                   onExport={exportExecutionAudit}
                    controlPending={executionControlPending}
                  />
                )}
@@ -8557,6 +8611,10 @@ export default function AiChat() {
                       ? 'The AI execution is queued on the server'
                       : activeExecutionStatus?.status === 'cancelling'
                         ? 'The AI execution is being cancelled'
+                      : activeExecutionStatus?.status === 'completed'
+                        ? 'The AI execution is complete'
+                      : activeExecutionStatus?.status === 'cancelled'
+                        ? 'The AI execution was cancelled'
                       : 'A saved AI execution is ready to resume'}
                 </div>
                 <div className="truncate text-muted-foreground">

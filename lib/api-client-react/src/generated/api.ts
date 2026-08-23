@@ -61,6 +61,7 @@ import type {
   DiscoverySessionStatus,
   DiscoverySourceCapability,
   EvaluateRuleRequest,
+  ExportAiExecutionAudit200,
   FailWorkflowPhaseInput,
   GeminiKeyStatus,
   GetAiChatFileContentParams,
@@ -4708,6 +4709,84 @@ export function useGetAiExecution<TData = Awaited<ReturnType<typeof getAiExecuti
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetAiExecutionQueryOptions(executionId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getExportAiExecutionAuditUrl = (executionId: string,) => {
+
+
+
+
+  return `/api/ai/executions/${executionId}/audit-export`
+}
+
+/**
+ * Returns the selected execution's portable timeline, terminal state, revision, proof verdict, validation checkpoints, and affected files. Provider secrets, raw model output, and private runtime paths are excluded.
+ * @summary Download a redacted durable AI execution audit
+ */
+export const exportAiExecutionAudit = async (executionId: string, options?: RequestInit): Promise<ExportAiExecutionAudit200> => {
+
+  return customFetch<ExportAiExecutionAudit200>(getExportAiExecutionAuditUrl(executionId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getExportAiExecutionAuditQueryKey = (executionId: string,) => {
+    return [
+    `/api/ai/executions/${executionId}/audit-export`
+    ] as const;
+    }
+
+
+export const getExportAiExecutionAuditQueryOptions = <TData = Awaited<ReturnType<typeof exportAiExecutionAudit>>, TError = ErrorType<ApiError>>(executionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportAiExecutionAudit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportAiExecutionAuditQueryKey(executionId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportAiExecutionAudit>>> = ({ signal }) => exportAiExecutionAudit(executionId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: executionId !== null && executionId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportAiExecutionAudit>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ExportAiExecutionAuditQueryResult = NonNullable<Awaited<ReturnType<typeof exportAiExecutionAudit>>>
+export type ExportAiExecutionAuditQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary Download a redacted durable AI execution audit
+ */
+
+export function useExportAiExecutionAudit<TData = Awaited<ReturnType<typeof exportAiExecutionAudit>>, TError = ErrorType<ApiError>>(
+ executionId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof exportAiExecutionAudit>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getExportAiExecutionAuditQueryOptions(executionId,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
