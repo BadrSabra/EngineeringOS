@@ -44,3 +44,4 @@
 - [Browser paging assertions](browser-paging-assertions.md) — page transitions can be served from query cache; assert visible state, not a repeated request.
 - [Browser stream abort fixtures](browser-stream-abort-fixtures.md) — route EOF is clean completion; reject a browser ReadableStream after the durable identity frame to test network recovery.
 - [Release pipeline hardening](release-pipeline-hardening.md) — protected manual validation, bounded process groups, retained diagnostics, and narrow transient-only retries.
+- [OpenAPI/Zod compatibility](openapi-zod-compatibility.md) — uuid formats can generate unsupported zod.uuid() in the workspace's Zod 3 runtime; verify generated typechecks.

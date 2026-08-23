@@ -46,6 +46,35 @@ export type AiStreamDeltaEvent = {
   delta: string;
 };
 
+/** Server-authoritative routing decision emitted before model work begins. */
+export type AiStreamIntentEvent = {
+  type: 'intent';
+  intent: 'CHAT' | 'PROJECT_QUERY' | 'FORENSIC_AUDIT' | 'DELIVERY';
+  operationMode: 'CHAT' | 'FORENSIC_AUDIT' | 'DELIVERY';
+  requiresEvidence: boolean;
+};
+
+/** Bounded forensic state projection; values are contract labels, not prose. */
+export type AiStreamAuditStateEvent = {
+  type: 'audit_state';
+  sourceCoverage: 'COMPLETE' | 'PARTIAL' | 'NONE';
+  behaviorAssessment: 'COMPLETE' | 'INCOMPLETE' | 'NOT_STARTED';
+  findingStatus: 'PROVEN' | 'NO_FINDING' | 'NOT_PROVEN';
+  repairReadiness: 'READY' | 'BLOCKED';
+  productionReachability: 'PROVEN' | 'NOT_PROVEN' | 'OUT_OF_SCOPE';
+};
+
+/** Verification telemetry emitted after model output is checked. */
+export type AiStreamVerificationEvent = {
+  type: 'verification';
+  stage: 'MODEL_RESPONSE' | 'VERIFIED_RESPONSE';
+  responseLength: number;
+  sourceCount: number;
+  evidenceCount: number;
+  acceptedEvidenceCount: number;
+  rejectionReasons: string[];
+};
+
 /** An accepted behavior-evidence excerpt with its exact source line span (when verifiable). */
 export type AiBehaviorEvidence = {
   source: string;
@@ -583,6 +612,9 @@ export type AiStreamEvent =
   | AiStreamExecutionNodesEvent
   | AiStreamStageEvent
   | AiStreamDeltaEvent
+  | AiStreamIntentEvent
+  | AiStreamAuditStateEvent
+  | AiStreamVerificationEvent
   | AiStreamSessionStartedEvent
   | AiStreamDoneEvent
   | AiStreamErrorEvent
@@ -633,6 +665,12 @@ export type AiChatStreamCallbacks = {
   /** Called once the server has reserved a new session before model work starts. */
   onSessionStarted?: (event: AiStreamSessionStartedEvent) => void;
   onStage?: (stage: string) => void;
+  /** Called once the server has resolved the authoritative turn routing contract. */
+  onIntent?: (event: AiStreamIntentEvent) => void;
+  /** Called when the forensic evidence ledger publishes its bounded state. */
+  onAuditState?: (event: AiStreamAuditStateEvent) => void;
+  /** Called when the server verifies the model response/evidence boundary. */
+  onVerification?: (event: AiStreamVerificationEvent) => void;
   /** Called for each incremental text token from the model's streaming response. */
   onDelta?: (delta: string) => void;
   /** Called when the SSE stream breaks mid-flight so callers can clear partial state. */
@@ -741,6 +779,15 @@ export async function processAiStream(
           break;
         case 'stage':
           callbacks.onStage?.(event.stage);
+          break;
+        case 'intent':
+          callbacks.onIntent?.(event);
+          break;
+        case 'audit_state':
+          callbacks.onAuditState?.(event);
+          break;
+        case 'verification':
+          callbacks.onVerification?.(event);
           break;
         case 'delta':
           callbacks.onDelta?.(event.delta);
@@ -857,6 +904,9 @@ export function useAiChatStream() {
       onExecutionNodes: (event) => { if (isCurrent()) callbacks.onExecutionNodes?.(event); },
       onSessionStarted: (event) => { if (isCurrent()) callbacks.onSessionStarted?.(event); },
       onStage: (event) => { if (isCurrent()) callbacks.onStage?.(event); },
+      onIntent: (event) => { if (isCurrent()) callbacks.onIntent?.(event); },
+      onAuditState: (event) => { if (isCurrent()) callbacks.onAuditState?.(event); },
+      onVerification: (event) => { if (isCurrent()) callbacks.onVerification?.(event); },
       onDelta: (event) => { if (isCurrent()) callbacks.onDelta?.(event); },
       onStreamReset: () => { if (isCurrent()) callbacks.onStreamReset?.(); },
       onDone: (event) => {

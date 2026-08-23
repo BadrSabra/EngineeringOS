@@ -1829,6 +1829,29 @@ paths:
                — Bounded execution/recovery metadata; details are optional,
                limited failure labels/codes, and are not report content or evidence.
 
+           { "type": "intent",
+             "intent": "CHAT" | "PROJECT_QUERY" | "FORENSIC_AUDIT" | "DELIVERY",
+             "operationMode": "CHAT" | "FORENSIC_AUDIT" | "DELIVERY",
+             "requiresEvidence": true | false }
+             — Server-authoritative routing decision for this turn.
+
+           { "type": "audit_state",
+             "sourceCoverage": "COMPLETE" | "PARTIAL" | "NONE",
+             "behaviorAssessment": "COMPLETE" | "INCOMPLETE" | "NOT_STARTED",
+             "findingStatus": "PROVEN" | "NO_FINDING" | "NOT_PROVEN",
+             "repairReadiness": "READY" | "BLOCKED",
+             "productionReachability": "PROVEN" | "NOT_PROVEN" | "OUT_OF_SCOPE" }
+             — Bounded forensic ledger state; it contains no source content.
+
+           { "type": "verification",
+             "stage": "MODEL_RESPONSE" | "VERIFIED_RESPONSE",
+             "responseLength": 123,
+             "sourceCount": 1,
+             "evidenceCount": 1,
+             "acceptedEvidenceCount": 1,
+             "rejectionReasons": ["bounded reason"] }
+             — Bounded response/evidence verification telemetry.
+
            { "type": "stream_reset" }
              — The provider stream broke and the server switched to a buffered fallback.
 
@@ -2947,6 +2970,54 @@ components:
         SDK after sign-in — no manual header injection is needed.
 
   schemas:
+    ObjectiveContract:
+      type: object
+      additionalProperties: false
+      description: Server-validated completion objective used to scope evidence and prevent incomplete claims from being reported as success.
+      required: [objectiveType, requiredClaims, requiredEvidenceEdges]
+      properties:
+        objectiveType:
+          type: string
+          minLength: 1
+          maxLength: 80
+        requiredClaims:
+          type: array
+          maxItems: 12
+          items:
+            type: object
+            additionalProperties: false
+            required: [claimId, text]
+            properties:
+              claimId: { type: string, minLength: 1 }
+              text: { type: string, minLength: 1 }
+        requiredEvidenceEdges:
+          type: array
+          maxItems: 12
+          items:
+            type: object
+            additionalProperties: false
+            required: [from, to, relationship]
+            properties:
+              from: { type: string, minLength: 1 }
+              to: { type: string, minLength: 1 }
+              relationship: { type: string, minLength: 1 }
+        scopePolicy:
+          type: object
+          additionalProperties: false
+          required: [primaryPaths]
+          properties:
+            primaryPaths:
+              type: array
+              maxItems: 12
+              items: { type: string, minLength: 1, maxLength: 500 }
+            allowedExpansionPaths:
+              type: array
+              maxItems: 24
+              items: { type: string, minLength: 1, maxLength: 500 }
+            forbiddenPaths:
+              type: array
+              maxItems: 24
+              items: { type: string, minLength: 1, maxLength: 500 }
     ValidationResult:
       type: object
       additionalProperties: false
@@ -3736,6 +3807,21 @@ components:
         buildPlanMessageId:
           type: string
           description: Build handoff for a previously approved implementation-plan message; the server enforces its declared file scope
+        executionId:
+          type: string
+          description: Durable execution to resume; must belong to the same user, project, and session
+        resumeToken:
+          type: string
+          minLength: 32
+          maxLength: 128
+          description: Opaque server-issued token required when resuming an execution
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: Stable retry key used to avoid creating duplicate executions
+        objective:
+          $ref: "#/components/schemas/ObjectiveContract"
 
     AiChatSession:
       type: object

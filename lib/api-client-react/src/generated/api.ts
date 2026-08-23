@@ -5188,6 +5188,29 @@ export const getAiChatStreamUrl = () => {
  *        — Bounded execution/recovery metadata; details are optional,
  *        limited failure labels/codes, and are not report content or evidence.
  *
+ *    { "type": "intent",
+ *      "intent": "CHAT" | "PROJECT_QUERY" | "FORENSIC_AUDIT" | "DELIVERY",
+ *      "operationMode": "CHAT" | "FORENSIC_AUDIT" | "DELIVERY",
+ *      "requiresEvidence": true | false }
+ *      — Server-authoritative routing decision for this turn.
+ *
+ *    { "type": "audit_state",
+ *      "sourceCoverage": "COMPLETE" | "PARTIAL" | "NONE",
+ *      "behaviorAssessment": "COMPLETE" | "INCOMPLETE" | "NOT_STARTED",
+ *      "findingStatus": "PROVEN" | "NO_FINDING" | "NOT_PROVEN",
+ *      "repairReadiness": "READY" | "BLOCKED",
+ *      "productionReachability": "PROVEN" | "NOT_PROVEN" | "OUT_OF_SCOPE" }
+ *      — Bounded forensic ledger state; it contains no source content.
+ *
+ *    { "type": "verification",
+ *      "stage": "MODEL_RESPONSE" | "VERIFIED_RESPONSE",
+ *      "responseLength": 123,
+ *      "sourceCount": 1,
+ *      "evidenceCount": 1,
+ *      "acceptedEvidenceCount": 1,
+ *      "rejectionReasons": ["bounded reason"] }
+ *      — Bounded response/evidence verification telemetry.
+ *
  *    { "type": "stream_reset" }
  *      — The provider stream broke and the server switched to a buffered fallback.
  *

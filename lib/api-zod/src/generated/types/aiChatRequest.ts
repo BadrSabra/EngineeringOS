@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { ObjectiveContract } from './objectiveContract';
 
 export interface AiChatRequest {
   projectId: string;
@@ -14,4 +15,19 @@ export interface AiChatRequest {
   linkedTaskId?: string;
   /** Build handoff for a previously approved implementation-plan message; the server enforces its declared file scope */
   buildPlanMessageId?: string;
+  /** Durable execution to resume; must belong to the same user, project, and session */
+  executionId?: string;
+  /**
+     * Opaque server-issued token required when resuming an execution
+     * @minLength 32
+     * @maxLength 128
+     */
+  resumeToken?: string;
+  /**
+     * Stable retry key used to avoid creating duplicate executions
+     * @minLength 8
+     * @maxLength 128
+     */
+  idempotencyKey?: string;
+  objective?: ObjectiveContract;
 }

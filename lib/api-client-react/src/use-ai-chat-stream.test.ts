@@ -31,6 +31,9 @@ import type {
   AiStreamForensicStatusEvent,
   AiStreamProductionTraceEvent,
   AiStreamExecutionNodesEvent,
+  AiStreamIntentEvent,
+  AiStreamAuditStateEvent,
+  AiStreamVerificationEvent,
 } from './use-ai-chat-stream.js';
 
 // ── Helper: build a ReadableStream from raw SSE frame strings ────────────────
@@ -131,6 +134,46 @@ describe('processAiStream — semantic trace dispatch', () => {
       { onCrossFileTrace },
     );
     expect(onCrossFileTrace).toHaveBeenCalledWith(CROSS_FILE_TRACE_EVENT);
+  });
+});
+
+describe('processAiStream — routing and verification contract dispatch', () => {
+  it('dispatches intent, audit_state, and verification events without leaking them into text callbacks', async () => {
+    const intent: AiStreamIntentEvent = {
+      type: 'intent',
+      intent: 'FORENSIC_AUDIT',
+      operationMode: 'FORENSIC_AUDIT',
+      requiresEvidence: true,
+    };
+    const auditState: AiStreamAuditStateEvent = {
+      type: 'audit_state',
+      sourceCoverage: 'PARTIAL',
+      behaviorAssessment: 'INCOMPLETE',
+      findingStatus: 'NOT_PROVEN',
+      repairReadiness: 'BLOCKED',
+      productionReachability: 'NOT_PROVEN',
+    };
+    const verification: AiStreamVerificationEvent = {
+      type: 'verification',
+      stage: 'VERIFIED_RESPONSE',
+      responseLength: 42,
+      sourceCount: 2,
+      evidenceCount: 1,
+      acceptedEvidenceCount: 0,
+      rejectionReasons: ['missing literal match'],
+    };
+    const onIntent = vi.fn();
+    const onAuditState = vi.fn();
+    const onVerification = vi.fn();
+
+    await processAiStream(
+      makeSseStream(sseFrame(intent), sseFrame(auditState), sseFrame(verification)),
+      { onIntent, onAuditState, onVerification },
+    );
+
+    expect(onIntent).toHaveBeenCalledWith(intent);
+    expect(onAuditState).toHaveBeenCalledWith(auditState);
+    expect(onVerification).toHaveBeenCalledWith(verification);
   });
 });
 

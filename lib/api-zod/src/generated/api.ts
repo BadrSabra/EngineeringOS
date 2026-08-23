@@ -2445,12 +2445,63 @@ export const GetDashboardResponse = zod.object({
 /**
  * @summary Send a message to the AI assistant
  */
+export const aiChatBodyResumeTokenMin = 32;
+export const aiChatBodyResumeTokenMax = 128;
+
+export const aiChatBodyIdempotencyKeyMin = 8;
+export const aiChatBodyIdempotencyKeyMax = 128;
+
+export const aiChatBodyObjectiveObjectiveTypeMax = 80;
+
+
+
+export const aiChatBodyObjectiveRequiredClaimsMax = 12;
+
+
+
+
+export const aiChatBodyObjectiveRequiredEvidenceEdgesMax = 12;
+
+export const aiChatBodyObjectiveScopePolicyPrimaryPathsItemMax = 500;
+
+export const aiChatBodyObjectiveScopePolicyPrimaryPathsMax = 12;
+
+export const aiChatBodyObjectiveScopePolicyAllowedExpansionPathsItemMax = 500;
+
+export const aiChatBodyObjectiveScopePolicyAllowedExpansionPathsMax = 24;
+
+export const aiChatBodyObjectiveScopePolicyForbiddenPathsItemMax = 500;
+
+export const aiChatBodyObjectiveScopePolicyForbiddenPathsMax = 24;
+
+
+
 export const AiChatBody = zod.object({
   "projectId": zod.string(),
   "message": zod.string(),
   "sessionId": zod.string().optional(),
   "linkedTaskId": zod.string().optional().describe('Optional task to associate with the chat session'),
-  "buildPlanMessageId": zod.string().optional().describe('Build handoff for a previously approved implementation-plan message; the server enforces its declared file scope')
+  "buildPlanMessageId": zod.string().optional().describe('Build handoff for a previously approved implementation-plan message; the server enforces its declared file scope'),
+  "executionId": zod.string().optional().describe('Durable execution to resume; must belong to the same user, project, and session'),
+  "resumeToken": zod.string().min(aiChatBodyResumeTokenMin).max(aiChatBodyResumeTokenMax).optional().describe('Opaque server-issued token required when resuming an execution'),
+  "idempotencyKey": zod.string().min(aiChatBodyIdempotencyKeyMin).max(aiChatBodyIdempotencyKeyMax).optional().describe('Stable retry key used to avoid creating duplicate executions'),
+  "objective": zod.object({
+  "objectiveType": zod.string().min(1).max(aiChatBodyObjectiveObjectiveTypeMax),
+  "requiredClaims": zod.array(zod.object({
+  "claimId": zod.string().min(1),
+  "text": zod.string().min(1)
+})).max(aiChatBodyObjectiveRequiredClaimsMax),
+  "requiredEvidenceEdges": zod.array(zod.object({
+  "from": zod.string().min(1),
+  "to": zod.string().min(1),
+  "relationship": zod.string().min(1)
+})).max(aiChatBodyObjectiveRequiredEvidenceEdgesMax),
+  "scopePolicy": zod.object({
+  "primaryPaths": zod.array(zod.string().min(1).max(aiChatBodyObjectiveScopePolicyPrimaryPathsItemMax)).max(aiChatBodyObjectiveScopePolicyPrimaryPathsMax),
+  "allowedExpansionPaths": zod.array(zod.string().min(1).max(aiChatBodyObjectiveScopePolicyAllowedExpansionPathsItemMax)).max(aiChatBodyObjectiveScopePolicyAllowedExpansionPathsMax).optional(),
+  "forbiddenPaths": zod.array(zod.string().min(1).max(aiChatBodyObjectiveScopePolicyForbiddenPathsItemMax)).max(aiChatBodyObjectiveScopePolicyForbiddenPathsMax).optional()
+}).optional()
+}).optional().describe('Server-validated completion objective used to scope evidence and prevent incomplete claims from being reported as success.')
 })
 
 
@@ -3061,6 +3112,29 @@ export const GetAiMissionControlResponse = zod.object({
  *        — Bounded execution/recovery metadata; details are optional,
  *        limited failure labels/codes, and are not report content or evidence.
  *
+ *    { "type": "intent",
+ *      "intent": "CHAT" | "PROJECT_QUERY" | "FORENSIC_AUDIT" | "DELIVERY",
+ *      "operationMode": "CHAT" | "FORENSIC_AUDIT" | "DELIVERY",
+ *      "requiresEvidence": true | false }
+ *      — Server-authoritative routing decision for this turn.
+ *
+ *    { "type": "audit_state",
+ *      "sourceCoverage": "COMPLETE" | "PARTIAL" | "NONE",
+ *      "behaviorAssessment": "COMPLETE" | "INCOMPLETE" | "NOT_STARTED",
+ *      "findingStatus": "PROVEN" | "NO_FINDING" | "NOT_PROVEN",
+ *      "repairReadiness": "READY" | "BLOCKED",
+ *      "productionReachability": "PROVEN" | "NOT_PROVEN" | "OUT_OF_SCOPE" }
+ *      — Bounded forensic ledger state; it contains no source content.
+ *
+ *    { "type": "verification",
+ *      "stage": "MODEL_RESPONSE" | "VERIFIED_RESPONSE",
+ *      "responseLength": 123,
+ *      "sourceCount": 1,
+ *      "evidenceCount": 1,
+ *      "acceptedEvidenceCount": 1,
+ *      "rejectionReasons": ["bounded reason"] }
+ *      — Bounded response/evidence verification telemetry.
+ *
  *    { "type": "stream_reset" }
  *      — The provider stream broke and the server switched to a buffered fallback.
  *
@@ -3087,12 +3161,63 @@ export const GetAiMissionControlResponse = zod.object({
  *  `suggestedFix`; these are diagnostics and are separate from report content.
  * @summary Send a message to the AI assistant (SSE streaming)
  */
+export const aiChatStreamBodyResumeTokenMin = 32;
+export const aiChatStreamBodyResumeTokenMax = 128;
+
+export const aiChatStreamBodyIdempotencyKeyMin = 8;
+export const aiChatStreamBodyIdempotencyKeyMax = 128;
+
+export const aiChatStreamBodyObjectiveObjectiveTypeMax = 80;
+
+
+
+export const aiChatStreamBodyObjectiveRequiredClaimsMax = 12;
+
+
+
+
+export const aiChatStreamBodyObjectiveRequiredEvidenceEdgesMax = 12;
+
+export const aiChatStreamBodyObjectiveScopePolicyPrimaryPathsItemMax = 500;
+
+export const aiChatStreamBodyObjectiveScopePolicyPrimaryPathsMax = 12;
+
+export const aiChatStreamBodyObjectiveScopePolicyAllowedExpansionPathsItemMax = 500;
+
+export const aiChatStreamBodyObjectiveScopePolicyAllowedExpansionPathsMax = 24;
+
+export const aiChatStreamBodyObjectiveScopePolicyForbiddenPathsItemMax = 500;
+
+export const aiChatStreamBodyObjectiveScopePolicyForbiddenPathsMax = 24;
+
+
+
 export const AiChatStreamBody = zod.object({
   "projectId": zod.string(),
   "message": zod.string(),
   "sessionId": zod.string().optional(),
   "linkedTaskId": zod.string().optional().describe('Optional task to associate with the chat session'),
-  "buildPlanMessageId": zod.string().optional().describe('Build handoff for a previously approved implementation-plan message; the server enforces its declared file scope')
+  "buildPlanMessageId": zod.string().optional().describe('Build handoff for a previously approved implementation-plan message; the server enforces its declared file scope'),
+  "executionId": zod.string().optional().describe('Durable execution to resume; must belong to the same user, project, and session'),
+  "resumeToken": zod.string().min(aiChatStreamBodyResumeTokenMin).max(aiChatStreamBodyResumeTokenMax).optional().describe('Opaque server-issued token required when resuming an execution'),
+  "idempotencyKey": zod.string().min(aiChatStreamBodyIdempotencyKeyMin).max(aiChatStreamBodyIdempotencyKeyMax).optional().describe('Stable retry key used to avoid creating duplicate executions'),
+  "objective": zod.object({
+  "objectiveType": zod.string().min(1).max(aiChatStreamBodyObjectiveObjectiveTypeMax),
+  "requiredClaims": zod.array(zod.object({
+  "claimId": zod.string().min(1),
+  "text": zod.string().min(1)
+})).max(aiChatStreamBodyObjectiveRequiredClaimsMax),
+  "requiredEvidenceEdges": zod.array(zod.object({
+  "from": zod.string().min(1),
+  "to": zod.string().min(1),
+  "relationship": zod.string().min(1)
+})).max(aiChatStreamBodyObjectiveRequiredEvidenceEdgesMax),
+  "scopePolicy": zod.object({
+  "primaryPaths": zod.array(zod.string().min(1).max(aiChatStreamBodyObjectiveScopePolicyPrimaryPathsItemMax)).max(aiChatStreamBodyObjectiveScopePolicyPrimaryPathsMax),
+  "allowedExpansionPaths": zod.array(zod.string().min(1).max(aiChatStreamBodyObjectiveScopePolicyAllowedExpansionPathsItemMax)).max(aiChatStreamBodyObjectiveScopePolicyAllowedExpansionPathsMax).optional(),
+  "forbiddenPaths": zod.array(zod.string().min(1).max(aiChatStreamBodyObjectiveScopePolicyForbiddenPathsItemMax)).max(aiChatStreamBodyObjectiveScopePolicyForbiddenPathsMax).optional()
+}).optional()
+}).optional().describe('Server-validated completion objective used to scope evidence and prevent incomplete claims from being reported as success.')
 })
 
 export const AiChatStreamResponse = zod.unknown()

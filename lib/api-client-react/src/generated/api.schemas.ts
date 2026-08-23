@@ -5,6 +5,59 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+export type ObjectiveContractRequiredClaimsItem = {
+  /** @minLength 1 */
+  claimId: string;
+  /** @minLength 1 */
+  text: string;
+};
+
+export type ObjectiveContractRequiredEvidenceEdgesItem = {
+  /** @minLength 1 */
+  from: string;
+  /** @minLength 1 */
+  to: string;
+  /** @minLength 1 */
+  relationship: string;
+};
+
+export type ObjectiveContractScopePolicy = {
+  /**
+     * @maxItems 12
+     * @items.minLength 1
+     * @items.maxLength 500
+     */
+  primaryPaths: string[];
+  /**
+     * @maxItems 24
+     * @items.minLength 1
+     * @items.maxLength 500
+     */
+  allowedExpansionPaths?: string[];
+  /**
+     * @maxItems 24
+     * @items.minLength 1
+     * @items.maxLength 500
+     */
+  forbiddenPaths?: string[];
+};
+
+/**
+ * Server-validated completion objective used to scope evidence and prevent incomplete claims from being reported as success.
+ */
+export interface ObjectiveContract {
+  /**
+     * @minLength 1
+     * @maxLength 80
+     */
+  objectiveType: string;
+  /** @maxItems 12 */
+  requiredClaims: ObjectiveContractRequiredClaimsItem[];
+  /** @maxItems 12 */
+  requiredEvidenceEdges: ObjectiveContractRequiredEvidenceEdgesItem[];
+  scopePolicy?: ObjectiveContractScopePolicy;
+}
+
 export type ValidationResultStatus = typeof ValidationResultStatus[keyof typeof ValidationResultStatus];
 
 
@@ -515,6 +568,21 @@ export interface AiChatRequest {
   linkedTaskId?: string;
   /** Build handoff for a previously approved implementation-plan message; the server enforces its declared file scope */
   buildPlanMessageId?: string;
+  /** Durable execution to resume; must belong to the same user, project, and session */
+  executionId?: string;
+  /**
+     * Opaque server-issued token required when resuming an execution
+     * @minLength 32
+     * @maxLength 128
+     */
+  resumeToken?: string;
+  /**
+     * Stable retry key used to avoid creating duplicate executions
+     * @minLength 8
+     * @maxLength 128
+     */
+  idempotencyKey?: string;
+  objective?: ObjectiveContract;
 }
 
 /**

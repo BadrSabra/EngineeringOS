@@ -7701,6 +7701,45 @@ export default function AiChat() {
             setLiveAuditScopeDescription(scopeDescription);
           }
         },
+         onIntent: (event) => {
+           if (generation !== streamGenerationRef.current) return;
+           setOperationMode(event.operationMode);
+           setAgentStage(
+             event.requiresEvidence
+               ? `Evidence mode: ${event.intent.replace(/_/g, ' ')}`
+               : `Request mode: ${event.intent.replace(/_/g, ' ')}`,
+           );
+         },
+         onAuditState: (event) => {
+           if (generation !== streamGenerationRef.current) return;
+           const state = event.sourceCoverage === 'COMPLETE' && event.findingStatus === 'PROVEN'
+             ? 'Evidence verified'
+             : event.sourceCoverage === 'NONE'
+               ? 'Evidence unavailable — audit incomplete'
+               : event.findingStatus === 'NOT_PROVEN' || event.repairReadiness === 'BLOCKED'
+                 ? 'Audit remains incomplete'
+                 : 'Evidence state updated';
+           setAgentStage(state);
+           appendLiveActivityEvent({
+             kind: 'stage',
+             label: 'Audit state',
+             detail: state,
+             status: state === 'Evidence verified' ? 'done' : 'info',
+           });
+         },
+         onVerification: (event) => {
+           if (generation !== streamGenerationRef.current) return;
+           const status = event.acceptedEvidenceCount > 0
+             ? 'Evidence verification completed'
+             : 'Verification incomplete — no accepted evidence';
+           setAgentStage(status);
+           appendLiveActivityEvent({
+             kind: 'validation',
+             label: 'Response verification',
+             detail: `${status} (${event.acceptedEvidenceCount}/${event.evidenceCount} accepted)`,
+             status: event.acceptedEvidenceCount > 0 ? 'done' : 'info',
+           });
+         },
         onEvidenceIntegrity: (event) => {
           if (generation !== streamGenerationRef.current) return;
           setLiveEvidenceIntegrity({
