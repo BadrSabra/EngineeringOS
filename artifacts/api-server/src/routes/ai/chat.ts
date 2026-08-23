@@ -25,9 +25,12 @@ import {
   browserValidationProfilesTable,
 } from "@workspace/db";
 import { eq, desc, and, inArray, sql } from "drizzle-orm";
+import { walkProject } from "@workspace/scanner";
 import {
   buildProjectContext,
   invalidateContextCache,
+  contextManifestMatches,
+  contextManifestAllowsExecution,
   chat,
   GroqClientError,
   recordRequest,
@@ -2131,6 +2134,36 @@ router.post("/ai/chat/stream", async (req, res) => {
         error: "Approve the implementation plan before starting Build Mode",
         code: "PLAN_APPROVAL_REQUIRED",
         approvalStatus: storedPlan.approvalStatus,
+      });
+    }
+    const currentContext = await buildProjectContext(projectId);
+    const currentManifest = currentContext.contextManifest;
+    if (!currentManifest) {
+      return res.status(409).json({
+        error: "No revision manifest is available for this plan. Rebuild the plan after a complete scan.",
+        code: "PLAN_CONTEXT_INCOMPLETE",
+      });
+    }
+    if (!contextManifestMatches(storedPlan.contextManifest, currentManifest)) {
+      return res.status(409).json({
+        error: "The inspected project context is stale. Rebuild and explicitly re-approve the plan.",
+        code: "PLAN_CONTEXT_STALE",
+      });
+    }
+    if (!contextManifestAllowsExecution(currentManifest)) {
+      return res.status(409).json({
+        error: "The project scan is incomplete. Complete a fresh scan before Build Mode.",
+        code: "PLAN_CONTEXT_INCOMPLETE",
+      });
+    }
+    // The database manifest identifies the scan snapshot, but the source tree
+    // can change without another scan. Re-walk before opening Build Mode so
+    // approval cannot authorize edits against bytes nobody inspected.
+    const liveWalk = await walkProject(validRootPath).catch(() => undefined);
+    if (!liveWalk || liveWalk.revision !== currentManifest.projectRevision) {
+      return res.status(409).json({
+        error: "The project files changed after inspection. Scan again, rebuild, and explicitly re-approve the plan.",
+        code: "PLAN_FILES_CHANGED",
       });
     }
 
@@ -4474,6 +4507,24 @@ router.post("/ai/chat/plans/:messageId/decision", async (req, res) => {
       code: "PLAN_DECISION_ALREADY_MADE",
       approvalStatus: current.approvalStatus,
     });
+  }
+  // Plans created before the manifest contract may still be marked pending.
+  // Preserve their review state for migration compatibility, but never allow
+  // one of them into Build Mode: the handoff gate below requires a manifest.
+  if (current.contextManifest) {
+    const approvalContext = await buildProjectContext(row.session.projectId);
+    if (!contextManifestMatches(current.contextManifest, approvalContext.contextManifest)) {
+      return res.status(409).json({
+        error: "This plan was created from stale project context. Create a fresh plan before approving it.",
+        code: "PLAN_CONTEXT_STALE",
+      });
+    }
+    if (!contextManifestAllowsExecution(approvalContext.contextManifest)) {
+      return res.status(409).json({
+        error: "The project scan is incomplete. Complete a fresh scan before approving this plan.",
+        code: "PLAN_CONTEXT_INCOMPLETE",
+      });
+    }
   }
     if (body.data.decision === "approve" && !hasSafeImplementationPlanFileScope(current)) {
       return res.status(409).json({

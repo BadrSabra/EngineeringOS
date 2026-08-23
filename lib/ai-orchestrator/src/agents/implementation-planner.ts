@@ -90,17 +90,19 @@ export async function createImplementationPlan(
   input: ImplementationPlanInput,
   opts?: AgentCompleteOpts,
 ): Promise<ImplementationPlanResult> {
+  const guardedFallback = (reason: string): ImplementationPlanResult => ({
+    ...fallbackPlan(input.message, reason),
+    contextManifest: input.projectContext.contextManifest,
+  });
   const manifest = input.projectContext.filesystemManifest;
   if (!manifest || manifest.status !== "VERIFIED" || (manifest.files.length === 0 && manifest.directories.length === 0)) {
-    return fallbackPlan(
-      input.message,
+    return guardedFallback(
       manifest?.reason ?? "No verified project filesystem manifest was available; discover files before approving a plan.",
     );
   }
   const sources = input.projectContext.filesystemSources;
   if (!sources || sources.status !== "VERIFIED" || sources.files.length === 0) {
-    return fallbackPlan(
-      input.message,
+    return guardedFallback(
       sources?.reason ?? "No verified source excerpts were read; discover source files before approving a file-grounded plan.",
     );
   }
@@ -108,10 +110,9 @@ export async function createImplementationPlan(
   const result = await implementationPlanner.run(input, opts);
   const { _parseError, ...plan } = result;
   const ungroundedPaths = guardPlanPaths(plan, manifest);
-  if (ungroundedPaths.length === 0) return result;
+  if (ungroundedPaths.length === 0) return { ...result, contextManifest: input.projectContext.contextManifest };
 
-  const guarded = fallbackPlan(
-    input.message,
+  const guarded = guardedFallback(
     `The provider referenced unverified project paths: ${ungroundedPaths.slice(0, 8).join(", ")}.`,
   );
   return _parseError ? { ...guarded, _parseError } : guarded;

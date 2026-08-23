@@ -67,6 +67,11 @@ export interface ScanJobResult {
   entitiesExtracted: number;
   relationshipsExtracted: number;
   summary: string;
+  projectRevision: string;
+  scanCompleteness: "COMPLETE" | "PARTIAL";
+  sourceProvenance: string;
+  scanCorrelationId: string;
+  scannerVersion: string;
 }
 
 /**
@@ -579,6 +584,11 @@ export async function performScan(projectId: string, signal?: AbortSignal): Prom
       entitiesExtracted: entitiesToInsert.length,
       relationshipsExtracted: relRows.length,
       summary: `Scanned ${walkResult.totalFiles} files. Found ${issuesDetected} issues. Created ${newTaskIds.length} tasks. Quality score: ${metrics.overallScore}/100.`,
+      projectRevision: walkResult.revision,
+      scanCompleteness: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
+      sourceProvenance: "filesystem-scan",
+      scanCorrelationId: correlationId,
+      scannerVersion: SCANNER_VERSION,
       _priorQualityScore: project[0].qualityScore ?? null,
     };
   }).then(async (result) => {

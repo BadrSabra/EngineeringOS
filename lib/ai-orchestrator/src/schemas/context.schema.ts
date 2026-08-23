@@ -3,6 +3,7 @@ import {
   ProjectFileManifestSchema,
   ProjectFileSourcesSchema,
 } from "../filesystem-manifest.js";
+import { ContextManifestSchema } from "../context-manifest.js";
 
 /**
  * Validates the shape of the context object every agent prompt is built from.
@@ -25,6 +26,8 @@ export const AgentContextSchema = z
     workflows: z.string().min(1),
     /** Structural flag: true only when a real scan has completed successfully. */
     metricsVerified: z.boolean(),
+    /** Immutable revision/completeness contract for all downstream work. */
+    contextManifest: ContextManifestSchema.optional(),
     /**
      * Optional: formatted text summarising files and findings from previous
      * chat sessions for this project, injected via the session-memory layer.

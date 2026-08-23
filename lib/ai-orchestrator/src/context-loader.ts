@@ -43,7 +43,7 @@ export type WorkflowRow = Workflow;
 /** Projected subset of scan_jobs fetched by loadScanJobs(). */
 export type ScanJobRow = Pick<
   typeof scanJobsTable.$inferSelect,
-  "status" | "error" | "finishedAt"
+  "status" | "error" | "finishedAt" | "result"
 >;
 
 /** Projected subset of graph_relationships fetched by loadGraph(). */
@@ -105,6 +105,7 @@ export type LoadedProjectContext = {
   rawWorkflows: WorkflowRow[];
   latestScanJob: ScanJobRow | undefined;
   scanVerified: boolean;
+  contextManifest: import("./context-manifest.js").ContextManifest;
   wants(section: ContextLoadSection): boolean;
   requestedSections: Set<ContextLoadSection>;
   /** Per-section load metadata for the context runtime layer. */
@@ -281,6 +282,7 @@ export async function loadScanJobs(
       status: scanJobsTable.status,
       error: scanJobsTable.error,
       finishedAt: scanJobsTable.finishedAt,
+      result: scanJobsTable.result,
     })
     .from(scanJobsTable)
     .where(eq(scanJobsTable.projectId, projectId))
@@ -374,7 +376,37 @@ export async function loadProjectContext(
         ),
       ]);
 
-      const scanVerified = latestScanJob?.status === "completed";
+      const scanResult = latestScanJob?.result;
+      const scanVerified =
+        latestScanJob?.status === "completed" &&
+        scanResult?.scanCompleteness !== "PARTIAL";
+      const legacyRevision =
+        latestScanJob?.finishedAt?.toISOString() ??
+        (project.updatedAt instanceof Date ? project.updatedAt.toISOString() : String(Date.now()));
+      const contextManifest = {
+        projectId,
+        projectRevision:
+          typeof scanResult?.projectRevision === "string"
+            ? scanResult.projectRevision
+            : latestScanJob?.status === "completed"
+              ? `legacy-scan:${legacyRevision}`
+              : `unscanned:${legacyRevision}`,
+        scanCompleteness:
+          latestScanJob?.status !== "completed"
+            ? "UNAVAILABLE" as const
+            : scanResult?.scanCompleteness === "PARTIAL"
+              ? "PARTIAL" as const
+              : scanResult?.scanCompleteness === "COMPLETE"
+                ? "COMPLETE" as const
+                : "UNAVAILABLE" as const,
+        sourceProvenance:
+          typeof scanResult?.sourceProvenance === "string"
+            ? scanResult.sourceProvenance
+            : latestScanJob?.status === "completed" ? "filesystem-scan:legacy" : "project-record",
+        ...(typeof scanResult?.scanCorrelationId === "string" && { scanCorrelationId: scanResult.scanCorrelationId }),
+        ...(typeof scanResult?.scannerVersion === "string" && { scannerVersion: scanResult.scannerVersion }),
+        capturedAt: new Date().toISOString(),
+      };
 
       const loadedAt = Date.now();
       const _meta = new Map<ContextLoadSection | "project", SliceMetadata>();
@@ -397,6 +429,7 @@ export async function loadProjectContext(
         rawWorkflows,
         latestScanJob,
         scanVerified,
+        contextManifest,
         wants,
         requestedSections,
         sliceMetadata,

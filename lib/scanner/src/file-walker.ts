@@ -1,4 +1,5 @@
 import { readdir, readFile, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join, extname, relative } from "node:path";
 
 /** Maximum bytes to read per file for content analysis (512 KB). */
@@ -106,6 +107,8 @@ export interface WalkResult {
    * (scan was aborted before all skipped files were counted).
    */
   filesSkipped: number;
+  /** Stable digest of the exact file inventory and readable contents. */
+  revision: string;
 }
 
 /** Mutable walk state — shared across the recursive walkDir calls. */
@@ -240,6 +243,15 @@ export async function walkProject(rootPath: string): Promise<WalkResult> {
       f.language !== "yaml" &&
       f.language !== "toml",
   ).length;
+  const revisionHash = createHash("sha256");
+  for (const file of files) {
+    revisionHash.update(file.path);
+    revisionHash.update("\0");
+    revisionHash.update(String(file.size));
+    revisionHash.update("\0");
+    revisionHash.update(file.oversized ? "oversized" : file.content);
+    revisionHash.update("\n");
+  }
 
   return {
     files,
@@ -252,5 +264,6 @@ export async function walkProject(rootPath: string): Promise<WalkResult> {
     // When aborted by file count, skipped count is unknown (Promise.all
     // branches were concurrent); signal with -1.
     filesSkipped: state.aborted ? -1 : 0,
+    revision: revisionHash.digest("hex"),
   };
 }

@@ -176,6 +176,7 @@ export async function buildProjectContext(
     recentEvents:   applyDecision(sliceMap.get("recentEvents")!.content,  sliceMap.get("recentEvents")!.admissionDecision),
     workflows:      applyDecision(sliceMap.get("workflows")!.content,     sliceMap.get("workflows")!.admissionDecision),
     metricsVerified: loaded.scanVerified,
+    contextManifest: loaded.contextManifest,
     ...(raw.sessionMemories !== undefined && { sessionMemories: raw.sessionMemories }),
   };
 

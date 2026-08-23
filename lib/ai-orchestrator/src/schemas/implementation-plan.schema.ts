@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ContextManifestSchema } from "../context-manifest.js";
 
 /**
  * A planning-only contract. Plans describe intended work and validation; they
@@ -33,6 +34,8 @@ export const ImplementationPlanSchema = z.object({
    * files or authorize commits/publishing.
    */
   writeAccess: z.enum(["NOT_AUTHORIZED", "APPROVED_FOR_BUILD"]),
+  /** The exact scan snapshot inspected to produce this plan. */
+  contextManifest: ContextManifestSchema.optional(),
 }).strict();
 
 export type ImplementationPlan = z.infer<typeof ImplementationPlanSchema>;
