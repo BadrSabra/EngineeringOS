@@ -273,7 +273,9 @@ describe("executeSingleTool", () => {
       }),
       analysisCorrelation: {
         operationId: "operation-a",
+        projectId: "project-a",
         projectRevision: "revision-1",
+        rootAvailable: true,
         evidenceProvenance: "persisted-graph-search",
       },
     });
@@ -299,7 +301,9 @@ describe("executeSingleTool", () => {
       }),
       analysisCorrelation: {
         operationId: "operation-a",
+        projectId: "project-a",
         projectRevision: "revision-1",
+        rootAvailable: true,
         evidenceProvenance: "persisted-graph-search",
       },
     });

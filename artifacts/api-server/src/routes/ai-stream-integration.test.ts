@@ -1045,7 +1045,9 @@ describe("Durable AI execution crash/reconnect", () => {
     expect(resumed.status).toBe(200);
     expect(resumedCorrelations).toEqual([{
       operationId: created.execution.operationId ?? created.execution.id,
+      projectId: projectId,
       projectRevision: requestEnvelope.workspaceRevision,
+      rootAvailable: true,
       evidenceProvenance: "project-analysis",
     }]);
     const call = vi.mocked(chatWithFallback).mock.calls.at(-1);

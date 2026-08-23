@@ -4,7 +4,9 @@ export type AnalysisToolStatus = "complete" | "unavailable" | "failed";
 
 export type AnalysisCorrelation = {
   operationId: string;
+  projectId: string;
   projectRevision: string;
+  rootAvailable: boolean;
   evidenceProvenance: string;
 };
 
@@ -128,7 +130,9 @@ export async function executeAnalysisTool(
     if (
       !result.correlation ||
       result.correlation.operationId !== correlation.operationId ||
+      result.correlation.projectId !== correlation.projectId ||
       result.correlation.projectRevision !== correlation.projectRevision ||
+      result.correlation.rootAvailable !== correlation.rootAvailable ||
       !result.correlation.evidenceProvenance
     ) {
       return {

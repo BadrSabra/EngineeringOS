@@ -92,6 +92,8 @@ export * from './aiScanAnalysis';
 export * from './aiScanInsight';
 export * from './aiScanInsightCategory';
 export * from './aiScanInsightSeverity';
+export * from './aiStructuredAuditTraceEntry';
+export * from './aiStructuredAuditTraceEntryStatus';
 export * from './aiWorkspaceReviewResult';
 export * from './aiWorkspaceReviewResultEvidenceItem';
 export * from './aiWorkspaceReviewResultKind';

@@ -3810,7 +3810,17 @@ export const AiAnalyzeProjectResponse = zod.object({
   "recommendation": zod.string()
 })),
   "topPriority": zod.string(),
-  "estimatedImpact": zod.string()
+  "estimatedImpact": zod.string(),
+  "operationId": zod.string(),
+  "projectId": zod.string(),
+  "projectRevision": zod.string(),
+  "rootAvailable": zod.boolean(),
+  "incomplete": zod.boolean(),
+  "operationalTrace": zod.array(zod.object({
+  "stage": zod.string(),
+  "status": zod.enum(['started', 'completed', 'failed', 'incomplete']),
+  "provider": zod.string().optional()
+}))
 })
 
 
@@ -3839,12 +3849,26 @@ export const AiReviewCodeResponse = zod.object({
 })),
   "refactoringOpportunities": zod.array(zod.string()),
   "securityConcerns": zod.array(zod.string()),
-  "verdict": zod.enum(['approved', 'needs_changes', 'major_rework'])
+  "verdict": zod.enum(['approved', 'needs_changes', 'major_rework']),
+  "operationId": zod.string(),
+  "projectId": zod.string(),
+  "projectRevision": zod.string(),
+  "rootAvailable": zod.boolean(),
+  "incomplete": zod.boolean(),
+  "operationalTrace": zod.array(zod.object({
+  "stage": zod.string(),
+  "status": zod.enum(['started', 'completed', 'failed', 'incomplete']),
+  "provider": zod.string().optional()
+}))
 })
 
 
 /**
- * Handwritten SSE variant of the structured scan-analysis endpoint. Each frame is `data: <JSON>\n\n` and uses the shared `AiStreamEvent` contract. It emits `task_started`, `stage`, `task_progress`, `task_done`, or `error`. The result in `task_done.result` is an `AiScanAnalysis` object. This endpoint exposes operational progress only; it never exposes chain-of-thought or raw model output.
+ * Handwritten SSE variant of the structured scan-analysis endpoint. Each frame is `data: <JSON>\n\n` and uses the shared `AiStreamEvent` contract. It emits `task_started`, `stage`, `task_progress`, `task_done`, or `error`. The result in `task_done.result` is an
+ *   `AiScanAnalysis` object. Every task event carries the operationId,
+ *   projectId, projectRevision, rootAvailable, incomplete, and bounded
+ *   operationalTrace fields. This endpoint exposes operational progress
+ *   only; it never exposes chain-of-thought or raw model output.
  * @summary Stream AI scan analysis progress and result
  */
 export const AiAnalyzeProjectStreamParams = zod.object({
@@ -3855,7 +3879,11 @@ export const AiAnalyzeProjectStreamResponse = zod.unknown()
 
 
 /**
- * Handwritten SSE variant of the structured code-review endpoint. Each frame is `data: <JSON>\n\n` and uses the shared `AiStreamEvent` contract. It emits `task_started`, `stage`, `task_progress`, `task_done`, or `error`. The result in `task_done.result` is an `AiCodeReview` object. This endpoint exposes operational progress only; it never exposes chain-of-thought or raw model output.
+ * Handwritten SSE variant of the structured code-review endpoint. Each frame is `data: <JSON>\n\n` and uses the shared `AiStreamEvent` contract. It emits `task_started`, `stage`, `task_progress`, `task_done`, or `error`. The result in `task_done.result` is an
+ *   `AiCodeReview` object. Every task event carries the operationId,
+ *   projectId, projectRevision, rootAvailable, incomplete, and bounded
+ *   operationalTrace fields. This endpoint exposes operational progress
+ *   only; it never exposes chain-of-thought or raw model output.
  * @summary Stream AI code-review progress and result
  */
 export const AiReviewCodeStreamParams = zod.object({

@@ -6204,7 +6204,11 @@ export const getAiAnalyzeProjectStreamUrl = (projectId: string,) => {
 }
 
 /**
- * Handwritten SSE variant of the structured scan-analysis endpoint. Each frame is `data: <JSON>\n\n` and uses the shared `AiStreamEvent` contract. It emits `task_started`, `stage`, `task_progress`, `task_done`, or `error`. The result in `task_done.result` is an `AiScanAnalysis` object. This endpoint exposes operational progress only; it never exposes chain-of-thought or raw model output.
+ * Handwritten SSE variant of the structured scan-analysis endpoint. Each frame is `data: <JSON>\n\n` and uses the shared `AiStreamEvent` contract. It emits `task_started`, `stage`, `task_progress`, `task_done`, or `error`. The result in `task_done.result` is an
+ *   `AiScanAnalysis` object. Every task event carries the operationId,
+ *   projectId, projectRevision, rootAvailable, incomplete, and bounded
+ *   operationalTrace fields. This endpoint exposes operational progress
+ *   only; it never exposes chain-of-thought or raw model output.
  * @summary Stream AI scan analysis progress and result
  */
 export const aiAnalyzeProjectStream = async (projectId: string, options?: RequestInit): Promise<string> => {
@@ -6276,7 +6280,11 @@ export const getAiReviewCodeStreamUrl = (projectId: string,) => {
 }
 
 /**
- * Handwritten SSE variant of the structured code-review endpoint. Each frame is `data: <JSON>\n\n` and uses the shared `AiStreamEvent` contract. It emits `task_started`, `stage`, `task_progress`, `task_done`, or `error`. The result in `task_done.result` is an `AiCodeReview` object. This endpoint exposes operational progress only; it never exposes chain-of-thought or raw model output.
+ * Handwritten SSE variant of the structured code-review endpoint. Each frame is `data: <JSON>\n\n` and uses the shared `AiStreamEvent` contract. It emits `task_started`, `stage`, `task_progress`, `task_done`, or `error`. The result in `task_done.result` is an
+ *   `AiCodeReview` object. Every task event carries the operationId,
+ *   projectId, projectRevision, rootAvailable, incomplete, and bounded
+ *   operationalTrace fields. This endpoint exposes operational progress
+ *   only; it never exposes chain-of-thought or raw model output.
  * @summary Stream AI code-review progress and result
  */
 export const aiReviewCodeStream = async (projectId: string,

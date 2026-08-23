@@ -6,6 +6,7 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { AiScanInsight } from './aiScanInsight';
+import type { AiStructuredAuditTraceEntry } from './aiStructuredAuditTraceEntry';
 
 export interface AiScanAnalysis {
   summary: string;
@@ -13,4 +14,10 @@ export interface AiScanAnalysis {
   insights: AiScanInsight[];
   topPriority: string;
   estimatedImpact: string;
+  operationId: string;
+  projectId: string;
+  projectRevision: string;
+  rootAvailable: boolean;
+  incomplete: boolean;
+  operationalTrace: AiStructuredAuditTraceEntry[];
 }

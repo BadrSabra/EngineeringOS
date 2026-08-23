@@ -459,6 +459,26 @@ export type AiStreamTaskStartedEvent = {
   type: 'task_started';
   task: 'analyze' | 'review';
   projectId: string;
+  operationId: string;
+  projectRevision: string;
+  rootAvailable: boolean;
+  incomplete: boolean;
+  operationalTrace: AiStructuredAuditTraceEntry[];
+};
+
+export type AiStructuredAuditTraceEntry = {
+  stage: string;
+  status: 'started' | 'completed' | 'failed' | 'incomplete';
+  provider?: string;
+};
+
+export type AiStructuredAuditMetadata = {
+  operationId: string;
+  projectId: string;
+  projectRevision: string;
+  rootAvailable: boolean;
+  incomplete: boolean;
+  operationalTrace: AiStructuredAuditTraceEntry[];
 };
 
 export type AiStreamTaskProgressEvent = {
@@ -466,12 +486,24 @@ export type AiStreamTaskProgressEvent = {
   task: 'analyze' | 'review';
   message: string;
   provider?: string;
+  operationId: string;
+  projectId: string;
+  projectRevision: string;
+  rootAvailable: boolean;
+  incomplete: boolean;
+  operationalTrace: AiStructuredAuditTraceEntry[];
 };
 
 export type AiStreamTaskDoneEvent = {
   type: 'task_done';
   task: 'analyze' | 'review';
   result: Record<string, unknown>;
+  operationId: string;
+  projectId: string;
+  projectRevision: string;
+  rootAvailable: boolean;
+  incomplete: boolean;
+  operationalTrace: AiStructuredAuditTraceEntry[];
 };
 
 export type AiStreamExecutionDiagnosticEvent = {

@@ -31,12 +31,17 @@ function hasUsableCorrelation(
   if (!correlation || typeof correlation !== "object") return false;
   const value = correlation as unknown as {
     operationId?: unknown;
+    projectId?: unknown;
     projectRevision?: unknown;
+    rootAvailable?: unknown;
   };
   return typeof value.operationId === "string"
     && value.operationId.length > 0
+    && typeof value.projectId === "string"
+    && value.projectId.length > 0
     && typeof value.projectRevision === "string"
-    && value.projectRevision.length > 0;
+    && value.projectRevision.length > 0
+    && value.rootAvailable === true;
 }
 
 function entityView(entity: GraphEntity) {

@@ -2275,8 +2275,10 @@ paths:
         Each frame is `data: <JSON>\n\n` and uses the shared `AiStreamEvent`
         contract. It emits `task_started`, `stage`, `task_progress`,
         `task_done`, or `error`. The result in `task_done.result` is an
-        `AiScanAnalysis` object. This endpoint exposes operational progress
-        only; it never exposes chain-of-thought or raw model output.
+          `AiScanAnalysis` object. Every task event carries the operationId,
+          projectId, projectRevision, rootAvailable, incomplete, and bounded
+          operationalTrace fields. This endpoint exposes operational progress
+          only; it never exposes chain-of-thought or raw model output.
       tags: [AI]
       security:
         - ClerkSession: []
@@ -2305,8 +2307,10 @@ paths:
         Each frame is `data: <JSON>\n\n` and uses the shared `AiStreamEvent`
         contract. It emits `task_started`, `stage`, `task_progress`,
         `task_done`, or `error`. The result in `task_done.result` is an
-        `AiCodeReview` object. This endpoint exposes operational progress
-        only; it never exposes chain-of-thought or raw model output.
+          `AiCodeReview` object. Every task event carries the operationId,
+          projectId, projectRevision, rootAvailable, incomplete, and bounded
+          operationalTrace fields. This endpoint exposes operational progress
+          only; it never exposes chain-of-thought or raw model output.
       tags: [AI]
       security:
         - ClerkSession: []
@@ -4637,7 +4641,7 @@ components:
 
     AiScanAnalysis:
       type: object
-      required: [summary, overallAssessment, insights, topPriority, estimatedImpact]
+      required: [summary, overallAssessment, insights, topPriority, estimatedImpact, operationId, projectId, projectRevision, rootAvailable, incomplete, operationalTrace]
       properties:
         summary:
           type: string
@@ -4651,6 +4655,20 @@ components:
           type: string
         estimatedImpact:
           type: string
+        operationId:
+          type: string
+        projectId:
+          type: string
+        projectRevision:
+          type: string
+        rootAvailable:
+          type: boolean
+        incomplete:
+          type: boolean
+        operationalTrace:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiStructuredAuditTraceEntry"
 
     AiCodeIssue:
       type: object
@@ -4674,7 +4692,7 @@ components:
 
     AiCodeReview:
       type: object
-      required: [summary, overallScore, strengths, issues, refactoringOpportunities, securityConcerns, verdict]
+      required: [summary, overallScore, strengths, issues, refactoringOpportunities, securityConcerns, verdict, operationId, projectId, projectRevision, rootAvailable, incomplete, operationalTrace]
       properties:
         summary:
           type: string
@@ -4699,6 +4717,32 @@ components:
         verdict:
           type: string
           enum: [approved, needs_changes, major_rework]
+        operationId:
+          type: string
+        projectId:
+          type: string
+        projectRevision:
+          type: string
+        rootAvailable:
+          type: boolean
+        incomplete:
+          type: boolean
+        operationalTrace:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiStructuredAuditTraceEntry"
+
+    AiStructuredAuditTraceEntry:
+      type: object
+      required: [stage, status]
+      properties:
+        stage:
+          type: string
+        status:
+          type: string
+          enum: [started, completed, failed, incomplete]
+        provider:
+          type: string
 
     AiOrchestrationDecision:
       type: object

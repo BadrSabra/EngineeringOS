@@ -1603,11 +1603,15 @@ router.post("/ai/chat", async (req, res) => {
   const modelHasTools = Boolean(validRootPath && turnIntent.requiresTools);
   let analysisCorrelation: {
     operationId: string;
+    projectId: string;
     projectRevision: string;
+    rootAvailable: boolean;
     evidenceProvenance: string;
   } = {
     operationId: randomUUID(),
+    projectId,
     projectRevision: project.updatedAt.toISOString(),
+    rootAvailable: Boolean(validRootPath),
     evidenceProvenance: "project-analysis",
   };
   const analysisToolRunner = validRootPath
@@ -2193,11 +2197,15 @@ router.post("/ai/chat/stream", async (req, res) => {
   const streamModelHasTools = Boolean(validRootPath && streamTurnIntent.requiresTools);
   let analysisCorrelation: {
     operationId: string;
+    projectId: string;
     projectRevision: string;
+    rootAvailable: boolean;
     evidenceProvenance: string;
   } = {
     operationId: randomUUID(),
+    projectId,
     projectRevision: project.updatedAt.toISOString(),
+    rootAvailable: Boolean(validRootPath),
     evidenceProvenance: "project-analysis",
   };
   const analysisToolRunner = validRootPath

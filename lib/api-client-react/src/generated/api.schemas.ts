@@ -1336,12 +1336,34 @@ export interface AiScanInsight {
   recommendation: string;
 }
 
+export type AiStructuredAuditTraceEntryStatus = typeof AiStructuredAuditTraceEntryStatus[keyof typeof AiStructuredAuditTraceEntryStatus];
+
+
+export const AiStructuredAuditTraceEntryStatus = {
+  started: 'started',
+  completed: 'completed',
+  failed: 'failed',
+  incomplete: 'incomplete',
+} as const;
+
+export interface AiStructuredAuditTraceEntry {
+  stage: string;
+  status: AiStructuredAuditTraceEntryStatus;
+  provider?: string;
+}
+
 export interface AiScanAnalysis {
   summary: string;
   overallAssessment: string;
   insights: AiScanInsight[];
   topPriority: string;
   estimatedImpact: string;
+  operationId: string;
+  projectId: string;
+  projectRevision: string;
+  rootAvailable: boolean;
+  incomplete: boolean;
+  operationalTrace: AiStructuredAuditTraceEntry[];
 }
 
 export type AiCodeIssueType = typeof AiCodeIssueType[keyof typeof AiCodeIssueType];
@@ -1391,6 +1413,12 @@ export interface AiCodeReview {
   refactoringOpportunities: string[];
   securityConcerns: string[];
   verdict: AiCodeReviewVerdict;
+  operationId: string;
+  projectId: string;
+  projectRevision: string;
+  rootAvailable: boolean;
+  incomplete: boolean;
+  operationalTrace: AiStructuredAuditTraceEntry[];
 }
 
 export type AiOrchestrationDecisionAction = typeof AiOrchestrationDecisionAction[keyof typeof AiOrchestrationDecisionAction];
