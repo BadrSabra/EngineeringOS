@@ -110,10 +110,15 @@ const executionFixture = {
   updatedAt: "2026-01-01T00:01:00.000Z",
 };
 
-function jsonResponse(body: unknown, status = 200) {
+function jsonResponse(
+  body: unknown,
+  status = 200,
+  headers?: Record<string, string>,
+) {
   return {
     status,
     contentType: "application/json",
+    ...(headers ? { headers } : {}),
     body: JSON.stringify(body),
   };
 }
@@ -157,6 +162,16 @@ async function installApiFixtures(
     };
     projects?: Array<Record<string, unknown>>;
     events?: Array<Record<string, unknown>>;
+    archiveUpload?: {
+      uploadId: string;
+      originalName: string;
+    };
+    liveTask?: {
+      id: string;
+      title: string;
+      projectId: string;
+      log: Record<string, unknown>;
+    };
   },
 ) {
   await page.route("**/api/**", async (route) => {
@@ -256,6 +271,73 @@ async function installApiFixtures(
 
     if (path === "/api/dashboard")
       return route.fulfill(jsonResponse(dashboardFixture));
+    if (overrides?.archiveUpload && path === "/api/upload/archive") {
+      const contentType = route.request().headers()["content-type"] ?? "";
+      if (!contentType.startsWith("multipart/form-data;")) {
+        return route.fulfill(
+          jsonResponse({ error: "Expected multipart archive upload." }, 400),
+        );
+      }
+      const body = route.request().postDataBuffer();
+      if (!body?.includes(Buffer.from("dashboard-journey.zip"))) {
+        return route.fulfill(
+          jsonResponse({ error: "Expected the journey archive payload." }, 400),
+        );
+      }
+      return route.fulfill(
+        jsonResponse(
+          {
+            uploadId: overrides.archiveUpload.uploadId,
+            originalName: overrides.archiveUpload.originalName,
+          },
+          201,
+          {
+            "access-control-allow-origin": new URL(page.url()).origin,
+            "access-control-allow-credentials": "true",
+          },
+        ),
+      );
+    }
+    if (overrides?.liveTask && path === "/api/tasks") {
+      return route.fulfill(
+        jsonResponse([
+          {
+            id: overrides.liveTask.id,
+            projectId: overrides.liveTask.projectId,
+            title: overrides.liveTask.title,
+            description: "A task used to verify live dashboard updates.",
+            status: "running",
+            phase: "Execution",
+            relatedFiles: [],
+            retryCount: 0,
+            maxRetries: 2,
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:01.000Z",
+          },
+        ]),
+      );
+    }
+    if (
+      overrides?.liveTask &&
+      path === `/api/tasks/${overrides.liveTask.id}/logs`
+    ) {
+      return route.fulfill(jsonResponse([]));
+    }
+    if (
+      overrides?.liveTask &&
+      path === `/api/tasks/${overrides.liveTask.id}/logs/stream`
+    ) {
+      return route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        headers: {
+          "Cache-Control": "no-cache",
+          "access-control-allow-origin": new URL(page.url()).origin,
+          "access-control-allow-credentials": "true",
+        },
+        body: `event: log\ndata: ${JSON.stringify(overrides.liveTask.log)}\n\n`,
+      });
+    }
     if (path === "/api/projects") {
       return route.fulfill(
         jsonResponse(
@@ -741,8 +823,10 @@ function installInterruptedResumeFixture() {
   const initialToken = "e2e-interrupted-initial-token";
   const recoveredToken = "e2e-interrupted-recovered-token";
   const question = "Continue the interrupted release execution.";
-  const partialAnswer = "The release execution started before the browser disconnected.";
-  const answer = "The original release execution resumed after capability recovery.";
+  const partialAnswer =
+    "The release execution started before the browser disconnected.";
+  const answer =
+    "The original release execution resumed after capability recovery.";
   const message = {
     id: "e2e-interrupted-resume-message",
     sessionId,
@@ -789,7 +873,13 @@ function installInterruptedResumeFixture() {
       }),
       sse({ type: "stage", stage: "resuming-checkpoint" }),
       sse({ type: "delta", delta: answer }),
-      sse({ type: "done", sessionId, executionId, message, pendingChanges: [] }),
+      sse({
+        type: "done",
+        sessionId,
+        executionId,
+        message,
+        pendingChanges: [],
+      }),
     ].join(""),
     execution: {
       id: executionId,
@@ -802,7 +892,8 @@ function installInterruptedResumeFixture() {
       checkpointVersion: 1,
       checkpoint: {
         stage: "calling-model",
-        detail: "The browser transport disconnected after the execution started.",
+        detail:
+          "The browser transport disconnected after the execution started.",
       },
       objective: { objective: question },
       startedAt: "2026-01-01T00:01:00.000Z",
@@ -981,7 +1072,9 @@ async function expectOriginCanUseApi(page: Page, origin: string) {
   const check = async (
     phase: OriginDiagnostic["phase"],
     request: () => Promise<import("@playwright/test").APIResponse>,
-    assertion: (response: import("@playwright/test").APIResponse) => Promise<void>,
+    assertion: (
+      response: import("@playwright/test").APIResponse,
+    ) => Promise<void>,
   ) => {
     try {
       const response = await request();
@@ -1027,24 +1120,25 @@ async function expectOriginCanUseApi(page: Page, origin: string) {
         },
       }),
     async (response) => {
-      expect(
-        response.status(),
-        `${origin} mutation preflight status`,
-      ).toBe(204);
+      expect(response.status(), `${origin} mutation preflight status`).toBe(
+        204,
+      );
       expect(response.headers()["access-control-allow-origin"]).toBe(origin);
       expect(
         response.headers()["access-control-allow-credentials"],
         `${origin} mutation preflight credentials`,
       ).toBe("true");
       expect(
-        response.headers()["access-control-allow-methods"]
-          ?.split(",")
+        response
+          .headers()
+          ["access-control-allow-methods"]?.split(",")
           .map((method) => method.trim().toUpperCase()),
         `${origin} mutation preflight methods`,
       ).toContain("POST");
       expect(
-        response.headers()["access-control-allow-headers"]
-          ?.split(",")
+        response
+          .headers()
+          ["access-control-allow-headers"]?.split(",")
           .map((header) => header.trim().toLowerCase()),
         `${origin} mutation preflight headers`,
       ).toContain("content-type");
@@ -1078,6 +1172,8 @@ async function expectHostileOriginRejected(page: Page) {
       "DASHBOARD_E2E_API_BASE_URL is required for origin checks.",
     );
   const mutationUrl = new URL("/api/ai/chat", apiBaseUrl).toString();
+  const uploadUrl = new URL("/api/upload/archive", apiBaseUrl).toString();
+  const liveUpdateUrl = new URL("/api/ai/chat/stream", apiBaseUrl).toString();
   const diagnostic: OriginDiagnostic = {
     origin: HOSTILE_ORIGIN,
     phase: "rejection",
@@ -1097,6 +1193,33 @@ async function expectHostileOriginRejected(page: Page) {
     expect(response.headers()["access-control-allow-origin"]).toBeUndefined();
     expect(
       response.headers()["access-control-allow-credentials"],
+    ).toBeUndefined();
+
+    const hostileUpload = await page.request.post(uploadUrl, {
+      headers: { Origin: HOSTILE_ORIGIN },
+      multipart: {
+        archive: {
+          name: "hostile-dashboard-journey.zip",
+          mimeType: "application/zip",
+          buffer: Buffer.from("not an archive"),
+        },
+      },
+    });
+    expect(hostileUpload.status()).toBe(403);
+    expect(
+      hostileUpload.headers()["access-control-allow-origin"],
+    ).toBeUndefined();
+
+    const hostileLiveUpdate = await page.request.post(liveUpdateUrl, {
+      headers: {
+        Origin: HOSTILE_ORIGIN,
+        "Content-Type": "application/json",
+      },
+      data: {},
+    });
+    expect(hostileLiveUpdate.status()).toBe(403);
+    expect(
+      hostileLiveUpdate.headers()["access-control-allow-origin"],
     ).toBeUndefined();
   } catch (error) {
     diagnostic.error = "origin rejection check failed";
@@ -1390,7 +1513,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText("Dashboard API fixture ready", { exact: true }),
     ).toBeVisible();
-    await expect(page.getByText("Showing 1–1 of 1", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("Showing 1–1 of 1", { exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("button", { name: "Older" })).toBeDisabled();
 
     await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
@@ -1443,6 +1568,71 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toBeVisible();
   });
 
+  test("uploads an archive and renders a live task update", async ({
+    page,
+  }) => {
+    const taskId = "e2e-live-task";
+    const liveLog = {
+      id: "e2e-live-log",
+      taskId,
+      level: "info",
+      message: "Live update received from the server",
+      timestamp: "2026-01-01T00:00:02.000Z",
+    };
+    await installApiFixtures(page, {
+      archiveUpload: {
+        uploadId: "e2e-upload",
+        originalName: "dashboard-journey.zip",
+      },
+      liveTask: {
+        id: taskId,
+        title: "Verify live dashboard updates",
+        projectId: "e2e-project",
+        log: liveLog,
+      },
+    });
+    await programmaticSignIn(page);
+
+    // This is a valid, empty ZIP archive. Keeping it inline makes the browser
+    // test self-contained while still exercising FormData and multipart bytes.
+    const uploadResult = await page.evaluate(async (apiBaseUrl) => {
+      const bytes = Uint8Array.from(
+        atob("UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA=="),
+        (character) => character.charCodeAt(0),
+      );
+      const body = new FormData();
+      body.append(
+        "archive",
+        new Blob([bytes], { type: "application/zip" }),
+        "dashboard-journey.zip",
+      );
+      const response = await fetch(
+        new URL("/api/upload/archive", apiBaseUrl).toString(),
+        { method: "POST", credentials: "include", body },
+      );
+      return {
+        status: response.status,
+        body: (await response.json()) as Record<string, unknown>,
+      };
+    }, process.env.DASHBOARD_E2E_API_BASE_URL ?? page.url());
+    expect(uploadResult.status).toBe(201);
+    expect(uploadResult.body).toEqual({
+      uploadId: "e2e-upload",
+      originalName: "dashboard-journey.zip",
+    });
+
+    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+    const taskRow = page.getByLabel(
+      "Expand task Verify live dashboard updates",
+    );
+    await expect(taskRow).toBeVisible();
+    await taskRow.click();
+    await page.getByRole("button", { name: "Logs" }).click();
+    await expect(page.getByRole("region", { name: "Activity" })).toContainText(
+      "Live update received from the server",
+    );
+  });
+
   test("pages and reloads the filtered event stream without losing its window", async ({
     page,
   }) => {
@@ -1478,8 +1668,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}events`);
 
-    await expect(page.getByText("Older event 49", { exact: true })).toBeVisible();
-    await expect(page.getByText("Older event 50", { exact: true })).not.toBeVisible();
+    await expect(
+      page.getByText("Older event 49", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Older event 50", { exact: true }),
+    ).not.toBeVisible();
     const firstRequest = new URL(eventRequests.at(-1)!);
     expect(firstRequest.searchParams.get("limit")).toBe("50");
     expect(firstRequest.searchParams.get("page")).toBe("1");
@@ -1495,25 +1689,41 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       page.getByRole("button", { name: "Older" }).click(),
     ]);
     await expect(page.getByText("Page 2.", { exact: false })).toBeVisible();
-    await expect(page.getByText("Older event 50", { exact: true })).toBeVisible();
-    await expect(page.getByText("Filtered release event 0", { exact: true })).not.toBeVisible();
+    await expect(
+      page.getByText("Older event 50", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Filtered release event 0", { exact: true }),
+    ).not.toBeVisible();
     expect(new URL(eventRequests.at(-1)!).searchParams.get("page")).toBe("2");
     await page.getByRole("button", { name: "Newer" }).click();
     await expect(page.getByText("Page 1.", { exact: false })).toBeVisible();
-    await expect(page.getByText("Filtered release event 0", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("Filtered release event 0", { exact: true }),
+    ).toBeVisible();
 
     await page.getByPlaceholder("Search logs...").fill("Filtered release");
     await page.getByRole("button", { name: "Toggle event filters" }).click();
     await page.locator("select").nth(1).selectOption("success");
-    await expect(page.getByText("Filtered release event 0", { exact: true })).toBeVisible();
-    await expect(page.getByText("Older event 1", { exact: true })).not.toBeVisible();
+    await expect(
+      page.getByText("Filtered release event 0", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Older event 1", { exact: true }),
+    ).not.toBeVisible();
     await expect(page).toHaveURL(/search=Filtered\+release/);
     await expect(page).toHaveURL(/severity=success/);
 
     await page.reload();
-    await expect(page.getByText("Filtered release event 0", { exact: true })).toBeVisible();
-    await expect(page.getByText("Older event 1", { exact: true })).not.toBeVisible();
-    await expect(page.getByPlaceholder("Search logs...")).toHaveValue("Filtered release");
+    await expect(
+      page.getByText("Filtered release event 0", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Older event 1", { exact: true }),
+    ).not.toBeVisible();
+    await expect(page.getByPlaceholder("Search logs...")).toHaveValue(
+      "Filtered release",
+    );
     await page.getByRole("button", { name: "Toggle event filters" }).click();
     await expect(page.locator("select").nth(1)).toHaveValue("success");
     const filteredRequest = new URL(eventRequests.at(-1)!);
@@ -2180,13 +2390,17 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page.addInitScript(() => {
       const nativeFetch = window.fetch.bind(window);
       window.fetch = async (input, init) => {
-        const url = typeof input === "string"
-          ? input
-          : input instanceof Request
-            ? input.url
-            : String(input);
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof Request
+              ? input.url
+              : String(input);
         const body = typeof init?.body === "string" ? init.body : "";
-        if (!url.includes("/api/ai/chat/stream") || body.includes('"executionId"')) {
+        if (
+          !url.includes("/api/ai/chat/stream") ||
+          body.includes('"executionId"')
+        ) {
           return nativeFetch(input, init);
         }
 
@@ -2206,9 +2420,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
               }
               buffered += new TextDecoder().decode(value, { stream: true });
               const marker = buffered.indexOf('"type":"execution_started"');
-              const frameEnd = marker < 0 ? -1 : buffered.indexOf("\n\n", marker);
+              const frameEnd =
+                marker < 0 ? -1 : buffered.indexOf("\n\n", marker);
               if (frameEnd >= 0) {
-                controller.enqueue(encoder.encode(buffered.slice(0, frameEnd + 2)));
+                controller.enqueue(
+                  encoder.encode(buffered.slice(0, frameEnd + 2)),
+                );
                 controller.error(new TypeError("network connection reset"));
                 return;
               }
@@ -2232,7 +2449,9 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         request.method() === "POST"
       ) {
         try {
-          streamRequests.push(request.postDataJSON() as Record<string, unknown>);
+          streamRequests.push(
+            request.postDataJSON() as Record<string, unknown>,
+          );
         } catch {
           // Ignore requests without a JSON body; the assertions below require
           // both journey requests to have a valid request envelope.
@@ -2245,12 +2464,16 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await composer.locator("xpath=..").getByRole("button").click();
 
     await expect(
-      page.getByText("Execution paused — ready to resume from its durable checkpoint", {
-        exact: true,
-      }),
+      page.getByText(
+        "Execution paused — ready to resume from its durable checkpoint",
+        {
+          exact: true,
+        },
+      ),
     ).toBeVisible();
 
-    const storageKey = "eos_ai_execution_e2e-project_e2e-interrupted-resume-session";
+    const storageKey =
+      "eos_ai_execution_e2e-project_e2e-interrupted-resume-session";
     const pointerKey = "eos_ai_execution_current_e2e-project";
     await expect
       .poll(() => page.evaluate((key) => localStorage.getItem(key), storageKey))
@@ -2285,9 +2508,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText(recovery.fixture.answer, { exact: true }),
     ).toBeVisible();
-    await expect
-      .poll(() => streamRequests.length)
-      .toBe(2);
+    await expect.poll(() => streamRequests.length).toBe(2);
     expect(streamRequests[0]).toEqual(
       expect.objectContaining({
         projectId: "e2e-project",
