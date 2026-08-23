@@ -14,6 +14,7 @@ export type ExecutionModelDecision = {
   powerModel: string;
   fallbackChain: string[];
   capability: ModelCapability;
+  quality: "fast" | "powerful";
   source: "openrouter-catalog" | "provider-registry";
 };
 
@@ -116,6 +117,7 @@ export function resolveExecutionModel(
       powerModel,
       fallbackChain: liveModel ? [liveModel] : fallbackChain,
       capability,
+      quality: wantPowerful ? "powerful" : "fast",
       source: "openrouter-catalog",
     };
   } else {
@@ -127,6 +129,7 @@ export function resolveExecutionModel(
       powerModel: provider.defaultModels.powerful,
       fallbackChain: [provider.defaultModels.fast, provider.defaultModels.powerful].filter((m, i, arr) => arr.indexOf(m) === i),
       capability,
+      quality: wantPowerful ? "powerful" : "fast",
       source: "provider-registry",
     };
   }

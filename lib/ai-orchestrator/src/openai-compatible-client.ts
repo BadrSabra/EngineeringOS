@@ -1162,6 +1162,8 @@ export type OpenRouterFallbackOptions = Omit<
   quality?: "fast" | "powerful";
   /** RC-04: capability hint used when `model` is undefined. Defaults to "chat". */
   capability?: ModelCapability;
+  /** Execution-plan tool contract, including calls with tools supplied later. */
+  requireTools?: boolean;
 };
 
 /**
@@ -1182,8 +1184,11 @@ export async function openrouterCompleteWithFallback(
 ): Promise<RawGroqResponse> {
   const initialModel = opts.model;
   const capability = opts.capability ?? "chat";
-  const requireTools = !!(opts.tools?.length);
-  if (initialModel && !isCatalogFreeModelForCapability(initialModel, { capability, requireTools })) {
+  const requireTools = opts.requireTools ?? !!(opts.tools?.length);
+  const knownInitialModel = initialModel
+    ? FREE_MODELS.some((candidate) => candidate.id === initialModel)
+    : true;
+  if (initialModel && !knownInitialModel) {
     throw new GroqClientError(
       "INVALID_CONFIG",
       `OpenRouter fallback requires a currently-free model matching capability="${capability}"`,
@@ -1203,6 +1208,13 @@ export async function openrouterCompleteWithFallback(
         requireTools,
          taskType: opts.taskType,
       }).map((m) => m.id);
+  if (initialModel && resolvedChain.length === 0) {
+    throw new GroqClientError(
+      "INVALID_CONFIG",
+      `OpenRouter fallback requires a currently-free model matching capability="${capability}"`,
+      { context: { providerName: "OpenRouter", providerModel: initialModel } },
+    );
+  }
   const maxFallbackModels =
     Number.isInteger(opts.maxFallbackModels) && opts.maxFallbackModels! > 0
       ? opts.maxFallbackModels

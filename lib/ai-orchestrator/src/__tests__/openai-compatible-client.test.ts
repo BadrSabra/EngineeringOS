@@ -134,6 +134,36 @@ describe("OpenRouter transport-error redaction", () => {
 describe("openrouterCompleteWithFallback — error classification", () => {
   const primaryModel = FREE_MODELS[0]!.id;
 
+  it("accepts a free model for its requested capability instead of defaulting to chat", async () => {
+    const codingOnlyModel = "cohere/north-mini-code:free";
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: '{"response":"ok"}' } }],
+          model: body.model,
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+        text: async () => "",
+      } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await openrouterCompleteWithFallback(baseMessages as any, {
+      apiKey: "test-key",
+      model: codingOnlyModel,
+      capability: "coding",
+      quality: "powerful",
+    });
+
+    expect(result.content).toBe('{"response":"ok"}');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body)) as Record<string, unknown>;
+    expect(requestBody.model).toBe(codingOnlyModel);
+  });
+
   it("400 with invalid-model body → MODEL_NOT_FOUND → triggers fallback", async () => {
     let callCount = 0;
     vi.stubGlobal("fetch", vi.fn(async (_url: string | URL, init?: RequestInit) => {

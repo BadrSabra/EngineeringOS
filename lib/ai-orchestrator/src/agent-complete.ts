@@ -89,7 +89,15 @@ async function probeProviderKey(provider: ProviderConfig, apiKey: string): Promi
     case "openrouter":
       // Use the same decision engine as the main call path so the validation
       // probe exercises the same model-selection rules.
-      await openrouterCompleteWithFallback(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeModelDecision.model });
+      await openrouterCompleteWithFallback(testMessages, {
+        apiKey,
+        maxTokens: 1,
+        temperature: 0,
+        model: probeModelDecision.model,
+        capability: probeModelDecision.capability,
+        quality: probeModelDecision.quality,
+        requireTools: probePlan.strictHints.requireTools ?? false,
+      });
       return;
     case "gemini":
       await geminiCompleteRaw(testMessages, { apiKey, maxTokens: 1, temperature: 0, model: probeModelDecision.model });
@@ -165,6 +173,9 @@ export async function agentComplete(
       const result = await openrouterCompleteWithFallback(messages, {
         model: modelDecision.model,
         apiKey,
+        capability: modelDecision.capability,
+        quality: modelDecision.quality,
+        requireTools: qualityHints?.requireTools ?? false,
       });
       return { content: assertContent(provider, result.content) };
     }

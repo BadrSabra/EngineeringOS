@@ -246,7 +246,13 @@ export function buildFallbackChainFromId(
 ): string[] {
   const initial = FREE_MODELS.find((m) => m.id === initialModelId);
   if (!initial) return [initialModelId];
-  if (!isCatalogFreeModelForCapability(initialModelId, capabilityOptions)) return [];
+  // Validate the selected model's advertised contract independently from the
+  // live catalog. A model that disappeared from the live catalog should still
+  // be attempted once so the chain can advance to compatible live peers.
+  const initiallyCapable =
+    (!capabilityOptions.capability || initial.capabilities.includes(capabilityOptions.capability)) &&
+    (!capabilityOptions.requireTools || initial.supportsTools);
+  if (!initiallyCapable) return [];
 
   const quality = initial.quality;
 
