@@ -212,6 +212,33 @@ test("release diagnostics expose a run-scoped summary and artifact link", () => 
   );
 });
 
+test("release diagnostics remain useful when teardown evidence is absent", () => {
+  const missingEvidenceBranch = workflowSource.match(
+    /if \[\[ -f "\$TEARDOWN_ARTIFACT" \]\]; then[\s\S]*?\n\s*else\s*\n([\s\S]*?)\n\s*fi\s*/,
+  );
+  assert.ok(
+    missingEvidenceBranch,
+    "CI must define an explicit fallback when teardown evidence is missing.",
+  );
+
+  const fallback = missingEvidenceBranch[1];
+  assert.match(
+    workflowSource,
+    /Validation run: \[#\$\{\{ github\.run_number \}\}\]\(\$\{\{ github\.server_url \}\}\/\$\{\{ github\.repository \}\}\/actions\/runs\/\$\{\{ github\.run_id \}\}\)/,
+    "The CI summary must identify the validation run even without evidence.",
+  );
+  assert.match(
+    workflowSource,
+    /Retained teardown evidence: \[\$TEARDOWN_ARTIFACT_NAME\]\(\$\{\{ github\.server_url \}\}\/\$\{\{ github\.repository \}\}\/actions\/runs\/\$\{\{ github\.run_id \}\}\/artifacts\)/,
+    "The CI summary must retain the artifact location even without evidence.",
+  );
+  assert.match(
+    fallback,
+    /teardown evidence file was not produced; see the job log for the failure/,
+    "The missing-evidence fallback must point operators to the job log for diagnostics.",
+  );
+});
+
 test("live recovery requires an evidence-backed success", () => {
   assert.match(
     journeySource,
