@@ -118,6 +118,24 @@ afterEach(() => {
 });
 
 describe('processAiStream — semantic trace dispatch', () => {
+  it('treats EOF after a structured task starts as an interrupted run', async () => {
+    const onStreamReset = vi.fn();
+    await processAiStream(
+      makeSseStream(sseFrame({
+        type: 'task_started',
+        task: 'analyze',
+        projectId: 'project-1',
+        operationId: 'operation-1',
+        projectRevision: 'revision-1',
+        rootAvailable: true,
+        incomplete: false,
+        operationalTrace: [],
+      })),
+      { onStreamReset },
+    );
+    expect(onStreamReset).toHaveBeenCalledOnce();
+  });
+
   it('treats EOF after execution_started as an interrupted resumable stream', async () => {
     const onStreamReset = vi.fn();
     await processAiStream(

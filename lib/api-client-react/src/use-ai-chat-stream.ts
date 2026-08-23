@@ -210,6 +210,7 @@ export type AiStreamErrorEvent = {
   sessionId?: string;
   turnIntent?: string;
   outcome?: 'FAILED' | 'INTERRUPTED';
+  failureKind?: 'PROVIDER_FORMAT' | 'RATE_LIMIT' | 'CONFIGURATION' | 'PROVIDER_FAILURE' | 'TRANSPORT';
 };
 
 export type AiStreamResetEvent = {
@@ -776,6 +777,7 @@ export async function processAiStream(
   const decoder = new TextDecoder();
   let buffer = '';
   let executionStarted = false;
+  let taskStarted = false;
   let terminalEventReceived = false;
 
   // eslint-disable-next-line no-constant-condition
@@ -786,7 +788,7 @@ export async function processAiStream(
       // sending either `done` or `error`. Once the server has issued an
       // execution identity, surface that EOF as a recoverable interruption so
       // callers can resume the same operation instead of silently dropping it.
-      if (executionStarted && !terminalEventReceived) {
+      if ((executionStarted || taskStarted) && !terminalEventReceived) {
         callbacks.onStreamReset?.();
       }
       break;
@@ -811,6 +813,7 @@ export async function processAiStream(
       }
 
       if (event.type === 'execution_started') executionStarted = true;
+      if (event.type === 'task_started') taskStarted = true;
       if (event.type === 'done' || event.type === 'error') terminalEventReceived = true;
 
       switch (event.type) {
@@ -1066,7 +1069,7 @@ export type AiTaskStreamParams = {
 
 export type AiTaskStreamCallbacks = Pick<
   AiChatStreamCallbacks,
-  'onStage' | 'onModelCall' | 'onTaskStarted' | 'onTaskProgress' | 'onTaskDone' | 'onError'
+  'onStage' | 'onModelCall' | 'onTaskStarted' | 'onTaskProgress' | 'onTaskDone' | 'onError' | 'onStreamReset'
 >;
 
 /**
@@ -1099,6 +1102,7 @@ export function useAiTaskStream() {
       onTaskProgress: (event) => { if (isCurrent()) callbacks.onTaskProgress?.(event); },
       onTaskDone: (event) => { if (isCurrent()) callbacks.onTaskDone?.(event); },
       onError: (event) => { if (isCurrent()) callbacks.onError?.(event); },
+      onStreamReset: () => { if (isCurrent()) callbacks.onStreamReset?.(); },
     };
 
     try {
@@ -1112,17 +1116,23 @@ export function useAiTaskStream() {
       if (!res.ok) {
         let parsed: { code?: string; error?: string; hint?: string } = {};
         try { parsed = await res.json() as typeof parsed; } catch { /* ignore */ }
-        callbacks.onError?.({
+        guardedCallbacks.onError?.({
           type: 'error',
           code: parsed.code ?? 'request_failed',
           message: parsed.error ?? `Request failed (${res.status})`,
           hint: parsed.hint,
+          failureKind: res.status === 429
+            ? 'RATE_LIMIT'
+            : res.status === 401 || res.status === 402 || res.status === 422 || res.status === 428
+              ? 'CONFIGURATION'
+              : 'PROVIDER_FAILURE',
+          outcome: 'FAILED',
         });
         return;
       }
 
       if (!res.body) {
-        callbacks.onError?.({ type: 'error', code: 'no_body', message: 'Task stream response had no body.' });
+        guardedCallbacks.onError?.({ type: 'error', code: 'no_body', message: 'Task stream response had no body.', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' });
         return;
       }
 
@@ -1133,6 +1143,8 @@ export function useAiTaskStream() {
         type: 'error',
         code: 'network_error',
         message: err instanceof Error ? err.message : String(err),
+        failureKind: 'TRANSPORT',
+        outcome: 'INTERRUPTED',
       });
     } finally {
       if (controllerRef.current === controller) {

@@ -127,6 +127,8 @@ type ChatMessage = {
   /** AI-008: per-task typed result from the SSE done event. Absent on generic turns and reloaded history. */
   taskResult?: AiTaskResult | null;
   operationMode?: OperationMode;
+  structuredTask?: 'analyze' | 'review';
+  failureKind?: AiStreamErrorEvent['failureKind'];
   createdAt: string;
 };
 
@@ -3889,6 +3891,8 @@ function MessageBubble({
   planBuildPending,
   onRegenerateReport,
   reportRegenerationPending,
+  onRetryStructuredTask,
+  retryPending,
 }: {
   msg: ChatMessage;
   projectId?: string;
@@ -3899,6 +3903,8 @@ function MessageBubble({
   planBuildPending?: boolean;
   onRegenerateReport?: (messageId: string) => void;
   reportRegenerationPending?: boolean;
+  onRetryStructuredTask?: (task: 'analyze' | 'review', messageId: string) => void;
+  retryPending?: boolean;
 }) {
   const isUser = msg.role === 'user';
   const [technicalDetailsExpanded, setTechnicalDetailsExpanded] = useState(false);
@@ -3913,6 +3919,15 @@ function MessageBubble({
   const internalTechnicalDump = !isUser && isInternalTechnicalDump(displayContent);
   const isStructuredPlan = !isUser && msg.taskResult?.kind === 'IMPLEMENTATION_PLAN_RESULT';
   const failedTurn = !isUser && (msg.outcome === 'FAILED' || msg.outcome === 'INTERRUPTED');
+  const failureKindLabel = msg.failureKind === 'PROVIDER_FORMAT'
+    ? 'Provider format issue'
+    : msg.failureKind === 'RATE_LIMIT'
+      ? 'Rate limit'
+      : msg.failureKind === 'CONFIGURATION'
+        ? 'Configuration issue'
+        : msg.failureKind === 'TRANSPORT'
+          ? 'Connection interrupted'
+          : 'Provider failure';
   const userFacingContent = internalTechnicalDump
     ? 'The agent produced internal technical details for this run.'
     : redactedDisplayContent;
@@ -3996,9 +4011,24 @@ function MessageBubble({
                 <div className="font-medium">
                   {msg.outcome === 'INTERRUPTED' ? 'Execution interrupted' : 'Execution failed'}
                 </div>
+                <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-300/80">{failureKindLabel}</div>
                 {msg.errorMessage && <div className="mt-1 text-xs">{msg.errorMessage}</div>}
                 {msg.executionId && (
                   <div className="mt-1 text-[10px] opacity-70">Durable execution: {msg.executionId}</div>
+                )}
+                {msg.structuredTask && onRetryStructuredTask && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 h-8 w-full justify-center text-xs sm:w-auto"
+                    onClick={() => onRetryStructuredTask(msg.structuredTask!, msg.id)}
+                    disabled={retryPending}
+                    aria-label={`Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
+                  >
+                    {retryPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
+                    {retryPending ? 'Retrying…' : `Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
+                  </Button>
                 )}
               </div>
             </>
@@ -4986,6 +5016,9 @@ function LiveAgentActivity({
     : activeStep
       ? liveToolLabel(activeStep)
       : stage ?? (phaseIndex === 2 ? 'Preparing the final result' : 'Starting analysis');
+  const latestProgress = [...activityEvents].reverse().find(
+    (event) => event.kind === 'stage' && event.status === 'info',
+  )?.label;
 
   const borderColor = isFixtureLocal ? 'border-violet-500/30' : 'border-primary/20';
   const bgColor = isFixtureLocal ? 'bg-violet-500/5' : 'bg-primary/5';
@@ -5028,6 +5061,11 @@ function LiveAgentActivity({
           <p className="mt-1 break-words text-[10px] leading-4 text-muted-foreground">
             {liveStageDescription(stage, streamingContent, activeStep)}
           </p>
+          {latestProgress && (
+            <p className="mt-1 break-words text-[10px] leading-4 text-foreground/80">
+              <span className="font-medium text-primary">Latest update:</span> {latestProgress}
+            </p>
+          )}
           {auditScopeDescription && (
             <div className="mt-2 rounded border border-primary/20 bg-background/25 px-2 py-1.5 text-[10px] leading-4 text-foreground/85">
               <span className="font-medium text-primary">Approved scope:</span>{' '}
@@ -6475,6 +6513,8 @@ export default function AiChat() {
   const [agentElapsedSeconds, setAgentElapsedSeconds] = useState(0);
   const [agentModelHistory, setAgentModelHistory] = useState<Array<{ id: string; provider: string }>>([]);
   const [agentDiagnostics, setAgentDiagnostics] = useState<string[]>([]);
+  const [structuredRetryMessageId, setStructuredRetryMessageId] = useState<string | null>(null);
+  const structuredTaskRunRef = useRef<{ task: 'analyze' | 'review'; prompt: string; placeholderId: string } | null>(null);
   const [activeExecution, setActiveExecution] = useState<ActiveExecution | null>(null);
   const [executionControlPending, setExecutionControlPending] = useState(false);
   const [resumeRecoveryError, setResumeRecoveryError] = useState<string | null>(null);
@@ -6781,6 +6821,16 @@ export default function AiChat() {
     setLiveVerdictScope(null);
   }
 
+  function safeStructuredFailure(err: AiStreamErrorEvent): { title: string; reason: string } {
+    switch (err.failureKind) {
+      case 'PROVIDER_FORMAT': return { title: 'Incomplete analysis', reason: 'The AI returned an unexpected response format. No scan result was created.' };
+      case 'RATE_LIMIT': return { title: 'Analysis paused by rate limit', reason: 'The AI provider is rate-limited. Wait a moment, then retry.' };
+      case 'CONFIGURATION': return { title: 'Analysis needs provider configuration', reason: 'The configured AI provider could not run this task. Check its key or choose another provider.' };
+      case 'TRANSPORT': return { title: 'Analysis interrupted', reason: 'The connection ended before the analysis finished. No scan result was created.' };
+      default: return { title: 'Analysis failed', reason: 'The AI provider could not complete this task. No scan result was created.' };
+    }
+  }
+
   function structuredTaskStageLabel(stage: string): string {
     switch (stage) {
       case 'building-context':
@@ -6796,16 +6846,21 @@ export default function AiChat() {
     }
   }
 
-  function startStructuredTask(task: 'analyze' | 'review', prompt: string) {
+  function startStructuredTask(task: 'analyze' | 'review', prompt: string, retryMessageId?: string) {
     if (!selectedProjectId || isTaskSending) return;
     const placeholderId = `${task}-placeholder`;
     const title = task === 'analyze' ? 'Analyzing scan…' : 'Reviewing code…';
     const startLabel = task === 'analyze' ? 'Starting scan analysis' : 'Starting code review';
 
-    setLocalMessages((prev) => [
-      ...prev,
-      { id: placeholderId, role: 'user' as const, content: prompt, createdAt: new Date().toISOString() },
-    ]);
+    structuredTaskRunRef.current = { task, prompt, placeholderId };
+    if (!retryMessageId) {
+      setLocalMessages((prev) => [
+        ...prev,
+        { id: placeholderId, role: 'user' as const, content: prompt, createdAt: new Date().toISOString() },
+      ]);
+    } else {
+      setLocalMessages((prev) => prev.filter((message) => message.id !== retryMessageId));
+    }
     setAgentStage(title);
     setAgentSteps([]);
     clearLiveActivityEvents();
@@ -6860,6 +6915,8 @@ export default function AiChat() {
           status: 'done',
         });
         const activityEvents = agentActivityEventsRef.current;
+        setStructuredRetryMessageId(null);
+        structuredTaskRunRef.current = null;
         resetStructuredTaskState();
         setLocalMessages((prev) => [
           ...prev.filter((message) => message.id !== placeholderId),
@@ -6870,20 +6927,61 @@ export default function AiChat() {
               ? formatScanAnalysis(event.result as unknown as AiScanAnalysis)
               : formatCodeReview(event.result as unknown as AiCodeReview),
             activityEvents,
+            structuredTask: task,
             createdAt: new Date().toISOString(),
           },
         ]);
       },
       onError: (err) => {
+        const failureEvents = agentActivityEventsRef.current;
+        const failure = safeStructuredFailure(err);
         resetStructuredTaskState();
-        setLocalMessages((prev) => prev.filter((message) => message.id !== placeholderId));
-        toast({
-          title: task === 'analyze' ? 'Analysis failed' : 'Code review failed',
-          description: describeStreamError(err),
-          variant: 'destructive',
-        });
+        setStructuredRetryMessageId(null);
+        setLocalMessages((prev) => [
+          ...prev.filter((message) => message.id !== placeholderId && message.id !== retryMessageId),
+          {
+            id: `${task}-failed-${Date.now()}`,
+            role: 'assistant' as const,
+            content: failure.reason,
+            outcome: err.outcome ?? 'FAILED',
+            errorCode: err.code,
+            errorMessage: failure.reason,
+            failureKind: err.failureKind,
+            structuredTask: task,
+            activityEvents: failureEvents,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      },
+      onStreamReset: () => {
+        const failureEvents = agentActivityEventsRef.current;
+        const failure = safeStructuredFailure({ type: 'error', code: 'transport_interrupted', message: '', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' });
+        resetStructuredTaskState();
+        setStructuredRetryMessageId(null);
+        setLocalMessages((prev) => [
+          ...prev.filter((message) => message.id !== placeholderId && message.id !== retryMessageId),
+          {
+            id: `${task}-interrupted-${Date.now()}`,
+            role: 'assistant' as const,
+            content: failure.reason,
+            outcome: 'INTERRUPTED',
+            errorCode: 'transport_interrupted',
+            errorMessage: failure.reason,
+            failureKind: 'TRANSPORT',
+            structuredTask: task,
+            activityEvents: failureEvents,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
       },
     });
+  }
+
+  function retryStructuredTask(task: 'analyze' | 'review', messageId: string) {
+    const run = structuredTaskRunRef.current;
+    if (structuredRetryMessageId || isTaskSending || !run || run.task !== task) return;
+    setStructuredRetryMessageId(messageId);
+    startStructuredTask(task, run.prompt, messageId);
   }
 
   const { data: activeProvider } = useGetActiveProvider<ActiveProvider>({
@@ -8475,6 +8573,8 @@ export default function AiChat() {
                   planBuildPending={planBuildPending === msg.id}
                   onRegenerateReport={(messageId) => regenerateReportMutation.mutate(messageId)}
                   reportRegenerationPending={regenerateReportMutation.isPending && regenerateReportMutation.variables === msg.id}
+                  onRetryStructuredTask={retryStructuredTask}
+                  retryPending={structuredRetryMessageId === msg.id}
                 />
               ))}
               {isAgentBusy ? (

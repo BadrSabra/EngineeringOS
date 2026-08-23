@@ -48,7 +48,7 @@ type StructuredTaskEvent =
     | { type: "stage"; stage: string }
     | { type: "task_progress"; task: StructuredTask; message: string; provider?: string }
     | { type: "task_done"; task: StructuredTask; result: Record<string, unknown> }
-    | { type: "error"; code: string; message: string; hint?: string })
+   | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; failureKind?: "PROVIDER_FORMAT" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; outcome?: "FAILED" | "INTERRUPTED" })
     & Partial<StructuredAuditMetadata>;
 
 function auditEnvelope(metadata: StructuredAuditMetadata): Record<string, unknown> {
@@ -139,14 +139,32 @@ function emitTaskFailure(
   metadata: StructuredAuditMetadata,
 ) {
   const candidate = err as { code?: unknown; message?: unknown };
+  const code = typeof candidate.code === "string" ? candidate.code : "task_failed";
+  const failureKind =
+    code === "model_output_invalid" || code === "INVALID_MODEL_OUTPUT" ? "PROVIDER_FORMAT" :
+    code === "RATE_LIMITED" ? "RATE_LIMIT" :
+    code === "INVALID_CONFIG" || code === "AUTH_ERROR" || code === "MODEL_NOT_FOUND" || code === "PLAN_RESTRICTED" ? "CONFIGURATION" :
+    code === "TIMEOUT" || code === "NETWORK_ERROR" || code === "NON_200" || code === "SERVER_ERROR" ? "PROVIDER_FAILURE" :
+    "PROVIDER_FAILURE";
+  const message =
+    failureKind === "RATE_LIMIT" ? "The AI provider is rate-limited. Please wait before retrying." :
+    failureKind === "CONFIGURATION" ? "The AI provider configuration needs attention before this can run." :
+    failureKind === "PROVIDER_FORMAT" ? "The AI returned an unexpected response format." :
+    "The AI provider could not complete this run.";
   metadata.incomplete = true;
   metadata.operationalTrace.push({ stage: "failed", status: "failed" });
   emit({
     type: "error",
-    code: typeof candidate.code === "string" ? candidate.code : "task_failed",
-    message: typeof candidate.message === "string"
-      ? redactUserFacingText(candidate.message)
-      : "AI task failed",
+    code,
+    message,
+    hint: failureKind === "RATE_LIMIT"
+      ? "Wait a moment and retry the analysis."
+      : failureKind === "CONFIGURATION"
+        ? "Check the configured provider key or choose another provider."
+        : "You can retry this task without sending another prompt.",
+    retryable: failureKind !== "CONFIGURATION",
+    failureKind,
+    outcome: "FAILED",
   });
   close();
 }
@@ -402,7 +420,10 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
         type: "error",
         code: "model_output_invalid",
         message: "The AI model returned an unexpected response.",
-        hint: redactUserFacingText(result._parseError.message),
+        hint: "The response could not be verified as a structured result. You can retry this task.",
+        retryable: true,
+        failureKind: "PROVIDER_FORMAT",
+        outcome: "FAILED",
       });
       close();
       return;
@@ -525,7 +546,10 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
         type: "error",
         code: "model_output_invalid",
         message: "The AI model returned an unexpected response.",
-        hint: redactUserFacingText(result._parseError.message),
+        hint: "The response could not be verified as a structured result. You can retry this task.",
+        retryable: true,
+        failureKind: "PROVIDER_FORMAT",
+        outcome: "FAILED",
       });
       close();
       return;
