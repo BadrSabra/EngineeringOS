@@ -59,6 +59,9 @@ class TaskAgent extends BaseAgent<TaskAgentInput, TaskAgentOutput> {
 
 const taskAgent = new TaskAgent();
 
-export async function executeTask(input: TaskAgentInput, opts?: Pick<AgentCompleteOpts, 'onProgress'>): Promise<TaskAgentResult> {
+export async function executeTask(
+  input: TaskAgentInput,
+  opts?: Pick<AgentCompleteOpts, "onProgress" | "signal">,
+): Promise<TaskAgentResult> {
   return taskAgent.run(input, opts);
 }

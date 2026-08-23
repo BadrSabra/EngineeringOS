@@ -1,7 +1,7 @@
 {
   "kind": "ai-release-quality-decision",
   "version": 1,
-  "generatedAt": "2026-08-23T18:44:41.915Z",
+  "generatedAt": "2026-08-23T18:56:59.216Z",
   "status": "blocked",
   "liveProviderChecks": "disabled",
   "previewChecks": "disabled",
@@ -29,7 +29,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 29624
+      "durationMs": 27104
     },
     {
       "id": "dashboard-typecheck",
@@ -41,7 +41,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 22228
+      "durationMs": 27061
     },
     {
       "id": "openapi-client-parity",
@@ -54,7 +54,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 6573
+      "durationMs": 6921
     },
     {
       "id": "truth-flow-parity",
@@ -67,7 +67,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "TRUTH_FLOW_PARITY_FAILED_1",
-      "durationMs": 1435
+      "durationMs": 1597
     },
     {
       "id": "ai-contract-and-json",
@@ -83,7 +83,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_CONTRACT_AND_JSON_FAILED_1",
-      "durationMs": 16807
+      "durationMs": 17829
     },
     {
       "id": "ai-sse-and-redaction",
@@ -99,7 +99,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_SSE_AND_REDACTION_FAILED_1",
-      "durationMs": 20222
+      "durationMs": 21120
     },
     {
       "id": "ai-operational-safety",
@@ -115,7 +115,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 81475
+      "durationMs": 57876
     },
     {
       "id": "ai-deterministic-benchmark",
@@ -130,7 +130,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 873
+      "durationMs": 766
     },
     {
       "id": "benchmark-baseline-regression",
@@ -144,7 +144,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 421
+      "durationMs": 502
     },
     {
       "id": "dashboard-preview-contract",

@@ -21,6 +21,8 @@ import { resolveExecutionModel } from "./model-selection/model-resolver.js";
 export type { ProviderId };
 
 export type AgentCompleteOpts = {
+  /** Caller-owned cancellation signal for the complete request and retries. */
+  signal?: AbortSignal;
   /** Per-user API key. Required for DeepSeek and OpenRouter; falls back to GROQ_API_KEY env for Groq. */
   apiKey?: string;
   /** Which AI provider to use. Defaults to the quality-aware best available provider. */
@@ -165,6 +167,7 @@ export async function agentComplete(
       const result = await deepseekCompleteRaw(messages, {
         model: modelDecision.model,
         apiKey,
+        signal: opts.signal,
       });
       return { content: assertContent(provider, result.content) };
     }
@@ -176,6 +179,7 @@ export async function agentComplete(
         capability: modelDecision.capability,
         quality: modelDecision.quality,
         requireTools: qualityHints?.requireTools ?? false,
+        signal: opts.signal,
       });
       return { content: assertContent(provider, result.content) };
     }
@@ -184,12 +188,13 @@ export async function agentComplete(
       const result = await geminiCompleteRaw(messages, {
         model: modelDecision.model,
         apiKey,
+        signal: opts.signal,
       });
       return { content: assertContent(provider, result.content) };
     }
 
     default: {
-      const result = await complete(messages, { model: modelDecision.model, apiKey: apiKey || undefined });
+      const result = await complete(messages, { model: modelDecision.model, apiKey: apiKey || undefined, signal: opts.signal });
       return { content: assertContent(provider, result.content) };
     }
   }

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   db,
+  aiExecutionsTable,
   eventsTable,
   taskLogsTable,
   tasksTable,
@@ -16,10 +17,11 @@ import {
   createAiExecution,
   checkpointAiExecution,
   claimAiExecution,
-  completeAiExecution,
   failAiExecution,
   heartbeatAiExecution,
   AI_EXECUTION_LEASE_MS,
+  registerAiExecutionController,
+  unregisterAiExecutionController,
 } from "./ai-execution-state.js";
 import { redactUserFacingText, runAgentWithFallback } from "./ai-route-helpers.js";
 import type { ProviderId } from "./ai-route-helpers.js";
@@ -247,11 +249,14 @@ export async function executeTaskLifecycle(params: {
       eq(tasksTable.status, "running"),
     ));
   }, Math.max(1_000, Math.floor(AI_EXECUTION_LEASE_MS / 3)));
+  const executionAbortController = new AbortController();
+  registerAiExecutionController(executionId, executionAbortController);
 
   try {
     stage = "context";
     stages.push("context");
     await log("info", "Building project context", { stage: "context" });
+    if (executionAbortController.signal.aborted) throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
     const projectContext = await buildProjectContext(before.projectId, { sections: [...CONTEXT_SECTIONS] });
     await checkpointAiExecution({
       executionId, workerId,
@@ -271,11 +276,14 @@ export async function executeTaskLifecycle(params: {
         relatedFiles: before.relatedFiles ?? [],
         projectContext,
         ...opts,
-      }, { onProgress: progress }),
-      { qualityProfile: "task_execution" },
+      }, { onProgress: progress, signal: executionAbortController.signal }),
+      { qualityProfile: "task_execution", signal: executionAbortController.signal },
     );
     executionProvider = effectiveProvider;
     if (effectiveProvider !== params.provider.provider) stages.push("provider_fallback");
+    if (executionAbortController.signal.aborted) {
+      throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+    }
 
     if (result._parseError) {
       stage = "parse";
@@ -331,6 +339,20 @@ export async function executeTaskLifecycle(params: {
       attempts: effectiveProvider === params.provider.provider ? 1 : 2, result,
     });
     const [updated] = await db.transaction(async (tx) => {
+      // Lock the durable execution before touching the task. Cancellation
+      // updates this row first, so a cancelling worker cannot publish a
+      // success after cancellation has won the race.
+      const [execution] = await tx
+        .select({ status: aiExecutionsTable.status })
+        .from(aiExecutionsTable)
+        .where(and(
+          eq(aiExecutionsTable.id, executionId),
+          eq(aiExecutionsTable.workerId, workerId),
+        ))
+        .for("update");
+      if (!execution || execution.status !== "running" || executionAbortController.signal.aborted) {
+        throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+      }
       const [row] = await tx.update(tasksTable).set({
         status: finalStatus,
         workerId: null,
@@ -374,12 +396,26 @@ export async function executeTaskLifecycle(params: {
           trigger: params.trigger,
         },
       });
+      await tx.update(aiExecutionsTable).set({
+        status: "completed",
+        finalMessageId: executionId,
+        completedAt: new Date(),
+        updatedAt: new Date(),
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+        checkpoint: JSON.stringify({
+          stage: "completed",
+          sequence: Date.now(),
+          evidenceVerdict: finalStatus === "completed" ? "PROVEN" : "NOT_RECORDED",
+          evidenceReason: finalStatus === "completed" ? "Structured task receipt verified." : "Human review remains required.",
+          updatedAt: new Date().toISOString(),
+        }),
+      }).where(and(
+        eq(aiExecutionsTable.id, executionId),
+        eq(aiExecutionsTable.workerId, workerId),
+        eq(aiExecutionsTable.status, "running"),
+      ));
       return [row];
-    });
-    await completeAiExecution({
-      executionId, workerId, finalMessageId: executionId,
-      evidenceVerdict: finalStatus === "completed" ? "PROVEN" : "NOT_RECORDED",
-      evidenceReason: finalStatus === "completed" ? "Structured task receipt verified." : "Human review remains required.",
     });
     await recordAudit({
       entityType: "task", entityId: before.id, action: "ai_executed",
@@ -396,7 +432,8 @@ export async function executeTaskLifecycle(params: {
     invalidateContextCache(before.projectId);
     return { ok: true, status: finalStatus, task: updated, executionId };
   } catch (error) {
-    const cancelled = error instanceof Error && error.name === "AbortError";
+    const cancelled = executionAbortController.signal.aborted
+      || (error instanceof Error && error.name === "AbortError");
     const code = cancelled ? "cancelled" : stage === "context" ? "context_build_failed" : "task_execution_failed";
     const failure = failureReceipt({
       executionId, correlationId, revision: params.workspaceRevision,
@@ -404,7 +441,7 @@ export async function executeTaskLifecycle(params: {
       durationMs: Date.now() - startedAt, stages, code, cancelled,
     });
     const message = safeText(code, 120);
-    await failAiExecution({ executionId, workerId, error: message });
+    await failAiExecution({ executionId, workerId, error: message, cancelled });
     await db.update(tasksTable).set({
       status: before.status, workerId: null, leaseUntil: null, lastHeartbeatAt: null,
       agentResponse: JSON.stringify(failure), updatedAt: new Date(),
@@ -456,5 +493,6 @@ export async function executeTaskLifecycle(params: {
     };
   } finally {
     clearInterval(heartbeat);
+    unregisterAiExecutionController(executionId, executionAbortController);
   }
 }

@@ -308,8 +308,8 @@ const FALLBACK_TRIGGER_CODES = new Set<string>([
 export async function runAgentWithFallback<T>(
   userId: string,
   initialProvider: { provider: ProviderId; apiKey: string },
-  run: (opts: { provider: ProviderId; apiKey: string }) => Promise<T>,
-  options?: ProviderSelectionOptions,
+  run: (opts: { provider: ProviderId; apiKey: string; signal?: AbortSignal }) => Promise<T>,
+  options?: ProviderSelectionOptions & { signal?: AbortSignal },
 ): Promise<{ result: T; effectiveProvider: ProviderId }> {
   const orderedProviders = await collectAvailableProviders(userId, options);
   if (!orderedProviders.some((candidate) => candidate.provider === initialProvider.provider)) {
@@ -319,6 +319,9 @@ export async function runAgentWithFallback<T>(
   let lastErr: GroqClientError | undefined;
 
   for (const providerEntry of orderedProviders) {
+    if (options?.signal?.aborted) {
+      throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+    }
     if (lastErr) {
       logger.info(
         { primary: initialProvider.provider, fallback: providerEntry.provider, errorCode: lastErr.code },
@@ -326,9 +329,12 @@ export async function runAgentWithFallback<T>(
       );
     }
     try {
-      const result = await run(providerEntry);
+      const result = await run({ ...providerEntry, signal: options?.signal });
       return { result, effectiveProvider: providerEntry.provider };
     } catch (err) {
+      if (options?.signal?.aborted) {
+        throw Object.assign(new Error("Execution cancelled"), { name: "AbortError", cause: err });
+      }
       if (err instanceof GroqClientError && FALLBACK_TRIGGER_CODES.has(err.code)) {
         logger.warn(
           { provider: providerEntry.provider, code: err.code, message: err.message },
