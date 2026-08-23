@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { resolve } from "node:path";
@@ -30,6 +31,160 @@ function runnerDefaultTimeout(source) {
   assert.ok(match, "Expected the runner to define a live timeout default.");
   return Number(match[1].replaceAll("_", ""));
 }
+
+async function startApiCorsHarness() {
+  const port = 30_000 + Math.floor(Math.random() * 1_000);
+  const harnessSource = `
+    import app from "./artifacts/api-server/src/app.ts";
+    const server = app.listen(Number(process.env.PORT), "127.0.0.1");
+    process.once("SIGTERM", () => server.close(() => process.exit(0)));
+  `;
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx/esm", "--eval", harnessSource],
+    {
+      cwd: root,
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        PORT: String(port),
+        APP_ORIGINS: "https://dashboard-approved.example.test",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let output = "";
+  child.stdout.on("data", (chunk) => {
+    output += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    output += chunk;
+  });
+
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const deadline = Date.now() + 10_000;
+  let lastError = "not attempted";
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${baseUrl}/api/healthz`);
+      if (response.status === 200) {
+        return {
+          child,
+          baseUrl,
+          async close() {
+            child.kill("SIGTERM");
+            await new Promise((resolveChild, reject) => {
+              child.once("exit", (code, signal) => {
+                if (signal === "SIGTERM" || code === 0) {
+                  resolveChild();
+                } else {
+                  reject(
+                    new Error(
+                      `CORS harness exited with ${signal ?? code}.\n${output}`,
+                    ),
+                  );
+                }
+              });
+            });
+          },
+        };
+      }
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolveRetry) => setTimeout(resolveRetry, 50));
+  }
+
+  child.kill("SIGKILL");
+  throw new Error(`CORS harness did not start: ${lastError}.\n${output}`);
+}
+
+test("release API listener enforces approved and hostile-origin CORS", async () => {
+  const approvedOrigin = "https://dashboard-approved.example.test";
+  const hostileOrigin = "https://hostile.example.test";
+  const harness = await startApiCorsHarness();
+
+  try {
+    const getResponse = await fetch(`${harness.baseUrl}/api/healthz`, {
+      headers: { Origin: approvedOrigin },
+    });
+    assert.equal(getResponse.status, 200);
+    assert.equal(
+      getResponse.headers.get("access-control-allow-origin"),
+      approvedOrigin,
+    );
+    assert.equal(
+      getResponse.headers.get("access-control-allow-credentials"),
+      "true",
+    );
+
+    const preflightResponse = await fetch(`${harness.baseUrl}/api/projects`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: approvedOrigin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type, x-csrf-token",
+      },
+    });
+    assert.equal(preflightResponse.status, 204);
+    assert.equal(
+      preflightResponse.headers.get("access-control-allow-origin"),
+      approvedOrigin,
+    );
+    assert.equal(
+      preflightResponse.headers.get("access-control-allow-credentials"),
+      "true",
+    );
+    assert.match(
+      preflightResponse.headers.get("access-control-allow-methods") ?? "",
+      /\bPOST\b/,
+    );
+    assert.match(
+      preflightResponse.headers.get("access-control-allow-headers") ?? "",
+      /x-csrf-token/i,
+    );
+
+    const approvedMutation = await fetch(
+      `${harness.baseUrl}/api/release-cors-contract`,
+      {
+        method: "POST",
+        headers: { Origin: approvedOrigin, "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    assert.notEqual(
+      approvedMutation.status,
+      403,
+      "approved state-changing origins must reach the API route layer",
+    );
+    assert.equal(
+      approvedMutation.headers.get("access-control-allow-origin"),
+      approvedOrigin,
+    );
+    assert.equal(
+      approvedMutation.headers.get("access-control-allow-credentials"),
+      "true",
+    );
+
+    const hostileMutation = await fetch(
+      `${harness.baseUrl}/api/release-cors-contract`,
+      {
+        method: "POST",
+        headers: { Origin: hostileOrigin, "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    assert.equal(hostileMutation.status, 403);
+    assert.equal(
+      hostileMutation.headers.get("access-control-allow-origin"),
+      null,
+      "hostile state-changing origins must not receive CORS permission",
+    );
+  } finally {
+    await harness.close();
+  }
+});
 
 test("live journey timeout has Playwright headroom", () => {
   const providerTimeout = constant(journeySource, "DEFAULT_LIVE_TIMEOUT_MS");
