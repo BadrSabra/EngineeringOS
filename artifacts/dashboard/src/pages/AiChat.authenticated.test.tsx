@@ -2655,11 +2655,11 @@ describe('AiChat authenticated generated mutations', () => {
     const detailsPanel = await screen.findByRole('generic', { name: 'Validation details' });
     expect(detailsPanel).toHaveTextContent('Status: failed');
     expect(detailsPanel).toHaveTextContent('Exit code: 1');
-    expect(detailsPanel).toHaveTextContent('pnpm run typecheck');
-    expect(detailsPanel).toHaveTextContent('Auth scope check');
-    expect(detailsPanel).toHaveTextContent('Expected token.scope to be present.');
-    expect(detailsPanel).toHaveTextContent('TS2322: Type is not assignable.');
-    expect(detailsPanel).toHaveTextContent('src/auth.ts');
+    expect(detailsPanel).not.toHaveTextContent('pnpm run typecheck');
+    expect(detailsPanel).not.toHaveTextContent('Auth scope check');
+    expect(detailsPanel).not.toHaveTextContent('Expected token.scope to be present.');
+    expect(detailsPanel).not.toHaveTextContent('TS2322: Type is not assignable.');
+    expect(detailsPanel).not.toHaveTextContent('src/auth.ts');
 
     fireEvent.click(screen.getByRole('button', { name: 'Hide validation details' }));
     expect(screen.queryByRole('generic', { name: 'Validation details' })).toBeNull();

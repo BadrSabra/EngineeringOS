@@ -62,7 +62,7 @@ import type {
   MissionCorrelationReport,
   Event as ApiEvent,
 } from '@workspace/api-client-react';
-import type { ValidationResult } from '@workspace/ai-orchestrator';
+import type { PublicValidationResult } from '@workspace/ai-orchestrator';
 // Keep the shared structured error type for translating SSE failures into
 // the same user-facing error format as regular API requests.
 import { ApiError } from '@/lib/api-fetch';
@@ -624,9 +624,9 @@ type ToolTraceEntry = {
     matchedPolicyPath?: string;
   }>;
   unjustifiedReads?: string[];
-  validation?: ValidationResult;
+  validation?: PublicValidationResult;
   /** Compatibility projection for persisted traces from older runs. */
-  validationStatus?: ValidationResult['status'];
+  validationStatus?: PublicValidationResult['status'];
   repairState?: 'VALIDATING' | 'REPAIRING' | 'READY_FOR_REVIEW' | 'BLOCKED';
   validationProfile?: string;
   validationScenario?: string;
@@ -634,7 +634,7 @@ type ToolTraceEntry = {
   validationExitCode?: number | null;
   validationFailedTests?: string[];
   validationAffectedFiles?: string[];
-  validationFailedTestDetails?: ValidationResult['failedTests'];
+  validationFailedTestDetails?: never;
   validationChangedFiles?: string[];
   validationAttempt?: number;
   validationMaxAttempts?: number;
@@ -2584,11 +2584,11 @@ function OperationTracePanel({
 type RepairRadarAttempt = {
   id: string;
   attempt: number | null;
-  status: ValidationResult['status'];
+  status: PublicValidationResult['status'];
   state?: ToolTraceEntry['repairState'];
   profile?: string;
   detail?: string;
-  failedTests: ValidationResult['failedTests'];
+  failedTests: never[];
   affectedFiles: string[];
   diagnosis: string;
   patches: Array<{
@@ -2634,9 +2634,6 @@ function parseRepairRadar(trace: ToolTraceEntry[]): RepairRadarData | null {
       }));
     previousValidationIndex = validationIndex;
     const status = entry.validation?.status ?? entry.validationStatus ?? 'unavailable';
-    const failedTests = entry.validation?.failedTests.slice(0, 4)
-      ?? entry.validationFailedTestDetails?.slice(0, 4)
-      ?? (entry.validationFailedTests ?? []).map((message) => ({ name: message, message }));
     const detail = entry.validation?.detail ?? entry.validationDetail;
     return {
       // The canonical object is authoritative; the remaining values only let
@@ -2649,14 +2646,9 @@ function parseRepairRadar(trace: ToolTraceEntry[]): RepairRadarData | null {
       status,
       profile: entry.validation?.profile ?? entry.validationProfile,
       detail,
-      failedTests,
-      affectedFiles: entry.validation?.changedFiles.slice(0, 6)
-        ?? entry.validationChangedFiles?.slice(0, 6)
-        ?? entry.validationAffectedFiles?.slice(0, 6)
-        ?? [],
-      diagnosis: failedTests.length > 0
-        ? failedTests.map((test) => test.message || test.name).join(' · ')
-        : detail ?? (status === 'passed'
+      failedTests: [],
+      affectedFiles: [],
+      diagnosis: detail ?? (status === 'passed'
           ? 'The previous patch passed its registered validation.'
           : 'No diagnosis was persisted for this attempt.'),
       patches,
@@ -2798,18 +2790,6 @@ function RepairRadar({ trace }: { trace: ToolTraceEntry[] }) {
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
-                  {(attempt.failedTests.length > 0 || attempt.affectedFiles.length > 0) && (
-                    <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
-                      {attempt.failedTests.length > 0 && (
-                        <span className="text-red-200">
-                          failed: {attempt.failedTests.map((test) => test.name || test.message).join(', ')}
-                        </span>
-                      )}
-                      {attempt.affectedFiles.length > 0 && (
-                        <span className="break-all">files: {attempt.affectedFiles.join(', ')}</span>
-                      )}
                     </div>
                   )}
                 </div>
@@ -5362,11 +5342,6 @@ function isValidationEntry(entry: ToolTraceEntry): boolean {
 function ValidationDetailPanel({ entry }: { entry: ToolTraceEntry }) {
   const validation = entry.validation;
   const status = validation?.status ?? entry.validationStatus ?? 'unavailable';
-  const failedTests = entry.validationFailedTestDetails ?? validation?.failedTests ?? [];
-  const changedFiles = entry.validationChangedFiles ?? validation?.changedFiles ?? [];
-  const command = validation?.command ?? entry.validationCommand;
-  const stderr = validation?.stderr;
-
   return (
     <div className="mt-1.5 rounded border border-border/50 bg-black/10 px-3 py-2 text-[10px]" aria-label="Validation details">
       <div className="mb-1 flex items-center gap-1.5 font-semibold text-foreground/90">
@@ -5387,37 +5362,6 @@ function ValidationDetailPanel({ entry }: { entry: ToolTraceEntry }) {
           </div>
         )}
       </div>
-      {command && (
-        <div className="mt-1">
-          <span className="text-muted-foreground">Command: </span>
-          <code className="break-all text-foreground/80">{command}</code>
-        </div>
-      )}
-      {failedTests.length > 0 && (
-        <div className="mt-1">
-          <div className="text-muted-foreground">Failed tests:</div>
-          <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-red-200">
-            {failedTests.slice(0, 8).map((failure, index) => (
-              <li key={`${failure.name}-${index}`} className="break-words">
-                {failure.name || failure.message}
-                {failure.name && failure.message && failure.message !== failure.name ? ` — ${failure.message}` : ''}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {changedFiles.length > 0 && (
-        <div className="mt-1">
-          <span className="text-muted-foreground">Changed files: </span>
-          <span className="break-words text-foreground/80">{changedFiles.slice(0, 8).join(', ')}</span>
-        </div>
-      )}
-      {stderr && (
-        <div className="mt-1">
-          <span className="text-muted-foreground">Error output: </span>
-          <span className="whitespace-pre-wrap break-words text-red-200">{stderr.slice(0, 1200)}</span>
-        </div>
-      )}
     </div>
   );
 }
@@ -5537,7 +5481,6 @@ function ReplayCausalNarrative({
       {validationStatus && (
         <div className={`mt-1 ${validationStatus === 'passed' ? 'text-emerald-200' : validationStatus === 'failed' ? 'text-red-200' : 'text-amber-200'}`}>
           Validation outcome: {validationStatus}
-          {validation?.failedTests?.length ? ` · ${validation.failedTests[0]?.message ?? validation.failedTests[0]?.name}` : ''}
         </div>
       )}
       {detail && <div className="mt-1 break-words text-amber-100">Next transition signal: {detail}</div>}
@@ -7655,9 +7598,6 @@ export default function AiChat() {
               `attempt ${event.attempt}/${event.maxAttempts}`,
                event.validation.exitCode != null ? `exit ${event.validation.exitCode}` : undefined,
                event.validation.detail,
-               event.validation.failedTests.length
-                 ? `${event.validation.failedTests.length} failed test signal${event.validation.failedTests.length === 1 ? '' : 's'}`
-                : undefined,
             ].filter(Boolean).join(' · '),
              status: status === 'passed' ? 'done' : 'info',
           });

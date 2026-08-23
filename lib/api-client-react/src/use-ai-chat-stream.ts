@@ -30,7 +30,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import type { ValidationResult } from '@workspace/ai-orchestrator';
+import type { PublicValidationResult, ValidationResult } from '@workspace/ai-orchestrator';
 
 // ── Event shapes ──────────────────────────────────────────────────────────────
 
@@ -222,7 +222,7 @@ export type AiStreamPlanActivityEvent = {
 
 export type AiStreamValidationEvent = {
   type: 'validation';
-  validation: ValidationResult;
+  validation: PublicValidationResult;
   repairState: RepairLoopState;
   /** @deprecated Use validation.status. */
   status?: ValidationResult['status'];
@@ -252,6 +252,57 @@ export type AiStreamRepairStateEvent = {
   state: RepairLoopState;
   detail?: string;
 };
+
+/**
+ * Keep the dashboard on the API's public validation contract. The server may
+ * include compatibility fields on the outer event, but command output,
+ * failure details, and changed-file lists are never accepted from the nested
+ * payload.
+ */
+export function parseValidationEvent(raw: unknown): AiStreamValidationEvent | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const event = raw as Record<string, unknown>;
+  const validation = event.validation;
+  if (!validation || typeof validation !== 'object') return null;
+  const value = validation as Record<string, unknown>;
+  if (
+    typeof value.profile !== 'string'
+    || typeof value.status !== 'string'
+    || typeof value.scenario !== 'string'
+    || (typeof value.exitCode !== 'number' && value.exitCode !== null)
+    || !value.evidence
+    || typeof value.evidence !== 'object'
+    || typeof event.repairState !== 'string'
+    || typeof event.attempt !== 'number'
+    || typeof event.maxAttempts !== 'number'
+  ) return null;
+
+  const evidence = value.evidence as Record<string, unknown>;
+  if (
+    typeof evidence.evidenceId !== 'string'
+    || typeof evidence.observedAt !== 'string'
+    || typeof evidence.artifactRef !== 'string'
+  ) return null;
+
+  return {
+    type: 'validation',
+    validation: {
+      profile: value.profile,
+      status: value.status as PublicValidationResult['status'],
+      scenario: value.scenario,
+      exitCode: value.exitCode,
+      evidence: {
+        evidenceId: evidence.evidenceId,
+        observedAt: evidence.observedAt,
+        artifactRef: evidence.artifactRef,
+      },
+      ...(typeof value.detail === 'string' ? { detail: value.detail } : {}),
+    },
+    repairState: event.repairState as RepairLoopState,
+    attempt: event.attempt,
+    maxAttempts: event.maxAttempts,
+  };
+}
 
 export type AiStreamModelCallEvent = {
   type: 'model_call';
@@ -712,9 +763,11 @@ export async function processAiStream(
         case 'plan_activity':
           callbacks.onPlanActivity?.(event);
           break;
-        case 'validation':
-          callbacks.onValidation?.(event);
+        case 'validation': {
+          const validationEvent = parseValidationEvent(event);
+          if (validationEvent) callbacks.onValidation?.(validationEvent);
           break;
+        }
         case 'repair_state':
           callbacks.onRepairState?.(event);
           break;

@@ -448,26 +448,57 @@ describe('processAiStream — structured task events', () => {
 });
 
 describe('processAiStream — validation events', () => {
-  it('routes structured validation evidence without firing tool callbacks', async () => {
+  it.each([
+    ['passed', 'VALIDATING', 0],
+    ['failed', 'REPAIRING', 1],
+  ] as const)('parses the public nested validation contract for %s events', async (status, repairState, exitCode) => {
     const onValidation = vi.fn();
     const onToolResult = vi.fn();
     const event = {
       type: 'validation',
-      status: 'failed',
-      repairState: 'REPAIRING',
-      profile: 'workspace-typecheck',
-      command: 'pnpm run typecheck',
-      exitCode: 1,
-      failedTests: ['FAIL src/example.test.ts'],
-      affectedFiles: ['src/example.ts'],
+      validation: {
+        profile: 'workspace-typecheck',
+        status,
+        scenario: 'registered validation',
+        exitCode,
+        evidence: {
+          evidenceId: `validation-${status}`,
+          observedAt: '2026-08-23T00:00:00.000Z',
+          artifactRef: `validation-${status}`,
+        },
+        detail: status === 'failed' ? 'typecheck failed' : 'typecheck passed',
+        // These fields must never be accepted from the public nested payload.
+        command: 'pnpm run typecheck',
+        stdout: 'PRIVATE_COMMAND_OUTPUT',
+        stderr: 'PRIVATE_ERROR_OUTPUT',
+        failedTests: [{ name: 'private.test.ts', message: 'PRIVATE_FAILURE_DETAIL' }],
+        changedFiles: ['private.ts'],
+      },
+      repairState,
       attempt: 1,
       maxAttempts: 3,
-      detail: 'typecheck failed',
     } as const;
 
     await processAiStream(makeSseStream(sseFrame(event)), { onValidation, onToolResult });
 
-    expect(onValidation).toHaveBeenCalledWith(event);
+    expect(onValidation).toHaveBeenCalledWith({
+      type: 'validation',
+      validation: {
+        profile: 'workspace-typecheck',
+        status,
+        scenario: 'registered validation',
+        exitCode,
+        evidence: {
+          evidenceId: `validation-${status}`,
+          observedAt: '2026-08-23T00:00:00.000Z',
+          artifactRef: `validation-${status}`,
+        },
+        detail: status === 'failed' ? 'typecheck failed' : 'typecheck passed',
+      },
+      repairState,
+      attempt: 1,
+      maxAttempts: 3,
+    });
     expect(onToolResult).not.toHaveBeenCalled();
   });
 
