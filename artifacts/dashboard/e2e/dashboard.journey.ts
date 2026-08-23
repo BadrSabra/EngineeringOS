@@ -177,6 +177,8 @@ async function installApiFixtures(
       title: string;
       projectId: string;
       log: Record<string, unknown>;
+      streamRequests?: string[];
+      failFirstStream?: boolean;
     };
   },
 ) {
@@ -369,6 +371,13 @@ async function installApiFixtures(
       overrides?.liveTask &&
       path === `/api/tasks/${overrides.liveTask.id}/logs/stream`
     ) {
+      const streamRequests = overrides.liveTask.streamRequests;
+      streamRequests?.push(route.request().url());
+      if (overrides.liveTask.failFirstStream && streamRequests?.length === 1) {
+        // Exercise the browser's reconnect path without changing the task
+        // lifecycle or synthesizing a successful response for the first try.
+        return route.abort("connectionreset");
+      }
       return route.fulfill({
         status: 200,
         contentType: "text/event-stream",
@@ -1767,6 +1776,57 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(page.getByRole("region", { name: "Activity" })).toContainText(
       "Live update received from the server",
     );
+  });
+
+  test("recovers a live task update after a temporary stream failure", async ({
+    page,
+  }) => {
+    const taskId = "e2e-reconnecting-live-task";
+    const liveLog = {
+      id: "e2e-reconnecting-live-log",
+      taskId,
+      level: "info",
+      message: "Authoritative update received after reconnect",
+      timestamp: "2026-01-01T00:00:02.000Z",
+      metadata: {
+        operationId: "e2e-reconnecting-operation",
+        checkpointVersion: 3,
+      },
+    };
+    const streamRequests: string[] = [];
+    await installApiFixtures(page, {
+      liveTask: {
+        id: taskId,
+        title: "Recover live task updates",
+        projectId: "e2e-project",
+        log: liveLog,
+        streamRequests,
+        failFirstStream: true,
+      },
+    });
+    await programmaticSignIn(page);
+
+    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+    const taskRow = page.getByLabel("Expand task Recover live task updates");
+    await expect(taskRow).toBeVisible();
+    await taskRow.click();
+    await page.getByRole("button", { name: "Logs" }).click();
+
+    const activity = page.getByRole("region", { name: "Activity" });
+    await expect(activity).toContainText(liveLog.message);
+    await expect
+      .poll(() => streamRequests.length, {
+        message: "the task log stream should reconnect exactly once",
+      })
+      .toBe(2);
+    expect(streamRequests).toHaveLength(2);
+    expect(streamRequests[0]).toBe(streamRequests[1]);
+    expect(new URL(streamRequests[1]).pathname).toBe(
+      `/api/tasks/${taskId}/logs/stream`,
+    );
+    await expect(
+      activity.locator("summary").filter({ hasText: liveLog.message }),
+    ).toHaveCount(1);
   });
 
   test("pages and reloads the filtered event stream without losing its window", async ({
