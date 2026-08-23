@@ -4,6 +4,7 @@ import { pluginsTable } from "@workspace/db";
 import { EnablePluginBody, DisablePluginBody } from "@workspace/api-zod";
 import { eq } from "drizzle-orm";
 import { recordAudit } from "../lib/audit.js";
+import { requireOperator } from "../middlewares/requireAuth.js";
 
 const router = Router();
 
@@ -89,9 +90,9 @@ router.get("/plugins", async (_req, res) => {
   return res.json(plugins);
 });
 
-router.post("/plugins/:pluginId/enable", async (req, res) => {
+router.post("/plugins/:pluginId/enable", requireOperator, async (req, res) => {
   await ensureSeeded();
-  const { pluginId } = req.params;
+  const pluginId = String(req.params.pluginId);
   EnablePluginBody.parse(req.body);
 
   const plugin = await db
@@ -118,9 +119,9 @@ router.post("/plugins/:pluginId/enable", async (req, res) => {
   return res.json(updated);
 });
 
-router.post("/plugins/:pluginId/disable", async (req, res) => {
+router.post("/plugins/:pluginId/disable", requireOperator, async (req, res) => {
   await ensureSeeded();
-  const { pluginId } = req.params;
+  const pluginId = String(req.params.pluginId);
   DisablePluginBody.parse(req.body);
 
   const plugin = await db

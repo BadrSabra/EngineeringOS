@@ -4442,6 +4442,13 @@ router.post("/ai/chat/rebase-changes", async (req, res) => {
   const { projectId, proposalId, changes } = parsed.data;
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
+  const rootCheck = await resolveRootPath(project.rootPath, projectId);
+  if (!rootCheck.validRootPath) {
+    return res.status(409).json({
+      error: "project_root_unavailable",
+      message: "The project working directory is unavailable; restore or rescan the project before rebasing changes.",
+    });
+  }
 
   const applyLock = await tryAdvisoryLock(LockNamespace.APPLY, projectId);
   if (!applyLock.acquired) {
@@ -4843,7 +4850,13 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
 
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
-
+  const rootCheck = await resolveRootPath(project.rootPath, projectId);
+  if (!rootCheck.validRootPath) {
+    return res.status(409).json({
+      error: "project_root_unavailable",
+      message: "The project working directory is unavailable; restore or rescan the project before applying changes.",
+    });
+  }
   const resolvedRoot = path.resolve(project.rootPath);
 
   const applyLock = await tryAdvisoryLock(LockNamespace.APPLY, projectId);

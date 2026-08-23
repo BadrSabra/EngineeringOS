@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { Request, Response } from "express";
 import { db } from "@workspace/db";
 import { rulesTable, eventsTable } from "@workspace/db";
 import {
@@ -13,7 +14,7 @@ import {
 } from "@workspace/api-zod";
 import { eq, and, desc, isNull, sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
-import { requireAuth } from "../middlewares/requireAuth.js";
+import { requireAuth, isOperatorUser } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 import { walkProject, matchRule, type RuleInput } from "@workspace/scanner";
 import { recordAudit } from "../lib/audit.js";
@@ -25,6 +26,12 @@ const router = Router();
 // adding it here too means this router is safe even if mounted without it.
 router.use(requireAuth);
 
+function requireGlobalOperator(req: Request, res: Response): boolean {
+  if (isOperatorUser(req.userId)) return true;
+  res.status(403).json({ error: "Operator authorization is required", code: "operator_required" });
+  return false;
+}
+
 // List rules
 router.get("/rules", async (req, res) => {
   const params = ListRulesQueryParams.parse(req.query);
@@ -34,6 +41,7 @@ router.get("/rules", async (req, res) => {
     if (!project) return;
     conditions.push(eq(rulesTable.projectId, project.id));
   } else {
+    if (!requireGlobalOperator(req, res)) return;
     conditions.push(isNull(rulesTable.projectId));
   }
   if (params.severity) conditions.push(eq(rulesTable.severity, params.severity));
@@ -52,6 +60,8 @@ router.post("/rules", async (req, res) => {
   if (body.projectId) {
     const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
     if (!project) return;
+  } else if (!requireGlobalOperator(req, res)) {
+    return;
   }
   const now = new Date();
   const rule = await db
@@ -84,6 +94,8 @@ router.get("/rules/:ruleId", async (req, res) => {
   if (rule[0].projectId) {
     const project = await loadProjectByIdForUser(rule[0].projectId, req.userId, res);
     if (!project) return;
+  } else if (!requireGlobalOperator(req, res)) {
+    return;
   }
   return res.json(rule[0]);
 });
@@ -99,6 +111,8 @@ router.patch("/rules/:ruleId", async (req, res) => {
   if (before[0].projectId) {
     const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
     if (!project) return;
+  } else if (!requireGlobalOperator(req, res)) {
+    return;
   }
 
   const updated = await db
@@ -134,6 +148,8 @@ router.delete("/rules/:ruleId", async (req, res) => {
   if (before[0].projectId) {
     const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
     if (!project) return;
+  } else if (!requireGlobalOperator(req, res)) {
+    return;
   }
 
   await db.delete(rulesTable).where(eq(rulesTable.id, ruleId));
@@ -163,6 +179,7 @@ router.post("/rules/:ruleId/evaluate", async (req, res) => {
   // single place to update if ownership logic ever changes.
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
   if (!project) return;
+  if (!rule[0].projectId && !requireGlobalOperator(req, res)) return;
 
   if (!rule[0].pattern) {
     return res.json({

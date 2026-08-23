@@ -63,6 +63,9 @@ function rejectCrossOriginMutations(
 
   const origin = req.get("origin");
   const fetchSite = req.get("sec-fetch-site");
+  const hasCookies = Boolean(req.get("cookie"));
+  const csrfCookie = req.get("cookie")?.match(/(?:^|;\s*)csrf_token=([^;]+)/)?.[1];
+  const csrfHeader = req.get("x-csrf-token");
   if (
     (origin && !isAllowedApplicationOrigin(origin, req)) ||
     (!origin && fetchSite === "cross-site")
@@ -70,6 +73,17 @@ function rejectCrossOriginMutations(
     res.status(403).json({
       error: "Cross-origin state-changing requests are not allowed",
       code: "cross_origin_request",
+    });
+    return;
+  }
+  // Cookie-authenticated requests without browser provenance headers are
+  // accepted only with a matching double-submit CSRF token. Same-origin
+  // browser requests retain their normal Fetch Metadata path.
+  if (hasCookies && !origin && fetchSite !== "same-origin"
+    && (!csrfCookie || !csrfHeader || csrfCookie !== csrfHeader)) {
+    res.status(403).json({
+      error: "CSRF validation failed",
+      code: "csrf_failed",
     });
     return;
   }

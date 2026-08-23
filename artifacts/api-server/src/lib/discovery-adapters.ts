@@ -146,12 +146,28 @@ const gitRepositoryAdapter: SupportedAdapter = {
     // paths which could be used to clone local filesystem paths or bypass
     // the expected authentication model.
     const url = config.url.trim();
-    if (!url.startsWith("https://") && !url.startsWith("http://")) {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return { error: "Repository URL is invalid.", status: 400, reason: "invalid_source" };
+    }
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.hostname.toLowerCase() !== "github.com" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash
+    ) {
       return {
-        error: "Only HTTPS (and HTTP) repository URLs are supported. SSH and file:// URLs are not permitted.",
+        error: "Only credential-free HTTPS github.com repository URLs are supported.",
         status: 400,
         reason: "invalid_source",
       };
+    }
+    if (config.branch && !/^[A-Za-z0-9._/-]{1,200}$/.test(config.branch)) {
+      return { error: "Repository branch is invalid.", status: 400, reason: "invalid_source" };
     }
 
     return null;

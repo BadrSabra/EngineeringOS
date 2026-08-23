@@ -55,15 +55,14 @@ export async function checkProjectRateLimitDb(
       .returning({ callCount: rateLimitWindowsTable.callCount });
 
     if (!row) {
-      // Unexpected — fail open so a DB hiccup doesn't block all AI calls.
-      // PR-2: log at ERROR (not warn) and increment the operational counter so
-      // GET /api/healthz surfaces this degradation without requiring log search.
+      // A missing counter is not proof that the request is safe. Fail closed
+      // so a persistence outage cannot turn the limiter into unlimited access.
       incrementRateLimiterFailOpen();
       logger.error(
         { projectId, bucket },
-        "db-rate-limiter: upsert returned no row — rate limit NOT enforced for this call",
+        "db-rate-limiter: upsert returned no row — denying call because rate limit is unavailable",
       );
-      return { allowed: true };
+      return { allowed: false, retryAfterSec: 60 };
     }
 
     if (row.callCount > LLM_RATE_LIMIT) {
@@ -76,16 +75,14 @@ export async function checkProjectRateLimitDb(
 
     return { allowed: true };
   } catch (err) {
-    // Fail open on unexpected DB errors — a broken rate limiter should not
-    // block legitimate requests.
-    // PR-2: log at ERROR and increment the operational counter so healthz
-    // surfaces this as a degraded subsystem requiring investigation.
+    // Fail closed on unexpected DB errors. An outage must not silently remove
+    // the per-project budget.
     incrementRateLimiterFailOpen();
     logger.error(
       { err, projectId },
-      "db-rate-limiter: unexpected DB error — rate limit NOT enforced for this call",
+      "db-rate-limiter: unexpected DB error — denying call because rate limit is unavailable",
     );
-    return { allowed: true };
+    return { allowed: false, retryAfterSec: 60 };
   }
 }
 

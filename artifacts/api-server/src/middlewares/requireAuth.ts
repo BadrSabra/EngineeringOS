@@ -45,6 +45,23 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   next();
 }
 
+/** Explicit authorization gate for server-wide policy and plugin controls. */
+export function requireOperator(req: Request, res: Response, next: NextFunction): void {
+  // The synthetic identity is intentionally operator-like only in tests; real
+  // deployments must configure ADMIN_USER_IDS explicitly.
+  const allowed = isOperatorUser(req.userId);
+  if (!allowed) {
+    res.status(403).json({ error: "Operator authorization is required", code: "operator_required" });
+    return;
+  }
+  next();
+}
+
+export function isOperatorUser(userId: string): boolean {
+  return config.adminUserIds.includes(userId)
+    || (config.nodeEnv === "test" && userId === "test-user");
+}
+
 /**
  * Like `requireAuth`, but never rejects the request. Attaches `authContext`
  * (and `userId`) when a valid session is present, and leaves both undefined

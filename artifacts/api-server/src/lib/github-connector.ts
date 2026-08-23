@@ -37,7 +37,12 @@ export class GitHubConnectorError extends Error {
 export function parseGitHubRemote(remoteUrl: string): GitHubRemote | undefined {
   try {
     const url = new URL(remoteUrl);
-    if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "github.com") return undefined;
+    if (
+      url.protocol !== "https:" ||
+      url.hostname.toLowerCase() !== "github.com" ||
+      url.username ||
+      url.password
+    ) return undefined;
     const parts = url.pathname.split("/").filter(Boolean);
     if (parts.length !== 2) return undefined;
     const repo = parts[1].replace(/\.git$/, "");

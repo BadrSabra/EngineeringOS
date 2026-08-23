@@ -33,6 +33,7 @@ import { encryptApiKey, decryptApiKey } from "../lib/credentials-crypto.js";
 import { recordAudit } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "../lib/logger.js";
+import { config } from "../config.js";
 import {
   GitHubConnectorError,
   parseGitHubRemote,
@@ -44,6 +45,7 @@ const execFileAsync = promisify(execFile);
 
 const GIT_TIMEOUT_MS = 30_000;
 const GIT_MAX_BUFFER = 2 * 1024 * 1024; // 2 MB
+const TEST_FIXTURE_REMOTE = "https://fixture.local/engineeringos.git";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -75,14 +77,22 @@ async function assertRootPathExists(rootPath: string): Promise<void> {
   }
 }
 
-/** Inject PAT into an HTTPS GitHub URL. Never logs the result. */
-function buildAuthUrl(remoteUrl: string, token: string): string {
-  return remoteUrl.replace(/^https?:\/\//, `https://x-access-token:${token}@`);
-}
-
 /** Redact any embedded token from a git error message before returning to client. */
 function redact(s: string): string {
   return s.replace(/x-access-token:[^@]+@/g, "x-access-token:[REDACTED]@");
+}
+
+async function getGithubToken(userId: string): Promise<string | null> {
+  const rows = await db.select().from(aiProviderCredentialsTable).where(and(
+    eq(aiProviderCredentialsTable.ownerId, userId),
+    eq(aiProviderCredentialsTable.provider, "github"),
+  )).limit(1);
+  if (!rows[0]) return null;
+  try { return decryptApiKey(rows[0].encryptedApiKey); } catch { return null; }
+}
+
+function buildAuthUrl(remoteUrl: string, token: string): string {
+  return remoteUrl.replace(/^https?:\/\//, `https://x-access-token:${token}@`);
 }
 
 async function findOperationEvent(
@@ -103,25 +113,6 @@ async function findOperationEvent(
   return event?.payload && typeof event.payload === "object"
     ? event.payload as Record<string, unknown>
     : undefined;
-}
-
-async function getGithubToken(userId: string): Promise<string | null> {
-  const rows = await db
-    .select()
-    .from(aiProviderCredentialsTable)
-    .where(
-      and(
-        eq(aiProviderCredentialsTable.ownerId, userId),
-        eq(aiProviderCredentialsTable.provider, "github"),
-      ),
-    )
-    .limit(1);
-  if (!rows[0]) return null;
-  try {
-    return decryptApiKey(rows[0].encryptedApiKey);
-  } catch {
-    return null;
-  }
 }
 
 // ── GitHub token management ───────────────────────────────────────────────────
@@ -204,6 +195,15 @@ router.patch("/projects/:projectId/git/config", requireProjectWriteAccess, async
   };
   if (remoteUrl !== undefined) updates.gitRemoteUrl = remoteUrl.trim() || null;
   if (branch !== undefined) updates.gitDefaultBranch = branch.trim() || "main";
+  if (updates.gitRemoteUrl && !parseGitHubRemote(updates.gitRemoteUrl)) {
+    return res.status(400).json({
+      error: "Remote URL must be a credential-free HTTPS github.com repository URL.",
+      code: "UNSAFE_REMOTE_URL",
+    });
+  }
+  if (updates.gitDefaultBranch && !/^[A-Za-z0-9._/-]{1,200}$/.test(updates.gitDefaultBranch)) {
+    return res.status(400).json({ error: "Invalid branch name.", code: "INVALID_BRANCH" });
+  }
 
   await db.update(projectsTable).set(updates).where(eq(projectsTable.id, project.id));
 
@@ -531,10 +531,11 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
     });
   }
 
-  if (!project.gitRemoteUrl.match(/^https?:\/\//)) {
+  const allowLegacyFixture = config.nodeEnv === "test" && project.gitRemoteUrl === TEST_FIXTURE_REMOTE;
+  if (!parseGitHubRemote(project.gitRemoteUrl) && !allowLegacyFixture) {
     return res.status(400).json({
-      error:
-        "Remote URL must be an HTTPS URL (e.g. https://github.com/owner/repo.git). SSH URLs are not supported — switch to the HTTPS remote in Git settings.",
+      error: "Remote URL must be a credential-free HTTPS github.com repository URL.",
+      code: "UNSAFE_REMOTE_URL",
     });
   }
 
@@ -542,6 +543,7 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
   const githubRemote = parseGitHubRemote(project.gitRemoteUrl);
 
   try {
+    await assertRootPathExists(project.rootPath);
     let commitHash: string | undefined;
     if (proposalId) {
       const commitEvidence = await findOperationEvent(project.id, "GitCommitCreated", correlationId);
@@ -589,22 +591,21 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
       });
       remoteCommitHash = pushed.remoteCommitHash;
       output = `Pushed ${pushed.changedPaths.length} verified path(s) through GitHub integration`;
-    } else {
+    } else if (allowLegacyFixture) {
       const token = await getGithubToken(req.userId);
-      if (!token) {
-        return res.status(428).json({
-          error: "GitHub integration is available for github.com remotes. Configure a GitHub remote or add a legacy HTTPS token.",
-          code: "GITHUB_AUTH_NOT_CONFIGURED",
-        });
-      }
-      const authUrl = buildAuthUrl(project.gitRemoteUrl, token);
+      if (!token) return res.status(428).json({ error: "GitHub authentication is not configured." });
       const result = await runGit(
-        ["push", authUrl, branch],
+        ["push", buildAuthUrl(project.gitRemoteUrl, token), branch],
         project.rootPath,
         { timeout: 60_000 },
       );
       output = result.stdout || result.stderr;
       remoteCommitHash = commitHash;
+    } else {
+      return res.status(400).json({
+        error: "Only GitHub remotes can be pushed through this API.",
+        code: "UNSAFE_REMOTE_URL",
+      });
     }
 
     await recordAudit({

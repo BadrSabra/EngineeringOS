@@ -25,6 +25,8 @@ const EnvSchema = z.object({
   // Comma-separated browser origins that are allowed to call the API with
   // Clerk credentials. The API host itself is always allowed as well.
   APP_ORIGINS: z.string().default(""),
+  // Comma-separated Clerk user IDs allowed to change server-wide policy.
+  ADMIN_USER_IDS: z.string().default(""),
 });
 
 const ApplicationOriginSchema = z
@@ -96,6 +98,7 @@ function loadConfig() {
       expandApplicationOriginVariables(parsed.data.APP_ORIGINS),
       parsed.data.NODE_ENV === "production",
     ),
+    adminUserIds: parsed.data.ADMIN_USER_IDS.split(",").map((id) => id.trim()).filter(Boolean),
   } as const;
 }
 
