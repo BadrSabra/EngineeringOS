@@ -992,7 +992,12 @@ export const ListEventsQueryParams = zod.object({
   "search": zod.coerce.string().optional().describe('Case-insensitive text search across message, type, and operation.')
 })
 
-export const ListEventsResponseItem = zod.object({
+export const listEventsResponseTotalMin = 0;
+
+
+
+export const ListEventsResponse = zod.object({
+  "events": zod.array(zod.object({
   "id": zod.string(),
   "type": zod.string(),
   "projectId": zod.string(),
@@ -1005,8 +1010,9 @@ export const ListEventsResponseItem = zod.object({
   "message": zod.string().optional(),
   "timestamp": zod.coerce.date(),
   "correlationId": zod.string().optional().describe('Ties this event to a logical operation (scan, task execute, workflow advance). All records sharing the same correlationId were produced by a single call — filter by this to see the full trace.\n')
+})),
+  "total": zod.number().min(listEventsResponseTotalMin).describe('Total number of events matching the filters, before pagination.')
 })
-export const ListEventsResponse = zod.array(ListEventsResponseItem)
 
 
 /**

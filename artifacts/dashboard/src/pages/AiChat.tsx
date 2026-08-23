@@ -6375,7 +6375,7 @@ export default function AiChat() {
   const { send: taskStreamSend, cancel: cancelTaskStream, isPending: isTaskSending } = useAiTaskStream();
   const streamGenerationRef = useRef(0);
   const streamOwnerRef = useRef<StreamOwner | null>(null);
-  const { data: operationEvents = [], isLoading: operationEventsLoading } = useListEvents<ApiEvent[]>(
+  const { data: operationEventsPage, isLoading: operationEventsLoading } = useListEvents(
     {
       projectId: selectedProjectId,
       ...(operationId ? { correlationId: operationId } : {}),
@@ -6388,6 +6388,7 @@ export default function AiChat() {
       },
     },
   );
+  const operationEvents = operationEventsPage?.events ?? [];
 
   useEffect(() => {
     return () => {

@@ -293,7 +293,10 @@ async function installApiFixtures(
       const limit = Number(url.searchParams.get("limit")) || 50;
       const page = Number(url.searchParams.get("page")) || 1;
       return route.fulfill(
-        jsonResponse(filteredEvents.slice((page - 1) * limit, page * limit)),
+        jsonResponse({
+          events: filteredEvents.slice((page - 1) * limit, page * limit),
+          total: filteredEvents.length,
+        }),
       );
     }
     if (
@@ -1371,6 +1374,8 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText("Dashboard API fixture ready", { exact: true }),
     ).toBeVisible();
+    await expect(page.getByText("Showing 1–1 of 1", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Older" })).toBeDisabled();
 
     await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
     await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();

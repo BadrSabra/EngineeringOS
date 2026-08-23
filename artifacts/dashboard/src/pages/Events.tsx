@@ -38,7 +38,7 @@ export default function Events() {
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
   }, [projectId, severity, correlationId, searchTerm, page]);
 
-  const { data: events, isLoading, isError, error, refetch } = useListEvents({
+  const { data: eventsPage, isLoading, isError, error, refetch } = useListEvents({
     limit: PAGE_SIZE,
     page,
     ...(projectId ? { projectId } : {}),
@@ -48,7 +48,9 @@ export default function Events() {
   });
 
   const activeFilterCount = [projectId, severity, correlationId.trim(), searchTerm.trim()].filter(Boolean).length;
-  const hasNextPage = (events?.length ?? 0) === PAGE_SIZE;
+  const events = eventsPage?.events ?? [];
+  const total = eventsPage?.total ?? 0;
+  const hasNextPage = page * PAGE_SIZE < total;
 
   return (
     <div className="space-y-6 h-full flex flex-col">
@@ -229,7 +231,7 @@ export default function Events() {
         {!isLoading && !isError && (events?.length ?? 0) > 0 && (
           <div className="shrink-0 border-t border-border bg-card/50 px-3 py-2 flex items-center justify-between text-xs text-muted-foreground">
             <span>
-              Showing {((page - 1) * PAGE_SIZE) + 1}–{((page - 1) * PAGE_SIZE) + (events?.length ?? 0)}
+               Showing {((page - 1) * PAGE_SIZE) + 1}–{((page - 1) * PAGE_SIZE) + events.length} of {total}
             </span>
             <div className="flex items-center gap-2">
               <button

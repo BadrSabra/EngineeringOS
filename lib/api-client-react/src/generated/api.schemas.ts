@@ -2332,6 +2332,15 @@ export const ListEventsSeverity = {
   success: 'success',
 } as const;
 
+export type ListEvents200 = {
+  events: Event[];
+  /**
+     * Total number of events matching the filters, before pagination.
+     * @minimum 0
+     */
+  total: number;
+};
+
 export type ListMetricsParams = {
 projectId: string;
 from?: string;

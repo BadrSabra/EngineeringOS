@@ -61,7 +61,6 @@ import type {
   DiscoverySessionStatus,
   DiscoverySourceCapability,
   EvaluateRuleRequest,
-  Event,
   FailWorkflowPhaseInput,
   GeminiKeyStatus,
   GetAiChatFileContentParams,
@@ -94,6 +93,7 @@ import type {
   HealthStatus,
   ImportProjectInput,
   ListAiChatSessionsParams,
+  ListEvents200,
   ListEventsParams,
   ListGraphEntitiesParams,
   ListGraphRelationshipsParams,
@@ -2782,9 +2782,9 @@ export const getListEventsUrl = (params?: ListEventsParams,) => {
 /**
  * @summary List system events for one project or all owned projects
  */
-export const listEvents = async (params?: ListEventsParams, options?: RequestInit): Promise<Event[]> => {
+export const listEvents = async (params?: ListEventsParams, options?: RequestInit): Promise<ListEvents200> => {
 
-  return customFetch<Event[]>(getListEventsUrl(params),
+  return customFetch<ListEvents200>(getListEventsUrl(params),
   {
     ...options,
     method: 'GET'

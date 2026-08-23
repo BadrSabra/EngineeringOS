@@ -40,7 +40,7 @@ beforeEach(() => {
     ],
   } as ReturnType<typeof useListProjects>);
   vi.mocked(useListEvents).mockReturnValue({
-    data: mockEvents,
+    data: { events: mockEvents, total: mockEvents.length },
     isLoading: false,
     isError: false,
     error: null,
@@ -54,6 +54,8 @@ describe("Events", () => {
 
     expect(screen.getByText("Alpha scan completed")).toBeInTheDocument();
     expect(screen.getByText("Beta task failed")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1–2 of 2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Older" })).toBeDisabled();
   });
 
   it("shows an error and retry action instead of the empty state", () => {
@@ -77,7 +79,7 @@ describe("Events", () => {
 
   it("distinguishes a successful empty response from a failed request", () => {
     vi.mocked(useListEvents).mockReturnValue({
-      data: [],
+      data: { events: [], total: 0 },
       isLoading: false,
       isError: false,
       error: null,

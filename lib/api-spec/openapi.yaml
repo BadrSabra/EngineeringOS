@@ -790,13 +790,21 @@ paths:
           description: Case-insensitive text search across message, type, and operation.
       responses:
         "200":
-          description: List of events
+          description: A bounded page of matching events and the total matching count
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Event"
+                type: object
+                required: [events, total]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Event"
+                  total:
+                    type: integer
+                    minimum: 0
+                    description: Total number of events matching the filters, before pagination.
 
   # ─── Metrics ─────────────────────────────────────────────────────────────────
   /api/metrics:

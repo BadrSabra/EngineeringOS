@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, eventsTable, projectsTable } from "@workspace/db";
-import { eq, and, desc, inArray, ilike, or } from "drizzle-orm";
+import { eq, and, desc, inArray, ilike, or, count } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 
@@ -57,7 +57,7 @@ router.get("/events", async (req, res) => {
       .from(projectsTable)
       .where(eq(projectsTable.ownerId, req.userId));
     projectIds = ownedProjects.map(({ id }) => id);
-    if (projectIds.length === 0) return res.json([]);
+     if (projectIds.length === 0) return res.json({ events: [], total: 0 });
   }
 
   const conditions: ReturnType<typeof eq>[] = [inArray(eventsTable.projectId, projectIds)];
@@ -76,16 +76,23 @@ router.get("/events", async (req, res) => {
     );
   }
 
-  const events = await db
+  const matchingEvents = db
     .select()
     .from(eventsTable)
-    .where(and(...conditions))
-    // Keep page boundaries stable when several events share a timestamp.
-    .orderBy(desc(eventsTable.timestamp), desc(eventsTable.id))
-    .limit(limit)
-    .offset((page - 1) * limit);
+    .where(and(...conditions));
+  const [events, totalResult] = await Promise.all([
+    matchingEvents
+      // Keep page boundaries stable when several events share a timestamp.
+      .orderBy(desc(eventsTable.timestamp), desc(eventsTable.id))
+      .limit(limit)
+      .offset((page - 1) * limit),
+    db
+      .select({ total: count() })
+      .from(eventsTable)
+      .where(and(...conditions)),
+  ]);
 
-  return res.json(events);
+  return res.json({ events, total: Number(totalResult[0]?.total ?? 0) });
 });
 
 export default router;

@@ -58,12 +58,13 @@ afterEach(async () => {
 // ─── GET /events ───────────────────────────────────────────────────────────────
 
 describe("GET /events — list", () => {
-  it("returns 200 with an array when a valid projectId is provided", async () => {
+  it("returns 200 with a bounded page and matching total when a valid projectId is provided", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
     const res = await request(app).get(`/api/events?projectId=${projectId}`);
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
+    expect(Array.isArray(res.body.events)).toBe(true);
+    expect(res.body.total).toBe(0);
   });
 
   it("returns events from all projects owned by the authenticated user when projectId is omitted", async () => {
@@ -76,15 +77,16 @@ describe("GET /events — list", () => {
     const res = await request(app).get("/api/events");
 
     expect(res.status).toBe(200);
-    const ids = (res.body as { id: string }[]).map((event) => event.id);
+    const ids = (res.body.events as { id: string }[]).map((event) => event.id);
     expect(ids).toEqual(expect.arrayContaining([firstEventId, secondEventId]));
+    expect(res.body.total).toBe(2);
   });
 
   it("returns an empty array when the authenticated user owns no projects", async () => {
     const res = await request(app).get("/api/events");
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual([]);
+    expect(res.body).toEqual({ events: [], total: 0 });
   });
 
   it("filters events by projectId", async () => {
@@ -95,10 +97,10 @@ describe("GET /events — list", () => {
 
     const res = await request(app).get(`/api/events?projectId=${projectId}`);
     expect(res.status).toBe(200);
-    const ids = (res.body as { id: string }[]).map((e) => e.id);
+    const ids = (res.body.events as { id: string }[]).map((e) => e.id);
     expect(ids).toContain(eventId);
     // All returned events must belong to this project
-    for (const ev of res.body as { projectId: string }[]) {
+    for (const ev of res.body.events as { projectId: string }[]) {
       expect(ev.projectId).toBe(projectId);
     }
   });
@@ -112,7 +114,7 @@ describe("GET /events — list", () => {
 
     const res = await request(app).get(`/api/events?projectId=${projectId}&type=TypeA`);
     expect(res.status).toBe(200);
-    const ids = (res.body as { id: string }[]).map((e) => e.id);
+    const ids = (res.body.events as { id: string }[]).map((e) => e.id);
     expect(ids).toContain(typeAId);
     expect(ids).not.toContain(typeBId);
   });
@@ -129,7 +131,7 @@ describe("GET /events — list", () => {
       `/api/events?projectId=${projectId}&correlationId=${correlationId}`,
     );
     expect(res.status).toBe(200);
-    const ids = (res.body as { id: string }[]).map((e) => e.id);
+    const ids = (res.body.events as { id: string }[]).map((e) => e.id);
     expect(ids).toContain(correlatedId);
     expect(ids).not.toContain(uncorrelatedId);
   });
@@ -145,7 +147,8 @@ describe("GET /events — list", () => {
 
     const res = await request(app).get(`/api/events?projectId=${projectId}&limit=3`);
     expect(res.status).toBe(200);
-    expect((res.body as unknown[]).length).toBeLessThanOrEqual(3);
+    expect((res.body.events as unknown[]).length).toBeLessThanOrEqual(3);
+    expect(res.body.total).toBe(5);
   });
 
   it("paginates newest-first after applying severity and text filters", async () => {
@@ -164,11 +167,13 @@ describe("GET /events — list", () => {
 
     expect(firstPage.status).toBe(200);
     expect(secondPage.status).toBe(200);
-    expect(firstPage.body).toHaveLength(1);
-    expect(secondPage.body).toHaveLength(1);
-    expect(firstPage.body[0].severity).toBe("success");
-    expect(secondPage.body[0].severity).toBe("success");
-    expect(firstPage.body[0].id).not.toBe(secondPage.body[0].id);
+    expect(firstPage.body.events).toHaveLength(1);
+    expect(secondPage.body.events).toHaveLength(1);
+    expect(firstPage.body.total).toBe(2);
+    expect(secondPage.body.total).toBe(2);
+    expect(firstPage.body.events[0].severity).toBe("success");
+    expect(secondPage.body.events[0].severity).toBe("success");
+    expect(firstPage.body.events[0].id).not.toBe(secondPage.body.events[0].id);
   });
 
   it("rejects page numbers below one", async () => {
@@ -211,7 +216,7 @@ describe("GET /events — list", () => {
 
     const res = await request(app).get(`/api/events?projectId=${projectId}`);
     expect(res.status).toBe(200);
-    const ids = (res.body as { id: string }[]).map((e) => e.id);
+    const ids = (res.body.events as { id: string }[]).map((e) => e.id);
     expect(ids.indexOf(newerId)).toBeLessThan(ids.indexOf(olderId));
   });
 
@@ -225,7 +230,8 @@ describe("GET /events — list", () => {
     }
     const res = await request(app).get(`/api/events?projectId=${projectId}`);
     expect(res.status).toBe(200);
-    expect((res.body as unknown[]).length).toBeLessThanOrEqual(50);
+    expect((res.body.events as unknown[]).length).toBeLessThanOrEqual(50);
+    expect(res.body.total).toBe(5);
   });
 
   it("each event has the required fields", async () => {
@@ -236,7 +242,7 @@ describe("GET /events — list", () => {
 
     const res = await request(app).get(`/api/events?projectId=${projectId}`);
     expect(res.status).toBe(200);
-    const ev = (res.body as Record<string, unknown>[])[0];
+    const ev = (res.body.events as Record<string, unknown>[])[0];
     expect(ev).toHaveProperty("id");
     expect(ev).toHaveProperty("projectId");
     expect(ev).toHaveProperty("type");
@@ -290,10 +296,10 @@ describe("GET /events — ownership isolation", () => {
     const res = await request(app).get("/api/events");
 
     expect(res.status).toBe(200);
-    const ids = (res.body as { id: string }[]).map((event) => event.id);
+    const ids = (res.body.events as { id: string }[]).map((event) => event.id);
     expect(ids).toContain(ownedEventId);
     expect(ids).not.toContain(otherEventId);
-    for (const event of res.body as { projectId: string }[]) {
+    for (const event of res.body.events as { projectId: string }[]) {
       expect(event.projectId).not.toBe(otherProjectId);
     }
   });
