@@ -5155,7 +5155,10 @@ export async function chat(opts: {
           const automaticRepairState: RepairLoopState =
             automaticValidation.status === "passed"
               ? "READY_FOR_REVIEW"
-              : "BLOCKED";
+              : automaticValidation.status === "failed" &&
+                  validationAttemptsConsumed < remainingValidationAttempts
+                ? "REPAIRING"
+                : "BLOCKED";
           recordNodeStep({
             kind: "validation",
             result: automaticValidation,
@@ -5183,7 +5186,9 @@ export async function chat(opts: {
             detail:
               automaticValidation.status === "passed"
                 ? "Server-owned automatic validation passed; pending changes are ready for review."
-                : "Server-owned automatic validation did not pass; the node remains unapproved.",
+                : automaticRepairState === "REPAIRING"
+                  ? "Server-owned automatic validation failed; a bounded repair retry is allowed."
+                  : "Server-owned automatic validation did not pass; the node remains blocked.",
           });
         }
 
@@ -5194,6 +5199,30 @@ export async function chat(opts: {
             step.result.profile === node.validationProfile,
           );
         const passedValidation = latestProfileValidation?.result.status === "passed";
+        const outOfScopeValidationFiles = latestProfileValidation?.result.changedFiles.filter(
+          (file) => !allowedPathSet.has(nodePath(file)),
+        ) ?? [];
+        if (outOfScopeValidationFiles.length > 0) {
+          const detail = [
+            "Validation reported files outside the approved execution scope:",
+            ...[...new Set(outOfScopeValidationFiles)].slice(0, 12),
+          ].join(" ").slice(0, 4_000);
+          recordNodeStep({
+            kind: "diagnostic",
+            code: "EXECUTION_SCOPE_VIOLATION",
+            details: [detail],
+          });
+          recordNodeStep({
+            kind: "repair_state",
+            state: "BLOCKED",
+            detail: "Validation evidence crossed the approved file boundary; no repair retry is permitted.",
+          });
+          return {
+            status: "blocked" as const,
+            detail,
+            validationAttempts: validationAttemptsConsumed,
+          };
+        }
         const failedValidation = [...nodeSteps]
           .reverse()
           .find((step): step is Extract<AgentStep, { kind: "validation" }> =>

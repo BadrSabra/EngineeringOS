@@ -35,6 +35,7 @@ export type AiExecutionNodeCheckpoint = Pick<
   | "validationProfile"
   | "attempts"
   | "validationAttempts"
+  | "lastFailure"
 >;
 
 export type AiExecutionCheckpoint = {
@@ -136,6 +137,20 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
               || candidate.validationAttempts < 0
               || candidate.validationAttempts > 3
             ))
+            || (candidate.lastFailure !== undefined && (
+              !candidate.lastFailure
+              || typeof candidate.lastFailure !== "object"
+              || !["failed", "blocked"].includes((candidate.lastFailure as { status?: unknown }).status as string)
+              || typeof (candidate.lastFailure as { attempt?: unknown }).attempt !== "number"
+              || !Number.isInteger((candidate.lastFailure as { attempt: number }).attempt)
+              || (candidate.lastFailure as { attempt: number }).attempt < 1
+              || (candidate.lastFailure as { attempt: number }).attempt > 3
+              || typeof (candidate.lastFailure as { validationAttempts?: unknown }).validationAttempts !== "number"
+              || !Number.isInteger((candidate.lastFailure as { validationAttempts: number }).validationAttempts)
+              || (candidate.lastFailure as { validationAttempts: number }).validationAttempts < 0
+              || (candidate.lastFailure as { validationAttempts: number }).validationAttempts > 3
+              || typeof (candidate.lastFailure as { detail?: unknown }).detail !== "string"
+            ))
           ) return [];
           return [{
             id: candidate.id.slice(0, 160),
@@ -152,6 +167,16 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
             validationProfile: candidate.validationProfile as AiExecutionNodeCheckpoint["validationProfile"],
             attempts: candidate.attempts,
             validationAttempts: candidate.validationAttempts ?? 0,
+            ...(candidate.lastFailure
+              ? {
+                  lastFailure: {
+                    status: (candidate.lastFailure as { status: "failed" | "blocked" }).status,
+                    attempt: (candidate.lastFailure as { attempt: number }).attempt,
+                    validationAttempts: (candidate.lastFailure as { validationAttempts: number }).validationAttempts,
+                    detail: (candidate.lastFailure as { detail: string }).detail.slice(0, 4_000),
+                  },
+                }
+              : {}),
           }];
         })
       : undefined;
@@ -220,6 +245,11 @@ export function reconcileExecutionNodeCheckpoint(
       || planNode.validationProfile !== checkpointNode.validationProfile
       || checkpointNode.attempts < planNode.attempts
       || checkpointNode.validationAttempts < planNode.validationAttempts
+      || (planNode.lastFailure
+        && (
+          planNode.lastFailure.status !== checkpointNode.lastFailure?.status
+          || planNode.lastFailure.attempt > (checkpointNode.lastFailure?.attempt ?? 0)
+        ))
       || (planNode.status === "passed" && checkpointNode.status !== "passed")
       || (planNode.status === "blocked" && checkpointNode.status !== "blocked")
       || (checkpointNode.status === "running" && checkpointNode.attempts < 1)
@@ -235,6 +265,7 @@ export function reconcileExecutionNodeCheckpoint(
       status: checkpointNode.status,
       attempts: checkpointNode.attempts,
       validationAttempts: checkpointNode.validationAttempts,
+      ...(checkpointNode.lastFailure ? { lastFailure: checkpointNode.lastFailure } : {}),
     };
   });
 }
