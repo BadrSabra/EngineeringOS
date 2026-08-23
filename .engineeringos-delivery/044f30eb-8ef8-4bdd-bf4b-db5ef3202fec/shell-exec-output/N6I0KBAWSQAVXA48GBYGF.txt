@@ -1,0 +1,270 @@
+# Task #26: Catch sensitive data leaks in execution audit downloads
+
+# Catch sensitive data leaks in execution audit downloads
+
+## What & Why
+The operator export now intentionally redacts provider secrets, raw model output, and private runtime paths. A focused API regression suite will protect that compliance boundary as checkpoint and event formats evolve.
+
+## Done looks like
+- Seed an owner-scoped execution with representative checkpoint, validation, and event data
+- Verify the export includes terminal state, revision, proof verdict, validations, and affected files
+- Verify provider-like secrets, raw model previews, and private runtime paths are absent
+- Verify another user cannot download the execution
+
+## Relevant files
+- artifacts/api-server/src/routes/ai/chat.ts
+- artifacts/api-server/src/routes/ai.test.ts
+- lib/api-spec/openapi.yaml
+
+--- relevant memory ---
+---
+name: Execution audit exports
+description: Portable execution audits must be assembled from owner-scoped durable state and allowlisted operational fields.
+---
+
+Audit downloads should project persisted execution, checkpoint, validation, and correlated event data rather than serialize live UI state. Keep provider secrets, raw model output, and private runtime paths out through explicit allowlists and path checks.
+
+**Why:** Incident and compliance handoffs need records that remain available after reconnects without exposing sensitive provider or host details.
+
+**How to apply:** Preserve the client’s durable execution pointer through terminal states and make the export endpoint owner-scoped; update the OpenAPI contract whenever the export shape changes.
+--- files ---
+artifacts/api-server/src/routes/ai.test.ts:26:  auditLogsTable,
+artifacts/api-server/src/routes/ai.test.ts:40:    newContent: "export const safe = true;",
+artifacts/api-server/src/routes/ai.test.ts:58:        auditScope: "PRODUCTION",
+artifacts/api-server/src/routes/ai.test.ts:138:        executionCheckpoints: 0,
+artifacts/api-server/src/routes/ai.test.ts:145:        execution: false,
+artifacts/api-server/src/routes/ai.test.ts:160:  it("projects report exports with regeneration timing but no internal identifiers", () => {
+artifacts/api-server/src/routes/ai.test.ts:161:    const exported = projectMissionCorrelationReportForExport({
+artifacts/api-server/src/routes/ai.test.ts:175:        executionCheckpoints: 0,
+artifacts/api-server/src/routes/ai.test.ts:182:        execution: false,
+artifacts/api-server/src/routes/ai.test.ts:193:    expect(exported).toMatchObject({
+artifacts/api-server/src/routes/ai.test.ts:199:    expect(JSON.stringify(exported)).not.toContain("123e4567-e89b-12d3-a456-426614174000");
+artifacts/api-server/src/routes/ai.test.ts:200:    expect(JSON.stringify(exported)).not.toContain("223e4567-e89b-12d3-a456-426614174001");
+artifacts/api-server/src/routes/ai.test.ts:201:    expect(JSON.stringify(exported)).not.toContain("323e4567-e89b-12d3-a456-426614174002");
+artifacts/api-server/src/routes/ai.test.ts:218:        executionCheckpoints: 0,
+artifacts/api-server/src/routes/ai.test.ts:225:        execution: false,
+artifacts/api-server/src/routes/ai.test.ts:246:// Every export from @workspace/ai-orchestrator is replaced with a stub that
+artifacts/api-server/src/routes/ai.test.ts:260:  // "No PROVIDER_REGISTRY export defined" before any test runs.
+artifacts/api-server/src/routes/ai.test.ts:345:  // `instanceof` checks. Without it vitest throws "No GroqClientError export".
+artifacts/api-server/src/routes/ai.test.ts:356:  // provider selection throw "No isCircuitOpen export defined on the mock".
+artifacts/api-server/src/routes/ai.test.ts:552:    await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, pid)).catch(() => undefined);
+artifacts/api-server/src/routes/ai.test.ts:664:      newContent: "export const restored = true;",
+artifacts/api-server/src/routes/ai.test.ts:697:      newContent: "export const approved = true;",
+artifacts/api-server/src/routes/ai.test.ts:708:        changes: [{ ...changes[0], newContent: "export const tampered = true;" }],
+artifacts/api-server/src/routes/ai.test.ts:732:      newContent: "export const replay = true;",
+artifacts/api-server/src/routes/ai.test.ts:780:  it("returns execution trace separately from the assistant report", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1051:      .send({ projectId, message: "forensic audit" });
+artifacts/api-server/src/routes/ai.test.ts:1061:      executionPlan: {
+artifacts/api-server/src/routes/ai.test.ts:1095:        executionTaskType?: string;
+artifacts/api-server/src/routes/ai.test.ts:1103:      executionTaskType: "chat",
+artifacts/api-server/src/routes/ai.test.ts:1166:      .send({ projectId, message: "forensic audit" });
+artifacts/api-server/src/routes/ai.test.ts:1222:      executionPlan: { phases: [{ files: ["src/newer.ts"] }] },
+artifacts/api-server/src/routes/ai.test.ts:1226:      activeTaskState?: { executionPlan?: { phases?: Array<{ files?: string[] }> } } | null;
+artifacts/api-server/src/routes/ai.test.ts:1237:      executionPlan: { phases: [{ files: ["src/newer.ts"] }] },
+artifacts/api-server/src/routes/ai.test.ts:1246:  it("rejects Repair Plan execution without the original session before calling the model", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1258:    expect(res.body.error).toBe("execution_session_required");
+artifacts/api-server/src/routes/ai.test.ts:1326:        title: "Incomplete audit",
+artifacts/api-server/src/routes/ai.test.ts:1333:        title: "No finding audit",
+artifacts/api-server/src/routes/ai.test.ts:1340:        title: "Finding proven audit",
+artifacts/api-server/src/routes/ai.test.ts:1347:        title: "Not proven audit",
+artifacts/api-server/src/routes/ai.test.ts:1357:        content: "ANALYSIS_INCOMPLETE — the audit was cancelled before coverage completed.",
+artifacts/api-server/src/routes/ai.test.ts:1404:      title: "Reloaded audit",
+artifacts/api-server/src/routes/ai.test.ts:1442:      title: "Equal timestamp audit",
+artifacts/api-server/src/routes/ai.test.ts:1651:        executionCheckpoints: 1,
+artifacts/api-server/src/routes/ai.test.ts:1658:        execution: true,
+artifacts/api-server/src/routes/ai.test.ts:2284:    // the handler records a no-op apply with an event/audit trail.
+artifacts/api-server/src/routes/ai.test.ts:2413:      newContent: "export const rollbackFailure = true;",
+artifacts/api-server/src/routes/ai.test.ts:2513:      "export function completeRaw() { return 'raw'; }",
+artifacts/api-server/src/routes/ai.test.ts:2514:      "export function completeStream() { return 'stream'; }",
+artifacts/api-server/src/routes/ai.test.ts:2522:      newContent: "export function complete() {}",
+artifacts/api-server/src/routes/ai.test.ts:2567:      "export function completeRaw() { return 'raw'; }",
+artifacts/api-server/src/routes/ai.test.ts:2575:        newContent: "export function complete() {}",
+artifacts/api-server/src/routes/ai.test.ts:2583:        newContent: "export const safe = true;",
+artifacts/api-server/src/routes/ai.test.ts:2629:    await fs.writeFile(absolutePath, "export const current = true;\n", "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:2633:      originalContent: "export const old = true;\n",
+artifacts/api-server/src/routes/ai.test.ts:2634:      newContent: "export const next = true;\n",
+artifacts/api-server/src/routes/ai.test.ts:2652:      expect(await fs.readFile(absolutePath, "utf-8")).toBe("export const current = true;\n");
+artifacts/api-server/src/routes/ai.test.ts:2675:    const original = "export const before = true;\n";
+artifacts/api-server/src/routes/ai.test.ts:2676:    const replacement = "export const after = true;\n";
+artifacts/api-server/src/routes/ai.test.ts:2691:      await fs.writeFile(absolutePath, "export const userEdit = true;\n", "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:2702:      expect(await fs.readFile(absolutePath, "utf-8")).toBe("export const userEdit = true;\n");
+artifacts/api-server/src/routes/ai.test.ts:2727:    const staleOriginal = "export const stale = false;\n";
+artifacts/api-server/src/routes/ai.test.ts:2728:    const validOriginal = "export const valid = false;\n";
+artifacts/api-server/src/routes/ai.test.ts:2732:    const staleReplacement = "export const stale = true;\n";
+artifacts/api-server/src/routes/ai.test.ts:2733:    const validReplacement = "export const valid = true;\n";
+artifacts/api-server/src/routes/ai.test.ts:2759:      await fs.writeFile(stalePath, "export const user_edit = true;\n", "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:2776:      expect(await fs.readFile(stalePath, "utf-8")).toBe("export const user_edit = true;\n");
+artifacts/api-server/src/routes/ai.test.ts:2801:    const current = "export const current = true;\n";
+artifacts/api-server/src/routes/ai.test.ts:2811:        expectedText: "export const stale = true;",
+artifacts/api-server/src/routes/ai.test.ts:2812:        replacementText: "export const next = true;",
+artifacts/api-server/src/routes/ai.test.ts:2815:      newContent: "export const next = true;\n",
+artifacts/api-server/src/routes/ai.test.ts:3137:    const original = "export const value = 1;\n";
+artifacts/api-server/src/routes/ai.test.ts:3138:    const replacement = "export const value = 2;\n";
+artifacts/api-server/src/routes/ai.test.ts:3168:        newContent: "// user header\nexport const value = 2;\n",
+artifacts/api-server/src/routes/ai.test.ts:3179:        newContent: "// user header\nexport const value = 2;\n",
+artifacts/api-server/src/routes/ai.test.ts:3235:    const original = "export const value = 1;\n";
+artifacts/api-server/src/routes/ai.test.ts:3236:    const replacement = "export const value = 2;\n";
+artifacts/api-server/src/routes/ai.test.ts:3250:      await fs.writeFile(absolutePath, "export const value = 9;\n", "utf-8");
+artifacts/api-server/src/routes/ai.test.ts:3270:      expect(await fs.readFile(absolutePath, "utf-8")).toBe("export const value = 9;\n");
+artifacts/api-server/src/routes/ai.test.ts:3352:  it("creates task logs and an event on successful execution", async () => {
+artifacts/api-server/src/routes/ai.test.ts:3374:  it("creates an audit entry on execution", async () => {
+artifacts/api-server/src/routes/ai.test.ts:3381:    const audits = await db
+artifacts/api-server/src/routes/ai.test.ts:3383:      .from(auditLogsTable)
+artifacts/api-server/src/routes/ai.test.ts:3384:      .where(eq(auditLogsTable.entityId, taskId));
+artifacts/api-server/src/routes/ai.test.ts:3385:    const auditEntry = audits.find((a) => a.action === "ai_executed");
+artifacts/api-server/src/routes/ai.test.ts:3386:    expect(auditEntry).toBeDefined();
+artifacts/api-server/src/routes/ai.test.ts:3463:      l.message === "AI execution failed while building project context",
+artifacts/api-server/src/routes/ai.test.ts:3570:    // and Gemini are valid providers for task execution too.
+artifacts/api-server/src/routes/ai.test.ts:3616:    const executionPromise = new Promise<{
+artifacts/api-server/src/routes/ai.test.ts:3625:    vi.mocked(mockExecuteTask).mockReturnValueOnce(executionPromise as never);
+artifacts/api-server/src/routes/ai/chat.ts:22:  auditLogsTable,
+artifacts/api-server/src/routes/ai/chat.ts:123:} from "../../lib/ai-execution-state.js";
+artifacts/api-server/src/routes/ai/chat.ts:150:  executionStatus?: string;
+artifacts/api-server/src/routes/ai/chat.ts:179:  if (params.executionStatus === "failed") return "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts:316:  execution?: {
+artifacts/api-server/src/routes/ai/chat.ts:350:  const request = parseJsonRecord(params.execution?.request);
+artifacts/api-server/src/routes/ai/chat.ts:351:  const operationId = params.execution?.operationId
+artifacts/api-server/src/routes/ai/chat.ts:353:    ?? params.execution?.id
+artifacts/api-server/src/routes/ai/chat.ts:356:    !params.execution
+artifacts/api-server/src/routes/ai/chat.ts:364:  const checkpoint = parseJsonRecord(params.execution?.checkpoint);
+artifacts/api-server/src/routes/ai/chat.ts:365:  const terminalState = params.execution?.status === "cancelled"
+artifacts/api-server/src/routes/ai/chat.ts:369:    : params.execution?.status === "failed" || target.outcome === "FAILED"
+artifacts/api-server/src/routes/ai/chat.ts:381:    executionCheckpoints: params.execution
+artifacts/api-server/src/routes/ai/chat.ts:382:      ? Math.min(1, Math.max(0, params.execution.checkpointVersion > 0 || Object.keys(checkpoint).length > 0 ? 1 : 0))
+artifacts/api-server/src/routes/ai/chat.ts:390:    execution: Boolean(params.execution),
+artifacts/api-server/src/routes/ai/chat.ts:393:    checkpoints: counts.executionCheckpoints > 0,
+artifacts/api-server/src/routes/ai/chat.ts:417:export class MissionCorrelationReportValidationError extends Error {
+artifacts/api-server/src/routes/ai/chat.ts:431:export function serializeMissionCorrelationReport(value: unknown): string | null {
+artifacts/api-server/src/routes/ai/chat.ts:443: * audit exports. Keep the optional generatedAt field after schema parsing
+artifacts/api-server/src/routes/ai/chat.ts:447:export function projectMissionCorrelationReportForExport(
+artifacts/api-server/src/routes/ai/chat.ts:564:  executionId?: string;
+artifacts/api-server/src/routes/ai/chat.ts:574:    // Resuming that execution must only add the next assistant outcome, not
+artifacts/api-server/src/routes/ai/chat.ts:576:    const existingUserTurn = params.executionId
+artifacts/api-server/src/routes/ai/chat.ts:582:            eq(aiChatMessagesTable.executionId, params.executionId),
+artifacts/api-server/src/routes/ai/chat.ts:594:        executionId: params.executionId ?? null,
+artifacts/api-server/src/routes/ai/chat.ts:607:      executionId: params.executionId ?? null,
+artifacts/api-server/src/routes/ai/chat.ts:880:export function canCreateProposal(
+artifacts/api-server/src/routes/ai/chat.ts:911:      forensicStatus.auditScope !== "PRODUCTION" ||
+artifacts/api-server/src/routes/ai/chat.ts:975:  kind: AgentStep["kind"] | "audit_scope";
+artifacts/api-server/src/routes/ai/chat.ts:1002:  /** Structured audit scope derived from isFixtureLocal. */
+artifacts/api-server/src/routes/ai/chat.ts:1003:  auditScope?: "PRODUCTION" | "FIXTURE_LOCAL";
+artifacts/api-server/src/routes/ai/chat.ts:1032:  auditState?: {
+artifacts/api-server/src/routes/ai/chat.ts:1103: * Keep execution observability separate from the assistant report. The trace
+artifacts/api-server/src/routes/ai/chat.ts:1182:      case "execution_guard":
+artifacts/api-server/src/routes/ai/chat.ts:1198:          auditScope: step.auditScope,
+artifacts/api-server/src/routes/ai/chat.ts:1213:      case "audit_state":
+artifacts/api-server/src/routes/ai/chat.ts:1216:          auditState: step.state,
+artifacts/api-server/src/routes/ai/chat.ts:1357:  if (scopeDescription) entries.unshift({ kind: "audit_scope", scopeDescription });
+artifacts/api-server/src/routes/ai/chat.ts:1396: * a usable audit candidate without logging the audit itself.
+artifacts/api-server/src/routes/ai/chat.ts:1440:  executionPlan: ActiveTaskExecutionPlan | null;
+artifacts/api-server/src/routes/ai/chat.ts:1442:  if (args.persisted && (args.resumed || args.executionPlan)) {
+artifacts/api-server/src/routes/ai/chat.ts:1444:    const existingPlan = touched.executionPlan;
+artifacts/api-server/src/routes/ai/chat.ts:1451:        executionPlan: args.executionPlan ?? progressedPlan ?? touched.executionPlan,
+artifacts/api-server/src/routes/ai/chat.ts:1455:  const shouldPersistExecutionPlan = Boolean(args.executionPlan);
+artifacts/api-server/src/routes/ai/chat.ts:1474:          executionPlan: args.executionPlan,
+artifacts/api-server/src/routes/ai/chat.ts:1480:  // unexpectedly revive an older audit after the user changed subjects.
+artifacts/api-server/src/routes/ai/chat.ts:1535:  // Keep execution handoff fail-closed in the streaming route too. This check
+artifacts/api-server/src/routes/ai/chat.ts:1539:      error: "execution_session_required",
+artifacts/api-server/src/routes/ai/chat.ts:1540:      message: "Repair Plan execution requires the original audit session.",
+artifacts/api-server/src/routes/ai/chat.ts:1607:  // state cannot turn neutral conversation into an evidence-gated audit.
+artifacts/api-server/src/routes/ai/chat.ts:1648:  // while execution handoffs can still recover an older repair plan from this
+artifacts/api-server/src/routes/ai/chat.ts:1663:    qualityProfile: turnIntent.executionTaskType,
+artifacts/api-server/src/routes/ai/chat.ts:1712:      qualityProfile: turnIntent.executionTaskType,
+artifacts/api-server/src/routes/ai/chat.ts:1714:      executionHandoff: {
+artifacts/api-server/src/routes/ai/chat.ts:1753:        { requireTools: modelHasTools, qualityProfile: turnIntent.executionTaskType },
+artifacts/api-server/src/routes/ai/chat.ts:1825:    const executionPlan = buildActiveTaskExecutionPlan({
+artifacts/api-server/src/routes/ai/chat.ts:1844:      executionPlan,
+artifacts/api-server/src/routes/ai/chat.ts:1906:          executionId: null,
+artifacts/api-server/src/routes/ai/chat.ts:1998:     * server validates this message before model execution and enforces its
+artifacts/api-server/src/routes/ai/chat.ts:2002:    /** Durable execution identity used to reconnect or explicitly resume a run. */
+artifacts/api-server/src/routes/ai/chat.ts:2003:    executionId: z.string().uuid("executionId must be a valid UUID").optional(),
+artifacts/api-server/src/routes/ai/chat.ts:2004:    /** Opaque token returned with execution_started; never accepted from model content. */
+artifacts/api-server/src/routes/ai/chat.ts:2006:    /** Client retry key; repeated requests reuse the same durable execution. */
+artifacts/api-server/src/routes/ai/chat.ts:2028:    executionId,
+artifacts/api-server/src/routes/ai/chat.ts:2038:  const effectiveExecutionId = isolatedConversationTurn ? undefined : executionId;
+artifacts/api-server/src/routes/ai/chat.ts:2046:  // Keep execution handoff fail-closed in the streaming route too. This check
+artifacts/api-server/src/routes/ai/chat.ts:2050:      error: "execution_session_required",
+artifacts/api-server/src/routes/ai/chat.ts:2051:      message: "Repair Plan execution requires the original audit session.",
+artifacts/api-server/src/routes/ai/chat.ts:2056:      error: "executionId requires the original chat session",
+artifacts/api-server/src/routes/ai/chat.ts:2220:    auditScopeDescription?: string;
+artifacts/api-server/src/routes/ai/chat.ts:2221:  }).auditScopeDescription;
+artifacts/api-server/src/routes/ai/chat.ts:2245:    qualityProfile: streamTurnIntent.executionTaskType,
+artifacts/api-server/src/routes/ai/chat.ts:2260:  let executionWorkerId: string | undefined;
+artifacts/api-server/src/routes/ai/chat.ts:2262:  let executionAbortController: AbortController | undefined;
+artifacts/api-server/src/routes/ai/chat.ts:2263:  let executionTerminal = false;
+artifacts/api-server/src/routes/ai/chat.ts:2264:  let executionNodeStates: ActiveTaskExecutionPlan["nodes"] = [];
+artifacts/api-server/src/routes/ai/chat.ts:2352:    const executionRequest: AiExecutionRequestEnvelope = {
+artifacts/api-server/src/routes/ai/chat.ts:2372:    const proofRequired = executionRequest.proofRequired === true;
+artifacts/api-server/src/routes/ai/chat.ts:2373:    executionWorkerId = randomUUID();
+artifacts/api-server/src/routes/ai/chat.ts:2374:    let executionResumeToken: string | undefined;
+artifacts/api-server/src/routes/ai/chat.ts:2380:      sse({ type: "error", code: "EXECUTION_NOT_FOUND", message: "AI execution not found" });
+artifacts/api-server/src/routes/ai/chat.ts:2390:        && executionRequest.modelMessage.startsWith(
+artifacts/api-server/src/routes/ai/chat.ts:2391:          `${executionRequest.message}\n\nBUILD HANDOFF`,
+artifacts/api-server/src/routes/ai/chat.ts:2395:        storedRequest.projectId === executionRequest.projectId &&
+artifacts/api-server/src/routes/ai/chat.ts:2396:        storedRequest.sessionId === executionRequest.sessionId &&
+artifacts/api-server/src/routes/ai/chat.ts:2397:        storedRequest.message === executionRequest.message &&
+artifacts/api-server/src/routes/ai/chat.ts:2399:          storedRequest.modelMessage === executionRequest.modelMessage
+artifacts/api-server/src/routes/ai/chat.ts:2402:        (storedRequest.linkedTaskId ?? undefined) === (executionRequest.linkedTaskId ?? undefined) &&
+artifacts/api-server/src/routes/ai/chat.ts:2403:        (storedRequest.buildPlanMessageId ?? undefined) === (executionRequest.buildPlanMessageId ?? undefined) &&
+artifacts/api-server/src/routes/ai/chat.ts:2404:        JSON.stringify(storedRequest.validationTargetPaths) === JSON.stringify(executionRequest.validationTargetPaths) &&
+artifacts/api-server/src/routes/ai/chat.ts:2405:        JSON.stringify(storedRequest.objective ?? null) === JSON.stringify(executionRequest.objective ?? null) &&
+artifacts/api-server/src/routes/ai/chat.ts:2408:          || Boolean(storedRequest.proofRequired) === Boolean(executionRequest.proofRequired)
+artifacts/api-server/src/routes/ai/chat.ts:2423:          message: "This execution is already running. Reconnect through its status instead of starting a duplicate.",
+artifacts/api-server/src/routes/ai/chat.ts:2424:          executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts:2434:          executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts:2443:          message: "A resume token is required to continue this execution.",
+artifacts/api-server/src/routes/ai/chat.ts:2444:          executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts:2461:        executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts:2463:        workerId: executionWorkerId,
+artifacts/api-server/src/routes/ai/chat.ts:2470:          message: "Another resume won the execution claim. Retry after refreshing its status.",
+artifacts/api-server/src/routes/ai/chat.ts:2471:          executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts:2481:        request: executionRequest,
+artifacts/api-server/src/routes/ai/chat.ts:2488:      aiExecution = created.execution;
+artifacts/api-server/src/routes/ai/chat.ts:2490:      executionResumeToken = created.resumeToken;
+artifacts/api-server/src/routes/ai/chat.ts:2492:        executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts:2494:        workerId: executionWorkerId,
+artifacts/api-server/src/routes/ai/chat.ts:2500:          message: "Another request won the execution claim. Retry after refreshing its status.",
+artifacts/api-server/src/routes/ai/chat.ts:2501:          executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts:2512:    const executionPlanForRun = !greetingTurnForExecution && approvedImplementationPlan
+artifacts/api-server/src/routes/ai/chat.ts:2520:      : resumableStateForExecution?.executionPlan ?? null;
+artifacts/api-server/src/routes/ai/chat.ts:2521:    const persistedExecutionNodes = executionPlanForRun?.nodes ?? [];
+artifacts/api-server/src/routes/ai/chat.ts:2528:        executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts:2529:        workerId: executionWorkerId!,
+artifacts/api-server/src/routes/ai/chat.ts:2533:      executionTerminal = true;
+artifacts/api-server/src/routes/ai/chat.ts:2537:        message: "The saved execution progress does not match the approved plan. Start a fresh execution.",
+artifacts/api-server/src/routes/ai/chat.ts:2538:        executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts:2543:    executionNodeStates = reconciledExecutionNodes ?? persistedExecutionNodes;
+artifacts/api-server/src/routes/ai/chat.ts:2545:    executionAbortController = activeExecutionAbortController;
+artifacts/api-server/src/routes/ai/chat.ts:2548:    let executionEvidenceVerdict: FlightDeckEvidenceVerdict = "NOT_RECORDED";
+artifacts/api-server/src/routes/ai/chat.ts:2549:    let executionEvidenceReason = proofRequired
+artifacts/api-server/src/routes/ai/chat.ts:2556:        ...(executionNodeStates.length > 0
+artifacts/api-server/src/routes/ai/chat.ts:2558:              nodeStates: executionNodeStates,
+artifacts/api-server/src/routes/ai/chat.ts:2559:              completedNodes: executionNodeStates
+artifacts/api-server/src/routes/ai/chat.ts:2563:              ...(executionNodeStates.find((node) => node.status === "running")
+artifacts/api-server/src/routes/ai/chat.ts:2564:                ? { currentNode: executionNodeStates.find((node) => node.status === "running")?.id }
+artifacts/api-server/src/routes/ai/chat.ts:2568:        evidenceVerdict: executionEvidenceVerdict,
+artifacts/api-server/src/routes/ai/chat.ts:2569:        evidenceReason: executionEvidenceReason,
+artifacts/api-server/src/routes/ai/chat.ts:2577:            executionId: aiExecution!.id,
+artifacts/api-server/src/routes/ai/chat.ts:2578:            workerId: executionWorkerId!,
+artifacts/api-server/src/routes/ai/chat.ts:2582:            logger.warn({ executionId: aiExecution!.id, sequence }, "AI execution checkpoint rejected by lease/state gate");
+artifacts/api-server/src/routes/ai/chat.ts:2586:          logger.warn({ err, executionId: aiExecution!.id }, "AI execution checkpoint failed");
+artifacts/api-server/src/routes/ai/chat.ts:2590:      executionNodeStates = nodes.map((node) => ({
+artifacts/api-server/src/routes/ai/chat.ts:2596:        type: "execution_nodes",
+artifacts/api-server/src/routes/ai/chat.ts:2597:        executionId: aiExecution!.id,
+artifacts/api-server/src/routes/ai/chat.ts:2598:        nodes: executionNodeStates,
+artifacts/api-server/src/routes/ai/chat.ts:2608:      type: "execution_started",
+artifacts/api-server/src/routes/ai/chat.ts:2609:      executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts:2611:      ...(executionResumeToken ? { resumeToken: executionResumeToken } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:2614:    if (executionNodeStates.length > 0) {
+artifacts/api-server/src/routes/ai/chat.ts:2616:        type: "execution_nodes",
+artifacts/api-server/src/routes/ai/chat.ts:2617:        executionId: aiExecution.id,
+artifacts/api-server/src/routes/ai/chat.ts:2618:        nodes: executionNodeStates,
+artifacts/api-server/src/routes/ai/chat.ts:2623:      if (!res.writableEnded && !executionTerminal) {
+artifacts/api-server/src/routes/ai/chat.ts:2691:      qualityProfile: streamTurnIntent.executionTaskType,
+artifacts/api-server/src/routes/ai/chat.ts:2693:      executionHandoff: {
+artifacts/api-server/src/routes/ai/chat.ts:2711:    const executionDiagnosticDetails: string[] = [];
+artifacts/api-server/src/routes/ai/chat.ts:2712:    let executionSummary:
+artifacts/api-server/src/routes/ai/chat.ts:2775:        executionPlanForRun?.implementationPlan
+artifacts/api-server/src/routes/ai/chat.ts:2777:        const plan = executionPlanForRun.implementationPlan;
+artifacts/api-server/src/routes/ai/chat.ts:2778:        const current = plan.steps[executionPlanForRun.currentStepIndex];
+artifacts/api-server/src/routes/ai/chat.ts:2785:          const next = plan.steps[executionPlanForRun.currentStepIndex + 1];

@@ -1,0 +1,270 @@
+/**
+ * AI chat routes.
+ *
+ * POST /api/ai/chat
+ * POST /api/ai/chat/stream
+ * GET  /api/ai/chat/sessions
+ * GET  /api/ai/chat/:sessionId/messages
+ * POST /api/ai/chat/apply-changes
+ */
+import { Router } from "express";
+import { z } from "zod";
+import { randomUUID } from "crypto";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { db } from "@workspace/db";
+import {
+  aiChatSessionsTable,
+  aiChatMessagesTable,
+  aiChangeProposalsTable,
+  aiExecutionsTable,
+  aiApplyJournalTable,
+  auditLogsTable,
+  eventsTable,
+  tasksTable,
+} from "@workspace/db";
+import { eq, desc, and, inArray, sql } from "drizzle-orm";
+import {
+  buildProjectContext,
+  invalidateContextCache,
+  chat,
+  GroqClientError,
+  recordRequest,
+  recordFailure,
+  recordSuccess,
+  recordInvalidModel,
+  recordLatency,
+  recordFallbackSuccess,
+  enrichContextWithMemories,
+  writeSessionMemories,
+  classifyRequest,
+  resolveTurnIntent,
+  isImmediateExecutionRequest,
+  isTaskContinuationRequest,
+  CONVERSATION_HISTORY_FETCH_MESSAGES,
+  buildActiveTaskState,
+  buildActiveTaskExecutionPlan,
+  isResumableTaskType,
+  parseActiveTaskState,
+  resumeActiveTaskClassification,
+  serializeActiveTaskState,
+  touchActiveTaskState,
+  mergeActiveTaskEvidence,
+  isImplementationPlanContinuation,
+  advanceImplementationPlan,
+  buildPatchHunks,
+  hashPatchBase,
+  rebasePatchHunks,
+  buildProjectFileManifest,
+  buildProjectFileSources,
+  deriveFlightDeckState,
+  isProvenValidation,
+  toPublicValidationResult,
+  runRegisteredCommand,
+} from "@workspace/ai-orchestrator";
+import type {
+  AgentStep,
+  ActiveTaskExecutionPlan,
+  ExecutionNode,
+  CrossFileSemanticTrace,
+  ProductionReachabilityTrace,
+  ProductionTraceLink,
+  RepairLoopState,
+  SourceRetrievalTelemetry,
+  FilePatchHunk,
+  PatchEvidenceLink,
+  FlightDeckEvidenceVerdict,
+  ValidationResult,
+} from "@workspace/ai-orchestrator";
+import type { ValidationProfile } from "@workspace/ai-orchestrator";
+import { ListAiChatMessagesResponseItem } from "@workspace/api-zod";
+      responses:
+        "200":
+          description: Redacted execution audit JSON download
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [format, exportedAt, execution, timeline, validations, affectedFiles, redaction]
+                properties:
+                  format: { type: string, example: engineeringos.execution-audit.v1 }
+                  exportedAt: { type: string, format: date-time }
+                  execution: { type: object, additionalProperties: true }
+                  timeline: { type: array, items: { type: object, additionalProperties: true } }
+                  validations: { type: array, items: { type: object, additionalProperties: true } }
+                  affectedFiles: { type: array, items: { type: string } }
+                  redaction: { type: object, additionalProperties: true }
+        "404":
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/ai/executions/{executionId}/resume-capability:
+    post:
+      operationId: recoverAiExecutionResumeCapability
+      risks: [],
+      approvalStatus: "PENDING_APPROVAL",
+      writeAccess: "NOT_AUTHORIZED",
+    }),
+    createdAt: now,
+  });
+  return messageId;
+}
+
+const projectIds: string[] = [];
+const workflowIds: string[] = [];
+
+// All AI routes require a Groq API key. Set a dummy env key for the entire
+// test file — every AI orchestrator call is mocked so the real key is never
+// used.  Individual tests that want to verify the 428 path remove the key
+// themselves and restore it in a finally block.
+let _savedGroqKeyFileLevel: string | undefined;
+beforeAll(() => {
+  _savedGroqKeyFileLevel = process.env.GROQ_API_KEY;
+  process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+});
+afterAll(() => {
+  if (_savedGroqKeyFileLevel !== undefined) {
+    process.env.GROQ_API_KEY = _savedGroqKeyFileLevel;
+  } else {
+    delete process.env.GROQ_API_KEY;
+  }
+});
+
+afterEach(async () => {
+  vi.restoreAllMocks();
+  for (const pid of projectIds.splice(0)) {
+    await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, pid)).catch(() => undefined);
+    await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, pid)).catch(() => undefined); // may not match, that's fine
+    await db.delete(aiApplyJournalTable).where(eq(aiApplyJournalTable.projectId, pid)).catch(() => undefined);
+    await db.delete(eventsTable).where(eq(eventsTable.projectId, pid)).catch(() => undefined);
+    await db.delete(aiChatMessagesTable)
+      .where(
+        eq(
+          aiChatMessagesTable.sessionId,
+          db
+            .select({ id: aiChatSessionsTable.id })
+            .from(aiChatSessionsTable)
+            .where(eq(aiChatSessionsTable.projectId, pid))
+            .limit(1) as unknown as string,
+        ),
+      )
+      .catch(() => undefined);
+    // Clean sessions for this project
+    const sessions = await db
+      .select({ id: aiChatSessionsTable.id })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.projectId, pid));
+    for (const s of sessions) {
+      await db
+        .delete(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.sessionId, s.id))
+        .catch(() => undefined);
+    }
+    await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, pid)).catch(() => undefined);
+    await db.delete(tasksTable).where(eq(tasksTable.projectId, pid)).catch(() => undefined);
+    for (const wid of workflowIds.splice(0)) {
+      await db.delete(workflowsTable).where(eq(workflowsTable.id, wid)).catch(() => undefined);
+    }
+    await db.delete(projectsTable).where(eq(projectsTable.id, pid)).catch(() => undefined);
+  }
+  // Also clear any lingering workflow ids
+  for (const wid of workflowIds.splice(0)) {
+    await db.delete(workflowsTable).where(eq(workflowsTable.id, wid)).catch(() => undefined);
+  }
+});
+
+// ─── POST /api/ai/chat ────────────────────────────────────────────────────────
+
+describe("POST /api/ai/chat", () => {
+  it("allows same-origin mutations to reach normal request validation", async () => {
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .set("Origin", "http://127.0.0.1")
+      .send({ message: "hello" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/projectId/i);
+    expect(res.headers["access-control-allow-origin"]).toBe("http://127.0.0.1");
+    expect(res.headers["access-control-allow-credentials"]).toBe("true");
+  });
+
+  it("rejects hostile origins before an authenticated mutation runs", async () => {
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .set("Origin", "https://attacker.example")
+      .send({ message: "steal the account" });
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({
+      error: "Cross-origin state-changing requests are not allowed",
+      code: "cross_origin_request",
+    });
+    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("returns 400 when projectId is missing", async () => {
+    const res = await request(app).post("/api/ai/chat").send({ message: "hello" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/projectId/i);
+  });
+
+  it("returns 400 when message is missing", async () => {
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId: randomUUID() });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/message/i);
+  });
+
+  it("returns 400 when message is blank", async () => {
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId: randomUUID(), message: "   " });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when proposalId is missing", async () => {
+    const res = await request(app)
+      .post("/api/ai/chat/apply-changes")
+      .send({
+        projectId: randomUUID(),
+        changes: [{
+          path: "a.ts",
+          absolutePath: "/tmp/a.ts",
+          newContent: "",
+          originalContent: null,
+          reason: "Test proposal",
+          validationProfile: "api-ai-tests",
+        }],
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("proposalId");
+  });
+
+  it("restores the pending proposal for its session", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const changes = [{
+      path: "src/restore.ts",
+      absolutePath: `/tmp/${randomUUID()}/src/restore.ts`,
+      newContent: "export const restored = true;",
+      originalContent: null,
+      reason: "Restore test proposal",
+      validationProfile: "api-ai-tests" as const,
+    }];
+    const proposalId = await insertChangeProposal(projectId, changes);
+    const [proposal] = await db
+      .select({
+        sessionId: aiChangeProposalsTable.sessionId,
+        messageId: aiChangeProposalsTable.messageId,
+      })
+      .from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, proposalId))
+      .limit(1);
+
+    const res = await request(app)
+      .get(`/api/ai/chat/${proposal.sessionId}/pending-proposal`);

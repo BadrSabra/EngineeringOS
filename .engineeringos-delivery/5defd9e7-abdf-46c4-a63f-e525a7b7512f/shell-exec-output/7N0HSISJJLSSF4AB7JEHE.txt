@@ -1,0 +1,200 @@
+artifacts/api-server/src/routes/ai/chat.ts:1532:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:1661:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/chat.ts:1726:        req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:2041:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:2243:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/chat.ts:2376:      ? await getAiExecutionForUser(effectiveExecutionId, req.userId)
+artifacts/api-server/src/routes/ai/chat.ts:2462:        userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:2480:        userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:2493:        userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:3187:        req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:3879:  const execution = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:3974:  const execution = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:4120:    userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:4129:  const current = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:4141:    userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:4144:    const current = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:4164:    req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:4247:  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:4370:    const ownerProject = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:4446:  const project = await loadProjectByIdForUser(row.session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:4545:    req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:4641:  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:4751:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5009:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5089:  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5166:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5670:        actor: req.userId,
+artifacts/api-server/src/app.ts:15:  getClerkProxyHost,
+artifacts/api-server/src/app.ts:103:// Clerk's Frontend API proxy must be mounted first — it streams raw bytes
+artifacts/api-server/src/app.ts:152:// rejected origins receive no CORS permission and cannot use Clerk cookies.
+artifacts/api-server/src/app.ts:165:// Health checks must be registered BEFORE Clerk middleware — the deployment
+artifacts/api-server/src/app.ts:166:// platform's health probe and uptime monitors don't carry a Clerk session, and
+artifacts/api-server/src/app.ts:167:// clerkMiddleware will throw "Missing Clerk Secret Key" if it intercepts any
+artifacts/api-server/src/app.ts:169:// not yet been provisioned with Clerk secrets). The healthz route must always
+artifacts/api-server/src/app.ts:170:// respond 200 regardless of auth/Clerk configuration state.
+artifacts/api-server/src/app.ts:178:// server can serve multiple Clerk custom domains. Falls back to
+artifacts/api-server/src/app.ts:181:// Skipped in the vitest test environment (NODE_ENV=test): Clerk requires
+artifacts/api-server/src/app.ts:182:// CLERK_SECRET_KEY at middleware-mount time, but tests run without Clerk
+artifacts/api-server/src/app.ts:184:// "test-user" identity when NODE_ENV=test, so skipping clerkMiddleware here
+artifacts/api-server/src/app.ts:191:        getClerkProxyHost(req) ?? "",
+artifacts/api-server/src/types/express.d.ts:30: *   `req.userId` directly; new code should prefer `req.authContext`.
+artifacts/api-server/src/routes/git.ts:127:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+artifacts/api-server/src/routes/git.ts:149:      ownerId: req.userId,
+artifacts/api-server/src/routes/git.ts:170:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+artifacts/api-server/src/routes/git.ts:642:      const token = await getGithubToken(req.userId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:302:    ownerId:  "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:440:    const ownerId = "test-user";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:531:      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:557:      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:563:      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:677:          userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:857:      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:867:      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:986:      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1003:      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1097:      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1112:      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1125:      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1137:      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1152:      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1160:      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1212:      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1224:      userId: "test-user",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1890:      ownerId: "test-user",
+artifacts/api-server/src/routes/workflows.ts:42:  const project = await loadProjectByIdForUser(params.projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:57:  const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:77:    actor: req.userId,
+artifacts/api-server/src/routes/workflows.ts:94:  const ownerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:110:  const ownerProject = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:127:    actor: req.userId,
+artifacts/api-server/src/routes/workflows.ts:145:  const ownerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:223:    actor: req.userId,
+artifacts/api-server/src/routes/workflows.ts:241:  const stopOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:328:    actor: req.userId,
+artifacts/api-server/src/routes/workflows.ts:345:  const execOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:388:  const advanceOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:525:    actor: req.userId,
+artifacts/api-server/src/routes/workflows.ts:544:  const failOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:602:    actor: req.userId,
+artifacts/api-server/src/routes/workflows.ts:618:  const retryOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:680:    actor: req.userId,
+artifacts/api-server/src/routes/workflows.ts:708:  const rollbackOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:866:    actor: req.userId,
+artifacts/api-server/src/routes/workflows.test.ts:20:    ownerId: "test-user",
+artifacts/api-server/src/routes/upload.ts:80:    await registerUpload(uploadId, extractDir, originalname, req.userId!);
+artifacts/api-server/src/routes/events.test.ts:18:    ownerId: "test-user",
+artifacts/api-server/src/routes/tasks.ts:42:  const project = await loadProjectByIdForUser(params.projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:63:  const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:85:    actor: req.userId,
+artifacts/api-server/src/routes/tasks.ts:104:  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:116:  const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:158:    actor: req.userId,
+artifacts/api-server/src/routes/tasks.ts:168:    scheduleAiTaskExecution(taskId, req.userId);
+artifacts/api-server/src/routes/tasks.ts:182:  const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:207:    actor: req.userId,
+artifacts/api-server/src/routes/tasks.ts:237:  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:402:    scheduleAiTaskExecution(taskId, req.userId);
+artifacts/api-server/src/routes/tasks.ts:417:  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:504:  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:579:  const _project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:602:  const _project = await loadProjectByIdForUser(task.projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.test.ts:32:    ownerId: "test-user",
+artifacts/api-server/src/routes/tasks.test.ts:364:    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user");
+artifacts/api-server/src/routes/tasks.test.ts:387:    expect(mockScheduleAiTaskExecution).toHaveBeenCalledWith(taskId, "test-user");
+artifacts/api-server/src/routes/rules.ts:31:  if (isOperatorUser(req.userId)) return true;
+artifacts/api-server/src/routes/rules.ts:42:    const project = await loadProjectByIdForUser(params.projectId, req.userId, res);
+artifacts/api-server/src/routes/rules.ts:65:    const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
+artifacts/api-server/src/routes/rules.ts:89:    actor: req.userId,
+artifacts/api-server/src/routes/rules.ts:106:    const project = await loadProjectByIdForUser(rule[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/rules.ts:123:    const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/rules.ts:153:    actor: req.userId,
+artifacts/api-server/src/routes/rules.ts:169:    const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/rules.ts:190:    actor: req.userId,
+artifacts/api-server/src/routes/rules.ts:208:  const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
+artifacts/api-server/src/routes/discovery.ts:191:  const resolved = await resolveSource(body.sourceType, body.sourceConfig, req.userId);
+artifacts/api-server/src/routes/discovery.ts:260:      ownerId: req.userId,
+artifacts/api-server/src/routes/discovery.ts:344:  const session = await loadOwnedSession(discoveryId, req.userId, res);
+artifacts/api-server/src/routes/discovery.ts:352:  const session = await loadOwnedSession(discoveryId, req.userId, res);
+artifacts/api-server/src/routes/discovery.ts:376:  const session = await loadOwnedSession(body.discoveryId, req.userId, res);
+artifacts/api-server/src/routes/discovery.ts:430:          ownerId: req.userId,
+artifacts/api-server/src/routes/discovery.ts:575:    actor: req.userId,
+artifacts/api-server/src/routes/metrics.ts:27:  const project = await loadProjectByIdForUser(params.projectId, req.userId, res);
+artifacts/api-server/src/routes/metrics.ts:58:    const project = await loadProjectByIdForUser(projectIdFilter, req.userId, res);
+artifacts/api-server/src/routes/metrics.ts:75:    .where(eq(projectsTable.ownerId, req.userId));
+artifacts/api-server/src/routes/discovery.test.ts:90:    ownerId: "test-user",
+artifacts/api-server/src/routes/discovery.test.ts:509:        ownerId: "test-user",
+artifacts/api-server/src/routes/discovery.test.ts:837:      ownerId: "test-user",
+artifacts/api-server/src/routes/discovery.test.ts:853:      ownerId: "test-user",
+artifacts/api-server/src/routes/rules.test.ts:43:    ownerId: "test-user",
+artifacts/api-server/src/routes/dashboard.ts:33:  const userId = req.userId!;
+artifacts/api-server/src/routes/projects.ts:52:      .where(eq(projectsTable.ownerId, req.userId))
+artifacts/api-server/src/routes/projects.ts:60:        userId: req.userId,
+artifacts/api-server/src/routes/projects.ts:73:        userId: req.userId,
+artifacts/api-server/src/routes/projects.ts:107:      id: randomUUID(), ownerId: req.userId, ...body,
+artifacts/api-server/src/routes/dashboard.test.ts:4: * All requests in these tests hit the route as "test-user" (the synthetic
+artifacts/api-server/src/routes/dashboard.test.ts:25:const TEST_USER = "test-user";
+artifacts/api-server/src/routes/dashboard.test.ts:301:  // These tests prove the scoping contract: the calling user ("test-user")
+artifacts/api-server/src/routes/projects.test.ts:55:async function insertProject(rootPath: string, ownerId = "test-user"): Promise<string> {
+artifacts/api-server/src/routes/projects.test.ts:459:    expect(res.body.ownerId).toBe("test-user");
+artifacts/api-server/src/routes/projects.test.ts:495:    const ownedId = await insertProject("/tmp/owned-" + randomUUID(), "test-user");
+artifacts/api-server/src/routes/metrics.test.ts:13:    ownerId: "test-user",
+artifacts/api-server/src/routes/graph.ts:82:    req.userId,
+artifacts/api-server/src/routes/graph.ts:128:    req.userId,
+artifacts/api-server/src/routes/graph.ts:202:  const ownerProject = await loadProjectByIdForUser(entity.projectId, req.userId, res);
+artifacts/api-server/src/routes/graph.ts:259:  const ownerProject = await loadProjectByIdForUser(entity.projectId, req.userId, res);
+artifacts/api-server/src/routes/graph.ts:288:  const ownerProject = await loadProjectByIdForUser(entity.projectId, req.userId, res);
+artifacts/api-server/src/routes/graph.ts:357:    req.userId,
+artifacts/api-server/src/routes/graph.ts:433:  const ownerProject = await loadProjectByIdForUser(entity.projectId, req.userId, res);
+artifacts/api-server/src/routes/graph.ts:472:  const ownerProject = await loadProjectByIdForUser(entity.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai.test.ts:388:    ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:719:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:1774:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:1857:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:2289:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:2336:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:2398:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:2500:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:2552:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:2617:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:2663:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:2713:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:2789:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:2843:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:2934:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:2981:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3028:      id, ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3075:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3125:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3223:      ownerId: "test-user",
+artifacts/api-server/src/routes/ai.test.ts:3508:    scheduleAiTaskExecution(taskId, "test-user");
+artifacts/api-server/src/routes/ai.test.ts:3548:    scheduleAiTaskExecution(taskId, "test-user");
+artifacts/api-server/src/routes/ai.test.ts:3672:      const resolved = await resolveProvider("test-user", { requireTools: true });
+artifacts/api-server/src/routes/ai/chat.ts:1532:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:1661:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/chat.ts:1726:        req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:2041:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:2243:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/chat.ts:2376:      ? await getAiExecutionForUser(effectiveExecutionId, req.userId)
+artifacts/api-server/src/routes/ai/chat.ts:2462:        userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:2480:        userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:2493:        userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:3187:        req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:3879:  const execution = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:3974:  const execution = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:4120:    userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:4129:  const current = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:4141:    userId: req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:4144:    const current = await getAiExecutionForUser(req.params.executionId, req.userId);
+artifacts/api-server/src/routes/ai/chat.ts:4164:    req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:4247:  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:4370:    const ownerProject = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:4446:  const project = await loadProjectByIdForUser(row.session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:4545:    req.userId,
+artifacts/api-server/src/routes/ai/chat.ts:4641:  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:4751:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5009:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5089:  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5166:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5670:        actor: req.userId,
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:204:    ownerId: "test-user",

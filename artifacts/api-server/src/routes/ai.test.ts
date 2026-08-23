@@ -21,6 +21,7 @@ import {
   aiChatSessionsTable,
   aiChatMessagesTable,
   aiChangeProposalsTable,
+  aiExecutionsTable,
   aiApplyJournalTable,
   taskLogsTable,
   auditLogsTable,
@@ -33,6 +34,7 @@ import {
   serializeMissionCorrelationReport,
 } from "./ai/chat.js";
 import { scheduleAiTaskExecution } from "./ai/tasks.js";
+import { createAiExecution } from "../lib/ai-execution-state.js";
 
 describe("verified repair proposal gate", () => {
   const change = {
@@ -1273,6 +1275,138 @@ describe("POST /api/ai/chat", () => {
     expect(res.status).toBe(404);
     expect(res.body.code).toBe("SESSION_NOT_FOUND");
     expect(mockedChat.mock.calls.length).toBe(callsBefore);
+  });
+});
+
+describe("GET /api/ai/executions/:executionId/audit-export", () => {
+  it("exports owner-scoped terminal evidence while excluding sensitive execution data", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operationId = randomUUID();
+    const createdAt = new Date("2026-08-23T10:00:00.000Z");
+    const completedAt = new Date("2026-08-23T10:02:00.000Z");
+    const created = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      correlationId: operationId,
+      idempotencyKey: randomUUID(),
+      request: {
+        projectId,
+        message: "Apply the approved fix",
+        modelMessage: "Apply the approved fix",
+        workspaceRevision: "revision-abc123",
+        validationTargetPaths: [
+          "src/feature.ts",
+          "/home/runner/workspace/private.ts",
+          "/tmp/runtime-secret.ts",
+        ],
+      },
+    });
+
+    await db
+      .update(aiExecutionsTable)
+      .set({
+        operationId,
+        status: "completed",
+        checkpoint: JSON.stringify({
+          stage: "completed",
+          sequence: 7,
+          proofRequired: true,
+          evidenceVerdict: "PROVEN",
+          evidenceReason: "The focused validation passed.",
+          streamedPreview: "MODEL_PREVIEW_SHOULD_NOT_EXPORT provider=groq api_key=sk-live-do-not-export",
+          detail: "Completed using /home/runner/workspace/private.ts",
+          recentSteps: [{
+            kind: "validation",
+            validation: {
+              status: "passed",
+              profile: "release-safe",
+              scenario: "focused regression",
+              exitCode: 0,
+              detail: "Validated src/feature.ts; token=secret-value",
+            },
+          }],
+          nodeStates: [{
+            id: "step-1",
+            title: "Implement fix",
+            status: "completed",
+            allowedFiles: [
+              "src/feature.ts",
+              "/private/runtime/secret.ts",
+            ],
+          }],
+          updatedAt: completedAt.toISOString(),
+        }),
+        checkpointVersion: 7,
+        error: null,
+        createdAt,
+        startedAt: new Date("2026-08-23T10:00:30.000Z"),
+        completedAt,
+        updatedAt: completedAt,
+      })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+
+    await db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "ValidationCompleted",
+      projectId,
+      correlationId: operationId,
+      severity: "success",
+      message: "Validation passed; private path /tmp/private.log",
+      payload: {
+        status: "passed",
+        profile: "release-safe",
+        scenario: "focused regression",
+        exitCode: 0,
+        files: ["src/feature.ts", "/tmp/private.log"],
+        rawModelOutput: "provider secret sk-live-do-not-export",
+      },
+      timestamp: new Date("2026-08-23T10:01:00.000Z"),
+    });
+
+    const response = await request(app)
+      .get(`/api/ai/executions/${created.execution.id}/audit-export`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-disposition"]).toContain(
+      `execution-${created.execution.id}-audit.json`,
+    );
+    expect(response.body).toMatchObject({
+      format: "engineeringos.execution-audit.v1",
+      execution: {
+        status: "completed",
+        terminalState: "completed",
+        revision: "revision-abc123",
+        proof: {
+          required: true,
+          verdict: "PROVEN",
+        },
+      },
+      validations: [{
+        status: "passed",
+        profile: "release-safe",
+        scenario: "focused regression",
+        exitCode: 0,
+      }],
+      affectedFiles: ["src/feature.ts"],
+    });
+
+    const exported = JSON.stringify(response.body);
+    expect(exported).not.toContain("sk-live-do-not-export");
+    expect(exported).not.toContain("MODEL_PREVIEW_SHOULD_NOT_EXPORT");
+    expect(exported).not.toContain("rawModelOutput");
+    expect(exported).not.toContain("/home/runner/workspace");
+    expect(exported).not.toContain("/tmp/");
+    expect(exported).not.toContain("/private/");
+
+    await db
+      .update(aiExecutionsTable)
+      .set({ userId: "different-user" })
+      .where(eq(aiExecutionsTable.id, created.execution.id));
+    const forbidden = await request(app)
+      .get(`/api/ai/executions/${created.execution.id}/audit-export`);
+    expect(forbidden.status).toBe(404);
+    expect(forbidden.body).toEqual({ error: "AI execution not found" });
   });
 });
 
