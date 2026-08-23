@@ -24,6 +24,10 @@ export type ValidationEvidence = {
   profileName?: string;
   permittedOrigin?: string;
   revision?: string;
+  /** Integrity identifiers for delivery validation, when validating a candidate. */
+  candidateHash?: string;
+  changeSetHash?: string;
+  promotedHash?: string;
   screenshotAvailable?: boolean;
   consoleErrorCount?: number;
 };

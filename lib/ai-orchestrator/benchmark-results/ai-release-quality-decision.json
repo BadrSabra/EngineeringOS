@@ -1,7 +1,7 @@
 {
   "kind": "ai-release-quality-decision",
   "version": 1,
-  "generatedAt": "2026-08-23T18:32:13.978Z",
+  "generatedAt": "2026-08-23T18:44:41.915Z",
   "status": "blocked",
   "liveProviderChecks": "disabled",
   "previewChecks": "disabled",
@@ -29,7 +29,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 31446
+      "durationMs": 29624
     },
     {
       "id": "dashboard-typecheck",
@@ -41,7 +41,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 6089
+      "durationMs": 22228
     },
     {
       "id": "openapi-client-parity",
@@ -54,7 +54,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 7079
+      "durationMs": 6573
     },
     {
       "id": "truth-flow-parity",
@@ -67,7 +67,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "TRUTH_FLOW_PARITY_FAILED_1",
-      "durationMs": 1539
+      "durationMs": 1435
     },
     {
       "id": "ai-contract-and-json",
@@ -83,7 +83,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_CONTRACT_AND_JSON_FAILED_1",
-      "durationMs": 15328
+      "durationMs": 16807
     },
     {
       "id": "ai-sse-and-redaction",
@@ -99,7 +99,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_SSE_AND_REDACTION_FAILED_1",
-      "durationMs": 19719
+      "durationMs": 20222
     },
     {
       "id": "ai-operational-safety",
@@ -115,7 +115,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 74798
+      "durationMs": 81475
     },
     {
       "id": "ai-deterministic-benchmark",
@@ -130,7 +130,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 971
+      "durationMs": 873
     },
     {
       "id": "benchmark-baseline-regression",
@@ -144,7 +144,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 380
+      "durationMs": 421
     },
     {
       "id": "dashboard-preview-contract",

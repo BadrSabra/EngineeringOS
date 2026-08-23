@@ -138,6 +138,9 @@ import {
   createDeliveryWorkspace,
   discardDeliveryWorkspace,
   deliveryWorkspaceExists,
+  hashChangeSet,
+  hashDeliveryFiles,
+  hashDeliveryWorkspace,
 } from "../../lib/delivery-workspace.js";
 
 const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
@@ -5694,6 +5697,31 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       }
     }
 
+    // Keep the candidate in lockstep with the bytes that passed apply
+    // preflight (including rebased hunk content). The initial workspace was
+    // built from the approved proposal, so overwrite only the accepted files
+    // before hashing and validating it.
+    const candidateChanges = results
+      .filter((result) => result.ok)
+      .map((result) => writableChanges.find((change) => change.path === result.path))
+      .filter((change): change is typeof writableChanges[number] => Boolean(change));
+    for (const change of candidateChanges) {
+      const candidatePath = path.resolve(deliveryWorkspace.workspaceRoot, change.path);
+      if (candidatePath !== deliveryWorkspace.workspaceRoot
+        && !candidatePath.startsWith(`${deliveryWorkspace.workspaceRoot}${path.sep}`)) {
+        throw new Error("Delivery candidate path escapes isolated workspace");
+      }
+      await fs.mkdir(path.dirname(candidatePath), { recursive: true });
+      await fs.writeFile(candidatePath, change.newContent, "utf8");
+    }
+    const candidateHash = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+    const effectiveChangeSetHash = hashChangeSet(candidateChanges);
+    await db.update(aiChangeProposalsTable)
+      .set({ changeSetHash: effectiveChangeSetHash })
+      .where(and(
+        eq(aiChangeProposalsTable.id, proposalId),
+        eq(aiChangeProposalsTable.status, "pending"),
+      ));
     const writtenResults = results.filter((result) => result.ok);
     const profiles = new Map<ValidationProfile, string[]>();
     for (const change of writableChanges) {
@@ -5711,7 +5739,41 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       });
     }
     for (const [profile, profilePaths] of profiles) {
-      verificationByProfile.set(profile, await runRepairValidation(resolvedRoot, profile, profilePaths));
+      const validation = await runRepairValidation(
+        deliveryWorkspace.workspaceRoot,
+        profile,
+        profilePaths,
+      );
+      if ("evidence" in validation) {
+        validation.evidence.candidateHash = candidateHash;
+        validation.evidence.changeSetHash = effectiveChangeSetHash;
+      }
+      verificationByProfile.set(profile, validation);
+    }
+
+    const promotedHash = candidateChanges.length > 0
+      ? await hashDeliveryFiles(resolvedRoot, candidateChanges)
+      : effectiveChangeSetHash;
+    if (candidateChanges.length > 0 && promotedHash !== effectiveChangeSetHash) {
+      for (const result of results) {
+        if (result.ok) {
+          result.ok = false;
+          result.writeStatus = "unknown";
+          result.persistenceVerified = false;
+          result.error = "Promoted bytes do not match the validated candidate.";
+        }
+      }
+      rollbackFailures = await restoreApplySnapshots([...writtenChanges].reverse());
+      await appendApplyJournal("ROLLBACK_FAILED", {
+        reason: "promoted_candidate_hash_mismatch",
+        candidateHash,
+        changeSetHash: effectiveChangeSetHash,
+        promotedHash,
+        failures: rollbackFailures,
+      });
+    }
+    for (const validation of verificationByProfile.values()) {
+      if ("evidence" in validation) validation.evidence.promotedHash = promotedHash;
     }
 
     const responseResults = results.map((result) => {
@@ -5808,6 +5870,9 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
           appliedFiles: appliedPaths,
           failedFiles: failedPaths,
           rollbackFailures,
+          candidateHash,
+          changeSetHash: effectiveChangeSetHash,
+          promotedHash,
         },
       });
       await tx.insert(auditLogsTable).values({
@@ -5826,6 +5891,9 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
           applyStatus,
           proposalId,
           operationId: applyCorrelationId,
+          candidateHash,
+          changeSetHash: effectiveChangeSetHash,
+          promotedHash,
           rollbackFailures,
           behavioralVerification: responseResults.map((result) => ({
             path: result.path,
@@ -5856,6 +5924,9 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
           failedFiles: failedPaths,
           applyStatus,
           rollbackFailures,
+          candidateHash,
+          changeSetHash: effectiveChangeSetHash,
+          promotedHash,
           behavioralVerification: responseResults.map((result) => ({
             path: result.path,
             status: result.behavioralVerification.status,
@@ -5872,7 +5943,11 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
             validationEvidence: JSON.stringify(responseResults.map((result) => ({
               path: result.path,
               status: result.behavioralVerification.status,
+              evidence: "evidence" in result.behavioralVerification
+                ? result.behavioralVerification.evidence
+                : null,
             }))),
+            committedHash: allOk ? promotedHash : null,
           })
           .where(and(
             eq(aiChangeProposalsTable.id, proposalId),
@@ -5887,6 +5962,13 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
               : failedPaths.length > 0
                 ? "One or more approved files could not be applied."
                 : "No approved files were applied.",
+            validationEvidence: JSON.stringify(responseResults.map((result) => ({
+              path: result.path,
+              status: result.behavioralVerification.status,
+              evidence: "evidence" in result.behavioralVerification
+                ? result.behavioralVerification.evidence
+                : null,
+            }))),
           })
           .where(and(
             eq(aiChangeProposalsTable.id, proposalId),

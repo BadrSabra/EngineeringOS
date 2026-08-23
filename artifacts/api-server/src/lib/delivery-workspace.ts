@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile, readdir, lstat } from "node:fs/promises";
 import path from "node:path";
 
 export type DeliveryLifecycle =
@@ -26,6 +26,47 @@ export function hashChangeSet(changes: readonly { path: string; newContent: stri
     .map((change) => ({ path: change.path.replaceAll("\\", "/"), newContent: change.newContent }))
     .sort((a, b) => a.path.localeCompare(b.path));
   return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+/**
+ * Hash the complete candidate tree, excluding the server-owned marker.
+ * Sorting paths and including file type/content makes this stable across
+ * platforms and proves validation observed the exact bytes in the workspace.
+ */
+export async function hashDeliveryWorkspace(workspaceRoot: string): Promise<string> {
+  const entries: Array<{ path: string; kind: string; content: string }> = [];
+  async function visit(directory: string): Promise<void> {
+    for (const entry of (await readdir(directory, { withFileTypes: true }))
+      .sort((a, b) => a.name.localeCompare(b.name))) {
+      if (directory === workspaceRoot && entry.name === MARKER) continue;
+      const absolute = path.join(directory, entry.name);
+      const relative = path.relative(workspaceRoot, absolute).replaceAll("\\", "/");
+      const stat = await lstat(absolute);
+      if (stat.isDirectory()) {
+        await visit(absolute);
+      } else if (stat.isFile()) {
+        entries.push({ path: relative, kind: "file", content: (await readFile(absolute)).toString("base64") });
+      } else if (stat.isSymbolicLink()) {
+        entries.push({ path: relative, kind: "symlink", content: await readFile(absolute, "utf8").catch(() => "") });
+      }
+    }
+  }
+  await visit(workspaceRoot);
+  return createHash("sha256").update(JSON.stringify(entries)).digest("hex");
+}
+
+export async function hashDeliveryFiles(
+  rootPath: string,
+  changes: readonly { path: string }[],
+): Promise<string> {
+  const entries = await Promise.all([...changes]
+    .map((change) => change.path.replaceAll("\\", "/"))
+    .sort((a, b) => a.localeCompare(b))
+    .map(async (relative) => ({
+      path: relative,
+      newContent: (await readFile(path.resolve(rootPath, relative))).toString(),
+    })));
+  return createHash("sha256").update(JSON.stringify(entries)).digest("hex");
 }
 
 export function deliveryWorkspacePath(operationId: string): string {

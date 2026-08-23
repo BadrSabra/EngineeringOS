@@ -46,7 +46,16 @@
  *     runScanJob provides a second safety net against any double-execution.
  */
 import { randomUUID } from "node:crypto";
-import { db, scanJobsTable, discoverySessionsTable, projectsTable, tasksTable, taskLogsTable } from "@workspace/db";
+import {
+  db,
+  scanJobsTable,
+  discoverySessionsTable,
+  projectsTable,
+  tasksTable,
+  taskLogsTable,
+  aiApplyJournalTable,
+  aiChangeProposalsTable,
+} from "@workspace/db";
 import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
@@ -58,6 +67,64 @@ import { reconcileAiExecutions } from "./ai-execution-state.js";
 
 const ORPHANED_RUNNING_MESSAGE =
   "Job was in progress when the server restarted and could not be resumed.";
+
+/**
+ * An apply is deliberately not replayed after a process crash: its file
+ * snapshots live in memory and replaying an unknown write could overwrite
+ * user edits. Instead, convert any non-terminal journal into a durable,
+ * visible conflict. This makes the post-crash state known and prevents a
+ * partially promoted tree from being reported as successful.
+ */
+async function reconcileInterruptedDeliveries(): Promise<number> {
+  const proposals = await db
+    .select({
+      id: aiChangeProposalsTable.id,
+      operationId: aiChangeProposalsTable.operationId,
+      projectId: aiChangeProposalsTable.projectId,
+      lifecycle: aiChangeProposalsTable.lifecycle,
+    })
+    .from(aiChangeProposalsTable)
+    .where(or(
+      eq(aiChangeProposalsTable.lifecycle, "isolated"),
+      eq(aiChangeProposalsTable.lifecycle, "validated"),
+    ));
+  let recovered = 0;
+  for (const proposal of proposals) {
+    if (!proposal.operationId) continue;
+    const journal = await db
+      .select({ stage: aiApplyJournalTable.stage, sequence: aiApplyJournalTable.sequence })
+      .from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.operationId, proposal.operationId))
+      .orderBy(aiApplyJournalTable.sequence);
+    const latest = journal.at(-1)?.stage;
+    if (!latest || ["APPLIED", "BLOCKED", "ROLLED_BACK", "ROLLBACK_FAILED", "RECOVERY_REQUIRED"].includes(latest)) {
+      continue;
+    }
+    const [updated] = await db.update(aiChangeProposalsTable).set({
+      lifecycle: "conflicted",
+      conflictReason: "Delivery was interrupted during apply; filesystem state requires review before retry.",
+    }).where(and(
+      eq(aiChangeProposalsTable.id, proposal.id),
+      or(
+        eq(aiChangeProposalsTable.lifecycle, "isolated"),
+        eq(aiChangeProposalsTable.lifecycle, "validated"),
+      ),
+    )).returning({ id: aiChangeProposalsTable.id });
+    if (!updated) continue;
+    await db.insert(aiApplyJournalTable).values({
+      id: randomUUID(),
+      operationId: proposal.operationId,
+      attemptId: randomUUID(),
+      projectId: proposal.projectId,
+      proposalId: proposal.id,
+      stage: "RECOVERY_REQUIRED",
+      sequence: (journal.at(-1)?.sequence ?? 0) + 1,
+      payload: { previousStage: latest, reason: "process_restart" },
+    });
+    recovered++;
+  }
+  return recovered;
+}
 
 
 /**
@@ -710,14 +777,16 @@ export async function reconcileStuckJobs(): Promise<{
   discoverySessions: number;
   aiTasks: number;
   aiExecutions: number;
+  deliveries: number;
   expiredUploads: number;
 }> {
   try {
-    const [scanJobs, discoverySessions, aiTasks, aiExecutions, expiredUploads] = await Promise.all([
+    const [scanJobs, discoverySessions, aiTasks, aiExecutions, deliveries, expiredUploads] = await Promise.all([
       reconcileScanJobs(),
       reconcileDiscoverySessions(),
       reconcileAiTasks(),
       reconcileAiExecutions(),
+      reconcileInterruptedDeliveries(),
       sweepExpiredUploads(),
     ]);
     if (aiExecutions > 0) {
@@ -726,9 +795,9 @@ export async function reconcileStuckJobs(): Promise<{
     if (expiredUploads > 0) {
       logger.info({ expiredUploads }, "startup reconciliation: expired upload entries swept");
     }
-    return { scanJobs, discoverySessions, aiTasks, aiExecutions, expiredUploads };
+    return { scanJobs, discoverySessions, aiTasks, aiExecutions, deliveries, expiredUploads };
   } catch (err) {
     logger.error({ err }, "startup job reconciliation failed");
-    return { scanJobs: 0, discoverySessions: 0, aiTasks: 0, aiExecutions: 0, expiredUploads: 0 };
+    return { scanJobs: 0, discoverySessions: 0, aiTasks: 0, aiExecutions: 0, deliveries: 0, expiredUploads: 0 };
   }
 }
