@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "qSeYaOp4X-kDeJvItEIgI"
+uri = "file://docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md"
+type = "text"
+title = "EngineeringOS Forensic Gap Analysis"
+description = "Code-derived eleven-section assessment of autonomous-agent gaps, boundary failures, state inconsistencies, and a dependency-ordered implementation roadmap."
+logical_id = "bfd1ad99-d74e-4ed3-96f6-7988cfe34464"
+content_hash = "sha256:462e94e3dd4b212b86e033ec2e186020a782da2ab26e79fcb0dd61e1380fa074"
+size = 39718
+mtime_ms = 1787505608519
+storage_uri = "gcs://replit-rams-assets-janeway/rams/assets/repl:6aa0d55b-d211-4470-936b-5cd5c56e1e7a/bfd1ad99-d74e-4ed3-96f6-7988cfe34464/d7a188ed-4e1a-4bf3-a11b-1038eed46737"
+storage_version_token = "1787505643113307"
+content_type = "text/markdown"
