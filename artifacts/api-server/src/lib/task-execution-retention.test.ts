@@ -186,4 +186,114 @@ describe("task execution history retention", () => {
       await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
     }
   });
+
+  it("retains a receipt when its execution becomes resumable after selection", async () => {
+    const projectId = randomUUID();
+    const racingTaskId = randomUUID();
+    const racingExecutionId = randomUUID();
+    const eligibleTaskId = randomUUID();
+    const eligibleExecutionId = randomUUID();
+    const oldTimestamp = new Date("2026-01-01T00:00:00.000Z");
+    const now = new Date("2026-08-23T00:00:00.000Z");
+
+    await db.insert(projectsTable).values({
+      id: projectId,
+      ownerId: "retention-receipt-concurrency-test-user",
+      name: `retention-receipt-concurrency-${projectId.slice(0, 8)}`,
+      rootPath: `/tmp/retention-receipt-concurrency-${projectId}`,
+      language: "typescript",
+      status: "active",
+      createdAt: oldTimestamp,
+      updatedAt: oldTimestamp,
+    });
+    await db.insert(tasksTable).values([
+      {
+        id: racingTaskId,
+        projectId,
+        title: "task whose receipt is needed for retry",
+        status: "completed",
+        createdAt: oldTimestamp,
+        updatedAt: oldTimestamp,
+      },
+      {
+        id: eligibleTaskId,
+        projectId,
+        title: "old terminal task",
+        status: "completed",
+        createdAt: oldTimestamp,
+        updatedAt: oldTimestamp,
+      },
+    ]);
+    await db.insert(aiExecutionsTable).values([
+      {
+        id: racingExecutionId,
+        projectId,
+        linkedTaskId: racingTaskId,
+        userId: "retention-receipt-concurrency-test-user",
+        idempotencyKey: racingExecutionId,
+        resumeTokenHash: "retention-receipt-concurrency-test-racing-hash",
+        request: "{}",
+        checkpoint: "{}",
+        status: "completed",
+        createdAt: oldTimestamp,
+        updatedAt: oldTimestamp,
+        completedAt: oldTimestamp,
+      },
+      {
+        id: eligibleExecutionId,
+        projectId,
+        linkedTaskId: eligibleTaskId,
+        userId: "retention-receipt-concurrency-test-user",
+        idempotencyKey: eligibleExecutionId,
+        resumeTokenHash: "retention-receipt-concurrency-test-eligible-hash",
+        request: "{}",
+        checkpoint: "{}",
+        status: "completed",
+        createdAt: oldTimestamp,
+        updatedAt: oldTimestamp,
+        completedAt: oldTimestamp,
+      },
+    ]);
+
+    const originalQuery = pool.query.bind(pool) as (
+      text: string,
+      values?: unknown[],
+    ) => Promise<{ rows: Array<{ id: string }>; rowCount: number }>;
+    let promotedAfterSelection = false;
+    const query = vi.spyOn(pool, "query").mockImplementation(async (text: any, values?: any) => {
+      const result = await originalQuery(text, values);
+      if (!promotedAfterSelection && text.includes("SELECT e.id")) {
+        promotedAfterSelection = true;
+        await db
+          .update(aiExecutionsTable)
+          .set({ status: "running", updatedAt: now })
+          .where(eq(aiExecutionsTable.id, racingExecutionId));
+      }
+      return result as any;
+    });
+
+    try {
+      await pruneTaskExecutionHistory(now);
+
+      const remainingExecutions = await db
+        .select({ id: aiExecutionsTable.id, status: aiExecutionsTable.status })
+        .from(aiExecutionsTable)
+        .where(eq(aiExecutionsTable.projectId, projectId));
+
+      expect(promotedAfterSelection).toBe(true);
+      expect(remainingExecutions).toEqual([
+        { id: racingExecutionId, status: "running" },
+      ]);
+      expect(getTaskExecutionRetentionHealth()).toMatchObject({
+        status: "success",
+        taskLogRowsScanned: 0,
+        taskLogRowsRemoved: 0,
+        receiptRowsScanned: 2,
+        receiptRowsRemoved: 1,
+      });
+    } finally {
+      query.mockRestore();
+      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+    }
+  });
 });
