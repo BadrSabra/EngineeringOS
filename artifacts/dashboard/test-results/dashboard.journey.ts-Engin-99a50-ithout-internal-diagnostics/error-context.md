@@ -37,18 +37,18 @@ Smoke Project
 ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟
 OPENROUTER API KEY
 Priority·
-Loading…·
+Get a free key at openrouter.ai/keys — routes to 300+ models, used first when configured.·
 Save
 GEMINI API KEY
 Free · Priority·
-Loading…·
+Free key at aistudio.google.com/apikey — 1,500 req/day, 1M tokens/day.·
 Save
 DEEPSEEK API KEY
 Optional·
-Loading…·
+Get a free API key at platform.deepseek.com to use DeepSeek as your AI provider.·
 Save
 GROQ API KEY·
-Loading…·
+No personal key saved — the server's key will be used if one is configured.·
 Save
 EngineeringOS AI
 Llama 3.3 · Groq
@@ -137,7 +137,7 @@ NOT PROVEN"
                 - generic [ref=f2e111]:
                   - generic [ref=f2e116]: OpenRouter API Key
                   - generic [ref=f2e117]: Priority
-                - paragraph [ref=f2e118]: Loading…
+                - paragraph [ref=f2e118]: Get a free key at openrouter.ai/keys — routes to 300+ models, used first when configured.
                 - generic [ref=f2e119]:
                   - textbox "sk-or-…" [ref=f2e120]
                   - button "Save" [disabled]
@@ -145,7 +145,7 @@ NOT PROVEN"
                 - generic [ref=f2e122]:
                   - generic [ref=f2e127]: Gemini API Key
                   - generic [ref=f2e128]: Free · Priority
-                - paragraph [ref=f2e129]: Loading…
+                - paragraph [ref=f2e129]: Free key at aistudio.google.com/apikey — 1,500 req/day, 1M tokens/day.
                 - generic [ref=f2e130]:
                   - textbox "AIza…" [ref=f2e131]
                   - button "Save" [ref=f2e132]
@@ -153,13 +153,13 @@ NOT PROVEN"
                 - generic [ref=f2e134]:
                   - generic [ref=f2e139]: DeepSeek API Key
                   - generic [ref=f2e140]: Optional
-                - paragraph [ref=f2e141]: Loading…
+                - paragraph [ref=f2e141]: Get a free API key at platform.deepseek.com to use DeepSeek as your AI provider.
                 - generic [ref=f2e142]:
                   - textbox "sk-…" [ref=f2e143]
                   - button "Save" [disabled]
               - generic [ref=f2e144]:
                 - generic [ref=f2e145]: Groq API Key
-                - paragraph [ref=f2e151]: Loading…
+                - paragraph [ref=f2e151]: No personal key saved — the server's key will be used if one is configured.
                 - generic [ref=f2e152]:
                   - textbox "gsk_…" [ref=f2e153]
                   - button "Save" [disabled]

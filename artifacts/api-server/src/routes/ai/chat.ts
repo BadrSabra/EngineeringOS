@@ -3839,6 +3839,10 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     linkedTaskId: execution.linkedTaskId,
     buildPlanMessageId: execution.buildPlanMessageId,
     status: execution.status,
+    attempt: execution.attempt,
+    projectRevision: typeof storedRequest?.workspaceRevision === "string"
+      ? storedRequest.workspaceRevision
+      : null,
     flightState: deriveFlightDeckState({
       executionStatus: execution.status,
       checkpointStage: typeof checkpointRecord.stage === "string" ? checkpointRecord.stage : undefined,
@@ -3855,6 +3859,8 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     evidenceReason: typeof checkpointRecord.evidenceReason === "string"
       ? checkpointRecord.evidenceReason
       : undefined,
+    terminalReason: execution.error
+      ?? (typeof checkpointRecord.detail === "string" ? checkpointRecord.detail : null),
          checkpoint: sanitizeExecutionCheckpointForClient(checkpoint),
     checkpointVersion: execution.checkpointVersion,
     finalMessageId: execution.finalMessageId,

@@ -1510,6 +1510,11 @@ paths:
                     description: Server-retained objective contract used to scope this execution
                   linkedTaskId: { type: string, nullable: true }
                   buildPlanMessageId: { type: string, nullable: true }
+                  attempt: { type: integer, description: Current bounded execution attempt }
+                  projectRevision:
+                    type: string
+                    nullable: true
+                    description: Workspace revision captured when this execution began
                   status:
                     type: string
                     enum: [queued, running, paused, cancelling, cancelled, completed, failed]
@@ -1528,6 +1533,10 @@ paths:
                     type: string
                     nullable: true
                     description: Bounded explanation for the current evidence verdict
+                  terminalReason:
+                    type: string
+                    nullable: true
+                    description: Safe reason explaining why the execution stopped or is blocked
                   checkpoint: { type: object, additionalProperties: true }
                   checkpointVersion: { type: integer }
                   finalMessageId: { type: string, nullable: true }

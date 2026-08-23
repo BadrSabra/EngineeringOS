@@ -5750,6 +5750,9 @@ function FlightRecorder({ trace }: { trace: ToolTraceEntry[] }) {
 type AgentExecutionProofStatus = {
   id?: string;
   status?: string;
+  attempt?: number;
+  projectRevision?: string | null;
+  terminalReason?: string | null;
   flightState?:
     | 'BUILDING'
     | 'VALIDATING'
@@ -6035,6 +6038,9 @@ function AgentExecutionProofPanel({
   evidenceIntegrity,
   isFixtureLocal,
   verdictScope,
+  onCancel,
+  onResume,
+  controlPending,
 }: {
   execution?: AgentExecutionProofStatus | null;
   executionId?: string;
@@ -6061,6 +6067,9 @@ function AgentExecutionProofPanel({
     scope?: 'PRODUCTION' | 'FIXTURE_LOCAL' | 'TEST_LOCAL' | 'SPEC_LOCAL' | 'MIXED' | 'NOT_PROVEN';
     findingStatus?: 'PRODUCTION_PROVEN' | 'FIXTURE_PROVEN' | 'TEST_PROVEN' | 'MIXED_EVIDENCE' | 'NOT_PROVEN';
   } | null;
+  onCancel?: () => void;
+  onResume?: () => void;
+  controlPending?: boolean;
 }) {
   const persistedStatus = execution?.status;
   const flightState = execution?.flightState;
@@ -6138,6 +6147,8 @@ function AgentExecutionProofPanel({
         : evidenceIntegrity?.consistent === false
           ? 'Evidence integrity risk'
           : 'No unresolved patch risk recorded';
+  const canCancel = Boolean(onCancel && (status === 'running' || status === 'queued' || status === 'cancelling'));
+  const canResume = Boolean(onResume && (status === 'paused' || status === 'failed'));
 
   return (
     <div
@@ -6183,8 +6194,43 @@ function AgentExecutionProofPanel({
             <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
               {busy ? `${formatElapsed(elapsedSeconds)} elapsed` : 'Persisted proof'}
             </span>
+            {(canCancel || canResume) && (
+              <div className="flex shrink-0 items-center gap-1.5">
+                {canCancel && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={onCancel}
+                    disabled={controlPending || status === 'cancelling'}
+                    className="h-6 border-red-500/40 px-2 text-[10px] text-red-200 hover:bg-red-500/10"
+                  >
+                    <Square className="mr-1 h-3 w-3" />
+                    {status === 'cancelling' ? 'Cancelling…' : 'Cancel'}
+                  </Button>
+                )}
+                {canResume && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={onResume}
+                    disabled={controlPending}
+                    className="h-6 px-2 text-[10px]"
+                  >
+                    <RotateCcw className="mr-1 h-3 w-3" />
+                    Resume
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
           <p className="mt-1 break-words text-[10px] leading-4 text-muted-foreground">{phase}</p>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+            <span>Phase: <strong className="font-medium text-foreground/80">{checkpointStage ?? phase}</strong></span>
+            <span>Attempt: <strong className="font-medium text-foreground/80">{execution?.attempt ?? 0}</strong></span>
+            <span>Revision: <code className="text-foreground/80">{execution?.projectRevision ?? 'not recorded'}</code></span>
+          </div>
           {(execution?.id ?? executionId) && (
             <div className="mt-1 flex items-center gap-2">
               <code className="min-w-0 truncate text-[9px] text-muted-foreground">
@@ -6201,6 +6247,11 @@ function AgentExecutionProofPanel({
           )}
           {execution?.error && (
             <p className="mt-1 break-words text-[10px] leading-4 text-red-200">{execution.error}</p>
+          )}
+          {execution?.terminalReason && (
+            <p className="mt-1 break-words text-[10px] leading-4 text-amber-200">
+              Terminal reason: {execution.terminalReason}
+            </p>
           )}
           {execution?.evidenceReason && (
             <p className="mt-1 break-words text-[10px] leading-4 text-muted-foreground">{execution.evidenceReason}</p>
@@ -6409,6 +6460,7 @@ export default function AiChat() {
   const [agentModelHistory, setAgentModelHistory] = useState<Array<{ id: string; provider: string }>>([]);
   const [agentDiagnostics, setAgentDiagnostics] = useState<string[]>([]);
   const [activeExecution, setActiveExecution] = useState<ActiveExecution | null>(null);
+  const [executionControlPending, setExecutionControlPending] = useState(false);
   const [resumeRecoveryError, setResumeRecoveryError] = useState<string | null>(null);
   const [resumeRecoveryAttempt, setResumeRecoveryAttempt] = useState(0);
   const resumeRecoveryPendingRef = useRef<string | null>(null);
@@ -7891,6 +7943,35 @@ export default function AiChat() {
     });
   }
 
+  async function cancelActiveExecution() {
+    const execution = activeExecutionRef.current;
+    if (!execution || executionControlPending) return;
+    setExecutionControlPending(true);
+    try {
+      const response = await fetch(`/api/ai/executions/${encodeURIComponent(execution.id)}/cancel`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: '{}',
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(body.error || 'This execution could not be cancelled.');
+      cancelStream();
+      cancelTaskStream();
+      setAgentStage('Cancellation requested — waiting for the server terminal state…');
+      void qc.invalidateQueries({ queryKey: ['ai-execution', execution.id] });
+      toast({ title: 'Cancellation requested', description: 'The server is closing this execution. No changes will be applied automatically.' });
+    } catch (error) {
+      toast({
+        title: 'Cancellation failed',
+        description: error instanceof Error ? error.message : 'The execution was not changed.',
+        variant: 'destructive',
+      });
+    } finally {
+      setExecutionControlPending(false);
+    }
+  }
+
   function handleSend() {
     sendMessage(input.trim());
   }
@@ -8316,6 +8397,9 @@ export default function AiChat() {
                    evidenceIntegrity={liveEvidenceIntegrity}
                    isFixtureLocal={liveFixtureLocal}
                    verdictScope={liveVerdictScope}
+                   onCancel={cancelActiveExecution}
+                   onResume={resumeActiveExecution}
+                   controlPending={executionControlPending}
                  />
                )}
                {operationMode === 'DELIVERY' && operationId && (
@@ -8471,10 +8555,15 @@ export default function AiChat() {
                     ? 'The AI execution is still running on the server'
                     : activeExecutionStatus?.status === 'queued'
                       ? 'The AI execution is queued on the server'
+                      : activeExecutionStatus?.status === 'cancelling'
+                        ? 'The AI execution is being cancelled'
                       : 'A saved AI execution is ready to resume'}
                 </div>
                 <div className="truncate text-muted-foreground">
                   Execution {activeExecution.id.slice(0, 8)}… · no file changes were applied automatically
+                  {activeExecutionStatus?.checkpointVersion != null
+                    ? ` · checkpoint ${activeExecutionStatus.checkpointVersion}`
+                    : ''}
                 </div>
               </div>
               {(activeExecutionStatus?.status === 'paused' ||

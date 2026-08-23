@@ -2597,6 +2597,10 @@ export type GetAiExecution200 = {
   objective?: GetAiExecution200Objective;
   linkedTaskId?: string | null;
   buildPlanMessageId?: string | null;
+  /** Current bounded execution attempt */
+  attempt?: number;
+  /** Workspace revision captured when this execution began */
+  projectRevision?: string | null;
   status: GetAiExecution200Status;
   /** Unified server-derived Code Flight Deck lifecycle state */
   flightState: GetAiExecution200FlightState;
@@ -2606,6 +2610,8 @@ export type GetAiExecution200 = {
   proofRequired: boolean;
   /** Bounded explanation for the current evidence verdict */
   evidenceReason?: string | null;
+  /** Safe reason explaining why the execution stopped or is blocked */
+  terminalReason?: string | null;
   checkpoint: GetAiExecution200Checkpoint;
   checkpointVersion: number;
   finalMessageId?: string | null;
