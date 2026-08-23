@@ -222,26 +222,48 @@ async function main() {
       const child = spawn(
         "pnpm",
         ["exec", "vitest", "run", "--config", path.join(expectedRoot, "vitest.config.ts"), path.relative(expectedRoot, expectedTest), "--pool", "forks"],
-        { cwd: expectedRoot, env: { ...process.env, NODE_ENV: "test" }, stdio: "inherit" },
+        { cwd: expectedRoot, env: { ...process.env, NODE_ENV: "test" }, stdio: ["ignore", "pipe", "pipe"], detached: true },
       );
+      const timeoutMs = Number(process.env.RELEASE_API_STREAM_TIMEOUT_MS ?? 180_000);
+      let output = "";
+      child.stdout.on("data", (chunk) => {
+        const text = chunk.toString();
+        output += text;
+        process.stdout.write(text);
+      });
+      child.stderr.on("data", (chunk) => {
+        const text = chunk.toString();
+        output += text;
+        process.stderr.write(text);
+      });
+      const timeout = setTimeout(() => {
+        try { process.kill(-child.pid, "SIGTERM"); } catch {}
+        setTimeout(() => { try { process.kill(-child.pid, "SIGKILL"); } catch {} }, 5_000).unref();
+      }, timeoutMs);
       child.once("error", reject);
       child.once("exit", (code, signal) => {
+        clearTimeout(timeout);
+        const retryable =
+          Boolean(signal) ||
+          /(?:ECONNRESET|ETIMEDOUT|ECONNREFUSED|connection terminated|database .*unavailable|timed out)/i.test(
+            output,
+          );
         if (signal) {
           console.error(`API stream release validation stopped by ${signal}.`);
-          resolve(1);
-        } else resolve(code ?? 1);
+        }
+        resolve({ code: code ?? 1, retryable });
       });
     });
-  let exitCode = await runValidation();
-  if (exitCode !== 0) {
-    console.error("API stream release validation retrying once after a bounded fixture race.");
-    exitCode = await runValidation();
+  let validation = await runValidation();
+  if (validation.code !== 0 && validation.retryable) {
+    console.error("API stream release validation retrying once after a transient infrastructure failure.");
+    validation = await runValidation();
   }
   await cleanup();
-  if (exitCode !== 0) {
+  if (validation.code !== 0) {
     console.error("API stream release validation failed; inspect the test output for a fixture or database-isolation failure.");
   }
-  return exitCode;
+  return validation.code;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

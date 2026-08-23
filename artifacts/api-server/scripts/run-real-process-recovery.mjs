@@ -69,6 +69,7 @@ const child = spawn(
     "recovers a forensic stream after the API process exits",
   ],
   {
+    detached: true,
     env: {
       ...childEnvironment,
       NODE_ENV: "test",
@@ -79,6 +80,16 @@ const child = spawn(
   },
 );
 
+const timeoutMs = Number(process.env.RELEASE_PROCESS_RECOVERY_TIMEOUT_MS ?? 180_000);
+let timedOut = false;
+const timeout = setTimeout(() => {
+  timedOut = true;
+  try { process.kill(-child.pid, "SIGTERM"); } catch {}
+  setTimeout(() => {
+    try { process.kill(-child.pid, "SIGKILL"); } catch {}
+  }, 5_000).unref();
+}, timeoutMs);
+
 child.stdout.on("data", (chunk) => process.stdout.write(redact(chunk.toString("utf8"))));
 child.stderr.on("data", (chunk) => process.stderr.write(redact(chunk.toString("utf8"))));
 
@@ -88,6 +99,12 @@ child.on("error", (error) => {
 });
 
 child.on("exit", (code, signal) => {
+  clearTimeout(timeout);
+  if (timedOut) {
+    console.error(`Real process-recovery validation timed out after ${timeoutMs}ms.`);
+    process.exitCode = 1;
+    return;
+  }
   if (signal) {
     console.error(`Real process-recovery validation stopped by ${signal}.`);
     process.exitCode = 1;

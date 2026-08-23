@@ -36,10 +36,19 @@ const timeoutMs = Number(
 const liveTimeoutMs = Number(
   process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
 );
+const childTimeoutMs = Number(
+  process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? 300_000,
+);
 const approvedDashboardOrigins = (process.env.APP_ORIGINS ?? "")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+if (
+  approvedDashboardOrigins.length === 0 &&
+  process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1"
+) {
+  approvedDashboardOrigins.push(`http://127.0.0.1:${dashboardPort}`);
+}
 if (approvedDashboardOrigins.length === 0) {
   throw new Error(
     "APP_ORIGINS must contain every approved dashboard origin for the release journey.",
@@ -197,10 +206,21 @@ function releaseServiceForPort(port) {
 
 async function waitForChild(child, label) {
   const result = await new Promise((resolveResult, reject) => {
+    const timer = setTimeout(() => {
+      try {
+        signalProcessGroup(child, "SIGTERM");
+        setTimeout(() => signalProcessGroup(child, "SIGKILL"), 5_000).unref();
+      } catch (error) {
+        reject(error);
+        return;
+      }
+      reject(new Error(`${label} exceeded the ${childTimeoutMs}ms timeout.`));
+    }, childTimeoutMs);
     child.on("error", reject);
-    child.on("exit", (code, signal) =>
-      resolveResult({ code: code ?? 1, signal }),
-    );
+    child.on("exit", (code, signal) => {
+      clearTimeout(timer);
+      resolveResult({ code: code ?? 1, signal });
+    });
   });
   if (result.signal || result.code !== 0) {
     throw new Error(
@@ -809,9 +829,14 @@ try {
       },
     );
     const result = await new Promise((resolveResult, reject) => {
+      const timer = setTimeout(() => {
+        signalProcessGroup(journey, "SIGTERM");
+        setTimeout(() => signalProcessGroup(journey, "SIGKILL"), 5_000).unref();
+        reject(new Error(`Dashboard browser journey exceeded the ${childTimeoutMs}ms timeout.`));
+      }, childTimeoutMs);
       journey.on("error", reject);
       journey.on("exit", (code, signal) =>
-        resolveResult(signal ? 1 : (code ?? 1)),
+        (clearTimeout(timer), resolveResult(signal ? 1 : (code ?? 1))),
       );
     });
     if (result !== 0) process.exitCode = result;

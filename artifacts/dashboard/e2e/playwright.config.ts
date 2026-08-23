@@ -13,7 +13,10 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 1 : 0,
+    // Assertion/configuration failures are deterministic; retrying them hides
+    // the real release signal. Infrastructure retries are handled by the
+    // bounded release wrapper instead.
+    retries: 0,
   reporter: process.env.CI ? "line" : "list",
   use: {
     launchOptions: {

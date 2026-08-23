@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      release_environment:
+        description: "Protected environment approved for release validation"
+        required: true
+        type: environment
 
 # PR-5: A dedicated fast-path job runs codegen:check + typecheck whenever the
 # OpenAPI contract or one of its focused dashboard consumers changes. It
@@ -160,18 +165,18 @@ jobs:
 
   release-validation:
     name: Release validation
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_environment == 'release-validation'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: release-validation
+    concurrency:
+      group: release-validation-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: read
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/engineeringos_test
-      CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
-      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
-      VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
-      SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       PLAYWRIGHT_OUTPUT_DIR: test-results/dashboard-journey
       DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH: test-results/dashboard-journey/release-teardown.json
     services:
@@ -191,6 +196,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/heads/main
+          persist-credentials: false
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -213,6 +221,14 @@ jobs:
         run: pnpm --filter @workspace/db run push
 
       - name: Run controlled release validation
+        timeout-minutes: 20
+        env:
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: >-
           APP_ORIGINS="http://127.0.0.1:23184"
           RELEASE_VALIDATION_WAIT_FOR_LOCK=1
@@ -227,6 +243,19 @@ jobs:
           name: release-validation-${{ github.run_id }}-teardown
           path: test-results/dashboard-journey/release-teardown.json
           if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload release validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-validation-${{ github.run_id }}-diagnostics
+          path: |
+            test-results/dashboard-journey/**
+            artifacts/dashboard/test-results/**
+            test-results/**/*.log
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Summarize retained release diagnostics
         if: always()

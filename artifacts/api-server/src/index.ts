@@ -1,4 +1,5 @@
 import app from "./app";
+import type { Server } from "node:http";
 import { logger } from "./lib/logger";
 import { getPort } from "./config";
 import {
@@ -78,6 +79,11 @@ async function assertDatabaseSchema(): Promise<void> {
 }
 
 const port = getPort();
+let httpServer: Server | undefined;
+let staleJobSweep: NodeJS.Timeout | undefined;
+let durableJobDispatcher: NodeJS.Timeout | undefined;
+let memorySweep: { stop: () => void } | undefined;
+let shuttingDown = false;
 
 // ── PR-D3: Cross-process AI context cache invalidation ────────────────────────
 // Wire a pg_notify call into every invalidateContextCache() invocation so
@@ -100,13 +106,28 @@ const { stop: stopCacheChannel } = startContextInvalidationChannel(pool);
 
 // Graceful shutdown: release the LISTEN client so the PG connection is closed
 // cleanly and the pool does not hang.
-process.once("SIGTERM", () => {
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info({ signal }, "Graceful shutdown started");
   stopCacheChannel();
   stopCatalogRefresh();
+  if (staleJobSweep) clearInterval(staleJobSweep);
+  if (durableJobDispatcher) clearInterval(durableJobDispatcher);
+  memorySweep?.stop();
+  await new Promise<void>((resolve) => {
+    if (!httpServer) return resolve();
+    httpServer.close(() => resolve());
+  });
+  await pool.end();
+  logger.info("Graceful shutdown complete");
+}
+
+process.once("SIGTERM", () => {
+  void shutdown("SIGTERM").finally(() => process.exit(0));
 });
 process.once("SIGINT", () => {
-  stopCacheChannel();
-  stopCatalogRefresh();
+  void shutdown("SIGINT").finally(() => process.exit(0));
 });
 
 // DB-07: Fail fast if the Drizzle schema has not been pushed yet. This must
@@ -161,7 +182,7 @@ await pruneHistoricalAiDiagnostics();
 // traffic, then let the normal retry worker drain them in the background.
 await loadPendingAudits();
 
-app.listen(port, (err) => {
+httpServer = app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
@@ -180,17 +201,17 @@ app.listen(port, (err) => {
   // PR-02: start the periodic stale-job sweep now that the server is up.
   // Handles scan jobs that get stuck while the process is running (not just
   // crash-recovery, which is covered by reconcileStuckJobs above).
-  startStaleJobSweep();
+  staleJobSweep = startStaleJobSweep();
 
   // Durable dispatch is separate from the slow stale-job sweep. It scans the
   // persisted queue rows frequently so another instance can recover work that
   // was committed just before the original process disappeared.
-  startDurableJobDispatcher();
+  durableJobDispatcher = startDurableJobDispatcher();
 
   // Start the session-memory sweep — prunes expired/decayed memory rows and
   // applies daily relevance decay.  Runs every 6 hours; fires once immediately
   // at startup to clear any backlog from a restart.
-  startMemorySweep();
+  memorySweep = startMemorySweep();
 
   // Audit rows that failed after a successful business mutation are retried
   // in the background; the worker keeps them visible through /healthz.
