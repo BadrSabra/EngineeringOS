@@ -2466,12 +2466,47 @@ describe("delivery recovery routes", () => {
       lifecycle: "conflicted",
       status: "pending",
       conflictReason: "Apply stopped after a file conflict; review is required.",
+      recoveryState: "recoverable",
+      operatorExplanation: "The delivery stopped because the retained changes need review before validation can continue.",
+      nextAction: "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.",
       workspaceAvailable: true,
       changeCount: 1,
       validationEvidence: null,
     });
     expect(res.body.operations[0]).not.toHaveProperty("workspaceRoot");
     expect(res.body.operations[0]).not.toHaveProperty("changes");
+  });
+
+  it("explains missing and already-discarded recovery states without exposing paths", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const missing = await makeRecoverableProposal(projectId, "abandoned", {
+      withWorkspace: false,
+      conflictReason: "Recovery stopped at /tmp/private-delivery-root after a diagnostic failure.",
+    });
+
+    const discarded = await makeRecoverableProposal(projectId, "blocked");
+    await request(app).post(`/api/ai/delivery/${discarded.proposalId}/discard`);
+
+    const res = await request(app)
+      .get("/api/ai/delivery/recoverable")
+      .query({ projectId });
+
+    expect(res.status).toBe(200);
+    const missingItem = res.body.operations.find((item: { proposalId: string }) => item.proposalId === missing.proposalId);
+    const discardedItem = res.body.operations.find((item: { proposalId: string }) => item.proposalId === discarded.proposalId);
+    expect(missingItem).toMatchObject({
+      recoveryState: "missing_workspace",
+      operatorExplanation: "The saved delivery workspace is no longer available, so recovery cannot continue.",
+      nextAction: "Start a new delivery from the current project rather than retrying this recovery.",
+      workspaceAvailable: false,
+    });
+    expect(discardedItem).toMatchObject({
+      recoveryState: "discarded",
+      workspaceAvailable: false,
+    });
+    expect(JSON.stringify(res.body)).not.toContain("/tmp/private-delivery-root");
+    expect(JSON.stringify(res.body)).not.toContain("workspaceRoot");
   });
 
   it("enforces project ownership for recovery listing and actions", async () => {

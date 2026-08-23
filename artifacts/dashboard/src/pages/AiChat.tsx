@@ -141,10 +141,13 @@ type RecoverableDelivery = {
   proposalId: string;
   operationId: string;
   sessionId: string;
-  lifecycle: Extract<DeliveryLifecycle, 'abandoned' | 'blocked' | 'conflicted'>;
+  lifecycle: DeliveryLifecycle;
   status: string;
   createdAt: string;
   conflictReason?: string | null;
+  recoveryState: 'recoverable' | 'missing_workspace' | 'discarded';
+  operatorExplanation: string;
+  nextAction: string;
   validationEvidence?: Array<{
     profile?: string;
     status?: string;
@@ -8795,11 +8798,20 @@ export default function AiChat() {
                 {recoverableDeliveries!.operations.map((delivery) => (
                   <div key={delivery.proposalId} className="rounded-md border border-amber-500/20 bg-background/30 p-2.5 text-[11px]">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <Badge variant="outline" className="text-[10px]">{delivery.lifecycle}</Badge>
+                      <Badge variant={delivery.recoveryState === 'discarded' ? 'secondary' : delivery.recoveryState === 'missing_workspace' ? 'destructive' : 'outline'} className="text-[10px]">
+                        {delivery.recoveryState === 'recoverable'
+                          ? 'Recoverable'
+                          : delivery.recoveryState === 'missing_workspace'
+                            ? 'Workspace unavailable'
+                            : 'Already discarded'}
+                      </Badge>
                       <span className="text-muted-foreground">{delivery.changeCount} change{delivery.changeCount === 1 ? '' : 's'}</span>
                       <span className="text-muted-foreground">{new Date(delivery.createdAt).toLocaleString()}</span>
                     </div>
-                    {delivery.conflictReason && <div className="mt-1 break-words text-red-200">Reason: {delivery.conflictReason}</div>}
+                    <div className="mt-1 break-words text-foreground/90">{delivery.operatorExplanation}</div>
+                    {delivery.conflictReason && delivery.recoveryState !== 'discarded' && (
+                      <div className="mt-1 break-words text-red-200">Retained reason: {delivery.conflictReason}</div>
+                    )}
                     {delivery.validationEvidence && delivery.validationEvidence.length > 0 && (
                       <div className="mt-1 text-muted-foreground">
                         Retained checks: {delivery.validationEvidence.map((e) => `${e.profile ?? 'check'} · ${e.status ?? 'unknown'}`).join(', ')}
@@ -8815,14 +8827,14 @@ export default function AiChat() {
                         </div>
                       ) : null;
                     })()}
-                    {!delivery.workspaceAvailable && <div className="mt-1 text-red-200">The operation workspace is unavailable; recovery is blocked.</div>}
+                    <div className="mt-1 break-words text-muted-foreground">{delivery.nextAction}</div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Button
                         type="button"
                         size="sm"
                         variant="outline"
                         className="h-7 px-2 text-[11px]"
-                        disabled={deliveryRecoveryPending !== null || !delivery.workspaceAvailable}
+                        disabled={deliveryRecoveryPending !== null || delivery.recoveryState !== 'recoverable'}
                         onClick={() => void recoverDelivery(delivery, 'resume-validation')}
                       >
                         {deliveryRecoveryPending === delivery.proposalId ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RotateCcw className="mr-1 h-3 w-3" />}
@@ -8833,7 +8845,7 @@ export default function AiChat() {
                         size="sm"
                         variant="ghost"
                         className="h-7 px-2 text-[11px] text-red-200 hover:text-red-100"
-                        disabled={deliveryRecoveryPending !== null}
+                        disabled={deliveryRecoveryPending !== null || delivery.recoveryState === 'discarded'}
                         onClick={() => void recoverDelivery(delivery, 'discard')}
                       >
                         <Trash2 className="mr-1 h-3 w-3" />

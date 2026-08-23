@@ -22,7 +22,7 @@ Timeout:  10000ms
 Call log:
   - Expect "toHaveCount" with timeout 10000ms
   - waiting for getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.', { exact: true })
-    23 × locator resolved to 2 elements
+    24 × locator resolved to 2 elements
        - unexpected value "2"
 
 ```

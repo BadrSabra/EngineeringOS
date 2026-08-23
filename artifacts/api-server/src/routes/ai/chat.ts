@@ -4788,10 +4788,11 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
       ...(proposal.lifecycle !== "proposed" || proposal.workspaceRoot
         ? {
             lifecycle: proposal.lifecycle,
-            workspaceRoot: proposal.workspaceRoot,
             baseRevision: proposal.baseRevision,
             changeSetHash: proposal.changeSetHash,
-            conflictReason: proposal.conflictReason,
+            conflictReason: proposal.conflictReason
+              ? redactUserFacingText(proposal.conflictReason).slice(0, 500)
+              : null,
           }
         : {}),
     });
@@ -4816,26 +4817,52 @@ router.get("/ai/delivery/recoverable", async (req, res) => {
     .from(aiChangeProposalsTable)
     .where(and(
       eq(aiChangeProposalsTable.projectId, project.id),
-      inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted"]),
+      inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted", "cancelled"]),
     ))
     .orderBy(desc(aiChangeProposalsTable.createdAt))
     .limit(20);
 
-  const operations = await Promise.all(proposals.map(async (proposal) => ({
+  const operations = await Promise.all(proposals.map(async (proposal) => {
+    const workspaceAvailable = Boolean(
+      proposal.operationId
+      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+    );
+    const recoveryState = proposal.lifecycle === "cancelled" || proposal.status === "rejected"
+      ? "discarded"
+      : workspaceAvailable
+        ? "recoverable"
+        : "missing_workspace";
+    const operatorExplanation = recoveryState === "discarded"
+      ? "This delivery recovery was already discarded."
+      : recoveryState === "missing_workspace"
+        ? "The saved delivery workspace is no longer available, so recovery cannot continue."
+        : proposal.lifecycle === "conflicted"
+          ? "The delivery stopped because the retained changes need review before validation can continue."
+          : proposal.lifecycle === "abandoned"
+            ? "The delivery was interrupted before it finished; its saved workspace can be checked again."
+            : "Validation did not complete successfully; the saved workspace can be checked again.";
+    const nextAction = recoveryState === "discarded"
+      ? "No action is required."
+      : recoveryState === "missing_workspace"
+        ? "Start a new delivery from the current project rather than retrying this recovery."
+        : "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.";
+    return {
       proposalId: proposal.id,
       operationId: proposal.operationId ?? proposal.messageId,
       sessionId: proposal.sessionId,
       lifecycle: proposal.lifecycle,
       status: proposal.status,
       createdAt: proposal.createdAt,
-      conflictReason: proposal.conflictReason,
+      conflictReason: proposal.conflictReason
+        ? redactUserFacingText(proposal.conflictReason).slice(0, 500)
+        : null,
+      recoveryState,
+      operatorExplanation,
+      nextAction,
       validationEvidence: proposal.validationEvidence
         ? redactUserFacingValue(parseStoredJson(proposal.validationEvidence))
         : null,
-      workspaceAvailable: Boolean(
-        proposal.operationId
-        && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
-      ),
+      workspaceAvailable,
       changeCount: (() => {
         try {
           const changes = JSON.parse(proposal.changes);
@@ -4844,7 +4871,8 @@ router.get("/ai/delivery/recoverable", async (req, res) => {
           return 0;
         }
       })(),
-    })));
+    };
+  }));
   return res.json({ operations });
 });
 
@@ -4862,10 +4890,21 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
     || proposal.status !== "pending"
     || !proposal.operationId
     || !(await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId))) {
+    const discarded = proposal.lifecycle === "cancelled" || proposal.status === "rejected";
+    const workspaceAvailable = Boolean(
+      proposal.operationId
+      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+    );
     return res.status(409).json({
-      error: "This delivery operation is not available for validation recovery.",
-      code: "DELIVERY_NOT_RECOVERABLE",
+      error: discarded
+        ? "This delivery recovery was already discarded."
+        : "The saved delivery workspace is no longer available, so recovery cannot continue.",
+      code: discarded ? "DELIVERY_ALREADY_DISCARDED" : "DELIVERY_NOT_RECOVERABLE",
       lifecycle: proposal.lifecycle,
+      recoveryState: discarded ? "discarded" : workspaceAvailable ? "recoverable" : "missing_workspace",
+      nextAction: discarded
+        ? "No action is required."
+        : "Start a new delivery from the current project rather than retrying this recovery.",
     });
   }
 
