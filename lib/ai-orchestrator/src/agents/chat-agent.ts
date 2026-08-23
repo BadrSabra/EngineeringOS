@@ -106,6 +106,7 @@ import {
   type RepairLoopState,
   type ValidationRunner,
 } from "../tools/execution-tools.js";
+import type { CommandProfile, CommandRunner } from "../tools/execution-tools.js";
 import type { ValidationResult } from "../validation-result.js";
 import {
   appendTaskChecklistReport,
@@ -3335,6 +3336,10 @@ export async function chat(opts: {
   allowValidationTools?: boolean;
   /** Server-owned validation runner; never supplied by the model. */
   validationRunner?: ValidationRunner;
+   /** Server-owned terminal profiles. The model may select a profile only. */
+   commandProfiles?: readonly CommandProfile[];
+   commandRunner?: CommandRunner;
+   commandContext?: { operationId?: string; revision?: string; targetPaths?: readonly string[]; operation?: string };
   /** Server-owned, read-only project analysis dispatcher. */
   allowAnalysisTools?: boolean;
   analysisToolRunner?: AnalysisToolRunner;
@@ -3397,6 +3402,9 @@ export async function chat(opts: {
     signal,
     allowValidationTools = false,
     validationRunner,
+    commandProfiles,
+    commandRunner,
+    commandContext,
     allowAnalysisTools = false,
     analysisToolRunner,
     executionProofRunner,
@@ -5368,6 +5376,9 @@ export async function chat(opts: {
     allowTestSources: includeTestSources,
     allowExecutionTools: allowValidationTools,
     validationRunner,
+    commandProfiles,
+    commandRunner,
+    commandContext,
     analysisToolRunner,
     validationTargetPaths,
     signal,

@@ -32,6 +32,13 @@ export type BoundedCommandResult = {
   durationMs: number;
 };
 
+function sanitizeOutput(value: string, rootPath: string): string {
+  return value
+    .replaceAll(rootPath, "[project path]")
+    .replace(/(?:\/home\/[^ \n\t"'`]+|\/tmp\/[^ \n\t"'`]+|\/workspace\/[^ \n\t"'`]+)/g, "[runtime path]")
+    .replace(/((?:api[_-]?key|token|secret|password))\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]");
+}
+
 function commandName(command: string): string {
   return path.basename(command).toLowerCase();
 }
@@ -104,9 +111,9 @@ export async function runBoundedCommand(spec: BoundedCommandSpec): Promise<Bound
       settled = true;
       resolve({
         ...result,
-        combinedOutput: `${stdout}${stderr ? `\n${stderr}` : ""}`,
-        stdout,
-        stderr,
+        combinedOutput: sanitizeOutput(`${stdout}${stderr ? `\n${stderr}` : ""}`, spec.rootPath),
+        stdout: sanitizeOutput(stdout, spec.rootPath),
+        stderr: sanitizeOutput(stderr, spec.rootPath),
         truncated,
         durationMs: Date.now() - startedAt,
       });

@@ -384,6 +384,9 @@ export async function chatWithFallback(
     allowValidationTools?: boolean;
     /** Server-owned validation callback; never derived from model arguments. */
     validationRunner?: ValidationRunner;
+     commandProfiles?: readonly import("@workspace/ai-orchestrator").CommandProfile[];
+     commandRunner?: import("@workspace/ai-orchestrator").CommandRunner;
+     commandContext?: { operationId?: string; revision?: string; targetPaths?: readonly string[]; operation?: string };
     /** Server-owned read-only scanner/graph/discovery callback. */
     allowAnalysisTools?: boolean;
     analysisToolRunner?: import("@workspace/ai-orchestrator").AnalysisToolRunner;
@@ -452,6 +455,9 @@ export async function chatWithFallback(
         onStep,
         allowValidationTools: baseParams.allowValidationTools,
         validationRunner: baseParams.validationRunner,
+         commandProfiles: baseParams.commandProfiles,
+         commandRunner: baseParams.commandRunner,
+         commandContext: baseParams.commandContext,
         allowAnalysisTools: baseParams.allowAnalysisTools,
         analysisToolRunner: baseParams.analysisToolRunner,
         analysisCorrelation: baseParams.analysisCorrelation,

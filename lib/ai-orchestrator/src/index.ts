@@ -133,6 +133,8 @@ export type {
   BoundedCommandResult,
 } from "./execution-kernel.js";
 export type { RepairLoopState, ValidationRunner, ValidationToolResult } from "./tools/execution-tools.js";
+export { executeCommandTool, runRegisteredCommand, COMMAND_PROFILE_LIMITS } from "./tools/execution-tools.js";
+export type { CommandProfile, CommandRunner } from "./tools/execution-tools.js";
 export {
   hasValidationEvidence,
   isProvenValidation,

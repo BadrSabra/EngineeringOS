@@ -33,6 +33,24 @@ describe("bounded execution kernel", () => {
     expect(result.truncated).toBe(false);
   });
 
+  it("redacts project/runtime paths and secret-like output", async () => {
+    const root = await makeRoot();
+    const result = await runBoundedCommand({
+      command: "node",
+      args: ["-e", "process.stdout.write(process.cwd() + ' token=super-secret')"],
+      rootPath: root,
+      allowedCommands: new Set(["node"]),
+      timeoutMs: 2_000,
+      maxOutputBytes: 500,
+    });
+
+    expect(result.status).toBe("passed");
+    expect(result.stdout).not.toContain(root);
+    expect(result.stdout).toContain("[project path]");
+    expect(result.stdout).toContain("token=[redacted]");
+    expect(result.stdout).not.toContain("super-secret");
+  });
+
   it("rejects commands outside the explicit allowlist", async () => {
     const root = await makeRoot();
     await expect(runBoundedCommand({

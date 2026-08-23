@@ -41,6 +41,7 @@ import { FILE_TOOL_DEFINITIONS, executeFileTool } from "./tools/file-tools.js";
 import { GIT_TOOL_DEFINITIONS, executeGitTool } from "./tools/git-tools.js";
 import {
   EXECUTION_TOOL_DEFINITIONS,
+  executeCommandTool,
   executeValidationTool,
   MAX_REPAIR_ATTEMPTS,
   type RepairLoopState,
@@ -108,6 +109,18 @@ function syntheticValidationResult(
     },
     detail,
   };
+}
+
+function parseCommandStatus(
+  output: string,
+): "passed" | "failed" | "timed_out" | "cancelled" | "spawn_error" | undefined {
+  try {
+    const status = (JSON.parse(output) as { status?: unknown }).status;
+    return status === "passed" || status === "failed" || status === "timed_out" ||
+      status === "cancelled" || status === "spawn_error" ? status : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -391,6 +404,10 @@ export type SingleToolOpts = {
   completeReads?: boolean;
   /** Server-owned validation runner, enabled only for an approved Build handoff. */
   validationRunner?: ValidationRunner;
+  /** Server-owned command profiles and runner; no model-supplied executable is accepted. */
+  commandProfiles?: readonly import("./tools/execution-tools.js").CommandProfile[];
+  commandRunner?: import("./tools/execution-tools.js").CommandRunner;
+  commandContext?: { operationId?: string; revision?: string; targetPaths?: readonly string[]; operation?: string };
   /** Server-owned, read-only scanner/graph/discovery dispatcher. */
   analysisToolRunner?: AnalysisToolRunner;
   analysisCorrelation?: AnalysisCorrelation;
@@ -689,6 +706,16 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
             opts.signal,
             pendingChanges,
           )
+        : isExecutionTool && name === "run_command"
+          ? await executeCommandTool(
+              name,
+              effectiveArgs,
+              rootPath,
+              opts.commandProfiles,
+              opts.commandRunner,
+              opts.signal,
+              opts.commandContext,
+            )
         : executeAnalysisTool(
             name,
             effectiveArgs,
@@ -1030,6 +1057,9 @@ export type ToolLoopOpts = {
 
   /** Server-owned callback used by run_validation. */
   validationRunner?: ValidationRunner;
+  commandProfiles?: readonly import("./tools/execution-tools.js").CommandProfile[];
+  commandRunner?: import("./tools/execution-tools.js").CommandRunner;
+  commandContext?: { operationId?: string; revision?: string; targetPaths?: readonly string[]; operation?: string };
   analysisToolRunner?: AnalysisToolRunner;
   analysisCorrelation?: AnalysisCorrelation;
 
@@ -1306,6 +1336,8 @@ export type AgentStep =
       outputLength: number;
        resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
        diagnosticCode?: Extract<AgentDiagnosticCode, `TOOL_${string}`>;
+      /** Server-owned command status, when the tool is run_command. */
+      commandStatus?: "passed" | "failed" | "timed_out" | "cancelled" | "spawn_error";
       /** Bounded, content-free summary safe for activity timelines. */
       resultSummary?: string;
       /** True when the read happened during forensic prefetch, before the loop. */
@@ -1507,6 +1539,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     executionTargetPaths = [],
     allowExecutionTools = false,
     validationRunner,
+    commandProfiles,
+    commandRunner,
+    commandContext,
     validationTargetPaths = [],
     maxValidationAttempts,
     signal,
@@ -3557,6 +3592,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             source: cachedSource,
             cached: true,
             outputLength: cached.length,
+           ...(tc.function.name === "run_command"
+             ? { commandStatus: parseCommandStatus(cached) }
+             : {}),
             ...((tc.function.name === "read_file" || tc.function.name === "read_file_range")
               ? { resultSummary: `Read completed (${cached.length} characters).` }
               : {}),
@@ -3736,6 +3774,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         completeReads: opts.completeReads,
         allowExecutionTools,
         validationRunner,
+         commandProfiles,
+         commandRunner,
+         commandContext,
         validationTargetPaths,
         analysisToolRunner: opts.analysisToolRunner,
         analysisCorrelation: opts.analysisCorrelation,
@@ -3962,6 +4003,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           source: toolResult.source,
           cached: false,
           outputLength: toolResult.output.length,
+          ...(tc.function.name === "run_command"
+            ? { commandStatus: parseCommandStatus(toolResult.output) }
+            : {}),
           ...((tc.function.name === "read_file" || tc.function.name === "read_file_range")
             ? { resultSummary: `Read completed (${toolResult.output.length} characters).` }
             : {}),

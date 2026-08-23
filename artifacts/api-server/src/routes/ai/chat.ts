@@ -60,6 +60,7 @@ import {
   deriveFlightDeckState,
   isProvenValidation,
   toPublicValidationResult,
+  runRegisteredCommand,
 } from "@workspace/ai-orchestrator";
 import type {
   AgentStep,
@@ -1128,6 +1129,7 @@ function serializeToolTrace(
           cached: step.cached,
           ...("resultKind" in step && step.resultKind ? { resultKind: step.resultKind } : {}),
           ...("diagnosticCode" in step && step.diagnosticCode ? { diagnosticCode: step.diagnosticCode } : {}),
+           ...("commandStatus" in step && step.commandStatus ? { commandStatus: step.commandStatus } : {}),
           ...(step.resultSummary ? { resultSummary: step.resultSummary } : {}),
           ...("prefetched" in step && step.prefetched ? { prefetched: true } : {}),
         };
@@ -3082,6 +3084,21 @@ router.post("/ai/chat/stream", async (req, res) => {
             );
           }
         : undefined;
+    // Terminal execution is deliberately narrower than validation: one
+    // server-owned profile, fixed argv, and only during an approved Build
+    // handoff. The model can select the profile but cannot select a command,
+    // shell, cwd, or arguments.
+    const commandProfiles = approvedImplementationPlan && implementationPlanScope && validRootPath
+      ? [{
+          name: "workspace-typecheck",
+          command: "pnpm",
+          args: ["run", "typecheck"],
+          timeoutMs: 10 * 60 * 1000,
+          maxOutputBytes: 8 * 1024 * 1024,
+          allowedOperations: ["build"],
+          allowedPaths: [...implementationPlanScope],
+        }]
+      : undefined;
 
     let result: Awaited<ReturnType<typeof chat>>;
     let endedBeforeEvidence = false;
@@ -3110,6 +3127,14 @@ router.post("/ai/chat/stream", async (req, res) => {
           objective,
           allowValidationTools: Boolean(validationRunner),
           validationRunner,
+           commandProfiles,
+           commandRunner: commandProfiles ? runRegisteredCommand : undefined,
+           commandContext: {
+             operationId: analysisCorrelation.operationId,
+             revision: analysisCorrelation.projectRevision,
+             targetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
+             operation: "build",
+           },
           validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
            buildHandoff: Boolean(!streamIsGreetingTurn && approvedImplementationPlan && effectiveBuildPlanMessageId),
           onExecutionNodes: publishExecutionNodes,

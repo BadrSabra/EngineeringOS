@@ -1,8 +1,59 @@
 import { describe, expect, it, vi } from "vitest";
-import { executeValidationTool } from "../tools/execution-tools.js";
+import { executeCommandTool, executeValidationTool, type CommandProfile } from "../tools/execution-tools.js";
 import { executeSingleTool } from "../tool-execution-engine.js";
 
 describe("execution tools", () => {
+  it("runs only a server-registered fixed command profile", async () => {
+    const runner = vi.fn().mockResolvedValue({
+      status: "passed",
+      exitCode: 0,
+      signal: null,
+      stdout: "ok",
+      stderr: "",
+      combinedOutput: "ok",
+      truncated: false,
+      durationMs: 4,
+    });
+    const profile: CommandProfile = {
+      name: "safe-check",
+      command: "node",
+      args: ["-e", "process.stdout.write('ok')"],
+      timeoutMs: 2_000,
+      maxOutputBytes: 1_000,
+    };
+
+    const output = await executeCommandTool(
+      "run_command",
+      { profile: "safe-check", command: "sh -c 'rm -rf /'" },
+      "/project",
+      [profile],
+      runner,
+    );
+
+    expect(runner).toHaveBeenCalledWith(expect.objectContaining({ profile, rootPath: "/project" }));
+    expect(JSON.parse(output)).toMatchObject({
+      tool: "run_command",
+      status: "passed",
+      code: "COMMAND_PASSED",
+    });
+  });
+
+  it("fails closed when a command profile is absent or exceeds limits", async () => {
+    const runner = vi.fn();
+    const missing = await executeCommandTool("run_command", { profile: "unknown" }, "/project", [], runner);
+    expect(JSON.parse(missing)).toMatchObject({ status: "unavailable", code: "COMMAND_PROFILE_NOT_REGISTERED" });
+
+    const invalid = await executeCommandTool(
+      "run_command",
+      { profile: "oversized" },
+      "/project",
+      [{ name: "oversized", command: "node", args: [], timeoutMs: 0, maxOutputBytes: 100 }],
+      runner,
+    );
+    expect(JSON.parse(invalid)).toMatchObject({ status: "unavailable", code: "COMMAND_PROFILE_INVALID" });
+    expect(runner).not.toHaveBeenCalled();
+  });
+
   it("passes only the server-owned target paths to the validation runner", async () => {
     const runner = vi.fn().mockResolvedValue({
       status: "passed",

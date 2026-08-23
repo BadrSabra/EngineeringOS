@@ -14,232 +14,292 @@
 ```
 Error: expect(locator).toBeVisible() failed
 
-Locator: getByRole('link', { name: 'Sign In', exact: true })
+Locator: getByText('required tool did not complete — BLOCKED/INCOMPLETE').last()
 Expected: visible
 Timeout: 10000ms
 Error: element(s) not found
 
 Call log:
   - Expect "toBeVisible" with timeout 10000ms
-  - waiting for getByRole('link', { name: 'Sign In', exact: true })
+  - waiting for getByText('required tool did not complete — BLOCKED/INCOMPLETE').last()
 
 ```
 
 ```yaml
+- text: EngineeringOS Core Ops
+- link "Dashboard":
+  - /url: /dashboard/
+- link "Projects":
+  - /url: /dashboard/projects
+- link "Tasks":
+  - /url: /dashboard/tasks
+- link "Rules Engine":
+  - /url: /dashboard/rules
+- link "Workflows":
+  - /url: /dashboard/workflows
+- link "Event Stream":
+  - /url: /dashboard/events
+- link "Metrics":
+  - /url: /dashboard/metrics
+- link "Knowledge Graph":
+  - /url: /dashboard/graph
+- link "AI Assistant":
+  - /url: /dashboard/ai
+- link "Flight Deck":
+  - /url: /dashboard/flight-deck
+- link "Mission Control":
+  - /url: /dashboard/mission-control
+- text: ED EngineeringOS Dashboard Smoke Connected
+- button "Sign out"
+- banner:
+  - textbox "Search projects, tasks, rules... (Press '/')"
+  - text: v1.0.4-stable
+  - button
+- main:
+  - text: Sessions
+  - button "New session"
+  - combobox:
+    - option "Smoke Project" [selected]
+  - button "ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟"
+  - text: OpenRouter API Key Priority
+  - paragraph: Get a free key at openrouter.ai/keys — routes to 300+ models, used first when configured.
+  - textbox "sk-or-…"
+  - button "Save" [disabled]
+  - text: Gemini API Key Free · Priority
+  - paragraph: Free key at aistudio.google.com/apikey — 1,500 req/day, 1M tokens/day.
+  - textbox "AIza…"
+  - button "Save"
+  - text: DeepSeek API Key Optional
+  - paragraph: Get a free API key at platform.deepseek.com to use DeepSeek as your AI provider.
+  - textbox "sk-…"
+  - button "Save" [disabled]
+  - text: Groq API Key
+  - paragraph: No personal key saved — the server's key will be used if one is configured.
+  - textbox "gsk_…"
+  - button "Save" [disabled]
+  - text: EngineeringOS AI Llama 3.3 · Groq ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟
+  - paragraph: عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.
+  - heading "6) Final Judgment" [level=2]
+  - paragraph: NOT PROVEN
+  - text: "Behavior evidence · 1 excerpt Accepted: source span verified. return partialFromCollectedEvidence(\"provider timeout\");"
+  - button "src/execution-tools.ts:42"
+  - button "View file"
+  - text: Behavior answer confidence 100%
+  - paragraph: عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.
+  - text: "src/execution-tools.ts Answered fields: timeout behavior Behavior evidence · 1 excerpt Accepted: source span verified. return partialFromCollectedEvidence(\"provider timeout\");"
+  - button "src/execution-tools.ts:42"
+  - button "View file"
+  - group: Agent activity · 1 events
+  - button "Forensic evidence NOT PROVEN"
+  - textbox "Ask about your codebase, tasks, or metrics… (Enter to send)"
+  - button [disabled]
 - region "Notifications (F8)":
   - list
-- text: "[plugin:runtime-error-plugin] Clerk: Failed to load Clerk JS, failed to load script: https://clerk.127.0.0.1/npm/@clerk/clerk-js@6/dist/clerk.browser.js (code=\"failed_to_load_clerk_js\") Click outside, press Esc key, or fix the code to dismiss. You can also disable this overlay by setting"
-- code: server.hmr.overlay
-- text: to
-- code: "false"
-- text: in
-- code: vite.config.ts
-- text: .
 ```
 
 # Test source
 
 ```ts
-  769 |         resumable: true,
-  770 |         resumeToken: initialToken,
-  771 |       }),
-  772 |       sse({ type: "stage", stage: "calling-model" }),
-  773 |       sse({ type: "delta", delta: partialAnswer }),
-  774 |     ].join(""),
-  775 |     message,
-  776 |   };
-  777 |   return {
-  778 |     fixture,
-  779 |     initialToken,
-  780 |     recoveredToken,
-  781 |     resumedStreamBody: [
-  782 |       sse({ type: "session_started", sessionId }),
-  783 |       sse({
-  784 |         type: "execution_started",
-  785 |         executionId,
-  786 |         status: "running",
-  787 |         resumable: true,
-  788 |         resumeToken: recoveredToken,
-  789 |       }),
-  790 |       sse({ type: "stage", stage: "resuming-checkpoint" }),
-  791 |       sse({ type: "delta", delta: answer }),
-  792 |       sse({ type: "done", sessionId, executionId, message, pendingChanges: [] }),
-  793 |     ].join(""),
-  794 |     execution: {
-  795 |       id: executionId,
-  796 |       projectId: "e2e-project",
-  797 |       operationId: "e2e-interrupted-resume-operation",
-  798 |       sessionId,
-  799 |       status: "paused",
-  800 |       flightState: "PAUSED",
-  801 |       resumable: true,
-  802 |       checkpointVersion: 1,
-  803 |       checkpoint: {
-  804 |         stage: "calling-model",
-  805 |         detail: "The browser transport disconnected after the execution started.",
-  806 |       },
-  807 |       objective: { objective: question },
-  808 |       startedAt: "2026-01-01T00:01:00.000Z",
-  809 |       createdAt: "2026-01-01T00:01:00.000Z",
-  810 |       updatedAt: "2026-01-01T00:02:00.000Z",
-  811 |     },
-  812 |   };
-  813 | }
-  814 | 
-  815 | async function createReleaseSignInUrl(page: Page) {
-  816 |   const secretKey = process.env.CLERK_SECRET_KEY;
-  817 |   if (!secretKey) {
-  818 |     throw new Error(
-  819 |       "CLERK_SECRET_KEY is required for the release-only programmatic Clerk handoff.",
-  820 |     );
-  821 |   }
-  822 | 
-  823 |   const headers = {
-  824 |     Authorization: `Bearer ${secretKey}`,
-  825 |     "Content-Type": "application/json",
-  826 |   };
-  827 |   const userResponse = await page.request.get(
-  828 |     `https://api.clerk.com/v1/users?email_address=${encodeURIComponent(TEST_USER.email)}`,
-  829 |     { headers },
-  830 |   );
-  831 |   let userId = parseClerkUserLookupResponse(await userResponse.json());
-  832 | 
-  833 |   if (!userId) {
-  834 |     const createdResponse = await page.request.post(
-  835 |       "https://api.clerk.com/v1/users",
-  836 |       {
-  837 |         headers,
-  838 |         data: {
-  839 |           email_address: [TEST_USER.email],
-  840 |           first_name: TEST_USER.firstName,
-  841 |           last_name: TEST_USER.lastName,
-  842 |           skip_password_checks: true,
-  843 |           skip_password_requirement: true,
-  844 |         },
-  845 |       },
-  846 |     );
-  847 |     userId = parseCreatedClerkUserResponse(await createdResponse.json());
-  848 |   }
-  849 | 
-  850 |   if (!userId) {
-  851 |     throw new Error(
-  852 |       "The isolated Clerk release user could not be provisioned.",
-  853 |     );
-  854 |   }
-  855 | 
-  856 |   const tokenResponse = await page.request.post(
-  857 |     "https://api.clerk.com/v1/sign_in_tokens",
-  858 |     { headers, data: { user_id: userId } },
-  859 |   );
-  860 |   const token = parseClerkSignInTokenResponse(await tokenResponse.json());
-  861 | 
-  862 |   return `${new URL(DASHBOARD_PATH, page.url()).toString()}sign-in?__clerk_ticket=${encodeURIComponent(token)}`;
-  863 | }
-  864 | 
-  865 | async function programmaticSignIn(page: Page) {
-  866 |   await page.goto(DASHBOARD_PATH);
-  867 |   await expect(
-  868 |     page.getByRole("link", { name: "Sign In", exact: true }),
-> 869 |   ).toBeVisible();
-      |     ^ Error: expect(locator).toBeVisible() failed
-  870 | 
-  871 |   const helper =
-  872 |     globalThis.signInClerkUser ??
-  873 |     globalThis.__ENGINEERINGOS_SIGN_IN_CLERK_USER__;
-  874 |   if (!helper) {
-  875 |     if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
-  876 |       throw new Error(
-  877 |         "Clerk browser helper is unavailable. Run this journey in the Replit browser runner, which injects signInClerkUser.",
-  878 |       );
-  879 |     }
-  880 |     await page.goto(await createReleaseSignInUrl(page));
-  881 |     await expect(page).toHaveURL(
-  882 |       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
-  883 |     );
-  884 |     return;
-  885 |   }
-  886 |   const signInUrl = await helper({
-  887 |     ...TEST_USER,
-  888 |     ttl: 900,
-  889 |     basePath: DASHBOARD_PATH,
-  890 |   });
-  891 |   await page.goto(signInUrl);
-  892 |   await expect(page).toHaveURL(
-  893 |     new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
-  894 |   );
-  895 | }
-  896 | 
-  897 | async function openNavigation(page: Page, label: string, path: string) {
-  898 |   await page.getByRole("link", { name: label, exact: true }).click();
-  899 |   await expect(page).toHaveURL(new RegExp(`${path.replaceAll("/", "\\/")}$`));
-  900 | }
-  901 | 
-  902 | function apiUrl(page: Page, path: string): string {
-  903 |   const apiBaseUrl = process.env.DASHBOARD_E2E_API_BASE_URL;
-  904 |   return new URL(path, apiBaseUrl ? apiBaseUrl : page.url()).toString();
-  905 | }
-  906 | 
-  907 | async function liveRequest(
-  908 |   page: Page,
-  909 |   path: string,
-  910 |   options?: { method?: string; body?: unknown; timeout?: number },
-  911 | ): Promise<{ status: number; body: string }> {
-  912 |   return page.evaluate(
-  913 |     async ({ url, method, body, timeout }) => {
-  914 |       const response = await fetch(url, {
-  915 |         method,
-  916 |         credentials: "include",
-  917 |         headers:
-  918 |           body === undefined
-  919 |             ? undefined
-  920 |             : { "Content-Type": "application/json" },
-  921 |         body: body === undefined ? undefined : JSON.stringify(body),
-  922 |         signal: timeout ? AbortSignal.timeout(timeout) : undefined,
-  923 |       });
-  924 |       return { status: response.status, body: await response.text() };
-  925 |     },
-  926 |     {
-  927 |       url: apiUrl(page, path),
-  928 |       method: options?.method ?? "GET",
-  929 |       body: options?.body,
-  930 |       timeout: options?.timeout,
-  931 |     },
-  932 |   );
-  933 | }
-  934 | 
-  935 | type OriginDiagnostic = {
-  936 |   origin: string;
-  937 |   phase: "GET" | "preflight" | "mutation" | "rejection";
-  938 |   status?: number;
-  939 |   headers?: Record<string, string>;
-  940 |   error?: string;
-  941 | };
-  942 | const recordedOriginDiagnostics: OriginDiagnostic[] = [];
-  943 | 
-  944 | function originDiagnosticPath(): string | undefined {
-  945 |   return process.env.DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH;
-  946 | }
-  947 | 
-  948 | function relevantOriginHeaders(
-  949 |   headers: Record<string, string>,
-  950 | ): Record<string, string> {
-  951 |   return Object.fromEntries(
-  952 |     ORIGIN_DIAGNOSTIC_HEADERS.flatMap((name) =>
-  953 |       headers[name] ? [[name, headers[name]]] : [],
-  954 |     ),
-  955 |   );
-  956 | }
-  957 | 
-  958 | async function writeOriginDiagnostics() {
-  959 |   const outputPath = originDiagnosticPath();
-  960 |   if (!outputPath) return;
-  961 |   await mkdir(dirname(outputPath), { recursive: true });
-  962 |   await writeFile(
-  963 |     outputPath,
-  964 |     `${JSON.stringify({ diagnostics: recordedOriginDiagnostics }, null, 2)}\n`,
-  965 |     "utf8",
-  966 |   );
-  967 | }
-  968 | 
-  969 | async function expectOriginCanUseApi(page: Page, origin: string) {
+  1814 |           .getByText("Blocked: no matching source text was found.", {
+  1815 |             exact: true,
+  1816 |           })
+  1817 |           .last(),
+  1818 |       ).toBeVisible();
+  1819 |       await expect(
+  1820 |         page.getByText(`${blocked.source}:42`, { exact: false }),
+  1821 |       ).toHaveCount(0);
+  1822 |       await expect(
+  1823 |         page.getByText("Accepted: source span verified.", { exact: true }),
+  1824 |       ).toHaveCount(0);
+  1825 |     };
+  1826 |     const assertNoInternalCitationDetails = async () => {
+  1827 |       const visibleText = await page.locator("body").innerText();
+  1828 |       expect(visibleText).not.toMatch(
+  1829 |         /MISSING_LITERAL_MATCH|rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+  1830 |       );
+  1831 |     };
+  1832 | 
+  1833 |     await page
+  1834 |       .getByRole("button", { name: accepted.question, exact: true })
+  1835 |       .click();
+  1836 |     await assertAcceptedCitation();
+  1837 | 
+  1838 |     await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+  1839 |     await page.goBack();
+  1840 |     await expect(page).toHaveURL(
+  1841 |       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
+  1842 |     );
+  1843 |     await page
+  1844 |       .getByRole("button", { name: accepted.question, exact: true })
+  1845 |       .click();
+  1846 |     await assertAcceptedCitation();
+  1847 |     await assertNoInternalCitationDetails();
+  1848 | 
+  1849 |     await page.goForward();
+  1850 |     await expect(page).toHaveURL(
+  1851 |       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}projects$`),
+  1852 |     );
+  1853 |     await page.goBack();
+  1854 |     await expect(page).toHaveURL(
+  1855 |       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
+  1856 |     );
+  1857 |     await page
+  1858 |       .getByRole("button", { name: accepted.question, exact: true })
+  1859 |       .click();
+  1860 |     await assertAcceptedCitation();
+  1861 | 
+  1862 |     await page
+  1863 |       .getByRole("button", { name: blocked.question, exact: true })
+  1864 |       .click();
+  1865 |     await assertBlockedCitation();
+  1866 | 
+  1867 |     await openNavigation(page, "Event Stream", `${DASHBOARD_PATH}events`);
+  1868 |     await page.goBack();
+  1869 |     await expect(page).toHaveURL(
+  1870 |       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
+  1871 |     );
+  1872 |     await page
+  1873 |       .getByRole("button", { name: blocked.question, exact: true })
+  1874 |       .click();
+  1875 |     await assertBlockedCitation();
+  1876 |     await assertNoInternalCitationDetails();
+  1877 | 
+  1878 |     await page.goForward();
+  1879 |     await expect(page).toHaveURL(
+  1880 |       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}events$`),
+  1881 |     );
+  1882 |     await page.goBack();
+  1883 |     await expect(page).toHaveURL(
+  1884 |       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}ai$`),
+  1885 |     );
+  1886 |     await page
+  1887 |       .getByRole("button", { name: blocked.question, exact: true })
+  1888 |       .click();
+  1889 |     await assertBlockedCitation();
+  1890 |     await assertNoInternalCitationDetails();
+  1891 |   });
+  1892 | 
+  1893 |   test("keeps only the safe blocked citation reason after chat reload", async ({
+  1894 |     page,
+  1895 |   }) => {
+  1896 |     const fixture = await installArabicAiFixture(page);
+  1897 |     await installApiFixtures(page, { arabicAi: fixture });
+  1898 |     await programmaticSignIn(page);
+  1899 |     await page.goto(`${DASHBOARD_PATH}ai`);
+  1900 | 
+  1901 |     const composer = page.locator("textarea").first();
+  1902 |     await composer.fill(fixture.question);
+  1903 |     await composer.locator("xpath=..").getByRole("button").click();
+  1904 | 
+  1905 |     await expect(
+  1906 |       page.getByText(fixture.answer, { exact: true }).last(),
+  1907 |     ).toBeVisible();
+  1908 |     await expect(
+  1909 |       page
+  1910 |         .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
+  1911 |           exact: false,
+  1912 |         })
+  1913 |         .last(),
+> 1914 |     ).toBeVisible();
+       |       ^ Error: expect(locator).toBeVisible() failed
+  1915 |     await page
+  1916 |       .locator("summary")
+  1917 |       .filter({ hasText: "Agent activity" })
+  1918 |       .last()
+  1919 |       .click();
+  1920 |     await expect(page.locator("body")).toContainText("Reading source");
+  1921 |     await expect(page.locator("body")).toContainText(
+  1922 |       "src/missing-release-fixture.ts",
+  1923 |     );
+  1924 |     await expect(page.locator("body")).toContainText("Tool failed");
+  1925 |     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
+  1926 |     await page
+  1927 |       .locator("summary")
+  1928 |       .filter({ hasText: "Persisted execution proof" })
+  1929 |       .last()
+  1930 |       .click();
+  1931 |     await expect(
+  1932 |       page
+  1933 |         .getByText("required tool failed — operation blocked", { exact: true })
+  1934 |         .last(),
+  1935 |     ).toBeVisible();
+  1936 | 
+  1937 |     const visibleText = await page.locator("body").innerText();
+  1938 |     expect(visibleText).not.toContain("COMPLETED");
+  1939 |     expect(visibleText).not.toContain("Persisted execution proof");
+  1940 |     expect(visibleText).toContain("The required analysis did not complete.");
+  1941 |   });
+  1942 | 
+  1943 |   test("keeps the failed AI session drawer overlaid on a phone viewport", async ({
+  1944 |     page,
+  1945 |   }) => {
+  1946 |     await page.setViewportSize({ width: 390, height: 844 });
+  1947 |     const fixture = await installArabicAiFixture(page);
+  1948 |     await installApiFixtures(page, { arabicAi: fixture });
+  1949 |     await programmaticSignIn(page);
+  1950 |     await page.goto(`${DASHBOARD_PATH}ai`);
+  1951 | 
+  1952 |     const composer = page.locator("textarea").first();
+  1953 |     await composer.fill(fixture.question);
+  1954 |     await composer.locator("xpath=..").getByRole("button").click();
+  1955 | 
+  1956 |     await expect(
+  1957 |       page.getByText(fixture.answer, { exact: true }).last(),
+  1958 |     ).toBeVisible();
+  1959 |     await expect(
+  1960 |       page
+  1961 |         .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
+  1962 |           exact: false,
+  1963 |         })
+  1964 |         .last(),
+  1965 |     ).toBeVisible();
+  1966 |     await page
+  1967 |       .locator("summary")
+  1968 |       .filter({ hasText: "Agent activity" })
+  1969 |       .last()
+  1970 |       .click();
+  1971 |     await expect(page.locator("body")).toContainText("Reading source");
+  1972 |     await expect(page.locator("body")).toContainText(
+  1973 |       "src/missing-release-fixture.ts",
+  1974 |     );
+  1975 |     await expect(page.locator("body")).toContainText("Tool failed");
+  1976 |     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
+  1977 |     await page
+  1978 |       .locator("summary")
+  1979 |       .filter({ hasText: "Persisted execution proof" })
+  1980 |       .last()
+  1981 |       .click();
+  1982 |     await expect(
+  1983 |       page
+  1984 |         .getByText("required tool failed — operation blocked", { exact: true })
+  1985 |         .last(),
+  1986 |     ).toBeVisible();
+  1987 | 
+  1988 |     const visibleText = await page.locator("body").innerText();
+  1989 |     expect(visibleText).not.toMatch(
+  1990 |       /raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i,
+  1991 |     );
+  1992 | 
+  1993 |     await page.reload();
+  1994 |     await page
+  1995 |       .getByRole("button", { name: fixture.question, exact: true })
+  1996 |       .click();
+  1997 | 
+  1998 |     await expect(
+  1999 |       page.getByText(fixture.answer, { exact: true }).last(),
+  2000 |     ).toBeVisible();
+  2001 |     await expect(
+  2002 |       page
+  2003 |         .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
+  2004 |           exact: false,
+  2005 |         })
+  2006 |         .last(),
+  2007 |     ).toBeVisible();
+  2008 |     await page
+  2009 |       .locator("summary")
+  2010 |       .filter({ hasText: "Agent activity" })
+  2011 |       .last()
+  2012 |       .click();
+  2013 |     await expect(page.locator("body")).toContainText("Reading source");
+  2014 |     await expect(page.locator("body")).toContainText(
 ```
