@@ -27,6 +27,7 @@ import { redactUserFacingText, runAgentWithFallback } from "./ai-route-helpers.j
 import type { ProviderId } from "./ai-route-helpers.js";
 import { recordAudit } from "./audit.js";
 import { logger } from "./logger.js";
+import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
 
 const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationships", "events"] as const;
 
@@ -166,6 +167,7 @@ export async function executeTaskLifecycle(params: {
   const [before] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.taskId)).limit(1);
   if (!before) return { ok: false, status: "conflict", errorCode: "task_not_found" };
   const allowed = params.expectedStatuses ?? ["pending", "queued", "verifying"];
+  const initialStatus = before.status as TaskStatus;
   const correlationId = randomUUID();
   const workerId = `task-worker:${randomUUID()}`;
   const idempotencyKey = `${before.id}:attempt:${before.retryCount}`;
@@ -218,6 +220,11 @@ export async function executeTaskLifecycle(params: {
   if (!claimedTask) {
     await failAiExecution({ executionId, workerId, error: "Task state changed before claim." });
     return { ok: false, status: "conflict", executionId, errorCode: "task_state_changed" };
+  }
+  const claimConflict = taskTransitionConflict(initialStatus, "running", "execution");
+  if (claimConflict) {
+    await failAiExecution({ executionId, workerId, error: claimConflict });
+    return { ok: false, status: "conflict", executionId, errorCode: "invalid_task_transition" };
   }
 
   const log = async (level: "info" | "warn" | "error", message: string, metadata?: Record<string, unknown>) => {
@@ -330,6 +337,8 @@ export async function executeTaskLifecycle(params: {
     }
 
     const finalStatus = result.needsHumanReview ? "verifying" : "completed";
+    const finalConflict = taskTransitionConflict("running", finalStatus, "execution");
+    if (finalConflict) throw new Error(finalConflict);
     stage = "finalize";
     stages.push("finalize");
     const taskReceipt = buildAiTaskExecutionReceipt({

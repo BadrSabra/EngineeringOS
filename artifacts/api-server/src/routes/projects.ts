@@ -7,6 +7,10 @@ import {
   eventsTable,
   metricsTable,
   scanJobsTable,
+  aiExecutionsTable,
+  workflowsTable,
+  workflowExecutionsTable,
+  aiChangeProposalsTable,
 } from "@workspace/db";
 import { z } from "zod";
 import {
@@ -19,7 +23,7 @@ import {
   ScanProjectParams,
   GetScanJobParams,
 } from "@workspace/api-zod";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { logger } from "../lib/logger.js";
 import { recordAudit } from "../lib/audit.js";
@@ -263,6 +267,33 @@ router.delete("/projects/:projectId", requireProjectWriteAccess, async (req, res
   const { projectId } = DeleteProjectParams.parse(req.params);
   const before = req.project!;
   const correlationId = randomUUID();
+
+  const [activeScan, activeExecution, activeWorkflow, activeDelivery] = await Promise.all([
+    db.select({ id: scanJobsTable.id }).from(scanJobsTable).where(and(
+      eq(scanJobsTable.projectId, projectId),
+      inArray(scanJobsTable.status, ["queued", "running"]),
+    )).limit(1),
+    db.select({ id: aiExecutionsTable.id }).from(aiExecutionsTable).where(and(
+      eq(aiExecutionsTable.projectId, projectId),
+      inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+    )).limit(1),
+    db.select({ id: workflowExecutionsTable.id }).from(workflowExecutionsTable)
+      .innerJoin(workflowsTable, eq(workflowExecutionsTable.workflowId, workflowsTable.id))
+      .where(and(
+        eq(workflowsTable.projectId, projectId),
+        eq(workflowExecutionsTable.status, "running"),
+      )).limit(1),
+    db.select({ id: aiChangeProposalsTable.id }).from(aiChangeProposalsTable).where(and(
+      eq(aiChangeProposalsTable.projectId, projectId),
+      inArray(aiChangeProposalsTable.lifecycle, ["isolated", "validated"]),
+    )).limit(1),
+  ]);
+  if (activeScan.length || activeExecution.length || activeWorkflow.length || activeDelivery.length) {
+    return res.status(409).json({
+      error: "project_active_work",
+      reason: "Stop or reconcile active scans, deliveries, workflows, and AI executions before deleting this project.",
+    });
+  }
 
   await recordAudit({
     entityType: "project", entityId: projectId, action: "deleted", projectId,

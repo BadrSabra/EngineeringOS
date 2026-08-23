@@ -4,6 +4,7 @@ import {
   tasksTable,
   eventsTable,
   taskLogsTable,
+  aiExecutionsTable,
 } from "@workspace/db";
 import {
   CreateTaskBody,
@@ -17,7 +18,7 @@ import {
   GetTaskLogsParams,
   ListTasksQueryParams,
 } from "@workspace/api-zod";
-import { eq, and, desc, gt, asc, inArray, or } from "drizzle-orm";
+import { eq, and, desc, gt, asc, inArray, or, isNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { recordAudit } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
@@ -26,6 +27,7 @@ import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 import { scheduleAiTaskExecution } from "./ai.js";
 import { parsePagination } from "../lib/pagination.js";
+import { taskTransitionConflict, type TaskStatus } from "../lib/task-state.js";
 
 const router = Router();
 
@@ -125,12 +127,42 @@ router.patch("/tasks/:taskId", async (req, res) => {
       hint: "This task is currently being executed by the AI — wait for it to finish (or cancel it) before making changes.",
     });
   }
+  if (body.status && body.status !== before[0].status) {
+    const conflict = taskTransitionConflict(
+      before[0].status as TaskStatus,
+      body.status as TaskStatus,
+      "manual",
+    );
+    if (conflict) {
+      await recordAudit({
+        entityType: "task",
+        entityId: taskId,
+        action: "updated",
+        reason: `Rejected task status transition: ${conflict}`,
+        projectId: before[0].projectId,
+        actor: req.userId,
+        correlationId: randomUUID(),
+        changedFields: body,
+        stateBefore: before[0],
+      });
+      return res.status(409).json({
+        error: "invalid_task_transition",
+        reason: conflict,
+        from: before[0].status,
+        to: body.status,
+      });
+    }
+  }
 
   const correlationId = randomUUID();
   const updated = await db.transaction(async (tx) => {
     const rows = await tx.update(tasksTable)
       .set({ ...body, updatedAt: new Date() })
-      .where(eq(tasksTable.id, taskId)).returning();
+      .where(and(
+        eq(tasksTable.id, taskId),
+        eq(tasksTable.status, before[0].status),
+        isNull(tasksTable.workerId),
+      )).returning();
     if (rows[0]) {
       const changes: string[] = [];
       if (body.status && body.status !== before[0].status) changes.push(`status: ${before[0].status} → ${body.status}`);
@@ -148,7 +180,12 @@ router.patch("/tasks/:taskId", async (req, res) => {
     }
     return rows;
   });
-  if (!updated[0]) return res.status(404).json({ error: "Task not found" });
+  if (!updated[0]) {
+    return res.status(409).json({
+      error: "task_state_changed_concurrently",
+      reason: "The task changed while this update was being applied.",
+    });
+  }
 
   await recordAudit({
     entityType: "task",
@@ -183,7 +220,20 @@ router.delete("/tasks/:taskId", async (req, res) => {
   if (!project) return;
 
   const correlationId = randomUUID();
-  await db.transaction(async (tx) => {
+  try {
+    await db.transaction(async (tx) => {
+    const [lockedTask] = await tx.select().from(tasksTable)
+      .where(eq(tasksTable.id, taskId)).for("update");
+    const activeExecutions = await tx.select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.linkedTaskId, taskId),
+        inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+      ))
+      .limit(1);
+    if (!lockedTask || lockedTask.status === "running" || lockedTask.workerId || lockedTask.leaseUntil || activeExecutions.length > 0) {
+      throw new TaskStateConflictError("Cancel and terminalize the task execution before deleting this task.");
+    }
     // Insert before the delete so the task FK is valid; ON DELETE SET NULL
     // preserves this operation event after the task row is removed.
     await tx.insert(eventsTable).values({
@@ -197,7 +247,13 @@ router.delete("/tasks/:taskId", async (req, res) => {
       payload: { before: { status: before[0].status } },
     });
     await tx.delete(tasksTable).where(eq(tasksTable.id, taskId));
-  });
+    });
+  } catch (error) {
+    if (error instanceof TaskStateConflictError) {
+      return res.status(409).json({ error: "task_active_work", reason: error.message });
+    }
+    throw error;
+  }
 
   await recordAudit({
     entityType: "task",
@@ -342,12 +398,17 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
   // effect of this execution — persist them atomically so a crash between
   // steps can't leave a task marked "completed" with no corresponding log
   // or event (or vice versa).
-  const [updated] = await db.transaction(async (tx) => {
+  let updated: typeof tasksTable.$inferSelect | undefined;
+  try {
+    [updated] = await db.transaction(async (tx) => {
     const [row] = await tx
       .update(tasksTable)
       .set({ status: finalStatus, verificationResult, updatedAt: now, completedAt })
-      .where(eq(tasksTable.id, taskId))
+      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
       .returning();
+    if (!row) {
+      throw new TaskStateConflictError("Task state changed before verification could be finalized");
+    }
 
     await tx.insert(taskLogsTable).values({
       id: randomUUID(),
@@ -379,8 +440,14 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
       payload: { before: { status: "running" }, after: { status: finalStatus } },
     });
 
-    return [row];
-  });
+      return [row];
+    });
+  } catch (error) {
+    if (error instanceof TaskStateConflictError) {
+      return res.status(409).json({ error: "task_state_changed_concurrently" });
+    }
+    throw error;
+  }
 
   await recordAudit({
     entityType: "task",
@@ -419,6 +486,10 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
 
   const retryCount = task[0].retryCount ?? 0;
   const maxRetries = task[0].maxRetries ?? 3;
+  const retryTransition = taskTransitionConflict(task[0].status as TaskStatus, "queued", "retry");
+  if (retryTransition) {
+    return res.status(409).json({ error: retryTransition });
+  }
   if (retryCount >= maxRetries) {
     return res
       .status(409)
@@ -503,6 +574,36 @@ router.post("/tasks/:taskId/rollback", async (req, res) => {
   if (!task[0]) return res.status(404).json({ error: "Task not found" });
   const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
   if (!project) return;
+  if (task[0].workerId || task[0].leaseUntil) {
+    return res.status(409).json({
+      error: "task_active_work",
+      reason: "The active task worker must terminate before cancellation can be applied.",
+    });
+  }
+  const activeExecutions = await db.select({ id: aiExecutionsTable.id })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.linkedTaskId, taskId),
+      inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+    ))
+    .limit(1);
+  if (activeExecutions.length > 0) {
+    return res.status(409).json({
+      error: "task_active_work",
+      reason: "Cancel and terminalize the linked AI execution before rolling back this task.",
+    });
+  }
+  const cancellationConflict = taskTransitionConflict(
+    task[0].status as TaskStatus,
+    "cancelled",
+    "cancellation",
+  );
+  if (cancellationConflict) {
+    return res.status(409).json({
+      error: "invalid_task_transition",
+      reason: cancellationConflict,
+    });
+  }
 
   const now = new Date();
   const correlationId = randomUUID();

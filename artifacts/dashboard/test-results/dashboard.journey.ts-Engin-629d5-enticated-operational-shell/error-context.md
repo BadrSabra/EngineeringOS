@@ -7,7 +7,7 @@
 # Test info
 
 - Name: dashboard.journey.ts >> EngineeringOS dashboard browser journey >> signs in and traverses the authenticated operational shell
-- Location: e2e/dashboard.journey.ts:1371:3
+- Location: e2e/dashboard.journey.ts:1494:3
 
 # Error details
 
@@ -58,13 +58,13 @@ Call log:
 - main:
   - heading "System Overview" [level=1]
   - paragraph: Real-time status of all autonomous engineering operations.
-  - text: Updated 8:05:25 PM
+  - text: Updated 8:43:37 PM
   - button "Refresh status"
   - text: SYSTEM ONLINE
   - region "AI diagnostics retention health":
     - heading "AI diagnostics retention" [level=2]
     - text: Healthy
-    - paragraph: Last completed 8/23/2026, 8:05:03 PM
+    - paragraph: Last completed 8/23/2026, 8:43:12 PM
     - text: Chat rows 0 scanned / 0 pruned Execution rows 0 scanned / 0 pruned
   - heading "Active Projects" [level=3]
   - text: 1 0 tasks pending
@@ -101,206 +101,206 @@ Call log:
 # Test source
 
 ```ts
-  1293 |         sessionId: execution.sessionId,
-  1294 |         operationId: execution.operationId,
-  1295 |         status: execution.status,
-  1296 |         flightState: execution.flightState,
-  1297 |       },
-  1298 |       messages: messages.map(
-  1299 |         ({
-  1300 |           id,
-  1301 |           sessionId: messageSession,
-  1302 |           role,
-  1303 |           executionId: messageExecution,
-  1304 |           outcome,
-  1305 |         }) => ({
-  1306 |           id,
-  1307 |           sessionId: messageSession,
-  1308 |           role,
-  1309 |           executionId: messageExecution,
-  1310 |           outcome,
-  1311 |         }),
-  1312 |       ),
-  1313 |       sseEvents: sseEvents.map(
-  1314 |         ({
-  1315 |           type,
-  1316 |           executionId: eventExecution,
-  1317 |           sessionId: eventSession,
-  1318 |           outcome,
-  1319 |           code,
-  1320 |         }) => ({
-  1321 |           type,
-  1322 |           executionId: eventExecution,
-  1323 |           sessionId: eventSession,
-  1324 |           outcome,
-  1325 |           code,
-  1326 |         }),
-  1327 |       ),
-  1328 |       checkpoints: [
-  1329 |         {
-  1330 |           sequence: checkpoint.sequence,
-  1331 |           stage: checkpoint.stage,
-  1332 |           updatedAt: checkpoint.updatedAt,
-  1333 |         },
-  1334 |       ],
-  1335 |       evidenceCount,
-  1336 |       proposals: proposal
-  1337 |         ? [
-  1338 |             {
-  1339 |               id: proposal.id,
-  1340 |               revision: proposal.revision,
-  1341 |               status: proposal.status,
-  1342 |             },
-  1343 |           ]
-  1344 |         : [],
-  1345 |       validation: validation.map((step) => ({
-  1346 |         status: step.validation?.status ?? step.status,
-  1347 |         profile: step.validation?.profile ?? step.validationProfile,
-  1348 |       })),
-  1349 |       events: events.map(({ type, severity, correlationId }) => ({
-  1350 |         type,
-  1351 |         severity,
-  1352 |         correlationId,
-  1353 |       })),
-  1354 |       dashboard: missionControl,
-  1355 |       dashboardState: {
-  1356 |         projectCount: dashboardState.projectCount,
-  1357 |         activeTaskCount: dashboardState.activeTaskCount,
-  1358 |       },
-  1359 |     };
-  1360 |     const outputPath =
-  1361 |       process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
-  1362 |       "test-results/dashboard-journey/live-mission-correlation.json";
-  1363 |     await mkdir(dirname(outputPath), { recursive: true });
-  1364 |     await writeFile(
-  1365 |       outputPath,
-  1366 |       `${JSON.stringify(capture, null, 2)}\n`,
-  1367 |       "utf8",
-  1368 |     );
-  1369 |   });
-  1370 | 
-  1371 |   test("signs in and traverses the authenticated operational shell", async ({
-  1372 |     page,
-  1373 |   }) => {
-  1374 |     await installApiFixtures(page);
-  1375 |     await programmaticSignIn(page);
-  1376 |     for (const origin of approvedDashboardOrigins()) {
-  1377 |       await expectOriginCanUseApi(page, origin);
-  1378 |     }
-  1379 |     await expectHostileOriginRejected(page);
-  1380 | 
-  1381 |     await expect(
-  1382 |       page.getByRole("heading", { name: "System Overview" }),
-  1383 |     ).toBeVisible();
-  1384 |     await expect(
-  1385 |       page.getByText("SYSTEM ONLINE", { exact: true }),
-  1386 |     ).toBeVisible();
-  1387 |     await expect(
-  1388 |       page.getByText("Smoke Project", { exact: true }).first(),
-  1389 |     ).toBeVisible();
-  1390 |     await expect(
-  1391 |       page.getByText("Dashboard API fixture ready", { exact: true }),
-  1392 |     ).toBeVisible();
-> 1393 |     await expect(page.getByText("Showing 1–1 of 1", { exact: true })).toBeVisible();
-       |                                                                       ^ Error: expect(locator).toBeVisible() failed
-  1394 |     await expect(page.getByRole("button", { name: "Older" })).toBeDisabled();
-  1395 | 
-  1396 |     await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
-  1397 |     await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
-  1398 |     await expect(
-  1399 |       page.getByText("Smoke Project", { exact: true }),
-  1400 |     ).toBeVisible();
-  1401 | 
-  1402 |     await openNavigation(page, "Event Stream", `${DASHBOARD_PATH}events`);
-  1403 |     await expect(
-  1404 |       page.getByRole("heading", { name: "Event Stream" }),
-  1405 |     ).toBeVisible();
-  1406 |     await expect(
-  1407 |       page.getByText("Dashboard API fixture ready", { exact: true }),
-  1408 |     ).toBeVisible();
-  1409 | 
-  1410 |     await openNavigation(page, "AI Assistant", `${DASHBOARD_PATH}ai`);
-  1411 |     await expect(page).not.toHaveURL(/sign-in/);
-  1412 |     await expect(
-  1413 |       page
-  1414 |         .getByText(
-  1415 |           /AI provider not configured|No AI key configured|AI Assistant/i,
-  1416 |         )
-  1417 |         .first(),
-  1418 |     ).toBeVisible();
-  1419 | 
-  1420 |     await openNavigation(
-  1421 |       page,
-  1422 |       "Mission Control",
-  1423 |       `${DASHBOARD_PATH}mission-control`,
-  1424 |     );
-  1425 |     await expect(
-  1426 |       page.getByRole("heading", { name: "No durable runs in the ledger" }),
-  1427 |     ).toBeVisible();
-  1428 | 
-  1429 |     await page.goto(`${DASHBOARD_PATH}flight-deck?executionId=${EXECUTION_ID}`);
-  1430 |     await expect(page).toHaveURL(
-  1431 |       new RegExp(
-  1432 |         `${DASHBOARD_PATH.replaceAll("/", "\\/")}flight-deck\\?executionId=`,
-  1433 |       ),
-  1434 |     );
-  1435 |     await expect(
-  1436 |       page.getByRole("heading", { name: "Audit / Chat run" }),
-  1437 |     ).toBeVisible();
-  1438 |     await expect(
-  1439 |       page.getByText("Controlled browser fixture completed.", { exact: true }),
-  1440 |     ).toBeVisible();
-  1441 |     await expect(
-  1442 |       page.getByText("PROVEN", { exact: true }).first(),
-  1443 |     ).toBeVisible();
-  1444 |   });
-  1445 | 
-  1446 |   test("pages and reloads the filtered event stream without losing its window", async ({
-  1447 |     page,
-  1448 |   }) => {
-  1449 |     const events = Array.from({ length: 51 }, (_, index) => ({
-  1450 |       id: `e2e-event-${index}`,
-  1451 |       projectId: "e2e-project",
-  1452 |       type: "AuditEvent",
-  1453 |       severity: index < 2 ? "success" : "info",
-  1454 |       correlationId: index < 2 ? "release-42" : null,
-  1455 |       message:
-  1456 |         index < 2 ? `Filtered release event ${index}` : `Older event ${index}`,
-  1457 |       timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, 51 - index)).toISOString(),
-  1458 |     }));
-  1459 |     const eventRequests: string[] = [];
-  1460 |     page.on("request", (request) => {
-  1461 |       if (new URL(request.url()).pathname.endsWith("/api/events"))
-  1462 |         eventRequests.push(request.url());
-  1463 |     });
-  1464 |     await installApiFixtures(page, {
-  1465 |       events,
-  1466 |       projects: [
-  1467 |         {
-  1468 |           id: "e2e-project",
-  1469 |           name: "Smoke Project",
-  1470 |           language: "TypeScript",
-  1471 |           framework: "React",
-  1472 |           status: "active",
-  1473 |           rootPath: "/controlled/smoke",
-  1474 |           qualityScore: 92,
-  1475 |         },
-  1476 |       ],
-  1477 |     });
-  1478 |     await programmaticSignIn(page);
-  1479 |     await page.goto(`${DASHBOARD_PATH}events`);
-  1480 | 
-  1481 |     await expect(page.getByText("Older event 49", { exact: true })).toBeVisible();
-  1482 |     await expect(page.getByText("Older event 50", { exact: true })).not.toBeVisible();
-  1483 |     const firstRequest = new URL(eventRequests.at(-1)!);
-  1484 |     expect(firstRequest.searchParams.get("limit")).toBe("50");
-  1485 |     expect(firstRequest.searchParams.get("page")).toBe("1");
-  1486 | 
-  1487 |     await Promise.all([
-  1488 |       page.waitForRequest((request) => {
-  1489 |         const url = new URL(request.url());
-  1490 |         return (
-  1491 |           url.pathname.endsWith("/api/events") &&
-  1492 |           url.searchParams.get("page") === "2"
-  1493 |         );
+  1418 |         status: execution.status,
+  1419 |         flightState: execution.flightState,
+  1420 |       },
+  1421 |       messages: messages.map(
+  1422 |         ({
+  1423 |           id,
+  1424 |           sessionId: messageSession,
+  1425 |           role,
+  1426 |           executionId: messageExecution,
+  1427 |           outcome,
+  1428 |         }) => ({
+  1429 |           id,
+  1430 |           sessionId: messageSession,
+  1431 |           role,
+  1432 |           executionId: messageExecution,
+  1433 |           outcome,
+  1434 |         }),
+  1435 |       ),
+  1436 |       sseEvents: sseEvents.map(
+  1437 |         ({
+  1438 |           type,
+  1439 |           executionId: eventExecution,
+  1440 |           sessionId: eventSession,
+  1441 |           outcome,
+  1442 |           code,
+  1443 |         }) => ({
+  1444 |           type,
+  1445 |           executionId: eventExecution,
+  1446 |           sessionId: eventSession,
+  1447 |           outcome,
+  1448 |           code,
+  1449 |         }),
+  1450 |       ),
+  1451 |       checkpoints: [
+  1452 |         {
+  1453 |           sequence: checkpoint.sequence,
+  1454 |           stage: checkpoint.stage,
+  1455 |           updatedAt: checkpoint.updatedAt,
+  1456 |         },
+  1457 |       ],
+  1458 |       evidenceCount,
+  1459 |       proposals: proposal
+  1460 |         ? [
+  1461 |             {
+  1462 |               id: proposal.id,
+  1463 |               revision: proposal.revision,
+  1464 |               status: proposal.status,
+  1465 |             },
+  1466 |           ]
+  1467 |         : [],
+  1468 |       validation: validation.map((step) => ({
+  1469 |         status: step.validation?.status ?? step.status,
+  1470 |         profile: step.validation?.profile ?? step.validationProfile,
+  1471 |       })),
+  1472 |       events: events.map(({ type, severity, correlationId }) => ({
+  1473 |         type,
+  1474 |         severity,
+  1475 |         correlationId,
+  1476 |       })),
+  1477 |       dashboard: missionControl,
+  1478 |       dashboardState: {
+  1479 |         projectCount: dashboardState.projectCount,
+  1480 |         activeTaskCount: dashboardState.activeTaskCount,
+  1481 |       },
+  1482 |     };
+  1483 |     const outputPath =
+  1484 |       process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+  1485 |       "test-results/dashboard-journey/live-mission-correlation.json";
+  1486 |     await mkdir(dirname(outputPath), { recursive: true });
+  1487 |     await writeFile(
+  1488 |       outputPath,
+  1489 |       `${JSON.stringify(capture, null, 2)}\n`,
+  1490 |       "utf8",
+  1491 |     );
+  1492 |   });
+  1493 | 
+  1494 |   test("signs in and traverses the authenticated operational shell", async ({
+  1495 |     page,
+  1496 |   }) => {
+  1497 |     await installApiFixtures(page);
+  1498 |     await programmaticSignIn(page);
+  1499 |     for (const origin of approvedDashboardOrigins()) {
+  1500 |       await expectOriginCanUseApi(page, origin);
+  1501 |     }
+  1502 |     await expectHostileOriginRejected(page);
+  1503 | 
+  1504 |     await expect(
+  1505 |       page.getByRole("heading", { name: "System Overview" }),
+  1506 |     ).toBeVisible();
+  1507 |     await expect(
+  1508 |       page.getByText("SYSTEM ONLINE", { exact: true }),
+  1509 |     ).toBeVisible();
+  1510 |     await expect(
+  1511 |       page.getByText("Smoke Project", { exact: true }).first(),
+  1512 |     ).toBeVisible();
+  1513 |     await expect(
+  1514 |       page.getByText("Dashboard API fixture ready", { exact: true }),
+  1515 |     ).toBeVisible();
+  1516 |     await expect(
+  1517 |       page.getByText("Showing 1–1 of 1", { exact: true }),
+> 1518 |     ).toBeVisible();
+       |       ^ Error: expect(locator).toBeVisible() failed
+  1519 |     await expect(page.getByRole("button", { name: "Older" })).toBeDisabled();
+  1520 | 
+  1521 |     await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+  1522 |     await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  1523 |     await expect(
+  1524 |       page.getByText("Smoke Project", { exact: true }),
+  1525 |     ).toBeVisible();
+  1526 | 
+  1527 |     await openNavigation(page, "Event Stream", `${DASHBOARD_PATH}events`);
+  1528 |     await expect(
+  1529 |       page.getByRole("heading", { name: "Event Stream" }),
+  1530 |     ).toBeVisible();
+  1531 |     await expect(
+  1532 |       page.getByText("Dashboard API fixture ready", { exact: true }),
+  1533 |     ).toBeVisible();
+  1534 | 
+  1535 |     await openNavigation(page, "AI Assistant", `${DASHBOARD_PATH}ai`);
+  1536 |     await expect(page).not.toHaveURL(/sign-in/);
+  1537 |     await expect(
+  1538 |       page
+  1539 |         .getByText(
+  1540 |           /AI provider not configured|No AI key configured|AI Assistant/i,
+  1541 |         )
+  1542 |         .first(),
+  1543 |     ).toBeVisible();
+  1544 | 
+  1545 |     await openNavigation(
+  1546 |       page,
+  1547 |       "Mission Control",
+  1548 |       `${DASHBOARD_PATH}mission-control`,
+  1549 |     );
+  1550 |     await expect(
+  1551 |       page.getByRole("heading", { name: "No durable runs in the ledger" }),
+  1552 |     ).toBeVisible();
+  1553 | 
+  1554 |     await page.goto(`${DASHBOARD_PATH}flight-deck?executionId=${EXECUTION_ID}`);
+  1555 |     await expect(page).toHaveURL(
+  1556 |       new RegExp(
+  1557 |         `${DASHBOARD_PATH.replaceAll("/", "\\/")}flight-deck\\?executionId=`,
+  1558 |       ),
+  1559 |     );
+  1560 |     await expect(
+  1561 |       page.getByRole("heading", { name: "Audit / Chat run" }),
+  1562 |     ).toBeVisible();
+  1563 |     await expect(
+  1564 |       page.getByText("Controlled browser fixture completed.", { exact: true }),
+  1565 |     ).toBeVisible();
+  1566 |     await expect(
+  1567 |       page.getByText("PROVEN", { exact: true }).first(),
+  1568 |     ).toBeVisible();
+  1569 |   });
+  1570 | 
+  1571 |   test("uploads an archive and renders a live task update", async ({
+  1572 |     page,
+  1573 |   }) => {
+  1574 |     const taskId = "e2e-live-task";
+  1575 |     const liveLog = {
+  1576 |       id: "e2e-live-log",
+  1577 |       taskId,
+  1578 |       level: "info",
+  1579 |       message: "Live update received from the server",
+  1580 |       timestamp: "2026-01-01T00:00:02.000Z",
+  1581 |     };
+  1582 |     await installApiFixtures(page, {
+  1583 |       archiveUpload: {
+  1584 |         uploadId: "e2e-upload",
+  1585 |         originalName: "dashboard-journey.zip",
+  1586 |       },
+  1587 |       liveTask: {
+  1588 |         id: taskId,
+  1589 |         title: "Verify live dashboard updates",
+  1590 |         projectId: "e2e-project",
+  1591 |         log: liveLog,
+  1592 |       },
+  1593 |     });
+  1594 |     await programmaticSignIn(page);
+  1595 | 
+  1596 |     // This is a valid, empty ZIP archive. Keeping it inline makes the browser
+  1597 |     // test self-contained while still exercising FormData and multipart bytes.
+  1598 |     const uploadResult = await page.evaluate(async (apiBaseUrl) => {
+  1599 |       const bytes = Uint8Array.from(
+  1600 |         atob("UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA=="),
+  1601 |         (character) => character.charCodeAt(0),
+  1602 |       );
+  1603 |       const body = new FormData();
+  1604 |       body.append(
+  1605 |         "archive",
+  1606 |         new Blob([bytes], { type: "application/zip" }),
+  1607 |         "dashboard-journey.zip",
+  1608 |       );
+  1609 |       const response = await fetch(
+  1610 |         new URL("/api/upload/archive", apiBaseUrl).toString(),
+  1611 |         { method: "POST", credentials: "include", body },
+  1612 |       );
+  1613 |       return {
+  1614 |         status: response.status,
+  1615 |         body: (await response.json()) as Record<string, unknown>,
+  1616 |       };
+  1617 |     }, process.env.DASHBOARD_E2E_API_BASE_URL ?? page.url());
+  1618 |     expect(uploadResult.status).toBe(201);
 ```

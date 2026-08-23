@@ -703,16 +703,17 @@ async function reconcileAiTasks(): Promise<number> {
         );
       }
 
-      invalidateContextCache(task.projectId);
-
-      await db.insert(taskLogsTable).values({
-        id: randomUUID(),
-        taskId: task.id,
-        level: "warn",
-        message: `Task reset to "verifying" after process restart (retry ${task.retryCount + 1}/${task.maxRetries}). Re-trigger to execute.`,
-        correlationId,
-      });
-      resetCount++;
+      if (resetTask) {
+        invalidateContextCache(task.projectId);
+        await db.insert(taskLogsTable).values({
+          id: randomUUID(),
+          taskId: task.id,
+          level: "warn",
+          message: `Task reset to "verifying" after process restart (retry ${task.retryCount + 1}/${task.maxRetries}). Re-trigger to execute.`,
+          correlationId,
+        });
+        resetCount++;
+      }
     } else {
       // Exceeded maxRetries — mark permanently failed.
       const [failedTask] = await db
@@ -742,16 +743,17 @@ async function reconcileAiTasks(): Promise<number> {
         );
       }
 
-      await db.insert(taskLogsTable).values({
-        id: randomUUID(),
-        taskId: task.id,
-        level: "error",
-        message: `Task permanently failed after process restart: retry limit of ${task.maxRetries} exceeded. ${ORPHANED_RUNNING_MESSAGE}`,
-        correlationId,
-      });
-
-      invalidateContextCache(task.projectId);
-      failedCount++;
+      if (failedTask) {
+        await db.insert(taskLogsTable).values({
+          id: randomUUID(),
+          taskId: task.id,
+          level: "error",
+          message: `Task permanently failed after process restart: retry limit of ${task.maxRetries} exceeded. ${ORPHANED_RUNNING_MESSAGE}`,
+          correlationId,
+        });
+        invalidateContextCache(task.projectId);
+        failedCount++;
+      }
     }
   }
 

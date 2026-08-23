@@ -1,7 +1,7 @@
 {
   "kind": "ai-release-quality-decision",
   "version": 1,
-  "generatedAt": "2026-08-23T20:07:56.458Z",
+  "generatedAt": "2026-08-23T20:46:09.519Z",
   "status": "blocked",
   "liveProviderChecks": "disabled",
   "previewChecks": "disabled",
@@ -30,7 +30,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 23562
+      "durationMs": 29588
     },
     {
       "id": "dashboard-typecheck",
@@ -42,7 +42,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 5571
+      "durationMs": 22428
     },
     {
       "id": "openapi-client-parity",
@@ -55,7 +55,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 7018
+      "durationMs": 7685
     },
     {
       "id": "truth-flow-parity",
@@ -68,7 +68,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "TRUTH_FLOW_PARITY_FAILED_1",
-      "durationMs": 1630
+      "durationMs": 1471
     },
     {
       "id": "ai-contract-and-json",
@@ -84,7 +84,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_CONTRACT_AND_JSON_FAILED_1",
-      "durationMs": 18770
+      "durationMs": 17571
     },
     {
       "id": "ai-sse-and-redaction",
@@ -100,7 +100,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_SSE_AND_REDACTION_FAILED_1",
-      "durationMs": 44589
+      "durationMs": 20148
     },
     {
       "id": "ai-operational-safety",
@@ -117,7 +117,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_OPERATIONAL_SAFETY_FAILED_1",
-      "durationMs": 60488
+      "durationMs": 59955
     },
     {
       "id": "ai-deterministic-benchmark",
@@ -132,7 +132,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 833
+      "durationMs": 1024
     },
     {
       "id": "benchmark-baseline-regression",
@@ -146,7 +146,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 475
+      "durationMs": 361
     },
     {
       "id": "dashboard-preview-contract",

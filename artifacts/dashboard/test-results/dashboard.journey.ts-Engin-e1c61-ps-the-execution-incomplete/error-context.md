@@ -7,7 +7,7 @@
 # Test info
 
 - Name: dashboard.journey.ts >> EngineeringOS dashboard browser journey >> resumes a failed analysis and keeps the execution incomplete
-- Location: e2e/dashboard.journey.ts:2104:3
+- Location: e2e/dashboard.journey.ts:2314:3
 
 # Error details
 
@@ -192,206 +192,206 @@ Error: page.waitForRequest: Test ended.
 # Test source
 
 ```ts
-  2044 |     ).toBeVisible();
-  2045 | 
-  2046 |     const reloadedText = await page.locator("body").innerText();
-  2047 |     await expectNoHorizontalOverflow(page);
-  2048 |     expect(reloadedText).not.toMatch(
-  2049 |       /raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i,
-  2050 |     );
-  2051 |   });
-  2052 | 
-  2053 |   test("preserves one partial answer after a provider disconnect and marks it incomplete", async ({
-  2054 |     page,
-  2055 |   }) => {
-  2056 |     const fixture = await installArabicAiFixture(page);
-  2057 |     await installApiFixtures(page, { arabicAi: fixture });
-  2058 |     await programmaticSignIn(page);
-  2059 |     await page.goto(`${DASHBOARD_PATH}ai`);
-  2060 | 
-  2061 |     const composer = page.locator("textarea").first();
-  2062 |     await composer.fill(fixture.question);
-  2063 |     await composer.locator("xpath=..").getByRole("button").click();
-  2064 | 
-  2065 |     const answer = page.getByText(fixture.answer, { exact: true });
-  2066 |     await expect(answer).toHaveCount(1);
-  2067 |     await expect(answer).toBeVisible();
-  2068 |     await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
-  2069 |     await expect(
-  2070 |       page.getByText("provider failure", { exact: false }).last(),
-  2071 |     ).toBeVisible();
-  2072 |     await expect(
-  2073 |       page.getByText("stopped: provider timeout", { exact: false }).last(),
-  2074 |     ).toBeVisible();
-  2075 |     await expect(
-  2076 |       page.getByText("The provider disconnected after visible response text.", {
-  2077 |         exact: true,
-  2078 |       }),
-  2079 |     ).toBeVisible();
-  2080 | 
-  2081 |     await page.reload();
-  2082 |     await page
-  2083 |       .getByRole("button", { name: fixture.question, exact: true })
-  2084 |       .click();
-  2085 | 
-  2086 |     await expect(page.getByText(fixture.answer, { exact: true })).toHaveCount(
-  2087 |       1,
-  2088 |     );
-  2089 |     await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
-  2090 |     await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
-  2091 |     await expect(
-  2092 |       page.getByText("provider failure", { exact: false }).last(),
-  2093 |     ).toBeVisible();
-  2094 |     await expect(
-  2095 |       page.getByText("stopped: provider timeout", { exact: false }).last(),
-  2096 |     ).toBeVisible();
-  2097 |     await expect(
-  2098 |       page.getByText("The provider disconnected after visible response text.", {
-  2099 |         exact: true,
-  2100 |       }),
-  2101 |     ).toBeVisible();
-  2102 |   });
-  2103 | 
-  2104 |   test("resumes a failed analysis and keeps the execution incomplete", async ({
-  2105 |     page,
-  2106 |   }) => {
-  2107 |     const { fixture, execution } = installResumedAnalysisFailureFixture();
-  2108 |     await installApiFixtures(page, {
-  2109 |       arabicAi: fixture,
-  2110 |       resumeFailure: { fixture, execution },
-  2111 |     });
-  2112 |     await programmaticSignIn(page);
-  2113 | 
-  2114 |     await page.evaluate(
-  2115 |       ({ sessionId, executionId, projectId, resumeToken, message }) => {
-  2116 |         localStorage.setItem(
-  2117 |           `eos_ai_execution_current_${projectId}`,
-  2118 |           sessionId,
-  2119 |         );
-  2120 |         localStorage.setItem(
-  2121 |           `eos_ai_execution_${projectId}_${sessionId}`,
-  2122 |           JSON.stringify({
-  2123 |             id: executionId,
-  2124 |             projectId,
-  2125 |             sessionId,
-  2126 |             resumeToken,
-  2127 |             message,
-  2128 |           }),
-  2129 |         );
-  2130 |       },
-  2131 |       {
-  2132 |         sessionId: fixture.sessionId,
-  2133 |         executionId: fixture.executionId,
-  2134 |         projectId: "e2e-project",
-  2135 |         resumeToken: "e2e-resumed-analysis-failure-token-opaque",
-  2136 |         message: fixture.question,
-  2137 |       },
-  2138 |     );
-  2139 |     await page.goto(`${DASHBOARD_PATH}ai`);
-  2140 | 
-  2141 |     await expect(
-  2142 |       page.getByText("A saved AI execution is ready to resume"),
-  2143 |     ).toBeVisible();
-> 2144 |     const resumeRequest = page.waitForRequest(
+  2254 |     ).toBeVisible();
+  2255 | 
+  2256 |     const reloadedText = await page.locator("body").innerText();
+  2257 |     await expectNoHorizontalOverflow(page);
+  2258 |     expect(reloadedText).not.toMatch(
+  2259 |       /raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i,
+  2260 |     );
+  2261 |   });
+  2262 | 
+  2263 |   test("preserves one partial answer after a provider disconnect and marks it incomplete", async ({
+  2264 |     page,
+  2265 |   }) => {
+  2266 |     const fixture = await installArabicAiFixture(page);
+  2267 |     await installApiFixtures(page, { arabicAi: fixture });
+  2268 |     await programmaticSignIn(page);
+  2269 |     await page.goto(`${DASHBOARD_PATH}ai`);
+  2270 | 
+  2271 |     const composer = page.locator("textarea").first();
+  2272 |     await composer.fill(fixture.question);
+  2273 |     await composer.locator("xpath=..").getByRole("button").click();
+  2274 | 
+  2275 |     const answer = page.getByText(fixture.answer, { exact: true });
+  2276 |     await expect(answer).toHaveCount(1);
+  2277 |     await expect(answer).toBeVisible();
+  2278 |     await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
+  2279 |     await expect(
+  2280 |       page.getByText("provider failure", { exact: false }).last(),
+  2281 |     ).toBeVisible();
+  2282 |     await expect(
+  2283 |       page.getByText("stopped: provider timeout", { exact: false }).last(),
+  2284 |     ).toBeVisible();
+  2285 |     await expect(
+  2286 |       page.getByText("The provider disconnected after visible response text.", {
+  2287 |         exact: true,
+  2288 |       }),
+  2289 |     ).toBeVisible();
+  2290 | 
+  2291 |     await page.reload();
+  2292 |     await page
+  2293 |       .getByRole("button", { name: fixture.question, exact: true })
+  2294 |       .click();
+  2295 | 
+  2296 |     await expect(page.getByText(fixture.answer, { exact: true })).toHaveCount(
+  2297 |       1,
+  2298 |     );
+  2299 |     await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
+  2300 |     await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
+  2301 |     await expect(
+  2302 |       page.getByText("provider failure", { exact: false }).last(),
+  2303 |     ).toBeVisible();
+  2304 |     await expect(
+  2305 |       page.getByText("stopped: provider timeout", { exact: false }).last(),
+  2306 |     ).toBeVisible();
+  2307 |     await expect(
+  2308 |       page.getByText("The provider disconnected after visible response text.", {
+  2309 |         exact: true,
+  2310 |       }),
+  2311 |     ).toBeVisible();
+  2312 |   });
+  2313 | 
+  2314 |   test("resumes a failed analysis and keeps the execution incomplete", async ({
+  2315 |     page,
+  2316 |   }) => {
+  2317 |     const { fixture, execution } = installResumedAnalysisFailureFixture();
+  2318 |     await installApiFixtures(page, {
+  2319 |       arabicAi: fixture,
+  2320 |       resumeFailure: { fixture, execution },
+  2321 |     });
+  2322 |     await programmaticSignIn(page);
+  2323 | 
+  2324 |     await page.evaluate(
+  2325 |       ({ sessionId, executionId, projectId, resumeToken, message }) => {
+  2326 |         localStorage.setItem(
+  2327 |           `eos_ai_execution_current_${projectId}`,
+  2328 |           sessionId,
+  2329 |         );
+  2330 |         localStorage.setItem(
+  2331 |           `eos_ai_execution_${projectId}_${sessionId}`,
+  2332 |           JSON.stringify({
+  2333 |             id: executionId,
+  2334 |             projectId,
+  2335 |             sessionId,
+  2336 |             resumeToken,
+  2337 |             message,
+  2338 |           }),
+  2339 |         );
+  2340 |       },
+  2341 |       {
+  2342 |         sessionId: fixture.sessionId,
+  2343 |         executionId: fixture.executionId,
+  2344 |         projectId: "e2e-project",
+  2345 |         resumeToken: "e2e-resumed-analysis-failure-token-opaque",
+  2346 |         message: fixture.question,
+  2347 |       },
+  2348 |     );
+  2349 |     await page.goto(`${DASHBOARD_PATH}ai`);
+  2350 | 
+  2351 |     await expect(
+  2352 |       page.getByText("A saved AI execution is ready to resume"),
+  2353 |     ).toBeVisible();
+> 2354 |     const resumeRequest = page.waitForRequest(
        |                                ^ Error: page.waitForRequest: Test ended.
-  2145 |       (request) =>
-  2146 |         request.url().includes("/api/ai/chat/stream") &&
-  2147 |         request.method() === "POST",
-  2148 |     );
-  2149 |     await page.getByRole("button", { name: "Resume", exact: true }).click();
-  2150 |     const requestBody = JSON.parse(
-  2151 |       (await resumeRequest).postData() ?? "{}",
-  2152 |     ) as Record<string, unknown>;
-  2153 |     expect(requestBody).toEqual(
-  2154 |       expect.objectContaining({
-  2155 |         projectId: "e2e-project",
-  2156 |         sessionId: fixture.sessionId,
-  2157 |         executionId: fixture.executionId,
-  2158 |         resumeToken: "e2e-resumed-analysis-failure-token-opaque",
-  2159 |         message: fixture.question,
-  2160 |       }),
-  2161 |     );
-  2162 | 
-  2163 |     await expect(
-  2164 |       page.getByText("Failed to send message", { exact: true }),
-  2165 |     ).toBeVisible();
-  2166 |     await expect(
-  2167 |       page.getByText("A saved AI execution is ready to resume"),
-  2168 |     ).toBeVisible();
-  2169 |     const visibleText = await page.locator("body").innerText();
-  2170 |     expect(visibleText).not.toContain("COMPLETED");
-  2171 |     expect(visibleText).not.toContain("Persisted execution proof");
-  2172 |     expect(visibleText).toContain("The required analysis did not complete.");
-  2173 |   });
-  2174 | 
-  2175 |   test("recovers a missing token after a real stream abort and resumes one execution", async ({
-  2176 |     page,
-  2177 |   }) => {
-  2178 |     const recovery = installInterruptedResumeFixture();
-  2179 |     await installApiFixtures(page, { interruptedResume: recovery });
-  2180 |     await page.addInitScript(() => {
-  2181 |       const nativeFetch = window.fetch.bind(window);
-  2182 |       window.fetch = async (input, init) => {
-  2183 |         const url = typeof input === "string"
-  2184 |           ? input
-  2185 |           : input instanceof Request
-  2186 |             ? input.url
-  2187 |             : String(input);
-  2188 |         const body = typeof init?.body === "string" ? init.body : "";
-  2189 |         if (!url.includes("/api/ai/chat/stream") || body.includes('"executionId"')) {
-  2190 |           return nativeFetch(input, init);
-  2191 |         }
-  2192 | 
-  2193 |         const response = await nativeFetch(input, init);
-  2194 |         if (!response.body) return response;
-  2195 |         const reader = response.body.getReader();
-  2196 |         const encoder = new TextEncoder();
-  2197 |         const stream = new ReadableStream({
-  2198 |           async start(controller) {
-  2199 |             let buffered = "";
-  2200 |             while (true) {
-  2201 |               const { done, value } = await reader.read();
-  2202 |               if (done) {
-  2203 |                 if (buffered) controller.enqueue(encoder.encode(buffered));
-  2204 |                 controller.close();
-  2205 |                 return;
-  2206 |               }
-  2207 |               buffered += new TextDecoder().decode(value, { stream: true });
-  2208 |               const marker = buffered.indexOf('"type":"execution_started"');
-  2209 |               const frameEnd = marker < 0 ? -1 : buffered.indexOf("\n\n", marker);
-  2210 |               if (frameEnd >= 0) {
-  2211 |                 controller.enqueue(encoder.encode(buffered.slice(0, frameEnd + 2)));
-  2212 |                 controller.error(new TypeError("network connection reset"));
-  2213 |                 return;
-  2214 |               }
-  2215 |             }
-  2216 |           },
-  2217 |         });
-  2218 |         return new Response(stream, {
-  2219 |           status: response.status,
-  2220 |           statusText: response.statusText,
-  2221 |           headers: response.headers,
-  2222 |         });
-  2223 |       };
-  2224 |     });
-  2225 |     await programmaticSignIn(page);
-  2226 |     await page.goto(`${DASHBOARD_PATH}ai`);
-  2227 | 
-  2228 |     const streamRequests: Array<Record<string, unknown>> = [];
-  2229 |     page.on("request", (request) => {
-  2230 |       if (
-  2231 |         request.url().includes("/api/ai/chat/stream") &&
-  2232 |         request.method() === "POST"
-  2233 |       ) {
-  2234 |         try {
-  2235 |           streamRequests.push(request.postDataJSON() as Record<string, unknown>);
-  2236 |         } catch {
-  2237 |           // Ignore requests without a JSON body; the assertions below require
-  2238 |           // both journey requests to have a valid request envelope.
-  2239 |         }
-  2240 |       }
-  2241 |     });
-  2242 | 
-  2243 |     const composer = page.locator("textarea").first();
-  2244 |     await composer.fill(recovery.fixture.question);
+  2355 |       (request) =>
+  2356 |         request.url().includes("/api/ai/chat/stream") &&
+  2357 |         request.method() === "POST",
+  2358 |     );
+  2359 |     await page.getByRole("button", { name: "Resume", exact: true }).click();
+  2360 |     const requestBody = JSON.parse(
+  2361 |       (await resumeRequest).postData() ?? "{}",
+  2362 |     ) as Record<string, unknown>;
+  2363 |     expect(requestBody).toEqual(
+  2364 |       expect.objectContaining({
+  2365 |         projectId: "e2e-project",
+  2366 |         sessionId: fixture.sessionId,
+  2367 |         executionId: fixture.executionId,
+  2368 |         resumeToken: "e2e-resumed-analysis-failure-token-opaque",
+  2369 |         message: fixture.question,
+  2370 |       }),
+  2371 |     );
+  2372 | 
+  2373 |     await expect(
+  2374 |       page.getByText("Failed to send message", { exact: true }),
+  2375 |     ).toBeVisible();
+  2376 |     await expect(
+  2377 |       page.getByText("A saved AI execution is ready to resume"),
+  2378 |     ).toBeVisible();
+  2379 |     const visibleText = await page.locator("body").innerText();
+  2380 |     expect(visibleText).not.toContain("COMPLETED");
+  2381 |     expect(visibleText).not.toContain("Persisted execution proof");
+  2382 |     expect(visibleText).toContain("The required analysis did not complete.");
+  2383 |   });
+  2384 | 
+  2385 |   test("recovers a missing token after a real stream abort and resumes one execution", async ({
+  2386 |     page,
+  2387 |   }) => {
+  2388 |     const recovery = installInterruptedResumeFixture();
+  2389 |     await installApiFixtures(page, { interruptedResume: recovery });
+  2390 |     await page.addInitScript(() => {
+  2391 |       const nativeFetch = window.fetch.bind(window);
+  2392 |       window.fetch = async (input, init) => {
+  2393 |         const url =
+  2394 |           typeof input === "string"
+  2395 |             ? input
+  2396 |             : input instanceof Request
+  2397 |               ? input.url
+  2398 |               : String(input);
+  2399 |         const body = typeof init?.body === "string" ? init.body : "";
+  2400 |         if (
+  2401 |           !url.includes("/api/ai/chat/stream") ||
+  2402 |           body.includes('"executionId"')
+  2403 |         ) {
+  2404 |           return nativeFetch(input, init);
+  2405 |         }
+  2406 | 
+  2407 |         const response = await nativeFetch(input, init);
+  2408 |         if (!response.body) return response;
+  2409 |         const reader = response.body.getReader();
+  2410 |         const encoder = new TextEncoder();
+  2411 |         const stream = new ReadableStream({
+  2412 |           async start(controller) {
+  2413 |             let buffered = "";
+  2414 |             while (true) {
+  2415 |               const { done, value } = await reader.read();
+  2416 |               if (done) {
+  2417 |                 if (buffered) controller.enqueue(encoder.encode(buffered));
+  2418 |                 controller.close();
+  2419 |                 return;
+  2420 |               }
+  2421 |               buffered += new TextDecoder().decode(value, { stream: true });
+  2422 |               const marker = buffered.indexOf('"type":"execution_started"');
+  2423 |               const frameEnd =
+  2424 |                 marker < 0 ? -1 : buffered.indexOf("\n\n", marker);
+  2425 |               if (frameEnd >= 0) {
+  2426 |                 controller.enqueue(
+  2427 |                   encoder.encode(buffered.slice(0, frameEnd + 2)),
+  2428 |                 );
+  2429 |                 controller.error(new TypeError("network connection reset"));
+  2430 |                 return;
+  2431 |               }
+  2432 |             }
+  2433 |           },
+  2434 |         });
+  2435 |         return new Response(stream, {
+  2436 |           status: response.status,
+  2437 |           statusText: response.statusText,
+  2438 |           headers: response.headers,
+  2439 |         });
+  2440 |       };
+  2441 |     });
+  2442 |     await programmaticSignIn(page);
+  2443 |     await page.goto(`${DASHBOARD_PATH}ai`);
+  2444 | 
+  2445 |     const streamRequests: Array<Record<string, unknown>> = [];
+  2446 |     page.on("request", (request) => {
+  2447 |       if (
+  2448 |         request.url().includes("/api/ai/chat/stream") &&
+  2449 |         request.method() === "POST"
+  2450 |       ) {
+  2451 |         try {
+  2452 |           streamRequests.push(
+  2453 |             request.postDataJSON() as Record<string, unknown>,
+  2454 |           );
 ```

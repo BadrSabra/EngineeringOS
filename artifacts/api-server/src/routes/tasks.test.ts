@@ -404,8 +404,8 @@ describe("PR-C — AI auto-trigger on verifying", () => {
     const res = await request(app)
       .patch(`/api/tasks/${taskId}`)
       .send({ status: "completed" });
-    expect(res.status).toBe(200);
-
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("invalid_task_transition");
     expect(mockScheduleAiTaskExecution).not.toHaveBeenCalled();
   });
 });
