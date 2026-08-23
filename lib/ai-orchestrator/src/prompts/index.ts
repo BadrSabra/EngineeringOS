@@ -1,4 +1,11 @@
-export { composePrompt, promptCodeBlock, promptContextOverview, promptList, promptSection } from "./prompt-composer.js";
+export {
+  composePrompt,
+  promptCodeBlock,
+  promptContextOverview,
+  promptEvidenceSection,
+  promptList,
+  promptSection,
+} from "./prompt-composer.js";
 export { buildPromptContextProfile, buildPromptPlan } from "./prompt-planner.js";
 export { buildChatSystemPrompt } from "./chat.prompt.js";
 export { buildCodeReviewSystemPrompt, buildCodeReviewUserPrompt } from "./review.prompt.js";

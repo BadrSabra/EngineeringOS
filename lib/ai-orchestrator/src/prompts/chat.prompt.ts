@@ -326,7 +326,9 @@ export function buildChatSystemPrompt({
 
   return composePrompt(
     identityLine,
-    formatUntrustedContent(promptContextOverview(promptContext, profile), {
+    formatUntrustedContent(promptContextOverview(promptContext, profile, {
+      includeSessionMemory: !suppressSessionMemory,
+    }), {
       source: "source",
     }),
     `How project access works:
