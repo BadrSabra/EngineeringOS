@@ -257,6 +257,8 @@ function projectExecution(execution: typeof aiExecutionsTable.$inferSelect) {
   const latestProviderStep = [...steps].reverse().find((step) => textValue(step.provider));
   const hasPendingProposal = Boolean(execution.proposalId);
   const evidenceVerdict = textValue(checkpoint.evidenceVerdict ?? checkpoint.evidenceStatus, 48);
+  const autonomousOperation = asRecord(checkpoint.operation);
+  const autonomousState = textValue(autonomousOperation?.state, 48);
   const state = deriveFlightDeckState({
     executionStatus: execution.status,
     checkpointStage: textValue(checkpoint.stage, 48),
@@ -279,7 +281,13 @@ function projectExecution(execution: typeof aiExecutionsTable.$inferSelect) {
   return {
     id: execution.id,
     projectId: execution.projectId,
-    state,
+    // The operation contract is the authoritative stage projection when
+    // present. Flight Deck derivation remains the compatibility projection for
+    // executions created before the contract was persisted.
+    state: autonomousState
+      && ["planned", "inspecting", "mutating", "validating", "diagnosing", "repairing", "promoting", "delivering", "succeeded", "failed", "cancelled", "blocked", "uncertain"].includes(autonomousState)
+      ? autonomousState.toUpperCase()
+      : state,
     executionStatus: execution.status,
     objective: objectiveText,
     provider: textValue(latestProviderStep?.provider),

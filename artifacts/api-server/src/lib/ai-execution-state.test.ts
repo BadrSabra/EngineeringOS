@@ -81,7 +81,12 @@ vi.mock("@workspace/db", () => {
   };
 });
 
-import { createAiExecution } from "./ai-execution-state.js";
+import {
+  createAiExecution,
+  createAutonomousOperationContract,
+  parseAiExecutionCheckpoint,
+  transitionAutonomousOperation,
+} from "./ai-execution-state.js";
 
 describe("createAiExecution", () => {
   it("converges simultaneous first submissions on one execution", async () => {
@@ -109,5 +114,46 @@ describe("createAiExecution", () => {
       "execution-1",
     ]);
     expect(results.map(({ created }) => created).sort()).toEqual([false, true]);
+  });
+});
+
+describe("autonomous operation contract", () => {
+  it("enforces the server-owned stage graph and evidence gate", () => {
+    const planned = createAutonomousOperationContract({
+      operationId: "operation-1",
+      objective: "Fix the parser",
+      revisionManifest: "revision-1",
+    });
+    expect(() => transitionAutonomousOperation(planned, "delivering")).toThrow(/Illegal/);
+    const validating = transitionAutonomousOperation(
+      transitionAutonomousOperation(planned, "inspecting"),
+      "mutating",
+    );
+    expect(() => transitionAutonomousOperation(validating, "succeeded")).toThrow(/Illegal/);
+    const ready = transitionAutonomousOperation(
+      transitionAutonomousOperation(validating, "validating"),
+      "promoting",
+    );
+    expect(() => transitionAutonomousOperation(ready, "delivering")).not.toThrow();
+  });
+
+  it("retains and validates the operation contract inside a checkpoint", () => {
+    const operation = createAutonomousOperationContract({
+      operationId: "operation-2",
+      objective: "Repair a failing test",
+    });
+    const checkpoint = parseAiExecutionCheckpoint(JSON.stringify({
+      stage: "running",
+      sequence: 1,
+      operation,
+      updatedAt: new Date().toISOString(),
+    }));
+    expect(checkpoint?.operation?.operationId).toBe("operation-2");
+    expect(parseAiExecutionCheckpoint(JSON.stringify({
+      stage: "running",
+      sequence: 2,
+      operation: { ...operation, retryBudget: 1, repairAttempts: 2 },
+      updatedAt: new Date().toISOString(),
+    }))).toBeUndefined();
   });
 });

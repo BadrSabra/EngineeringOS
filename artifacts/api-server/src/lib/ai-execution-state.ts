@@ -12,6 +12,119 @@ export const AI_EXECUTION_NODE_LIMIT = 24;
 export const AI_EXECUTION_NODE_FILES_LIMIT = 48;
 const activeControllers = new Map<string, AbortController>();
 
+/**
+ * The durable operation state is intentionally separate from the provider
+ * lifecycle status. `ai_executions.status` answers "is a worker alive?", while
+ * this state answers "which guarded operation stage owns the next action?"
+ * Keeping both prevents a reconnect or provider response from being treated as
+ * proof that a mutation, promotion, or delivery succeeded.
+ */
+export const AUTONOMOUS_OPERATION_STATES = [
+  "planned",
+  "inspecting",
+  "mutating",
+  "validating",
+  "diagnosing",
+  "repairing",
+  "promoting",
+  "delivering",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "blocked",
+  "uncertain",
+] as const;
+export type AutonomousOperationState = (typeof AUTONOMOUS_OPERATION_STATES)[number];
+export type AutonomousOperationNodeKind =
+  | "inspect"
+  | "mutate"
+  | "validate"
+  | "diagnose"
+  | "repair"
+  | "promote"
+  | "delivery";
+
+export type AutonomousOperationNode = {
+  id: string;
+  kind: AutonomousOperationNodeKind;
+  dependencies: string[];
+  status: "queued" | "running" | "passed" | "failed" | "blocked";
+  attempts: number;
+  validationAttempts: number;
+  allowedFiles: string[];
+  validationProfile: string;
+  evidenceRefs: string[];
+};
+
+export type AutonomousOperationContract = {
+  operationId: string;
+  objective: string;
+  revisionManifest: string;
+  planHash: string;
+  policyRevision: string;
+  candidateIdentity: string | null;
+  state: AutonomousOperationState;
+  nodes: AutonomousOperationNode[];
+  retryBudget: number;
+  repairAttempts: number;
+  evidenceRefs: string[];
+  updatedAt: string;
+};
+
+const OPERATION_TRANSITIONS: Record<AutonomousOperationState, readonly AutonomousOperationState[]> = {
+  planned: ["inspecting", "blocked", "cancelled"],
+  inspecting: ["mutating", "validating", "blocked", "cancelled", "failed"],
+  mutating: ["validating", "blocked", "cancelled", "uncertain", "failed"],
+  validating: ["succeeded", "diagnosing", "promoting", "blocked", "cancelled", "uncertain", "failed"],
+  diagnosing: ["repairing", "blocked", "cancelled", "failed"],
+  repairing: ["validating", "blocked", "cancelled", "uncertain", "failed"],
+  promoting: ["delivering", "blocked", "cancelled", "uncertain", "failed"],
+  delivering: ["succeeded", "blocked", "cancelled", "uncertain", "failed"],
+  succeeded: [],
+  failed: [],
+  cancelled: [],
+  blocked: [],
+  uncertain: [],
+};
+
+export function transitionAutonomousOperation(
+  operation: AutonomousOperationContract,
+  nextState: AutonomousOperationState,
+  evidenceRefs: readonly string[] = [],
+): AutonomousOperationContract {
+  if (operation.state === nextState) return operation;
+  if (!OPERATION_TRANSITIONS[operation.state].includes(nextState)) {
+    throw new Error(`Illegal autonomous operation transition: ${operation.state} -> ${nextState}`);
+  }
+  if (["succeeded", "promoting", "delivering"].includes(nextState)
+    && operation.nodes.some((node) => node.status === "failed" || node.status === "blocked")) {
+    throw new Error("Autonomous operation cannot advance with failed or blocked nodes.");
+  }
+  if (nextState === "succeeded" && operation.evidenceRefs.length === 0 && evidenceRefs.length === 0) {
+    throw new Error("Autonomous operation success requires retained evidence.");
+  }
+  return {
+    ...operation,
+    state: nextState,
+    evidenceRefs: [...new Set([...operation.evidenceRefs, ...evidenceRefs])].slice(0, 48),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function assertAutonomousOperationIdentity(
+  original: AutonomousOperationContract,
+  candidate: AutonomousOperationContract,
+): void {
+  for (const key of ["operationId", "objective", "revisionManifest", "planHash", "policyRevision", "candidateIdentity"] as const) {
+    if (original[key] !== candidate[key]) {
+      throw new Error(`Autonomous operation identity changed: ${key}`);
+    }
+  }
+  if (candidate.retryBudget < 0 || candidate.repairAttempts < 0 || candidate.repairAttempts > candidate.retryBudget) {
+    throw new Error("Autonomous operation retry budget is invalid.");
+  }
+}
+
 export type AiExecutionRequestEnvelope = {
   projectId: string;
   sessionId?: string;
@@ -60,6 +173,7 @@ export type AiExecutionCheckpoint = {
   evidenceReason?: string;
   proofRequired?: boolean;
   detail?: string;
+  operation?: AutonomousOperationContract;
   updatedAt: string;
 };
 
@@ -81,6 +195,32 @@ export function hashResumeToken(token: string): string {
 
 export function createResumeToken(): string {
   return randomUUID().replaceAll("-", "") + randomUUID().replaceAll("-", "");
+}
+
+export function createAutonomousOperationContract(params: {
+  operationId: string;
+  objective: string;
+  revisionManifest?: string;
+  planHash?: string;
+  policyRevision?: string;
+  candidateIdentity?: string | null;
+  nodes?: AutonomousOperationNode[];
+}): AutonomousOperationContract {
+  const objective = params.objective.slice(0, 2_000);
+  return {
+    operationId: params.operationId,
+    objective,
+    revisionManifest: (params.revisionManifest ?? "unbound").slice(0, 2_000),
+    planHash: params.planHash ?? createHash("sha256").update(objective).digest("hex"),
+    policyRevision: params.policyRevision ?? "server-policy-v1",
+    candidateIdentity: params.candidateIdentity ?? null,
+    state: "planned",
+    nodes: params.nodes ?? [],
+    retryBudget: 3,
+    repairAttempts: 0,
+    evidenceRefs: [],
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope | undefined {
@@ -181,6 +321,10 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
           }];
         })
       : undefined;
+    const operation = value.operation && typeof value.operation === "object"
+      ? parseAutonomousOperation(value.operation)
+      : undefined;
+    if (value.operation !== undefined && !operation) return undefined;
     return {
       stage: value.stage as AiExecutionCheckpoint["stage"],
       sequence: value.sequence,
@@ -209,11 +353,110 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
         : {}),
       ...(typeof value.proofRequired === "boolean" ? { proofRequired: value.proofRequired } : {}),
       ...(typeof value.detail === "string" ? { detail: value.detail.slice(0, 500) } : {}),
+      ...(operation ? { operation } : {}),
       updatedAt: value.updatedAt,
     };
   } catch {
     return undefined;
   }
+}
+
+function parseAutonomousOperation(value: unknown): AutonomousOperationContract | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<AutonomousOperationContract>;
+  if (
+    typeof candidate.operationId !== "string"
+    || typeof candidate.objective !== "string"
+    || typeof candidate.revisionManifest !== "string"
+    || typeof candidate.planHash !== "string"
+    || typeof candidate.policyRevision !== "string"
+    || (candidate.candidateIdentity !== null && typeof candidate.candidateIdentity !== "string")
+    || !AUTONOMOUS_OPERATION_STATES.includes(candidate.state as AutonomousOperationState)
+    || !Array.isArray(candidate.nodes)
+    || !Number.isInteger(candidate.retryBudget)
+    || !Number.isInteger(candidate.repairAttempts)
+    || !Array.isArray(candidate.evidenceRefs)
+    || typeof candidate.updatedAt !== "string"
+  ) return undefined;
+  const nodes = candidate.nodes.slice(0, AI_EXECUTION_NODE_LIMIT).flatMap((node) => {
+    if (!node || typeof node !== "object") return [];
+    const item = node as Partial<AutonomousOperationNode>;
+    if (
+      typeof item.id !== "string" || !["inspect", "mutate", "validate", "diagnose", "repair", "promote", "delivery"].includes(item.kind ?? "")
+      || !["queued", "running", "passed", "failed", "blocked"].includes(item.status ?? "")
+      || !Array.isArray(item.dependencies) || !Array.isArray(item.allowedFiles)
+      || !Array.isArray(item.evidenceRefs) || typeof item.validationProfile !== "string"
+      || !Number.isInteger(item.attempts) || !Number.isInteger(item.validationAttempts)
+    ) return [];
+    const attempts = item.attempts as number;
+    const validationAttempts = item.validationAttempts as number;
+    return [{
+      id: item.id.slice(0, 160),
+      kind: item.kind as AutonomousOperationNodeKind,
+      dependencies: item.dependencies.filter((v): v is string => typeof v === "string").slice(0, 12),
+      status: item.status as AutonomousOperationNode["status"],
+      attempts: Math.max(0, Math.min(attempts, 3)),
+      validationAttempts: Math.max(0, Math.min(validationAttempts, 3)),
+      allowedFiles: item.allowedFiles.filter((v): v is string => typeof v === "string").slice(0, AI_EXECUTION_NODE_FILES_LIMIT),
+      validationProfile: item.validationProfile.slice(0, 120),
+      evidenceRefs: item.evidenceRefs.filter((v): v is string => typeof v === "string").slice(0, 8),
+    }];
+  });
+  const retryBudget = candidate.retryBudget as number;
+  const repairAttempts = candidate.repairAttempts as number;
+  if (nodes.length !== candidate.nodes.length || retryBudget < 0 || repairAttempts < 0
+    || repairAttempts > retryBudget) return undefined;
+  return {
+    operationId: candidate.operationId.slice(0, 160),
+    objective: candidate.objective.slice(0, 2_000),
+    revisionManifest: candidate.revisionManifest.slice(0, 2_000),
+    planHash: candidate.planHash.slice(0, 160),
+    policyRevision: candidate.policyRevision.slice(0, 160),
+    candidateIdentity: candidate.candidateIdentity ? candidate.candidateIdentity.slice(0, 500) : null,
+    state: candidate.state as AutonomousOperationState,
+    nodes,
+    retryBudget: Math.min(retryBudget, 8),
+    repairAttempts: Math.min(repairAttempts, 8),
+    evidenceRefs: candidate.evidenceRefs.filter((v): v is string => typeof v === "string").slice(0, 48),
+    updatedAt: candidate.updatedAt,
+  };
+}
+
+function operationStateForCheckpoint(stage: AiExecutionCheckpoint["stage"]): AutonomousOperationState | undefined {
+  if (stage === "model_call") return "inspecting";
+  if (stage === "tool_loop") return "mutating";
+  if (stage === "finalizing") return "validating";
+  if (stage === "failed") return "failed";
+  if (stage === "cancelled" || stage === "client_disconnected") return "cancelled";
+  return undefined;
+}
+
+function advanceOperationForCheckpoint(
+  operation: AutonomousOperationContract,
+  stage: AiExecutionCheckpoint["stage"],
+): AutonomousOperationContract {
+  const target = operationStateForCheckpoint(stage);
+  if (!target || operation.state === target) return operation;
+  // A stage-only writer may resume directly at tool_loop after a process
+  // restart. The server fills only the known prerequisite transition; it
+  // never accepts a provider's assertion as a skipped graph edge.
+  const bridge: Partial<Record<AutonomousOperationState, AutonomousOperationState>> = {
+    planned: "inspecting",
+    inspecting: "mutating",
+    mutating: "validating",
+  };
+  let current = operation;
+  while (current.state !== target) {
+    const next = bridge[current.state];
+    if (!next) {
+      if (target === "failed" || target === "cancelled") {
+        return transitionAutonomousOperation(current, target);
+      }
+      return current;
+    }
+    current = transitionAutonomousOperation(current, next);
+  }
+  return current;
 }
 
 function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
@@ -324,13 +567,21 @@ export async function createAiExecution(params: {
   const resumeToken = createResumeToken();
   const now = new Date();
   const executionId = randomUUID();
+  const operationId = params.buildPlanMessageId ?? executionId;
+  const operation = createAutonomousOperationContract({
+    operationId,
+    objective: typeof params.request.objective === "string"
+      ? params.request.objective
+      : params.request.message,
+    revisionManifest: params.request.workspaceRevision,
+  });
   const [execution] = await db
     .insert(aiExecutionsTable)
     .values({
       id: executionId,
       projectId: params.projectId,
       sessionId: params.sessionId ?? null,
-      operationId: params.buildPlanMessageId ?? executionId,
+      operationId,
       linkedTaskId: params.linkedTaskId ?? null,
       buildPlanMessageId: params.buildPlanMessageId ?? null,
       userId: params.userId,
@@ -342,6 +593,7 @@ export async function createAiExecution(params: {
       checkpoint: JSON.stringify({
         stage: "queued",
         sequence: 0,
+        operation,
         updatedAt: now.toISOString(),
       } satisfies AiExecutionCheckpoint),
       status: "queued",
@@ -444,11 +696,21 @@ export async function checkpointAiExecution(params: {
   workerId: string;
   checkpoint: AiExecutionCheckpoint;
 }): Promise<boolean> {
+  // Keep this update atomic: the worker lease and checkpoint version are the
+  // concurrency boundary. Callers that advance an operation include its
+  // server-validated contract in the checkpoint; legacy stage-only writers
+  // remain compatible and do not get a second read/race window here.
+  const durableOperation = params.checkpoint.operation
+    ? advanceOperationForCheckpoint(params.checkpoint.operation, params.checkpoint.stage)
+    : undefined;
+  const durableCheckpoint = durableOperation
+    ? { ...params.checkpoint, operation: durableOperation }
+    : params.checkpoint;
   const [updated] = await db
     .update(aiExecutionsTable)
     .set({
-      checkpoint: JSON.stringify(params.checkpoint),
-      checkpointVersion: params.checkpoint.sequence,
+      checkpoint: JSON.stringify(durableCheckpoint),
+      checkpointVersion: durableCheckpoint.sequence,
       updatedAt: new Date(),
       lastHeartbeatAt: new Date(),
       leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
