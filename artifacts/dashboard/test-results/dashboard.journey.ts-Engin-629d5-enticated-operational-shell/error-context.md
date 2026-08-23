@@ -14,7 +14,7 @@
 ```
 Error: expect(received).toBe(expected) // Object.is equality
 
-Expected: "https://6aa0d55b-d211-4470-936b-5cd5c56e1e7a-00-wz1myvisw9tr-yygb06ij.janeway.replit.dev"
+Expected: "https://6aa0d55b-d211-4470-936b-5cd5c56e1e7a-00-wz1myvisw9tr-2l795xjg.janeway.replit.dev"
 Received: undefined
 ```
 
@@ -69,7 +69,7 @@ Received: undefined
               - paragraph [ref=f1e97]: Real-time status of all autonomous engineering operations.
             - generic [ref=f1e98]:
               - generic [ref=f1e99]:
-                - generic [ref=f1e100]: Updated 3:34:35 AM
+                - generic [ref=f1e100]: Updated 3:50:41 AM
                 - button "Refresh status" [ref=f1e101]
               - generic [ref=f1e107]: SYSTEM ONLINE
           - region "AI diagnostics retention health" [ref=f1e109]:
@@ -78,7 +78,7 @@ Received: undefined
                 - generic [ref=f1e118]:
                   - heading "AI diagnostics retention" [level=2] [ref=f1e119]
                   - generic [ref=f1e120]: Healthy
-                - paragraph [ref=f1e121]: Last completed 8/23/2026, 3:34:09 AM
+                - paragraph [ref=f1e121]: Last completed 8/23/2026, 3:50:22 AM
               - generic [ref=f1e122]:
                 - generic [ref=f1e123]: Chat rows
                 - generic [ref=f1e124]: 0 scanned / 0 pruned

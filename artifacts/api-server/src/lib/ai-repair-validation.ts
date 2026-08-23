@@ -9,6 +9,12 @@ import {
   type ValidationResult,
   type ValidationStatus,
 } from "@workspace/ai-orchestrator";
+import {
+  verifyBrowserPreview,
+  type PreviewBrowser,
+  type PreviewSession,
+  type PreviewStep,
+} from "./browser-preview-verification.js";
 
 export type RepairVerificationStatus = ValidationStatus;
 export type ValidationFailure = SharedValidationFailure;
@@ -423,4 +429,44 @@ export async function runRepairRuntimeOracle(
   } finally {
     await validationWorkspace?.cleanup();
   }
+}
+
+/**
+ * Optional UI validation gate. It deliberately returns the same canonical
+ * ValidationResult shape as command validation, so callers must explicitly
+ * include it in their approval requirements; an unavailable/failed Preview
+ * can never be interpreted as a passed repair.
+ */
+export async function runRepairPreviewValidation(input: {
+  session: PreviewSession;
+  operationId: string;
+  executionId: string;
+  revision: string;
+  steps: readonly PreviewStep[];
+  browser: PreviewBrowser;
+  screenshotDirectory?: string;
+}): Promise<ValidationResult> {
+  const result = await verifyBrowserPreview(input);
+  const status = result.status === "passed" ? "passed" : result.status;
+  return {
+    profile: "browser-preview",
+    status,
+    scenario: "Run the registered browser checks against the isolated project Preview.",
+    command: "browser-preview",
+    exitCode: status === "passed" ? 0 : null,
+    stdout: "",
+    stderr: result.consoleErrors.join("\n"),
+    failedTests: result.status === "failed"
+      ? [{ name: "browser preview", message: result.summary }]
+      : [],
+    changedFiles: [],
+    evidence: {
+      evidenceId: `${result.sessionId}:${result.operationId}:${result.executionId}`,
+      observedAt: result.observedAt,
+      artifactRef: result.screenshotPath
+        ? `browser-preview:${result.screenshotPath}`
+        : `browser-preview:${result.sessionId}`,
+    },
+    detail: result.summary,
+  };
 }
