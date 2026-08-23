@@ -30,7 +30,16 @@ export const GetHealthResponse = zod.object({
   "chatRowsPruned": zod.number(),
   "executionRowsScanned": zod.number(),
   "executionRowsPruned": zod.number()
-}).optional().describe('Content-free status of the most recent historical AI diagnostics retention sweep. A failed sweep is retried on the next startup.\n')
+}).optional().describe('Content-free status of the most recent historical AI diagnostics retention sweep. A failed sweep is retried on the next startup.\n'),
+  "taskExecutionRetention": zod.object({
+  "status": zod.enum(['success', 'failed']),
+  "attemptedAt": zod.coerce.date().nullable(),
+  "completedAt": zod.coerce.date().nullable(),
+  "taskLogRowsScanned": zod.number(),
+  "taskLogRowsRemoved": zod.number(),
+  "receiptRowsScanned": zod.number(),
+  "receiptRowsRemoved": zod.number()
+}).optional().describe('Content-free status of the bounded task-log and terminal execution receipt retention sweep. Active and resumable executions are retained.\n')
 })
 
 

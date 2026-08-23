@@ -23,6 +23,7 @@ import {
 } from "@workspace/ai-orchestrator";
 import { startCatalogRefreshScheduler } from "./lib/catalog-refresh-scheduler";
 import { drainPendingAudits, loadPendingAudits } from "./lib/audit";
+import { pruneTaskExecutionHistory } from "./lib/task-execution-retention";
 
 /**
  * DB-07: Bootstrap guard — verify the Drizzle schema has been pushed before
@@ -177,6 +178,9 @@ await reportDeadRootPaths();
 await scrubHistoricalValidationDetails();
 // Compact old terminal traces while preserving proof status and exit codes.
 await pruneHistoricalAiDiagnostics();
+// Keep compact task history bounded without touching audit logs/events or
+// active and resumable executions. The sweep is batched and retryable.
+await pruneTaskExecutionHistory();
 
 // Reload audit writes that failed in a previous process before accepting
 // traffic, then let the normal retry worker drain them in the background.

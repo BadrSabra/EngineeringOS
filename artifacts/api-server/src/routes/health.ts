@@ -3,6 +3,7 @@ import { GetHealthResponse } from "@workspace/api-zod";
 import { heavyJobQueue } from "../lib/job-queue.js";
 import { getOperationalCounters } from "../lib/operational-counters.js";
 import { getAiDiagnosticsRetentionHealth } from "../lib/startup-migrations.js";
+import { getTaskExecutionRetentionHealth } from "../lib/task-execution-retention.js";
 
 const router: IRouter = Router();
 
@@ -14,6 +15,7 @@ router.get("/healthz", (_req, res) => {
     // and whether failed audit writes are still awaiting recovery.
     operationalCounters: getOperationalCounters(),
     aiDiagnosticsRetention: getAiDiagnosticsRetentionHealth(),
+    taskExecutionRetention: getTaskExecutionRetentionHealth(),
   });
   res.json(data);
 });

@@ -9,10 +9,12 @@ import type { AiDiagnosticsRetentionHealth } from './aiDiagnosticsRetentionHealt
 import type { HealthStatusStatus } from './healthStatusStatus';
 import type { JobQueueStats } from './jobQueueStats';
 import type { OperationalCounters } from './operationalCounters';
+import type { TaskExecutionRetentionHealth } from './taskExecutionRetentionHealth';
 
 export interface HealthStatus {
   status: HealthStatusStatus;
   jobQueue?: JobQueueStats;
   operationalCounters?: OperationalCounters;
   aiDiagnosticsRetention?: AiDiagnosticsRetentionHealth;
+  taskExecutionRetention?: TaskExecutionRetentionHealth;
 }

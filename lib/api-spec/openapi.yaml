@@ -3398,6 +3398,42 @@ components:
           $ref: "#/components/schemas/OperationalCounters"
         aiDiagnosticsRetention:
           $ref: "#/components/schemas/AiDiagnosticsRetentionHealth"
+        taskExecutionRetention:
+          $ref: "#/components/schemas/TaskExecutionRetentionHealth"
+
+    TaskExecutionRetentionHealth:
+      type: object
+      required:
+        - status
+        - attemptedAt
+        - completedAt
+        - taskLogRowsScanned
+        - taskLogRowsRemoved
+        - receiptRowsScanned
+        - receiptRowsRemoved
+      description: >
+        Content-free status of the bounded task-log and terminal execution
+        receipt retention sweep. Active and resumable executions are retained.
+      properties:
+        status:
+          type: string
+          enum: [success, failed]
+        attemptedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        taskLogRowsScanned:
+          type: integer
+        taskLogRowsRemoved:
+          type: integer
+        receiptRowsScanned:
+          type: integer
+        receiptRowsRemoved:
+          type: integer
 
     AiDiagnosticsRetentionHealth:
       type: object

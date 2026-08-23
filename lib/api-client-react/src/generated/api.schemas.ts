@@ -318,11 +318,33 @@ export interface AiDiagnosticsRetentionHealth {
   executionRowsPruned: number;
 }
 
+export type TaskExecutionRetentionHealthStatus = typeof TaskExecutionRetentionHealthStatus[keyof typeof TaskExecutionRetentionHealthStatus];
+
+
+export const TaskExecutionRetentionHealthStatus = {
+  success: 'success',
+  failed: 'failed',
+} as const;
+
+/**
+ * Content-free status of the bounded task-log and terminal execution receipt retention sweep. Active and resumable executions are retained.
+ */
+export interface TaskExecutionRetentionHealth {
+  status: TaskExecutionRetentionHealthStatus;
+  attemptedAt: string | null;
+  completedAt: string | null;
+  taskLogRowsScanned: number;
+  taskLogRowsRemoved: number;
+  receiptRowsScanned: number;
+  receiptRowsRemoved: number;
+}
+
 export interface HealthStatus {
   status: HealthStatusStatus;
   jobQueue?: JobQueueStats;
   operationalCounters?: OperationalCounters;
   aiDiagnosticsRetention?: AiDiagnosticsRetentionHealth;
+  taskExecutionRetention?: TaskExecutionRetentionHealth;
 }
 
 export interface GroqKeyStatus {

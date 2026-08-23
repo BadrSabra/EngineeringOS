@@ -265,6 +265,8 @@ export * from './sourceSpan';
 export * from './sourceType';
 export * from './startDiscoveryInput';
 export * from './task';
+export * from './taskExecutionRetentionHealth';
+export * from './taskExecutionRetentionHealthStatus';
 export * from './taskLog';
 export * from './taskLogLevel';
 export * from './taskLogMetadata';
