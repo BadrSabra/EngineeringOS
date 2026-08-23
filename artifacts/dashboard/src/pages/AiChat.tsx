@@ -6105,6 +6105,26 @@ function proofStatusClasses(status: string | undefined): string {
   return 'border-primary/40 bg-primary/10 text-primary';
 }
 
+export function auditExportFilename(
+  contentDisposition: string | null,
+  fallback: string,
+): string {
+  const encodedFilename = contentDisposition?.match(/filename\*\s*=\s*UTF-8''([^;]+)/i)?.[1];
+  const plainFilename = contentDisposition?.match(/filename\s*=\s*(?:"([^"]+)"|([^;]+))/i);
+  let filename = encodedFilename
+    ? (() => {
+        try {
+          return decodeURIComponent(encodedFilename);
+        } catch {
+          return undefined;
+        }
+      })()
+    : plainFilename?.[1] ?? plainFilename?.[2]?.trim();
+
+  filename = filename?.replace(/[/\\\r\n]/g, '_').trim();
+  return filename || fallback;
+}
+
 function AgentExecutionProofPanel({
   execution,
   executionId,
@@ -6123,6 +6143,7 @@ function AgentExecutionProofPanel({
   onCancel,
   onResume,
   onExport,
+  exportPending,
   controlPending,
 }: {
   execution?: AgentExecutionProofStatus | null;
@@ -6153,6 +6174,7 @@ function AgentExecutionProofPanel({
   onCancel?: () => void;
   onResume?: () => void;
   onExport?: () => void;
+  exportPending?: boolean;
   controlPending?: boolean;
 }) {
   const persistedStatus = execution?.status;
@@ -6233,6 +6255,11 @@ function AgentExecutionProofPanel({
           : 'No unresolved patch risk recorded';
   const canCancel = Boolean(onCancel && (status === 'running' || status === 'queued' || status === 'cancelling'));
   const canResume = Boolean(onResume && (status === 'paused' || status === 'failed'));
+  const canExport = Boolean(
+    executionId
+      && onExport
+      && (status === 'completed' || status === 'cancelled'),
+  );
 
   return (
     <div
@@ -6278,19 +6305,22 @@ function AgentExecutionProofPanel({
             <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
               {busy ? `${formatElapsed(elapsedSeconds)} elapsed` : 'Persisted proof'}
             </span>
-            {(executionId && onExport) || canCancel || canResume ? (
+            {canExport || canCancel || canResume ? (
               <div className="flex shrink-0 items-center gap-1.5">
-                {executionId && onExport && (
+                {canExport && (
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
                     onClick={onExport}
-                    disabled={controlPending}
+                    disabled={controlPending || exportPending}
+                    aria-busy={exportPending}
                     title="Download the redacted execution audit"
                   >
-                    <Download className="mr-1.5 h-3.5 w-3.5" />
-                    Export audit
+                    {exportPending
+                      ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      : <Download className="mr-1.5 h-3.5 w-3.5" />}
+                    {exportPending ? 'Exporting…' : 'Export audit'}
                   </Button>
                 )}
                 {canCancel && (
@@ -6663,7 +6693,10 @@ export default function AiChat() {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `execution-${executionId}-audit.json`;
+      anchor.download = auditExportFilename(
+        response.headers.get('Content-Disposition'),
+        `execution-${executionId}-audit.json`,
+      );
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -8710,6 +8743,7 @@ export default function AiChat() {
                    onCancel={cancelActiveExecution}
                    onResume={resumeActiveExecution}
                    onExport={exportExecutionAudit}
+                   exportPending={auditExportPending}
                    controlPending={executionControlPending}
                  />
                )}

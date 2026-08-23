@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import AiChat, { BenchmarkMissionControlPanel } from './AiChat';
+import AiChat, { auditExportFilename, BenchmarkMissionControlPanel } from './AiChat';
 import storedMissionCorrelationReport from '../lib/fixtures/stored-mission-correlation-report.json';
 
 /** Minimal structural mirror of the AI-008 taskResult union for rendering tests. */
@@ -353,6 +353,22 @@ afterEach(() => {
 });
 
 describe('AiChat authenticated generated mutations', () => {
+  it('uses the server-provided audit filename and falls back safely', () => {
+    expect(auditExportFilename(
+      'attachment; filename="incident-audit.json"',
+      'fallback.json',
+    )).toBe('incident-audit.json');
+    expect(auditExportFilename(
+      "attachment; filename*=UTF-8''incident%20audit.json",
+      'fallback.json',
+    )).toBe('incident audit.json');
+    expect(auditExportFilename(
+      'attachment; filename="../audit.json"',
+      'fallback.json',
+    )).toBe('.._audit.json');
+    expect(auditExportFilename(null, 'fallback.json')).toBe('fallback.json');
+  });
+
   it('renders provider-unavailable benchmark evidence without counting it as Grade F', () => {
     render(
       <BenchmarkMissionControlPanel
