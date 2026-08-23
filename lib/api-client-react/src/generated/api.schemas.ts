@@ -2654,7 +2654,9 @@ export type ExportAiExecutionAudit200TimelineItem = { [key: string]: unknown };
 
 export type ExportAiExecutionAudit200ValidationsItem = { [key: string]: unknown };
 
-export type ExportAiExecutionAudit200Redaction = { [key: string]: unknown };
+export type ExportAiExecutionAudit200Redaction = {
+  excluded: string[];
+};
 
 export type ExportAiExecutionAudit200 = {
   format: string;

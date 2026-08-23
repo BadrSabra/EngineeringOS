@@ -61,6 +61,7 @@ import type {
   AiBehaviorEvidence,
   MissionCorrelationReport,
   Event as ApiEvent,
+  ExportAiExecutionAudit200,
 } from '@workspace/api-client-react';
 import type { PublicValidationResult } from '@workspace/ai-orchestrator';
 // Keep the shared structured error type for translating SSE failures into
@@ -6125,6 +6126,8 @@ export function auditExportFilename(
   return filename || fallback;
 }
 
+type AuditPreview = ExportAiExecutionAudit200;
+
 function AgentExecutionProofPanel({
   execution,
   executionId,
@@ -6143,7 +6146,11 @@ function AgentExecutionProofPanel({
   onCancel,
   onResume,
   onExport,
+  onPreview,
   exportPending,
+  previewPending,
+  auditPreview,
+  onClosePreview,
   controlPending,
 }: {
   execution?: AgentExecutionProofStatus | null;
@@ -6174,7 +6181,11 @@ function AgentExecutionProofPanel({
   onCancel?: () => void;
   onResume?: () => void;
   onExport?: () => void;
+  onPreview?: () => void;
   exportPending?: boolean;
+  previewPending?: boolean;
+  auditPreview?: AuditPreview | null;
+  onClosePreview?: () => void;
   controlPending?: boolean;
 }) {
   const persistedStatus = execution?.status;
@@ -6308,20 +6319,36 @@ function AgentExecutionProofPanel({
             {canExport || canCancel || canResume ? (
               <div className="flex shrink-0 items-center gap-1.5">
                 {canExport && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={onExport}
-                    disabled={controlPending || exportPending}
-                    aria-busy={exportPending}
-                    title="Download the redacted execution audit"
-                  >
-                    {exportPending
-                      ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                      : <Download className="mr-1.5 h-3.5 w-3.5" />}
-                    {exportPending ? 'Exporting…' : 'Export audit'}
-                  </Button>
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={onPreview}
+                      disabled={controlPending || exportPending || previewPending}
+                      aria-busy={previewPending}
+                      title="Preview the redacted execution audit"
+                    >
+                      {previewPending
+                        ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                        : <Eye className="mr-1.5 h-3.5 w-3.5" />}
+                      {previewPending ? 'Loading…' : 'Preview audit'}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={onExport}
+                      disabled={controlPending || exportPending || previewPending}
+                      aria-busy={exportPending}
+                      title="Download the redacted execution audit"
+                    >
+                      {exportPending
+                        ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                        : <Download className="mr-1.5 h-3.5 w-3.5" />}
+                      {exportPending ? 'Exporting…' : 'Export audit'}
+                    </Button>
+                  </>
                 )}
                 {canCancel && (
                   <Button
@@ -6385,6 +6412,43 @@ function AgentExecutionProofPanel({
           )}
         </div>
       </div>
+
+      {auditPreview && (
+        <div className="border-b border-border/40 bg-background/30 px-3 py-3" aria-label="Redacted audit preview">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
+                <Eye className="h-3.5 w-3.5 text-primary" />
+                Redacted audit preview
+              </div>
+              <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+                This is the same redacted record that will be downloaded. Sensitive categories excluded:
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClosePreview}
+              className="rounded p-1 text-muted-foreground hover:bg-background/60 hover:text-foreground"
+              aria-label="Close audit preview"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {((auditPreview.redaction?.excluded ?? []) as unknown[]).map((category) => (
+              <span
+                key={String(category)}
+                className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[9px] text-amber-100"
+              >
+                {String(category)}
+              </span>
+            ))}
+          </div>
+          <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-border/50 bg-background/70 p-2.5 text-[9px] leading-4 text-foreground/80">
+            {JSON.stringify(auditPreview, null, 2)}
+          </pre>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-px bg-border/30 sm:grid-cols-4">
         <div className="bg-background/20 px-3 py-2">
@@ -6525,6 +6589,8 @@ export default function AiChat() {
   });
   const [input, setInput] = useState('');
   const [auditExportPending, setAuditExportPending] = useState(false);
+  const [auditPreviewPending, setAuditPreviewPending] = useState(false);
+  const [auditPreview, setAuditPreview] = useState<AuditPreview | null>(null);
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [historicalReportError, setHistoricalReportError] = useState<string | null>(null);
   const [planDecisionPending, setPlanDecisionPending] = useState<string | null>(null);
@@ -6676,27 +6742,57 @@ export default function AiChat() {
     },
   );
 
-  async function exportExecutionAudit() {
+  useEffect(() => {
+    setAuditPreview(null);
+  }, [activeExecution?.id]);
+
+  async function fetchExecutionAudit(): Promise<{ audit: AuditPreview; filename: string }> {
     const executionId = activeExecution?.id;
-    if (!executionId || auditExportPending) return;
+    if (!executionId) throw new Error('No completed execution is selected.');
+    const response = await fetch(`/api/ai/executions/${encodeURIComponent(executionId)}/audit-export`, {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(body.error || 'The execution audit could not be loaded.');
+    }
+    return {
+      audit: await response.json() as AuditPreview,
+      filename: auditExportFilename(
+        response.headers.get('Content-Disposition'),
+        `execution-${executionId}-audit.json`,
+      ),
+    };
+  }
+
+  async function previewExecutionAudit() {
+    if (!activeExecution?.id || auditPreviewPending || auditExportPending) return;
+    setAuditPreviewPending(true);
+    try {
+      const { audit } = await fetchExecutionAudit();
+      setAuditPreview(audit);
+    } catch (error) {
+      toast({
+        title: 'Audit preview failed',
+        description: error instanceof Error ? error.message : 'The execution audit could not be loaded.',
+        variant: 'destructive',
+      });
+    } finally {
+      setAuditPreviewPending(false);
+    }
+  }
+
+  async function exportExecutionAudit() {
+    if (!activeExecution?.id || auditExportPending || auditPreviewPending) return;
     setAuditExportPending(true);
     try {
-      const response = await fetch(`/api/ai/executions/${encodeURIComponent(executionId)}/audit-export`, {
-        credentials: 'include',
-        headers: { Accept: 'application/json' },
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({})) as { error?: string };
-        throw new Error(body.error || 'The execution audit could not be exported.');
-      }
-      const blob = await response.blob();
+      const { audit, filename } = await fetchExecutionAudit();
+      const blob = new Blob([JSON.stringify(audit, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = auditExportFilename(
-        response.headers.get('Content-Disposition'),
-        `execution-${executionId}-audit.json`,
-      );
+      anchor.download = filename;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -8743,7 +8839,11 @@ export default function AiChat() {
                    onCancel={cancelActiveExecution}
                    onResume={resumeActiveExecution}
                    onExport={exportExecutionAudit}
+                   onPreview={previewExecutionAudit}
                    exportPending={auditExportPending}
+                   previewPending={auditPreviewPending}
+                   auditPreview={auditPreview}
+                   onClosePreview={() => setAuditPreview(null)}
                    controlPending={executionControlPending}
                  />
                )}

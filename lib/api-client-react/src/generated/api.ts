@@ -4730,8 +4730,8 @@ export const getExportAiExecutionAuditUrl = (executionId: string,) => {
 }
 
 /**
- * Returns the selected execution's portable timeline, terminal state, revision, proof verdict, validation checkpoints, and affected files. Provider secrets, raw model output, and private runtime paths are excluded.
- * @summary Download a redacted durable AI execution audit
+ * Returns the selected execution's portable timeline, terminal state, revision, proof verdict, validation checkpoints, and affected files. The same response can be previewed in the dashboard or downloaded. Provider secrets, raw model output, and private runtime paths are excluded.
+ * @summary Preview or download a redacted durable AI execution audit
  */
 export const exportAiExecutionAudit = async (executionId: string, options?: RequestInit): Promise<ExportAiExecutionAudit200> => {
 
@@ -4778,7 +4778,7 @@ export type ExportAiExecutionAuditQueryError = ErrorType<ApiError>
 
 
 /**
- * @summary Download a redacted durable AI execution audit
+ * @summary Preview or download a redacted durable AI execution audit
  */
 
 export function useExportAiExecutionAudit<TData = Awaited<ReturnType<typeof exportAiExecutionAudit>>, TError = ErrorType<ApiError>>(

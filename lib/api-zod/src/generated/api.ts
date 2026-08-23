@@ -2811,8 +2811,8 @@ export const GetAiExecutionResponse = zod.object({
 
 
 /**
- * Returns the selected execution's portable timeline, terminal state, revision, proof verdict, validation checkpoints, and affected files. Provider secrets, raw model output, and private runtime paths are excluded.
- * @summary Download a redacted durable AI execution audit
+ * Returns the selected execution's portable timeline, terminal state, revision, proof verdict, validation checkpoints, and affected files. The same response can be previewed in the dashboard or downloaded. Provider secrets, raw model output, and private runtime paths are excluded.
+ * @summary Preview or download a redacted durable AI execution audit
  */
 export const ExportAiExecutionAuditParams = zod.object({
   "executionId": zod.coerce.string()
@@ -2825,7 +2825,9 @@ export const ExportAiExecutionAuditResponse = zod.object({
   "timeline": zod.array(zod.record(zod.string(), zod.unknown())),
   "validations": zod.array(zod.record(zod.string(), zod.unknown())),
   "affectedFiles": zod.array(zod.string()),
-  "redaction": zod.record(zod.string(), zod.unknown())
+  "redaction": zod.object({
+  "excluded": zod.array(zod.string())
+})
 })
 
 

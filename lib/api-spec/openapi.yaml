@@ -1557,8 +1557,8 @@ paths:
   /api/ai/executions/{executionId}/audit-export:
     get:
       operationId: exportAiExecutionAudit
-      summary: Download a redacted durable AI execution audit
-      description: Returns the selected execution's portable timeline, terminal state, revision, proof verdict, validation checkpoints, and affected files. Provider secrets, raw model output, and private runtime paths are excluded.
+      summary: Preview or download a redacted durable AI execution audit
+      description: Returns the selected execution's portable timeline, terminal state, revision, proof verdict, validation checkpoints, and affected files. The same response can be previewed in the dashboard or downloaded. Provider secrets, raw model output, and private runtime paths are excluded.
       tags: [AI]
       parameters:
         - name: executionId
@@ -1569,7 +1569,7 @@ paths:
             description: UUID of the AI execution
       responses:
         "200":
-          description: Redacted execution audit JSON download
+          description: Redacted execution audit JSON, suitable for preview or download
           headers:
             Content-Disposition:
               schema:
@@ -1586,7 +1586,15 @@ paths:
                   timeline: { type: array, items: { type: object, additionalProperties: true } }
                   validations: { type: array, items: { type: object, additionalProperties: true } }
                   affectedFiles: { type: array, items: { type: string } }
-                  redaction: { type: object, additionalProperties: true }
+                  redaction:
+                    type: object
+                    required: [excluded]
+                    properties:
+                      excluded:
+                        type: array
+                        items: { type: string }
+                        example: [provider secrets, raw model output, private runtime paths]
+                    additionalProperties: false
         "404":
           description: Execution not found
           content:
