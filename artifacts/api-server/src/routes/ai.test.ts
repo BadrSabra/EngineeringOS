@@ -35,6 +35,7 @@ import {
 } from "./ai/chat.js";
 import { scheduleAiTaskExecution } from "./ai/tasks.js";
 import { createAiExecution } from "../lib/ai-execution-state.js";
+import { createDeliveryWorkspace, deliveryWorkspaceExists } from "../lib/delivery-workspace.js";
 
 describe("verified repair proposal gate", () => {
   const change = {
@@ -456,6 +457,51 @@ async function insertChangeProposal(
   return proposalId;
 }
 
+async function makeRecoverableProposal(
+  projectId: string,
+  lifecycle: "abandoned" | "blocked" | "conflicted" = "blocked",
+  options: { withWorkspace?: boolean; conflictReason?: string } = {},
+): Promise<{ proposalId: string; operationId: string; workspaceRoot: string | null; change: {
+  path: string;
+  absolutePath: string;
+  newContent: string;
+  validationProfile: "api-ai-tests";
+} }> {
+  const operationId = randomUUID();
+  const fileName = `recovery-${operationId.slice(0, 8)}.ts`;
+  const change = {
+    path: fileName,
+    absolutePath: `/tmp/${fileName}`,
+    newContent: "export const recovered = true;\n",
+    validationProfile: "api-ai-tests" as const,
+  };
+  const proposalId = await insertChangeProposal(projectId, [change]);
+  let workspaceRoot: string | null = null;
+  if (options.withWorkspace !== false) {
+    const sourceRoot = `/tmp/recovery-source-${operationId}`;
+    await fs.mkdir(sourceRoot, { recursive: true });
+    await fs.writeFile(`${sourceRoot}/package.json`, "{}\n", "utf8");
+    const workspace = await createDeliveryWorkspace({
+      rootPath: sourceRoot,
+      operationId,
+      baseRevision: "base-revision",
+      changes: [change],
+    });
+    workspaceRoot = workspace.workspaceRoot;
+    deliveryWorkspaceRoots.push(workspaceRoot);
+    await fs.rm(sourceRoot, { recursive: true, force: true });
+  }
+  await db.update(aiChangeProposalsTable).set({
+    operationId,
+    workspaceRoot,
+    baseRevision: "base-revision",
+    changeSetHash: "change-set-hash",
+    lifecycle,
+    conflictReason: options.conflictReason ?? "Validation was interrupted before delivery completed.",
+  }).where(eq(aiChangeProposalsTable.id, proposalId));
+  return { proposalId, operationId, workspaceRoot, change };
+}
+
 async function insertTask(projectId: string, status = "pending"): Promise<string> {
   const id = randomUUID();
   const now = new Date();
@@ -530,6 +576,7 @@ async function insertImplementationPlan(projectId: string): Promise<string> {
 
 const projectIds: string[] = [];
 const workflowIds: string[] = [];
+const deliveryWorkspaceRoots: string[] = [];
 
 // All AI routes require a Groq API key. Set a dummy env key for the entire
 // test file — every AI orchestrator call is mocked so the real key is never
@@ -550,6 +597,9 @@ afterAll(() => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  for (const workspaceRoot of deliveryWorkspaceRoots.splice(0)) {
+    await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
   for (const pid of projectIds.splice(0)) {
     await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, pid)).catch(() => undefined);
     await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, pid)).catch(() => undefined); // may not match, that's fine
@@ -2393,6 +2443,135 @@ describe("POST /api/ai/chat/plans/:messageId/decision", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.code).toBe("PLAN_DECISION_INVALID");
+  });
+});
+
+describe("delivery recovery routes", () => {
+  it("lists only owned recoverable operations and retains conflict evidence", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId, "conflicted", {
+      conflictReason: "Apply stopped after a file conflict; review is required.",
+    });
+
+    const res = await request(app)
+      .get("/api/ai/delivery/recoverable")
+      .query({ projectId });
+
+    expect(res.status).toBe(200);
+    expect(res.body.operations).toHaveLength(1);
+    expect(res.body.operations[0]).toMatchObject({
+      proposalId: operation.proposalId,
+      operationId: operation.operationId,
+      lifecycle: "conflicted",
+      status: "pending",
+      conflictReason: "Apply stopped after a file conflict; review is required.",
+      workspaceAvailable: true,
+      changeCount: 1,
+      validationEvidence: null,
+    });
+    expect(res.body.operations[0]).not.toHaveProperty("workspaceRoot");
+    expect(res.body.operations[0]).not.toHaveProperty("changes");
+  });
+
+  it("enforces project ownership for recovery listing and actions", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId);
+    await db.update(projectsTable).set({ ownerId: "another-user" })
+      .where(eq(projectsTable.id, projectId));
+
+    const [list, resume, discard] = await Promise.all([
+      request(app).get("/api/ai/delivery/recoverable").query({ projectId }),
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/resume-validation`),
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/discard`),
+    ]);
+
+    expect(list.status).toBe(403);
+    expect(resume.status).toBe(403);
+    expect(discard.status).toBe(403);
+    const [proposal] = await db.select().from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, operation.proposalId));
+    expect(proposal?.lifecycle).toBe("blocked");
+    expect(await deliveryWorkspaceExists(operation.workspaceRoot, operation.operationId)).toBe(true);
+  });
+
+  it("rejects resume when the server-owned workspace marker is missing", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId, "abandoned");
+    await fs.rm(operation.workspaceRoot!, { recursive: true, force: true });
+
+    const res = await request(app)
+      .post(`/api/ai/delivery/${operation.proposalId}/resume-validation`);
+
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({
+      code: "DELIVERY_NOT_RECOVERABLE",
+      lifecycle: "abandoned",
+    });
+  });
+
+  it("makes concurrent resume clicks idempotent and never repeats delivery stages", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId);
+    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
+      .mockResolvedValue({
+        status: "passed",
+        profile: "api-ai-tests",
+        exitCode: 0,
+        scenario: "Run API AI tests.",
+        command: "pnpm test",
+        stdout: "",
+        stderr: "",
+        failedTests: [],
+        changedFiles: [],
+        evidence: { evidenceId: randomUUID(), observedAt: new Date().toISOString(), artifactRef: "test" },
+        detail: "Validation passed.",
+      });
+
+    const responses = await Promise.all([
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/resume-validation`),
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/resume-validation`),
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/resume-validation`),
+    ]);
+
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(responses.filter((response) => response.body.idempotent).length).toBeGreaterThan(0);
+    expect(responses.every((response) => response.body.lifecycle === "validated")).toBe(true);
+    expect(validationSpy).toHaveBeenCalled();
+    const [proposal] = await db.select().from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, operation.proposalId));
+    expect(proposal?.lifecycle).toBe("validated");
+    expect(proposal?.status).toBe("pending");
+    expect(await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
+    expect(await fs.readFile(`${operation.workspaceRoot}/${operation.change.path}`, "utf8"))
+      .toBe(operation.change.newContent);
+  });
+
+  it("makes concurrent discard clicks idempotent and removes the workspace once", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId, "blocked");
+
+    const responses = await Promise.all([
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/discard`),
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/discard`),
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/discard`),
+    ]);
+
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(responses.filter((response) => response.body.discarded).length).toBe(1);
+    expect(responses.every((response) => response.body.lifecycle === "cancelled")).toBe(true);
+    const [proposal] = await db.select().from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, operation.proposalId));
+    expect(proposal?.status).toBe("rejected");
+    expect(proposal?.lifecycle).toBe("cancelled");
+    expect(await deliveryWorkspaceExists(operation.workspaceRoot, operation.operationId)).toBe(false);
+    expect(await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
   });
 });
 

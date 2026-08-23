@@ -51,6 +51,7 @@
 - [Task execution lifecycle](task-execution-lifecycle.md) — standalone task AI runs use durable ownership, idempotency, leases, checkpoints, and bounded receipts.
 - [Untrusted content boundary](untrusted-content-boundary.md) — repository, tool, memory, and checkpoint text is evidence/data only; server authorization remains independent.
 - [Execution audit exports](execution-audit-export.md) — portable audits use owner-scoped durable state with allowlisted fields and explicit redaction.
+- [Delivery test cleanup](delivery-test-cleanup.md) — recovery tests must remove only generated operation roots; the shared delivery directory can contain tracked fixtures.
 - [Browser validation contract](browser-validation-contract.md) — browser checks use server-owned profiles over isolated pending-change workspaces with path-free proof metadata.
 - [Candidate validation boundary](candidate-validation-boundary.md) — validation evidence must bind to the immutable candidate workspace and promoted bytes, not merely the live root.
 - [Release CORS harness](release-cors-harness.md) — provider-free listener checks use Node's tsx loader without the inherited input-type flag and probe the API directly.
