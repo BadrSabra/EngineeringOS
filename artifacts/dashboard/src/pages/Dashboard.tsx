@@ -1,18 +1,37 @@
 import React from 'react';
-import { useGetDashboard } from '@workspace/api-client-react';
+import {
+  getGetHealthQueryKey,
+  useGetDashboard,
+  useGetHealth,
+} from '@workspace/api-client-react';
 import {
   Activity,
   AlertTriangle,
   CheckCircle2,
   Clock,
   FolderGit2,
+  Database,
   TrendingUp,
   RefreshCw,
 } from 'lucide-react';
 import { Link } from 'wouter';
 
+function formatHealthTimestamp(value: Date | string | null | undefined): string {
+  if (!value) return 'Not recorded';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Not recorded' : date.toLocaleString();
+}
+
 export default function Dashboard() {
   const { data: dashboard, isLoading, error, refetch } = useGetDashboard();
+  const { data: health } = useGetHealth({
+    query: {
+      queryKey: getGetHealthQueryKey(),
+      refetchInterval: 30_000,
+      retry: 1,
+    },
+  });
+  const retention = health?.aiDiagnosticsRetention;
 
   const totalFinished =
     (dashboard?.completedTaskCount ?? 0) + (dashboard?.failedTaskCount ?? 0);
@@ -70,6 +89,75 @@ export default function Dashboard() {
           </span>
         </div>
       </div>
+
+      {/* Retention health is deliberately limited to content-free sweep metadata. */}
+      <section
+        aria-label="AI diagnostics retention health"
+        className={`rounded-xl border p-4 shadow-sm ${
+          retention?.status === 'failed'
+            ? 'border-destructive/30 bg-destructive/5'
+            : retention?.status === 'success'
+              ? 'border-emerald-500/20 bg-emerald-500/5'
+              : 'border-border bg-card'
+        }`}
+      >
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <div
+              className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
+                retention?.status === 'failed'
+                  ? 'bg-destructive/10 text-destructive'
+                  : retention?.status === 'success'
+                    ? 'bg-emerald-500/10 text-emerald-500'
+                    : 'bg-secondary text-muted-foreground'
+              }`}
+            >
+              {retention?.status === 'failed' ? (
+                <AlertTriangle className="h-4 w-4" />
+              ) : (
+                <Database className="h-4 w-4" />
+              )}
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="font-semibold text-sm">AI diagnostics retention</h2>
+                {retention?.status === 'success' && (
+                  <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-500">
+                    Healthy
+                  </span>
+                )}
+                {retention?.status === 'failed' && (
+                  <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-destructive">
+                    Sweep failed
+                  </span>
+                )}
+                {!retention && (
+                  <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Checking
+                  </span>
+                )}
+              </div>
+              {retention?.status === 'failed' ? (
+                <p className="mt-1 text-xs text-destructive/80">
+                  The sweep will be retried automatically on the next startup.
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Last completed {formatHealthTimestamp(retention?.completedAt)}
+                </p>
+              )}
+            </div>
+          </div>
+          {retention?.status === 'success' && (
+            <div className="grid grid-cols-2 gap-x-5 gap-y-1 text-xs sm:text-right">
+              <span className="text-muted-foreground">Chat rows</span>
+              <span className="font-mono font-medium">{retention.chatRowsScanned} scanned / {retention.chatRowsPruned} pruned</span>
+              <span className="text-muted-foreground">Execution rows</span>
+              <span className="font-mono font-medium">{retention.executionRowsScanned} scanned / {retention.executionRowsPruned} pruned</span>
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
