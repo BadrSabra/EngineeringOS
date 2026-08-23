@@ -37,18 +37,18 @@ Smoke Project
 ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟
 OPENROUTER API KEY
 Priority·
-Loading…·
+Get a free key at openrouter.ai/keys — routes to 300+ models, used first when configured.·
 Save
 GEMINI API KEY
 Free · Priority·
-Loading…·
+Free key at aistudio.google.com/apikey — 1,500 req/day, 1M tokens/day.·
 Save
 DEEPSEEK API KEY
 Optional·
-Loading…·
+Get a free API key at platform.deepseek.com to use DeepSeek as your AI provider.·
 Save
 GROQ API KEY·
-Loading…·
+No personal key saved — the server's key will be used if one is configured.·
 Save
 EngineeringOS AI
 Llama 3.3 · Groq

@@ -81,12 +81,14 @@ export function validateRegisteredBrowserProfile(
     throw new Error("Browser profile timeout exceeds its resource limit.");
   }
   for (const step of profile.steps) {
-    if (step.type === "navigate" && (step.path.length > 500 || !step.path.startsWith("/"))) {
+    if (step.type === "navigate" && (step.path.length > 500 || !/^\/(?!\/)/.test(step.path))) {
       throw new Error("Browser profile navigation must use a relative path.");
     }
-    if ((step.type === "assert_visible" || step.type === "assert_text" || step.type === "read_visible_text") &&
-      (step.selector?.length ?? 0) > BROWSER_PROFILE_LIMITS.maxSelectorChars) {
-      throw new Error("Browser profile selector exceeds its resource limit.");
+    if (step.type === "assert_visible" || step.type === "assert_text" || step.type === "read_visible_text") {
+      const selector = step.selector;
+      if (selector !== undefined && (selector.length > BROWSER_PROFILE_LIMITS.maxSelectorChars || !isValidSelector(selector))) {
+        throw new Error("Browser profile selector is invalid or exceeds its resource limit.");
+      }
     }
     if (step.type === "assert_text" && step.text.length > BROWSER_PROFILE_LIMITS.maxTextChars) {
       throw new Error("Browser profile assertion text exceeds its resource limit.");
@@ -95,6 +97,41 @@ export function validateRegisteredBrowserProfile(
       throw new Error("Browser profile screenshot name exceeds its resource limit.");
     }
   }
+}
+
+/**
+ * Keep malformed CSS-like selectors out of durable profiles. The browser
+ * still remains the final authority, but rejecting unbalanced delimiters and
+ * control characters here prevents a profile that can only fail at runtime.
+ */
+function isValidSelector(selector: string): boolean {
+  if (!selector.trim() || /[\u0000-\u001f\u007f]/.test(selector)) return false;
+  const pairs: Record<string, string> = { "]": "[", ")": "(", "}": "{" };
+  const stack: string[] = [];
+  let quote: string | undefined;
+  let escaped = false;
+  for (const character of selector) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\" && quote) {
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      if (character === quote) quote = undefined;
+      continue;
+    }
+    if (character === "'" || character === '"') {
+      quote = character;
+    } else if (character === "[" || character === "(" || character === "{") {
+      stack.push(character);
+    } else if (character in pairs) {
+      if (stack.pop() !== pairs[character]) return false;
+    }
+  }
+  return !quote && stack.length === 0;
 }
 
 export type PreviewStep =

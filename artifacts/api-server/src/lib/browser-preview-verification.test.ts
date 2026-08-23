@@ -173,6 +173,26 @@ describe("browser preview verification", () => {
     expect(result.summary).toContain("between 1");
   });
 
+  it("fails closed when a browser selector is rejected by the page", async () => {
+    const session = {
+      id: "session-selector", projectRoot: process.cwd(), revision: "rev-a", port: 4312,
+      startedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 1000).toISOString(),
+      status: "running" as const,
+    };
+    const browser = browserFactory();
+    const page = await browser.newPage();
+    vi.spyOn(page, "locator").mockImplementation(() => {
+      throw new Error("malformed selector");
+    });
+    const result = await verifyBrowserPreview({
+      session, operationId: "op", executionId: "exec",
+      steps: [{ type: "assert_visible", selector: "[" }],
+      browser,
+    });
+    expect(result.status).toBe("failed");
+    expect(result.summary).toContain("malformed selector");
+  });
+
   it("expires within the configured lifetime and keeps sessions isolated", async () => {
     const firstChild = fakeChild();
     const secondChild = fakeChild();

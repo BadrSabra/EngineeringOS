@@ -43,7 +43,7 @@ import {
 const router = Router();
 
 const BrowserStepSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("navigate"), path: z.string().min(1).max(500).regex(/^\//) }).strict(),
+  z.object({ type: z.literal("navigate"), path: z.string().min(1).max(500).regex(/^\/(?!\/)/) }).strict(),
   z.object({ type: z.literal("assert_visible"), selector: z.string().min(1).max(BROWSER_PROFILE_LIMITS.maxSelectorChars) }).strict(),
   z.object({ type: z.literal("assert_text"), selector: z.string().min(1).max(BROWSER_PROFILE_LIMITS.maxSelectorChars), text: z.string().min(1).max(BROWSER_PROFILE_LIMITS.maxTextChars) }).strict(),
   z.object({ type: z.literal("read_visible_text"), selector: z.string().min(1).max(BROWSER_PROFILE_LIMITS.maxSelectorChars).optional() }).strict(),
@@ -129,7 +129,24 @@ router.put("/projects/:projectId/browser-validation-profiles/:name", requireProj
     steps: body.steps as PreviewStep[],
     timeoutMs: body.timeoutMs,
   };
-  validateRegisteredBrowserProfile(profile);
+  try {
+    validateRegisteredBrowserProfile(profile);
+  } catch (error) {
+    return res.status(400).json({
+      error: error instanceof Error ? error.message : "Invalid browser validation profile",
+      reason: "validation_error",
+    });
+  }
+  const existing = await db.select({ name: browserValidationProfilesTable.name })
+    .from(browserValidationProfilesTable)
+    .where(eq(browserValidationProfilesTable.projectId, project.id));
+  const replacing = existing.some((row) => row.name === body.name);
+  if (existing.length >= BROWSER_PROFILE_LIMITS.maxProfiles && !replacing) {
+    return res.status(400).json({
+      error: `A project may have at most ${BROWSER_PROFILE_LIMITS.maxProfiles} browser validation profiles.`,
+      reason: "browser_profile_limit",
+    });
+  }
   const now = new Date();
   const [saved] = await db.insert(browserValidationProfilesTable).values({
     id: randomUUID(), projectId: project.id, ...profile, createdAt: now, updatedAt: now,

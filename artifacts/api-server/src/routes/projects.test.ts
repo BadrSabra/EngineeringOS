@@ -10,6 +10,7 @@ import {
   tasksTable,
   auditLogsTable,
   scanJobsTable,
+  browserValidationProfilesTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
@@ -69,6 +70,7 @@ async function insertProject(rootPath: string, ownerId = "test-user"): Promise<s
 }
 
 async function cleanupProject(id: string): Promise<void> {
+  await db.delete(browserValidationProfilesTable).where(eq(browserValidationProfilesTable.projectId, id));
   await db.delete(tasksTable).where(eq(tasksTable.projectId, id));
   await db.delete(metricsTable).where(eq(metricsTable.projectId, id));
   await db.delete(eventsTable).where(eq(eventsTable.projectId, id));
@@ -80,6 +82,112 @@ async function cleanupProject(id: string): Promise<void> {
   await db.delete(scanJobsTable).where(eq(scanJobsTable.projectId, id));
   await db.delete(projectsTable).where(eq(projectsTable.id, id));
 }
+
+const browserProfileSteps = [
+  { type: "navigate" as const, path: "/" },
+  { type: "assert_visible" as const, selector: "[data-testid=ready]" },
+];
+
+describe("browser validation profiles — ownership and safety", () => {
+  const cleanupQueue: string[] = [];
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    while (cleanupQueue.length > 0) {
+      const id = cleanupQueue.pop();
+      if (id) await cleanupProject(id);
+    }
+  });
+
+  it("creates, lists, updates, and deletes an owned profile", async () => {
+    const projectId = await insertProject("/tmp/browser-profile-" + randomUUID());
+    cleanupQueue.push(projectId);
+
+    const created = await request(app)
+      .put(`/api/projects/${projectId}/browser-validation-profiles/smoke`)
+      .send({ steps: browserProfileSteps, timeoutMs: 5000 });
+    expect(created.status).toBe(200);
+    expect(created.body).toMatchObject({
+      projectId,
+      name: "smoke",
+      permittedOrigin: "http://127.0.0.1:4300",
+      steps: browserProfileSteps,
+      timeoutMs: 5000,
+    });
+    expect(created.body.revision).toBeDefined();
+
+    const listed = await request(app).get(`/api/projects/${projectId}/browser-validation-profiles`);
+    expect(listed.status).toBe(200);
+    expect(listed.body).toHaveLength(1);
+    expect(listed.body[0].name).toBe("smoke");
+
+    const updated = await request(app)
+      .put(`/api/projects/${projectId}/browser-validation-profiles/smoke`)
+      .send({ steps: [{ type: "read_visible_text" }], timeoutMs: 1000 });
+    expect(updated.status).toBe(200);
+    expect(updated.body.steps).toEqual([{ type: "read_visible_text" }]);
+
+    const deleted = await request(app)
+      .delete(`/api/projects/${projectId}/browser-validation-profiles/smoke`);
+    expect(deleted.status).toBe(204);
+    const afterDelete = await request(app).get(`/api/projects/${projectId}/browser-validation-profiles`);
+    expect(afterDelete.body).toEqual([]);
+  });
+
+  it("blocks another user's project from reading or changing profiles", async () => {
+    const projectId = await insertProject("/tmp/browser-profile-owned-" + randomUUID(), "someone-else");
+    cleanupQueue.push(projectId);
+    const profileId = randomUUID();
+    await db.insert(browserValidationProfilesTable).values({
+      id: profileId,
+      projectId,
+      name: "private",
+      revision: new Date().toISOString(),
+      permittedOrigin: "http://127.0.0.1:4300",
+      steps: browserProfileSteps,
+      timeoutMs: 5000,
+    });
+
+    expect((await request(app).get(`/api/projects/${projectId}/browser-validation-profiles`)).status).toBe(403);
+    expect((await request(app).put(`/api/projects/${projectId}/browser-validation-profiles/private`)
+      .send({ steps: browserProfileSteps, timeoutMs: 5000 })).status).toBe(403);
+    expect((await request(app).delete(`/api/projects/${projectId}/browser-validation-profiles/private`)).status).toBe(403);
+    const rows = await db.select().from(browserValidationProfilesTable)
+      .where(eq(browserValidationProfilesTable.id, profileId));
+    expect(rows).toHaveLength(1);
+  });
+
+  it("rejects invalid selectors, protocol-relative paths, and resource limits", async () => {
+    const projectId = await insertProject("/tmp/browser-profile-invalid-" + randomUUID());
+    cleanupQueue.push(projectId);
+    const endpoint = (name: string) =>
+      `/api/projects/${projectId}/browser-validation-profiles/${name}`;
+
+    expect((await request(app).put(endpoint("bad-selector"))
+      .send({ steps: [{ type: "assert_visible", selector: "[" }] })).status).toBe(400);
+    expect((await request(app).put(endpoint("bad-path"))
+      .send({ steps: [{ type: "navigate", path: "//attacker.example" }] })).status).toBe(400);
+    expect((await request(app).put(endpoint("too-many"))
+      .send({ steps: Array.from({ length: 25 }, () => ({ type: "assert_visible", selector: "body" })) })).status).toBe(400);
+    expect((await request(app).put(endpoint("bad-timeout"))
+      .send({ steps: browserProfileSteps, timeoutMs: 60001 })).status).toBe(400);
+  });
+
+  it("caps profiles without preventing replacement of an existing profile", async () => {
+    const projectId = await insertProject("/tmp/browser-profile-cap-" + randomUUID());
+    cleanupQueue.push(projectId);
+    for (let i = 0; i < 32; i++) {
+      const result = await request(app)
+        .put(`/api/projects/${projectId}/browser-validation-profiles/p${i}`)
+        .send({ steps: [{ type: "assert_visible", selector: "body" }] });
+      expect(result.status).toBe(200);
+    }
+    expect((await request(app).put(`/api/projects/${projectId}/browser-validation-profiles/overflow`)
+      .send({ steps: [{ type: "assert_visible", selector: "body" }] })).status).toBe(400);
+    expect((await request(app).put(`/api/projects/${projectId}/browser-validation-profiles/p0`)
+      .send({ steps: [{ type: "read_visible_text" }] })).status).toBe(200);
+  });
+});
 
 /** Scans now run out-of-band; poll the job row until it leaves queued/running. */
 async function waitForScanJob(
