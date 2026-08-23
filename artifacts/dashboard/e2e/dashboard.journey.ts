@@ -223,8 +223,8 @@ async function installApiFixtures(
           status: 200,
           contentType: "text/event-stream",
           headers: { "Cache-Control": "no-cache" },
-          // Deliberately stop after the durable execution identity. This is
-          // the browser-side equivalent of a transport interruption.
+          // Deliberately stop after the durable execution identity. The
+          // journey wraps this response in a browser-level stream error.
           body: fixture.streamBody,
         });
       }
@@ -2151,11 +2151,56 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(visibleText).toContain("The required analysis did not complete.");
   });
 
-  test("recovers a missing token after an interrupted stream and resumes one execution", async ({
+  test("recovers a missing token after a real stream abort and resumes one execution", async ({
     page,
   }) => {
     const recovery = installInterruptedResumeFixture();
     await installApiFixtures(page, { interruptedResume: recovery });
+    await page.addInitScript(() => {
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const url = typeof input === "string"
+          ? input
+          : input instanceof Request
+            ? input.url
+            : String(input);
+        const body = typeof init?.body === "string" ? init.body : "";
+        if (!url.includes("/api/ai/chat/stream") || body.includes('"executionId"')) {
+          return nativeFetch(input, init);
+        }
+
+        const response = await nativeFetch(input, init);
+        if (!response.body) return response;
+        const reader = response.body.getReader();
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          async start(controller) {
+            let buffered = "";
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) {
+                if (buffered) controller.enqueue(encoder.encode(buffered));
+                controller.close();
+                return;
+              }
+              buffered += new TextDecoder().decode(value, { stream: true });
+              const marker = buffered.indexOf('"type":"execution_started"');
+              const frameEnd = marker < 0 ? -1 : buffered.indexOf("\n\n", marker);
+              if (frameEnd >= 0) {
+                controller.enqueue(encoder.encode(buffered.slice(0, frameEnd + 2)));
+                controller.error(new TypeError("network connection reset"));
+                return;
+              }
+            }
+          },
+        });
+        return new Response(stream, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      };
+    });
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
 
