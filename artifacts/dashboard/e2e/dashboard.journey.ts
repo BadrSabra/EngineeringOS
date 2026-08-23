@@ -99,6 +99,7 @@ const executionFixture = {
   proofRequired: false,
   resumable: false,
   checkpointVersion: 1,
+  projectRevision: "e2e-revision-42",
   checkpoint: {
     stage: "complete",
     detail: "Controlled browser fixture completed.",
@@ -165,6 +166,11 @@ async function installApiFixtures(
     archiveUpload?: {
       uploadId: string;
       originalName: string;
+    };
+    auditExport?: {
+      body: Record<string, unknown>;
+      filename: string;
+      requests: string[];
     };
     liveTask?: {
       id: string;
@@ -268,9 +274,45 @@ async function installApiFixtures(
           messageFixture.message,
         ]),
       );
+    if (
+      overrides?.auditExport &&
+      path.endsWith("/api/ai/chat/e2e-audit-session/messages")
+    ) {
+      return route.fulfill(
+        jsonResponse([
+          {
+            id: "e2e-audit-user-message",
+            sessionId: "e2e-audit-session",
+            role: "user",
+            content: "Completed audit execution",
+            createdAt: "2026-01-01T00:01:00.000Z",
+          },
+          {
+            id: "e2e-audit-assistant-message",
+            sessionId: "e2e-audit-session",
+            role: "assistant",
+            content: "Completed audit execution",
+            executionId: EXECUTION_ID,
+            outcome: "SUCCEEDED",
+            createdAt: "2026-01-01T00:02:00.000Z",
+          },
+        ]),
+      );
+    }
 
     if (path === "/api/dashboard")
       return route.fulfill(jsonResponse(dashboardFixture));
+    if (
+      overrides?.auditExport &&
+      path === `/api/ai/executions/${EXECUTION_ID}/audit-export`
+    ) {
+      overrides.auditExport.requests.push(route.request().url());
+      return route.fulfill(
+        jsonResponse(overrides.auditExport.body, 200, {
+          "Content-Disposition": `attachment; filename="${overrides.auditExport.filename}"`,
+        }),
+      );
+    }
     if (overrides?.archiveUpload && path === "/api/upload/archive") {
       const contentType = route.request().headers()["content-type"] ?? "";
       if (!contentType.startsWith("multipart/form-data;")) {
@@ -1566,6 +1608,100 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText("PROVEN", { exact: true }).first(),
     ).toBeVisible();
+  });
+
+  test("previews and downloads the completed execution audit without duplicating effects", async ({
+    page,
+  }) => {
+    const auditRequests: string[] = [];
+    const auditBody = {
+      format: "engineeringos.execution-audit.v1",
+      exportedAt: "2026-01-01T00:02:00.000Z",
+      execution: {
+        id: EXECUTION_ID,
+        projectId: "e2e-project",
+        sessionId: "e2e-audit-session",
+        operationId: executionFixture.operationId,
+        status: "completed",
+        terminalState: "completed",
+        revision: "e2e-revision-42",
+        proof: { required: false, verdict: "PROVEN" },
+      },
+      timeline: [],
+      validations: [{ status: "passed", profile: "release-safe" }],
+      affectedFiles: ["src/feature.ts"],
+      redaction: {
+        excluded: [
+          "provider secrets",
+          "raw model output",
+          "private runtime paths",
+        ],
+      },
+    };
+    await installApiFixtures(page, {
+      auditExport: {
+        body: auditBody,
+        filename: "server-supplied-audit-name.json",
+        requests: auditRequests,
+      },
+    });
+    await programmaticSignIn(page);
+    await page.evaluate(() => {
+      const execution = {
+        id: "e2e-controlled-execution",
+        projectId: "e2e-project",
+        sessionId: "e2e-audit-session",
+        message: "Completed audit execution",
+      };
+      localStorage.setItem(
+        "eos_ai_execution_current_e2e-project",
+        "e2e-audit-session",
+      );
+      localStorage.setItem(
+        "eos_ai_execution_e2e-project_e2e-audit-session",
+        JSON.stringify(execution),
+      );
+    });
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const proof = page.getByLabel("Agent execution proof");
+    await expect(proof).toBeVisible();
+    await expect(proof).toContainText(/completed/i);
+    await expect(proof).toContainText("Revision: e2e-revision-42");
+
+    await proof.getByRole("button", { name: "Preview audit" }).click();
+    const preview = page.getByLabel("Redacted audit preview");
+    await expect(preview).toBeVisible();
+    await expect(preview).toContainText("provider secrets");
+    await expect(preview).toContainText("raw model output");
+    await expect(preview).toContainText("private runtime paths");
+    await expect(preview).toContainText(EXECUTION_ID);
+    await expect(preview).toContainText("e2e-operation");
+    await expect(preview).toContainText("e2e-revision-42");
+    expect(auditRequests).toHaveLength(1);
+    expect(new URL(auditRequests[0]).pathname).toBe(
+      `/api/ai/executions/${EXECUTION_ID}/audit-export`,
+    );
+
+    await preview.getByRole("button", { name: "Close audit preview" }).click();
+    await expect(preview).toBeHidden();
+
+    const downloadPromise = page.waitForEvent("download");
+    await proof.getByRole("button", { name: "Export audit" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("server-supplied-audit-name.json");
+    expect(auditRequests).toHaveLength(2);
+
+    await page.reload();
+    const reloadedProof = page.getByLabel("Agent execution proof");
+    await expect(reloadedProof).toBeVisible();
+    await expect(reloadedProof).toContainText(/completed/i);
+    await expect(reloadedProof).toContainText("Execution e2e-controlled-execution");
+    await expect(reloadedProof).toContainText("Revision: e2e-revision-42");
+    await expect(
+      page.getByLabel("Redacted audit preview"),
+    ).toBeHidden();
+    expect(auditRequests).toHaveLength(2);
   });
 
   test("uploads an archive and renders a live task update", async ({
