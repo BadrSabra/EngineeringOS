@@ -27,7 +27,7 @@ import type { ProductionReachabilityTrace } from "./semantic-trace.js";
 import type { CanonicalSourceCoverage, RepairBlockReason } from "./evidence-integrity.js";
 import type { RawMessage, RawGroqResponse } from "./groq-client.js";
 import type { ProviderStrategy } from "./provider-strategy.js";
-import type { ToolDefinitionLike } from "./tool-policy.js";
+import { authorizeToolInvocation, type ToolDefinitionLike } from "./tool-policy.js";
 import type { PendingChange } from "./schemas/chat.schema.js";
 import type { TaskType } from "./quality/task-profile.js";
 import { getPhaseBudget, isToolAllowedInPhase, type ExecutionPhase } from "./quality/execution-phases.js";
@@ -58,6 +58,7 @@ import { recordBehavioralFailure } from "./behavioral-scorecard.js";
 import { isForensicTestSourcePath } from "./forensic-source-policy.js";
 import type { ForensicRootCoverage } from "./forensic-output-guard.js";
 import type { ValidationResult } from "./validation-result.js";
+import { formatUntrustedContent } from "./untrusted-content.js";
 
 // ── Defaults ────────────────────────
 
@@ -280,6 +281,20 @@ const GIT_TOOL_NAMES = new Set(GIT_TOOL_DEFINITIONS.map((t) => t.function.name))
 const FILE_TOOL_NAMES = new Set(FILE_TOOL_DEFINITIONS.map((t) => t.function.name));
 const EXECUTION_TOOL_NAMES = new Set(EXECUTION_TOOL_DEFINITIONS.map((t) => t.function.name));
 
+function untrustedToolOutput(name: string, output: string, args: Record<string, string>): string {
+  const source = GIT_TOOL_NAMES.has(name)
+    ? "git" as const
+    : name === "read_file" || name === "read_file_range" || name === "list_directory" || name === "search_code"
+      ? "source" as const
+    : name === "run_command" || name === "run_validation" || ANALYSIS_TOOL_NAMES.has(name)
+      ? "provider_diagnostic" as const
+      : "tool_output" as const;
+  return formatUntrustedContent(output, {
+    source,
+    ...(typeof args.path === "string" ? { path: args.path } : {}),
+  });
+}
+
 // ── Cache key ────────────────────────
 
 /**
@@ -415,6 +430,12 @@ export type SingleToolOpts = {
   validationTargetPaths?: string[];
   /** Fail-closed dispatcher gate for execution tools. */
   allowExecutionTools?: boolean;
+  /** Server-owned approval and scope manifest; never inferred from model text. */
+  approvalState?: "APPROVED" | "PENDING_APPROVAL" | "REJECTED";
+  approvedFilePaths?: readonly string[];
+  approvedValidationProfiles?: readonly string[];
+  /** Server-owned effective tool manifest, checked again at dispatch. */
+  allowedToolNames?: ReadonlySet<string>;
   /** Cancellation signal owned by the durable execution controller. */
   signal?: AbortSignal;
 };
@@ -675,6 +696,22 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
         failureKind: "unavailable",
         diagnosticCode: "TOOL_UNAVAILABLE",
         safeMessage: `Tool "${name}" is unavailable in this agent mode; the operation did not complete.`,
+      };
+    }
+    const authorization = authorizeToolInvocation({
+      toolName: name,
+      args,
+      approvalState: opts.approvalState,
+      ...(opts.approvedFilePaths ? { approvedFilePaths: opts.approvedFilePaths } : {}),
+      ...(opts.approvedValidationProfiles ? { approvedValidationProfiles: opts.approvedValidationProfiles } : {}),
+      ...(opts.allowedToolNames ? { allowedTools: opts.allowedToolNames } : {}),
+    });
+    if (!authorization.allowed) {
+      return {
+        kind: "failed",
+        failureKind: "unavailable",
+        diagnosticCode: "TOOL_UNAVAILABLE",
+        safeMessage: `Tool "${name}" was blocked by the server authorization gate (${authorization.reason}).`,
       };
     }
     if (isAnalysisTool && !opts.analysisToolRunner) {
@@ -1087,6 +1124,10 @@ export type ToolLoopOpts = {
    * fail-closed enforcement boundary for isolated capability tests.
    */
   allowedToolNames?: string[];
+  /** Server-owned approval/scope manifest, never inferred from repository text. */
+  approvalState?: "APPROVED" | "PENDING_APPROVAL" | "REJECTED";
+  approvedFilePaths?: readonly string[];
+  approvedValidationProfiles?: readonly string[];
 
   /**
    * Dependency-First traversal (FEG-005/006). When enabled, once the first
@@ -1547,6 +1588,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     maxValidationAttempts,
     signal,
     allowedToolNames,
+    approvalState,
+    approvedFilePaths,
+    approvedValidationProfiles,
     allowedReadPaths,
     objectiveScopePolicy,
     firstEvidenceTargetPath,
@@ -3665,7 +3709,9 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           role: "tool",
           tool_call_id: tc.id,
           content:
-            duplicateCount >= REPAIR_PLAN_DUPLICATE_TOOL_LIMIT && executionMode === "repair_plan"
+            untrustedToolOutput(
+              tc.function.name,
+              duplicateCount >= REPAIR_PLAN_DUPLICATE_TOOL_LIMIT && executionMode === "repair_plan"
               ? `[cached — identical call already executed this request]\n${cached}\n\n` +
                 "EXECUTION GUARD: Do not call this same tool with the same arguments again. " +
                 "For a Repair Plan, call replace_text/write_file now if the evidence is sufficient, or return a final response."
@@ -3677,6 +3723,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
                     : duplicateCount >= 2
                       ? "\n\nDUPLICATE_TOOL_ESCALATION: this tool will be hidden on the next turn; use another tool or synthesize."
                   : ""),
+              args,
+            ),
         });
         if (
           tc.function.name === "read_file" &&
@@ -3779,6 +3827,10 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
          commandRunner,
          commandContext,
         validationTargetPaths,
+        approvalState,
+        approvedFilePaths,
+        approvedValidationProfiles,
+        allowedToolNames: allowedToolNames ? new Set(allowedToolNames) : undefined,
         analysisToolRunner: opts.analysisToolRunner,
         analysisCorrelation: opts.analysisCorrelation,
         signal,
@@ -4012,7 +4064,11 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             : {}),
         });
       } catch { /* ignore */ }
-      messages.push({ role: "tool", tool_call_id: tc.id, content: toolResult.output });
+      messages.push({
+        role: "tool",
+        tool_call_id: tc.id,
+        content: untrustedToolOutput(tc.function.name, toolResult.output, args),
+      });
     }
 
     // ── Progress enforcement (FEG-008) ────────────────

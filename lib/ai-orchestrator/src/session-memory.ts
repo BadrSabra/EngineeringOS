@@ -27,6 +27,7 @@ import {
 } from "@workspace/db";
 import { and, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import type { ProjectContext } from "./context-builder.js";
+import { formatUntrustedContent } from "./untrusted-content.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -184,28 +185,22 @@ export function formatMemoriesForPrompt(memories: MemoryRow[]): string | null {
   );
 
   const lines: string[] = [];
-  lines.push(
-    "Historical session memory (navigation hints only; may be stale and is not current evidence):",
-  );
-  lines.push(
-    "Do not cite its numbers, conclusions, or paths as proof. Read the current source or obtain current telemetry before making a present-tense claim.",
-  );
-  lines.push("");
-
   if (fileMemories.length > 0) {
-    lines.push("Files previously accessed in this project (starting hints only; re-read for current content):");
     for (const m of fileMemories) {
       lines.push(`  • ${m.sourcePath}`);
     }
   }
 
   if (summaryMemories.length > 0 && summaryMemories[0]) {
-    lines.push("");
-    lines.push("Most recent session summary:");
     lines.push(`  ${summaryMemories[0].content.slice(0, 300)}`);
   }
 
-  return lines.join("\n") || null;
+  const payload = [
+    "Historical session memory is a navigation hint only; it may be stale and is not current evidence.",
+    "Read current source or obtain current telemetry before making a present-tense claim.",
+    ...lines,
+  ].join("\n");
+  return formatUntrustedContent(payload, { source: "session_memory" });
 }
 
 /**

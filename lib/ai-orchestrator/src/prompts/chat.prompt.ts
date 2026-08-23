@@ -5,6 +5,7 @@ import {
 } from "../task-checklist.js";
 import type { OutputContract } from "../task-contracts.js";
 import { composePrompt, promptContextOverview, promptSection } from "./prompt-composer.js";
+import { formatUntrustedContent } from "../untrusted-content.js";
 
 /**
  * Slim task DTO passed from the route into the prompt builder.
@@ -325,7 +326,9 @@ export function buildChatSystemPrompt({
 
   return composePrompt(
     identityLine,
-    promptContextOverview(promptContext, profile),
+    formatUntrustedContent(promptContextOverview(promptContext, profile), {
+      source: "source",
+    }),
     `How project access works:
 The knowledge graph above is a pre-extracted index of code entities (functions, classes, APIs, modules). It covers the highest-confidence entities found during the last scan — it is not guaranteed to be exhaustive.`,
     // Relevance hint: surface the most query-relevant entities at the top of the

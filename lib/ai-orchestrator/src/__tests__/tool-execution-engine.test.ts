@@ -2405,9 +2405,8 @@ describe("executeToolLoop", () => {
       expect(result.result.content).toBe("");
     }
     expect(FILE_TOOL_MOCK).toHaveBeenCalledTimes(1);
-    expect(messages.filter((message) => message.role === "tool").map((message) => message.content)).toEqual([
-      "file content",
-    ]);
+    expect(messages.filter((message) => message.role === "tool").map((message) => message.content)).toHaveLength(1);
+    expect(messages.find((message) => message.role === "tool")?.content).toContain("file content");
   });
 
   it("marks a text-bearing soft-limit stop as partial instead of success", async () => {

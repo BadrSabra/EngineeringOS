@@ -1,0 +1,162 @@
+{
+  "kind": "ai-release-quality-decision",
+  "version": 1,
+  "generatedAt": "2026-08-23T12:59:18.789Z",
+  "status": "blocked",
+  "liveProviderChecks": "disabled",
+  "previewChecks": "disabled",
+  "summary": {
+    "totalCases": 10,
+    "passedCases": 6,
+    "failedCases": 3,
+    "skippedCases": 1,
+    "blockingFailures": 3,
+    "informationalFailures": 0
+  },
+  "blockers": [
+    "TRUTH_FLOW_PARITY_FAILED_1",
+    "AI_CONTRACT_AND_JSON_FAILED_1",
+    "AI_SSE_AND_REDACTION_FAILED_1"
+  ],
+  "checks": [
+    {
+      "id": "api-typecheck",
+      "kind": "typecheck",
+      "command": "pnpm --filter @workspace/api-server run typecheck",
+      "blocking": true,
+      "coverage": [
+        "API typecheck"
+      ],
+      "enabled": true,
+      "status": "passed",
+      "durationMs": 25808
+    },
+    {
+      "id": "dashboard-typecheck",
+      "kind": "typecheck",
+      "command": "pnpm --filter @workspace/dashboard run typecheck",
+      "blocking": true,
+      "coverage": [
+        "dashboard/client typecheck"
+      ],
+      "enabled": true,
+      "status": "passed",
+      "durationMs": 18423
+    },
+    {
+      "id": "openapi-client-parity",
+      "kind": "contract",
+      "command": "pnpm run codegen:check",
+      "blocking": true,
+      "coverage": [
+        "OpenAPI/client parity",
+        "Zod 3 generated-schema compatibility"
+      ],
+      "enabled": true,
+      "status": "passed",
+      "durationMs": 6995
+    },
+    {
+      "id": "truth-flow-parity",
+      "kind": "evidence",
+      "command": "pnpm run truth:validate",
+      "blocking": true,
+      "coverage": [
+        "structured evidence baseline"
+      ],
+      "enabled": true,
+      "status": "failed",
+      "failureCode": "TRUTH_FLOW_PARITY_FAILED_1",
+      "durationMs": 1837
+    },
+    {
+      "id": "ai-contract-and-json",
+      "kind": "contract",
+      "command": "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-route-parity.test.ts src/routes/ai.test.ts",
+      "blocking": true,
+      "coverage": [
+        "JSON contract",
+        "structured audits",
+        "tool policy",
+        "false-success handling"
+      ],
+      "enabled": true,
+      "status": "failed",
+      "failureCode": "AI_CONTRACT_AND_JSON_FAILED_1",
+      "durationMs": 12051
+    },
+    {
+      "id": "ai-sse-and-redaction",
+      "kind": "contract",
+      "command": "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-stream-integration.test.ts src/routes/ai/chat-sse.test.ts",
+      "blocking": true,
+      "coverage": [
+        "SSE contract",
+        "redaction",
+        "stale revision",
+        "resume"
+      ],
+      "enabled": true,
+      "status": "failed",
+      "failureCode": "AI_SSE_AND_REDACTION_FAILED_1",
+      "durationMs": 18665
+    },
+    {
+      "id": "ai-operational-safety",
+      "kind": "operation",
+      "command": "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-repair-loop-e2e.test.ts src/lib/ai-repair-validation.test.ts src/lib/job-concurrency.test.ts",
+      "blocking": true,
+      "coverage": [
+        "ownership",
+        "concurrency",
+        "cancellation",
+        "apply/rollback",
+        "Terminal"
+      ],
+      "enabled": true,
+      "status": "passed",
+      "durationMs": 47489
+    },
+    {
+      "id": "ai-deterministic-benchmark",
+      "kind": "benchmark",
+      "command": "pnpm --filter @workspace/ai-orchestrator run benchmark:code-agent:deterministic",
+      "blocking": true,
+      "coverage": [
+        "deterministic fixtures",
+        "validation/provider-turn exhaustion",
+        "scope safety",
+        "false success"
+      ],
+      "enabled": true,
+      "status": "passed",
+      "durationMs": 862
+    },
+    {
+      "id": "benchmark-baseline-regression",
+      "kind": "benchmark",
+      "command": "pnpm run verify:benchmark-rollout",
+      "blocking": true,
+      "coverage": [
+        "baseline comparison",
+        "regression threshold",
+        "scope escape"
+      ],
+      "enabled": true,
+      "status": "passed",
+      "durationMs": 455
+    },
+    {
+      "id": "dashboard-preview-contract",
+      "kind": "preview",
+      "command": "pnpm run validate:dashboard-journey",
+      "blocking": true,
+      "coverage": [
+        "Preview dashboard journey"
+      ],
+      "enabled": false,
+      "status": "skipped",
+      "durationMs": 0
+    }
+  ]
+}

@@ -49,3 +49,4 @@
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.
 - [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic contract and operational checks into a safe blocking decision; live providers and Preview stay opt-in.
 - [Task execution lifecycle](task-execution-lifecycle.md) — standalone task AI runs use durable ownership, idempotency, leases, checkpoints, and bounded receipts.
+- [Untrusted content boundary](untrusted-content-boundary.md) — repository, tool, memory, and checkpoint text is evidence/data only; server authorization remains independent.

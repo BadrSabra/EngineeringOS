@@ -27,6 +27,17 @@ export type ToolPolicy = {
   reason?: string;
 };
 
+export type ToolAuthorization = {
+  allowed: boolean;
+  reason:
+    | "allowed"
+    | "unknown_tool"
+    | "tool_not_in_manifest"
+    | "path_outside_approved_scope"
+    | "validation_profile_not_approved"
+    | "approval_required";
+};
+
 const FILE_READ_TOOL_NAMES = new Set(["read_file", "read_file_range", "list_directory", "search_code"]);
 const FILE_WRITE_TOOL_NAMES = new Set(["write_file", "replace_text"]);
 const GIT_TOOL_NAMES = new Set(["git_status", "git_diff", "git_log"]);
@@ -127,4 +138,41 @@ export function getAllowedToolDefinitions(policy: ToolPolicy): ToolDefinitionLik
   if (!policy.enabled) return [];
   return [...ALL_TOOL_DEFINITIONS, ...ANALYSIS_TOOL_DEFINITIONS]
     .filter((tool) => isToolAllowed(policy, tool.function.name));
+}
+
+/**
+ * Server-side post-model-turn authorization. Prompt text and repository data
+ * are never inputs to this decision. An absent manifest is fail-closed.
+ */
+export function authorizeToolInvocation(opts: {
+  toolName: string;
+  args?: Record<string, unknown>;
+  allowedTools?: ReadonlySet<string>;
+  approvedFilePaths?: readonly string[];
+  approvedValidationProfiles?: readonly string[];
+  approvalState?: "APPROVED" | "PENDING_APPROVAL" | "REJECTED";
+}): ToolAuthorization {
+  const known = new Set([...FILE_READ_TOOL_NAMES, ...FILE_WRITE_TOOL_NAMES, ...GIT_TOOL_NAMES, ...EXECUTION_TOOL_NAMES, ...ANALYSIS_TOOL_NAMES]);
+  if (!known.has(opts.toolName)) return { allowed: false, reason: "unknown_tool" };
+  if (opts.allowedTools && !opts.allowedTools.has(opts.toolName)) {
+    return { allowed: false, reason: "tool_not_in_manifest" };
+  }
+  const isWrite = FILE_WRITE_TOOL_NAMES.has(opts.toolName);
+  if (isWrite && opts.approvalState !== undefined && opts.approvalState !== "APPROVED") {
+    return { allowed: false, reason: "approval_required" };
+  }
+  const requestedPath = typeof opts.args?.path === "string"
+    ? opts.args.path.replaceAll("\\", "/").replace(/^(\.\/)+/, "")
+    : undefined;
+  if (isWrite && opts.approvedFilePaths && (
+    !requestedPath || !opts.approvedFilePaths.includes(requestedPath)
+  )) {
+    return { allowed: false, reason: "path_outside_approved_scope" };
+  }
+  if ((opts.toolName === "run_validation" || opts.toolName === "run_command") &&
+      opts.approvedValidationProfiles &&
+      !opts.approvedValidationProfiles.includes(String(opts.args?.profile ?? "").trim())) {
+    return { allowed: false, reason: "validation_profile_not_approved" };
+  }
+  return { allowed: true, reason: "allowed" };
 }

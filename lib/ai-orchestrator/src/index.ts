@@ -148,8 +148,15 @@ export type {
   ValidationStatus,
 } from "./validation-result.js";
 
-export { resolveToolPolicy, getAllowedToolDefinitions, isToolAllowed } from "./tool-policy.js";
-export type { ToolMode, ToolPolicy } from "./tool-policy.js";
+export { resolveToolPolicy, getAllowedToolDefinitions, isToolAllowed, authorizeToolInvocation } from "./tool-policy.js";
+export type { ToolMode, ToolPolicy, ToolAuthorization } from "./tool-policy.js";
+export {
+  createUntrustedContent,
+  formatUntrustedContent,
+  isUntrustedContent,
+  UNTRUSTED_CONTENT_LIMIT,
+} from "./untrusted-content.js";
+export type { UntrustedContent, UntrustedContentSource } from "./untrusted-content.js";
 export type {
   AnalysisCorrelation,
   AnalysisToolRunner,
