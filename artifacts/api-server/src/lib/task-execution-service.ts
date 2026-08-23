@@ -10,6 +10,7 @@ import {
   buildProjectContext,
   executeTask,
   invalidateContextCache,
+  PROVIDER_REGISTRY,
 } from "@workspace/ai-orchestrator";
 import {
   createAiExecution,
@@ -20,7 +21,7 @@ import {
   heartbeatAiExecution,
   AI_EXECUTION_LEASE_MS,
 } from "./ai-execution-state.js";
-import { runAgentWithFallback } from "./ai-route-helpers.js";
+import { redactUserFacingText, runAgentWithFallback } from "./ai-route-helpers.js";
 import type { ProviderId } from "./ai-route-helpers.js";
 import { recordAudit } from "./audit.js";
 import { logger } from "./logger.js";
@@ -40,19 +41,111 @@ export type TaskExecutionOutcome = {
 
 type Provider = { provider: ProviderId; apiKey: string };
 
-function safeError(error: unknown): string {
-  return error instanceof Error ? error.message.slice(0, 500) : "AI task execution failed";
+const RECEIPT_MAX_BYTES = 8_000;
+const RECEIPT_MAX_STAGES = 12;
+const RECEIPT_MAX_STEPS = 24;
+const RECEIPT_MAX_TEXT = 480;
+
+export type AiTaskExecutionReceipt = {
+  kind: "AI_TASK_EXECUTION_RECEIPT";
+  operationId: string;
+  correlationId: string;
+  revision: string | null;
+  provider: ProviderId;
+  model: string;
+  attempt: number;
+  attempts: number;
+  durationMs: number;
+  stages: string[];
+  terminalStatus: "SUCCEEDED" | "BLOCKED" | "FAILED" | "CANCELLED";
+  terminalReason: string;
+  summary?: string;
+  confidence?: string;
+  steps?: string[];
+  evidenceRefs: string[];
+};
+
+function safeText(value: unknown, max = RECEIPT_MAX_TEXT): string {
+  return redactUserFacingText(String(value ?? ""))
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
 }
 
-function receipt(result: Awaited<ReturnType<typeof executeTask>>) {
-  return {
-    kind: "AI_TASK_EXECUTION_RECEIPT",
-    summary: result.summary.slice(0, 2000),
-    confidence: result.confidence,
-    needsHumanReview: result.needsHumanReview,
-    steps: result.steps.slice(0, 24).map((step) => String(step).slice(0, 500)),
-    verified: !result.needsHumanReview,
+function boundedReceipt(receiptValue: AiTaskExecutionReceipt): AiTaskExecutionReceipt {
+  const bounded = {
+    ...receiptValue,
+    stages: receiptValue.stages.slice(0, RECEIPT_MAX_STAGES).map((stage) => safeText(stage, 80)),
+    evidenceRefs: receiptValue.evidenceRefs.slice(0, 8).map((ref) => safeText(ref, 120)),
+    ...(receiptValue.summary ? { summary: safeText(receiptValue.summary, 2_000) } : {}),
+    ...(receiptValue.steps ? { steps: receiptValue.steps.slice(0, RECEIPT_MAX_STEPS).map((step) => safeText(step)) } : {}),
+    terminalReason: safeText(receiptValue.terminalReason, 240),
   };
+  // Keep this envelope bounded even if future fields are added to the contract.
+  const serialized = JSON.stringify(bounded);
+  return serialized.length <= RECEIPT_MAX_BYTES
+    ? bounded
+    : { ...bounded, summary: bounded.summary?.slice(0, 240), steps: bounded.steps?.slice(0, 8) };
+}
+
+export function buildAiTaskExecutionReceipt(params: {
+  executionId: string;
+  correlationId: string;
+  revision?: string;
+  provider: ProviderId;
+  attempt: number;
+  durationMs: number;
+  stages: string[];
+  attempts?: number;
+  result: Awaited<ReturnType<typeof executeTask>>;
+}): AiTaskExecutionReceipt {
+  return boundedReceipt({
+    kind: "AI_TASK_EXECUTION_RECEIPT",
+    operationId: params.executionId,
+    correlationId: params.correlationId,
+    revision: params.revision ?? null,
+    provider: params.provider,
+    model: PROVIDER_REGISTRY[params.provider]?.defaultModels.powerful ?? "provider-default",
+    attempt: params.attempt,
+    attempts: Math.max(1, Math.min(params.attempts ?? 1, 8)),
+    durationMs: Math.max(0, Math.min(Math.round(params.durationMs), 86_400_000)),
+    stages: params.stages,
+    terminalStatus: params.result.needsHumanReview ? "BLOCKED" : "SUCCEEDED",
+    terminalReason: params.result.needsHumanReview ? "human_review_required" : "structured_result_verified",
+    summary: params.result.summary,
+    confidence: safeText(params.result.confidence, 40),
+    steps: params.result.steps.map((step) => String(step)),
+    evidenceRefs: [],
+  });
+}
+
+function failureReceipt(params: {
+  executionId: string;
+  correlationId: string;
+  revision?: string;
+  provider: ProviderId;
+  attempt: number;
+  durationMs: number;
+  stages: string[];
+  code: string;
+  cancelled?: boolean;
+}): AiTaskExecutionReceipt {
+  const cancelled = Boolean(params.cancelled);
+  return boundedReceipt({
+    kind: "AI_TASK_EXECUTION_RECEIPT",
+    operationId: params.executionId,
+    correlationId: params.correlationId,
+    revision: params.revision ?? null,
+    provider: params.provider,
+    model: PROVIDER_REGISTRY[params.provider]?.defaultModels.powerful ?? "provider-default",
+    attempt: params.attempt,
+    attempts: 1,
+    durationMs: Math.max(0, Math.min(Math.round(params.durationMs), 86_400_000)),
+    stages: params.stages,
+    terminalStatus: cancelled ? "CANCELLED" : "FAILED",
+    terminalReason: safeText(params.code, 120),
+    evidenceRefs: [],
+  });
 }
 
 /**
@@ -85,6 +178,9 @@ export async function executeTaskLifecycle(params: {
     validationTargetPaths: Array.isArray(before.relatedFiles) ? before.relatedFiles : [],
   };
   let stage = "claim";
+  const startedAt = Date.now();
+  const stages: string[] = ["claim"];
+  let executionProvider = params.provider.provider;
 
   const durable = await createAiExecution({
     userId: params.userId,
@@ -123,9 +219,14 @@ export async function executeTaskLifecycle(params: {
   }
 
   const log = async (level: "info" | "warn" | "error", message: string, metadata?: Record<string, unknown>) => {
+    const safeMetadata = Object.fromEntries(
+      Object.entries(metadata ?? {})
+        .filter(([key]) => key !== "workerId")
+        .map(([key, value]) => [key, typeof value === "string" ? safeText(value, 240) : value]),
+    );
     await db.insert(taskLogsTable).values({
-      id: randomUUID(), taskId: before.id, level, message,
-      metadata: metadata ? { ...metadata, executionId, trigger: params.trigger } : { executionId, trigger: params.trigger },
+      id: randomUUID(), taskId: before.id, level, message: safeText(message, 500),
+      metadata: { ...safeMetadata, executionId, trigger: params.trigger },
       correlationId,
     }).catch((error) => logger.warn({ error, taskId: before.id }, "task execution log write failed"));
   };
@@ -149,6 +250,7 @@ export async function executeTaskLifecycle(params: {
 
   try {
     stage = "context";
+    stages.push("context");
     await log("info", "Building project context", { stage: "context" });
     const projectContext = await buildProjectContext(before.projectId, { sections: [...CONTEXT_SECTIONS] });
     await checkpointAiExecution({
@@ -157,7 +259,8 @@ export async function executeTaskLifecycle(params: {
     });
     const progress = async (message: string) => log("info", message, { stage: "progress" });
     stage = "provider_call";
-    const { result } = await runAgentWithFallback<Awaited<ReturnType<typeof executeTask>>>(
+    stages.push("provider_call");
+    const { result, effectiveProvider } = await runAgentWithFallback<Awaited<ReturnType<typeof executeTask>>>(
       params.userId,
       params.provider,
       (opts) => executeTask({
@@ -171,9 +274,17 @@ export async function executeTaskLifecycle(params: {
       }, { onProgress: progress }),
       { qualityProfile: "task_execution" },
     );
+    executionProvider = effectiveProvider;
+    if (effectiveProvider !== params.provider.provider) stages.push("provider_fallback");
 
     if (result._parseError) {
       stage = "parse";
+      stages.push("parse");
+      const parseReceipt = failureReceipt({
+        executionId, correlationId, revision: params.workspaceRevision,
+        provider: effectiveProvider, attempt: before.retryCount,
+        durationMs: Date.now() - startedAt, stages, code: "model_output_invalid",
+      });
       const error = `model_output_invalid:${result._parseError.code}`;
       await failAiExecution({ executionId, workerId, error });
       await db.update(tasksTable).set({
@@ -189,8 +300,18 @@ export async function executeTaskLifecycle(params: {
         severity: "error",
         message: `AI execution of "${before.title}" failed`,
         correlationId,
-        payload: { executionId, stage: "parse", code: "model_output_invalid", retryable: true },
+        payload: {
+          executionId,
+          operationId: executionId,
+          revision: params.workspaceRevision ?? null,
+          attempt: before.retryCount,
+          stage: "parse",
+          code: "model_output_invalid",
+          retryable: true,
+        },
       }).catch((eventError) => logger.warn({ eventError, taskId: before.id }, "task parse failure event write failed"));
+      await db.update(tasksTable).set({ agentResponse: JSON.stringify(parseReceipt) })
+        .where(and(eq(tasksTable.id, before.id), eq(tasksTable.correlationId, correlationId)));
       return {
         ok: false,
         status: "failed",
@@ -202,7 +323,13 @@ export async function executeTaskLifecycle(params: {
 
     const finalStatus = result.needsHumanReview ? "verifying" : "completed";
     stage = "finalize";
-    const taskReceipt = receipt(result);
+    stages.push("finalize");
+    const taskReceipt = buildAiTaskExecutionReceipt({
+      executionId, correlationId, revision: params.workspaceRevision,
+      provider: executionProvider, attempt: before.retryCount,
+      durationMs: Date.now() - startedAt, stages,
+      attempts: effectiveProvider === params.provider.provider ? 1 : 2, result,
+    });
     const [updated] = await db.transaction(async (tx) => {
       const [row] = await tx.update(tasksTable).set({
         status: finalStatus,
@@ -211,8 +338,11 @@ export async function executeTaskLifecycle(params: {
         lastHeartbeatAt: null,
         agentResponse: JSON.stringify(taskReceipt),
         verificationResult: {
-          passed: taskReceipt.verified,
-          steps: taskReceipt.steps.map((name) => ({ name, passed: taskReceipt.verified })),
+          passed: taskReceipt.terminalStatus === "SUCCEEDED",
+          steps: (taskReceipt.steps ?? []).map((name) => ({
+            name,
+            passed: taskReceipt.terminalStatus === "SUCCEEDED",
+          })),
         },
         completedAt: finalStatus === "completed" ? new Date() : null,
         updatedAt: new Date(),
@@ -229,7 +359,20 @@ export async function executeTaskLifecycle(params: {
         projectId: before.projectId, taskId: before.id,
         severity: finalStatus === "completed" ? "success" : "warning",
         message: `AI executed "${before.title}" → ${finalStatus}`,
-        correlationId, payload: { executionId, trigger: params.trigger },
+        correlationId,
+        payload: {
+          executionId,
+          operationId: executionId,
+          revision: taskReceipt.revision,
+          provider: taskReceipt.provider,
+          model: taskReceipt.model,
+          attempt: taskReceipt.attempt,
+          attempts: taskReceipt.attempts,
+          durationMs: taskReceipt.durationMs,
+          terminalStatus: taskReceipt.terminalStatus,
+          terminalReason: taskReceipt.terminalReason,
+          trigger: params.trigger,
+        },
       });
       return [row];
     });
@@ -241,15 +384,30 @@ export async function executeTaskLifecycle(params: {
     await recordAudit({
       entityType: "task", entityId: before.id, action: "ai_executed",
       projectId: before.projectId, stateBefore: { status: before.status },
-      stateAfter: { status: finalStatus }, correlationId,
+      stateAfter: {
+        status: finalStatus,
+        executionId,
+        operationId: executionId,
+        revision: taskReceipt.revision,
+        terminalStatus: taskReceipt.terminalStatus,
+        terminalReason: taskReceipt.terminalReason,
+      }, correlationId,
     });
     invalidateContextCache(before.projectId);
     return { ok: true, status: finalStatus, task: updated, executionId };
   } catch (error) {
-    const message = safeError(error);
+    const cancelled = error instanceof Error && error.name === "AbortError";
+    const code = cancelled ? "cancelled" : stage === "context" ? "context_build_failed" : "task_execution_failed";
+    const failure = failureReceipt({
+      executionId, correlationId, revision: params.workspaceRevision,
+      provider: executionProvider, attempt: before.retryCount,
+      durationMs: Date.now() - startedAt, stages, code, cancelled,
+    });
+    const message = safeText(code, 120);
     await failAiExecution({ executionId, workerId, error: message });
     await db.update(tasksTable).set({
-      status: before.status, workerId: null, leaseUntil: null, lastHeartbeatAt: null, updatedAt: new Date(),
+      status: before.status, workerId: null, leaseUntil: null, lastHeartbeatAt: null,
+      agentResponse: JSON.stringify(failure), updatedAt: new Date(),
     }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running")));
     await log("error", stage === "context"
       ? "AI execution failed while building project context"
@@ -262,19 +420,38 @@ export async function executeTaskLifecycle(params: {
       severity: "error",
       message: `AI execution of "${before.title}" failed`,
       correlationId,
-      payload: { executionId, stage, retryable: true },
+      payload: {
+        executionId,
+        operationId: executionId,
+        revision: params.workspaceRevision ?? null,
+        provider: failure.provider,
+        model: failure.model,
+        attempt: failure.attempt,
+        durationMs: failure.durationMs,
+        terminalStatus: failure.terminalStatus,
+        terminalReason: failure.terminalReason,
+        stage,
+        retryable: !cancelled,
+      },
     }).catch((eventError) => logger.warn({ eventError, taskId: before.id }, "task failure event write failed"));
     await recordAudit({
       entityType: "task", entityId: before.id, action: "execution_failed",
       projectId: before.projectId, stateBefore: { status: "running" },
-      stateAfter: { status: "failed" }, correlationId,
+      stateAfter: {
+        status: "failed",
+        executionId,
+        operationId: executionId,
+        revision: params.workspaceRevision ?? null,
+        terminalStatus: failure.terminalStatus,
+        terminalReason: failure.terminalReason,
+      }, correlationId,
     });
     invalidateContextCache(before.projectId);
     return {
       ok: false,
       status: "failed",
       executionId,
-      errorCode: stage === "context" ? "context_build_failed" : "task_execution_failed",
+      errorCode: code,
       error,
     };
   } finally {

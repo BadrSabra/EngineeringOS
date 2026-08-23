@@ -65,11 +65,38 @@ type TaskView = {
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  agentResponse?: string;
   verificationResult?: {
     passed: boolean;
     steps: Array<{ name: string; passed: boolean; output?: string }>;
   };
 };
+
+type TaskExecutionReceipt = {
+  kind?: string;
+  operationId?: string;
+  correlationId?: string;
+  revision?: string | null;
+  provider?: string;
+  model?: string;
+  attempt?: number;
+  attempts?: number;
+  durationMs?: number;
+  stages?: string[];
+  terminalStatus?: 'SUCCEEDED' | 'BLOCKED' | 'FAILED' | 'CANCELLED';
+  terminalReason?: string;
+  summary?: string;
+};
+
+function parseExecutionReceipt(raw: string | undefined): TaskExecutionReceipt | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as TaskExecutionReceipt;
+    return value && value.kind === 'AI_TASK_EXECUTION_RECEIPT' ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 function safeTaskText(value: unknown, fallback = 'No additional detail available.'): string {
   if (typeof value !== 'string') return fallback;
@@ -631,6 +658,28 @@ export default function Tasks() {
                             <div className="text-xs text-muted-foreground mb-1">Execution boundary</div>
                             <div className="text-sm">The agent can report activity and verification here. Internal prompts and provider diagnostics are not shown.</div>
                           </div>
+                          {(() => {
+                            const receipt = parseExecutionReceipt(task.agentResponse);
+                            if (!receipt) return null;
+                            return (
+                              <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs">
+                                <div className="flex items-center justify-between gap-2 mb-2">
+                                  <span className="font-semibold uppercase tracking-wider">Execution receipt</span>
+                                  <span className={receipt.terminalStatus === 'SUCCEEDED' ? 'text-emerald-500' : receipt.terminalStatus === 'BLOCKED' ? 'text-amber-500' : 'text-destructive'}>
+                                    {receipt.terminalStatus ?? 'RECORDED'}
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-muted-foreground font-mono">
+                                  <span>Provider: {receipt.provider ?? '—'}</span>
+                                  <span>Model: {receipt.model ?? '—'}</span>
+                                  <span>Attempts: {receipt.attempts ?? 1}</span>
+                                  <span>Duration: {receipt.durationMs != null ? `${receipt.durationMs}ms` : '—'}</span>
+                                </div>
+                                {receipt.terminalReason && <div className="mt-2 text-muted-foreground">Reason: {safeTaskText(receipt.terminalReason)}</div>}
+                                {receipt.operationId && <div className="mt-2 truncate text-muted-foreground">Operation: {safeTaskText(receipt.operationId)}</div>}
+                              </div>
+                            );
+                          })()}
                           {task.verificationResult && (
                             <div>
                               <div className="text-xs text-muted-foreground mb-2">
