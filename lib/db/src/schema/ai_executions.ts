@@ -25,8 +25,8 @@ export const aiExecutionsTable = pgTable("ai_executions", {
   projectId: text("project_id")
     .notNull()
     .references(() => projectsTable.id, { onDelete: "cascade" }),
+  /** Chat session for conversational runs; null for standalone task runs. */
   sessionId: text("session_id")
-    .notNull()
     .references(() => aiChatSessionsTable.id, { onDelete: "cascade" }),
   /** Stable server-owned Plan → Build → Apply operation identity. */
   operationId: text("operation_id"),
@@ -38,6 +38,10 @@ export const aiExecutionsTable = pgTable("ai_executions", {
   userId: text("user_id").notNull(),
   /** Client retry key. A retry with the same key must reuse this execution. */
   idempotencyKey: text("idempotency_key").notNull(),
+  /** Operation trace identity shared with task logs/events/audit rows. */
+  correlationId: text("correlation_id"),
+  /** Monotonic task attempt number for retry/recovery reporting. */
+  attempt: integer("attempt").notNull().default(0),
   /** SHA-256 of the opaque token returned once in execution_started. */
   resumeTokenHash: text("resume_token_hash").notNull(),
   /** Immutable, server-validated request envelope used for explicit resume. */
@@ -62,6 +66,7 @@ export const aiExecutionsTable = pgTable("ai_executions", {
   index("idx_ai_executions_session_status").on(t.sessionId, t.status),
   index("idx_ai_executions_status_lease").on(t.status, t.leaseUntil),
   index("idx_ai_executions_linked_task").on(t.linkedTaskId),
+  index("idx_ai_executions_correlation_id").on(t.correlationId),
   uniqueIndex("uq_ai_executions_user_idempotency").on(t.userId, t.idempotencyKey),
 ]);
 

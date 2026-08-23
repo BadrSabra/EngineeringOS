@@ -29,6 +29,7 @@ import {
   handleOrchestratorError,
   runAgentWithFallback,
 } from "../../lib/ai-route-helpers.js";
+import { executeTaskLifecycle } from "../../lib/task-execution-service.js";
 
 const router = Router();
 
@@ -67,6 +68,44 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlExecute.retryAfterSec}s.`,
     });
   }
+
+  const lifecycle = await executeTaskLifecycle({
+    taskId,
+    userId: req.userId,
+    provider: { provider, apiKey },
+    trigger: "manual",
+    expectedStatuses: [task.status as "pending" | "queued" | "verifying"],
+    workspaceRevision: ownerProject.updatedAt?.toISOString(),
+  });
+  if (lifecycle.status === "conflict") {
+    return res.status(409).json({ error: "task_state_changed_concurrently" });
+  }
+  if (!lifecycle.ok) {
+    if (lifecycle.errorCode === "model_output_invalid") {
+      return res.status(422).json({
+        error: "model_output_invalid",
+        code: "model_output_invalid",
+        parseCode: lifecycle.parseCode,
+        hint: "The AI model returned an unexpected response — try executing the task again.",
+      });
+    }
+    if (handleOrchestratorError(lifecycle.error, res, {
+      projectId: task.projectId,
+      operation: "task-execution",
+      provider,
+    })) return;
+    if (lifecycle.errorCode === "context_build_failed") {
+      return res.status(500).json({
+        error: "Failed to build project context",
+        hint: "Try executing the task again or refresh the project graph and metrics.",
+      });
+    }
+    return res.status(500).json({
+      error: lifecycle.errorCode ?? "task_execution_failed",
+      reason: "The AI task could not be completed. Try again in a moment.",
+    });
+  }
+  return res.status(202).json(lifecycle.task);
 
   const correlationId = randomUUID();
   const now = new Date();
@@ -213,6 +252,7 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
   }
 
   if (agentResult._parseError) {
+    const parseError = agentResult._parseError;
     const [parsedRolledBack] = await db
       .update(tasksTable)
       .set({ status: task.status, updatedAt: new Date() })
@@ -225,8 +265,8 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       id: randomUUID(),
       taskId,
       level: "error",
-      message: `AI agent parse failure [${agentResult._parseError.code}]`,
-      metadata: { parseCode: agentResult._parseError.code, correlationId },
+      message: `AI agent parse failure [${parseError!.code}]`,
+      metadata: { parseCode: parseError!.code, correlationId },
       correlationId,
     });
     logger.error(
@@ -237,7 +277,7 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
       error: "model_output_invalid",
       code: "model_output_invalid",
       hint: "The AI model returned an unexpected response — try executing the task again.",
-      parseCode: agentResult._parseError.code,
+      parseCode: parseError!.code,
     });
   }
 
@@ -365,6 +405,23 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
         );
         return;
       }
+
+      const lifecycle = await executeTaskLifecycle({
+        taskId,
+        userId,
+        provider: { provider, apiKey },
+        trigger: "automatic",
+        expectedStatuses: ["verifying"],
+      });
+      if (lifecycle.status === "conflict") {
+        logger.info({ taskId, reason: lifecycle.errorCode }, "AI auto-trigger: lifecycle claim skipped");
+        return;
+      }
+      if (!lifecycle.ok) {
+        logger.warn({ taskId, executionId: lifecycle.executionId, code: lifecycle.errorCode }, "AI auto-trigger: lifecycle failed");
+        return;
+      }
+      return;
 
       const correlationId = randomUUID();
 
@@ -507,6 +564,7 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
       }
 
       if (agentResult._parseError) {
+        const parseError = agentResult._parseError;
         const [parseRolledBack] = await db
           .update(tasksTable)
           .set({ status: "verifying", updatedAt: new Date() })
@@ -520,8 +578,8 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
           id: randomUUID(),
           taskId,
           level: "error",
-          message: `AI auto-execution parse failure [${agentResult._parseError.code}]`,
-          metadata: { parseCode: agentResult._parseError.code, correlationId },
+          message: `AI auto-execution parse failure [${parseError!.code}]`,
+          metadata: { parseCode: parseError!.code, correlationId },
           correlationId,
         });
         logger.error(

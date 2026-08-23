@@ -13,7 +13,7 @@ const activeControllers = new Map<string, AbortController>();
 
 export type AiExecutionRequestEnvelope = {
   projectId: string;
-  sessionId: string;
+  sessionId?: string;
   message: string;
   modelMessage: string;
   /** Workspace revision captured when this durable analysis operation began. */
@@ -88,7 +88,7 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
     if (
       !value ||
       typeof value.projectId !== "string" ||
-      typeof value.sessionId !== "string" ||
+      (value.sessionId !== undefined && typeof value.sessionId !== "string") ||
       typeof value.message !== "string" ||
       typeof value.modelMessage !== "string" ||
       !Array.isArray(value.validationTargetPaths)
@@ -296,8 +296,10 @@ export async function createAiExecution(params: {
   userId: string;
   request: AiExecutionRequestEnvelope;
   idempotencyKey: string;
+  correlationId?: string;
+  attempt?: number;
   projectId: string;
-  sessionId: string;
+  sessionId?: string;
   linkedTaskId?: string;
   buildPlanMessageId?: string;
 }): Promise<{ execution: AiExecution; resumeToken?: string; created: boolean }> {
@@ -326,12 +328,14 @@ export async function createAiExecution(params: {
     .values({
       id: executionId,
       projectId: params.projectId,
-      sessionId: params.sessionId,
+      sessionId: params.sessionId ?? null,
       operationId: params.buildPlanMessageId ?? executionId,
       linkedTaskId: params.linkedTaskId ?? null,
       buildPlanMessageId: params.buildPlanMessageId ?? null,
       userId: params.userId,
       idempotencyKey: params.idempotencyKey,
+      correlationId: params.correlationId ?? null,
+      attempt: params.attempt ?? 0,
       resumeTokenHash: hashResumeToken(resumeToken),
       request: JSON.stringify(params.request),
       checkpoint: JSON.stringify({
@@ -454,6 +458,26 @@ export async function checkpointAiExecution(params: {
       eq(aiExecutionsTable.status, "running"),
       // A stale worker must not overwrite a newer durable checkpoint.
       lt(aiExecutionsTable.checkpointVersion, params.checkpoint.sequence),
+    ))
+    .returning({ id: aiExecutionsTable.id });
+  return Boolean(updated);
+}
+
+export async function heartbeatAiExecution(params: {
+  executionId: string;
+  workerId: string;
+}): Promise<boolean> {
+  const [updated] = await db
+    .update(aiExecutionsTable)
+    .set({
+      lastHeartbeatAt: new Date(),
+      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.workerId, params.workerId),
+      eq(aiExecutionsTable.status, "running"),
     ))
     .returning({ id: aiExecutionsTable.id });
   return Boolean(updated);
