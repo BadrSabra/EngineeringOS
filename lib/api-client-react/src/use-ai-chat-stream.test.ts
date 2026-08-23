@@ -118,6 +118,73 @@ afterEach(() => {
 });
 
 describe('processAiStream — semantic trace dispatch', () => {
+  it('treats EOF after execution_started as an interrupted resumable stream', async () => {
+    const onStreamReset = vi.fn();
+    await processAiStream(
+      makeSseStream(sseFrame({
+        type: 'execution_started',
+        executionId: 'execution-eof',
+        status: 'running',
+        resumeToken: 'resume-token-from-eof',
+        resumable: true,
+      })),
+      { onStreamReset },
+    );
+
+    expect(onStreamReset).toHaveBeenCalledOnce();
+  });
+
+  it('does not treat a completed execution as interrupted at EOF', async () => {
+    const onStreamReset = vi.fn();
+    await processAiStream(
+      makeSseStream(
+        sseFrame({
+          type: 'execution_started',
+          executionId: 'execution-complete',
+          status: 'running',
+          resumable: true,
+        }),
+        sseFrame({
+          type: 'done',
+          sessionId: 'session-complete',
+          message: {
+            id: 'message-complete',
+            role: 'assistant',
+            content: 'Complete',
+            sources: '[]',
+            createdAt: '2026-08-23T00:00:00.000Z',
+          },
+          sources: [],
+          pendingChanges: [],
+        }),
+      ),
+      { onStreamReset },
+    );
+
+    expect(onStreamReset).not.toHaveBeenCalled();
+  });
+
+  it('preserves the issued execution identity while reporting an EOF reset', async () => {
+    const onExecutionStarted = vi.fn();
+    const onStreamReset = vi.fn();
+    await processAiStream(
+      makeSseStream(sseFrame({
+        type: 'execution_started',
+        executionId: 'execution-resume-identity',
+        status: 'running',
+        resumeToken: 'resume-token-from-eof',
+        resumable: true,
+      })),
+      { onExecutionStarted, onStreamReset },
+    );
+
+    expect(onExecutionStarted).toHaveBeenCalledWith(expect.objectContaining({
+      executionId: 'execution-resume-identity',
+      resumeToken: 'resume-token-from-eof',
+    }));
+    expect(onStreamReset).toHaveBeenCalledOnce();
+  });
+
   it('routes production_trace to onProductionTrace without losing status', async () => {
     const onProductionTrace = vi.fn();
     await processAiStream(

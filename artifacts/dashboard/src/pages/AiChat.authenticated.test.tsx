@@ -404,6 +404,69 @@ describe('AiChat authenticated generated mutations', () => {
     })));
   });
 
+  it('resumes an interrupted execution without appending a second user turn', async () => {
+    mocks.activeExecutionStatus = { status: 'paused' };
+    localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');
+    localStorage.setItem('eos_ai_execution_project-1_session-1', JSON.stringify({
+      id: 'execution-interrupted',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      resumeToken: 'resume-token-interrupted',
+      message: 'Inspect the interrupted execution',
+    }));
+
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Resume' }));
+
+    await waitFor(() => expect(mocks.sentParams).toEqual(expect.objectContaining({
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      executionId: 'execution-interrupted',
+      resumeToken: 'resume-token-interrupted',
+      message: 'Inspect the interrupted execution',
+    })));
+
+    act(() => {
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onExecutionStarted?: (event: Record<string, unknown>) => void;
+        onDone?: (event: Record<string, unknown>) => void;
+      }).onExecutionStarted?.({
+        type: 'execution_started',
+        executionId: 'execution-interrupted',
+        status: 'running',
+        resumable: true,
+      });
+      (mocks.streamCallbacks as Record<string, unknown> & {
+        onDone?: (event: Record<string, unknown>) => void;
+      }).onDone?.({
+        type: 'done',
+        sessionId: 'session-1',
+        operationId: 'execution-interrupted',
+        operationMode: 'FORENSIC_AUDIT',
+        execution: {
+          executionId: 'execution-interrupted',
+          status: 'completed',
+          evidenceVerdict: 'PARTIAL',
+        },
+        message: {
+          id: 'assistant-after-interruption',
+          role: 'assistant',
+          content: 'The interrupted execution resumed successfully.',
+          createdAt: '2026-08-23T00:00:00.000Z',
+          executionId: 'execution-interrupted',
+          outcome: 'SUCCEEDED',
+        },
+        sources: [],
+        pendingChanges: [],
+      });
+    });
+
+    expect(await screen.findByText('The interrupted execution resumed successfully.')).toBeInTheDocument();
+    // The resume request reuses the persisted turn; it must not optimistically
+    // render the resumed prompt as a second local user bubble.
+    expect(screen.queryAllByText('Inspect the interrupted execution')).toHaveLength(0);
+  });
+
   it('recovers a missing resume token before offering the saved execution', async () => {
     mocks.activeExecutionStatus = { status: 'paused' };
     localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');

@@ -775,11 +775,22 @@ export async function processAiStream(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let executionStarted = false;
+  let terminalEventReceived = false;
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      // A proxy/provider can close a healthy-looking SSE response without
+      // sending either `done` or `error`. Once the server has issued an
+      // execution identity, surface that EOF as a recoverable interruption so
+      // callers can resume the same operation instead of silently dropping it.
+      if (executionStarted && !terminalEventReceived) {
+        callbacks.onStreamReset?.();
+      }
+      break;
+    }
 
     buffer += decoder.decode(value, { stream: true });
 
@@ -798,6 +809,9 @@ export async function processAiStream(
       } catch {
         continue; // malformed event — skip
       }
+
+      if (event.type === 'execution_started') executionStarted = true;
+      if (event.type === 'done' || event.type === 'error') terminalEventReceived = true;
 
       switch (event.type) {
         case 'execution_started':

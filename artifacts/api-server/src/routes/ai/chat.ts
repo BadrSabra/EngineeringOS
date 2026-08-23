@@ -562,16 +562,32 @@ async function persistFailedChatTurn(params: {
   toolTrace?: AgentStep[];
 }): Promise<void> {
   await db.transaction(async (tx) => {
-    await tx.insert(aiChatMessagesTable).values({
-      id: randomUUID(),
-      sessionId: params.sessionId,
-      role: "user",
-      content: params.message,
-      turnIntent: params.turnIntent,
-      executionId: params.executionId ?? null,
-      outcome: "SUCCEEDED",
-      createdAt: params.createdAt,
-    });
+    // A provider/network failure may already have persisted the user turn.
+    // Resuming that execution must only add the next assistant outcome, not
+    // create a second copy of the user's request.
+    const existingUserTurn = params.executionId
+      ? await tx
+          .select({ id: aiChatMessagesTable.id })
+          .from(aiChatMessagesTable)
+          .where(and(
+            eq(aiChatMessagesTable.sessionId, params.sessionId),
+            eq(aiChatMessagesTable.executionId, params.executionId),
+            eq(aiChatMessagesTable.role, "user"),
+          ))
+          .limit(1)
+      : [];
+    if (existingUserTurn.length === 0) {
+      await tx.insert(aiChatMessagesTable).values({
+        id: randomUUID(),
+        sessionId: params.sessionId,
+        role: "user",
+        content: params.message,
+        turnIntent: params.turnIntent,
+        executionId: params.executionId ?? null,
+        outcome: "SUCCEEDED",
+        createdAt: params.createdAt,
+      });
+    }
     await tx.insert(aiChatMessagesTable).values({
       id: randomUUID(),
       sessionId: params.sessionId,
@@ -3503,16 +3519,21 @@ router.post("/ai/chat/stream", async (req, res) => {
           throw new Error("Failed to create chat session");
         }
       }
-      await tx.insert(aiChatMessagesTable).values({
-        id: randomUUID(),
-        sessionId: sessionIdToUse,
-        role: "user",
-        content: message,
-        turnIntent: streamTurnIntent.kind,
-        executionId: aiExecutionId,
-        outcome: "SUCCEEDED",
-        createdAt: now,
-      });
+      // A resumed execution already owns its original user turn. Only a new
+      // execution appends a user message; otherwise reconnecting duplicates
+      // the prompt in conversation history.
+      if (!effectiveExecutionId) {
+        await tx.insert(aiChatMessagesTable).values({
+          id: randomUUID(),
+          sessionId: sessionIdToUse,
+          role: "user",
+          content: message,
+          turnIntent: streamTurnIntent.kind,
+          executionId: aiExecutionId,
+          outcome: "SUCCEEDED",
+          createdAt: now,
+        });
+      }
       const [msg] = await tx
         .insert(aiChatMessagesTable)
         .values({

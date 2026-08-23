@@ -3885,14 +3885,53 @@ describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion
       expect.objectContaining({ type: "error", code: "TOOL_UNAVAILABLE" }),
     ]));
     expect(resumedEvents.find((event) => event.type === "done")).toBeUndefined();
+    expect(
+      resumedEvents.find((event) => event.type === "execution_started")?.executionId,
+    ).toBe(started?.executionId);
 
     const messages = await db
-      .select({ role: aiChatMessagesTable.role, outcome: aiChatMessagesTable.outcome })
+      .select({
+        role: aiChatMessagesTable.role,
+        content: aiChatMessagesTable.content,
+        executionId: aiChatMessagesTable.executionId,
+        outcome: aiChatMessagesTable.outcome,
+      })
       .from(aiChatMessagesTable)
       .where(eq(aiChatMessagesTable.sessionId, String(sessionStarted?.sessionId)));
+    const userMessages = messages.filter((message) => message.role === "user");
     const assistantMessages = messages.filter((message) => message.role === "assistant");
+    expect(userMessages).toHaveLength(1);
+    expect(userMessages[0]).toMatchObject({
+      content: "تحقق من الكود الفعلي واكتشف الفجوات وحدد الأسباب الجذرية",
+      executionId: started?.executionId,
+      outcome: "SUCCEEDED",
+    });
     expect(assistantMessages).toHaveLength(2);
+    expect(assistantMessages.every((message) => message.executionId === started?.executionId)).toBe(true);
     expect(assistantMessages.every((message) => message.outcome === "FAILED")).toBe(true);
+
+    const [execution] = await db
+      .select({
+        id: aiExecutionsTable.id,
+        operationId: aiExecutionsTable.operationId,
+        request: aiExecutionsTable.request,
+        checkpoint: aiExecutionsTable.checkpoint,
+        checkpointVersion: aiExecutionsTable.checkpointVersion,
+        status: aiExecutionsTable.status,
+      })
+      .from(aiExecutionsTable)
+      .where(eq(aiExecutionsTable.id, String(started?.executionId)));
+    expect(execution).toMatchObject({
+      id: started?.executionId,
+      operationId: started?.executionId,
+      status: "failed",
+    });
+    const requestEnvelope = JSON.parse(execution?.request ?? "{}") as Record<string, unknown>;
+    const checkpoint = JSON.parse(execution?.checkpoint ?? "{}") as Record<string, unknown>;
+    expect(requestEnvelope.sessionId).toBe(sessionStarted?.sessionId);
+    expect(typeof requestEnvelope.workspaceRevision).toBe("string");
+    expect(typeof execution?.checkpointVersion).toBe("number");
+    expect(checkpoint).toEqual(expect.objectContaining({ stage: expect.any(String) }));
   });
 
   it("records zero-read evidence stops as failed, not completed", async () => {
