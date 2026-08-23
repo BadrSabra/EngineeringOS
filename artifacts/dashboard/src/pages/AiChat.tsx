@@ -6870,7 +6870,7 @@ export default function AiChat() {
     data: rawProjects,
     isLoading: projectsLoading,
     error: projectsError,
-  } = useListProjects({
+  } = useListProjects(undefined, {
     query: {
       queryKey: getListProjectsQueryKey(),
       // Wait for Clerk to finish loading before the very first request so we

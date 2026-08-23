@@ -17,7 +17,7 @@ import { Link } from 'wouter';
 import { DiscoverProjectWizard } from './DiscoverProjectWizard';
 
 export default function Projects() {
-  const { data: projects, isLoading, isError, error } = useListProjects({
+  const { data: projects, isLoading, isError, error } = useListProjects(undefined, {
     query: {
       queryKey: getListProjectsQueryKey(),
       retry: (failureCount, err) => isRetryableProjectError(err, failureCount),
