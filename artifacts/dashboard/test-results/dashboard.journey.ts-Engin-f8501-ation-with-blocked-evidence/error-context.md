@@ -12,221 +12,234 @@
 # Error details
 
 ```
-ReferenceError: fixture is not defined
+Error: expect(locator).toBeVisible() failed
+
+Locator: getByRole('link', { name: 'Sign In', exact: true })
+Expected: visible
+Timeout: 10000ms
+Error: element(s) not found
+
+Call log:
+  - Expect "toBeVisible" with timeout 10000ms
+  - waiting for getByRole('link', { name: 'Sign In', exact: true })
+
 ```
 
-# Page snapshot
-
 ```yaml
-- generic [active]:
-  - generic:
-    - region "Notifications (F8)":
-      - list
+- region "Notifications (F8)":
+  - list
+- text: "[plugin:runtime-error-plugin] Clerk: Failed to load Clerk JS, failed to load script: https://clerk.127.0.0.1/npm/@clerk/clerk-js@6/dist/clerk.browser.js (code=\"failed_to_load_clerk_js\") Click outside, press Esc key, or fix the code to dismiss. You can also disable this overlay by setting"
+- code: server.hmr.overlay
+- text: to
+- code: "false"
+- text: in
+- code: vite.config.ts
+- text: .
 ```
 
 # Test source
 
 ```ts
-  1535 |     ).toBeVisible();
-  1536 |     await expect(
-  1537 |       page.getByText("Agent activity", { exact: false }),
-  1538 |     ).toBeVisible();
-  1539 |     await page.locator("summary").filter({ hasText: "Agent activity" }).click();
-  1540 |     await expect(
-  1541 |       page.getByText("Reading source", { exact: false }),
-  1542 |     ).toBeVisible();
-  1543 |     await expect(
-  1544 |       page.getByText(fixture.source, { exact: true }).last(),
-  1545 |     ).toBeVisible();
-  1546 |     await expect(
-  1547 |       page.getByText(/Behavior evidence · 1 excerpt/i).last(),
-  1548 |     ).toBeVisible();
-  1549 |     await expect(
-  1550 |       page
-  1551 |         .getByText('return partialFromCollectedEvidence("provider timeout");', {
-  1552 |           exact: true,
-  1553 |         })
-  1554 |         .last(),
-  1555 |     ).toBeVisible();
-  1556 | 
-  1557 |     const visibleText = await page.locator("body").innerText();
-  1558 |     expect(visibleText).not.toContain("COMPLETED");
-  1559 |     expect(visibleText).not.toContain("Persisted execution proof");
-  1560 |     expect(visibleText).toContain("The required analysis did not complete.");
-  1561 |   });
-  1562 | 
-  1563 |   test("keeps the AI session drawer overlaid on a phone viewport with accepted evidence", async ({
-  1564 |     page,
-  1565 |   }) => {
-  1566 |     await page.setViewportSize({ width: 390, height: 844 });
-  1567 |     const fixture = await installArabicAiFixture(page);
-  1568 |     await installApiFixtures(page, { arabicAi: fixture });
-  1569 |     await programmaticSignIn(page);
-  1570 |     await page.goto(`${DASHBOARD_PATH}ai`);
-  1571 | 
-  1572 |     const composer = page.locator("textarea").first();
-  1573 |     await composer.fill(fixture.question);
-  1574 |     await composer.locator("xpath=..").getByRole("button").click();
-  1575 | 
-  1576 |     await expect(
-  1577 |       page.getByText(fixture.answer, { exact: true }).last(),
-  1578 |     ).toBeVisible();
-  1579 |     await expect(
-  1580 |       page
-  1581 |         .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
-  1582 |           exact: false,
-  1583 |         })
-  1584 |         .last(),
-  1585 |     ).toBeVisible();
-  1586 |     await page
-  1587 |       .locator("summary")
-  1588 |       .filter({ hasText: "Agent activity" })
-  1589 |       .last()
-  1590 |       .click();
-  1591 |     await expect(page.locator("body")).toContainText("Reading source");
-  1592 |     await expect(page.locator("body")).toContainText(
-  1593 |       "src/missing-release-fixture.ts",
-  1594 |     );
-  1595 |     await expect(page.locator("body")).toContainText("Tool failed");
-  1596 |     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-  1597 |     await page
-  1598 |       .locator("summary")
-  1599 |       .filter({ hasText: "Persisted execution proof" })
-  1600 |       .last()
-  1601 |       .click();
-  1602 |     await expect(
-  1603 |       page
-  1604 |         .getByText("required tool failed — operation blocked", { exact: true })
-  1605 |         .last(),
-  1606 |     ).toBeVisible();
-  1607 |     await expectNoHorizontalOverflow(page);
-  1608 | 
-  1609 |     const visibleText = await page.locator("body").innerText();
-  1610 |     expect(visibleText).not.toMatch(
-  1611 |       /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
-  1612 |     );
-  1613 |   });
-  1614 | 
-  1615 |   test("keeps safe citation state across browser back and forward navigation with blocked evidence", async ({
-  1616 |     page,
-  1617 |   }) => {
-  1618 |     const accepted = await installArabicAiFixture(page, {
-  1619 |       sessionId: "e2e-history-accepted-session",
-  1620 |       question: "ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟",
-  1621 |     });
-  1622 |     const blocked = await installArabicAiFixture(page, {
-  1623 |       blocked: true,
-  1624 |       sessionId: "e2e-history-blocked-session",
-  1625 |       question: "ما هو الدليل المحجوب عند الرجوع عبر سجل المتصفح؟",
-  1626 |     });
-  1627 |     await installApiFixtures(page, {
-  1628 |       arabicAi: accepted,
-  1629 |       alternateAi: blocked,
-  1630 |     });
-  1631 |     await programmaticSignIn(page);
-  1632 |     await page.goto(`${DASHBOARD_PATH}ai`);
-  1633 | 
-  1634 |     const composer = page.locator("textarea").first();
-> 1635 |     await composer.fill(fixture.question);
-       |                         ^ ReferenceError: fixture is not defined
-  1636 |     await composer.locator("xpath=..").getByRole("button").click();
-  1637 | 
-  1638 |     await expect(
-  1639 |       page.getByText(fixture.answer, { exact: true }).last(),
-  1640 |     ).toBeVisible();
-  1641 |     await expect(
-  1642 |       page
-  1643 |         .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
-  1644 |           exact: false,
-  1645 |         })
-  1646 |         .last(),
-  1647 |     ).toBeVisible();
-  1648 |     await page
-  1649 |       .locator("summary")
-  1650 |       .filter({ hasText: "Agent activity" })
-  1651 |       .last()
-  1652 |       .click();
-  1653 |     await expect(page.locator("body")).toContainText("Reading source");
-  1654 |     await expect(page.locator("body")).toContainText(
-  1655 |       "src/missing-release-fixture.ts",
-  1656 |     );
-  1657 |     await expect(page.locator("body")).toContainText("Tool failed");
-  1658 |     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-  1659 |     await page
-  1660 |       .locator("summary")
-  1661 |       .filter({ hasText: "Persisted execution proof" })
-  1662 |       .last()
-  1663 |       .click();
-  1664 |     await expect(
-  1665 |       page
-  1666 |         .getByText("required tool failed — operation blocked", { exact: true })
-  1667 |         .last(),
-  1668 |     ).toBeVisible();
-  1669 | 
-  1670 |     const visibleText = await page.locator("body").innerText();
-  1671 |     expect(visibleText).not.toMatch(
-  1672 |       /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
-  1673 |     );
-  1674 |   });
-  1675 | 
-  1676 |   test("keeps safe citation state when switching projects", async ({
-  1677 |     page,
-  1678 |   }) => {
-  1679 |     const accepted = await installArabicAiFixture(page, {
-  1680 |       sessionId: "e2e-history-accepted-session",
-  1681 |       question: "ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟",
-  1682 |     });
-  1683 |     const blocked = await installArabicAiFixture(page, {
-  1684 |       blocked: true,
-  1685 |       sessionId: "e2e-history-blocked-session",
-  1686 |       question: "ما هو الدليل المحجوب عند الرجوع عبر سجل المتصفح؟",
-  1687 |     });
-  1688 |     await installApiFixtures(page, {
-  1689 |       arabicAi: accepted,
-  1690 |       alternateAi: blocked,
-  1691 |       projects: [
-  1692 |         {
-  1693 |           id: "e2e-project-one",
-  1694 |           name: "Citation Project One",
-  1695 |           language: "TypeScript",
-  1696 |           framework: "React",
-  1697 |           status: "active",
-  1698 |           rootPath: "/controlled/project-one",
-  1699 |           qualityScore: 92,
-  1700 |         },
-  1701 |         {
-  1702 |           id: "e2e-project-two",
-  1703 |           name: "Citation Project Two",
-  1704 |           language: "TypeScript",
-  1705 |           framework: "React",
-  1706 |           status: "active",
-  1707 |           rootPath: "/controlled/project-two",
-  1708 |           qualityScore: 88,
-  1709 |         },
-  1710 |       ],
-  1711 |     });
-  1712 |     await programmaticSignIn(page);
-  1713 |     await page.goto(`${DASHBOARD_PATH}ai`);
-  1714 | 
-  1715 |     await page
-  1716 |       .getByRole("button", { name: accepted.question, exact: true })
-  1717 |       .click();
-  1718 |     await expect(
-  1719 |       page.getByText(accepted.answer, { exact: true }).last(),
-  1720 |     ).toBeVisible();
-  1721 |     await expect(
-  1722 |       page.getByText(`${accepted.source}:42`, { exact: false }).last(),
-  1723 |     ).toBeVisible();
-  1724 |     await expect(
-  1725 |       page.getByText("Accepted: source span verified.", { exact: true }).last(),
-  1726 |     ).toBeVisible();
-  1727 | 
-  1728 |     await page.getByRole("combobox").selectOption("e2e-project-two");
-  1729 |     await expect(
-  1730 |       page.getByRole("button", { name: blocked.question, exact: true }),
-  1731 |     ).toBeVisible();
-  1732 |     await expect(page.getByText(accepted.answer, { exact: true })).toHaveCount(
-  1733 |       0,
-  1734 |     );
-  1735 |     await page
+  769 |         resumable: true,
+  770 |         resumeToken: initialToken,
+  771 |       }),
+  772 |       sse({ type: "stage", stage: "calling-model" }),
+  773 |       sse({ type: "delta", delta: partialAnswer }),
+  774 |     ].join(""),
+  775 |     message,
+  776 |   };
+  777 |   return {
+  778 |     fixture,
+  779 |     initialToken,
+  780 |     recoveredToken,
+  781 |     resumedStreamBody: [
+  782 |       sse({ type: "session_started", sessionId }),
+  783 |       sse({
+  784 |         type: "execution_started",
+  785 |         executionId,
+  786 |         status: "running",
+  787 |         resumable: true,
+  788 |         resumeToken: recoveredToken,
+  789 |       }),
+  790 |       sse({ type: "stage", stage: "resuming-checkpoint" }),
+  791 |       sse({ type: "delta", delta: answer }),
+  792 |       sse({ type: "done", sessionId, executionId, message, pendingChanges: [] }),
+  793 |     ].join(""),
+  794 |     execution: {
+  795 |       id: executionId,
+  796 |       projectId: "e2e-project",
+  797 |       operationId: "e2e-interrupted-resume-operation",
+  798 |       sessionId,
+  799 |       status: "paused",
+  800 |       flightState: "PAUSED",
+  801 |       resumable: true,
+  802 |       checkpointVersion: 1,
+  803 |       checkpoint: {
+  804 |         stage: "calling-model",
+  805 |         detail: "The browser transport disconnected after the execution started.",
+  806 |       },
+  807 |       objective: { objective: question },
+  808 |       startedAt: "2026-01-01T00:01:00.000Z",
+  809 |       createdAt: "2026-01-01T00:01:00.000Z",
+  810 |       updatedAt: "2026-01-01T00:02:00.000Z",
+  811 |     },
+  812 |   };
+  813 | }
+  814 | 
+  815 | async function createReleaseSignInUrl(page: Page) {
+  816 |   const secretKey = process.env.CLERK_SECRET_KEY;
+  817 |   if (!secretKey) {
+  818 |     throw new Error(
+  819 |       "CLERK_SECRET_KEY is required for the release-only programmatic Clerk handoff.",
+  820 |     );
+  821 |   }
+  822 | 
+  823 |   const headers = {
+  824 |     Authorization: `Bearer ${secretKey}`,
+  825 |     "Content-Type": "application/json",
+  826 |   };
+  827 |   const userResponse = await page.request.get(
+  828 |     `https://api.clerk.com/v1/users?email_address=${encodeURIComponent(TEST_USER.email)}`,
+  829 |     { headers },
+  830 |   );
+  831 |   let userId = parseClerkUserLookupResponse(await userResponse.json());
+  832 | 
+  833 |   if (!userId) {
+  834 |     const createdResponse = await page.request.post(
+  835 |       "https://api.clerk.com/v1/users",
+  836 |       {
+  837 |         headers,
+  838 |         data: {
+  839 |           email_address: [TEST_USER.email],
+  840 |           first_name: TEST_USER.firstName,
+  841 |           last_name: TEST_USER.lastName,
+  842 |           skip_password_checks: true,
+  843 |           skip_password_requirement: true,
+  844 |         },
+  845 |       },
+  846 |     );
+  847 |     userId = parseCreatedClerkUserResponse(await createdResponse.json());
+  848 |   }
+  849 | 
+  850 |   if (!userId) {
+  851 |     throw new Error(
+  852 |       "The isolated Clerk release user could not be provisioned.",
+  853 |     );
+  854 |   }
+  855 | 
+  856 |   const tokenResponse = await page.request.post(
+  857 |     "https://api.clerk.com/v1/sign_in_tokens",
+  858 |     { headers, data: { user_id: userId } },
+  859 |   );
+  860 |   const token = parseClerkSignInTokenResponse(await tokenResponse.json());
+  861 | 
+  862 |   return `${new URL(DASHBOARD_PATH, page.url()).toString()}sign-in?__clerk_ticket=${encodeURIComponent(token)}`;
+  863 | }
+  864 | 
+  865 | async function programmaticSignIn(page: Page) {
+  866 |   await page.goto(DASHBOARD_PATH);
+  867 |   await expect(
+  868 |     page.getByRole("link", { name: "Sign In", exact: true }),
+> 869 |   ).toBeVisible();
+      |     ^ Error: expect(locator).toBeVisible() failed
+  870 | 
+  871 |   const helper =
+  872 |     globalThis.signInClerkUser ??
+  873 |     globalThis.__ENGINEERINGOS_SIGN_IN_CLERK_USER__;
+  874 |   if (!helper) {
+  875 |     if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
+  876 |       throw new Error(
+  877 |         "Clerk browser helper is unavailable. Run this journey in the Replit browser runner, which injects signInClerkUser.",
+  878 |       );
+  879 |     }
+  880 |     await page.goto(await createReleaseSignInUrl(page));
+  881 |     await expect(page).toHaveURL(
+  882 |       new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
+  883 |     );
+  884 |     return;
+  885 |   }
+  886 |   const signInUrl = await helper({
+  887 |     ...TEST_USER,
+  888 |     ttl: 900,
+  889 |     basePath: DASHBOARD_PATH,
+  890 |   });
+  891 |   await page.goto(signInUrl);
+  892 |   await expect(page).toHaveURL(
+  893 |     new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
+  894 |   );
+  895 | }
+  896 | 
+  897 | async function openNavigation(page: Page, label: string, path: string) {
+  898 |   await page.getByRole("link", { name: label, exact: true }).click();
+  899 |   await expect(page).toHaveURL(new RegExp(`${path.replaceAll("/", "\\/")}$`));
+  900 | }
+  901 | 
+  902 | function apiUrl(page: Page, path: string): string {
+  903 |   const apiBaseUrl = process.env.DASHBOARD_E2E_API_BASE_URL;
+  904 |   return new URL(path, apiBaseUrl ? apiBaseUrl : page.url()).toString();
+  905 | }
+  906 | 
+  907 | async function liveRequest(
+  908 |   page: Page,
+  909 |   path: string,
+  910 |   options?: { method?: string; body?: unknown; timeout?: number },
+  911 | ): Promise<{ status: number; body: string }> {
+  912 |   return page.evaluate(
+  913 |     async ({ url, method, body, timeout }) => {
+  914 |       const response = await fetch(url, {
+  915 |         method,
+  916 |         credentials: "include",
+  917 |         headers:
+  918 |           body === undefined
+  919 |             ? undefined
+  920 |             : { "Content-Type": "application/json" },
+  921 |         body: body === undefined ? undefined : JSON.stringify(body),
+  922 |         signal: timeout ? AbortSignal.timeout(timeout) : undefined,
+  923 |       });
+  924 |       return { status: response.status, body: await response.text() };
+  925 |     },
+  926 |     {
+  927 |       url: apiUrl(page, path),
+  928 |       method: options?.method ?? "GET",
+  929 |       body: options?.body,
+  930 |       timeout: options?.timeout,
+  931 |     },
+  932 |   );
+  933 | }
+  934 | 
+  935 | type OriginDiagnostic = {
+  936 |   origin: string;
+  937 |   phase: "GET" | "preflight" | "mutation" | "rejection";
+  938 |   status?: number;
+  939 |   headers?: Record<string, string>;
+  940 |   error?: string;
+  941 | };
+  942 | const recordedOriginDiagnostics: OriginDiagnostic[] = [];
+  943 | 
+  944 | function originDiagnosticPath(): string | undefined {
+  945 |   return process.env.DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH;
+  946 | }
+  947 | 
+  948 | function relevantOriginHeaders(
+  949 |   headers: Record<string, string>,
+  950 | ): Record<string, string> {
+  951 |   return Object.fromEntries(
+  952 |     ORIGIN_DIAGNOSTIC_HEADERS.flatMap((name) =>
+  953 |       headers[name] ? [[name, headers[name]]] : [],
+  954 |     ),
+  955 |   );
+  956 | }
+  957 | 
+  958 | async function writeOriginDiagnostics() {
+  959 |   const outputPath = originDiagnosticPath();
+  960 |   if (!outputPath) return;
+  961 |   await mkdir(dirname(outputPath), { recursive: true });
+  962 |   await writeFile(
+  963 |     outputPath,
+  964 |     `${JSON.stringify({ diagnostics: recordedOriginDiagnostics }, null, 2)}\n`,
+  965 |     "utf8",
+  966 |   );
+  967 | }
+  968 | 
+  969 | async function expectOriginCanUseApi(page: Page, origin: string) {
 ```

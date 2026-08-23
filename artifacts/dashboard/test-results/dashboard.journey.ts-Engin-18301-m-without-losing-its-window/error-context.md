@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: dashboard.journey.ts >> EngineeringOS dashboard browser journey >> signs in and traverses the authenticated operational shell
-- Location: e2e/dashboard.journey.ts:1355:3
+- Name: dashboard.journey.ts >> EngineeringOS dashboard browser journey >> pages and reloads the filtered event stream without losing its window
+- Location: e2e/dashboard.journey.ts:1430:3
 
 # Error details
 

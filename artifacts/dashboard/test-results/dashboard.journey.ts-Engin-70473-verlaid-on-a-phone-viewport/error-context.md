@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: dashboard.journey.ts >> EngineeringOS dashboard browser journey >> signs in and traverses the authenticated operational shell
-- Location: e2e/dashboard.journey.ts:1355:3
+- Name: dashboard.journey.ts >> EngineeringOS dashboard browser journey >> keeps the resumed AI session drawer overlaid on a phone viewport
+- Location: e2e/dashboard.journey.ts:2297:3
 
 # Error details
 

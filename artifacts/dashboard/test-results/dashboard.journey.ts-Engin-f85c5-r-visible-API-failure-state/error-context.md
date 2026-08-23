@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: dashboard.journey.ts >> EngineeringOS dashboard browser journey >> signs in and traverses the authenticated operational shell
-- Location: e2e/dashboard.journey.ts:1355:3
+- Name: dashboard.journey.ts >> EngineeringOS dashboard browser journey >> renders a user-visible API failure state
+- Location: e2e/dashboard.journey.ts:2329:3
 
 # Error details
 

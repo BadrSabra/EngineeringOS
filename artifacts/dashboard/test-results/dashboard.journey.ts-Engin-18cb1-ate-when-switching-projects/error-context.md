@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: dashboard.journey.ts >> EngineeringOS dashboard browser journey >> signs in and traverses the authenticated operational shell
-- Location: e2e/dashboard.journey.ts:1355:3
+- Name: dashboard.journey.ts >> EngineeringOS dashboard browser journey >> keeps safe citation state when switching projects
+- Location: e2e/dashboard.journey.ts:1676:3
 
 # Error details
 

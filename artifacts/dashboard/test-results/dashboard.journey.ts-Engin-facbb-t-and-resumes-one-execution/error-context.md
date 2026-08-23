@@ -6,8 +6,8 @@
 
 # Test info
 
-- Name: dashboard.journey.ts >> EngineeringOS dashboard browser journey >> signs in and traverses the authenticated operational shell
-- Location: e2e/dashboard.journey.ts:1355:3
+- Name: dashboard.journey.ts >> EngineeringOS dashboard browser journey >> recovers a missing token after a real stream abort and resumes one execution
+- Location: e2e/dashboard.journey.ts:2159:3
 
 # Error details
 
