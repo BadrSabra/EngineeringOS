@@ -123,6 +123,56 @@ describe("browser preview verification", () => {
     expect(consoleFailure.consoleErrors.join(" ")).not.toContain("secret=do-not-persist");
   });
 
+  it("rejects a contract whose revision or origin is not server-approved", async () => {
+    const session = {
+      id: "session-contract", projectRoot: process.cwd(), revision: "rev-a", port: 4312,
+      startedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 1000).toISOString(),
+      status: "running" as const,
+    };
+    const stale = await verifyBrowserPreview({
+      session, operationId: "op", executionId: "exec", steps: [],
+      contract: {
+        revision: "rev-b",
+        permittedOrigin: "http://127.0.0.1:4312",
+        steps: [{ type: "assert_visible", selector: "body" }],
+      },
+      browser: browserFactory(),
+    });
+    expect(stale.status).toBe("failed");
+    expect(stale.summary).toContain("stale");
+
+    const hostile = await verifyBrowserPreview({
+      session, operationId: "op", executionId: "exec", steps: [],
+      contract: {
+        revision: "rev-a",
+        permittedOrigin: "https://attacker.example",
+        steps: [{ type: "assert_visible", selector: "body" }],
+      },
+      browser: browserFactory(),
+    });
+    expect(hostile.status).toBe("failed");
+    expect(hostile.summary).toContain("origin");
+  });
+
+  it("fails closed when a contract exceeds the step bound", async () => {
+    const session = {
+      id: "session-bounds", projectRoot: process.cwd(), revision: "rev-a", port: 4312,
+      startedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 1000).toISOString(),
+      status: "running" as const,
+    };
+    const result = await verifyBrowserPreview({
+      session, operationId: "op", executionId: "exec", steps: [],
+      contract: {
+        revision: "rev-a",
+        permittedOrigin: "http://127.0.0.1:4312",
+        steps: Array.from({ length: PREVIEW_LIMITS.maxSteps + 1 }, () => ({ type: "assert_visible", selector: "body" })),
+      },
+      browser: browserFactory(),
+    });
+    expect(result.status).toBe("failed");
+    expect(result.summary).toContain("between 1");
+  });
+
   it("expires within the configured lifetime and keeps sessions isolated", async () => {
     const firstChild = fakeChild();
     const secondChild = fakeChild();

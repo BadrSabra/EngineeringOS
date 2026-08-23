@@ -169,7 +169,7 @@ export function authorizeToolInvocation(opts: {
   )) {
     return { allowed: false, reason: "path_outside_approved_scope" };
   }
-  if ((opts.toolName === "run_validation" || opts.toolName === "run_command") &&
+    if ((opts.toolName === "run_validation" || opts.toolName === "run_command" || opts.toolName === "run_browser_validation") &&
       opts.approvedValidationProfiles &&
       !opts.approvedValidationProfiles.includes(String(opts.args?.profile ?? "").trim())) {
     return { allowed: false, reason: "validation_profile_not_approved" };

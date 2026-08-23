@@ -1,8 +1,52 @@
 import { describe, expect, it, vi } from "vitest";
-import { executeCommandTool, executeValidationTool, type CommandProfile } from "../tools/execution-tools.js";
+import { executeBrowserValidationTool, executeCommandTool, executeValidationTool, type CommandProfile } from "../tools/execution-tools.js";
 import { executeSingleTool } from "../tool-execution-engine.js";
 
 describe("execution tools", () => {
+  it("runs only a server-owned browser profile and returns structured evidence", async () => {
+    const output = await executeBrowserValidationTool(
+      "run_browser_validation",
+      { profile: "dashboard-preview" },
+      "/project",
+      async ({ profile, rootPath }) => ({
+        profile,
+        status: "passed",
+        scenario: "Preview checks",
+        command: "browser-preview",
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+        failedTests: [],
+        changedFiles: [],
+        evidence: {
+          evidenceId: "browser-evidence",
+          observedAt: new Date().toISOString(),
+          artifactRef: "browser-preview:session:operation",
+          revision: "rev-a",
+          screenshotAvailable: true,
+          consoleErrorCount: 0,
+        },
+        detail: rootPath,
+      }),
+    );
+    const parsed = JSON.parse(output);
+    expect(parsed.status).toBe("passed");
+    expect(parsed.evidence.screenshotAvailable).toBe(true);
+    expect(parsed.detail).toBe("/project");
+  });
+
+  it("fails closed when browser validation is not enabled", async () => {
+    const output = await executeBrowserValidationTool(
+      "run_browser_validation",
+      { profile: "dashboard-preview" },
+      "/project",
+      undefined,
+    );
+    expect(JSON.parse(output)).toMatchObject({
+      status: "unavailable",
+      code: "BROWSER_VALIDATION_UNAVAILABLE",
+    });
+  });
   it("runs only a server-registered fixed command profile", async () => {
     const runner = vi.fn().mockResolvedValue({
       status: "passed",

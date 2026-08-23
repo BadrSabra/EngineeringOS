@@ -23,6 +23,9 @@ export const ImplementationPlanSchema = z.object({
   assumptions: z.array(z.string().min(1).max(400)).max(8).default([]),
   steps: z.array(ImplementationPlanStepSchema).max(12),
   validationCommands: z.array(z.string().min(1).max(240)).max(10).default([]),
+  /** Optional server-registered UI contract; the profile expands to fixed
+   * steps and origin only after the plan is approved. */
+  browserValidationProfile: z.string().min(1).max(80).optional(),
   risks: z.array(z.string().min(1).max(500)).max(8).default([]),
   approvalStatus: z.enum(["PENDING_APPROVAL", "APPROVED", "REJECTED"]),
   /**

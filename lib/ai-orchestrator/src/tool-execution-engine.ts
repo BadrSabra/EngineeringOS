@@ -42,10 +42,12 @@ import { GIT_TOOL_DEFINITIONS, executeGitTool } from "./tools/git-tools.js";
 import {
   EXECUTION_TOOL_DEFINITIONS,
   executeCommandTool,
+  executeBrowserValidationTool,
   executeValidationTool,
   MAX_REPAIR_ATTEMPTS,
   type RepairLoopState,
   type ValidationRunner,
+  type BrowserValidationRunner,
 } from "./tools/execution-tools.js";
 import {
   ANALYSIS_TOOL_NAMES,
@@ -419,6 +421,9 @@ export type SingleToolOpts = {
   completeReads?: boolean;
   /** Server-owned validation runner, enabled only for an approved Build handoff. */
   validationRunner?: ValidationRunner;
+  /** Server-owned browser contract runner; model selects a profile only. */
+  browserValidationRunner?: BrowserValidationRunner;
+  browserValidationContext?: { operationId?: string; revision?: string };
   /** Server-owned command profiles and runner; no model-supplied executable is accepted. */
   commandProfiles?: readonly import("./tools/execution-tools.js").CommandProfile[];
   commandRunner?: import("./tools/execution-tools.js").CommandRunner;
@@ -734,7 +739,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
       ? await executeGitTool(name, effectiveArgs, rootPath)
       : isFileTool
         ? await executeFileTool(name, effectiveArgs, rootPath, pendingChanges)
-        : isExecutionTool
+        : name === "run_validation"
         ? await executeValidationTool(
             name,
             effectiveArgs,
@@ -743,7 +748,7 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
             opts.signal,
             pendingChanges,
           )
-        : isExecutionTool && name === "run_command"
+        : name === "run_command"
           ? await executeCommandTool(
               name,
               effectiveArgs,
@@ -753,7 +758,8 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
               opts.signal,
               opts.commandContext,
             )
-        : executeAnalysisTool(
+        : isAnalysisTool
+          ? executeAnalysisTool(
             name,
             effectiveArgs,
             opts.analysisToolRunner,
@@ -782,7 +788,16 @@ export async function executeSingleTool(opts: SingleToolOpts): Promise<SingleToo
                 safeMessage: result.output,
               };
               return result.output;
-            }));
+            })
+          : executeBrowserValidationTool(
+              name,
+              effectiveArgs,
+              rootPath,
+              opts.browserValidationRunner,
+              opts.signal,
+              opts.browserValidationContext,
+              pendingChanges,
+            ));
 
     if (analysisFailure) {
       console.error(JSON.stringify({
@@ -1094,6 +1109,8 @@ export type ToolLoopOpts = {
 
   /** Server-owned callback used by run_validation. */
   validationRunner?: ValidationRunner;
+  browserValidationRunner?: BrowserValidationRunner;
+  browserValidationContext?: { operationId?: string; revision?: string };
   commandProfiles?: readonly import("./tools/execution-tools.js").CommandProfile[];
   commandRunner?: import("./tools/execution-tools.js").CommandRunner;
   commandContext?: { operationId?: string; revision?: string; targetPaths?: readonly string[]; operation?: string };
@@ -1581,6 +1598,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
     executionTargetPaths = [],
     allowExecutionTools = false,
     validationRunner,
+    browserValidationRunner,
+    browserValidationContext,
     commandProfiles,
     commandRunner,
     commandContext,
@@ -2487,8 +2506,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
                 taskType,
                 ...(iterationTools != null ? { tools: iterationTools } : {}),
                 ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
-              })
-            : await strategy.call(outboundMessages, {
+            })
+          : await strategy.call(outboundMessages, {
             model: powerModel,
             ...(iterMaxTokens !== undefined ? { maxTokens: iterMaxTokens } : {}),
             timeoutMs: 60_000,
@@ -3823,6 +3842,8 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         completeReads: opts.completeReads,
         allowExecutionTools,
         validationRunner,
+        browserValidationRunner,
+        browserValidationContext,
          commandProfiles,
          commandRunner,
          commandContext,

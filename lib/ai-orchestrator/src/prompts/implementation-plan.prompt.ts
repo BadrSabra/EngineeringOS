@@ -84,6 +84,7 @@ Return exactly this JSON shape:
     }
   ],
   "validationCommands": [],
+  "browserValidationProfile": "dashboard-preview",
   "risks": [],
   "approvalStatus": "PENDING_APPROVAL",
   "writeAccess": "NOT_AUTHORIZED"

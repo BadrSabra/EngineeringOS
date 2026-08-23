@@ -94,10 +94,13 @@ import { tryAdvisoryLock, LockNamespace } from "../../lib/advisory-lock.js";
 import {
   getRepairValidationProfile,
   runRepairValidation,
+  runRepairPreviewValidation,
+  createValidationWorkspace,
   validateRepairValidationScope,
   type PendingValidationChange,
   type RepairVerificationResult,
 } from "../../lib/ai-repair-validation.js";
+import { PreviewSessionManager, type PreviewBrowser } from "../../lib/browser-preview-verification.js";
 import {
   AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT,
   AI_EXECUTION_TRACE_LIMIT,
@@ -3084,6 +3087,79 @@ router.post("/ai/chat/stream", async (req, res) => {
             );
           }
         : undefined;
+    const browserValidationProfile =
+      approvedImplementationPlan?.browserValidationProfile === "dashboard-preview"
+        ? "dashboard-preview"
+        : undefined;
+    const browserValidationManager = browserValidationProfile ? new PreviewSessionManager() : undefined;
+    const browserValidationRunner = browserValidationProfile && validRootPath
+      ? async (request: { profile: string; rootPath: string; pendingChanges?: readonly PendingValidationChange[]; operationId?: string; revision?: string; signal?: AbortSignal }) => {
+          if (request.profile !== browserValidationProfile) {
+            return {
+              profile: request.profile, status: "unavailable" as const,
+              scenario: "Registered browser validation profile is unavailable.",
+              command: "browser-preview", exitCode: null, stdout: "", stderr: "",
+              failedTests: [], changedFiles: [],
+              evidence: {
+                evidenceId: `browser-profile:${request.profile}`,
+                observedAt: new Date().toISOString(),
+                artifactRef: "browser-preview:profile-unavailable",
+              },
+              detail: "The browser validation profile is not approved for this plan.",
+            };
+          }
+          const workspace = await createValidationWorkspace(request.rootPath, request.pendingChanges ?? []);
+          const session = await browserValidationManager!.start({
+            projectRoot: workspace.rootPath,
+            revision: request.revision ?? analysisCorrelation.projectRevision,
+            port: 4300,
+            lifetimeMs: 60_000,
+          });
+          let browser: PreviewBrowser | undefined;
+          try {
+            const playwright = await import("playwright");
+            browser = await playwright.chromium.launch({ headless: true }) as unknown as PreviewBrowser;
+            return await runRepairPreviewValidation({
+              session,
+              operationId: request.operationId ?? analysisCorrelation.operationId,
+              executionId: aiExecution?.id ?? "browser-validation",
+              revision: request.revision ?? analysisCorrelation.projectRevision,
+              contract: {
+                revision: request.revision ?? analysisCorrelation.projectRevision,
+                permittedOrigin: "http://127.0.0.1:4300",
+                steps: [
+                  { type: "navigate", path: "/" },
+                  { type: "assert_visible", selector: "body" },
+                  { type: "screenshot", name: "preview" },
+                ],
+                timeoutMs: 60_000,
+              },
+              steps: [
+                { type: "navigate", path: "/" },
+                { type: "assert_visible", selector: "body" },
+                { type: "screenshot", name: "preview" },
+              ],
+              browser,
+            });
+          } catch (error) {
+            return {
+              profile: "browser-preview", status: "unavailable" as const,
+              scenario: "Run the registered browser checks against the project Preview.",
+              command: "browser-preview", exitCode: null, stdout: "", stderr: "",
+              failedTests: [], changedFiles: [],
+              evidence: {
+                evidenceId: `browser-start:${request.operationId ?? "unknown"}`,
+                observedAt: new Date().toISOString(),
+                artifactRef: "browser-preview:startup-failure",
+              },
+              detail: "Preview browser validation was unavailable.",
+            };
+          } finally {
+            await browserValidationManager!.stop();
+            await workspace.cleanup();
+          }
+        }
+      : undefined;
     // Terminal execution is deliberately narrower than validation: one
     // server-owned profile, fixed argv, and only during an approved Build
     // handoff. The model can select the profile but cannot select a command,
@@ -3127,6 +3203,15 @@ router.post("/ai/chat/stream", async (req, res) => {
           objective,
           allowValidationTools: Boolean(validationRunner),
           validationRunner,
+          browserValidationRunner,
+          browserValidationContext: {
+            operationId: analysisCorrelation.operationId,
+            revision: analysisCorrelation.projectRevision,
+          },
+          approvedValidationProfiles: [
+            ...(validationRunner ? ["workspace-typecheck", "ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests"] : []),
+            ...(browserValidationProfile ? [browserValidationProfile] : []),
+          ],
            commandProfiles,
            commandRunner: commandProfiles ? runRegisteredCommand : undefined,
            commandContext: {

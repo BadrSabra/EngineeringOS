@@ -14,6 +14,7 @@ import {
   type PreviewBrowser,
   type PreviewSession,
   type PreviewStep,
+  type PreviewValidationContract,
 } from "./browser-preview-verification.js";
 
 export type RepairVerificationStatus = ValidationStatus;
@@ -109,7 +110,7 @@ const VALIDATION_COPY_OMIT = new Set([
 
 type ValidationDraft = Omit<ValidationResult, "evidence">;
 
-async function createValidationWorkspace(
+export async function createValidationWorkspace(
   rootPath: string,
   pendingChanges: readonly PendingValidationChange[],
 ): Promise<{ rootPath: string; cleanup: () => Promise<void> }> {
@@ -442,6 +443,7 @@ export async function runRepairPreviewValidation(input: {
   operationId: string;
   executionId: string;
   revision: string;
+  contract?: PreviewValidationContract;
   steps: readonly PreviewStep[];
   browser: PreviewBrowser;
   screenshotDirectory?: string;
@@ -463,9 +465,10 @@ export async function runRepairPreviewValidation(input: {
     evidence: {
       evidenceId: `${result.sessionId}:${result.operationId}:${result.executionId}`,
       observedAt: result.observedAt,
-      artifactRef: result.screenshotPath
-        ? `browser-preview:${result.screenshotPath}`
-        : `browser-preview:${result.sessionId}`,
+      artifactRef: `browser-preview:${result.sessionId}:${result.operationId}`,
+      revision: result.revision,
+      screenshotAvailable: result.screenshotAvailable === true || Boolean(result.screenshotPath),
+      consoleErrorCount: result.consoleErrors.length,
     },
     detail: result.summary,
   };

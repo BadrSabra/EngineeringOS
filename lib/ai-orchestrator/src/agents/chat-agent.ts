@@ -3336,6 +3336,10 @@ export async function chat(opts: {
   allowValidationTools?: boolean;
   /** Server-owned validation runner; never supplied by the model. */
   validationRunner?: ValidationRunner;
+  /** Server-owned browser contract runner; the model selects a profile only. */
+  browserValidationRunner?: import("../tools/execution-tools.js").BrowserValidationRunner;
+  browserValidationContext?: { operationId?: string; revision?: string };
+  approvedValidationProfiles?: readonly string[];
    /** Server-owned terminal profiles. The model may select a profile only. */
    commandProfiles?: readonly CommandProfile[];
    commandRunner?: CommandRunner;
@@ -3402,6 +3406,9 @@ export async function chat(opts: {
     signal,
     allowValidationTools = false,
     validationRunner,
+    browserValidationRunner,
+    browserValidationContext,
+    approvedValidationProfiles,
     commandProfiles,
     commandRunner,
     commandContext,
@@ -5405,6 +5412,9 @@ export async function chat(opts: {
     allowTestSources: includeTestSources,
     allowExecutionTools: allowValidationTools,
     validationRunner,
+    browserValidationRunner,
+    browserValidationContext,
+    approvedValidationProfiles,
     commandProfiles,
     commandRunner,
     commandContext,

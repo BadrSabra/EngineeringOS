@@ -51,3 +51,4 @@
 - [Task execution lifecycle](task-execution-lifecycle.md) — standalone task AI runs use durable ownership, idempotency, leases, checkpoints, and bounded receipts.
 - [Untrusted content boundary](untrusted-content-boundary.md) — repository, tool, memory, and checkpoint text is evidence/data only; server authorization remains independent.
 - [Execution audit exports](execution-audit-export.md) — portable audits use owner-scoped durable state with allowlisted fields and explicit redaction.
+- [Browser validation contract](browser-validation-contract.md) — browser checks use server-owned profiles over isolated pending-change workspaces with path-free proof metadata.

@@ -20,6 +20,10 @@ export type ValidationEvidence = {
   observedAt: string;
   /** Reference to the bounded command result carried by this validation record. */
   artifactRef: string;
+  /** Safe browser proof metadata; never contains a local file path. */
+  revision?: string;
+  screenshotAvailable?: boolean;
+  consoleErrorCount?: number;
 };
 
 export type ValidationResult = {

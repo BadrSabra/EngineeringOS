@@ -8,6 +8,8 @@ export const PREVIEW_LIMITS = {
   maxScreenshotBytes: 2_000_000,
   maxSummaryChars: 8_000,
   maxConsoleMessages: 50,
+  maxSteps: 24,
+  maxValidationMs: 60_000,
 } as const;
 
 export type PreviewStatus = "starting" | "running" | "stopped" | "expired" | "unavailable" | "failed";
@@ -34,7 +36,17 @@ export type PreviewEvidence = {
   summary: string;
   consoleErrors: string[];
   screenshotPath?: string;
+  screenshotAvailable?: boolean;
   observedAt: string;
+};
+
+/** Server-approved browser contract. The model selects a profile; it never
+ * supplies the origin, selectors, or navigation steps at execution time. */
+export type PreviewValidationContract = {
+  revision: string;
+  permittedOrigin: string;
+  steps: readonly PreviewStep[];
+  timeoutMs?: number;
 };
 
 export type PreviewStep =
@@ -94,6 +106,23 @@ function validateLifetime(lifetimeMs: number): void {
   if (!Number.isInteger(lifetimeMs) || lifetimeMs < 1 || lifetimeMs > PREVIEW_LIMITS.maxLifetimeMs) {
     throw new Error(`Preview lifetime must be between 1 and ${PREVIEW_LIMITS.maxLifetimeMs} ms.`);
   }
+}
+
+function validateContract(contract: PreviewValidationContract, session: PreviewSession): URL {
+  if (contract.revision !== session.revision) throw new Error("Preview validation contract is stale.");
+  const expected = new URL(`http://127.0.0.1:${session.port}`);
+  const permitted = new URL(contract.permittedOrigin);
+  if (permitted.origin !== expected.origin) {
+    throw new Error("Preview validation origin is not permitted for the active session.");
+  }
+  if (contract.steps.length === 0 || contract.steps.length > PREVIEW_LIMITS.maxSteps) {
+    throw new Error(`Preview validation must contain between 1 and ${PREVIEW_LIMITS.maxSteps} steps.`);
+  }
+  const timeoutMs = contract.timeoutMs ?? PREVIEW_LIMITS.maxValidationMs;
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > PREVIEW_LIMITS.maxValidationMs) {
+    throw new Error("Preview validation timeout exceeds its resource limit.");
+  }
+  return permitted;
 }
 
 async function defaultProcessFactory(projectRoot: string, port: number, signal: AbortSignal): Promise<PreviewProcess> {
@@ -218,6 +247,7 @@ export class PreviewSessionManager {
 export async function verifyBrowserPreview(input: {
   session: PreviewSession;
   expectedRevision?: string;
+  contract?: PreviewValidationContract;
   operationId: string;
   executionId: string;
   steps: readonly PreviewStep[];
@@ -227,6 +257,18 @@ export async function verifyBrowserPreview(input: {
   const observedAt = new Date().toISOString();
   const baseOrigin = `http://127.0.0.1:${input.session.port}`;
   const consoleErrors: string[] = [];
+  if (input.contract) {
+    try {
+      validateContract(input.contract, input.session);
+    } catch (error) {
+      return {
+        kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
+        revision: input.session.revision, sessionId: input.session.id, status: "failed",
+        summary: bounded(error instanceof Error ? error.message : String(error), 500),
+        consoleErrors, observedAt,
+      };
+    }
+  }
   if (input.expectedRevision !== undefined && input.expectedRevision !== input.session.revision) {
     return {
       kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
@@ -245,6 +287,7 @@ export async function verifyBrowserPreview(input: {
   let page: PreviewPage | undefined;
   try {
     page = await input.browser.newPage();
+    const activePage = page;
     page.onConsole?.((message) => {
       if (message.type() === "error" && consoleErrors.length < PREVIEW_LIMITS.maxConsoleMessages) {
         consoleErrors.push(bounded(message.text(), 500));
@@ -252,25 +295,30 @@ export async function verifyBrowserPreview(input: {
     });
     let visibleText = "";
     let screenshotPath: string | undefined;
-    for (const step of input.steps) {
+    let screenshotAvailable = false;
+    const steps = input.contract?.steps ?? input.steps;
+    if (steps.length > PREVIEW_LIMITS.maxSteps) throw new Error("Preview validation exceeded its step limit.");
+    const runSteps = async (): Promise<void> => {
+    for (const step of steps) {
       if (step.type === "navigate") {
         const target = new URL(step.path, `${baseOrigin}/`);
         if (target.origin !== baseOrigin || target.username || target.password) {
           throw new Error("Browser navigation is restricted to the active Preview origin.");
         }
-        await page.goto(target.toString());
-        if (new URL(page.url()).origin !== baseOrigin) throw new Error("Preview navigated outside its origin.");
+        await activePage.goto(target.toString());
+        if (new URL(activePage.url()).origin !== baseOrigin) throw new Error("Preview navigated outside its origin.");
       } else if (step.type === "assert_visible" || step.type === "assert_text") {
-        const locator = page.locator(step.selector);
+        const locator = activePage.locator(step.selector);
         if (!(await locator.isVisible())) throw new Error(`Required element is not visible: ${step.selector}`);
         if (step.type === "assert_text" && !(await locator.innerText()).includes(step.text)) {
           throw new Error(`Required text was not found in ${step.selector}.`);
         }
       } else if (step.type === "read_visible_text") {
-        visibleText = bounded(await (step.selector ? page.locator(step.selector).innerText() : page.locator("body").innerText()));
+        visibleText = bounded(await (step.selector ? activePage.locator(step.selector).innerText() : activePage.locator("body").innerText()));
       } else {
-        const bytes = await page.screenshot({ type: "png" });
+        const bytes = await activePage.screenshot({ type: "png" });
         if (bytes.byteLength > PREVIEW_LIMITS.maxScreenshotBytes) throw new Error("Preview screenshot exceeded its resource limit.");
+        screenshotAvailable = true;
         if (input.screenshotDirectory) {
           await fs.mkdir(input.screenshotDirectory, { recursive: true });
           screenshotPath = path.join(input.screenshotDirectory, `${safeName(step.name)}.png`);
@@ -278,6 +326,12 @@ export async function verifyBrowserPreview(input: {
         }
       }
     }
+    };
+    const timeoutMs = input.contract?.timeoutMs ?? PREVIEW_LIMITS.maxValidationMs;
+    await Promise.race([
+      runSteps(),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Preview validation timed out.")), timeoutMs)),
+    ]);
     if (consoleErrors.length > 0) {
       return {
         kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
@@ -286,9 +340,10 @@ export async function verifyBrowserPreview(input: {
       };
     }
     return {
-      kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
+        kind: "browser_preview", operationId: input.operationId, executionId: input.executionId,
       revision: input.session.revision, sessionId: input.session.id, status: "passed",
-      summary: bounded(visibleText || "Preview browser checks passed."),
+        summary: bounded(visibleText || "Preview browser checks passed."),
+        ...(screenshotAvailable ? { screenshotAvailable: true } : {}),
       consoleErrors, ...(screenshotPath ? { screenshotPath } : {}), observedAt,
     };
   } catch (error) {

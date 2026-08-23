@@ -43,6 +43,15 @@ export type CommandRunner = (request: {
   targetPaths?: readonly string[];
 }) => Promise<BoundedCommandResult>;
 
+export type BrowserValidationRunner = (request: {
+  profile: string;
+  rootPath: string;
+  pendingChanges?: readonly PendingChange[];
+  operationId?: string;
+  revision?: string;
+  signal?: AbortSignal;
+}) => Promise<ValidationResult>;
+
 /** Default adapter used by the API layer after it has selected a profile. */
 export const runRegisteredCommand: CommandRunner = async ({
   profile,
@@ -165,6 +174,22 @@ export const EXECUTION_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "run_browser_validation",
+      description:
+        "Run the server-registered browser validation contract for the approved implementation plan. The server owns the preview origin, selectors, navigation, screenshots, revision, and resource limits.",
+      parameters: {
+        type: "object",
+        properties: {
+          profile: { type: "string", description: "Server-registered browser validation profile name." },
+        },
+        required: ["profile"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "run_command",
       description:
         "Run one server-registered, non-shell project command. Choose only a registered profile; never invent a command, shell expression, cwd, or arguments.",
@@ -179,6 +204,33 @@ export const EXECUTION_TOOL_DEFINITIONS: ToolDefinition[] = [
     },
   },
 ];
+
+export async function executeBrowserValidationTool(
+  name: string,
+  args: Record<string, string>,
+  rootPath: string,
+  runner: BrowserValidationRunner | undefined,
+  signal?: AbortSignal,
+  context?: { operationId?: string; revision?: string },
+  pendingChanges?: readonly PendingChange[],
+): Promise<string> {
+  if (name !== "run_browser_validation") throw new Error(`Unknown execution tool "${name}".`);
+  const profile = args.profile?.trim();
+  if (!profile) {
+    return JSON.stringify({
+      tool: name, status: "unavailable", code: "BROWSER_PROFILE_REQUIRED",
+      detail: "A registered browser validation profile is required.",
+    });
+  }
+  if (!runner) {
+    return JSON.stringify({
+      tool: name, status: "unavailable", code: "BROWSER_VALIDATION_UNAVAILABLE",
+      detail: "Browser validation is not enabled for this approved operation.",
+    });
+  }
+  const result = await runner({ profile, rootPath, signal, pendingChanges, ...context });
+  return JSON.stringify({ tool: name, ...result });
+}
 
 function commandResultCode(status: BoundedCommandResult["status"]): string {
   return status === "passed" ? "COMMAND_PASSED"

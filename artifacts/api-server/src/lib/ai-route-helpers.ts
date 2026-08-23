@@ -384,6 +384,9 @@ export async function chatWithFallback(
     allowValidationTools?: boolean;
     /** Server-owned validation callback; never derived from model arguments. */
     validationRunner?: ValidationRunner;
+    browserValidationRunner?: import("@workspace/ai-orchestrator").BrowserValidationRunner;
+    browserValidationContext?: { operationId?: string; revision?: string };
+    approvedValidationProfiles?: readonly string[];
      commandProfiles?: readonly import("@workspace/ai-orchestrator").CommandProfile[];
      commandRunner?: import("@workspace/ai-orchestrator").CommandRunner;
      commandContext?: { operationId?: string; revision?: string; targetPaths?: readonly string[]; operation?: string };
@@ -455,6 +458,9 @@ export async function chatWithFallback(
         onStep,
         allowValidationTools: baseParams.allowValidationTools,
         validationRunner: baseParams.validationRunner,
+        browserValidationRunner: baseParams.browserValidationRunner,
+        browserValidationContext: baseParams.browserValidationContext,
+        approvedValidationProfiles: baseParams.approvedValidationProfiles,
          commandProfiles: baseParams.commandProfiles,
          commandRunner: baseParams.commandRunner,
          commandContext: baseParams.commandContext,

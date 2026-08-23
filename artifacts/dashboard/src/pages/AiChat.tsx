@@ -211,6 +211,7 @@ type AiTaskResult =
       assumptions: string[];
       steps: Record<string, unknown>[];
       validationCommands: string[];
+       browserValidationProfile?: string;
       risks: string[];
       approvalStatus: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
       writeAccess: 'NOT_AUTHORIZED' | 'APPROVED_FOR_BUILD';
@@ -3731,6 +3732,7 @@ function TaskResultPanel({
         ? result.validationCommands.filter((item): item is string => typeof item === 'string')
         : [];
       const hasPlanDetails = assumptions.length > 0 || validationCommands.length > 0 ||
+        typeof result.browserValidationProfile === 'string' ||
         steps.some((step) => {
           if (!step || typeof step !== 'object') return false;
           return (Array.isArray(step.files) && step.files.length > 0) ||
@@ -3819,6 +3821,11 @@ function TaskResultPanel({
           {planDetailsExpanded && validationCommands.length > 0 && (
             <div className="rounded border border-border/30 bg-background/20 px-2.5 py-2 text-[10px] leading-relaxed text-muted-foreground">
               <span className="font-medium text-foreground/80">Validation commands:</span> {validationCommands.join(' · ')}
+            </div>
+          )}
+          {planDetailsExpanded && typeof result.browserValidationProfile === 'string' && (
+            <div className="text-xs text-muted-foreground">
+              <span className="font-medium text-foreground/80">Browser validation:</span> {result.browserValidationProfile}
             </div>
           )}
           {result.approvalStatus === 'PENDING_APPROVAL' && approvalBlocked ? (
@@ -7801,6 +7808,10 @@ export default function AiChat() {
                event.repairState.replace(/_/g, ' '),
               `attempt ${event.attempt}/${event.maxAttempts}`,
                event.validation.exitCode != null ? `exit ${event.validation.exitCode}` : undefined,
+               event.validation.evidence.screenshotAvailable ? 'screenshot captured' : undefined,
+               event.validation.evidence.consoleErrorCount
+                 ? `${event.validation.evidence.consoleErrorCount} console error${event.validation.evidence.consoleErrorCount === 1 ? '' : 's'}`
+                 : undefined,
                event.validation.detail,
             ].filter(Boolean).join(' · '),
              status: status === 'passed' ? 'done' : 'info',
