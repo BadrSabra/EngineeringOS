@@ -7,6 +7,12 @@
  * persisted evidence reference is not sufficient to prove a repair.
  */
 export type ValidationStatus = "passed" | "failed" | "skipped" | "unavailable" | "blocked";
+/** Safe, operator-facing reasons for a browser validation preflight block. */
+export type BrowserValidationBlockReason =
+  | "ownership"
+  | "invalid_profile"
+  | "resource_limit"
+  | "stale_revision";
 
 export type ValidationFailure = {
   name: string;
@@ -44,6 +50,7 @@ export type ValidationResult = {
   changedFiles: string[];
   evidence: ValidationEvidence;
   detail?: string;
+  reasonCode?: BrowserValidationBlockReason;
 };
 
 /**
@@ -53,7 +60,7 @@ export type ValidationResult = {
  */
 export type PublicValidationResult = Pick<
   ValidationResult,
-  "profile" | "status" | "scenario" | "exitCode" | "evidence"
+  "profile" | "status" | "scenario" | "exitCode" | "evidence" | "reasonCode"
 > & {
   detail?: string;
 };
@@ -75,6 +82,7 @@ export function toPublicValidationResult(result: ValidationResult): PublicValida
     scenario: result.scenario,
     exitCode: result.exitCode,
     evidence: result.evidence,
+    ...(result.reasonCode ? { reasonCode: result.reasonCode } : {}),
     ...(result.detail ? { detail: sanitizeValidationDetail(result.detail) } : {}),
   };
 }

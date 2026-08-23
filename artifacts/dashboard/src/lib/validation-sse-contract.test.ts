@@ -66,4 +66,32 @@ describe('dashboard validation SSE contract', () => {
     expect(event.validation).not.toHaveProperty('failedTests');
     expect(event.validation).not.toHaveProperty('changedFiles');
   });
+
+  it('preserves only an allowlisted browser block reason', async () => {
+    const onValidation = vi.fn();
+
+    await processAiStream(streamFor({
+      type: 'validation',
+      validation: {
+        profile: 'preview-smoke',
+        status: 'unavailable',
+        scenario: 'Registered browser validation profile is unavailable.',
+        exitCode: null,
+        reasonCode: 'stale_revision',
+        evidence: {
+          evidenceId: 'browser-profile:preview-smoke',
+          observedAt: '2026-08-23T00:00:00.000Z',
+          artifactRef: 'browser-preview:profile-unavailable',
+        },
+        detail: 'The browser validation profile is not approved for this plan.',
+        reason: 'internal diagnostic must not cross the boundary',
+      },
+      repairState: 'BLOCKED',
+      attempt: 1,
+      maxAttempts: 3,
+    }), { onValidation });
+
+    expect(onValidation.mock.calls[0][0].validation.reasonCode).toBe('stale_revision');
+    expect(onValidation.mock.calls[0][0].validation).not.toHaveProperty('reason');
+  });
 });

@@ -153,6 +153,7 @@ export type {
   PublicValidationResult,
   ValidationResult,
   ValidationStatus,
+  BrowserValidationBlockReason,
 } from "./validation-result.js";
 
 export { resolveToolPolicy, getAllowedToolDefinitions, isToolAllowed, authorizeToolInvocation } from "./tool-policy.js";

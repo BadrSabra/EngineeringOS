@@ -63,7 +63,7 @@ import type {
   Event as ApiEvent,
   ExportAiExecutionAudit200,
 } from '@workspace/api-client-react';
-import type { PublicValidationResult } from '@workspace/ai-orchestrator';
+import type { BrowserValidationBlockReason, PublicValidationResult } from '@workspace/ai-orchestrator';
 // Keep the shared structured error type for translating SSE failures into
 // the same user-facing error format as regular API requests.
 import { ApiError } from '@/lib/api-fetch';
@@ -145,10 +145,45 @@ type RecoverableDelivery = {
   status: string;
   createdAt: string;
   conflictReason?: string | null;
-  validationEvidence?: Array<{ profile?: string; status?: string; detail?: string }> | null;
+  validationEvidence?: Array<{
+    profile?: string;
+    status?: string;
+    detail?: string;
+    reasonCode?: BrowserValidationBlockReason;
+  }> | null;
   workspaceAvailable: boolean;
   changeCount: number;
 };
+
+function browserValidationBlockExplanation(reasonCode: BrowserValidationBlockReason | undefined): {
+  title: string;
+  action: string;
+} | null {
+  switch (reasonCode) {
+    case 'ownership':
+      return {
+        title: 'This browser check is not available for the selected project.',
+        action: 'Choose a project you own or ask its owner to register the check.',
+      };
+    case 'invalid_profile':
+      return {
+        title: 'The browser check profile is not valid for this run.',
+        action: 'Use the approved browser profile instead of retrying the same request.',
+      };
+    case 'resource_limit':
+      return {
+        title: 'The browser check exceeds the Preview resource limits.',
+        action: 'Use a smaller approved check or update the profile before rerunning validation.',
+      };
+    case 'stale_revision':
+      return {
+        title: 'The browser check belongs to an older project revision.',
+        action: 'Refresh the project and create a new approved validation run before retrying.',
+      };
+    default:
+      return null;
+  }
+}
 
 function inferOperationMode(params: {
   operationMode?: unknown;
@@ -5425,6 +5460,7 @@ function isValidationEntry(entry: ToolTraceEntry): boolean {
 function ValidationDetailPanel({ entry }: { entry: ToolTraceEntry }) {
   const validation = entry.validation;
   const status = validation?.status ?? entry.validationStatus ?? 'unavailable';
+  const blockExplanation = browserValidationBlockExplanation(validation?.reasonCode);
   return (
     <div className="mt-1.5 rounded border border-border/50 bg-black/10 px-3 py-2 text-[10px]" aria-label="Validation details">
       <div className="mb-1 flex items-center gap-1.5 font-semibold text-foreground/90">
@@ -5445,6 +5481,12 @@ function ValidationDetailPanel({ entry }: { entry: ToolTraceEntry }) {
           </div>
         )}
       </div>
+      {blockExplanation && (status === 'blocked' || status === 'unavailable') && (
+        <div className="mt-2 rounded border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 text-amber-100" role="note" aria-label="Safe browser validation guidance">
+          <div className="font-medium">{blockExplanation.title}</div>
+          <div className="mt-0.5 text-amber-100/80">{blockExplanation.action}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -8743,7 +8785,7 @@ export default function AiChat() {
               </Button>
             </div>
           )}
-          {(recoverableDeliveries?.operations.length ?? 0) > 0 && (
+          {(recoverableDeliveries?.operations?.length ?? 0) > 0 && (
             <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3" role="region" aria-label="Recoverable delivery operations">
               <div className="flex items-center gap-2 text-xs font-semibold text-amber-100">
                 <RotateCcw className="h-3.5 w-3.5" />
@@ -8763,6 +8805,16 @@ export default function AiChat() {
                         Retained checks: {delivery.validationEvidence.map((e) => `${e.profile ?? 'check'} · ${e.status ?? 'unknown'}`).join(', ')}
                       </div>
                     )}
+                    {(() => {
+                      const blockedCheck = delivery.validationEvidence?.find((check) => check.reasonCode);
+                      const explanation = browserValidationBlockExplanation(blockedCheck?.reasonCode);
+                      return explanation ? (
+                        <div className="mt-1 rounded border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 text-amber-100" role="note" aria-label="Safe browser validation guidance">
+                          <div className="font-medium">{explanation.title}</div>
+                          <div className="mt-0.5 text-amber-100/80">{explanation.action}</div>
+                        </div>
+                      ) : null;
+                    })()}
                     {!delivery.workspaceAvailable && <div className="mt-1 text-red-200">The operation workspace is unavailable; recovery is blocked.</div>}
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Button

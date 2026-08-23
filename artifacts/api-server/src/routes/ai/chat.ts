@@ -78,6 +78,7 @@ import type {
   FilePatchHunk,
   PatchEvidenceLink,
   FlightDeckEvidenceVerdict,
+  BrowserValidationBlockReason,
   ValidationResult,
 } from "@workspace/ai-orchestrator";
 import type { ValidationProfile } from "@workspace/ai-orchestrator";
@@ -3189,6 +3190,11 @@ router.post("/ai/chat/stream", async (req, res) => {
                 artifactRef: "browser-preview:profile-unavailable",
               },
               detail: "The browser validation profile is not approved for this plan.",
+              reasonCode: (browserValidationProfile
+                ? "invalid_profile"
+                : registeredBrowserProfile
+                  ? "stale_revision"
+                  : "ownership") as BrowserValidationBlockReason,
             };
           }
           const workspace = await createValidationWorkspace(request.rootPath, request.pendingChanges ?? []);
@@ -3229,6 +3235,11 @@ router.post("/ai/chat/stream", async (req, res) => {
                 artifactRef: "browser-preview:startup-failure",
               },
               detail: "Preview browser validation was unavailable.",
+              reasonCode: (error instanceof Error && /stale/i.test(error.message)
+                ? "stale_revision"
+                : error instanceof Error && /limit|timeout|steps|selector|screenshot/i.test(error.message)
+                  ? "resource_limit"
+                  : "invalid_profile") as BrowserValidationBlockReason,
             };
           } finally {
             await browserValidationManager!.stop();
@@ -4147,6 +4158,11 @@ router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
         scenario: safeText(validation.scenario, 240),
         exitCode: typeof validation.exitCode === "number" ? validation.exitCode : null,
         detail: safeText(validation.detail, 500),
+        ...(validation.reasonCode === "ownership"
+          || validation.reasonCode === "invalid_profile"
+          || validation.reasonCode === "resource_limit"
+          || validation.reasonCode === "stale_revision"
+          ? { reasonCode: validation.reasonCode } : {}),
       }];
     })
     : [];

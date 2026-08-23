@@ -30,7 +30,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import type { PublicValidationResult, ValidationResult } from '@workspace/ai-orchestrator';
+import type { BrowserValidationBlockReason, PublicValidationResult, ValidationResult } from '@workspace/ai-orchestrator';
 
 // ── Event shapes ──────────────────────────────────────────────────────────────
 
@@ -327,6 +327,9 @@ export function parseValidationEvent(raw: unknown): AiStreamValidationEvent | nu
         artifactRef: evidence.artifactRef,
       },
       ...(typeof value.detail === 'string' ? { detail: value.detail } : {}),
+      ...(value.reasonCode === 'ownership' || value.reasonCode === 'invalid_profile' ||
+        value.reasonCode === 'resource_limit' || value.reasonCode === 'stale_revision'
+        ? { reasonCode: value.reasonCode as BrowserValidationBlockReason } : {}),
     },
     repairState: event.repairState as RepairLoopState,
     attempt: event.attempt,
