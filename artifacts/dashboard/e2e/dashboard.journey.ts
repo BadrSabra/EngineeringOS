@@ -1032,6 +1032,22 @@ async function expectOriginCanUseApi(page: Page, origin: string) {
         `${origin} mutation preflight status`,
       ).toBe(204);
       expect(response.headers()["access-control-allow-origin"]).toBe(origin);
+      expect(
+        response.headers()["access-control-allow-credentials"],
+        `${origin} mutation preflight credentials`,
+      ).toBe("true");
+      expect(
+        response.headers()["access-control-allow-methods"]
+          ?.split(",")
+          .map((method) => method.trim().toUpperCase()),
+        `${origin} mutation preflight methods`,
+      ).toContain("POST");
+      expect(
+        response.headers()["access-control-allow-headers"]
+          ?.split(",")
+          .map((header) => header.trim().toLowerCase()),
+        `${origin} mutation preflight headers`,
+      ).toContain("content-type");
     },
   );
   await check(

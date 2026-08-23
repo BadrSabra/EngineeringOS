@@ -27,6 +27,12 @@ const dashboardBaseUrl =
 const apiHealthUrl =
   process.env.DASHBOARD_E2E_API_HEALTH_URL ??
   `http://127.0.0.1:${apiPort}/api/healthz`;
+// Origin contract probes must reach the API listener directly. Sending them
+// through the dashboard dev proxy lets some browser environments terminate
+// OPTIONS locally with a bare 204, which hides the API's CORS response.
+const apiBaseUrl =
+  process.env.DASHBOARD_E2E_API_BASE_URL ??
+  `http://127.0.0.1:${apiPort}/`;
 const testEmail =
   process.env.DASHBOARD_E2E_EMAIL ??
   "engineeringos-dashboard-release@example.com";
@@ -808,8 +814,7 @@ try {
           ...process.env,
           CI: "true",
           DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
-          DASHBOARD_E2E_API_BASE_URL:
-            process.env.DASHBOARD_E2E_API_BASE_URL ?? dashboardBaseUrl,
+          DASHBOARD_E2E_API_BASE_URL: apiBaseUrl,
           DASHBOARD_E2E_EMAIL: testEmail,
           DASHBOARD_E2E_APPROVED_ORIGINS: approvedDashboardOrigins.join(","),
           DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH: originDiagnosticsPath,

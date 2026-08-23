@@ -1,7 +1,7 @@
 {
   "kind": "ai-release-quality-decision",
   "version": 1,
-  "generatedAt": "2026-08-23T14:05:32.544Z",
+  "generatedAt": "2026-08-23T14:18:20.964Z",
   "status": "blocked",
   "liveProviderChecks": "disabled",
   "previewChecks": "disabled",
@@ -29,7 +29,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 27285
+      "durationMs": 24212
     },
     {
       "id": "dashboard-typecheck",
@@ -41,7 +41,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 4900
+      "durationMs": 3313
     },
     {
       "id": "openapi-client-parity",
@@ -54,7 +54,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 6036
+      "durationMs": 5903
     },
     {
       "id": "truth-flow-parity",
@@ -67,7 +67,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "TRUTH_FLOW_PARITY_FAILED_1",
-      "durationMs": 1595
+      "durationMs": 1506
     },
     {
       "id": "ai-contract-and-json",
@@ -83,7 +83,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_CONTRACT_AND_JSON_FAILED_1",
-      "durationMs": 13264
+      "durationMs": 12334
     },
     {
       "id": "ai-sse-and-redaction",
@@ -99,7 +99,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_SSE_AND_REDACTION_FAILED_1",
-      "durationMs": 19851
+      "durationMs": 18273
     },
     {
       "id": "ai-operational-safety",
@@ -115,7 +115,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 54363
+      "durationMs": 46675
     },
     {
       "id": "ai-deterministic-benchmark",
@@ -130,7 +130,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 728
+      "durationMs": 632
     },
     {
       "id": "benchmark-baseline-regression",
@@ -144,7 +144,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 351
+      "durationMs": 338
     },
     {
       "id": "dashboard-preview-contract",

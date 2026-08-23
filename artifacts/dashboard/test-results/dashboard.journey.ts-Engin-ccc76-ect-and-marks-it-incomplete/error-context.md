@@ -7,7 +7,7 @@
 # Test info
 
 - Name: dashboard.journey.ts >> EngineeringOS dashboard browser journey >> preserves one partial answer after a provider disconnect and marks it incomplete
-- Location: e2e/dashboard.journey.ts:2037:3
+- Location: e2e/dashboard.journey.ts:2053:3
 
 # Error details
 
@@ -22,7 +22,7 @@ Timeout:  10000ms
 Call log:
   - Expect "toHaveCount" with timeout 10000ms
   - waiting for getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.', { exact: true })
-    24 × locator resolved to 2 elements
+    23 × locator resolved to 2 elements
        - unexpected value "2"
 
 ```
@@ -161,206 +161,206 @@ Call log:
 # Test source
 
 ```ts
-  1950 |     await page.goto(`${DASHBOARD_PATH}ai`);
-  1951 | 
-  1952 |     const composer = page.locator("textarea").first();
-  1953 |     await composer.fill(fixture.question);
-  1954 |     await composer.locator("xpath=..").getByRole("button").click();
-  1955 | 
-  1956 |     await expect(
-  1957 |       page.getByText(fixture.answer, { exact: true }).last(),
-  1958 |     ).toBeVisible();
-  1959 |     await expect(
-  1960 |       page
-  1961 |         .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
-  1962 |           exact: false,
-  1963 |         })
-  1964 |         .last(),
-  1965 |     ).toBeVisible();
-  1966 |     await page
-  1967 |       .locator("summary")
-  1968 |       .filter({ hasText: "Agent activity" })
-  1969 |       .last()
-  1970 |       .click();
-  1971 |     await expect(page.locator("body")).toContainText("Reading source");
-  1972 |     await expect(page.locator("body")).toContainText(
-  1973 |       "src/missing-release-fixture.ts",
-  1974 |     );
-  1975 |     await expect(page.locator("body")).toContainText("Tool failed");
-  1976 |     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-  1977 |     await page
-  1978 |       .locator("summary")
-  1979 |       .filter({ hasText: "Persisted execution proof" })
-  1980 |       .last()
-  1981 |       .click();
-  1982 |     await expect(
-  1983 |       page
-  1984 |         .getByText("required tool failed — operation blocked", { exact: true })
-  1985 |         .last(),
-  1986 |     ).toBeVisible();
-  1987 | 
-  1988 |     const visibleText = await page.locator("body").innerText();
-  1989 |     expect(visibleText).not.toMatch(
-  1990 |       /raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i,
-  1991 |     );
-  1992 | 
-  1993 |     await page.reload();
-  1994 |     await page
-  1995 |       .getByRole("button", { name: fixture.question, exact: true })
-  1996 |       .click();
-  1997 | 
+  1966 |     await page.goto(`${DASHBOARD_PATH}ai`);
+  1967 | 
+  1968 |     const composer = page.locator("textarea").first();
+  1969 |     await composer.fill(fixture.question);
+  1970 |     await composer.locator("xpath=..").getByRole("button").click();
+  1971 | 
+  1972 |     await expect(
+  1973 |       page.getByText(fixture.answer, { exact: true }).last(),
+  1974 |     ).toBeVisible();
+  1975 |     await expect(
+  1976 |       page
+  1977 |         .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
+  1978 |           exact: false,
+  1979 |         })
+  1980 |         .last(),
+  1981 |     ).toBeVisible();
+  1982 |     await page
+  1983 |       .locator("summary")
+  1984 |       .filter({ hasText: "Agent activity" })
+  1985 |       .last()
+  1986 |       .click();
+  1987 |     await expect(page.locator("body")).toContainText("Reading source");
+  1988 |     await expect(page.locator("body")).toContainText(
+  1989 |       "src/missing-release-fixture.ts",
+  1990 |     );
+  1991 |     await expect(page.locator("body")).toContainText("Tool failed");
+  1992 |     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
+  1993 |     await page
+  1994 |       .locator("summary")
+  1995 |       .filter({ hasText: "Persisted execution proof" })
+  1996 |       .last()
+  1997 |       .click();
   1998 |     await expect(
-  1999 |       page.getByText(fixture.answer, { exact: true }).last(),
-  2000 |     ).toBeVisible();
-  2001 |     await expect(
-  2002 |       page
-  2003 |         .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
-  2004 |           exact: false,
-  2005 |         })
-  2006 |         .last(),
-  2007 |     ).toBeVisible();
-  2008 |     await page
-  2009 |       .locator("summary")
-  2010 |       .filter({ hasText: "Agent activity" })
-  2011 |       .last()
+  1999 |       page
+  2000 |         .getByText("required tool failed — operation blocked", { exact: true })
+  2001 |         .last(),
+  2002 |     ).toBeVisible();
+  2003 | 
+  2004 |     const visibleText = await page.locator("body").innerText();
+  2005 |     expect(visibleText).not.toMatch(
+  2006 |       /raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i,
+  2007 |     );
+  2008 | 
+  2009 |     await page.reload();
+  2010 |     await page
+  2011 |       .getByRole("button", { name: fixture.question, exact: true })
   2012 |       .click();
-  2013 |     await expect(page.locator("body")).toContainText("Reading source");
-  2014 |     await expect(page.locator("body")).toContainText(
-  2015 |       "src/missing-release-fixture.ts",
-  2016 |     );
-  2017 |     await expect(page.locator("body")).toContainText("Tool failed");
-  2018 |     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-  2019 |     await page
-  2020 |       .locator("summary")
-  2021 |       .filter({ hasText: "Persisted execution proof" })
-  2022 |       .last()
-  2023 |       .click();
-  2024 |     await expect(
-  2025 |       page
-  2026 |         .getByText("required tool failed — operation blocked", { exact: true })
-  2027 |         .last(),
-  2028 |     ).toBeVisible();
-  2029 | 
-  2030 |     const reloadedText = await page.locator("body").innerText();
-  2031 |     await expectNoHorizontalOverflow(page);
-  2032 |     expect(reloadedText).not.toMatch(
-  2033 |       /raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i,
-  2034 |     );
-  2035 |   });
-  2036 | 
-  2037 |   test("preserves one partial answer after a provider disconnect and marks it incomplete", async ({
-  2038 |     page,
-  2039 |   }) => {
-  2040 |     const fixture = await installArabicAiFixture(page);
-  2041 |     await installApiFixtures(page, { arabicAi: fixture });
-  2042 |     await programmaticSignIn(page);
-  2043 |     await page.goto(`${DASHBOARD_PATH}ai`);
-  2044 | 
-  2045 |     const composer = page.locator("textarea").first();
-  2046 |     await composer.fill(fixture.question);
-  2047 |     await composer.locator("xpath=..").getByRole("button").click();
-  2048 | 
-  2049 |     const answer = page.getByText(fixture.answer, { exact: true });
-> 2050 |     await expect(answer).toHaveCount(1);
-       |                          ^ Error: expect(locator).toHaveCount(expected) failed
-  2051 |     await expect(answer).toBeVisible();
-  2052 |     await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
-  2053 |     await expect(
-  2054 |       page.getByText("provider failure", { exact: false }).last(),
-  2055 |     ).toBeVisible();
-  2056 |     await expect(
-  2057 |       page.getByText("stopped: provider timeout", { exact: false }).last(),
-  2058 |     ).toBeVisible();
-  2059 |     await expect(
-  2060 |       page.getByText("The provider disconnected after visible response text.", {
-  2061 |         exact: true,
-  2062 |       }),
-  2063 |     ).toBeVisible();
+  2013 | 
+  2014 |     await expect(
+  2015 |       page.getByText(fixture.answer, { exact: true }).last(),
+  2016 |     ).toBeVisible();
+  2017 |     await expect(
+  2018 |       page
+  2019 |         .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
+  2020 |           exact: false,
+  2021 |         })
+  2022 |         .last(),
+  2023 |     ).toBeVisible();
+  2024 |     await page
+  2025 |       .locator("summary")
+  2026 |       .filter({ hasText: "Agent activity" })
+  2027 |       .last()
+  2028 |       .click();
+  2029 |     await expect(page.locator("body")).toContainText("Reading source");
+  2030 |     await expect(page.locator("body")).toContainText(
+  2031 |       "src/missing-release-fixture.ts",
+  2032 |     );
+  2033 |     await expect(page.locator("body")).toContainText("Tool failed");
+  2034 |     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
+  2035 |     await page
+  2036 |       .locator("summary")
+  2037 |       .filter({ hasText: "Persisted execution proof" })
+  2038 |       .last()
+  2039 |       .click();
+  2040 |     await expect(
+  2041 |       page
+  2042 |         .getByText("required tool failed — operation blocked", { exact: true })
+  2043 |         .last(),
+  2044 |     ).toBeVisible();
+  2045 | 
+  2046 |     const reloadedText = await page.locator("body").innerText();
+  2047 |     await expectNoHorizontalOverflow(page);
+  2048 |     expect(reloadedText).not.toMatch(
+  2049 |       /raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i,
+  2050 |     );
+  2051 |   });
+  2052 | 
+  2053 |   test("preserves one partial answer after a provider disconnect and marks it incomplete", async ({
+  2054 |     page,
+  2055 |   }) => {
+  2056 |     const fixture = await installArabicAiFixture(page);
+  2057 |     await installApiFixtures(page, { arabicAi: fixture });
+  2058 |     await programmaticSignIn(page);
+  2059 |     await page.goto(`${DASHBOARD_PATH}ai`);
+  2060 | 
+  2061 |     const composer = page.locator("textarea").first();
+  2062 |     await composer.fill(fixture.question);
+  2063 |     await composer.locator("xpath=..").getByRole("button").click();
   2064 | 
-  2065 |     await page.reload();
-  2066 |     await page
-  2067 |       .getByRole("button", { name: fixture.question, exact: true })
-  2068 |       .click();
-  2069 | 
-  2070 |     await expect(page.getByText(fixture.answer, { exact: true })).toHaveCount(
-  2071 |       1,
-  2072 |     );
-  2073 |     await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
-  2074 |     await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
+  2065 |     const answer = page.getByText(fixture.answer, { exact: true });
+> 2066 |     await expect(answer).toHaveCount(1);
+       |                          ^ Error: expect(locator).toHaveCount(expected) failed
+  2067 |     await expect(answer).toBeVisible();
+  2068 |     await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
+  2069 |     await expect(
+  2070 |       page.getByText("provider failure", { exact: false }).last(),
+  2071 |     ).toBeVisible();
+  2072 |     await expect(
+  2073 |       page.getByText("stopped: provider timeout", { exact: false }).last(),
+  2074 |     ).toBeVisible();
   2075 |     await expect(
-  2076 |       page.getByText("provider failure", { exact: false }).last(),
-  2077 |     ).toBeVisible();
-  2078 |     await expect(
-  2079 |       page.getByText("stopped: provider timeout", { exact: false }).last(),
-  2080 |     ).toBeVisible();
-  2081 |     await expect(
-  2082 |       page.getByText("The provider disconnected after visible response text.", {
-  2083 |         exact: true,
-  2084 |       }),
-  2085 |     ).toBeVisible();
-  2086 |   });
-  2087 | 
-  2088 |   test("resumes a failed analysis and keeps the execution incomplete", async ({
-  2089 |     page,
-  2090 |   }) => {
-  2091 |     const { fixture, execution } = installResumedAnalysisFailureFixture();
-  2092 |     await installApiFixtures(page, {
-  2093 |       arabicAi: fixture,
-  2094 |       resumeFailure: { fixture, execution },
-  2095 |     });
-  2096 |     await programmaticSignIn(page);
-  2097 | 
-  2098 |     await page.evaluate(
-  2099 |       ({ sessionId, executionId, projectId, resumeToken, message }) => {
-  2100 |         localStorage.setItem(
-  2101 |           `eos_ai_execution_current_${projectId}`,
-  2102 |           sessionId,
-  2103 |         );
-  2104 |         localStorage.setItem(
-  2105 |           `eos_ai_execution_${projectId}_${sessionId}`,
-  2106 |           JSON.stringify({
-  2107 |             id: executionId,
-  2108 |             projectId,
-  2109 |             sessionId,
-  2110 |             resumeToken,
-  2111 |             message,
-  2112 |           }),
-  2113 |         );
-  2114 |       },
-  2115 |       {
-  2116 |         sessionId: fixture.sessionId,
-  2117 |         executionId: fixture.executionId,
-  2118 |         projectId: "e2e-project",
-  2119 |         resumeToken: "e2e-resumed-analysis-failure-token-opaque",
-  2120 |         message: fixture.question,
-  2121 |       },
-  2122 |     );
-  2123 |     await page.goto(`${DASHBOARD_PATH}ai`);
-  2124 | 
-  2125 |     await expect(
-  2126 |       page.getByText("A saved AI execution is ready to resume"),
-  2127 |     ).toBeVisible();
-  2128 |     const resumeRequest = page.waitForRequest(
-  2129 |       (request) =>
-  2130 |         request.url().includes("/api/ai/chat/stream") &&
-  2131 |         request.method() === "POST",
-  2132 |     );
-  2133 |     await page.getByRole("button", { name: "Resume", exact: true }).click();
-  2134 |     const requestBody = JSON.parse(
-  2135 |       (await resumeRequest).postData() ?? "{}",
-  2136 |     ) as Record<string, unknown>;
-  2137 |     expect(requestBody).toEqual(
-  2138 |       expect.objectContaining({
-  2139 |         projectId: "e2e-project",
-  2140 |         sessionId: fixture.sessionId,
-  2141 |         executionId: fixture.executionId,
-  2142 |         resumeToken: "e2e-resumed-analysis-failure-token-opaque",
-  2143 |         message: fixture.question,
-  2144 |       }),
-  2145 |     );
-  2146 | 
-  2147 |     await expect(
-  2148 |       page.getByText("Failed to send message", { exact: true }),
-  2149 |     ).toBeVisible();
-  2150 |     await expect(
+  2076 |       page.getByText("The provider disconnected after visible response text.", {
+  2077 |         exact: true,
+  2078 |       }),
+  2079 |     ).toBeVisible();
+  2080 | 
+  2081 |     await page.reload();
+  2082 |     await page
+  2083 |       .getByRole("button", { name: fixture.question, exact: true })
+  2084 |       .click();
+  2085 | 
+  2086 |     await expect(page.getByText(fixture.answer, { exact: true })).toHaveCount(
+  2087 |       1,
+  2088 |     );
+  2089 |     await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
+  2090 |     await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
+  2091 |     await expect(
+  2092 |       page.getByText("provider failure", { exact: false }).last(),
+  2093 |     ).toBeVisible();
+  2094 |     await expect(
+  2095 |       page.getByText("stopped: provider timeout", { exact: false }).last(),
+  2096 |     ).toBeVisible();
+  2097 |     await expect(
+  2098 |       page.getByText("The provider disconnected after visible response text.", {
+  2099 |         exact: true,
+  2100 |       }),
+  2101 |     ).toBeVisible();
+  2102 |   });
+  2103 | 
+  2104 |   test("resumes a failed analysis and keeps the execution incomplete", async ({
+  2105 |     page,
+  2106 |   }) => {
+  2107 |     const { fixture, execution } = installResumedAnalysisFailureFixture();
+  2108 |     await installApiFixtures(page, {
+  2109 |       arabicAi: fixture,
+  2110 |       resumeFailure: { fixture, execution },
+  2111 |     });
+  2112 |     await programmaticSignIn(page);
+  2113 | 
+  2114 |     await page.evaluate(
+  2115 |       ({ sessionId, executionId, projectId, resumeToken, message }) => {
+  2116 |         localStorage.setItem(
+  2117 |           `eos_ai_execution_current_${projectId}`,
+  2118 |           sessionId,
+  2119 |         );
+  2120 |         localStorage.setItem(
+  2121 |           `eos_ai_execution_${projectId}_${sessionId}`,
+  2122 |           JSON.stringify({
+  2123 |             id: executionId,
+  2124 |             projectId,
+  2125 |             sessionId,
+  2126 |             resumeToken,
+  2127 |             message,
+  2128 |           }),
+  2129 |         );
+  2130 |       },
+  2131 |       {
+  2132 |         sessionId: fixture.sessionId,
+  2133 |         executionId: fixture.executionId,
+  2134 |         projectId: "e2e-project",
+  2135 |         resumeToken: "e2e-resumed-analysis-failure-token-opaque",
+  2136 |         message: fixture.question,
+  2137 |       },
+  2138 |     );
+  2139 |     await page.goto(`${DASHBOARD_PATH}ai`);
+  2140 | 
+  2141 |     await expect(
+  2142 |       page.getByText("A saved AI execution is ready to resume"),
+  2143 |     ).toBeVisible();
+  2144 |     const resumeRequest = page.waitForRequest(
+  2145 |       (request) =>
+  2146 |         request.url().includes("/api/ai/chat/stream") &&
+  2147 |         request.method() === "POST",
+  2148 |     );
+  2149 |     await page.getByRole("button", { name: "Resume", exact: true }).click();
+  2150 |     const requestBody = JSON.parse(
+  2151 |       (await resumeRequest).postData() ?? "{}",
+  2152 |     ) as Record<string, unknown>;
+  2153 |     expect(requestBody).toEqual(
+  2154 |       expect.objectContaining({
+  2155 |         projectId: "e2e-project",
+  2156 |         sessionId: fixture.sessionId,
+  2157 |         executionId: fixture.executionId,
+  2158 |         resumeToken: "e2e-resumed-analysis-failure-token-opaque",
+  2159 |         message: fixture.question,
+  2160 |       }),
+  2161 |     );
+  2162 | 
+  2163 |     await expect(
+  2164 |       page.getByText("Failed to send message", { exact: true }),
+  2165 |     ).toBeVisible();
+  2166 |     await expect(
 ```
