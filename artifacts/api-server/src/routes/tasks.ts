@@ -25,6 +25,7 @@ import { runTaskVerification } from "../services/task-service.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 import { scheduleAiTaskExecution } from "./ai.js";
+import { parsePagination } from "../lib/pagination.js";
 
 const router = Router();
 
@@ -37,6 +38,7 @@ class TaskStateConflictError extends Error {}
 // List tasks
 router.get("/tasks", async (req, res) => {
   const params = ListTasksQueryParams.parse(req.query);
+  const pagination = parsePagination(req, { defaultPageSize: 50, maxPageSize: 200 });
   const project = await loadProjectByIdForUser(params.projectId, req.userId, res);
   if (!project) return;
 
@@ -49,7 +51,9 @@ router.get("/tasks", async (req, res) => {
     .select()
     .from(tasksTable)
     .where(and(...conditions))
-    .orderBy(desc(tasksTable.createdAt));
+    .orderBy(desc(tasksTable.createdAt), desc(tasksTable.id))
+    .limit(pagination.pageSize)
+    .offset(pagination.offset);
   return res.json(tasks);
 });
 
@@ -61,19 +65,16 @@ router.post("/tasks", async (req, res) => {
 
   const now = new Date();
   const correlationId = randomUUID();
-  const task = await db
-    .insert(tasksTable)
-    .values({ id: randomUUID(), ...body, correlationId, createdAt: now, updatedAt: now })
-    .returning();
-
-  await db.insert(eventsTable).values({
-    id: randomUUID(),
-    type: "TaskCreated",
-    projectId: body.projectId,
-    taskId: task[0].id,
-    severity: "info",
-    message: `Task "${body.title}" created (${body.priority})`,
-    correlationId,
+  const task = await db.transaction(async (tx) => {
+    const rows = await tx.insert(tasksTable)
+      .values({ id: randomUUID(), ...body, correlationId, createdAt: now, updatedAt: now })
+      .returning();
+    await tx.insert(eventsTable).values({
+      id: randomUUID(), type: "TaskCreated", projectId: body.projectId,
+      taskId: rows[0].id, severity: "info",
+      message: `Task "${body.title}" created (${body.priority})`, correlationId,
+    });
+    return rows;
   });
 
   await recordAudit({
@@ -126,11 +127,27 @@ router.patch("/tasks/:taskId", async (req, res) => {
   }
 
   const correlationId = randomUUID();
-  const updated = await db
-    .update(tasksTable)
-    .set({ ...body, updatedAt: new Date() })
-    .where(eq(tasksTable.id, taskId))
-    .returning();
+  const updated = await db.transaction(async (tx) => {
+    const rows = await tx.update(tasksTable)
+      .set({ ...body, updatedAt: new Date() })
+      .where(eq(tasksTable.id, taskId)).returning();
+    if (rows[0]) {
+      const changes: string[] = [];
+      if (body.status && body.status !== before[0].status) changes.push(`status: ${before[0].status} → ${body.status}`);
+      if (body.priority && body.priority !== before[0].priority) changes.push(`priority: ${before[0].priority} → ${body.priority}`);
+      if (body.title && body.title !== before[0].title) changes.push("title updated");
+      if (changes.length) {
+        const isStatusChange = body.status !== undefined && body.status !== before[0].status;
+        await tx.insert(eventsTable).values({
+          id: randomUUID(), type: isStatusChange ? "TaskStatusChanged" : "TaskUpdated",
+          projectId: before[0].projectId, taskId, severity: "info",
+          message: `Task "${rows[0].title}" updated — ${changes.join(", ")}`, correlationId,
+          ...(isStatusChange ? { payload: { before: { status: before[0].status }, after: { status: body.status } } } : {}),
+        });
+      }
+    }
+    return rows;
+  });
   if (!updated[0]) return res.status(404).json({ error: "Task not found" });
 
   await recordAudit({
@@ -144,36 +161,6 @@ router.patch("/tasks/:taskId", async (req, res) => {
     stateBefore: before[0],
     stateAfter: updated[0],
   });
-
-  // D-03: emit an event for meaningful field changes (status/priority) so the
-  // AI context's recentEvents reflects manual edits.  Previously only the
-  // audit_log was updated — the AI could see a task's current state in
-  // recentTasks but had no event explaining when or why it changed.
-  const changes: string[] = [];
-  if (body.status && body.status !== before[0].status)
-    changes.push(`status: ${before[0].status} → ${body.status}`);
-  if (body.priority && body.priority !== before[0].priority)
-    changes.push(`priority: ${before[0].priority} → ${body.priority}`);
-  if (body.title && body.title !== before[0].title)
-    changes.push(`title updated`);
-
-  if (changes.length > 0) {
-    // Use TaskStatusChanged (with structured before/after payload) when the
-    // status field specifically changed — other field changes keep TaskUpdated.
-    const isStatusChange = body.status !== undefined && body.status !== before[0].status;
-    await db.insert(eventsTable).values({
-      id: randomUUID(),
-      type: isStatusChange ? "TaskStatusChanged" : "TaskUpdated",
-      projectId: before[0].projectId,
-      taskId,
-      severity: "info",
-      message: `Task "${updated[0].title}" updated — ${changes.join(", ")}`,
-      correlationId,
-      ...(isStatusChange
-        ? { payload: { before: { status: before[0].status }, after: { status: body.status } } }
-        : {}),
-    });
-  }
 
   // PR-C: auto-trigger AI execution when a manual PATCH sets status → verifying
   // and the task has a generated prompt.  Fire-and-forget — never blocks response.

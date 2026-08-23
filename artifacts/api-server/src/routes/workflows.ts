@@ -22,6 +22,7 @@ import {
   computePhaseAdvancement,
   type PhaseShape,
 } from "../services/workflow-service.js";
+import { parsePagination } from "../lib/pagination.js";
 
 const router = Router();
 
@@ -34,6 +35,7 @@ class WorkflowStateConflictError extends Error {}
 // List workflows
 router.get("/workflows", async (req, res) => {
   const params = ListWorkflowsQueryParams.parse(req.query);
+  const pagination = parsePagination(req, { defaultPageSize: 50, maxPageSize: 200 });
   if (!params.projectId) {
     return res.status(400).json({ error: "projectId is required" });
   }
@@ -43,7 +45,9 @@ router.get("/workflows", async (req, res) => {
     .select()
     .from(workflowsTable)
     .where(eq(workflowsTable.projectId, project.id))
-    .orderBy(desc(workflowsTable.createdAt));
+    .orderBy(desc(workflowsTable.createdAt), desc(workflowsTable.id))
+    .limit(pagination.pageSize)
+    .offset(pagination.offset);
   return res.json(workflows);
 });
 
@@ -53,18 +57,15 @@ router.post("/workflows", async (req, res) => {
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
   if (!project) return;
   const now = new Date();
-  const workflow = await db
-    .insert(workflowsTable)
-    .values({ id: randomUUID(), ...body, createdAt: now, updatedAt: now })
-    .returning();
-
-  await db.insert(eventsTable).values({
-    id: randomUUID(),
-    type: "WorkflowCreated",
-    projectId: body.projectId,
-    workflowId: workflow[0].id,
-    severity: "info",
-    message: `Workflow "${body.name}" created with ${body.phases.length} phase(s)`,
+  const workflow = await db.transaction(async (tx) => {
+    const rows = await tx.insert(workflowsTable)
+      .values({ id: randomUUID(), ...body, createdAt: now, updatedAt: now }).returning();
+    await tx.insert(eventsTable).values({
+      id: randomUUID(), type: "WorkflowCreated", projectId: body.projectId,
+      workflowId: rows[0].id, severity: "info",
+      message: `Workflow "${body.name}" created with ${body.phases.length} phase(s)`,
+    });
+    return rows;
   });
 
   await recordAudit({
@@ -109,7 +110,13 @@ router.delete("/workflows/:workflowId", async (req, res) => {
   const ownerProject = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
   if (!ownerProject) return;
 
-  await db.delete(workflowsTable).where(eq(workflowsTable.id, workflowId));
+  await db.transaction(async (tx) => {
+    await tx.insert(eventsTable).values({
+      id: randomUUID(), type: "WorkflowDeleted", projectId: before[0].projectId,
+      workflowId, severity: "info", message: `Workflow "${before[0].name}" deleted`,
+    });
+    await tx.delete(workflowsTable).where(eq(workflowsTable.id, workflowId));
+  });
 
   await recordAudit({
     entityType: "workflow",
@@ -337,11 +344,14 @@ router.get("/workflows/:workflowId/executions", async (req, res) => {
   if (!workflow[0]) return res.status(404).json({ error: "Workflow not found" });
   const execOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
   if (!execOwnerProject) return;
+  const pagination = parsePagination(req, { defaultPageSize: 50, maxPageSize: 200 });
   const executions = await db
     .select()
     .from(workflowExecutionsTable)
     .where(eq(workflowExecutionsTable.workflowId, workflowId))
-    .orderBy(desc(workflowExecutionsTable.startedAt));
+    .orderBy(desc(workflowExecutionsTable.startedAt), desc(workflowExecutionsTable.id))
+    .limit(pagination.pageSize)
+    .offset(pagination.offset);
   return res.json(executions);
 });
 

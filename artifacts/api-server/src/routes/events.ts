@@ -23,31 +23,23 @@ router.use(requireAuth);
  * Results are ordered newest-first.
  */
 router.get("/events", async (req, res) => {
-  const requestedLimit = Number.isFinite(Number(req.query.limit))
-    ? Math.floor(Number(req.query.limit))
-    : 50;
-  if (requestedLimit < 1) {
-    return res.status(400).json({ error: "limit must be at least 1" });
+  const rawLimit = req.query.limit === undefined ? 50 : Number(req.query.limit);
+  const rawPage = req.query.page === undefined ? 1 : Number(req.query.page);
+  if (!Number.isSafeInteger(rawLimit) || rawLimit < 1 || rawLimit > 200) {
+    return res.status(400).json({ error: "limit must be an integer between 1 and 200" });
   }
-  const limit = Math.min(requestedLimit, 200);
-  const requestedPage = Number.isFinite(Number(req.query.page))
-    ? Math.floor(Number(req.query.page))
-    : 1;
-  if (requestedPage < 1) {
+  if (!Number.isSafeInteger(rawPage) || rawPage < 1) {
     return res.status(400).json({ error: "page must be at least 1" });
   }
-  const page = requestedPage;
+  const limit = rawLimit;
+  const page = rawPage;
 
   // Parse optional filters at the boundary so blank values do not become
   // restrictive database predicates.
-  const correlationIdFilter =
-    typeof req.query.correlationId === "string" ? req.query.correlationId : undefined;
-  const typeFilter =
-    typeof req.query.type === "string" ? req.query.type : undefined;
-  const severityFilter =
-    typeof req.query.severity === "string" ? req.query.severity : undefined;
-  const searchFilter =
-    typeof req.query.search === "string" ? req.query.search.trim() : undefined;
+  const correlationIdFilter = typeof req.query.correlationId === "string" ? req.query.correlationId.trim() || undefined : undefined;
+  const typeFilter = typeof req.query.type === "string" ? req.query.type.trim() || undefined : undefined;
+  const severityFilter = typeof req.query.severity === "string" ? req.query.severity : undefined;
+  const searchFilter = typeof req.query.search === "string" ? req.query.search.trim() || undefined : undefined;
 
   const projectId =
     typeof req.query.projectId === "string" ? req.query.projectId : undefined;

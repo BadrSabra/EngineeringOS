@@ -37,6 +37,18 @@ export const GetHealthResponse = zod.object({
 /**
  * @summary List all projects
  */
+export const listProjectsQueryPageDefault = 1;
+
+export const listProjectsQueryPageSizeDefault = 50;
+export const listProjectsQueryPageSizeMax = 200;
+
+
+
+export const ListProjectsQueryParams = zod.object({
+  "page": zod.coerce.number().min(1).default(listProjectsQueryPageDefault),
+  "pageSize": zod.coerce.number().min(1).max(listProjectsQueryPageSizeMax).default(listProjectsQueryPageSizeDefault)
+})
+
 export const ListProjectsResponseItem = zod.object({
   "id": zod.string(),
   "ownerId": zod.string().describe('Clerk user id of the project owner. Access to this project is scoped to this user.'),
@@ -250,10 +262,19 @@ export const GetProjectSummaryResponse = zod.object({
 /**
  * @summary List tasks with optional filters
  */
+export const listTasksQueryPageDefault = 1;
+
+export const listTasksQueryPageSizeDefault = 50;
+export const listTasksQueryPageSizeMax = 200;
+
+
+
 export const ListTasksQueryParams = zod.object({
   "projectId": zod.coerce.string().optional(),
   "status": zod.enum(['pending', 'queued', 'running', 'verifying', 'completed', 'failed', 'cancelled']).optional(),
-  "priority": zod.enum(['p0', 'p1', 'p2', 'p3']).optional()
+  "priority": zod.enum(['p0', 'p1', 'p2', 'p3']).optional(),
+  "page": zod.coerce.number().min(1).default(listTasksQueryPageDefault),
+  "pageSize": zod.coerce.number().min(1).max(listTasksQueryPageSizeMax).default(listTasksQueryPageSizeDefault)
 })
 
 export const ListTasksResponseItem = zod.object({
@@ -557,8 +578,17 @@ export const GetTaskLogsResponse = zod.array(GetTaskLogsResponseItem)
 /**
  * @summary List all rules
  */
+export const listRulesQueryPageDefault = 1;
+
+export const listRulesQueryPageSizeDefault = 50;
+export const listRulesQueryPageSizeMax = 200;
+
+
+
 export const ListRulesQueryParams = zod.object({
   "projectId": zod.coerce.string().optional(),
+  "page": zod.coerce.number().min(1).default(listRulesQueryPageDefault),
+  "pageSize": zod.coerce.number().min(1).max(listRulesQueryPageSizeMax).default(listRulesQueryPageSizeDefault),
   "severity": zod.enum(['critical', 'high', 'medium', 'low', 'info']).optional()
 })
 
@@ -982,10 +1012,19 @@ export const ListEventsResponse = zod.array(ListEventsResponseItem)
 /**
  * @summary Get time-series quality metrics
  */
+export const listMetricsQueryPageDefault = 1;
+
+export const listMetricsQueryPageSizeDefault = 100;
+export const listMetricsQueryPageSizeMax = 500;
+
+
+
 export const ListMetricsQueryParams = zod.object({
   "projectId": zod.coerce.string(),
   "from": zod.date().optional(),
-  "to": zod.date().optional()
+  "to": zod.date().optional(),
+  "page": zod.coerce.number().min(1).default(listMetricsQueryPageDefault),
+  "pageSize": zod.coerce.number().min(1).max(listMetricsQueryPageSizeMax).default(listMetricsQueryPageSizeDefault)
 })
 
 export const ListMetricsResponseItem = zod.object({

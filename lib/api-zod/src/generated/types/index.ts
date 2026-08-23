@@ -210,6 +210,7 @@ export * from './listEventsSeverity';
 export * from './listGraphEntitiesParams';
 export * from './listGraphRelationshipsParams';
 export * from './listMetricsParams';
+export * from './listProjectsParams';
 export * from './listRulesParams';
 export * from './listTasksParams';
 export * from './listWorkflowsParams';

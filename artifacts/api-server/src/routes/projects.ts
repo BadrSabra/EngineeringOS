@@ -30,6 +30,7 @@ import {
   requireProjectAccess,
   requireProjectWriteAccess,
 } from "../middlewares/requireProjectAccess.js";
+import { parsePagination } from "../lib/pagination.js";
 
 const router = Router();
 
@@ -44,11 +45,14 @@ router.get("/projects", async (req, res) => {
   res.setHeader("x-request-id", requestId);
 
   try {
+    const pagination = parsePagination(req, { defaultPageSize: 50, maxPageSize: 200 });
     const projects = await db
       .select()
       .from(projectsTable)
       .where(eq(projectsTable.ownerId, req.userId))
-      .orderBy(desc(projectsTable.createdAt));
+      .orderBy(desc(projectsTable.createdAt), desc(projectsTable.id))
+      .limit(pagination.pageSize)
+      .offset(pagination.offset);
 
     logger.info(
       {
@@ -98,27 +102,17 @@ router.post("/projects", async (req, res) => {
   // full trace of "what happened because of this request" is one filter
   // away, not just for scans but for every project-mutating operation.
   const correlationId = randomUUID();
-  const project = await db
-    .insert(projectsTable)
-    .values({
-      id: randomUUID(),
-      ownerId: req.userId,
-      ...body,
-      // Persist the canonical (realpath-resolved) root, never the raw input.
-      rootPath: rootResult.canonicalPath,
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    })
-    .returning();
-
-  await db.insert(eventsTable).values({
-    id: randomUUID(),
-    type: "ProjectCreated",
-    projectId: project[0].id,
-    severity: "info",
-    message: `Project "${body.name}" registered`,
-    correlationId,
+  const project = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(projectsTable).values({
+      id: randomUUID(), ownerId: req.userId, ...body,
+      rootPath: rootResult.canonicalPath, status: "active",
+      createdAt: now, updatedAt: now,
+    }).returning();
+    await tx.insert(eventsTable).values({
+      id: randomUUID(), type: "ProjectCreated", projectId: created.id,
+      severity: "info", message: `Project "${body.name}" registered`, correlationId,
+    });
+    return [created];
   });
 
   await recordAudit({
@@ -148,11 +142,19 @@ router.patch("/projects/:projectId", requireProjectWriteAccess, async (req, res)
   const before = req.project!;
   const correlationId = randomUUID();
 
-  const updated = await db
-    .update(projectsTable)
-    .set({ ...body, updatedAt: new Date() })
-    .where(eq(projectsTable.id, projectId))
-    .returning();
+  const updated = await db.transaction(async (tx) => {
+    const rows = await tx.update(projectsTable)
+      .set({ ...body, updatedAt: new Date() })
+      .where(eq(projectsTable.id, projectId)).returning();
+    if (rows[0]) {
+      await tx.insert(eventsTable).values({
+        id: randomUUID(), type: "ProjectUpdated", projectId,
+        severity: "info", message: `Project "${rows[0].name}" updated`, correlationId,
+        payload: { changedFields: body },
+      });
+    }
+    return rows;
+  });
   if (!updated[0]) return res.status(404).json({ error: "Project not found" });
 
   await recordAudit({
@@ -177,20 +179,18 @@ router.delete("/projects/:projectId", requireProjectWriteAccess, async (req, res
   const before = req.project!;
   const correlationId = randomUUID();
 
-  // Record the deletion while the project still exists. The audit row's
-  // project_id foreign key is configured with ON DELETE SET NULL, so the
-  // historical record survives the project deletion without violating the
-  // foreign key constraint.
   await recordAudit({
-    entityType: "project",
-    entityId: projectId,
-    action: "deleted",
-    projectId,
-    stateBefore: before,
-    correlationId,
+    entityType: "project", entityId: projectId, action: "deleted", projectId,
+    stateBefore: before, correlationId,
   });
 
-  await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+  await db.transaction(async (tx) => {
+    await tx.insert(eventsTable).values({
+      id: randomUUID(), type: "ProjectDeleted", projectId,
+      severity: "info", message: `Project "${before.name}" deleted`, correlationId,
+    });
+    await tx.delete(projectsTable).where(eq(projectsTable.id, projectId));
+  });
 
   // Imported Git/archive projects own their durable materialized root.
   // Direct projects point at user-owned directories and are intentionally

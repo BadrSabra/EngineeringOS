@@ -245,7 +245,8 @@ router.get("/projects/:projectId/git/status", requireProjectAccess, async (req, 
         hint: "This project directory is not a git repository. Run `git init` inside it or link an existing repo.",
       });
     }
-    return res.status(500).json({ error: raw });
+    logger.error({ err, projectId: req.project!.id, operation: "status" }, "git status failed");
+    return res.status(502).json({ error: "git_operation_failed", code: "GIT_STATUS_FAILED", hint: "Git status could not be completed. Check the project repository and try again." });
   }
 });
 
@@ -281,7 +282,8 @@ router.get("/projects/:projectId/git/log", requireProjectAccess, async (req, res
         hint: "This project directory is not a git repository.",
       });
     }
-    return res.status(500).json({ error: raw });
+    logger.error({ err, projectId: req.project!.id, operation: "log" }, "git log failed");
+    return res.status(502).json({ error: "git_operation_failed", code: "GIT_LOG_FAILED", hint: "Git history could not be read. Check the project repository and try again." });
   }
 });
 

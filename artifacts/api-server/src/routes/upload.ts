@@ -13,7 +13,7 @@
  * Uploads are stored in a temp directory and expire after 1 hour.
  */
 import { Router } from "express";
-import multer from "multer";
+import multer, { MulterError } from "multer";
 import { promises as fs } from "node:fs";
 import { randomUUID } from "crypto";
 import AdmZip from "adm-zip";
@@ -23,22 +23,33 @@ import { logger } from "../lib/logger.js";
 import { ArchiveSafetyError, extractTarGzSafely, extractZipSafely } from "../lib/archive-safety.js";
 const router = Router();
 
-// In-memory storage — archives are extracted immediately and the buffer discarded.
-// 50 MB is generous for most source repos; adjust if needed.
+// Stream the multipart body to disk. Keeping a 50 MB archive in the Node heap
+// made concurrent uploads multiply memory usage before archive limits ran.
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: "/tmp",
+    filename: (_req, _file, cb) => cb(null, randomUUID()),
+  }),
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
 /** POST /api/upload/archive */
-router.post("/upload/archive", requireAuth, upload.single("archive"), async (req, res) => {
+router.post("/upload/archive", requireAuth, (req, res, next) => {
+  upload.single("archive")(req, res, (err) => {
+    if (err instanceof MulterError && err.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({ error: "Archive exceeds the 50 MB upload limit", code: "UPLOAD_TOO_LARGE" });
+    }
+    if (err) return next(err);
+    return next();
+  });
+}, async (req, res) => {
   if (!req.file) {
     return res.status(400).json({
       error: "No file uploaded. Send the archive as a multipart field named 'archive'.",
     });
   }
 
-  const { originalname, buffer } = req.file;
+  const { originalname, path: uploadedPath } = req.file;
   const lower = originalname.toLowerCase();
   const isTarGz = lower.endsWith(".tar.gz") || lower.endsWith(".tgz");
   const isZip   = lower.endsWith(".zip");
@@ -57,10 +68,10 @@ router.post("/upload/archive", requireAuth, upload.single("archive"), async (req
     await fs.mkdir(extractDir, { recursive: true });
 
     if (isZip) {
-      const zip = new AdmZip(buffer);
+       const zip = new AdmZip(uploadedPath);
       await extractZipSafely(zip, extractDir);
     } else {
-      await fs.writeFile(tarPath, buffer);
+       await fs.copyFile(uploadedPath, tarPath);
       await extractTarGzSafely(tarPath, extractDir);
     }
 
@@ -80,6 +91,8 @@ router.post("/upload/archive", requireAuth, upload.single("archive"), async (req
       : "archive is malformed or could not be extracted";
     logger.error({ err, uploadId, originalname }, "archive extraction failed");
     return res.status(422).json({ error: `Archive extraction failed: ${msg}` });
+  } finally {
+    await fs.unlink(uploadedPath).catch(() => {});
   }
 });
 

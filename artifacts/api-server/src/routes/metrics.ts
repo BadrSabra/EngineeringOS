@@ -5,6 +5,7 @@ import { ListMetricsQueryParams } from "@workspace/api-zod";
 import { eq, and, gte, lte, desc, inArray } from "drizzle-orm";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
+import { parsePagination } from "../lib/pagination.js";
 
 const router = Router();
 
@@ -20,6 +21,7 @@ router.use(requireAuth);
  */
 router.get("/metrics", async (req, res) => {
   const params = ListMetricsQueryParams.parse(req.query);
+  const pagination = parsePagination(req, { defaultPageSize: 100, maxPageSize: 500 });
 
   // Ownership check — same 400/404/403 semantics as requireProjectAccess
   const project = await loadProjectByIdForUser(params.projectId, req.userId, res);
@@ -33,7 +35,9 @@ router.get("/metrics", async (req, res) => {
     .select()
     .from(metricsTable)
     .where(and(...conditions))
-    .orderBy(metricsTable.timestamp);
+    .orderBy(metricsTable.timestamp, metricsTable.id)
+    .limit(pagination.pageSize)
+    .offset(pagination.offset);
 
   return res.json(records);
 });

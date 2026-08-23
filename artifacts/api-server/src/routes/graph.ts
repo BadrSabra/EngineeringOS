@@ -7,7 +7,7 @@ import {
   GetGraphEntityImpactQueryParams,
   GetGraphPathQueryParams,
 } from "@workspace/api-zod";
-import { eq, and, inArray, gte, isNull, or } from "drizzle-orm";
+import { eq, and, inArray, gte, isNull, or, asc, count } from "drizzle-orm";
 import {
   getImpactedEntities,
   getShortestPath,
@@ -29,14 +29,9 @@ import {
   loadProjectByIdForUser,
   requireProjectAccess,
 } from "../middlewares/requireProjectAccess.js";
+import { parsePagination } from "../lib/pagination.js";
 
 const router = Router();
-
-function listWindow(query: Record<string, unknown>) {
-  const page = Math.max(1, Number.parseInt(String(query.page ?? "1"), 10) || 1);
-  const pageSize = Math.min(1000, Math.max(1, Number.parseInt(String(query.pageSize ?? "1000"), 10) || 1000));
-  return { page, pageSize, offset: (page - 1) * pageSize };
-}
 
 // Defense-in-depth: requireAuth is already applied globally in app.ts, but
 // adding it here too means this router is safe even if mounted without it.
@@ -109,18 +104,20 @@ router.get("/graph/entities", async (req, res) => {
     conditions.push(eq(graphEntitiesTable.isDocumented, true));
   }
 
-  const allEntities = await db
+  const pagination = parsePagination(req, { defaultPageSize: 100, maxPageSize: 500 });
+  const entities = await db
     .select()
     .from(graphEntitiesTable)
     .where(and(...conditions))
-    ;
-  const { page, pageSize, offset } = listWindow(req.query as Record<string, unknown>);
-  const entities = allEntities.slice(offset, offset + pageSize);
+    .orderBy(asc(graphEntitiesTable.id))
+    .limit(pagination.pageSize)
+    .offset(pagination.offset);
 
-  return res.json({
-    items: entities,
-    meta: { page, pageSize, total: allEntities.length, truncated: offset > 0 || offset + entities.length < allEntities.length },
-  });
+  const [{ total }] = await db.select({ total: count() }).from(graphEntitiesTable).where(and(...conditions));
+  return res.json({ items: entities, meta: {
+    page: pagination.page, pageSize: pagination.pageSize, total: Number(total),
+    truncated: pagination.offset > 0 || pagination.offset + entities.length < Number(total),
+  } });
 });
 
 // ─── List graph relationships ─────────────────────────────────────────────────
@@ -134,6 +131,7 @@ router.get("/graph/relationships", async (req, res) => {
   if (!project) return;
 
   const params = ListGraphRelationshipsQueryParams.parse(req.query);
+  const pagination = parsePagination(req, { defaultPageSize: 100, maxPageSize: 500 });
 
   // KG 2.0: if the relationships table has projectId, query directly
   const filters = parseKgFilters(req.query as Record<string, unknown>);
@@ -141,13 +139,11 @@ router.get("/graph/relationships", async (req, res) => {
       filters.sourceTypes || filters.observedOnly || filters.heuristicOnly) {
     const rels = await getEdgesByType(db, project.id, filters, params.sourceId);
     if (params.sourceId) {
-      const { page, pageSize, offset } = listWindow(req.query as Record<string, unknown>);
-      const items = rels.slice(offset, offset + pageSize);
-      return res.json({ items, meta: { page, pageSize, total: rels.length, truncated: offset > 0 || offset + items.length < rels.length || rels.length >= 2000 } });
+      const items = rels.slice(pagination.offset, pagination.offset + pagination.pageSize);
+      return res.json({ items, meta: { page: pagination.page, pageSize: pagination.pageSize, total: rels.length, truncated: pagination.offset > 0 || items.length < rels.length } });
     }
-    const { page, pageSize, offset } = listWindow(req.query as Record<string, unknown>);
-    const items = rels.slice(offset, offset + pageSize);
-    return res.json({ items, meta: { page, pageSize, total: rels.length, truncated: rels.length >= 2000 || offset > 0 || offset + items.length < rels.length } });
+    const items = rels.slice(pagination.offset, pagination.offset + pagination.pageSize);
+    return res.json({ items, meta: { page: pagination.page, pageSize: pagination.pageSize, total: rels.length, truncated: pagination.offset > 0 || items.length < rels.length } });
   }
 
   // Fallback: fetch entity IDs first to scope relationships to the project
@@ -158,7 +154,7 @@ router.get("/graph/relationships", async (req, res) => {
     ;
   const entityIds = new Set(allEntities.map((e: { id: string }) => e.id));
   if (entityIds.size === 0) {
-    return res.json({ items: [], meta: { page: 1, pageSize: 1000, total: 0, truncated: false } });
+    return res.json({ items: [], meta: { page: pagination.page, pageSize: pagination.pageSize, total: 0, truncated: false } });
   }
 
   const directConditions = [];
@@ -184,9 +180,7 @@ router.get("/graph/relationships", async (req, res) => {
 
   const scoped = rels.filter((r: { sourceId: string; targetId: string }) =>
     entityIds.has(r.sourceId) && entityIds.has(r.targetId));
-  const { page, pageSize, offset } = listWindow(req.query as Record<string, unknown>);
-  const items = scoped.slice(offset, offset + pageSize);
-  return res.json({ items, meta: { page, pageSize, total: scoped.length, truncated: offset > 0 || offset + items.length < scoped.length } });
+  return res.json({ items: scoped, meta: { page: pagination.page, pageSize: pagination.pageSize, total: scoped.length, truncated: scoped.length === pagination.pageSize } });
 });
 
 // ─── Direct neighbors ─────────────────────────────────────────────────────────

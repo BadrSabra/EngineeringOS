@@ -19,6 +19,7 @@ import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 import { walkProject, matchRule, type RuleInput } from "@workspace/scanner";
 import { recordAudit } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
+import { parsePagination } from "../lib/pagination.js";
 
 const router = Router();
 
@@ -35,6 +36,7 @@ function requireGlobalOperator(req: Request, res: Response): boolean {
 // List rules
 router.get("/rules", async (req, res) => {
   const params = ListRulesQueryParams.parse(req.query);
+  const pagination = parsePagination(req, { defaultPageSize: 50, maxPageSize: 200 });
   const conditions = [];
   if (params.projectId) {
     const project = await loadProjectByIdForUser(params.projectId, req.userId, res);
@@ -50,7 +52,9 @@ router.get("/rules", async (req, res) => {
     .select()
     .from(rulesTable)
     .where(and(...conditions))
-    .orderBy(desc(rulesTable.hitCount));
+    .orderBy(desc(rulesTable.hitCount), desc(rulesTable.id))
+    .limit(pagination.pageSize)
+    .offset(pagination.offset);
   return res.json(rules);
 });
 
@@ -64,10 +68,17 @@ router.post("/rules", async (req, res) => {
     return;
   }
   const now = new Date();
-  const rule = await db
-    .insert(rulesTable)
-    .values({ id: randomUUID(), ...body, createdAt: now, updatedAt: now })
-    .returning();
+  const correlationId = randomUUID();
+  const rule = await db.transaction(async (tx) => {
+    const rows = await tx.insert(rulesTable)
+      .values({ id: randomUUID(), ...body, createdAt: now, updatedAt: now }).returning();
+    if (body.projectId) await tx.insert(eventsTable).values({
+      id: randomUUID(), type: "RuleCreated", projectId: body.projectId,
+      severity: "info", message: `Rule "${rows[0].title}" created`,
+      correlationId, payload: { ruleId: rows[0].id },
+    });
+    return rows;
+  });
 
   await recordAudit({
     entityType: "rule",
@@ -76,7 +87,7 @@ router.post("/rules", async (req, res) => {
     projectId: body.projectId ?? null,
     stateAfter: rule[0],
     actor: req.userId,
-    correlationId: randomUUID(),
+    correlationId,
   });
 
   return res.status(201).json(rule[0]);
@@ -115,11 +126,20 @@ router.patch("/rules/:ruleId", async (req, res) => {
     return;
   }
 
-  const updated = await db
-    .update(rulesTable)
-    .set({ ...body, updatedAt: new Date() })
-    .where(eq(rulesTable.id, ruleId))
-    .returning();
+  const correlationId = randomUUID();
+  const updated = await db.transaction(async (tx) => {
+    const rows = await tx.update(rulesTable)
+      .set({ ...body, updatedAt: new Date() })
+      .where(eq(rulesTable.id, ruleId)).returning();
+    if (rows[0]) {
+      if (before[0].projectId) await tx.insert(eventsTable).values({
+        id: randomUUID(), type: "RuleUpdated", projectId: before[0].projectId,
+        severity: "info", message: `Rule "${rows[0].title}" updated`,
+        correlationId, payload: { changedFields: body },
+      });
+    }
+    return rows;
+  });
   if (!updated[0]) return res.status(404).json({ error: "Rule not found" });
 
   await recordAudit({
@@ -131,7 +151,7 @@ router.patch("/rules/:ruleId", async (req, res) => {
     stateBefore: before[0],
     stateAfter: updated[0],
     actor: req.userId,
-    correlationId: randomUUID(),
+    correlationId,
   });
 
   return res.json(updated[0]);
@@ -152,7 +172,14 @@ router.delete("/rules/:ruleId", async (req, res) => {
     return;
   }
 
-  await db.delete(rulesTable).where(eq(rulesTable.id, ruleId));
+  const correlationId = randomUUID();
+  await db.transaction(async (tx) => {
+    if (before[0].projectId) await tx.insert(eventsTable).values({
+      id: randomUUID(), type: "RuleDeleted", projectId: before[0].projectId,
+      severity: "info", message: `Rule "${before[0].title}" deleted`, correlationId,
+    });
+    await tx.delete(rulesTable).where(eq(rulesTable.id, ruleId));
+  });
 
   await recordAudit({
     entityType: "rule",
@@ -161,6 +188,7 @@ router.delete("/rules/:ruleId", async (req, res) => {
     projectId: before[0].projectId ?? null,
     stateBefore: before[0],
     actor: req.userId,
+    correlationId,
   });
 
   return res.status(204).send();

@@ -5,13 +5,8 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
-import type { TaskPriority } from './taskPriority';
-import type { TaskStatus } from './taskStatus';
 
-export type ListTasksParams = {
-projectId?: string;
-status?: TaskStatus;
-priority?: TaskPriority;
+export type ListProjectsParams = {
 /**
  * @minimum 1
  */

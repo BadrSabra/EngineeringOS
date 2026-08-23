@@ -2249,14 +2249,44 @@ export interface DashboardOverview {
   topRules?: DashboardOverviewTopRulesItem[];
 }
 
+export type ListProjectsParams = {
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 200
+ */
+pageSize?: number;
+};
+
 export type ListTasksParams = {
 projectId?: string;
 status?: TaskStatus;
 priority?: TaskPriority;
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 200
+ */
+pageSize?: number;
 };
 
 export type ListRulesParams = {
 projectId?: string;
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 200
+ */
+pageSize?: number;
 severity?: RuleSeverity;
 };
 
@@ -2306,6 +2336,15 @@ export type ListMetricsParams = {
 projectId: string;
 from?: string;
 to?: string;
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 500
+ */
+pageSize?: number;
 };
 
 export type GetLatestMetricsParams = {

@@ -9,5 +9,14 @@ import type { RuleSeverity } from './ruleSeverity';
 
 export type ListRulesParams = {
 projectId?: string;
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 200
+ */
+pageSize?: number;
 severity?: RuleSeverity;
 };

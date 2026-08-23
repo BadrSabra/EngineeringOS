@@ -10,4 +10,13 @@ export type ListMetricsParams = {
 projectId: string;
 from?: Date;
 to?: Date;
+/**
+ * @minimum 1
+ */
+page?: number;
+/**
+ * @minimum 1
+ * @maximum 500
+ */
+pageSize?: number;
 };
