@@ -11,6 +11,7 @@ import {
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useToast } from '@/hooks/use-toast';
+import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import {
   Play,
   RotateCcw,
@@ -53,6 +54,8 @@ function TaskLogsPanel({ taskId, taskStatus }: { taskId: string; taskStatus: str
   // Live logs accumulated via SSE while the task is running
   const [liveLogs, setLiveLogs] = useState<TaskLog[]>([]);
   const [sseActive, setSseActive] = useState(false);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seenIds = useRef(new Set<string>());
 
   useEffect(() => {
@@ -78,32 +81,40 @@ function TaskLogsPanel({ taskId, taskStatus }: { taskId: string; taskStatus: str
     es.addEventListener('done', () => {
       es.close();
       setSseActive(false);
+      setReconnectAttempt(0);
     });
 
     es.onerror = () => {
       es.close();
       setSseActive(false);
+      if (reconnectAttempt < 5) {
+        reconnectTimer.current = setTimeout(
+          () => setReconnectAttempt((attempt) => attempt + 1),
+          Math.min(1000 * 2 ** reconnectAttempt, 8000),
+        );
+      }
     };
 
     return () => {
       es.close();
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       setSseActive(false);
     };
-  }, [taskId, isRunning]);
+  }, [taskId, isRunning, reconnectAttempt]);
 
   // REST fallback: poll after task finishes or when SSE isn't active
-  const { data: polledLogs, isLoading } = useGetTaskLogs(taskId, {
+  const { data: polledLogs, isLoading, isError: logsError, refetch: refetchLogs } = useGetTaskLogs(taskId, {
     query: {
       queryKey: getGetTaskLogsQueryKey(taskId),
       staleTime: 5_000,
-      refetchInterval: isRunning ? false : 5_000,
-      enabled: !isRunning,
+      refetchInterval: 5_000,
+      enabled: true,
     },
   });
 
   // While running show SSE stream (oldest-first); after done show REST result (reversed)
   const logs: TaskLog[] = isRunning
-    ? liveLogs
+    ? [...(polledLogs ? [...polledLogs].reverse() : []), ...liveLogs.filter((log) => !polledLogs?.some((p) => p.id === log.id))]
     : (polledLogs ? [...polledLogs].reverse() : []);
 
   const levelColor = (level: TaskLog['level']) => {
@@ -134,6 +145,11 @@ function TaskLogsPanel({ taskId, taskStatus }: { taskId: string; taskStatus: str
       <div className="bg-background border border-border rounded-lg text-xs overflow-auto max-h-56 p-3 space-y-1">
         {!isRunning && isLoading ? (
           <span className="text-muted-foreground animate-pulse font-mono">Loading logs…</span>
+        ) : logsError ? (
+          <div className="text-destructive">
+            <p>Could not load execution logs.</p>
+            <button type="button" onClick={() => void refetchLogs()} className="mt-2 underline">Retry logs</button>
+          </div>
         ) : logs.length === 0 ? (
           <span className="text-muted-foreground italic font-mono">
             {isRunning ? 'Waiting for agent to start…' : 'No log entries yet.'}
@@ -174,7 +190,7 @@ export default function Tasks() {
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
   const [logsTab, setLogsTab] = useState<Record<string, 'details' | 'logs'>>({});
 
-  const { data: tasks, isLoading } = useListTasks(
+  const { data: tasks, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListTasks(
     { status: filterStatus || undefined, priority: filterPriority || undefined },
     {
       query: {
@@ -249,6 +265,7 @@ export default function Tasks() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="Refresh tasks" />
           <div className="flex items-center gap-2 bg-secondary p-1 rounded-md border border-border">
             <select
               value={filterStatus}
@@ -314,6 +331,11 @@ export default function Tasks() {
               <div key={i} className="h-20 bg-card border border-border rounded-xl animate-pulse" />
             ))}
           </div>
+        ) : isError ? (
+          <RequestError
+            message={error instanceof Error ? error.message : 'Unable to load tasks.'}
+            onRetry={() => void refetch()}
+          />
         ) : visibleTasks.length === 0 ? (
           <div className="border-2 border-dashed border-border rounded-xl p-16 text-center flex flex-col items-center">
             <TerminalSquare className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
@@ -333,8 +355,19 @@ export default function Tasks() {
               className="bg-card border border-border rounded-xl overflow-hidden transition-all"
             >
               <div
+                role="button"
+                tabIndex={0}
                 className="p-4 flex items-center gap-4 cursor-pointer hover:bg-secondary/30"
                 onClick={() => setExpandedTask(expandedTask === task.id ? null : task.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    setExpandedTask(expandedTask === task.id ? null : task.id);
+                  }
+                }}
+                aria-expanded={expandedTask === task.id}
+                aria-controls={`task-details-${task.id}`}
+                aria-label={`${expandedTask === task.id ? 'Collapse' : 'Expand'} task ${task.title}`}
               >
                 <StatusIcon status={task.status} />
                 <div className="flex-1 min-w-0">
@@ -404,7 +437,7 @@ export default function Tasks() {
               </div>
 
               {expandedTask === task.id && (
-                <div className="border-t border-border bg-secondary/20">
+                <div id={`task-details-${task.id}`} className="border-t border-border bg-secondary/20">
                   {/* Tab bar */}
                   <div className="flex gap-1 p-3 pb-0">
                     {(['details', 'logs'] as const).map((tab) => (

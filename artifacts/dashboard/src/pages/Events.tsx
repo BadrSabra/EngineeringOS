@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useListEvents, useListProjects } from '@workspace/api-client-react';
 import { Search, Filter, X } from 'lucide-react';
+import { RefreshButton } from '@/components/OperatorResilience';
 
 const SEVERITIES = ['info', 'warning', 'error', 'success'] as const;
 const PAGE_SIZE = 50;
@@ -73,6 +74,7 @@ export default function Events() {
               className="bg-card border border-border rounded-md pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary w-64"
             />
           </div>
+          <RefreshButton onRefresh={refetch} isRefreshing={isLoading} label="Refresh events" />
           <button
             aria-label="Toggle event filters"
             onClick={() => setShowFilters((v) => !v)}

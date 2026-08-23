@@ -31,6 +31,7 @@ import {
   X,
   Trash2,
 } from 'lucide-react';
+import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 
 function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -265,7 +266,7 @@ function ExecutionHistory({
   workflowId: string;
   phases: Array<{ name: string }>;
 }) {
-  const { data: executions, isLoading } = useListWorkflowExecutions(workflowId, {
+  const { data: executions, isLoading, isError, error, refetch } = useListWorkflowExecutions(workflowId, {
     query: { queryKey: getListWorkflowExecutionsQueryKey(workflowId), staleTime: 10_000 },
   });
   const queryClient = useQueryClient();
@@ -279,6 +280,9 @@ function ExecutionHistory({
 
   if (isLoading) {
     return <div className="text-xs text-muted-foreground animate-pulse py-2">Loading executions...</div>;
+  }
+  if (isError) {
+    return <RequestError message={error instanceof Error ? error.message : 'Unable to load executions.'} onRetry={() => void refetch()} />;
   }
   if (!executions || executions.length === 0) {
     return <p className="text-xs text-muted-foreground italic py-2">No executions yet.</p>;
@@ -386,7 +390,7 @@ function ExecutionHistory({
 
 export default function Workflows() {
   const queryClient = useQueryClient();
-  const { data: workflows, isLoading } = useListWorkflows({});
+  const { data: workflows, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListWorkflows({});
   const [expandedId, setExpandedId] = useState<string>('');
   const [showCreateModal, setShowCreateModal] = useState(false);
 
@@ -429,7 +433,8 @@ export default function Workflows() {
           </h1>
           <p className="text-muted-foreground text-sm mt-1">Multi-stage autonomous pipelines.</p>
         </div>
-        <button
+          <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="Refresh workflows" />
+          <button
           onClick={() => setShowCreateModal(true)}
           className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
         >
@@ -442,6 +447,8 @@ export default function Workflows() {
       <div className="grid grid-cols-1 gap-6">
         {isLoading ? (
           <div className="h-64 bg-card border border-border rounded-xl animate-pulse"></div>
+        ) : isError ? (
+          <RequestError message={error instanceof Error ? error.message : 'Unable to load workflows.'} onRetry={() => void refetch()} />
         ) : workflows?.length === 0 ? (
           <div className="border-2 border-dashed border-border rounded-xl p-16 text-center flex flex-col items-center">
             <ListTree className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />

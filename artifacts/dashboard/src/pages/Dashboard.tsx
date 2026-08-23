@@ -12,9 +12,9 @@ import {
   FolderGit2,
   Database,
   TrendingUp,
-  RefreshCw,
 } from 'lucide-react';
 import { Link } from 'wouter';
+import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 
 function formatHealthTimestamp(value: Date | string | null | undefined): string {
   if (!value) return 'Not recorded';
@@ -23,8 +23,8 @@ function formatHealthTimestamp(value: Date | string | null | undefined): string 
 }
 
 export default function Dashboard() {
-  const { data: dashboard, isLoading, error, refetch } = useGetDashboard();
-  const { data: health } = useGetHealth({
+  const { data: dashboard, isLoading, error, refetch, isRefetching, dataUpdatedAt } = useGetDashboard();
+  const { data: health, refetch: refetchHealth } = useGetHealth({
     query: {
       queryKey: getGetHealthQueryKey(),
       refetchInterval: 30_000,
@@ -59,17 +59,12 @@ export default function Dashboard() {
 
   if (error || !dashboard) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 border border-destructive/20 bg-destructive/5 rounded-xl text-destructive p-6 text-center">
-        <AlertTriangle className="w-8 h-8 mb-4 opacity-80" />
-        <h3 className="font-semibold text-lg mb-1">Failed to load dashboard</h3>
-        <p className="text-sm opacity-80 mb-4">Could not connect to the EngineeringOS API.</p>
-        <button
-          onClick={() => refetch()}
-          className="px-4 py-2 bg-destructive/10 hover:bg-destructive/20 rounded-md font-medium text-sm flex items-center gap-2 transition-colors"
-        >
-          <RefreshCw className="w-4 h-4" /> Retry Connection
-        </button>
-      </div>
+      <RequestError
+        title="Failed to load dashboard"
+        message="Could not connect to the EngineeringOS API."
+        retryLabel="Retry Connection"
+        onRetry={() => void refetch()}
+      />
     );
   }
 
@@ -82,7 +77,13 @@ export default function Dashboard() {
             Real-time status of all autonomous engineering operations.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          <RefreshButton
+            onRefresh={async () => { await refetch(); await refetchHealth(); }}
+            isRefreshing={isRefetching}
+            lastUpdated={dataUpdatedAt}
+            label="Refresh status"
+          />
           <span className="flex items-center gap-2 text-xs font-mono font-medium text-emerald-500 bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
             SYSTEM ONLINE

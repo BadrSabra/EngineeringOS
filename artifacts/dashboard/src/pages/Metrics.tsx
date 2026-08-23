@@ -13,6 +13,7 @@ import {
   Legend,
 } from 'recharts';
 import { BarChart3, AlertTriangle } from 'lucide-react';
+import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 
 const CHART_COLORS = {
   architecture: '#10b981',
@@ -23,13 +24,13 @@ const CHART_COLORS = {
 type DateRange = '7d' | '30d' | 'all';
 
 export default function Metrics() {
-  const { data: projects } = useListProjects();
+  const { data: projects, isError: projectsError, refetch: refetchProjects } = useListProjects();
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [dateRange, setDateRange] = useState<DateRange>('30d');
 
   const effectiveProjectId = selectedProjectId || (projects?.[0]?.id ?? '');
 
-  const { data: metrics, isLoading } = useListMetrics(
+  const { data: metrics, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListMetrics(
     { projectId: effectiveProjectId },
     { query: { queryKey: getListMetricsQueryKey({ projectId: effectiveProjectId }), enabled: !!effectiveProjectId, staleTime: 30_000 } },
   );
@@ -59,6 +60,7 @@ export default function Metrics() {
           <p className="text-muted-foreground text-sm mt-1">Historical quality trends and analysis.</p>
         </div>
         <div className="flex items-center gap-2">
+          <RefreshButton onRefresh={async () => { await refetchProjects(); await refetch(); }} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="Refresh metrics" />
           <select
             value={effectiveProjectId}
             onChange={(e) => setSelectedProjectId(e.target.value)}
@@ -88,12 +90,16 @@ export default function Metrics() {
         </div>
       </div>
 
-      {!effectiveProjectId ? (
+      {projectsError ? (
+        <RequestError message="Unable to load projects for metrics." onRetry={() => void refetchProjects()} />
+      ) : !effectiveProjectId ? (
         <div className="h-64 bg-card border border-border rounded-xl flex items-center justify-center text-muted-foreground">
           Select a project to view metrics.
         </div>
       ) : isLoading ? (
         <div className="h-96 bg-card border border-border rounded-xl animate-pulse"></div>
+      ) : isError ? (
+        <RequestError message={error instanceof Error ? error.message : 'Unable to load metrics.'} onRetry={() => void refetch()} />
       ) : formatData.length === 0 ? (
         <div className="h-64 bg-card border border-border rounded-xl flex flex-col items-center justify-center text-muted-foreground">
           <AlertTriangle className="w-8 h-8 mb-2 opacity-50" />

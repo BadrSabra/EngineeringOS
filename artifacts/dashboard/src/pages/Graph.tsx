@@ -22,6 +22,7 @@ import {
   X,
   AlertCircle,
 } from 'lucide-react';
+import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 
 // ─── Force layout ─────────────────────────────────────────────────────────────
 
@@ -149,7 +150,7 @@ function nodeColor(type: string) { return TYPE_COLORS[type] ?? DEFAULT_COLOR; }
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Graph() {
-  const { data: projects } = useListProjects();
+  const { data: projects, isError: projectsError, refetch: refetchProjects } = useListProjects();
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedEntityId, setSelectedEntityId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -161,19 +162,19 @@ export default function Graph() {
 
   const effectiveProjectId = selectedProjectId || (projects?.[0]?.id ?? '');
 
-  const { data: entitiesResponse, isLoading: entitiesLoading } = useListGraphEntities(
+  const { data: entitiesResponse, isLoading: entitiesLoading, isError: entitiesError, error: entitiesErrorValue, refetch: refetchEntities, isRefetching, dataUpdatedAt } = useListGraphEntities(
     { projectId: effectiveProjectId },
     { query: { queryKey: getListGraphEntitiesQueryKey({ projectId: effectiveProjectId }), enabled: !!effectiveProjectId, staleTime: 30_000 } },
   );
   const entities = entitiesResponse?.items ?? [];
 
-  const { data: relationshipsResponse } = useListGraphRelationships(
+  const { data: relationshipsResponse, isError: relationshipsError, refetch: refetchRelationships } = useListGraphRelationships(
     { projectId: effectiveProjectId },
     { query: { queryKey: getListGraphRelationshipsQueryKey({ projectId: effectiveProjectId }), enabled: !!effectiveProjectId, staleTime: 30_000 } },
   );
   const relationships = relationshipsResponse?.items ?? [];
 
-  const { data: summary } = useGetGraphSummary(
+  const { data: summary, isError: summaryError, refetch: refetchSummary } = useGetGraphSummary(
     effectiveProjectId,
     { query: { queryKey: getGetGraphSummaryQueryKey(effectiveProjectId), enabled: !!effectiveProjectId, staleTime: 60_000 } },
   );
@@ -269,6 +270,12 @@ export default function Graph() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <RefreshButton
+            onRefresh={async () => { await Promise.all([refetchProjects(), refetchEntities(), refetchRelationships(), refetchSummary()]); }}
+            isRefreshing={isRefetching}
+            lastUpdated={dataUpdatedAt}
+            label="Refresh graph"
+          />
           <select
             value={effectiveProjectId}
             onChange={(e) => { setSelectedProjectId(e.target.value); setSelectedEntityId(''); }}
@@ -291,7 +298,15 @@ export default function Graph() {
         </div>
       </div>
 
-      <div className="grid grid-cols-[220px_1fr_260px] gap-4 flex-1 min-h-0">
+      {projectsError ? (
+        <RequestError message="Unable to load projects for the graph." onRetry={() => void refetchProjects()} />
+      ) : entitiesError || relationshipsError || summaryError ? (
+        <RequestError
+          message={entitiesErrorValue instanceof Error ? entitiesErrorValue.message : 'Unable to load graph data.'}
+          onRetry={() => void Promise.all([refetchEntities(), refetchRelationships(), refetchSummary()])}
+        />
+      ) : (
+       <div className="grid grid-cols-[220px_1fr_260px] gap-4 flex-1 min-h-0">
         {/* Left sidebar: legend + summary + entity list */}
         <div className="bg-card border border-border rounded-xl p-4 shadow-sm flex flex-col overflow-hidden">
           {/* Type legend */}
@@ -680,6 +695,7 @@ export default function Graph() {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

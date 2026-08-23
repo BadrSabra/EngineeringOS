@@ -32,13 +32,14 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { Link } from 'wouter';
+import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 
 export default function ProjectDetail() {
   const [, params] = useRoute('/projects/:id');
   const projectId = params?.id || '';
   const queryClient = useQueryClient();
 
-  const { data: project, isLoading: loadingProject } = useGetProject(projectId, {
+  const { data: project, isLoading: loadingProject, isError: projectError, error: projectErrorValue, refetch: refetchProject, isRefetching: projectRefreshing, dataUpdatedAt } = useGetProject(projectId, {
     query: {
       enabled: !!projectId,
       queryKey: getGetProjectQueryKey(projectId),
@@ -49,7 +50,7 @@ export default function ProjectDetail() {
     },
   });
 
-  const { data: summary, isLoading: loadingSummary } = useGetProjectSummary(projectId, {
+  const { data: summary, isLoading: loadingSummary, isError: summaryError, refetch: refetchSummary } = useGetProjectSummary(projectId, {
     query: { enabled: !!projectId, queryKey: getGetProjectSummaryQueryKey(projectId) },
   });
 
@@ -92,11 +93,12 @@ export default function ProjectDetail() {
     );
   }
 
-  if (!project || !summary) {
+  if (projectError || summaryError || !project || !summary) {
     return (
-      <div className="p-8 text-center text-destructive border border-destructive/20 bg-destructive/5 rounded-xl">
-        Project not found or API error.
-      </div>
+      <RequestError
+        message={projectErrorValue instanceof Error ? projectErrorValue.message : 'Project telemetry is unavailable.'}
+        onRetry={() => void Promise.all([refetchProject(), refetchSummary()])}
+      />
     );
   }
 
@@ -162,6 +164,7 @@ export default function ProjectDetail() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <RefreshButton onRefresh={async () => { await refetchProject(); await refetchSummary(); }} isRefreshing={projectRefreshing} lastUpdated={dataUpdatedAt} label="Refresh project" />
           <button
             onClick={() => setShowProjectInfo((v) => !v)}
             className={`p-2 border rounded-md transition-colors ${showProjectInfo ? 'border-primary bg-primary/10 text-primary' : 'border-border hover:bg-secondary text-muted-foreground'}`}

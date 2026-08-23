@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import { MutationCache, QueryCache, QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { ClerkProvider, Show, useClerk } from '@clerk/react';
 import { publishableKeyFromHost } from '@clerk/react/internal';
 import { Toaster } from '@/components/ui/toaster';
@@ -23,8 +23,12 @@ import Landing from '@/pages/Landing';
 import SignInPage from '@/pages/SignIn';
 import SignUpPage from '@/pages/SignUp';
 import { basePath, stripBase, clerkAppearance } from '@/lib/clerk';
+import { SessionRecoveryBanner } from '@/components/OperatorResilience';
+import { ApiError } from '@workspace/api-client-react';
 
 const queryClient = new QueryClient({
+  queryCache: new QueryCache({ onError: notifySessionExpiry }),
+  mutationCache: new MutationCache({ onError: notifySessionExpiry }),
   defaultOptions: {
     queries: {
       staleTime: 15_000,
@@ -32,6 +36,12 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+function notifySessionExpiry(error: unknown) {
+  if (error instanceof ApiError && error.status === 401 && typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('engineeringos:session-expired'));
+  }
+}
 
 // REQUIRED — resolves the key from window.location.hostname so the same
 // build serves multiple Clerk custom domains.
@@ -176,6 +186,7 @@ function ClerkProviderWithRoutes() {
       routerReplace={(to) => setLocation(stripBase(to), { replace: true })}
     >
       <ClerkQueryClientCacheInvalidator />
+      <SessionRecoveryBanner />
       <Router />
     </ClerkProvider>
   );

@@ -18,6 +18,7 @@ import {
   ChevronDown,
   ChevronRight,
 } from 'lucide-react';
+import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 
 type RuleSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
@@ -45,7 +46,7 @@ export default function Rules() {
     verifySteps: [] as string[],
   });
 
-  const { data: rules, isLoading } = useListRules(
+  const { data: rules, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListRules(
     { severity: filterSeverity || undefined },
     {
       query: {
@@ -152,6 +153,7 @@ export default function Rules() {
               </button>
             )}
           </div>
+          <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="Refresh rules" />
           <button
             onClick={() => setShowCreate(true)}
             className="bg-primary hover:bg-primary/90 text-primary-foreground px-4 py-2 rounded-md font-medium text-sm flex items-center gap-2 shadow-sm transition-colors"
@@ -351,6 +353,8 @@ export default function Rules() {
           [...Array(4)].map((_, i) => (
             <div key={i} className="h-20 bg-card border border-border rounded-xl animate-pulse" />
           ))
+        ) : isError ? (
+          <RequestError message={error instanceof Error ? error.message : 'Unable to load rules.'} onRetry={() => void refetch()} />
         ) : visibleRules.length === 0 ? (
           <div className="border-2 border-dashed border-border rounded-xl p-16 text-center flex flex-col items-center">
             <ShieldAlert className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
@@ -378,8 +382,18 @@ export default function Rules() {
               className="bg-card border border-border rounded-xl overflow-hidden hover:border-primary/30 transition-colors"
             >
               <div
+                role="button"
+                tabIndex={0}
                 className="p-4 flex items-start gap-4 cursor-pointer"
                 onClick={() => setExpandedRule(expandedRule === rule.id ? null : rule.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    setExpandedRule(expandedRule === rule.id ? null : rule.id);
+                  }
+                }}
+                aria-expanded={expandedRule === rule.id}
+                aria-label={`${expandedRule === rule.id ? 'Collapse' : 'Expand'} rule ${rule.title}`}
               >
                 <SeverityIcon severity={rule.severity} />
                 <div className="flex-1 min-w-0">
