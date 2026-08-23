@@ -186,6 +186,119 @@ test("release API listener enforces approved and hostile-origin CORS", async () 
   }
 });
 
+test("release API listener protects upload and live-update requests", async () => {
+  const approvedOrigin = "https://dashboard-approved.example.test";
+  const hostileOrigin = "https://hostile.example.test";
+  const harness = await startApiCorsHarness();
+
+  function expectApprovedCors(response, description) {
+    assert.equal(
+      response.headers.get("access-control-allow-origin"),
+      approvedOrigin,
+      `${description} must receive approved-origin CORS permission`,
+    );
+    assert.equal(
+      response.headers.get("access-control-allow-credentials"),
+      "true",
+      `${description} must allow credentialed dashboard requests`,
+    );
+  }
+
+  try {
+    // A multipart request exercises the same shape sent by the dashboard
+    // upload flow without creating a durable upload or invoking discovery.
+    const uploadBody = new FormData();
+    uploadBody.append(
+      "archive",
+      new Blob(["not an archive"], { type: "application/zip" }),
+      "release-contract.zip",
+    );
+    const approvedUpload = await fetch(
+      `${harness.baseUrl}/api/upload/archive`,
+      {
+        method: "POST",
+        headers: { Origin: approvedOrigin },
+        body: uploadBody,
+      },
+    );
+    assert.equal(
+      approvedUpload.status,
+      422,
+      "approved upload requests should reach archive validation without provider work",
+    );
+    expectApprovedCors(approvedUpload, "approved upload request");
+
+    const hostileUploadBody = new FormData();
+    hostileUploadBody.append(
+      "archive",
+      new Blob(["not an archive"], { type: "application/zip" }),
+      "release-contract.zip",
+    );
+    const hostileUpload = await fetch(
+      `${harness.baseUrl}/api/upload/archive`,
+      {
+        method: "POST",
+        headers: { Origin: hostileOrigin },
+        body: hostileUploadBody,
+      },
+    );
+    assert.equal(
+      hostileUpload.status,
+      403,
+      "hostile upload origins must be rejected before multipart handling",
+    );
+    assert.equal(
+      hostileUpload.headers.get("access-control-allow-origin"),
+      null,
+      "hostile upload origins must not receive CORS permission",
+    );
+
+    // An invalid JSON payload stops before project/provider work while still
+    // traversing the live stream route and its state-changing CORS guard.
+    const approvedLiveUpdate = await fetch(
+      `${harness.baseUrl}/api/ai/chat/stream`,
+      {
+        method: "POST",
+        headers: {
+          Origin: approvedOrigin,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+    );
+    assert.equal(
+      approvedLiveUpdate.status,
+      400,
+      "approved live-update requests should reach stream validation without provider work",
+    );
+    expectApprovedCors(approvedLiveUpdate, "approved live-update request");
+
+    const hostileLiveUpdate = await fetch(
+      `${harness.baseUrl}/api/ai/chat/stream`,
+      {
+        method: "POST",
+        headers: {
+          Origin: hostileOrigin,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+    );
+    assert.equal(
+      hostileLiveUpdate.status,
+      403,
+      "hostile live-update origins must be rejected before stream handling",
+    );
+    assert.equal(
+      hostileLiveUpdate.headers.get("access-control-allow-origin"),
+      null,
+      "hostile live-update origins must not receive CORS permission",
+    );
+  } finally {
+    await harness.close();
+  }
+});
+
 test("live journey timeout has Playwright headroom", () => {
   const providerTimeout = constant(journeySource, "DEFAULT_LIVE_TIMEOUT_MS");
   const testTimeoutMargin = constant(
