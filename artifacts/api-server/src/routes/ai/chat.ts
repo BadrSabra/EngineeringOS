@@ -145,6 +145,7 @@ import {
   hashChangeSet,
   hashDeliveryFiles,
   hashDeliveryWorkspace,
+  atomicallyPromoteFile,
 } from "../../lib/delivery-workspace.js";
 
 const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
@@ -704,7 +705,10 @@ type ApplyJournalStage =
   | "BLOCKED"
   | "APPLIED"
   | "ROLLED_BACK"
-  | "ROLLBACK_FAILED";
+  | "ROLLBACK_FAILED"
+  | "PROMOTION_INTENT"
+  | "PROMOTED"
+  | "RECOVERY_REQUIRED";
 
 async function restoreApplySnapshots(
   changes: readonly ApplySnapshot[],
@@ -5787,11 +5791,22 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
         fileCount: writableChanges.length,
         files: writableChanges.map((change) => change.path),
       });
+      await appendApplyJournal("PROMOTION_INTENT", {
+        operationId: applyCorrelationId,
+        candidateWorkspace: deliveryWorkspace.workspaceRoot,
+        baseRevision: deliveryWorkspace.baseRevision,
+        changeSetHash: deliveryWorkspace.changeSetHash,
+        files: writableChanges.map((change) => ({
+          path: change.path,
+          originalContent: change.before?.toString("utf8") ?? null,
+          newContent: change.newContent,
+        })),
+      });
       let writeFailure: string | undefined;
       try {
         for (const change of writableChanges) {
           attemptedChanges.push(change);
-          await fs.writeFile(change.realPath, change.newContent, "utf-8");
+          await atomicallyPromoteFile(change.realPath, change.newContent, applyCorrelationId);
           const persisted = await fs.readFile(change.realPath, "utf-8");
           if (persisted !== change.newContent) {
             throw new Error("Post-write persistence verification failed.");
@@ -5801,6 +5816,7 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
         }
         await appendApplyJournal("WRITTEN", {
           files: writtenChanges.map((change) => change.path),
+          promotionState: "PROMOTED",
         });
       } catch (e) {
         writeFailure = e instanceof Error ? e.message : String(e);

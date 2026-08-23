@@ -1,10 +1,64 @@
-import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, rm, writeFile, readdir, lstat } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { cp, mkdir, readFile, rm, writeFile, readdir, lstat, rename } from "node:fs/promises";
 import path from "node:path";
 
 export type DeliveryLifecycle =
   | "proposed" | "isolated" | "validated" | "applied" | "conflicted"
   | "committed" | "cancelled" | "abandoned" | "blocked";
+
+/** Replace one live-root file without exposing a truncated file to readers. */
+export async function atomicallyPromoteFile(
+  target: string,
+  content: string,
+  operationId: string,
+): Promise<void> {
+  const temp = `${target}.engineeringos-promotion-${operationId}-${process.pid}-${randomUUID()}`;
+  await writeFile(temp, content, { encoding: "utf8", mode: 0o600 });
+  try {
+    await rename(temp, target);
+  } catch (error) {
+    await rm(temp, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+export type PromotionRecoveryResult = "PROMOTED" | "ROLLED_BACK" | "RECOVERY_REQUIRED";
+
+/**
+ * Reconcile an interrupted promotion from durable candidate bytes. A live file
+ * may be either its recorded base bytes or the exact candidate bytes. Any
+ * third value means a user/process changed the root and must be reviewed.
+ */
+export async function recoverPromotion(params: {
+  rootPath: string;
+  changes: readonly { path: string; newContent: string; originalContent?: string | null }[];
+  operationId: string;
+}): Promise<PromotionRecoveryResult> {
+  let changed = false;
+  for (const change of params.changes) {
+    const target = path.resolve(params.rootPath, change.path);
+    if (target !== path.resolve(params.rootPath) && !target.startsWith(`${path.resolve(params.rootPath)}${path.sep}`)) {
+      return "RECOVERY_REQUIRED";
+    }
+    let current: string | null = null;
+    try {
+      current = await readFile(target, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return "RECOVERY_REQUIRED";
+    }
+    const expected = change.newContent;
+    const base = change.originalContent ?? null;
+    if (current === expected) {
+      changed = true;
+      continue;
+    }
+    if (current !== base) return "RECOVERY_REQUIRED";
+    await mkdir(path.dirname(target), { recursive: true });
+    await atomicallyPromoteFile(target, expected, params.operationId);
+    changed = true;
+  }
+  return changed ? "PROMOTED" : "ROLLED_BACK";
+}
 
 export type DeliveryWorkspace = {
   operationId: string;

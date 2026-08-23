@@ -56,7 +56,7 @@ import {
   aiApplyJournalTable,
   aiChangeProposalsTable,
 } from "@workspace/db";
-import { and, eq, isNull, lt, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
@@ -64,6 +64,7 @@ import { runScanJob } from "./scan-runner.js";
 import { runDiscovery } from "./discovery-runner.js";
 import { sweepExpiredUploads } from "./upload-store.js";
 import { reconcileAiExecutions } from "./ai-execution-state.js";
+import { recoverPromotion } from "./delivery-workspace.js";
 
 const ORPHANED_RUNNING_MESSAGE =
   "Job was in progress when the server restarted and could not be resumed.";
@@ -82,6 +83,8 @@ async function reconcileInterruptedDeliveries(): Promise<number> {
       operationId: aiChangeProposalsTable.operationId,
       projectId: aiChangeProposalsTable.projectId,
       lifecycle: aiChangeProposalsTable.lifecycle,
+      changes: aiChangeProposalsTable.changes,
+      workspaceRoot: aiChangeProposalsTable.workspaceRoot,
     })
     .from(aiChangeProposalsTable)
     .where(or(
@@ -92,12 +95,85 @@ async function reconcileInterruptedDeliveries(): Promise<number> {
   for (const proposal of proposals) {
     if (!proposal.operationId) continue;
     const journal = await db
-      .select({ stage: aiApplyJournalTable.stage, sequence: aiApplyJournalTable.sequence })
+      .select({ stage: aiApplyJournalTable.stage, sequence: aiApplyJournalTable.sequence, payload: aiApplyJournalTable.payload })
       .from(aiApplyJournalTable)
       .where(eq(aiApplyJournalTable.operationId, proposal.operationId))
       .orderBy(aiApplyJournalTable.sequence);
     const latest = journal.at(-1)?.stage;
     if (!latest || ["APPLIED", "BLOCKED", "ROLLED_BACK", "ROLLBACK_FAILED", "RECOVERY_REQUIRED"].includes(latest)) {
+      continue;
+    }
+    // Promotion intent is durable before the first live-root replacement.
+    // Reconcile only against the persisted proposal bytes and the persisted
+    // project root; never resume from an in-memory snapshot.
+    if (["PROMOTION_INTENT", "WRITING_STARTED", "WRITTEN", "PROMOTED"].includes(latest)) {
+      const [project] = await db
+        .select({ rootPath: projectsTable.rootPath })
+        .from(projectsTable)
+        .where(eq(projectsTable.id, proposal.projectId))
+        .limit(1);
+      let recovery: "PROMOTED" | "ROLLED_BACK" | "RECOVERY_REQUIRED" = "RECOVERY_REQUIRED";
+      try {
+        const proposalChanges = JSON.parse(proposal.changes) as Array<{
+          path: string; newContent: string; originalContent?: string | null;
+        }>;
+        const intent = [...journal].reverse().find((entry: { stage: string }) => entry.stage === "PROMOTION_INTENT")?.payload;
+        const intentFiles = intent && Array.isArray((intent as Record<string, unknown>).files)
+          ? (intent as Record<string, unknown>).files
+          : undefined;
+        const changes = Array.isArray(intentFiles)
+          ? intentFiles.reduce<Array<{ path: string; newContent: string; originalContent: string | null }>>((result, entry: unknown) => {
+              if (!entry || typeof entry !== "object") return result;
+              const file = entry as Record<string, unknown>;
+              if (typeof file.path === "string" && typeof file.newContent === "string") {
+                result.push({ path: file.path, newContent: file.newContent, originalContent: typeof file.originalContent === "string" ? file.originalContent : null });
+              }
+              return result;
+            }, [])
+          : proposalChanges;
+        if (project && proposal.operationId && Array.isArray(changes)) {
+          recovery = await recoverPromotion({
+            rootPath: project.rootPath,
+            changes,
+            operationId: proposal.operationId,
+          });
+        }
+      } catch (error) {
+        logger.warn({ error, proposalId: proposal.id }, "delivery promotion recovery could not be evaluated");
+      }
+      const sequence = (journal.at(-1)?.sequence ?? 0) + 1;
+      await db.insert(aiApplyJournalTable).values({
+        id: randomUUID(),
+        operationId: proposal.operationId,
+        attemptId: randomUUID(),
+        projectId: proposal.projectId,
+        proposalId: proposal.id,
+        stage: recovery === "PROMOTED" ? "PROMOTED" : recovery === "ROLLED_BACK" ? "ROLLED_BACK" : "RECOVERY_REQUIRED",
+        sequence,
+        payload: {
+          recoveryDecision: recovery,
+          previousStage: latest,
+          workspaceRoot: proposal.workspaceRoot,
+          reason: "process_restart",
+        },
+      });
+      if (recovery === "PROMOTED") {
+        await db.update(aiChangeProposalsTable).set({
+          lifecycle: "conflicted",
+          conflictReason: "Promotion completed before validation outcome was recorded; resume validation before delivery can continue.",
+        }).where(and(eq(aiChangeProposalsTable.id, proposal.id), inArray(aiChangeProposalsTable.lifecycle, ["isolated", "validated"])));
+      } else if (recovery === "ROLLED_BACK") {
+        await db.update(aiChangeProposalsTable).set({
+          lifecycle: "conflicted",
+          conflictReason: "Promotion was interrupted and rolled back; resume validation before retrying.",
+        }).where(and(eq(aiChangeProposalsTable.id, proposal.id), inArray(aiChangeProposalsTable.lifecycle, ["isolated", "validated"])));
+      } else {
+        await db.update(aiChangeProposalsTable).set({
+          lifecycle: "conflicted",
+          conflictReason: "Promotion encountered unexpected live-root bytes; manual review is required before retrying.",
+        }).where(and(eq(aiChangeProposalsTable.id, proposal.id), inArray(aiChangeProposalsTable.lifecycle, ["isolated", "validated"])));
+      }
+      recovered++;
       continue;
     }
     const [updated] = await db.update(aiChangeProposalsTable).set({
