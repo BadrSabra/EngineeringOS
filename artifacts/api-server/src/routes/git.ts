@@ -331,6 +331,17 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
           code: "AI_COMMIT_REQUIRES_VERIFIED_APPLY",
         });
       }
+      if (
+        proposal.workspaceRoot
+        && proposal.lifecycle !== "applied"
+        && proposal.lifecycle !== "validated"
+      ) {
+        return res.status(409).json({
+          error: "AI proposal is not in a committable lifecycle state",
+          code: "AI_COMMIT_LIFECYCLE_BLOCKED",
+          lifecycle: proposal.lifecycle,
+        });
+      }
       const applyEvidence = await findOperationEvent(projectId, "AiChangesApplied", correlationId);
       if (
         !applyEvidence ||
@@ -496,6 +507,14 @@ router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async 
         committedPaths,
       },
     });
+    if (proposalId) {
+      await db.update(aiChangeProposalsTable)
+        .set({ lifecycle: "committed", committedHash: commitHash })
+        .where(and(
+          eq(aiChangeProposalsTable.id, proposalId),
+          eq(aiChangeProposalsTable.lifecycle, "applied"),
+        ));
+    }
 
     invalidateContextCache(projectId);
 
@@ -548,6 +567,32 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
     await assertRootPathExists(project.rootPath);
     let commitHash: string | undefined;
     if (proposalId) {
+      const [proposal] = await db
+        .select({
+          lifecycle: aiChangeProposalsTable.lifecycle,
+          operationId: aiChangeProposalsTable.operationId,
+        })
+        .from(aiChangeProposalsTable)
+        .where(and(
+          eq(aiChangeProposalsTable.id, proposalId),
+          eq(aiChangeProposalsTable.projectId, project.id),
+        ))
+        .limit(1);
+      if (
+        !proposal
+        || (
+          proposal.operationId
+          && (proposal.operationId !== correlationId || proposal.lifecycle !== "committed")
+        )
+      ) {
+        return res.status(409).json({
+          error: "AI push requires the same committed delivery operation",
+          code: "AI_PUSH_LIFECYCLE_BLOCKED",
+          proposalId,
+          operationId: correlationId,
+          lifecycle: proposal?.lifecycle ?? null,
+        });
+      }
       const commitEvidence = await findOperationEvent(project.id, "GitCommitCreated", correlationId);
       commitHash = typeof commitEvidence?.commitHash === "string" ? commitEvidence.commitHash : undefined;
       if (

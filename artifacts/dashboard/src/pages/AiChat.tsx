@@ -133,6 +133,9 @@ type ChatMessage = {
 };
 
 type OperationMode = 'FORENSIC_AUDIT' | 'DELIVERY' | 'CHAT';
+type DeliveryLifecycle =
+  | 'proposed' | 'isolated' | 'validated' | 'applied' | 'conflicted'
+  | 'committed' | 'cancelled' | 'abandoned' | 'blocked';
 
 function inferOperationMode(params: {
   operationMode?: unknown;
@@ -2838,6 +2841,7 @@ function PendingChangesCard({
   isPending,
   isRebasePending,
   approvalRequired,
+  lifecycle,
 }: {
   changes: PendingChange[];
   verificationResults: Record<string, BehavioralVerification>;
@@ -2847,6 +2851,7 @@ function PendingChangesCard({
   isPending: boolean;
   isRebasePending: boolean;
   approvalRequired: boolean;
+  lifecycle?: DeliveryLifecycle;
 }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [rejectedHunks, setRejectedHunks] = useState<Set<string>>(new Set());
@@ -2910,7 +2915,13 @@ function PendingChangesCard({
             {changes.length} proposed file change{changes.length !== 1 ? 's' : ''}
           </span>
            <span className="text-xs text-muted-foreground ml-auto">
-             {approvalRequired ? 'Review and approve this rebased diff' : 'Waiting for your approval'}
+             {lifecycle === 'conflicted'
+               ? 'Conflict — reconcile before applying'
+               : lifecycle === 'blocked'
+                 ? 'Blocked — recovery required'
+                 : lifecycle === 'isolated'
+                   ? 'Isolated workspace ready for review'
+                   : approvalRequired ? 'Review and approve this rebased diff' : 'Waiting for your approval'}
            </span>
         </div>
 
@@ -6468,6 +6479,7 @@ export default function AiChat() {
   const [operationMode, setOperationMode] = useState<OperationMode | undefined>(undefined);
   const [proposalRequiresApproval, setProposalRequiresApproval] = useState(false);
   const [proposalRevision, setProposalRevision] = useState<number | undefined>(undefined);
+  const [deliveryLifecycle, setDeliveryLifecycle] = useState<DeliveryLifecycle | undefined>(undefined);
   const reapprovalApplyRef = useRef<ApprovedPendingChange[] | null>(null);
   const [verificationResults, setVerificationResults] = useState<Record<string, BehavioralVerification>>({});
   const [commitReadyPaths, setCommitReadyPaths] = useState<string[]>([]);
@@ -7138,6 +7150,10 @@ export default function AiChat() {
     changes: PendingChange[];
     approvalRequired: boolean;
     revision: number | null;
+    lifecycle?: DeliveryLifecycle | null;
+    workspaceRoot?: string | null;
+    baseRevision?: string | null;
+    conflictReason?: string | null;
   }>(
     sessionId ?? '',
     {
@@ -7212,6 +7228,7 @@ export default function AiChat() {
     setOperationMode(serverProposal.proposalId ? 'DELIVERY' : undefined);
     setProposalRequiresApproval(serverProposal.approvalRequired === true);
     setProposalRevision(serverProposal.revision ?? undefined);
+    setDeliveryLifecycle(serverProposal.lifecycle ?? (serverProposal.changes.length > 0 ? 'proposed' : undefined));
     // The server is authoritative after a session reload. An empty response
     // means the proposal was rejected/consumed (or never existed), so clear
     // any stale localStorage-backed changes instead of showing an unapprovable
@@ -8688,6 +8705,7 @@ export default function AiChat() {
                   isPending={applyMutation.isPending || reapprovalMutation.isPending}
                   isRebasePending={rebaseMutation.isPending}
                   approvalRequired={proposalRequiresApproval}
+                  lifecycle={deliveryLifecycle}
                 />
               )}
               {commitReadyPaths.length > 0 && pendingChanges.length === 0 && (

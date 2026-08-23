@@ -7,6 +7,17 @@ export const aiChangeProposalStatusEnum = pgEnum("ai_change_proposal_status", [
   "applied",
   "rejected",
 ]);
+export const aiDeliveryLifecycleEnum = pgEnum("ai_delivery_lifecycle", [
+  "proposed",
+  "isolated",
+  "validated",
+  "applied",
+  "conflicted",
+  "committed",
+  "cancelled",
+  "abandoned",
+  "blocked",
+]);
 
 /**
  * Server-owned approval envelope for AI file changes.
@@ -32,6 +43,17 @@ export const aiChangeProposalsTable = pgTable("ai_change_proposals", {
   revision: integer("revision").notNull().default(0),
   /** Server gate raised by rebase; applying requires explicit re-approval. */
   approvalRequired: boolean("approval_required").notNull().default(false),
+  /** Stable operation identity shared by workspace, evidence, commit, and push. */
+  operationId: text("operation_id"),
+  /** Server-owned isolated workspace; never supplied by the client. */
+  workspaceRoot: text("workspace_root"),
+  /** Git/tree revision from which this change set was produced. */
+  baseRevision: text("base_revision"),
+  changeSetHash: text("change_set_hash"),
+  lifecycle: aiDeliveryLifecycleEnum("lifecycle").notNull().default("proposed"),
+  conflictReason: text("conflict_reason"),
+  validationEvidence: text("validation_evidence"),
+  committedHash: text("committed_hash"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   consumedAt: timestamp("consumed_at"),
 }, (t) => [

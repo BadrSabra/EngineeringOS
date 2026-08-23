@@ -133,6 +133,10 @@ import {
 } from "../../lib/ai-route-helpers.js";
 import { createProjectAnalysisToolRunner } from "../../lib/ai-analysis-tools.js";
 import { scrubHistoricalValidationRecord } from "../../lib/startup-migrations.js";
+import {
+  createDeliveryWorkspace,
+  discardDeliveryWorkspace,
+} from "../../lib/delivery-workspace.js";
 
 const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
   "PROVEN",
@@ -4645,7 +4649,7 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
     ))
     .orderBy(desc(aiChangeProposalsTable.createdAt))
     .limit(1);
-  if (!proposal) return res.json({ proposalId: null, operationId: null, changes: [] });
+  if (!proposal) return res.json({ proposalId: null, operationId: null, changes: [], lifecycle: null });
 
   const [proposalExecution] = await db
     .select({
@@ -4675,6 +4679,15 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
       changes,
       approvalRequired: proposal.status === "pending" ? proposal.approvalRequired : false,
       revision: proposal.status === "pending" ? proposal.revision : null,
+      ...(proposal.lifecycle !== "proposed" || proposal.workspaceRoot
+        ? {
+            lifecycle: proposal.lifecycle,
+            workspaceRoot: proposal.workspaceRoot,
+            baseRevision: proposal.baseRevision,
+            changeSetHash: proposal.changeSetHash,
+            conflictReason: proposal.conflictReason,
+          }
+        : {}),
     });
   } catch {
     logger.error({ proposalId: proposal.id }, "Invalid stored AI change proposal");
@@ -5080,11 +5093,18 @@ router.delete("/ai/chat/proposals/:proposalId", async (req, res) => {
   }
   await db
     .update(aiChangeProposalsTable)
-    .set({ status: "rejected", consumedAt: new Date() })
+    .set({
+      status: "rejected",
+      lifecycle: "cancelled",
+      consumedAt: new Date(),
+    })
     .where(and(
       eq(aiChangeProposalsTable.id, proposal.id),
       eq(aiChangeProposalsTable.status, "pending"),
     ));
+  if (proposal.workspaceRoot && proposal.operationId) {
+    await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+  }
   return res.status(204).send();
 });
 
@@ -5255,6 +5275,29 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
     }
     const applyCorrelationId = canonicalOperationId;
     const applyAttemptId = randomUUID();
+    // Materialize the approved change set into an operation-owned workspace
+    // before touching the user's checkout. This workspace is retained as the
+    // recovery/proof artifact; the durable root is only written after all
+    // revision, path, and validation gates below pass.
+    const deliveryWorkspace = await createDeliveryWorkspace({
+      rootPath: project.rootPath,
+      operationId: applyCorrelationId,
+      baseRevision: proposal.baseRevision ?? project.updatedAt.toISOString(),
+      changes: approvedChanges,
+    });
+    await db.update(aiChangeProposalsTable)
+      .set({
+        operationId: applyCorrelationId,
+        workspaceRoot: deliveryWorkspace.workspaceRoot,
+        baseRevision: deliveryWorkspace.baseRevision,
+        changeSetHash: deliveryWorkspace.changeSetHash,
+        lifecycle: "isolated",
+        conflictReason: null,
+      })
+      .where(and(
+        eq(aiChangeProposalsTable.id, proposalId),
+        eq(aiChangeProposalsTable.status, "pending"),
+      ));
     let journalSequence = 0;
     const appendApplyJournal = async (
       stage: ApplyJournalStage,
@@ -5671,7 +5714,29 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       if (appliedPaths.length > 0) {
         await tx
           .update(aiChangeProposalsTable)
-          .set({ status: "applied", consumedAt: new Date() })
+          .set({
+            status: "applied",
+            lifecycle: verificationNeedsReview ? "blocked" : "applied",
+            consumedAt: new Date(),
+            validationEvidence: JSON.stringify(responseResults.map((result) => ({
+              path: result.path,
+              status: result.behavioralVerification.status,
+            }))),
+          })
+          .where(and(
+            eq(aiChangeProposalsTable.id, proposalId),
+            eq(aiChangeProposalsTable.status, "pending"),
+          ));
+      } else {
+        await tx.update(aiChangeProposalsTable)
+          .set({
+            lifecycle: rollbackFailed || failedPaths.length > 0 ? "conflicted" : "blocked",
+            conflictReason: rollbackFailed
+              ? "Apply rollback did not fully restore the working tree."
+              : failedPaths.length > 0
+                ? "One or more approved files could not be applied."
+                : "No approved files were applied.",
+          })
           .where(and(
             eq(aiChangeProposalsTable.id, proposalId),
             eq(aiChangeProposalsTable.status, "pending"),

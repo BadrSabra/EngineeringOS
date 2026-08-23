@@ -57,6 +57,9 @@ export const aiExecutionsTable = pgTable("ai_executions", {
   error: text("error"),
   finalMessageId: text("final_message_id"),
   proposalId: text("proposal_id"),
+  /** Delivery workspace identity, when this execution can write files. */
+  workspaceRoot: text("workspace_root"),
+  baseRevision: text("base_revision"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   startedAt: timestamp("started_at"),
