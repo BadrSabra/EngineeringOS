@@ -17,7 +17,7 @@ import {
   GetTaskLogsParams,
   ListTasksQueryParams,
 } from "@workspace/api-zod";
-import { eq, and, desc, gt, asc, inArray } from "drizzle-orm";
+import { eq, and, desc, gt, asc, inArray, or } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { recordAudit } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
@@ -622,9 +622,9 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
   for (const log of existing) send("log", log);
 
   // Track cursor as the latest timestamp seen
-  let cursor: Date = existing.length > 0
-    ? existing[existing.length - 1].timestamp
-    : new Date(0);
+  let cursor = existing.length > 0
+    ? { timestamp: existing[existing.length - 1].timestamp, id: existing[existing.length - 1].id }
+    : { timestamp: new Date(0), id: "" };
 
   let closed = false;
   req.on("close", () => { closed = true; });
@@ -641,12 +641,18 @@ router.get("/tasks/:taskId/logs/stream", async (req, res) => {
       const newLogs = await db
         .select()
         .from(taskLogsTable)
-        .where(and(eq(taskLogsTable.taskId, taskId), gt(taskLogsTable.timestamp, cursor)))
-        .orderBy(asc(taskLogsTable.timestamp));
+        .where(and(
+          eq(taskLogsTable.taskId, taskId),
+          or(
+            gt(taskLogsTable.timestamp, cursor.timestamp),
+            and(eq(taskLogsTable.timestamp, cursor.timestamp), gt(taskLogsTable.id, cursor.id)),
+          ),
+        ))
+        .orderBy(asc(taskLogsTable.timestamp), asc(taskLogsTable.id));
 
       for (const log of newLogs) {
         send("log", log);
-        cursor = log.timestamp;
+        cursor = { timestamp: log.timestamp, id: log.id };
       }
 
       // Check task status — close stream when no longer running

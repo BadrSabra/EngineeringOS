@@ -27,6 +27,10 @@ import {
   ChevronDown,
   Terminal,
   X,
+  Wifi,
+  WifiOff,
+  ShieldCheck,
+  FileCheck2,
 } from 'lucide-react';
 
 // ─── Task logs sub-component ──────────────────────────────────────────────────
@@ -48,12 +52,94 @@ function stepIcon(message: string, level: TaskLog['level']): string {
   return '·';
 }
 
-function TaskLogsPanel({ taskId, taskStatus }: { taskId: string; taskStatus: string }) {
+type TaskView = {
+  id: string;
+  projectId: string;
+  title: string;
+  description?: string;
+  status: string;
+  phase?: string;
+  relatedFiles?: string[];
+  retryCount?: number;
+  maxRetries?: number;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  verificationResult?: {
+    passed: boolean;
+    steps: Array<{ name: string; passed: boolean; output?: string }>;
+  };
+};
+
+function safeTaskText(value: unknown, fallback = 'No additional detail available.'): string {
+  if (typeof value !== 'string') return fallback;
+  return value
+    .replace(/\/(?:home\/runner|workspace|tmp)\/[^\s"'<>),;]+/g, '[project path]')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '[internal id]')
+    .replace(/\b(?:sk|key|token|secret)[-_]?[a-z0-9]{12,}\b/gi, '[redacted]')
+    .slice(0, 300);
+}
+
+type ActivityItem = {
+  key: string;
+  kind: 'activity' | 'evidence' | 'warning' | 'error' | 'result';
+  label: string;
+  summary: string;
+  timestamp: string;
+  count: number;
+};
+
+function activityItem(log: TaskLog): ActivityItem {
+  const message = safeTaskText(log.message);
+  const lower = message.toLowerCase();
+  const kind = log.level === 'error'
+    ? 'error'
+    : log.level === 'warn'
+      ? 'warning'
+      : /verification|confirmed|completed|passed/.test(lower)
+        ? 'result'
+        : /file|pattern|search|project root/.test(lower)
+          ? 'evidence'
+          : 'activity';
+  const label = kind === 'evidence' ? 'Evidence collected'
+    : kind === 'result' ? 'Verification result'
+      : kind === 'warning' ? 'Needs attention'
+        : kind === 'error' ? 'Execution error'
+          : 'Activity';
+  return { key: `${kind}:${message}`, kind, label, summary: message, timestamp: log.timestamp, count: 1 };
+}
+
+function groupActivity(logs: TaskLog[]): ActivityItem[] {
+  const groups: ActivityItem[] = [];
+  for (const log of [...logs].sort((a, b) =>
+    a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id))) {
+    const item = activityItem(log);
+    const previous = groups[groups.length - 1];
+    if (previous?.key === item.key) previous.count += 1;
+    else groups.push(item);
+  }
+  return groups;
+}
+
+function taskPlan(task: TaskView): Array<{ title: string; status: 'done' | 'active' | 'pending' | 'blocked'; detail: string }> {
+  const terminal = ['completed', 'failed', 'cancelled'].includes(task.status);
+  const verificationDone = Boolean(task.verificationResult);
+  return [
+    { title: 'Understand the task', status: 'done', detail: 'Task goal and project scope recorded.' },
+    { title: 'Execute the approved workflow', status: task.status === 'pending' || task.status === 'queued' ? 'pending' : 'done', detail: 'Only the existing task execution path is used.' },
+    { title: 'Verify the result', status: verificationDone ? 'done' : task.status === 'running' || task.status === 'verifying' ? 'active' : terminal ? 'blocked' : 'pending', detail: verificationDone ? 'Verification result recorded by the server.' : 'Waiting for a server-owned verification result.' },
+    { title: 'Report outcome', status: terminal ? 'done' : 'pending', detail: terminal ? 'Final outcome is preserved below.' : 'The final report will remain available after completion.' },
+  ];
+}
+
+function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: string }) {
+  const taskId = task.id;
   const isRunning = taskStatus === 'running';
 
   // Live logs accumulated via SSE while the task is running
   const [liveLogs, setLiveLogs] = useState<TaskLog[]>([]);
   const [sseActive, setSseActive] = useState(false);
+  const [connectionState, setConnectionState] = useState<'connected' | 'reconnecting' | 'disconnected'>('disconnected');
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seenIds = useRef(new Set<string>());
@@ -63,30 +149,34 @@ function TaskLogsPanel({ taskId, taskStatus }: { taskId: string; taskStatus: str
       setLiveLogs([]);
       seenIds.current.clear();
       setSseActive(false);
+      setConnectionState('disconnected');
       return;
     }
 
     const es = new EventSource(`/api/tasks/${taskId}/logs/stream`);
     setSseActive(true);
+    setConnectionState('connected');
 
     es.addEventListener('log', (e) => {
       try {
         const log = JSON.parse(e.data) as TaskLog;
         if (seenIds.current.has(log.id)) return;
         seenIds.current.add(log.id);
-        setLiveLogs((prev) => [...prev, log]);
+        setLiveLogs((prev) => [...prev, log].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id)));
       } catch { /* ignore malformed frames */ }
     });
 
     es.addEventListener('done', () => {
       es.close();
       setSseActive(false);
+      setConnectionState('disconnected');
       setReconnectAttempt(0);
     });
 
     es.onerror = () => {
       es.close();
       setSseActive(false);
+      setConnectionState('reconnecting');
       if (reconnectAttempt < 5) {
         reconnectTimer.current = setTimeout(
           () => setReconnectAttempt((attempt) => attempt + 1),
@@ -99,6 +189,7 @@ function TaskLogsPanel({ taskId, taskStatus }: { taskId: string; taskStatus: str
       es.close();
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       setSseActive(false);
+      setConnectionState('disconnected');
     };
   }, [taskId, isRunning, reconnectAttempt]);
 
@@ -113,63 +204,105 @@ function TaskLogsPanel({ taskId, taskStatus }: { taskId: string; taskStatus: str
   });
 
   // While running show SSE stream (oldest-first); after done show REST result (reversed)
-  const logs: TaskLog[] = isRunning
-    ? [...(polledLogs ? [...polledLogs].reverse() : []), ...liveLogs.filter((log) => !polledLogs?.some((p) => p.id === log.id))]
-    : (polledLogs ? [...polledLogs].reverse() : []);
-
-  const levelColor = (level: TaskLog['level']) => {
-    switch (level) {
-      case 'error': return 'text-destructive';
-      case 'warn':  return 'text-yellow-400';
-      case 'info':  return 'text-primary';
-      default:      return 'text-muted-foreground';
-    }
-  };
+  const allLogs = new Map<string, TaskLog>();
+  for (const log of polledLogs ?? []) allLogs.set(log.id, log);
+  for (const log of liveLogs) allLogs.set(log.id, log);
+  const logs: TaskLog[] = [...allLogs.values()].sort((a, b) =>
+    a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id));
+  const groupedActivity = groupActivity(logs);
+  const plan = taskPlan(task);
+  const completedSteps = plan.filter((step) => step.status === 'done').length;
+  const elapsedMs = Math.max(0, new Date((task.completedAt ?? task.updatedAt)).getTime() - new Date(task.createdAt).getTime());
+  const elapsed = `${Math.floor(elapsedMs / 60_000)}m ${Math.floor((elapsedMs % 60_000) / 1000)}s`;
+  const final = ['completed', 'failed', 'cancelled'].includes(taskStatus);
 
   return (
     <div>
-      <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-        <Terminal className="w-3.5 h-3.5" />
-        Execution Logs
-        {isRunning && sseActive && (
-          <span className="ml-auto flex items-center gap-1 text-primary animate-pulse font-normal normal-case tracking-normal">
-            <Activity className="w-3 h-3" /> Live
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-5">
+        {[
+          ['Goal', task.title],
+          ['Status', taskStatus],
+          ['Phase', task.phase || 'Execution'],
+          ['Progress', `${completedSteps}/${plan.length} steps`],
+          ['Elapsed', elapsed],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-lg border border-border bg-background p-3 min-w-0">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</div>
+            <div className="text-sm font-medium truncate mt-1">{value}</div>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-between mb-4 text-xs">
+        <span className="text-muted-foreground">Last confirmed update: {new Date(task.updatedAt).toLocaleString()}</span>
+        {isRunning && (
+          <span className={`flex items-center gap-1.5 ${connectionState === 'connected' ? 'text-emerald-500' : 'text-yellow-500'}`}>
+            {connectionState === 'connected' ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+            {connectionState === 'connected' ? 'Connected' : 'Reconnecting…'}
           </span>
         )}
-        {isRunning && !sseActive && (
-          <span className="ml-auto flex items-center gap-1 text-muted-foreground font-normal normal-case tracking-normal">
-            <Activity className="w-3 h-3" /> Connecting…
-          </span>
-        )}
-      </h4>
-      <div className="bg-background border border-border rounded-lg text-xs overflow-auto max-h-56 p-3 space-y-1">
+      </div>
+      <section aria-labelledby={`plan-${taskId}`} className="mb-5">
+        <h4 id={`plan-${taskId}`} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Execution plan</h4>
+        <div className="border border-border rounded-lg divide-y divide-border bg-background">
+          {plan.map((step, index) => (
+            <div key={step.title} className="flex items-start gap-3 p-3">
+              <span className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center text-[10px] ${step.status === 'done' ? 'border-emerald-500 text-emerald-500' : step.status === 'active' ? 'border-primary text-primary' : 'border-border text-muted-foreground'}`}>
+                {step.status === 'done' ? '✓' : index + 1}
+              </span>
+              <div className="min-w-0"><div className="text-sm font-medium">{step.title}</div><div className="text-xs text-muted-foreground mt-0.5">{step.detail}</div></div>
+              <span className="ml-auto text-[10px] uppercase text-muted-foreground">{step.status}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+      <section aria-labelledby={`activity-${taskId}`}>
+        <h4 id={`activity-${taskId}`} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+          <Activity className="w-3.5 h-3.5" /> Activity
+          {isRunning && sseActive && <span className="ml-auto text-primary animate-pulse font-normal normal-case tracking-normal">Live updates</span>}
+        </h4>
+      <div className="bg-background border border-border rounded-lg text-xs overflow-auto max-h-72 p-3 space-y-2">
         {!isRunning && isLoading ? (
-          <span className="text-muted-foreground animate-pulse font-mono">Loading logs…</span>
+          <span className="text-muted-foreground animate-pulse">Loading activity…</span>
         ) : logsError ? (
           <div className="text-destructive">
             <p>Could not load execution logs.</p>
             <button type="button" onClick={() => void refetchLogs()} className="mt-2 underline">Retry logs</button>
           </div>
         ) : logs.length === 0 ? (
-          <span className="text-muted-foreground italic font-mono">
-            {isRunning ? 'Waiting for agent to start…' : 'No log entries yet.'}
+          <span className="text-muted-foreground italic">
+            {isRunning ? 'Waiting for confirmed activity…' : 'No activity recorded.'}
           </span>
         ) : (
-          logs.map((log) => (
-            <div key={log.id} className="flex items-start gap-2 leading-5 group">
-              <span className="text-base shrink-0 select-none leading-4 mt-0.5" title={log.level}>
-                {stepIcon(log.message, log.level)}
-              </span>
-              <div className="flex-1 min-w-0">
-                <span className={`font-mono break-all ${levelColor(log.level)}`}>{log.message}</span>
-                <span className="ml-2 text-[10px] text-muted-foreground/60 font-mono opacity-0 group-hover:opacity-100 transition-opacity">
-                  {new Date(log.timestamp).toLocaleTimeString('en', { hour12: false })}
-                </span>
-              </div>
-            </div>
+          groupedActivity.map((item) => (
+            <details key={item.key} open={item.kind === 'warning' || item.kind === 'error'} className={`rounded-md border p-2 ${item.kind === 'error' ? 'border-destructive/40' : item.kind === 'warning' ? 'border-yellow-500/40' : 'border-border'}`}>
+              <summary className="flex items-start gap-2 cursor-pointer list-none">
+                <span className={`text-base shrink-0 ${item.kind === 'error' ? 'text-destructive' : item.kind === 'warning' ? 'text-yellow-500' : ''}`}>{item.kind === 'result' ? '✓' : stepIcon(item.summary, item.kind === 'error' ? 'error' : item.kind === 'warning' ? 'warn' : 'info')}</span>
+                <span className="flex-1"><span className="font-medium">{item.label}</span><span className="text-muted-foreground"> — {item.summary}</span></span>
+                {item.count > 1 && <span className="text-muted-foreground">×{item.count}</span>}
+              </summary>
+              <div className="pl-6 pt-1 text-[10px] text-muted-foreground">Confirmed {new Date(item.timestamp).toLocaleTimeString('en', { hour12: false })}</div>
+            </details>
           ))
         )}
       </div>
+      </section>
+      {final && (
+        <section aria-labelledby={`report-${taskId}`} className="mt-5 rounded-lg border border-border bg-background p-4">
+          <h4 id={`report-${taskId}`} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+            {task.verificationResult?.passed ? <ShieldCheck className="w-4 h-4 text-emerald-500" /> : <FileCheck2 className="w-4 h-4 text-muted-foreground" />}
+            Final report
+          </h4>
+          <p className="text-sm font-medium">{taskStatus === 'completed' ? 'Task completed and verified.' : taskStatus === 'cancelled' ? 'Task cancelled before completion.' : 'Task ended without a confirmed successful verification.'}</p>
+          {task.verificationResult?.steps?.length ? (
+            <div className="mt-3 space-y-1">{task.verificationResult.steps.map((step) => (
+              <div key={step.name} className="flex items-center gap-2 text-xs">
+                {step.passed ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <AlertTriangle className="w-3.5 h-3.5 text-yellow-500" />}
+                <span>{step.name}</span><span className="text-muted-foreground">— {safeTaskText(step.output, step.passed ? 'Passed' : 'Not confirmed')}</span>
+              </div>
+            ))}</div>
+          ) : <p className="text-xs text-muted-foreground mt-2">No server-owned verification details were recorded.</p>}
+        </section>
+      )}
     </div>
   );
 }
@@ -494,18 +627,10 @@ export default function Tasks() {
                           <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
                             Execution Data
                           </h4>
-                          {task.prompt ? (
-                            <div className="mb-4">
-                              <div className="text-xs text-muted-foreground mb-1">Agent Prompt:</div>
-                              <div className="bg-background border border-border rounded p-3 text-xs font-mono overflow-auto max-h-32 text-muted-foreground">
-                                {task.prompt}
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="text-sm text-muted-foreground italic mb-4">
-                              No prompt generated yet.
-                            </div>
-                          )}
+                          <div className="mb-4 rounded-lg border border-border bg-background p-3">
+                            <div className="text-xs text-muted-foreground mb-1">Execution boundary</div>
+                            <div className="text-sm">The agent can report activity and verification here. Internal prompts and provider diagnostics are not shown.</div>
+                          </div>
                           {task.verificationResult && (
                             <div>
                               <div className="text-xs text-muted-foreground mb-2">
@@ -531,7 +656,7 @@ export default function Tasks() {
                         </div>
                       </div>
                     ) : (
-                      <TaskLogsPanel taskId={task.id} taskStatus={task.status} />
+                      <TaskLogsPanel task={task} taskStatus={task.status} />
                     )}
                   </div>
                 </div>
