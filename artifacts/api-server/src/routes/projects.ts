@@ -2,11 +2,13 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import {
   projectsTable,
+  browserValidationProfilesTable,
   tasksTable,
   eventsTable,
   metricsTable,
   scanJobsTable,
 } from "@workspace/db";
+import { z } from "zod";
 import {
   CreateProjectBody,
   UpdateProjectBody,
@@ -17,7 +19,7 @@ import {
   ScanProjectParams,
   GetScanJobParams,
 } from "@workspace/api-zod";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { logger } from "../lib/logger.js";
 import { recordAudit } from "../lib/audit.js";
@@ -31,8 +33,36 @@ import {
   requireProjectWriteAccess,
 } from "../middlewares/requireProjectAccess.js";
 import { parsePagination } from "../lib/pagination.js";
+import {
+  BROWSER_PROFILE_LIMITS,
+  PREVIEW_LIMITS,
+  validateRegisteredBrowserProfile,
+  type PreviewStep,
+} from "../lib/browser-preview-verification.js";
 
 const router = Router();
+
+const BrowserStepSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("navigate"), path: z.string().min(1).max(500).regex(/^\//) }).strict(),
+  z.object({ type: z.literal("assert_visible"), selector: z.string().min(1).max(BROWSER_PROFILE_LIMITS.maxSelectorChars) }).strict(),
+  z.object({ type: z.literal("assert_text"), selector: z.string().min(1).max(BROWSER_PROFILE_LIMITS.maxSelectorChars), text: z.string().min(1).max(BROWSER_PROFILE_LIMITS.maxTextChars) }).strict(),
+  z.object({ type: z.literal("read_visible_text"), selector: z.string().min(1).max(BROWSER_PROFILE_LIMITS.maxSelectorChars).optional() }).strict(),
+  z.object({ type: z.literal("screenshot"), name: z.string().min(1).max(80) }).strict(),
+]);
+const BrowserProfileBody = z.object({
+  name: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/),
+  steps: z.array(BrowserStepSchema).min(1).max(PREVIEW_LIMITS.maxSteps),
+  timeoutMs: z.number().int().min(1).max(PREVIEW_LIMITS.maxValidationMs).default(PREVIEW_LIMITS.maxValidationMs),
+}).strict();
+
+function publicBrowserProfile(profile: typeof browserValidationProfilesTable.$inferSelect) {
+  return {
+    id: profile.id, projectId: profile.projectId, name: profile.name,
+    revision: profile.revision, permittedOrigin: profile.permittedOrigin,
+    steps: profile.steps, timeoutMs: profile.timeoutMs,
+    createdAt: profile.createdAt, updatedAt: profile.updatedAt,
+  };
+}
 
 // List projects owned by the requesting user. Scoped by ownerId so no
 // authenticated user can enumerate another user's projects.
@@ -78,6 +108,44 @@ router.get("/projects", async (req, res) => {
     );
     return res.status(500).json({ error: "Internal server error", reason: "server_error" });
   }
+});
+
+// Project-owned browser checks. The revision and Preview origin are derived
+// server-side; callers can only register the bounded, declarative steps.
+router.get("/projects/:projectId/browser-validation-profiles", requireProjectAccess, async (req, res) => {
+  const rows = await db.select().from(browserValidationProfilesTable)
+    .where(eq(browserValidationProfilesTable.projectId, req.project!.id))
+    .orderBy(desc(browserValidationProfilesTable.updatedAt));
+  return res.json(rows.map(publicBrowserProfile));
+});
+
+router.put("/projects/:projectId/browser-validation-profiles/:name", requireProjectWriteAccess, async (req, res) => {
+  const body = BrowserProfileBody.parse({ ...req.body, name: req.params.name });
+  const project = req.project!;
+  const profile = {
+    name: body.name,
+    revision: project.updatedAt.toISOString(),
+    permittedOrigin: "http://127.0.0.1:4300",
+    steps: body.steps as PreviewStep[],
+    timeoutMs: body.timeoutMs,
+  };
+  validateRegisteredBrowserProfile(profile);
+  const now = new Date();
+  const [saved] = await db.insert(browserValidationProfilesTable).values({
+    id: randomUUID(), projectId: project.id, ...profile, createdAt: now, updatedAt: now,
+  }).onConflictDoUpdate({
+    target: [browserValidationProfilesTable.projectId, browserValidationProfilesTable.name],
+    set: { revision: profile.revision, permittedOrigin: profile.permittedOrigin, steps: profile.steps, timeoutMs: profile.timeoutMs, updatedAt: now },
+  }).returning();
+  return res.json(publicBrowserProfile(saved));
+});
+
+router.delete("/projects/:projectId/browser-validation-profiles/:name", requireProjectWriteAccess, async (req, res) => {
+  await db.delete(browserValidationProfilesTable).where(and(
+    eq(browserValidationProfilesTable.projectId, req.project!.id),
+    eq(browserValidationProfilesTable.name, String(req.params.name)),
+  ));
+  return res.status(204).send();
 });
 
 // Create project — ownerId always comes from the authenticated request,

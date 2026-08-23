@@ -447,11 +447,12 @@ export async function runRepairPreviewValidation(input: {
   steps: readonly PreviewStep[];
   browser: PreviewBrowser;
   screenshotDirectory?: string;
+  profileName?: string;
 }): Promise<ValidationResult> {
   const result = await verifyBrowserPreview(input);
   const status = result.status === "passed" ? "passed" : result.status;
   return {
-    profile: "browser-preview",
+    profile: input.profileName ?? "browser-preview",
     status,
     scenario: "Run the registered browser checks against the isolated project Preview.",
     command: "browser-preview",
@@ -466,6 +467,8 @@ export async function runRepairPreviewValidation(input: {
       evidenceId: `${result.sessionId}:${result.operationId}:${result.executionId}`,
       observedAt: result.observedAt,
       artifactRef: `browser-preview:${result.sessionId}:${result.operationId}`,
+      profileName: input.profileName ?? "browser-preview",
+      permittedOrigin: input.contract?.permittedOrigin,
       revision: result.revision,
       screenshotAvailable: result.screenshotAvailable === true || Boolean(result.screenshotPath),
       consoleErrorCount: result.consoleErrors.length,

@@ -21,6 +21,8 @@ export type ValidationEvidence = {
   /** Reference to the bounded command result carried by this validation record. */
   artifactRef: string;
   /** Safe browser proof metadata; never contains a local file path. */
+  profileName?: string;
+  permittedOrigin?: string;
   revision?: string;
   screenshotAvailable?: boolean;
   consoleErrorCount?: number;

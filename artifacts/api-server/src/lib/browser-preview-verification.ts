@@ -49,6 +49,54 @@ export type PreviewValidationContract = {
   timeoutMs?: number;
 };
 
+export type RegisteredBrowserValidationProfile = {
+  name: string;
+  revision: string;
+  permittedOrigin: string;
+  steps: readonly PreviewStep[];
+  timeoutMs: number;
+};
+
+export const BROWSER_PROFILE_LIMITS = {
+  maxProfiles: 32,
+  maxNameChars: 80,
+  maxSelectorChars: 240,
+  maxTextChars: 500,
+} as const;
+
+export function validateRegisteredBrowserProfile(
+  profile: RegisteredBrowserValidationProfile,
+): void {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(profile.name)) {
+    throw new Error("Browser profile names must be safe identifiers.");
+  }
+  const origin = new URL(profile.permittedOrigin);
+  if (origin.protocol !== "http:" || origin.hostname !== "127.0.0.1" || origin.port !== "4300") {
+    throw new Error("Browser profiles may only use the isolated Preview origin.");
+  }
+  if (profile.steps.length < 1 || profile.steps.length > PREVIEW_LIMITS.maxSteps) {
+    throw new Error(`Browser profiles must contain between 1 and ${PREVIEW_LIMITS.maxSteps} steps.`);
+  }
+  if (!Number.isInteger(profile.timeoutMs) || profile.timeoutMs < 1 || profile.timeoutMs > PREVIEW_LIMITS.maxValidationMs) {
+    throw new Error("Browser profile timeout exceeds its resource limit.");
+  }
+  for (const step of profile.steps) {
+    if (step.type === "navigate" && (step.path.length > 500 || !step.path.startsWith("/"))) {
+      throw new Error("Browser profile navigation must use a relative path.");
+    }
+    if ((step.type === "assert_visible" || step.type === "assert_text" || step.type === "read_visible_text") &&
+      (step.selector?.length ?? 0) > BROWSER_PROFILE_LIMITS.maxSelectorChars) {
+      throw new Error("Browser profile selector exceeds its resource limit.");
+    }
+    if (step.type === "assert_text" && step.text.length > BROWSER_PROFILE_LIMITS.maxTextChars) {
+      throw new Error("Browser profile assertion text exceeds its resource limit.");
+    }
+    if (step.type === "screenshot" && step.name.length > 80) {
+      throw new Error("Browser profile screenshot name exceeds its resource limit.");
+    }
+  }
+}
+
 export type PreviewStep =
   | { type: "navigate"; path: string }
   | { type: "assert_visible"; selector: string }

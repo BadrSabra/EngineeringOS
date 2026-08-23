@@ -2593,6 +2593,8 @@ type RepairRadarAttempt = {
   status: PublicValidationResult['status'];
   state?: ToolTraceEntry['repairState'];
   profile?: string;
+  permittedOrigin?: string;
+  revision?: string;
   detail?: string;
   failedTests: never[];
   affectedFiles: string[];
@@ -2651,6 +2653,8 @@ function parseRepairRadar(trace: ToolTraceEntry[]): RepairRadarData | null {
         : typeof entry.validationAttempt === 'number' ? entry.validationAttempt : null,
       status,
       profile: entry.validation?.profile ?? entry.validationProfile,
+      permittedOrigin: entry.validation?.evidence?.permittedOrigin,
+      revision: entry.validation?.evidence?.revision,
       detail,
       failedTests: [],
       affectedFiles: [],
@@ -2762,9 +2766,19 @@ function RepairRadar({ trace }: { trace: ToolTraceEntry[] }) {
                       </span>
                     )}
                     {attempt.profile && (
+                      <span className="text-[10px] text-cyan-200">profile: {attempt.profile}</span>
+                    )}
+                    {attempt.profile && (
                       <code className="ml-auto max-w-full break-all text-[9px] text-muted-foreground">{attempt.profile}</code>
                     )}
                   </div>
+                  {(attempt.permittedOrigin || attempt.revision) && (
+                    <div className="mt-1 break-words text-[9px] text-muted-foreground">
+                      Safe browser evidence
+                      {attempt.permittedOrigin ? ` · origin ${attempt.permittedOrigin}` : ''}
+                      {attempt.revision ? ` · revision ${attempt.revision}` : ''}
+                    </div>
+                  )}
                   {attempt.detail && (
                     <div className="mt-1 break-words text-[10px] leading-4 text-muted-foreground">{attempt.detail}</div>
                   )}

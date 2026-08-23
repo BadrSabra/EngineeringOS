@@ -22,6 +22,7 @@ import {
   auditLogsTable,
   eventsTable,
   tasksTable,
+  browserValidationProfilesTable,
 } from "@workspace/db";
 import { eq, desc, and, inArray, sql } from "drizzle-orm";
 import {
@@ -100,7 +101,7 @@ import {
   type PendingValidationChange,
   type RepairVerificationResult,
 } from "../../lib/ai-repair-validation.js";
-import { PreviewSessionManager, type PreviewBrowser } from "../../lib/browser-preview-verification.js";
+import { PreviewSessionManager, type PreviewBrowser, type PreviewStep } from "../../lib/browser-preview-verification.js";
 import {
   AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT,
   AI_EXECUTION_TRACE_LIMIT,
@@ -3091,14 +3092,24 @@ router.post("/ai/chat/stream", async (req, res) => {
             );
           }
         : undefined;
-    const browserValidationProfile =
-      approvedImplementationPlan?.browserValidationProfile === "dashboard-preview"
-        ? "dashboard-preview"
-        : undefined;
+    const requestedBrowserValidationProfile = approvedImplementationPlan?.browserValidationProfile;
+    const registeredBrowserProfile = requestedBrowserValidationProfile
+      ? (await db.select().from(browserValidationProfilesTable).where(and(
+          eq(browserValidationProfilesTable.projectId, projectId),
+          eq(browserValidationProfilesTable.name, requestedBrowserValidationProfile),
+        )).limit(1))[0]
+      : undefined;
+    // A profile is valid only for the exact project revision it was registered
+    // against. Stale profiles are not silently rebound to the current project.
+    const browserValidationProfile = registeredBrowserProfile
+      && registeredBrowserProfile.revision === analysisCorrelation.projectRevision
+      ? registeredBrowserProfile
+      : undefined;
+    const browserValidationProfileName = requestedBrowserValidationProfile;
     const browserValidationManager = browserValidationProfile ? new PreviewSessionManager() : undefined;
-    const browserValidationRunner = browserValidationProfile && validRootPath
+    const browserValidationRunner = browserValidationProfileName && validRootPath
       ? async (request: { profile: string; rootPath: string; pendingChanges?: readonly PendingValidationChange[]; operationId?: string; revision?: string; signal?: AbortSignal }) => {
-          if (request.profile !== browserValidationProfile) {
+          if (!browserValidationProfile || request.profile !== browserValidationProfile.name) {
             return {
               profile: request.profile, status: "unavailable" as const,
               scenario: "Registered browser validation profile is unavailable.",
@@ -3130,20 +3141,13 @@ router.post("/ai/chat/stream", async (req, res) => {
               revision: request.revision ?? analysisCorrelation.projectRevision,
               contract: {
                 revision: request.revision ?? analysisCorrelation.projectRevision,
-                permittedOrigin: "http://127.0.0.1:4300",
-                steps: [
-                  { type: "navigate", path: "/" },
-                  { type: "assert_visible", selector: "body" },
-                  { type: "screenshot", name: "preview" },
-                ],
-                timeoutMs: 60_000,
+                permittedOrigin: browserValidationProfile.permittedOrigin,
+                steps: browserValidationProfile.steps as PreviewStep[],
+                timeoutMs: browserValidationProfile.timeoutMs,
               },
-              steps: [
-                { type: "navigate", path: "/" },
-                { type: "assert_visible", selector: "body" },
-                { type: "screenshot", name: "preview" },
-              ],
+              steps: browserValidationProfile.steps as PreviewStep[],
               browser,
+              profileName: browserValidationProfile.name,
             });
           } catch (error) {
             return {
@@ -3214,7 +3218,7 @@ router.post("/ai/chat/stream", async (req, res) => {
           },
           approvedValidationProfiles: [
             ...(validationRunner ? ["workspace-typecheck", "ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests"] : []),
-            ...(browserValidationProfile ? [browserValidationProfile] : []),
+            ...(browserValidationProfileName ? [browserValidationProfileName] : []),
           ],
            commandProfiles,
            commandRunner: commandProfiles ? runRegisteredCommand : undefined,
