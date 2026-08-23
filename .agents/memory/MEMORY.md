@@ -47,3 +47,4 @@
 - [Release pipeline hardening](release-pipeline-hardening.md) — protected manual validation, bounded process groups, retained diagnostics, and narrow transient-only retries.
 - [OpenAPI/Zod compatibility](openapi-zod-compatibility.md) — uuid formats can generate unsupported zod.uuid() in the workspace's Zod 3 runtime; verify generated typechecks.
 - [Safe terminal execution boundary](terminal-execution-boundary.md) — terminal actions use server-owned fixed profiles; the model selects a profile but never supplies shell text or arbitrary argv.
+- [AI release quality gate](ai-release-quality-gate.md) — aggregate deterministic contract and operational checks into a safe blocking decision; live providers and Preview stay opt-in.

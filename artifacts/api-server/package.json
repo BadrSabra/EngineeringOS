@@ -22,7 +22,8 @@
     "benchmark:witness": "BENCHMARK_CAMPAIGN_MODE=clean-witness tsx src/lib/run-code-agent-benchmark-airlock.ts",
     "benchmark:canary": "tsx src/lib/run-code-agent-benchmark-airlock.ts",
     "benchmark:approve-baseline": "tsx src/lib/approve-code-agent-baseline.ts",
-    "benchmark:release-gate": "tsx src/lib/benchmark-release-gate.ts"
+    "benchmark:release-gate": "tsx src/lib/benchmark-release-gate.ts",
+    "validate:ai-release": "tsx src/lib/ai-release-quality-gate.ts"
   },
   "dependencies": {
     "@clerk/express": "^2.1.39",
