@@ -136,6 +136,18 @@ type OperationMode = 'FORENSIC_AUDIT' | 'DELIVERY' | 'CHAT';
 type DeliveryLifecycle =
   | 'proposed' | 'isolated' | 'validated' | 'applied' | 'conflicted'
   | 'committed' | 'cancelled' | 'abandoned' | 'blocked';
+type RecoverableDelivery = {
+  proposalId: string;
+  operationId: string;
+  sessionId: string;
+  lifecycle: Extract<DeliveryLifecycle, 'abandoned' | 'blocked' | 'conflicted'>;
+  status: string;
+  createdAt: string;
+  conflictReason?: string | null;
+  validationEvidence?: Array<{ profile?: string; status?: string; detail?: string }> | null;
+  workspaceAvailable: boolean;
+  changeCount: number;
+};
 
 function inferOperationMode(params: {
   operationMode?: unknown;
@@ -7178,6 +7190,61 @@ export default function AiChat() {
     },
   );
 
+  const { data: recoverableDeliveries } = useQuery<{ operations: RecoverableDelivery[] }>({
+    queryKey: ['ai-delivery-recoverable', selectedProjectId],
+    enabled: isLoaded && !!selectedProjectId,
+    queryFn: async () => {
+      const response = await fetch(`/api/ai/delivery/recoverable?projectId=${encodeURIComponent(selectedProjectId)}`, {
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) throw new Error('Recoverable delivery operations could not be loaded.');
+      return response.json();
+    },
+    refetchInterval: 30_000,
+  });
+  const [deliveryRecoveryPending, setDeliveryRecoveryPending] = useState<string | null>(null);
+
+  async function recoverDelivery(proposal: RecoverableDelivery, action: 'resume-validation' | 'discard') {
+    if (deliveryRecoveryPending) return;
+    setDeliveryRecoveryPending(proposal.proposalId);
+    try {
+      const response = await fetch(`/api/ai/delivery/${encodeURIComponent(proposal.proposalId)}/${action}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+        body: '{}',
+      });
+      const payload = await response.json().catch(() => ({})) as { error?: string; lifecycle?: DeliveryLifecycle };
+      if (!response.ok) throw new Error(payload.error || 'Delivery recovery could not be completed.');
+      void qc.invalidateQueries({ queryKey: ['ai-delivery-recoverable', selectedProjectId] });
+      if (action === 'resume-validation') {
+        setSessionId(proposal.sessionId);
+        void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', proposal.sessionId] });
+        toast({
+          title: payload.lifecycle === 'validated' ? 'Validation recovered' : 'Validation remains blocked',
+          description: payload.lifecycle === 'validated'
+            ? 'The retained operation workspace passed its registered validation checks.'
+            : 'The retained evidence was preserved and the operation remains blocked.',
+        });
+      } else {
+        toast({ title: 'Delivery workspace discarded', description: 'Only this operation-owned workspace was removed.' });
+        if (sessionId === proposal.sessionId) {
+          setPendingChanges([]);
+          setProposalId(undefined);
+        }
+      }
+    } catch (error) {
+      toast({
+        title: 'Delivery recovery failed',
+        description: error instanceof Error ? error.message : 'The operation was not changed.',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeliveryRecoveryPending(null);
+    }
+  }
+
   const regenerateReportMutation = useMutation({
     mutationFn: async (messageId: string) => {
       const response = await fetch(
@@ -8545,6 +8612,56 @@ export default function AiChat() {
               >
                 Retry
               </Button>
+            </div>
+          )}
+          {(recoverableDeliveries?.operations.length ?? 0) > 0 && (
+            <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3" role="region" aria-label="Recoverable delivery operations">
+              <div className="flex items-center gap-2 text-xs font-semibold text-amber-100">
+                <RotateCcw className="h-3.5 w-3.5" />
+                Recoverable delivery work
+              </div>
+              <div className="mt-2 space-y-2">
+                {recoverableDeliveries!.operations.map((delivery) => (
+                  <div key={delivery.proposalId} className="rounded-md border border-amber-500/20 bg-background/30 p-2.5 text-[11px]">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <Badge variant="outline" className="text-[10px]">{delivery.lifecycle}</Badge>
+                      <span className="text-muted-foreground">{delivery.changeCount} change{delivery.changeCount === 1 ? '' : 's'}</span>
+                      <span className="text-muted-foreground">{new Date(delivery.createdAt).toLocaleString()}</span>
+                    </div>
+                    {delivery.conflictReason && <div className="mt-1 break-words text-red-200">Reason: {delivery.conflictReason}</div>}
+                    {delivery.validationEvidence && delivery.validationEvidence.length > 0 && (
+                      <div className="mt-1 text-muted-foreground">
+                        Retained checks: {delivery.validationEvidence.map((e) => `${e.profile ?? 'check'} · ${e.status ?? 'unknown'}`).join(', ')}
+                      </div>
+                    )}
+                    {!delivery.workspaceAvailable && <div className="mt-1 text-red-200">The operation workspace is unavailable; recovery is blocked.</div>}
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-[11px]"
+                        disabled={deliveryRecoveryPending !== null || !delivery.workspaceAvailable}
+                        onClick={() => void recoverDelivery(delivery, 'resume-validation')}
+                      >
+                        {deliveryRecoveryPending === delivery.proposalId ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RotateCcw className="mr-1 h-3 w-3" />}
+                        Resume validation
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-[11px] text-red-200 hover:text-red-100"
+                        disabled={deliveryRecoveryPending !== null}
+                        onClick={() => void recoverDelivery(delivery, 'discard')}
+                      >
+                        <Trash2 className="mr-1 h-3 w-3" />
+                        Discard workspace
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {isEmpty ? (

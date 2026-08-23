@@ -106,6 +106,18 @@ export async function discardDeliveryWorkspace(workspaceRoot: string, operationI
   return true;
 }
 
+/** Verify that a persisted delivery workspace is still the exact server-owned workspace. */
+export async function deliveryWorkspaceExists(workspaceRoot: string | null, operationId: string): Promise<boolean> {
+  if (!workspaceRoot) return false;
+  const candidate = path.resolve(workspaceRoot);
+  if (candidate !== deliveryWorkspacePath(operationId)) return false;
+  try {
+    return (await readFile(path.join(candidate, MARKER), "utf8")) === `${operationId}\n`;
+  } catch {
+    return false;
+  }
+}
+
 export function transitionDeliveryLifecycle(
   current: DeliveryLifecycle,
   next: DeliveryLifecycle,

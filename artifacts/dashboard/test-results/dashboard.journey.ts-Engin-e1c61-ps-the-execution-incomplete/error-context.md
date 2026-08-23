@@ -172,19 +172,20 @@ Error: page.waitForRequest: Test ended.
                   - generic [ref=f2e235]: "ANALYSIS_INCOMPLETE: The required analysis did not complete, so no verified result is available."
                   - generic [ref=f2e236]:
                     - generic [ref=f2e237]: Execution failed
-                    - generic [ref=f2e238]: The required analysis did not complete.
-                    - generic [ref=f2e239]: "Durable execution: e2e-resumed-analysis-failure-execution"
-                - button "Forensic evidence INCOMPLETE" [ref=f2e241]:
-                  - generic [ref=f2e244]: Forensic evidence
-                  - generic [ref=f2e245]: INCOMPLETE
-            - generic [ref=f2e248]:
-              - generic [ref=f2e249]:
-                - generic [ref=f2e250]:
-                  - generic [ref=f2e251]: A saved AI execution is ready to resume
-                  - generic [ref=f2e252]: Execution e2e-resu… · no file changes were applied automatically · checkpoint 1
-                - button "Resume" [ref=f2e254]
-              - generic [ref=f2e255]:
-                - textbox "Ask about your codebase, tasks, or metrics… (Enter to send)" [ref=f2e256]
+                    - generic [ref=f2e238]: Provider failure
+                    - generic [ref=f2e239]: The required analysis did not complete.
+                    - generic [ref=f2e240]: "Durable execution: e2e-resumed-analysis-failure-execution"
+                - button "Forensic evidence INCOMPLETE" [ref=f2e242]:
+                  - generic [ref=f2e245]: Forensic evidence
+                  - generic [ref=f2e246]: INCOMPLETE
+            - generic [ref=f2e249]:
+              - generic [ref=f2e250]:
+                - generic [ref=f2e251]:
+                  - generic [ref=f2e252]: A saved AI execution is ready to resume
+                  - generic [ref=f2e253]: Execution e2e-resu… · no file changes were applied automatically · checkpoint 1
+                - button "Resume" [ref=f2e255]
+              - generic [ref=f2e256]:
+                - textbox "Ask about your codebase, tasks, or metrics… (Enter to send)" [ref=f2e257]
                 - button [disabled]
   - region "Notifications (F8)":
     - list

@@ -137,6 +137,7 @@ import { scrubHistoricalValidationRecord } from "../../lib/startup-migrations.js
 import {
   createDeliveryWorkspace,
   discardDeliveryWorkspace,
+  deliveryWorkspaceExists,
 } from "../../lib/delivery-workspace.js";
 
 const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
@@ -4697,6 +4698,152 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
     logger.error({ proposalId: proposal.id }, "Invalid stored AI change proposal");
     return res.status(500).json({ error: "Stored change proposal is invalid" });
   }
+});
+
+// Delivery recovery intentionally exposes only relative file names and bounded
+// evidence. Workspace roots and change contents remain server-owned.
+router.get("/ai/delivery/recoverable", async (req, res) => {
+  const project = await loadProjectByIdForUser(
+    typeof req.query.projectId === "string" ? req.query.projectId : undefined,
+    req.userId,
+    res,
+  );
+  if (!project) return;
+
+  const proposals = await db
+    .select()
+    .from(aiChangeProposalsTable)
+    .where(and(
+      eq(aiChangeProposalsTable.projectId, project.id),
+      inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted"]),
+    ))
+    .orderBy(desc(aiChangeProposalsTable.createdAt))
+    .limit(20);
+
+  const operations = await Promise.all(proposals.map(async (proposal) => ({
+      proposalId: proposal.id,
+      operationId: proposal.operationId ?? proposal.messageId,
+      sessionId: proposal.sessionId,
+      lifecycle: proposal.lifecycle,
+      status: proposal.status,
+      createdAt: proposal.createdAt,
+      conflictReason: proposal.conflictReason,
+      validationEvidence: proposal.validationEvidence
+        ? redactUserFacingValue(parseStoredJson(proposal.validationEvidence))
+        : null,
+      workspaceAvailable: Boolean(
+        proposal.operationId
+        && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+      ),
+      changeCount: (() => {
+        try {
+          const changes = JSON.parse(proposal.changes);
+          return Array.isArray(changes) ? changes.length : 0;
+        } catch {
+          return 0;
+        }
+      })(),
+    })));
+  return res.json({ operations });
+});
+
+router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
+  const [proposal] = await db.select().from(aiChangeProposalsTable)
+    .where(eq(aiChangeProposalsTable.id, req.params.proposalId)).limit(1);
+  if (!proposal) return res.status(404).json({ error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" });
+  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+  if (!project) return;
+
+  if (proposal.lifecycle === "validated") {
+    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: proposal.lifecycle, idempotent: true });
+  }
+  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)
+    || proposal.status !== "pending"
+    || !proposal.operationId
+    || !(await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId))) {
+    return res.status(409).json({
+      error: "This delivery operation is not available for validation recovery.",
+      code: "DELIVERY_NOT_RECOVERABLE",
+      lifecycle: proposal.lifecycle,
+    });
+  }
+
+  let changes: Array<{ path: string; newContent: string; validationProfile?: ValidationProfile }> = [];
+  try {
+    const parsed = JSON.parse(proposal.changes);
+    if (!Array.isArray(parsed)) throw new Error("not an array");
+    changes = parsed;
+  } catch {
+    return res.status(409).json({ error: "Stored delivery changes are invalid.", code: "DELIVERY_INVALID" });
+  }
+  const workspaceRoot = proposal.workspaceRoot!;
+  const results: Array<Record<string, unknown>> = [];
+  const groups = new Map<string, typeof changes>();
+  for (const change of changes) {
+    if (typeof change.path !== "string" || typeof change.newContent !== "string" || !change.validationProfile) continue;
+    const group = groups.get(change.validationProfile) ?? [];
+    group.push(change);
+    groups.set(change.validationProfile, group);
+  }
+  for (const [profile, group] of groups) {
+    const parsedProfile = ValidationProfileSchema.safeParse(profile);
+    if (!parsedProfile.success) continue;
+    const result = await runRepairValidation(
+      workspaceRoot,
+      parsedProfile.data,
+      group.map((change) => change.path),
+      undefined,
+      [],
+    );
+    results.push({
+      profile: result.profile ?? profile,
+      status: result.status,
+      detail: result.detail,
+      failedTests: result.failedTests?.slice(0, 20),
+      affectedFiles: result.changedFiles?.slice(0, 50),
+    });
+  }
+  const passed = results.length === groups.size && results.length > 0
+    && results.every((result) => result.status === "passed");
+  const evidence = JSON.stringify(results);
+  const [updated] = await db.update(aiChangeProposalsTable).set({
+    lifecycle: passed ? "validated" : "blocked",
+    validationEvidence: evidence,
+    conflictReason: passed ? null : "Validation recovery did not pass all registered profiles.",
+  }).where(and(
+    eq(aiChangeProposalsTable.id, proposal.id),
+    eq(aiChangeProposalsTable.status, "pending"),
+    inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted"]),
+  )).returning({ id: aiChangeProposalsTable.id });
+  if (!updated) {
+    const [current] = await db.select({ lifecycle: aiChangeProposalsTable.lifecycle })
+      .from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposal.id)).limit(1);
+    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: current?.lifecycle ?? proposal.lifecycle, idempotent: true });
+  }
+  return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: passed ? "validated" : "blocked", validationEvidence: results });
+});
+
+router.post("/ai/delivery/:proposalId/discard", async (req, res) => {
+  const [proposal] = await db.select().from(aiChangeProposalsTable)
+    .where(eq(aiChangeProposalsTable.id, req.params.proposalId)).limit(1);
+  if (!proposal) return res.status(404).json({ error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" });
+  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+  if (!project) return;
+  if (proposal.lifecycle === "cancelled" || proposal.status === "rejected") {
+    return res.json({ proposalId: proposal.id, lifecycle: "cancelled", idempotent: true });
+  }
+  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)) {
+    return res.status(409).json({ error: "Only abandoned or blocked delivery work can be discarded.", code: "DELIVERY_NOT_DISCARDABLE" });
+  }
+  const [updated] = await db.update(aiChangeProposalsTable).set({
+    status: "rejected",
+    lifecycle: "cancelled",
+    consumedAt: new Date(),
+  }).where(and(eq(aiChangeProposalsTable.id, proposal.id), eq(aiChangeProposalsTable.status, "pending"))).returning({ id: aiChangeProposalsTable.id });
+  if (updated && proposal.workspaceRoot && proposal.operationId) {
+    await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+  }
+  return res.json({ proposalId: proposal.id, lifecycle: "cancelled", discarded: Boolean(updated) });
 });
 
 // ── POST /api/ai/chat/rebase-changes ──────────────────────────────────────────
