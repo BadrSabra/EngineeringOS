@@ -25,7 +25,7 @@ import {
 } from "./ai-execution-state.js";
 import { redactUserFacingText, runAgentWithFallback } from "./ai-route-helpers.js";
 import type { ProviderId } from "./ai-route-helpers.js";
-import { recordAudit } from "./audit.js";
+import { recordAudit, recordAuditInTransaction } from "./audit.js";
 import { logger } from "./logger.js";
 import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
 
@@ -405,6 +405,16 @@ export async function executeTaskLifecycle(params: {
           trigger: params.trigger,
         },
       });
+      await recordAuditInTransaction(tx, {
+        entityType: "task", entityId: before.id, action: "ai_executed",
+        projectId: before.projectId, stateBefore: { status: before.status },
+        stateAfter: {
+          status: finalStatus, executionId, operationId: executionId,
+          revision: taskReceipt.revision, terminalStatus: taskReceipt.terminalStatus,
+          terminalReason: taskReceipt.terminalReason,
+        },
+        correlationId,
+      });
       await tx.update(aiExecutionsTable).set({
         status: "completed",
         finalMessageId: executionId,
@@ -425,18 +435,6 @@ export async function executeTaskLifecycle(params: {
         eq(aiExecutionsTable.status, "running"),
       ));
       return [row];
-    });
-    await recordAudit({
-      entityType: "task", entityId: before.id, action: "ai_executed",
-      projectId: before.projectId, stateBefore: { status: before.status },
-      stateAfter: {
-        status: finalStatus,
-        executionId,
-        operationId: executionId,
-        revision: taskReceipt.revision,
-        terminalStatus: taskReceipt.terminalStatus,
-        terminalReason: taskReceipt.terminalReason,
-      }, correlationId,
     });
     invalidateContextCache(before.projectId);
     return { ok: true, status: finalStatus, task: updated, executionId };

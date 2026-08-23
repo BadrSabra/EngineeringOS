@@ -20,6 +20,10 @@ export const GetHealthResponse = zod.object({
 }).optional().describe('Current state of the in-process job queue (scan + discovery jobs). ⚠️ This queue is process-local — jobs in flight are lost on restart. The reconciliation layer marks orphaned DB rows as `failed` on startup, but the work must be re-submitted by the caller.\n'),
   "operationalCounters": zod.object({
   "auditWriteFailures": zod.number().describe('Number of audit_logs insert failures since last startup. Non-zero means state changes went unrecorded in the traceability trail.\n'),
+  "auditWritesPending": zod.number().describe('Audit rows currently awaiting durable recovery.'),
+  "auditWritesRecovered": zod.number().describe('Audit rows recovered after an earlier write failure.'),
+  "auditPersistenceUnavailable": zod.number().describe('Audit destination or durable outbox persistence failures since startup.'),
+  "mutationsWithoutAudit": zod.number().describe('Committed mutations whose audit intent could not be durably retained.'),
   "rateLimiterFailOpenCount": zod.number().describe('Number of times the LLM rate limiter failed open due to a DB error. Non-zero means the per-project call budget was not enforced for those calls.\n')
 }).optional().describe('PR-2: In-process counters for degraded subsystems. Resets to zero on process restart. A non-zero value means a best-effort or fail-open fallback was triggered and should be investigated via logs.\n'),
   "aiDiagnosticsRetention": zod.object({

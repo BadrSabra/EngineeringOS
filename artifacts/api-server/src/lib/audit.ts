@@ -5,6 +5,8 @@ import { logger } from "./logger.js";
 import {
   decrementPendingAudits,
   incrementAuditFailures,
+  incrementAuditPersistenceUnavailable,
+  incrementMutationsWithoutAudit,
   incrementPendingAudits,
   incrementRecoveredAudits,
   setPendingAudits,
@@ -38,6 +40,8 @@ type PendingAudit = {
   nextAttemptAt: number;
 };
 
+type AuditWriter = Pick<typeof db, "insert">;
+
 const pendingAudits = new Map<string, PendingAudit>();
 const retryDelaysMs = [1_000, 5_000, 30_000, 60_000];
 let retryTimer: NodeJS.Timeout | undefined;
@@ -45,6 +49,22 @@ let draining = false;
 
 async function insertAudit(row: typeof auditLogsTable.$inferInsert): Promise<void> {
   await db.insert(auditLogsTable).values(row).onConflictDoNothing();
+}
+
+function buildAuditRow(params: RecordAuditParams): typeof auditLogsTable.$inferInsert {
+  return {
+    id: randomUUID(),
+    entityType: params.entityType,
+    entityId: params.entityId,
+    action: params.action,
+    projectId: params.projectId ?? null,
+    actor: params.actor ?? "system",
+    changedFields: params.changedFields ?? null,
+    stateBefore: params.stateBefore ?? null,
+    stateAfter: params.stateAfter ?? null,
+    reason: params.reason ?? null,
+    correlationId: params.correlationId ?? null,
+  };
 }
 
 function scheduleRetry(): void {
@@ -100,6 +120,7 @@ export async function loadPendingAudits(): Promise<void> {
     logger.info({ pendingAudits: pendingAudits.size }, "reloaded pending audit log entries");
     scheduleRetry();
   } catch (err) {
+    incrementAuditPersistenceUnavailable();
     logger.error({ err }, "failed to reload pending audit log entries; continuing with an empty in-memory queue");
   }
 }
@@ -133,6 +154,7 @@ export async function drainPendingAudits(): Promise<void> {
         try {
           await persistPendingAudit(pending);
         } catch (persistErr) {
+          incrementAuditPersistenceUnavailable();
           logger.error({ err: persistErr, auditId: id }, "failed to update durable pending audit entry");
         }
         incrementAuditFailures();
@@ -152,19 +174,7 @@ export async function drainPendingAudits(): Promise<void> {
  * the exact row is retained and retried until the database accepts it.
  */
 export async function recordAudit(params: RecordAuditParams): Promise<void> {
-  const row: typeof auditLogsTable.$inferInsert = {
-    id: randomUUID(),
-    entityType: params.entityType,
-    entityId: params.entityId,
-    action: params.action,
-    projectId: params.projectId ?? null,
-    actor: params.actor ?? "system",
-    changedFields: params.changedFields ?? null,
-    stateBefore: params.stateBefore ?? null,
-    stateAfter: params.stateAfter ?? null,
-    reason: params.reason ?? null,
-    correlationId: params.correlationId ?? null,
-  };
+  const row = buildAuditRow(params);
   try {
     await insertAudit(row);
   } catch (err) {
@@ -175,7 +185,9 @@ export async function recordAudit(params: RecordAuditParams): Promise<void> {
     try {
       await persistPendingAudit(pending);
     } catch (persistErr) {
-      logger.error({ err: persistErr, auditId: row.id }, "failed to persist pending audit entry; keeping in memory until retry");
+      incrementAuditPersistenceUnavailable();
+      incrementMutationsWithoutAudit();
+      logger.error({ err: persistErr, auditId: row.id }, "audit destination and durable outbox unavailable; audit is not durably retained");
     }
     logger.error(
       { err, auditId: row.id, entityType: params.entityType, entityId: params.entityId, action: params.action },
@@ -183,6 +195,14 @@ export async function recordAudit(params: RecordAuditParams): Promise<void> {
     );
     scheduleRetry();
   }
+}
+
+/** Write an audit row in the caller's authoritative business transaction. */
+export async function recordAuditInTransaction(
+  tx: AuditWriter,
+  params: RecordAuditParams,
+): Promise<void> {
+  await tx.insert(auditLogsTable).values(buildAuditRow(params)).onConflictDoNothing();
 }
 
 export function getPendingAuditCount(): number {

@@ -9,6 +9,10 @@
  *   auditWriteFailures      — an audit_logs insert attempt failed.
  *   auditWritesPending      — failed audit rows waiting for an automatic retry.
  *   auditWritesRecovered    — failed audit rows subsequently written.
+ *   auditPersistenceUnavailable — an audit destination and its durable outbox
+ *                                 were both unavailable.
+ *   mutationsWithoutAudit    — a committed mutation could not be durably
+ *                               represented in the audit trail.
  *   rateLimiterFailOpenCount — DB error caused the LLM rate limiter to allow
  *                             the request without enforcing the per-project
  *                             call budget.
@@ -21,6 +25,8 @@
 let _auditWriteFailures = 0;
 let _auditWritesPending = 0;
 let _auditWritesRecovered = 0;
+let _auditPersistenceUnavailable = 0;
+let _mutationsWithoutAudit = 0;
 let _rateLimiterFailOpenCount = 0;
 
 /** Increment every time an audit_logs insert fails. */
@@ -45,6 +51,14 @@ export function incrementRecoveredAudits(): void {
   _auditWritesRecovered++;
 }
 
+export function incrementAuditPersistenceUnavailable(): void {
+  _auditPersistenceUnavailable++;
+}
+
+export function incrementMutationsWithoutAudit(): void {
+  _mutationsWithoutAudit++;
+}
+
 /** Increment every time the DB rate limiter falls back to fail-open. */
 export function incrementRateLimiterFailOpen(): void {
   _rateLimiterFailOpenCount++;
@@ -55,12 +69,16 @@ export function getOperationalCounters(): {
   auditWriteFailures: number;
   auditWritesPending: number;
   auditWritesRecovered: number;
+  auditPersistenceUnavailable: number;
+  mutationsWithoutAudit: number;
   rateLimiterFailOpenCount: number;
 } {
   return {
     auditWriteFailures: _auditWriteFailures,
     auditWritesPending: _auditWritesPending,
     auditWritesRecovered: _auditWritesRecovered,
+    auditPersistenceUnavailable: _auditPersistenceUnavailable,
+    mutationsWithoutAudit: _mutationsWithoutAudit,
     rateLimiterFailOpenCount: _rateLimiterFailOpenCount,
   };
 }
@@ -70,5 +88,7 @@ export function resetOperationalCounters(): void {
   _auditWriteFailures = 0;
   _auditWritesPending = 0;
   _auditWritesRecovered = 0;
+  _auditPersistenceUnavailable = 0;
+  _mutationsWithoutAudit = 0;
   _rateLimiterFailOpenCount = 0;
 }

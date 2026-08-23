@@ -26,7 +26,7 @@ import {
 import { eq, desc, and, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { logger } from "../lib/logger.js";
-import { recordAudit } from "../lib/audit.js";
+import { recordAuditInTransaction } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { runScanJob } from "../lib/scan-runner.js";
 import { establishProjectRoot } from "../lib/project-root.js";
@@ -201,16 +201,11 @@ router.post("/projects", async (req, res) => {
       id: randomUUID(), type: "ProjectCreated", projectId: created.id,
       severity: "info", message: `Project "${body.name}" registered`, correlationId,
     });
+    await recordAuditInTransaction(tx, {
+      entityType: "project", entityId: created.id, action: "created",
+      projectId: created.id, stateAfter: created, correlationId,
+    });
     return [created];
-  });
-
-  await recordAudit({
-    entityType: "project",
-    entityId: project[0].id,
-    action: "created",
-    projectId: project[0].id,
-    stateAfter: project[0],
-    correlationId,
   });
 
   invalidateContextCache(project[0].id);
@@ -241,21 +236,15 @@ router.patch("/projects/:projectId", requireProjectWriteAccess, async (req, res)
         severity: "info", message: `Project "${rows[0].name}" updated`, correlationId,
         payload: { changedFields: body },
       });
+      await recordAuditInTransaction(tx, {
+        entityType: "project", entityId: projectId, action: "updated",
+        projectId, changedFields: body, stateBefore: before,
+        stateAfter: rows[0], correlationId,
+      });
     }
     return rows;
   });
   if (!updated[0]) return res.status(404).json({ error: "Project not found" });
-
-  await recordAudit({
-    entityType: "project",
-    entityId: projectId,
-    action: "updated",
-    projectId,
-    changedFields: body,
-    stateBefore: before,
-    stateAfter: updated[0],
-    correlationId,
-  });
 
   invalidateContextCache(projectId);
 
@@ -295,12 +284,11 @@ router.delete("/projects/:projectId", requireProjectWriteAccess, async (req, res
     });
   }
 
-  await recordAudit({
-    entityType: "project", entityId: projectId, action: "deleted", projectId,
-    stateBefore: before, correlationId,
-  });
-
   await db.transaction(async (tx) => {
+    await recordAuditInTransaction(tx, {
+      entityType: "project", entityId: projectId, action: "deleted", projectId,
+      stateBefore: before, correlationId,
+    });
     await tx.insert(eventsTable).values({
       id: randomUUID(), type: "ProjectDeleted", projectId,
       severity: "info", message: `Project "${before.name}" deleted`, correlationId,

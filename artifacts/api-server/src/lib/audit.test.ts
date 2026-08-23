@@ -26,7 +26,7 @@ vi.mock("@workspace/db", () => ({
   ],
 }));
 
-import { drainPendingAudits, getPendingAuditCount, loadPendingAudits, recordAudit } from "./audit.js";
+import { drainPendingAudits, getPendingAuditCount, loadPendingAudits, recordAudit, recordAuditInTransaction } from "./audit.js";
 import { getOperationalCounters, resetOperationalCounters } from "./operational-counters.js";
 
 describe("audit write recovery", () => {
@@ -94,6 +94,42 @@ describe("audit write recovery", () => {
     expect(getPendingAuditCount()).toBe(1);
     expect(getOperationalCounters().auditWritesPending).toBe(1);
     expect(getOperationalCounters().auditWriteFailures).toBe(2);
+  });
+
+  it("reports when neither the audit destination nor durable outbox is available", async () => {
+    await loadPendingAudits();
+    insertMock.mockImplementation(() => ({
+      values: vi.fn().mockRejectedValue(new Error("database unavailable")),
+    }));
+
+    await recordAudit({
+      entityType: "project",
+      entityId: "project-no-durable-audit",
+      action: "updated",
+    });
+
+    expect(getPendingAuditCount()).toBe(1);
+    expect(getOperationalCounters()).toMatchObject({
+      auditPersistenceUnavailable: 1,
+      mutationsWithoutAudit: 1,
+    });
+  });
+
+  it("lets an authoritative transaction roll back when its audit insert fails", async () => {
+    const transaction = {
+      insert: vi.fn().mockReturnValue({
+        values: vi.fn().mockReturnValue({
+          onConflictDoNothing: vi.fn().mockRejectedValue(new Error("audit insert failed")),
+        }),
+      }),
+    };
+
+    await expect(recordAuditInTransaction(transaction, {
+      entityType: "task",
+      entityId: "task-transaction",
+      action: "updated",
+    })).rejects.toThrow("audit insert failed");
+    expect(transaction.insert).toHaveBeenCalledWith(auditTable);
   });
 
   it("reloads a failed audit row from the durable outbox after restart", async () => {

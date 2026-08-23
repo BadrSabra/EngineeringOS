@@ -3537,7 +3537,7 @@ components:
 
     OperationalCounters:
       type: object
-      required: [auditWriteFailures, rateLimiterFailOpenCount]
+      required: [auditWriteFailures, auditWritesPending, auditWritesRecovered, auditPersistenceUnavailable, mutationsWithoutAudit, rateLimiterFailOpenCount]
       description: >
         PR-2: In-process counters for degraded subsystems. Resets to zero on
         process restart. A non-zero value means a best-effort or fail-open
@@ -3548,6 +3548,18 @@ components:
           description: >
             Number of audit_logs insert failures since last startup.
             Non-zero means state changes went unrecorded in the traceability trail.
+        auditWritesPending:
+          type: integer
+          description: Audit rows currently awaiting durable recovery.
+        auditWritesRecovered:
+          type: integer
+          description: Audit rows recovered after an earlier write failure.
+        auditPersistenceUnavailable:
+          type: integer
+          description: Audit destination or durable outbox persistence failures since startup.
+        mutationsWithoutAudit:
+          type: integer
+          description: Committed mutations whose audit intent could not be durably retained.
         rateLimiterFailOpenCount:
           type: integer
           description: >

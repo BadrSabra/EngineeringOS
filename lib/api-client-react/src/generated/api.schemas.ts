@@ -293,6 +293,14 @@ export interface JobQueueStats {
 export interface OperationalCounters {
   /** Number of audit_logs insert failures since last startup. Non-zero means state changes went unrecorded in the traceability trail. */
   auditWriteFailures: number;
+  /** Audit rows currently awaiting durable recovery. */
+  auditWritesPending: number;
+  /** Audit rows recovered after an earlier write failure. */
+  auditWritesRecovered: number;
+  /** Audit destination or durable outbox persistence failures since startup. */
+  auditPersistenceUnavailable: number;
+  /** Committed mutations whose audit intent could not be durably retained. */
+  mutationsWithoutAudit: number;
   /** Number of times the LLM rate limiter failed open due to a DB error. Non-zero means the per-project call budget was not enforced for those calls. */
   rateLimiterFailOpenCount: number;
 }

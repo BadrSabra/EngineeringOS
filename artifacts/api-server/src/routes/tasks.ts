@@ -20,7 +20,7 @@ import {
 } from "@workspace/api-zod";
 import { eq, and, desc, gt, asc, inArray, or, isNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
-import { recordAudit } from "../lib/audit.js";
+import { recordAudit, recordAuditInTransaction } from "../lib/audit.js";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { runTaskVerification } from "../services/task-service.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
@@ -76,17 +76,12 @@ router.post("/tasks", async (req, res) => {
       taskId: rows[0].id, severity: "info",
       message: `Task "${body.title}" created (${body.priority})`, correlationId,
     });
+    await recordAuditInTransaction(tx, {
+      entityType: "task", entityId: rows[0].id, action: "created",
+      projectId: body.projectId, actor: req.userId, correlationId,
+      stateAfter: rows[0],
+    });
     return rows;
-  });
-
-  await recordAudit({
-    entityType: "task",
-    entityId: task[0].id,
-    action: "created",
-    projectId: body.projectId,
-    actor: req.userId,
-    correlationId,
-    stateAfter: task[0],
   });
 
   invalidateContextCache(project.id);
@@ -177,6 +172,11 @@ router.patch("/tasks/:taskId", async (req, res) => {
           ...(isStatusChange ? { payload: { before: { status: before[0].status }, after: { status: body.status } } } : {}),
         });
       }
+      await recordAuditInTransaction(tx, {
+        entityType: "task", entityId: taskId, action: "updated",
+        projectId: before[0].projectId, actor: req.userId, correlationId,
+        changedFields: body, stateBefore: before[0], stateAfter: rows[0],
+      });
     }
     return rows;
   });
@@ -186,18 +186,6 @@ router.patch("/tasks/:taskId", async (req, res) => {
       reason: "The task changed while this update was being applied.",
     });
   }
-
-  await recordAudit({
-    entityType: "task",
-    entityId: taskId,
-    action: "updated",
-    projectId: before[0].projectId,
-    actor: req.userId,
-    correlationId,
-    changedFields: body,
-    stateBefore: before[0],
-    stateAfter: updated[0],
-  });
 
   // PR-C: auto-trigger AI execution when a manual PATCH sets status → verifying
   // and the task has a generated prompt.  Fire-and-forget — never blocks response.
@@ -246,6 +234,11 @@ router.delete("/tasks/:taskId", async (req, res) => {
       correlationId,
       payload: { before: { status: before[0].status } },
     });
+    await recordAuditInTransaction(tx, {
+      entityType: "task", entityId: taskId, action: "deleted",
+      projectId: before[0].projectId, actor: req.userId, correlationId,
+      stateBefore: before[0],
+    });
     await tx.delete(tasksTable).where(eq(tasksTable.id, taskId));
     });
   } catch (error) {
@@ -254,16 +247,6 @@ router.delete("/tasks/:taskId", async (req, res) => {
     }
     throw error;
   }
-
-  await recordAudit({
-    entityType: "task",
-    entityId: taskId,
-    action: "deleted",
-    projectId: before[0].projectId,
-    actor: req.userId,
-    correlationId,
-    stateBefore: before[0],
-  });
 
   invalidateContextCache(project.id);
 
@@ -439,6 +422,12 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
       correlationId,
       payload: { before: { status: "running" }, after: { status: finalStatus } },
     });
+      await recordAuditInTransaction(tx, {
+        entityType: "task", entityId: taskId, action: "executed",
+        projectId: task[0].projectId, stateBefore: { status: task[0].status },
+        stateAfter: { status: finalStatus },
+        changedFields: { verificationResult }, correlationId,
+      });
 
       return [row];
     });
@@ -448,17 +437,6 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
     }
     throw error;
   }
-
-  await recordAudit({
-    entityType: "task",
-    entityId: taskId,
-    action: "executed",
-    projectId: task[0].projectId,
-    stateBefore: { status: task[0].status },
-    stateAfter: { status: finalStatus },
-    changedFields: { verificationResult },
-    correlationId,
-  });
 
   invalidateContextCache(project.id);
 
@@ -538,6 +516,11 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
         correlationId,
         payload: { before: { status: task[0].status, retryCount }, after: { status: "queued", retryCount: retryCount + 1 } },
       });
+      await recordAuditInTransaction(tx, {
+        entityType: "task", entityId: taskId, action: "retried",
+        projectId: task[0].projectId, stateBefore: { status: task[0].status, retryCount },
+        stateAfter: { status: "queued", retryCount: retryCount + 1 }, correlationId,
+      });
 
       return [row];
     });
@@ -547,16 +530,6 @@ router.post("/tasks/:taskId/retry", async (req, res) => {
     }
     throw err;
   }
-
-  await recordAudit({
-    entityType: "task",
-    entityId: taskId,
-    action: "retried",
-    projectId: task[0].projectId,
-    stateBefore: { status: task[0].status, retryCount },
-    stateAfter: { status: "queued", retryCount: retryCount + 1 },
-    correlationId,
-  });
 
   invalidateContextCache(project.id);
 
@@ -643,6 +616,11 @@ router.post("/tasks/:taskId/rollback", async (req, res) => {
         correlationId,
         payload: { before: { status: task[0].status }, after: { status: "cancelled" } },
       });
+      await recordAuditInTransaction(tx, {
+        entityType: "task", entityId: taskId, action: "rolled_back",
+        projectId: task[0].projectId, stateBefore: { status: task[0].status },
+        stateAfter: { status: "cancelled" }, correlationId,
+      });
 
       return [row];
     });
@@ -652,16 +630,6 @@ router.post("/tasks/:taskId/rollback", async (req, res) => {
     }
     throw err;
   }
-
-  await recordAudit({
-    entityType: "task",
-    entityId: taskId,
-    action: "rolled_back",
-    projectId: task[0].projectId,
-    stateBefore: { status: task[0].status },
-    stateAfter: { status: "cancelled" },
-    correlationId,
-  });
 
   invalidateContextCache(project.id);
 
