@@ -12,6 +12,7 @@
     "test": "tsx --test ./*.test.ts ./*.test.mjs",
     "generate-truth-flow": "tsx ./generate-truth-flow.ts",
     "validate-truth-flow": "tsx ./validate-truth-flow.ts",
+    "validate-benchmark-baseline": "tsx ./validate-benchmark-baseline.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
