@@ -1,0 +1,444 @@
+artifacts/api-server/src/lib/operational-readiness-gate.ts
+127:  const cancelled = ["cancelled", "cancelling"].includes(input.operationState.toLowerCase()) || input.evidenceCompleteness === "cancelled";
+132:      : cancelled || ["partial", "retained-with-gaps", "uncertain"].includes(input.evidenceCompleteness) ? "incomplete"
+
+artifacts/api-server/src/lib/operational-readiness-gate.test.ts
+22:    expect(evaluateOperationalReadiness(base({ operationState: "cancelled", evidenceCompleteness: "cancelled" })).status).toBe("incomplete");
+
+artifacts/api-server/src/lib/operation-evidence.ts
+29:  | "cancelled"
+40:  status: "started" | "passed" | "failed" | "blocked" | "cancelled" | "unknown";
+75:  execution: Pick<AiExecution, "id" | "projectId" | "operationId" | "correlationId" | "status" | "attempt" | "checkpoint" | "checkpointVersion" | "request" | "baseRevision" | "error" | "createdAt" | "startedAt" | "completedAt">;
+95:  if (normalized.includes("cancel")) return "cancelled";
+163:  if (execution.completedAt) pushReceipt("process", execution.status, execution.completedAt, execution.attempt, execution.error);
+171:  if (execution.status === "completed" && receipts.every((receipt) => receipt.kind !== "validation")) {
+174:  if (execution.status === "completed" && !input.proposal && record(request.objective).type === "delivery") {
+182:  const terminalState = execution.status.toUpperCase();
+184:  if (execution.status === "cancelled" || execution.status === "cancelling") completeness = "cancelled";
+185:  else if (execution.status === "failed") completeness = "failed";
+186:  else if (execution.status === "completed" && gaps.length === 0) completeness = "complete";
+187:  else if (execution.status === "completed" && gaps.some((gap) => gap.kind === "mismatch" || gap.source === "revision")) completeness = "uncertain";
+188:  else if (execution.status === "completed") completeness = "retained-with-gaps";
+189:  else if (["blocked", "paused"].includes(execution.status)) completeness = "blocked";
+
+artifacts/api-server/src/routes/ai.test.ts
+1331:describe("GET /api/ai/executions/:executionId/audit-export", () => {
+1418:      .get(`/api/ai/executions/${created.execution.id}/audit-export`);
+1457:      .get(`/api/ai/executions/${created.execution.id}/audit-export`);
+1541:        content: "ANALYSIS_INCOMPLETE — the audit was cancelled before coverage completed.",
+2710:    expect(responses.every((response) => response.body.lifecycle === "cancelled")).toBe(true);
+2714:    expect(proposal?.lifecycle).toBe("cancelled");
+
+artifacts/api-server/src/lib/scan-runner.ts
+224:    if (signal?.aborted) throw new Error("scan refresh cancelled");
+
+artifacts/api-server/src/routes/workflows.ts
+528:          before: { phase: execution.currentPhase, status: "running" },
+609:        .where(and(eq(workflowExecutionsTable.id, execution.id), eq(workflowExecutionsTable.status, "running")))
+687:        .where(and(eq(workflowExecutionsTable.id, executionId), eq(workflowExecutionsTable.status, "failed")))
+690:        throw new WorkflowStateConflictError(`Cannot retry execution with status "${execution.status}"`);
+769:  if (!["running", "failed", "completed"].includes(execution.status)) {
+772:      status: execution.status,
+789:      ? execution.status === "completed"
+850:            eq(workflowExecutionsTable.status, execution.status),
+878:            status: execution.status,
+905:      status: execution.status,
+
+artifacts/api-server/src/lib/ai-execution-state.ts
+17: * lifecycle status. `ai_executions.status` answers "is a worker alive?", while
+33:  "cancelled",
+85:  planned: ["inspecting", "blocked", "cancelled"],
+86:  inspecting: ["mutating", "validating", "blocked", "cancelled", "failed"],
+87:  mutating: ["validating", "blocked", "cancelled", "uncertain", "failed"],
+88:  validating: ["succeeded", "diagnosing", "promoting", "blocked", "cancelled", "uncertain", "failed"],
+89:  diagnosing: ["repairing", "blocked", "cancelled", "failed"],
+90:  repairing: ["validating", "blocked", "cancelled", "uncertain", "failed"],
+91:  promoting: ["delivering", "blocked", "cancelled", "uncertain", "failed"],
+92:  delivering: ["succeeded", "blocked", "cancelled", "uncertain", "failed"],
+95:  cancelled: [],
+263:    | "cancelled";
+287:  "cancelled",
+573:  if (stage === "cancelled" || stage === "client_disconnected") return "cancelled";
+595:      if (target === "failed" || target === "cancelled") {
+852:  if (priorRecovery?.action === "abandon" || current.status === "cancelled") {
+888:    stage: "cancelled" as const,
+894:    status: "cancelled",
+1083:  cancelled?: boolean;
+1089:  const status = params.cancelled ? "cancelled" : "failed";
+1101:        stage: params.cancelled ? "cancelled" : "failed",
+1118:      params.cancelled ? inArray(aiExecutionsTable.status, ["running", "cancelling"]) : eq(aiExecutionsTable.status, "running"),
+1125:  // its ordinary failure path must still settle `cancelling` as cancelled and
+1127:  if (!params.cancelled) {
+1128:    const [cancelled] = await db
+1131:        status: "cancelled",
+1139:          stage: "cancelled",
+1157:    return Boolean(cancelled);
+1167:  const cancelledCheckpoint = JSON.stringify({
+1168:    stage: "cancelled",
+1170:    detail: "Execution cancelled before a worker started.",
+1177:  const [cancelledBeforeStart] = await db
+1180:      status: "cancelled",
+1183:      checkpoint: cancelledCheckpoint,
+1195:  if (cancelledBeforeStart) return cancelledBeforeStart;
+1253:    }).where(and(eq(aiExecutionsTable.id, execution.id), eq(aiExecutionsTable.status, "running"))).returning({ id: aiExecutionsTable.id });
+
+artifacts/api-server/src/lib/delivery-workspace.ts
+7:  | "committed" | "cancelled" | "abandoned" | "blocked";
+249:    proposed: ["isolated", "cancelled", "abandoned", "blocked"],
+250:    isolated: ["validated", "conflicted", "cancelled", "abandoned", "blocked"],
+251:    validated: ["applied", "conflicted", "cancelled", "abandoned", "blocked"],
+252:    applied: ["committed", "conflicted", "cancelled", "blocked"],
+253:    conflicted: ["isolated", "cancelled", "abandoned", "blocked"],
+255:    cancelled: [],
+
+artifacts/api-server/src/lib/workflow-phase-execution.ts
+68:  if (!durable.created && durable.execution.status === "completed") {
+76:  if (!durable.created && (durable.execution.status === "running" || durable.execution.status === "cancelling")) {
+188:    if (!["succeeded", "failed", "cancelled", "blocked", "uncertain"].includes(operation.state)) {
+
+artifacts/api-server/src/lib/operation-evidence.test.ts
+74:    const cancelled = buildOperationEvidenceProjection(input({
+75:      execution: { ...input().execution, status: "cancelled" },
+77:    expect(cancelled.completeness).toBe("cancelled");
+
+artifacts/api-server/src/lib/task-execution-service.ts
+134:  cancelled?: boolean;
+136:  const cancelled = Boolean(params.cancelled);
+148:    terminalStatus: cancelled ? "CANCELLED" : "FAILED",
+201:    : durable.execution.status === "running"
+278:    if (executionAbortController.signal.aborted) throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+304:      throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+374:      if (!execution || execution.status !== "running" || executionAbortController.signal.aborted) {
+375:        throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+454:    const cancelled = executionAbortController.signal.aborted
+456:    const code = cancelled ? "cancelled" : stage === "context" ? "context_build_failed" : "task_execution_failed";
+460:      durationMs: Date.now() - startedAt, stages, code, cancelled,
+463:    await failAiExecution({ executionId, workerId, error: message, cancelled });
+490:        retryable: !cancelled,
+
+artifacts/api-server/src/lib/task-state.ts
+8:  | "cancelled";
+22:  retry: new Set(["failed->queued", "cancelled->queued"]),
+24:  cancellation: new Set(["pending->cancelled", "queued->cancelled", "verifying->cancelled", "failed->cancelled"]),
+
+artifacts/api-server/src/routes/tasks.ts
+190:  // PR-C: auto-trigger AI execution when a manual PATCH sets status → verifying
+492:            inArray(tasksTable.status, ["failed", "cancelled"]),
+571:    "cancelled",
+586:      // Atomic claim: rollback is only valid from a non-terminal-cancelled
+592:        .set({ status: "cancelled", updatedAt: now })
+617:        payload: { before: { status: task[0].status }, after: { status: "cancelled" } },
+622:        stateAfter: { status: "cancelled" }, correlationId,
+
+artifacts/api-server/src/routes/tasks.test.ts
+124:  it("rolls back a task to cancelled", async () => {
+129:    expect(rolledBack.body.status).toBe("cancelled");
+
+artifacts/api-server/src/lib/ai-route-helpers.ts
+323:      throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+336:        throw Object.assign(new Error("Execution cancelled"), { name: "AbortError", cause: err });
+
+artifacts/api-server/src/lib/ai-repair-validation.ts
+331:    if (execution.status !== "passed") {
+339:          execution.status === "timed_out"
+341:            : boundedDetail(output) || `Registered validation failed with status ${execution.status}.`,
+415:    if (execution.status === "passed") {
+421:      code: `RUNTIME_ORACLE_${execution.status.toUpperCase()}`,
+422:      detail: output || `Runtime behavioral oracle ended with status ${execution.status}.`,
+
+artifacts/api-server/src/lib/task-execution-retention.ts
+73:         AND t.status IN ('completed', 'failed', 'cancelled')
+90:           AND t.status IN ('completed', 'failed', 'cancelled')
+107:         AND e.status IN ('cancelled', 'completed', 'failed')
+123:           AND e.status IN ('cancelled', 'completed', 'failed')
+
+artifacts/api-server/src/lib/ai-analysis-tools.ts
+25:  if (signal?.aborted) throw new Error("analysis cancelled");
+
+artifacts/api-server/src/lib/startup-migrations.ts
+389:      "SELECT id, checkpoint FROM ai_executions WHERE updated_at < $1 AND status IN ('cancelled', 'completed', 'failed') AND checkpoint IS NOT NULL",
+
+artifacts/api-server/src/lib/job-queue.ts
+44: * is freed by resolving — the job closure itself is not cancelled (JS has no
+
+artifacts/api-server/src/lib/operational-readiness-gate.ts
+127:  const cancelled = ["cancelled", "cancelling"].includes(input.operationState.toLowerCase()) || input.evidenceCompleteness === "cancelled";
+132:      : cancelled || ["partial", "retained-with-gaps", "uncertain"].includes(input.evidenceCompleteness) ? "incomplete"
+
+artifacts/api-server/src/lib/operational-readiness-gate.test.ts
+22:    expect(evaluateOperationalReadiness(base({ operationState: "cancelled", evidenceCompleteness: "cancelled" })).status).toBe("incomplete");
+
+artifacts/api-server/src/lib/operation-evidence.ts
+29:  | "cancelled"
+40:  status: "started" | "passed" | "failed" | "blocked" | "cancelled" | "unknown";
+75:  execution: Pick<AiExecution, "id" | "projectId" | "operationId" | "correlationId" | "status" | "attempt" | "checkpoint" | "checkpointVersion" | "request" | "baseRevision" | "error" | "createdAt" | "startedAt" | "completedAt">;
+95:  if (normalized.includes("cancel")) return "cancelled";
+163:  if (execution.completedAt) pushReceipt("process", execution.status, execution.completedAt, execution.attempt, execution.error);
+171:  if (execution.status === "completed" && receipts.every((receipt) => receipt.kind !== "validation")) {
+174:  if (execution.status === "completed" && !input.proposal && record(request.objective).type === "delivery") {
+182:  const terminalState = execution.status.toUpperCase();
+184:  if (execution.status === "cancelled" || execution.status === "cancelling") completeness = "cancelled";
+185:  else if (execution.status === "failed") completeness = "failed";
+186:  else if (execution.status === "completed" && gaps.length === 0) completeness = "complete";
+187:  else if (execution.status === "completed" && gaps.some((gap) => gap.kind === "mismatch" || gap.source === "revision")) completeness = "uncertain";
+188:  else if (execution.status === "completed") completeness = "retained-with-gaps";
+189:  else if (["blocked", "paused"].includes(execution.status)) completeness = "blocked";
+
+artifacts/api-server/src/lib/scan-runner.ts
+224:    if (signal?.aborted) throw new Error("scan refresh cancelled");
+
+artifacts/api-server/src/lib/ai-execution-state.ts
+17: * lifecycle status. `ai_executions.status` answers "is a worker alive?", while
+33:  "cancelled",
+85:  planned: ["inspecting", "blocked", "cancelled"],
+86:  inspecting: ["mutating", "validating", "blocked", "cancelled", "failed"],
+87:  mutating: ["validating", "blocked", "cancelled", "uncertain", "failed"],
+88:  validating: ["succeeded", "diagnosing", "promoting", "blocked", "cancelled", "uncertain", "failed"],
+89:  diagnosing: ["repairing", "blocked", "cancelled", "failed"],
+90:  repairing: ["validating", "blocked", "cancelled", "uncertain", "failed"],
+91:  promoting: ["delivering", "blocked", "cancelled", "uncertain", "failed"],
+92:  delivering: ["succeeded", "blocked", "cancelled", "uncertain", "failed"],
+95:  cancelled: [],
+263:    | "cancelled";
+287:  "cancelled",
+573:  if (stage === "cancelled" || stage === "client_disconnected") return "cancelled";
+595:      if (target === "failed" || target === "cancelled") {
+852:  if (priorRecovery?.action === "abandon" || current.status === "cancelled") {
+888:    stage: "cancelled" as const,
+894:    status: "cancelled",
+1083:  cancelled?: boolean;
+1089:  const status = params.cancelled ? "cancelled" : "failed";
+1101:        stage: params.cancelled ? "cancelled" : "failed",
+1118:      params.cancelled ? inArray(aiExecutionsTable.status, ["running", "cancelling"]) : eq(aiExecutionsTable.status, "running"),
+1125:  // its ordinary failure path must still settle `cancelling` as cancelled and
+1127:  if (!params.cancelled) {
+1128:    const [cancelled] = await db
+1131:        status: "cancelled",
+1139:          stage: "cancelled",
+1157:    return Boolean(cancelled);
+1167:  const cancelledCheckpoint = JSON.stringify({
+1168:    stage: "cancelled",
+1170:    detail: "Execution cancelled before a worker started.",
+1177:  const [cancelledBeforeStart] = await db
+1180:      status: "cancelled",
+1183:      checkpoint: cancelledCheckpoint,
+1195:  if (cancelledBeforeStart) return cancelledBeforeStart;
+1253:    }).where(and(eq(aiExecutionsTable.id, execution.id), eq(aiExecutionsTable.status, "running"))).returning({ id: aiExecutionsTable.id });
+
+artifacts/api-server/src/lib/delivery-workspace.ts
+7:  | "committed" | "cancelled" | "abandoned" | "blocked";
+249:    proposed: ["isolated", "cancelled", "abandoned", "blocked"],
+250:    isolated: ["validated", "conflicted", "cancelled", "abandoned", "blocked"],
+251:    validated: ["applied", "conflicted", "cancelled", "abandoned", "blocked"],
+252:    applied: ["committed", "conflicted", "cancelled", "blocked"],
+253:    conflicted: ["isolated", "cancelled", "abandoned", "blocked"],
+255:    cancelled: [],
+
+artifacts/api-server/src/lib/workflow-phase-execution.ts
+68:  if (!durable.created && durable.execution.status === "completed") {
+76:  if (!durable.created && (durable.execution.status === "running" || durable.execution.status === "cancelling")) {
+188:    if (!["succeeded", "failed", "cancelled", "blocked", "uncertain"].includes(operation.state)) {
+
+artifacts/api-server/src/lib/operation-evidence.test.ts
+74:    const cancelled = buildOperationEvidenceProjection(input({
+75:      execution: { ...input().execution, status: "cancelled" },
+77:    expect(cancelled.completeness).toBe("cancelled");
+
+artifacts/api-server/src/lib/task-execution-service.ts
+134:  cancelled?: boolean;
+136:  const cancelled = Boolean(params.cancelled);
+148:    terminalStatus: cancelled ? "CANCELLED" : "FAILED",
+201:    : durable.execution.status === "running"
+278:    if (executionAbortController.signal.aborted) throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+304:      throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+374:      if (!execution || execution.status !== "running" || executionAbortController.signal.aborted) {
+375:        throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+454:    const cancelled = executionAbortController.signal.aborted
+456:    const code = cancelled ? "cancelled" : stage === "context" ? "context_build_failed" : "task_execution_failed";
+460:      durationMs: Date.now() - startedAt, stages, code, cancelled,
+463:    await failAiExecution({ executionId, workerId, error: message, cancelled });
+490:        retryable: !cancelled,
+
+artifacts/api-server/src/lib/task-state.ts
+8:  | "cancelled";
+22:  retry: new Set(["failed->queued", "cancelled->queued"]),
+24:  cancellation: new Set(["pending->cancelled", "queued->cancelled", "verifying->cancelled", "failed->cancelled"]),
+
+artifacts/api-server/src/lib/ai-route-helpers.ts
+323:      throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+336:        throw Object.assign(new Error("Execution cancelled"), { name: "AbortError", cause: err });
+
+artifacts/api-server/src/lib/ai-repair-validation.ts
+331:    if (execution.status !== "passed") {
+339:          execution.status === "timed_out"
+341:            : boundedDetail(output) || `Registered validation failed with status ${execution.status}.`,
+415:    if (execution.status === "passed") {
+421:      code: `RUNTIME_ORACLE_${execution.status.toUpperCase()}`,
+422:      detail: output || `Runtime behavioral oracle ended with status ${execution.status}.`,
+
+artifacts/api-server/src/lib/task-execution-retention.ts
+73:         AND t.status IN ('completed', 'failed', 'cancelled')
+90:           AND t.status IN ('completed', 'failed', 'cancelled')
+107:         AND e.status IN ('cancelled', 'completed', 'failed')
+123:           AND e.status IN ('cancelled', 'completed', 'failed')
+
+artifacts/api-server/src/lib/ai-analysis-tools.ts
+25:  if (signal?.aborted) throw new Error("analysis cancelled");
+
+artifacts/api-server/src/lib/startup-migrations.ts
+389:      "SELECT id, checkpoint FROM ai_executions WHERE updated_at < $1 AND status IN ('cancelled', 'completed', 'failed') AND checkpoint IS NOT NULL",
+
+artifacts/api-server/src/lib/job-queue.ts
+44: * is freed by resolving — the job closure itself is not cancelled (JS has no
+
+artifacts/api-server/src/routes/ai/chat-sse.test.ts
+654:  it("keeps the cancelled Arabic incomplete report intact in the SSE done frame", async () => {
+655:    const cancelledArabicReport = [
+677:      result: { ...MOCK_CHAT_RESULT.result, response: cancelledArabicReport },
+
+artifacts/api-server/src/routes/ai-stream-integration.test.ts
+1090:  it("cancels a queued execution as a terminal state with a durable checkpoint", async () => {
+1110:    const cancelled = await requestAiExecutionCancel({
+1115:    expect(cancelled).toMatchObject({
+1117:      status: "cancelled",
+1119:    expect(parseAiExecutionCheckpoint(cancelled!.checkpoint)).toMatchObject({
+1120:      stage: "cancelled",
+1121:      detail: "Execution cancelled before a worker started.",
+1171:      cancelled: true,
+1181:    expect(terminal[0]?.status).toBe("cancelled");
+1183:      stage: "cancelled",
+3334:    expect(executionRes.status).toBe(200);
+3745:      "ANALYSIS_INCOMPLETE — no verified defect was established because the audit was cancelled during recovery.",
+3758:          reject(new Error("SSE cancellation fixture could not find its running execution."));
+3789:        onStep?.({ kind: "forensic_recovery_start", attempt: 1 });
+3808:            "AbortError: recovery provider request was cancelled",
+3948:    expect(executions.at(-1)?.status).toBe("failed");
+4018:      expect.objectContaining({ type: "execution_started", status: "running" }),
+4088:          code: "INCOMPLETE_BEFORE_EVIDENCE",
+4100:          diagnosticCodes: ["INCOMPLETE_BEFORE_EVIDENCE"],
+4132:      diagnosticCodes: ["INCOMPLETE_BEFORE_EVIDENCE"],
+4134:    expect(executions.at(-1)?.status).toBe("failed");
+
+artifacts/api-server/src/routes/ai/chat.ts
+447:  const terminalState = params.execution?.status === "cancelled"
+449:    || traces.some((entry) => entry && typeof entry === "object" && (entry as { stopReason?: unknown }).stopReason === "cancelled")
+451:    : params.execution?.status === "failed" || target.outcome === "FAILED"
+795:      (step.code === "INCOMPLETE_BEFORE_EVIDENCE" || step.code === "INVESTIGATION_START_FAILURE"),
+1269:  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+1377:  resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
+1467:      case "forensic_recovery_start":
+1620:          ...(steps.some((candidate) => candidate.kind === "forensic_recovery_start")
+2715:          message: "This execution is already running. Reconnect through its status instead of starting a duplicate.",
+2721:      if (["cancelled", "completed", "cancelling"].includes(aiExecution.status)) {
+2762:          message: "Another resume won the execution claim. Retry after refreshing its status.",
+2792:          message: "Another request won the execution claim. Retry after refreshing its status.",
+2825:        cancelled: false,
+2857:              ...(executionNodeStates.find((node) => node.status === "running")
+2858:                ? { currentNode: executionNodeStates.find((node) => node.status === "running")?.id }
+3017:          stopReason: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+3265:      } else if (step.kind === "forensic_recovery_start") {
+3292:          ...(traceSteps.some((candidate) => candidate.kind === "forensic_recovery_start")
+3571:            (step.resultKind === "failed" || step.resultKind === "unavailable" || step.resultKind === "cancelled"),
+3581:        const interrupted = failedToolResult?.kind === "tool_result" && failedToolResult.resultKind === "cancelled";
+3610:            cancelled: interrupted,
+4072:        cancelled: false,
+4094:          cancelled: false,
+4200:          ? "Execution cancelled by the user."
+4202:        cancelled: executionAbortController?.signal.aborted,
+4222:  if (!execution) return res.status(404).json({ error: "AI execution not found" });
+4260:    executionStatus: execution.status,
+4278:    status: execution.status,
+4284:      executionStatus: execution.status,
+4311:    resumable: execution.status === "paused" || execution.status === "failed",
+4328:router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
+4330:  if (!execution) return res.status(404).json({ error: "AI execution not found" });
+4408:      type: `execution_${execution.status}`,
+4409:      status: execution.status,
+4410:      detail: safeText(execution.error ?? checkpoint.detail ?? `Execution ${execution.status}`, 500),
+4452:      status: execution.status,
+4453:      terminalState: execution.status,
+4500:    status: recovered.execution.status,
+4543:    status: execution.status,
+4544:    cancelRequestedAt: execution.cancelRequestedAt,
+4593:    const cancelled = traceEntries.some(
+4595:        (entry as { stopReason?: unknown }).stopReason === "cancelled"
+4602:    if (cancelled) return { ...session, forensicStatus: "INCOMPLETE" as const };
+5134:      inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted", "cancelled"]),
+5144:    const recoveryState = proposal.lifecycle === "cancelled" || proposal.status === "rejected"
+5209:    const discarded = proposal.lifecycle === "cancelled" || proposal.status === "rejected";
+5295:  if (proposal.lifecycle === "cancelled" || proposal.status === "rejected") {
+5296:    return res.json({ proposalId: proposal.id, lifecycle: "cancelled", idempotent: true });
+5303:    lifecycle: "cancelled",
+5309:  return res.json({ proposalId: proposal.id, lifecycle: "cancelled", discarded: Boolean(updated) });
+5716:      lifecycle: "cancelled",
+
+artifacts/api-server/src/routes/ai/chat.ts
+447:  const terminalState = params.execution?.status === "cancelled"
+449:    || traces.some((entry) => entry && typeof entry === "object" && (entry as { stopReason?: unknown }).stopReason === "cancelled")
+451:    : params.execution?.status === "failed" || target.outcome === "FAILED"
+795:      (step.code === "INCOMPLETE_BEFORE_EVIDENCE" || step.code === "INVESTIGATION_START_FAILURE"),
+1269:  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+1377:  resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
+1467:      case "forensic_recovery_start":
+1620:          ...(steps.some((candidate) => candidate.kind === "forensic_recovery_start")
+2715:          message: "This execution is already running. Reconnect through its status instead of starting a duplicate.",
+2721:      if (["cancelled", "completed", "cancelling"].includes(aiExecution.status)) {
+2762:          message: "Another resume won the execution claim. Retry after refreshing its status.",
+2792:          message: "Another request won the execution claim. Retry after refreshing its status.",
+2825:        cancelled: false,
+2857:              ...(executionNodeStates.find((node) => node.status === "running")
+2858:                ? { currentNode: executionNodeStates.find((node) => node.status === "running")?.id }
+3017:          stopReason: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+3265:      } else if (step.kind === "forensic_recovery_start") {
+3292:          ...(traceSteps.some((candidate) => candidate.kind === "forensic_recovery_start")
+3571:            (step.resultKind === "failed" || step.resultKind === "unavailable" || step.resultKind === "cancelled"),
+3581:        const interrupted = failedToolResult?.kind === "tool_result" && failedToolResult.resultKind === "cancelled";
+3610:            cancelled: interrupted,
+4072:        cancelled: false,
+4094:          cancelled: false,
+4200:          ? "Execution cancelled by the user."
+4202:        cancelled: executionAbortController?.signal.aborted,
+4222:  if (!execution) return res.status(404).json({ error: "AI execution not found" });
+4260:    executionStatus: execution.status,
+4278:    status: execution.status,
+4284:      executionStatus: execution.status,
+4311:    resumable: execution.status === "paused" || execution.status === "failed",
+4328:router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
+4330:  if (!execution) return res.status(404).json({ error: "AI execution not found" });
+4408:      type: `execution_${execution.status}`,
+4409:      status: execution.status,
+4410:      detail: safeText(execution.error ?? checkpoint.detail ?? `Execution ${execution.status}`, 500),
+4452:      status: execution.status,
+4453:      terminalState: execution.status,
+4500:    status: recovered.execution.status,
+4543:    status: execution.status,
+4544:    cancelRequestedAt: execution.cancelRequestedAt,
+4593:    const cancelled = traceEntries.some(
+4595:        (entry as { stopReason?: unknown }).stopReason === "cancelled"
+4602:    if (cancelled) return { ...session, forensicStatus: "INCOMPLETE" as const };
+5134:      inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted", "cancelled"]),
+5144:    const recoveryState = proposal.lifecycle === "cancelled" || proposal.status === "rejected"
+5209:    const discarded = proposal.lifecycle === "cancelled" || proposal.status === "rejected";
+5295:  if (proposal.lifecycle === "cancelled" || proposal.status === "rejected") {
+5296:    return res.json({ proposalId: proposal.id, lifecycle: "cancelled", idempotent: true });
+5303:    lifecycle: "cancelled",
+5309:  return res.json({ proposalId: proposal.id, lifecycle: "cancelled", discarded: Boolean(updated) });
+5716:      lifecycle: "cancelled",
+
+artifacts/api-server/src/routes/workflows.test.ts
+391:    expect(executions.filter((execution) => execution.status === "running")).toHaveLength(1);
+
+artifacts/api-server/src/routes/ai/benchmark.ts
+310:    executionStatus: execution.status,
+335:      && ["planned", "inspecting", "mutating", "validating", "diagnosing", "repairing", "promoting", "delivering", "succeeded", "failed", "cancelled", "blocked", "uncertain"].includes(autonomousState)
+338:    executionStatus: execution.status,
+
+artifacts/api-server/src/routes/ai/benchmark.ts
+310:    executionStatus: execution.status,
+335:      && ["planned", "inspecting", "mutating", "validating", "diagnosing", "repairing", "promoting", "delivering", "succeeded", "failed", "cancelled", "blocked", "uncertain"].includes(autonomousState)
+338:    executionStatus: execution.status,
+
+artifacts/api-server/src/routes/ai/chat-sse.test.ts
+654:  it("keeps the cancelled Arabic incomplete report intact in the SSE done frame", async () => {
+655:    const cancelledArabicReport = [
+677:      result: { ...MOCK_CHAT_RESULT.result, response: cancelledArabicReport },

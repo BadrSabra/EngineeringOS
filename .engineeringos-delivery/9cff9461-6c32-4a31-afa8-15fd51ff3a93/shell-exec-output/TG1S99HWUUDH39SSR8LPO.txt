@@ -1,0 +1,996 @@
+[23:18:58.344] INFO (1242): request completed
+    req: {
+      "id": 105,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 3
+[23:18:58.413] INFO (1242): request completed
+    req: {
+      "id": 106,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 4
+[23:18:58.497] INFO (1242): request completed
+    req: {
+      "id": 107,
+      "method": "POST",
+      "url": "/api/ai/chat/rebase-changes"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 20
+[23:18:58.503] INFO (1242): request completed
+    req: {
+      "id": 108,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 3
+[23:18:58.518] INFO (1242): request completed
+    req: {
+      "id": 109,
+      "method": "POST",
+      "url": "/api/ai/chat/proposals/fb68f347-4c0b-49df-900a-e6a1b57d2c85/approve"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 12
+[23:18:58.598] INFO (1242): request completed
+    req: {
+      "id": 110,
+      "method": "POST",
+      "url": "/api/ai/chat/rebase-changes"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 6
+[23:18:58.637] INFO (1242): request completed
+    req: {
+      "id": 111,
+      "method": "POST",
+      "url": "/api/ai/tasks/acaed56a-819b-4a5e-9053-a3b3e0cd40c1/execute"
+    }
+    res: {
+      "statusCode": 404
+    }
+    responseTime: 2
+[23:18:58.661] INFO (1242): request completed
+    req: {
+      "id": 112,
+      "method": "POST",
+      "url": "/api/ai/tasks/e79371e9-cfa4-4405-9818-b367f8eb52c2/execute"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 3
+[23:18:58.704] INFO (1242): request completed
+    req: {
+      "id": 113,
+      "method": "POST",
+      "url": "/api/ai/tasks/91b94a10-ba70-46e7-bd58-97e9e1ba2bdd/execute"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 3
+[23:18:58.766] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:18:58.766] INFO (1242): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[23:18:58.853] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:18:58.868] INFO (1242): request completed
+    req: {
+      "id": 114,
+      "method": "POST",
+      "url": "/api/ai/tasks/8cab2efa-e3cb-4b96-a103-d45962f5e02d/execute"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 123
+[23:18:58.942] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:18:58.942] INFO (1242): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[23:18:59.038] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:18:59.052] INFO (1242): request completed
+    req: {
+      "id": 115,
+      "method": "POST",
+      "url": "/api/ai/tasks/3811bf0d-b72c-4356-be18-dfb6fb09f249/execute"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 116
+[23:18:59.122] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:18:59.122] INFO (1242): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[23:18:59.200] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:18:59.217] INFO (1242): request completed
+    req: {
+      "id": 116,
+      "method": "POST",
+      "url": "/api/ai/tasks/e210c9f0-1a3c-4620-a212-d3c5ccbad228/execute"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 102
+[23:18:59.283] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:18:59.283] INFO (1242): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[23:18:59.366] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:18:59.384] INFO (1242): request completed
+    req: {
+      "id": 117,
+      "method": "POST",
+      "url": "/api/ai/tasks/1bdd3e7a-83b8-4b0c-92fe-5abb5299aef0/execute"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 105
+[23:18:59.449] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:18:59.449] INFO (1242): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[23:18:59.531] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:18:59.582] INFO (1242): request completed
+    req: {
+      "id": 118,
+      "method": "POST",
+      "url": "/api/ai/tasks/cf8a2adc-ca7c-4d49-9c7f-f535a3dcb142/execute"
+    }
+    res: {
+      "statusCode": 422
+    }
+    responseTime: 139
+[23:18:59.637] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:18:59.637] INFO (1242): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[23:18:59.749] INFO (1242): request errored
+    req: {
+      "id": 119,
+      "method": "POST",
+      "url": "/api/ai/tasks/495eec18-b902-4d7b-ab01-76321ec67ea3/execute"
+    }
+    res: {
+      "statusCode": 500
+    }
+    responseTime: 117
+    err: {
+      "type": "Error",
+      "message": "failed with status code 500",
+      "stack":
+          Error: failed with status code 500
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:536:35)
+              at onFinish (node:_http_outgoing:1031:10)
+              at callback (node:internal/streams/writable:766:21)
+              at afterWrite (node:internal/streams/writable:710:5)
+              at afterWriteTick (node:internal/streams/writable:696:10)
+              at processTicksAndRejections (node:internal/process/task_queues:81:21)
+    }
+[23:18:59.809] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:18:59.809] INFO (1242): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[23:18:59.885] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:18:59.886] WARN (1242): provider failed — trying next in chain
+    provider: "openrouter"
+    code: "SERVER_ERROR"
+    message: "provider request req-raw-task-123 failed at /srv/app/task.ts"
+[23:18:59.886] INFO (1242): primary provider error; retrying agent with fallback provider
+    primary: "openrouter"
+    fallback: "groq"
+    errorCode: "SERVER_ERROR"
+[23:18:59.886] WARN (1242): provider failed — trying next in chain
+    provider: "groq"
+    code: "SERVER_ERROR"
+    message: "provider request req-raw-task-123 failed at /srv/app/task.ts"
+[23:18:59.929] ERROR (1242): AI orchestrator request failed
+    projectId: "dcdd81c5-8c56-4503-a0f5-6ed8b7566204"
+    operation: "task-execution"
+    provider: "openrouter"
+    err: {
+      "type": "GroqClientError",
+      "message": "provider request req-raw-task-123 failed at /srv/app/task.ts",
+      "stack":
+          GroqClientError: provider request req-raw-task-123 failed at /srv/app/task.ts
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:3911:7
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "SERVER_ERROR",
+      "name": "GroqClientError"
+    }
+[23:18:59.930] INFO (1242): request errored
+    req: {
+      "id": 120,
+      "method": "POST",
+      "url": "/api/ai/tasks/f3f0fe39-f739-4ad5-8161-cc8502b4f6c2/execute"
+    }
+    res: {
+      "statusCode": 502
+    }
+    responseTime: 126
+    err: {
+      "type": "Error",
+      "message": "failed with status code 502",
+      "stack":
+          Error: failed with status code 502
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:536:35)
+              at onFinish (node:_http_outgoing:1031:10)
+              at callback (node:internal/streams/writable:766:21)
+              at afterWrite (node:internal/streams/writable:710:5)
+              at afterWriteTick (node:internal/streams/writable:696:10)
+              at processTicksAndRejections (node:internal/process/task_queues:81:21)
+    }
+[23:19:00.005] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:19:00.005] INFO (1242): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[23:19:00.198] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:19:00.248] WARN (1242): AI auto-trigger: lifecycle failed
+    taskId: "3bdd5301-e8e3-4b7d-b3e6-6380fade1acf"
+    executionId: "37d37428-45e9-4347-8d2c-8ef2e4604db2"
+    code: "task_execution_failed"
+[23:19:00.325] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:19:00.325] INFO (1242): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[23:19:00.409] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:19:00.454] WARN (1242): AI auto-trigger: lifecycle failed
+    taskId: "cf1cc38a-c282-44b2-bf2b-8e21ea69f89e"
+    executionId: "33fecfb1-1584-40b2-aeb0-691397484114"
+    code: "model_output_invalid"
+[23:19:00.519] INFO (1242): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: []
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+[23:19:00.519] INFO (1242): no provider available
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: null
+    requireTools: false
+    qualityProfile: "task_execution"
+[23:19:00.521] INFO (1242): request completed
+    req: {
+      "id": 121,
+      "method": "POST",
+      "url": "/api/ai/tasks/eb56116c-6a78-4328-9cf1-612a5922ea17/execute"
+    }
+    res: {
+      "statusCode": 428
+    }
+    responseTime: 9
+[23:19:00.577] INFO (1242): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[23:19:00.577] INFO (1242): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[23:19:00.625] INFO (1242): request completed
+    req: {
+      "id": 122,
+      "method": "POST",
+      "url": "/api/ai/tasks/2939e4c5-c05a-4351-bc16-94346e8371a5/execute"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 56
+[23:19:00.650] INFO (1242): Skipping provider that cannot satisfy the current request
+    provider: "gemini"
+    requireTools: true
+    reason: "no_tool_support"
+[23:19:00.652] INFO (1242): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: null
+    requireTools: true
+    available: []
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_tool_support"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+[23:19:00.652] INFO (1242): no provider available
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: null
+    requireTools: true
+    qualityProfile: null
+···············xxxxx·x·xxx····x·····x···········································
+·····························
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat > creates a session and returns sessionId + message on first chat
+AssertionError: expected 500 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 500
+
+ ❯ src/routes/ai.test.ts:824:24
+    822|       .post("/api/ai/chat")
+    823|       .send({ projectId, message: "What is the quality of this project…
+    824|     expect(res.status).toBe(200);
+       |                        ^
+    825|     expect(typeof res.body.sessionId).toBe("string");
+    826|     expect(res.body.message).toBeDefined();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/11]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat > returns execution trace separately from the assistant report
+AssertionError: expected 500 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 500
+
+ ❯ src/routes/ai.test.ts:840:24
+    838|       .send({ projectId, message: "What is the quality of this project…
+    839|
+    840|     expect(res.status).toBe(200);
+       |                        ^
+    841|     expect(res.body.message.content).toBe("AI response text");
+    842|     expect(res.body.message.content).not.toContain("read_file");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/11]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat > includes pendingChanges array in the response
+AssertionError: expected 500 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 500
+
+ ❯ src/routes/ai.test.ts:854:24
+    852|       .post("/api/ai/chat")
+    853|       .send({ projectId, message: "What files need changes?" });
+    854|     expect(res.status).toBe(200);
+       |                        ^
+    855|     // Gap-4: pendingChanges must be present in the response (was miss…
+    856|     // both the runtime response and the generated client contract bef…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/11]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat > forwards behaviorEvidence with exact sourceSpans in the non-streaming response
+AssertionError: expected 500 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 500
+
+ ❯ src/routes/ai.test.ts:894:24
+    892|       .post("/api/ai/chat")
+    893|       .send({ projectId, message: "What happens when maxIterations is …
+    894|     expect(res.status).toBe(200);
+       |                        ^
+    895|     // Top-level behaviorEvidence mirrors the orchestrated chat() resu…
+    896|     // array (not a serialized string) so programmatic clients see the…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/11]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat > accepts a request objective and threads it into chat() for the Objective Completion Gate
+AssertionError: expected 500 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 500
+
+ ❯ src/routes/ai.test.ts:947:24
+    945|       .send({ projectId, message: "Цель: доказать выполнимость", objec…
+    946|
+    947|     expect(res.status).toBe(200);
+       |                        ^
+    948|     // The validated objective must reach the chat entry point, otherw…
+    949|     // gate never runs on a real /api/ai/chat request.
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/11]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat > returns 200 with fallback when chat has _parseError but non-empty response
+AssertionError: expected 500 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 500
+
+ ❯ src/routes/ai.test.ts:989:24
+    987|       .send({ projectId, message: "trigger parse failure" });
+    988|     // Fallback produced a usable response — expect 200 with the messa…
+    989|     expect(res.status).toBe(200);
+       |                        ^
+    990|     expect(res.body.message).toBeDefined();
+    991|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/11]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat > reuses an existing session when sessionId is provided
+AssertionError: expected 500 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 500
+
+ ❯ src/routes/ai.test.ts:1025:26
+    1023|       .post("/api/ai/chat")
+    1024|       .send({ projectId, message: "Hello" });
+    1025|     expect(first.status).toBe(200);
+       |                          ^
+    1026|     const { sessionId } = first.body;
+    1027|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/11]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat > restores a JSON continuation but isolates later neutral chat from stale forensic state
+AssertionError: expected 500 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 500
+
+ ❯ src/routes/ai.test.ts:1104:26
+    1102|       .post("/api/ai/chat")
+    1103|       .send({ projectId, message: "forensic audit" });
+    1104|     expect(first.status).toBe(200);
+       |                          ^
+    1105|     const { sessionId } = first.body;
+    1106|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/11]⎯
+
+ FAIL  src/routes/ai.test.ts > POST /api/ai/chat > keeps the newer resumable contract when concurrent JSON turns finish out of order
+AssertionError: expected 500 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 500
+
+ ❯ src/routes/ai.test.ts:1219:26
+    1217|       .post("/api/ai/chat")
+    1218|       .send({ projectId, message: "forensic audit" });
+    1219|     expect(first.status).toBe(200);
+       |                          ^
+    1220|     const { sessionId } = first.body;
+    1221|     expect(sessionId).toBeTruthy();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/11]⎯
+
+ FAIL  src/routes/ai.test.ts > GET /api/ai/chat/sessions > returns 200 with sessions for a project
+AssertionError: expected 0 to be greater than or equal to 1
+ ❯ src/routes/ai.test.ts:1484:29
+    1482|     expect(res.status).toBe(200);
+    1483|     expect(Array.isArray(res.body)).toBe(true);
+    1484|     expect(res.body.length).toBeGreaterThanOrEqual(1);
+       |                             ^
+    1485|     expect(res.body[0].projectId).toBe(projectId);
+    1486|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/11]⎯
+
+ FAIL  src/routes/ai.test.ts > GET /api/ai/chat/:sessionId/messages > returns messages in chronological order
+AssertionError: expected 404 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 404
+
+ ❯ src/routes/ai.test.ts:1675:24
+    1673|
+    1674|     const res = await request(app).get(`/api/ai/chat/${sessionId}/mess…
+    1675|     expect(res.status).toBe(200);
+       |                        ^
+    1676|     expect(res.body.length).toBe(2); // user + assistant
+    1677|     expect(res.body[0].role).toBe("user");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/11]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  11 failed | 98 passed (109)
+   Start at  23:18:37
+   Duration  23.65s (transform 3.72s, setup 0ms, import 5.55s, tests 17.97s, environment 0ms)
+
+/home/runner/workspace/artifacts/api-server:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/routes/ai.test.ts --reporter=dot

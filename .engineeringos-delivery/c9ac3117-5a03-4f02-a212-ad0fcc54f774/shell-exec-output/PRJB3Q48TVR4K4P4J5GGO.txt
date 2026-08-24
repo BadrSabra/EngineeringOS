@@ -1,0 +1,627 @@
+    ~~~~~
+
+
+src/lib/task-execution-service.ts:298:34 - error TS2353: Object literal may only specify known properties, and 'signal' does not exist in type 'Pick<AgentCompleteOpts, "onProgress">'.
+
+298       }, { onProgress: progress, signal: executionAbortController.signal }),
+                                     ~~~~~~
+
+src/routes/ai.test.ts:495:5 - error TS2353: Object literal may only specify known properties, and 'operationId' does not exist in type '{ id?: string | SQL<unknown> | PgColumn<ColumnBaseConfig<ColumnDataType, string>, {}, {}> | undefined; projectId?: string | SQL<unknown> | PgColumn<...> | undefined; ... 7 more ...; consumedAt?: SQL<...> | ... 3 more ... | undefined; }'.
+
+495     operationId,
+        ~~~~~~~~~~~
+
+src/routes/ai.test.ts:2638:22 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+2638     expect(proposal?.lifecycle).toBe("blocked");
+                          ~~~~~~~~~
+
+src/routes/ai.test.ts:2689:22 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+2689     expect(proposal?.lifecycle).toBe("validated");
+                          ~~~~~~~~~
+
+src/routes/ai.test.ts:2714:22 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+2714     expect(proposal?.lifecycle).toBe("cancelled");
+                          ~~~~~~~~~
+
+src/routes/ai/benchmark.ts:7:15 - error TS2305: Module '"@workspace/ai-orchestrator"' has no exported member 'AutonomousDeliveryAcceptanceSummary'.
+
+7 import type { AutonomousDeliveryAcceptanceSummary } from "@workspace/ai-orchestrator";
+                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+src/routes/ai/benchmark.ts:355:53 - error TS2339: Property 'correlationId' does not exist on type '{ id: string; projectId: string; createdAt: Date; error: string | null; status: "completed" | "queued" | "running" | "failed" | "cancelled" | "paused" | "cancelling"; startedAt: Date | null; ... 17 more ...; proposalId: string | null; }'.
+
+355     operationId: execution.operationId ?? execution.correlationId ?? execution.id,
+                                                        ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:25:3 - error TS2305: Module '"@workspace/db"' has no exported member 'browserValidationProfilesTable'.
+
+25   browserValidationProfilesTable,
+     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:32:3 - error TS2305: Module '"@workspace/ai-orchestrator"' has no exported member 'contextManifestMatches'.
+
+32   contextManifestMatches,
+     ~~~~~~~~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:33:3 - error TS2305: Module '"@workspace/ai-orchestrator"' has no exported member 'contextManifestAllowsExecution'.
+
+33   contextManifestAllowsExecution,
+     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:67:3 - error TS2305: Module '"@workspace/ai-orchestrator"' has no exported member 'runRegisteredCommand'.
+
+67   runRegisteredCommand,
+     ~~~~~~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:81:3 - error TS2305: Module '"@workspace/ai-orchestrator"' has no exported member 'BrowserValidationBlockReason'.
+
+81   BrowserValidationBlockReason,
+     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:318:45 - error TS2344: Type '"status" | "detail" | "reasonCode"' does not satisfy the constraint 'keyof ValidationResult'.
+  Type '"reasonCode"' is not assignable to type 'keyof ValidationResult'.
+
+318   overrides: Partial<Pick<ValidationResult, "status" | "detail" | "reasonCode">> = {},
+                                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:325:7 - error TS2353: Object literal may only specify known properties, and 'operationId' does not exist in type 'ValidationEvidence'.
+
+325       operationId: result.evidence.operationId,
+          ~~~~~~~~~~~
+
+  ../../lib/ai-orchestrator/dist/validation-result.d.ts:32:5
+    32     evidence: ValidationEvidence;
+           ~~~~~~~~
+    The expected type comes from property 'evidence' which is declared here on type 'ValidationResult'
+
+src/routes/ai/chat.ts:325:36 - error TS2339: Property 'operationId' does not exist on type 'ValidationEvidence'.
+
+325       operationId: result.evidence.operationId,
+                                       ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:326:40 - error TS2339: Property 'projectRevision' does not exist on type 'ValidationEvidence'.
+
+326       projectRevision: result.evidence.projectRevision,
+                                           ~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:327:38 - error TS2339: Property 'candidateHash' does not exist on type 'ValidationEvidence'.
+
+327       candidateHash: result.evidence.candidateHash,
+                                         ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:328:38 - error TS2339: Property 'changeSetHash' does not exist on type 'ValidationEvidence'.
+
+328       changeSetHash: result.evidence.changeSetHash,
+                                         ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:329:37 - error TS2339: Property 'promotedHash' does not exist on type 'ValidationEvidence'.
+
+329       promotedHash: result.evidence.promotedHash,
+                                        ~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:372:115 - error TS2339: Property 'reasonCode' does not exist on type 'PublicValidationResult'.
+
+372       ...(typeof candidate.reasonCode === "string" ? { reasonCode: candidate.reasonCode as PublicValidationResult["reasonCode"] } : {}),
+                                                                                                                      ~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:613:13 - error TS2339: Property 'contextManifest' does not exist on type '{ steps: { validation: string[]; files: string[]; id: string; description: string; title: string; dependsOn: string[]; action: "delete" | "test" | "inspect" | "create" | "modify" | "configure"; }[]; ... 7 more ...; writeAccess: "NOT_AUTHORIZED" | "APPROVED_FOR_BUILD"; }'.
+
+613   if (!plan.contextManifest) {
+                ~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:621:42 - error TS2339: Property 'contextManifest' does not exist on type '{ project: string; recentTasks: string; latestMetrics: string; graphSummary: string; recentEvents: string; workflows: string; metricsVerified: boolean; sessionMemories?: string | undefined; filesystemManifest?: { ...; } | undefined; filesystemSources?: { ...; } | undefined; }'.
+
+621   const currentManifest = currentContext.contextManifest;
+                                             ~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:634:36 - error TS2339: Property 'contextManifest' does not exist on type '{ steps: { validation: string[]; files: string[]; id: string; description: string; title: string; dependsOn: string[]; action: "delete" | "test" | "inspect" | "create" | "modify" | "configure"; }[]; ... 7 more ...; writeAccess: "NOT_AUTHORIZED" | "APPROVED_FOR_BUILD"; }'.
+
+634   if (!contextManifestMatches(plan.contextManifest, currentManifest)) {
+                                       ~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:650:29 - error TS2339: Property 'revision' does not exist on type 'WalkResult'.
+
+650   if (!liveWalk || liveWalk.revision !== currentManifest.projectRevision) {
+                                ~~~~~~~~
+
+src/routes/ai/chat.ts:690:39 - error TS2339: Property 'contextManifest' does not exist on type '{ project: string; recentTasks: string; latestMetrics: string; graphSummary: string; recentEvents: string; workflows: string; metricsVerified: boolean; sessionMemories?: string | undefined; filesystemManifest?: { ...; } | undefined; filesystemSources?: { ...; } | undefined; }'.
+
+690   const manifest = baseProjectContext.contextManifest;
+                                          ~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:733:16 - error TS2339: Property 'revision' does not exist on type 'WalkResult'.
+
+733   if (liveWalk.revision !== completeManifest.projectRevision) {
+                   ~~~~~~~~
+
+src/routes/ai/chat.ts:2412:20 - error TS2339: Property 'contextManifest' does not exist on type '{ steps: { validation: string[]; files: string[]; id: string; description: string; title: string; dependsOn: string[]; action: "delete" | "test" | "inspect" | "create" | "modify" | "configure"; }[]; ... 7 more ...; writeAccess: "NOT_AUTHORIZED" | "APPROVED_FOR_BUILD"; }'.
+
+2412     if (storedPlan.contextManifest) {
+                        ~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:2426:18 - error TS2339: Property 'browserValidationProfile' does not exist on type '{ steps: { validation: string[]; files: string[]; id: string; description: string; title: string; dependsOn: string[]; action: "delete" | "test" | "inspect" | "create" | "modify" | "configure"; }[]; ... 7 more ...; writeAccess: "NOT_AUTHORIZED" | "APPROVED_FOR_BUILD"; }'.
+
+2426       storedPlan.browserValidationProfile,
+                      ~~~~~~~~~~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:3392:75 - error TS2339: Property 'browserValidationProfile' does not exist on type '{ steps: { validation: string[]; files: string[]; id: string; description: string; title: string; dependsOn: string[]; action: "delete" | "test" | "inspect" | "create" | "modify" | "configure"; }[]; ... 7 more ...; writeAccess: "NOT_AUTHORIZED" | "APPROVED_FOR_BUILD"; }'.
+
+3392     const requestedBrowserValidationProfile = approvedImplementationPlan?.browserValidationProfile;
+                                                                               ~~~~~~~~~~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:4279:24 - error TS2339: Property 'attempt' does not exist on type '{ id: string; projectId: string; createdAt: Date; error: string | null; status: "completed" | "queued" | "running" | "failed" | "cancelled" | "paused" | "cancelling"; startedAt: Date | null; ... 17 more ...; proposalId: string | null; }'.
+
+4279     attempt: execution.attempt,
+                            ~~~~~~~
+
+src/routes/ai/chat.ts:4357:58 - error TS2339: Property 'correlationId' does not exist on type '{ id: string; projectId: string; createdAt: Date; error: string | null; status: "completed" | "queued" | "running" | "failed" | "cancelled" | "paused" | "cancelling"; startedAt: Date | null; ... 17 more ...; proposalId: string | null; }'.
+
+4357   const operationId = execution.operationId ?? execution.correlationId ?? execution.id;
+                                                              ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:4454:26 - error TS2339: Property 'attempt' does not exist on type '{ id: string; projectId: string; createdAt: Date; error: string | null; status: "completed" | "queued" | "running" | "failed" | "cancelled" | "paused" | "cancelling"; startedAt: Date | null; ... 17 more ...; proposalId: string | null; }'.
+
+4454       attempt: execution.attempt,
+                              ~~~~~~~
+
+src/routes/ai/chat.ts:4862:51 - error TS2339: Property 'contextManifest' does not exist on type '{ steps: { validation: string[]; files: string[]; id: string; description: string; title: string; dependsOn: string[]; action: "delete" | "test" | "inspect" | "create" | "modify" | "configure"; }[]; ... 7 more ...; writeAccess: "NOT_AUTHORIZED" | "APPROVED_FOR_BUILD"; }'.
+
+4862   if (body.data.decision === "approve" && current.contextManifest) {
+                                                       ~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:4879:15 - error TS2339: Property 'browserValidationProfile' does not exist on type '{ steps: { validation: string[]; files: string[]; id: string; description: string; title: string; dependsOn: string[]; action: "delete" | "test" | "inspect" | "create" | "modify" | "configure"; }[]; ... 7 more ...; writeAccess: "NOT_AUTHORIZED" | "APPROVED_FOR_BUILD"; }'.
+
+4879       current.browserValidationProfile,
+                   ~~~~~~~~~~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5096:18 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5096         proposal.lifecycle !== "proposed"
+                      ~~~~~~~~~
+
+src/routes/ai/chat.ts:5097:21 - error TS2339: Property 'workspaceRoot' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5097         || proposal.workspaceRoot
+                         ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5098:21 - error TS2339: Property 'validationEvidence' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5098         || proposal.validationEvidence
+                         ~~~~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5100:33 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5100             lifecycle: proposal.lifecycle,
+                                     ~~~~~~~~~
+
+src/routes/ai/chat.ts:5101:36 - error TS2551: Property 'baseRevision' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'. Did you mean 'revision'?
+
+5101             baseRevision: proposal.baseRevision,
+                                        ~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5102:37 - error TS2339: Property 'changeSetHash' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5102             changeSetHash: proposal.changeSetHash,
+                                         ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5103:38 - error TS2339: Property 'conflictReason' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5103             conflictReason: proposal.conflictReason
+                                          ~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5104:47 - error TS2339: Property 'conflictReason' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5104               ? redactUserFacingText(proposal.conflictReason).slice(0, 500)
+                                                   ~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5106:42 - error TS2339: Property 'validationEvidence' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5106             validationEvidence: proposal.validationEvidence
+                                              ~~~~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5107:72 - error TS2339: Property 'validationEvidence' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5107               ? parsePublicValidationReceipts(parseStoredJson(proposal.validationEvidence))
+                                                                            ~~~~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5134:38 - error TS2339: Property 'lifecycle' does not exist on type 'PgTableWithColumns<{ name: "ai_change_proposals"; schema: undefined; columns: { id: PgColumn<{ name: "id"; tableName: "ai_change_proposals"; dataType: "string"; columnType: "PgText"; data: string; driverParam: string; ... 8 more ...; generated: undefined; }, {}, {}>; ... 8 more ...; consumedAt: PgColumn<...>; }; dia...'.
+
+5134       inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted", "cancelled"]),
+                                          ~~~~~~~~~
+
+src/routes/ai/chat.ts:5141:16 - error TS2339: Property 'operationId' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5141       proposal.operationId
+                    ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5142:49 - error TS2339: Property 'workspaceRoot' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5142       && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+                                                     ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5142:73 - error TS2339: Property 'operationId' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5142       && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+                                                                             ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5144:36 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5144     const recoveryState = proposal.lifecycle === "cancelled" || proposal.status === "rejected"
+                                        ~~~~~~~~~
+
+src/routes/ai/chat.ts:5153:20 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5153         : proposal.lifecycle === "conflicted"
+                        ~~~~~~~~~
+
+src/routes/ai/chat.ts:5155:22 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5155           : proposal.lifecycle === "abandoned"
+                          ~~~~~~~~~
+
+src/routes/ai/chat.ts:5165:29 - error TS2339: Property 'operationId' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5165       operationId: proposal.operationId ?? proposal.messageId,
+                                 ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5166:33 - error TS2551: Property 'baseRevision' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'. Did you mean 'revision'?
+
+5166       projectRevision: proposal.baseRevision,
+                                     ~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5167:31 - error TS2339: Property 'changeSetHash' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5167       changeSetHash: proposal.changeSetHash,
+                                   ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5169:27 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5169       lifecycle: proposal.lifecycle,
+                               ~~~~~~~~~
+
+src/routes/ai/chat.ts:5172:32 - error TS2339: Property 'conflictReason' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5172       conflictReason: proposal.conflictReason
+                                    ~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5173:41 - error TS2339: Property 'conflictReason' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5173         ? redactUserFacingText(proposal.conflictReason).slice(0, 500)
+                                             ~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5178:36 - error TS2339: Property 'validationEvidence' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5178       validationEvidence: proposal.validationEvidence
+                                        ~~~~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5179:58 - error TS2339: Property 'validationEvidence' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5179         ? redactUserFacingValue(parseStoredJson(proposal.validationEvidence))
+                                                              ~~~~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5202:16 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5202   if (proposal.lifecycle === "validated") {
+                    ~~~~~~~~~
+
+src/routes/ai/chat.ts:5203:70 - error TS2339: Property 'operationId' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5203     return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: proposal.lifecycle, idempotent: true });
+                                                                          ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5203:103 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5203     return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: proposal.lifecycle, idempotent: true });
+                                                                                                           ~~~~~~~~~
+
+src/routes/ai/chat.ts:5205:65 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5205   if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)
+                                                                     ~~~~~~~~~
+
+src/routes/ai/chat.ts:5207:18 - error TS2339: Property 'operationId' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5207     || !proposal.operationId
+                      ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5208:49 - error TS2339: Property 'workspaceRoot' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5208     || !(await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId))) {
+                                                     ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5208:73 - error TS2339: Property 'operationId' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5208     || !(await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId))) {
+                                                                             ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5209:32 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5209     const discarded = proposal.lifecycle === "cancelled" || proposal.status === "rejected";
+                                    ~~~~~~~~~
+
+src/routes/ai/chat.ts:5211:16 - error TS2339: Property 'operationId' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5211       proposal.operationId
+                    ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5212:49 - error TS2339: Property 'workspaceRoot' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5212       && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+                                                     ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5212:73 - error TS2339: Property 'operationId' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5212       && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+                                                                             ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5219:27 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5219       lifecycle: proposal.lifecycle,
+                               ~~~~~~~~~
+
+src/routes/ai/chat.ts:5235:34 - error TS2339: Property 'workspaceRoot' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5235   const workspaceRoot = proposal.workspaceRoot!;
+                                      ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5238:34 - error TS2339: Property 'changeSetHash' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5238   const changeSetHash = proposal.changeSetHash ?? hashChangeSet(changes);
+                                      ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5257:23 - error TS2339: Property 'operationId' does not exist on type 'ValidationEvidence'.
+
+5257       result.evidence.operationId = proposal.operationId ?? proposal.messageId;
+                           ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5257:46 - error TS2339: Property 'operationId' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5257       result.evidence.operationId = proposal.operationId ?? proposal.messageId;
+                                                  ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5258:23 - error TS2339: Property 'projectRevision' does not exist on type 'ValidationEvidence'.
+
+5258       result.evidence.projectRevision = proposal.baseRevision ?? undefined;
+                           ~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5258:50 - error TS2551: Property 'baseRevision' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'. Did you mean 'revision'?
+
+5258       result.evidence.projectRevision = proposal.baseRevision ?? undefined;
+                                                      ~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5259:23 - error TS2339: Property 'candidateHash' does not exist on type 'ValidationEvidence'.
+
+5259       result.evidence.candidateHash = candidateHash;
+                           ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5260:23 - error TS2339: Property 'changeSetHash' does not exist on type 'ValidationEvidence'.
+
+5260       result.evidence.changeSetHash = changeSetHash;
+                           ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5268:5 - error TS2353: Object literal may only specify known properties, and 'lifecycle' does not exist in type '{ id?: string | SQL<unknown> | PgColumn<ColumnBaseConfig<ColumnDataType, string>, {}, {}> | undefined; projectId?: string | SQL<unknown> | PgColumn<...> | undefined; ... 7 more ...; consumedAt?: SQL<...> | ... 3 more ... | undefined; }'.
+
+5268     lifecycle: passed ? "validated" : "blocked",
+         ~~~~~~~~~
+
+src/routes/ai/chat.ts:5274:36 - error TS2339: Property 'lifecycle' does not exist on type 'PgTableWithColumns<{ name: "ai_change_proposals"; schema: undefined; columns: { id: PgColumn<{ name: "id"; tableName: "ai_change_proposals"; dataType: "string"; columnType: "PgText"; data: string; driverParam: string; ... 8 more ...; generated: undefined; }, {}, {}>; ... 8 more ...; consumedAt: PgColumn<...>; }; dia...'.
+
+5274     inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted"]),
+                                        ~~~~~~~~~
+
+src/routes/ai/chat.ts:5277:75 - error TS2339: Property 'lifecycle' does not exist on type 'PgTableWithColumns<{ name: "ai_change_proposals"; schema: undefined; columns: { id: PgColumn<{ name: "id"; tableName: "ai_change_proposals"; dataType: "string"; columnType: "PgText"; data: string; driverParam: string; ... 8 more ...; generated: undefined; }, {}, {}>; ... 8 more ...; consumedAt: PgColumn<...>; }; dia...'.
+
+5277     const [current] = await db.select({ lifecycle: aiChangeProposalsTable.lifecycle })
+                                                                               ~~~~~~~~~
+
+src/routes/ai/chat.ts:5279:70 - error TS2339: Property 'operationId' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5279     return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: current?.lifecycle ?? proposal.lifecycle, idempotent: true });
+                                                                          ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5279:125 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5279     return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: current?.lifecycle ?? proposal.lifecycle, idempotent: true });
+                                                                                                                                 ~~~~~~~~~
+
+src/routes/ai/chat.ts:5283:27 - error TS2339: Property 'operationId' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5283     operationId: proposal.operationId,
+                               ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5295:16 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5295   if (proposal.lifecycle === "cancelled" || proposal.status === "rejected") {
+                    ~~~~~~~~~
+
+src/routes/ai/chat.ts:5298:65 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5298   if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)) {
+                                                                     ~~~~~~~~~
+
+src/routes/ai/chat.ts:5303:5 - error TS2353: Object literal may only specify known properties, and 'lifecycle' does not exist in type '{ id?: string | SQL<unknown> | PgColumn<ColumnBaseConfig<ColumnDataType, string>, {}, {}> | undefined; projectId?: string | SQL<unknown> | PgColumn<...> | undefined; ... 7 more ...; consumedAt?: SQL<...> | ... 3 more ... | undefined; }'.
+
+5303     lifecycle: "cancelled",
+         ~~~~~~~~~
+
+src/routes/ai/chat.ts:5306:27 - error TS2339: Property 'workspaceRoot' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5306   if (updated && proposal.workspaceRoot && proposal.operationId) {
+                               ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5306:53 - error TS2339: Property 'operationId' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5306   if (updated && proposal.workspaceRoot && proposal.operationId) {
+                                                         ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5307:45 - error TS2339: Property 'workspaceRoot' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5307     await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+                                                 ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5307:69 - error TS2339: Property 'operationId' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5307     await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+                                                                         ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5716:7 - error TS2353: Object literal may only specify known properties, and 'lifecycle' does not exist in type '{ id?: string | SQL<unknown> | PgColumn<ColumnBaseConfig<ColumnDataType, string>, {}, {}> | undefined; projectId?: string | SQL<unknown> | PgColumn<...> | undefined; ... 7 more ...; consumedAt?: SQL<...> | ... 3 more ... | undefined; }'.
+
+5716       lifecycle: "cancelled",
+           ~~~~~~~~~
+
+src/routes/ai/chat.ts:5723:16 - error TS2339: Property 'workspaceRoot' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5723   if (proposal.workspaceRoot && proposal.operationId) {
+                    ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5723:42 - error TS2339: Property 'operationId' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5723   if (proposal.workspaceRoot && proposal.operationId) {
+                                              ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5724:45 - error TS2339: Property 'workspaceRoot' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5724     await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+                                                 ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5724:69 - error TS2339: Property 'operationId' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+5724     await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+                                                                         ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5932:30 - error TS2551: Property 'baseRevision' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'. Did you mean 'revision'?
+
+5932       baseRevision: proposal.baseRevision ?? project.updatedAt.toISOString(),
+                                  ~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:5937:9 - error TS2353: Object literal may only specify known properties, and 'operationId' does not exist in type '{ id?: string | SQL<unknown> | PgColumn<ColumnBaseConfig<ColumnDataType, string>, {}, {}> | undefined; projectId?: string | SQL<unknown> | PgColumn<...> | undefined; ... 7 more ...; consumedAt?: SQL<...> | ... 3 more ... | undefined; }'.
+
+5937         operationId: applyCorrelationId,
+             ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:6159:14 - error TS2353: Object literal may only specify known properties, and 'changeSetHash' does not exist in type '{ id?: string | SQL<unknown> | PgColumn<ColumnBaseConfig<ColumnDataType, string>, {}, {}> | undefined; projectId?: string | SQL<unknown> | PgColumn<...> | undefined; ... 7 more ...; consumedAt?: SQL<...> | ... 3 more ... | undefined; }'.
+
+6159       .set({ changeSetHash: effectiveChangeSetHash })
+                  ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:6185:29 - error TS2339: Property 'operationId' does not exist on type 'ValidationEvidence'.
+
+6185         validation.evidence.operationId = applyCorrelationId;
+                                 ~~~~~~~~~~~
+
+src/routes/ai/chat.ts:6186:29 - error TS2339: Property 'projectRevision' does not exist on type 'ValidationEvidence'.
+
+6186         validation.evidence.projectRevision = deliveryWorkspace.baseRevision;
+                                 ~~~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:6187:29 - error TS2339: Property 'candidateHash' does not exist on type 'ValidationEvidence'.
+
+6187         validation.evidence.candidateHash = candidateHash;
+                                 ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:6188:29 - error TS2339: Property 'changeSetHash' does not exist on type 'ValidationEvidence'.
+
+6188         validation.evidence.changeSetHash = effectiveChangeSetHash;
+                                 ~~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:6326:29 - error TS2339: Property 'promotedHash' does not exist on type 'ValidationEvidence'.
+
+6326         validation.evidence.promotedHash = promotedHash;
+                                 ~~~~~~~~~~~~
+
+src/routes/ai/chat.ts:6505:13 - error TS2353: Object literal may only specify known properties, and 'lifecycle' does not exist in type '{ id?: string | SQL<unknown> | PgColumn<ColumnBaseConfig<ColumnDataType, string>, {}, {}> | undefined; projectId?: string | SQL<unknown> | PgColumn<...> | undefined; ... 7 more ...; consumedAt?: SQL<...> | ... 3 more ... | undefined; }'.
+
+6505             lifecycle: verificationNeedsReviewAfterPromotion ? "blocked" : "applied",
+                 ~~~~~~~~~
+
+src/routes/ai/chat.ts:6517:13 - error TS2353: Object literal may only specify known properties, and 'lifecycle' does not exist in type '{ id?: string | SQL<unknown> | PgColumn<ColumnBaseConfig<ColumnDataType, string>, {}, {}> | undefined; projectId?: string | SQL<unknown> | PgColumn<...> | undefined; ... 7 more ...; consumedAt?: SQL<...> | ... 3 more ... | undefined; }'.
+
+6517             lifecycle: rollbackFailed || failedPaths.length > 0 ? "conflicted" : "blocked",
+                 ~~~~~~~~~
+
+src/routes/git.ts:335:18 - error TS2339: Property 'workspaceRoot' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+335         proposal.workspaceRoot
+                     ~~~~~~~~~~~~~
+
+src/routes/git.ts:336:21 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+336         && proposal.lifecycle !== "applied"
+                        ~~~~~~~~~
+
+src/routes/git.ts:337:21 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+337         && proposal.lifecycle !== "validated"
+                        ~~~~~~~~~
+
+src/routes/git.ts:342:31 - error TS2339: Property 'lifecycle' does not exist on type '{ id: string; projectId: string; sessionId: string; messageId: string; changes: string; status: "pending" | "applied" | "rejected"; revision: number; approvalRequired: boolean; createdAt: Date; consumedAt: Date | null; }'.
+
+342           lifecycle: proposal.lifecycle,
+                                  ~~~~~~~~~
+
+src/routes/git.ts:512:16 - error TS2353: Object literal may only specify known properties, and 'lifecycle' does not exist in type '{ id?: string | SQL<unknown> | PgColumn<ColumnBaseConfig<ColumnDataType, string>, {}, {}> | undefined; projectId?: string | SQL<unknown> | PgColumn<...> | undefined; ... 7 more ...; consumedAt?: SQL<...> | ... 3 more ... | undefined; }'.
+
+512         .set({ lifecycle: "committed", committedHash: commitHash })
+                   ~~~~~~~~~
+
+src/routes/git.ts:515:37 - error TS2339: Property 'lifecycle' does not exist on type 'PgTableWithColumns<{ name: "ai_change_proposals"; schema: undefined; columns: { id: PgColumn<{ name: "id"; tableName: "ai_change_proposals"; dataType: "string"; columnType: "PgText"; data: string; driverParam: string; ... 8 more ...; generated: undefined; }, {}, {}>; ... 8 more ...; consumedAt: PgColumn<...>; }; dia...'.
+
+515           eq(aiChangeProposalsTable.lifecycle, "applied"),
+                                        ~~~~~~~~~
+
+src/routes/git.ts:573:45 - error TS2339: Property 'lifecycle' does not exist on type 'PgTableWithColumns<{ name: "ai_change_proposals"; schema: undefined; columns: { id: PgColumn<{ name: "id"; tableName: "ai_change_proposals"; dataType: "string"; columnType: "PgText"; data: string; driverParam: string; ... 8 more ...; generated: undefined; }, {}, {}>; ... 8 more ...; consumedAt: PgColumn<...>; }; dia...'.
+
+573           lifecycle: aiChangeProposalsTable.lifecycle,
+                                                ~~~~~~~~~
+
+src/routes/git.ts:574:47 - error TS2339: Property 'operationId' does not exist on type 'PgTableWithColumns<{ name: "ai_change_proposals"; schema: undefined; columns: { id: PgColumn<{ name: "id"; tableName: "ai_change_proposals"; dataType: "string"; columnType: "PgText"; data: string; driverParam: string; ... 8 more ...; generated: undefined; }, {}, {}>; ... 8 more ...; consumedAt: PgColumn<...>; }; dia...'.
+
+574           operationId: aiChangeProposalsTable.operationId,
+                                                  ~~~~~~~~~~~
+
+src/routes/graph.ts:26:3 - error TS2305: Module '"@workspace/knowledge-engine"' has no exported member 'GRAPH_LIMITS'.
+
+26   GRAPH_LIMITS,
+     ~~~~~~~~~~~~
+
+src/routes/projects.test.ts:13:3 - error TS2305: Module '"@workspace/db"' has no exported member 'browserValidationProfilesTable'.
+
+13   browserValidationProfilesTable,
+     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+src/routes/projects.ts:5:3 - error TS2305: Module '"@workspace/db"' has no exported member 'browserValidationProfilesTable'.
+
+5   browserValidationProfilesTable,
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+src/routes/projects.ts:285:38 - error TS2339: Property 'lifecycle' does not exist on type 'PgTableWithColumns<{ name: "ai_change_proposals"; schema: undefined; columns: { id: PgColumn<{ name: "id"; tableName: "ai_change_proposals"; dataType: "string"; columnType: "PgText"; data: string; driverParam: string; ... 8 more ...; generated: undefined; }, {}, {}>; ... 8 more ...; consumedAt: PgColumn<...>; }; dia...'.
+
+285       inArray(aiChangeProposalsTable.lifecycle, ["isolated", "validated"]),
+                                         ~~~~~~~~~
+
+
+Found 159 errors in 17 files.
+
+Errors  Files
+     1  src/lib/ai-code-agent-benchmark.ts:274
+     3  src/lib/ai-execution-state.ts:6
+     1  src/lib/ai-repair-validation.ts:470
+     3  src/lib/ai-route-helpers.ts:393
+    14  src/lib/job-reconciliation.ts:83
+     9  src/lib/operation-evidence.ts:75
+     5  src/lib/run-code-agent-benchmark-airlock.ts:29
+     2  src/lib/scan-runner.ts:605
+     2  src/lib/task-execution-retention.test.ts:109
+     1  src/lib/task-execution-service.ts:298
+     4  src/routes/ai.test.ts:495
+     2  src/routes/ai/benchmark.ts:7
+   100  src/routes/ai/chat.ts:25
+     8  src/routes/git.ts:335
+     1  src/routes/graph.ts:26
+     1  src/routes/projects.test.ts:13
+     2  src/routes/projects.ts:5
+/home/runner/workspace/artifacts/api-server:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 2: tsc --noEmit

@@ -1,0 +1,260 @@
+436-    ?? params.messageId;
+437-  if (
+438-    !params.execution
+439-    && traces.length === 0
+440-    && evidenceCount === 0
+441-    && sourceCount === 0
+442-    && params.events.length === 0
+443-  ) {
+444:    throw new Error("No retained run evidence is available.");
+445-  }
+446-  const checkpoint = parseJsonRecord(params.execution?.checkpoint);
+447:  const terminalState = params.execution?.status === "cancelled"
+448-    || target.outcome === "INTERRUPTED"
+449:    || traces.some((entry) => entry && typeof entry === "object" && (entry as { stopReason?: unknown }).stopReason === "cancelled")
+450-    ? "CANCELLED"
+451-    : params.execution?.status === "failed" || target.outcome === "FAILED"
+452-      ? "FAILED"
+453-      : "COMPLETED";
+454-  const validationCount = traces.filter((entry) =>
+455-    entry && typeof entry === "object" && (
+456-      (entry as { kind?: unknown }).kind === "validation"
+457-      || (entry as { phase?: unknown }).phase === "validation"
+--
+798-
+799-  return !traceSteps.some(
+800-    (step) =>
+801-      (step.kind === "tool_call" || step.kind === "tool_result") &&
+802-      (step.tool === "read_file" || step.tool === "read_file_range"),
+803-  );
+804-}
+805-
+806:function failClosedBeforeEvidenceResponse(message: string): string {
+807-  return /[\u0600-\u06FF]/.test(message)
+808-    ? "توقف التنفيذ قبل قراءة أي ملف مصدر، لذلك لا يمكن اعتبار النتيجة مكتملة أو مثبتة. أعد المحاولة مع هدف أو ملف واضح."
+809-    : "Execution stopped before the first source read, so the result is incomplete and not proven. Retry with a clear target file or objective.";
+810-}
+811-
+812-function getOutOfScopeImplementationChanges(
+813-  changes: ServerPendingChange[],
+814-  allowedFiles: Set<string>,
+--
+1261-  iter?: number;
+1262-  maxIterations?: number;
+1263-  code?: string;
+1264-  message?: string;
+1265-  iterations?: number;
+1266-  toolCalls?: number;
+1267-  prefetchToolCalls?: number;
+1268-  loopToolCalls?: number;
+1269:  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+1270-  synthesisStarted?: boolean;
+1271-  synthesisAttempts?: number;
+1272-  synthesisMaxAttempts?: number;
+1273-  synthesisTimeoutMs?: number;
+1274-  synthesisElapsedMs?: number;
+1275-  synthesisTimedOut?: boolean;
+1276-  recoveryStarted?: boolean;
+1277-  sourceCoverage?: "COMPLETE" | "PARTIAL" | "NONE";
+--
+1323-    | "EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED"
+1324-    | "NO_RESPONSE_RECOVERY_BLOCKED";
+1325-  verificationStage?: "MODEL_RESPONSE" | "VERIFIED_RESPONSE";
+1326-  responseLength?: number;
+1327-  sourceCount?: number;
+1328-  evidenceCount?: number;
+1329-  acceptedEvidenceCount?: number;
+1330-  completedReadFiles?: string[];
+1331:  retainedBodyFiles?: string[];
+1332-  acceptedEvidenceFiles?: string[];
+1333-  acceptedClaimCount?: number;
+1334-  evidenceSourceCoverage?: {
+1335-    status: "COMPLETE" | "PARTIAL" | "NONE";
+1336-    requestedFiles?: string[];
+1337-    roots: Array<{
+1338-      root: string;
+1339-      discoveredFiles: number;
+--
+1369-  validationExitCode?: number | null;
+1370-  validationFailedTests?: string[];
+1371-  validationAffectedFiles?: string[];
+1372-  validationFailedTestDetails?: ValidationResult["failedTests"];
+1373-  validationChangedFiles?: string[];
+1374-  validationAttempt?: number;
+1375-  validationMaxAttempts?: number;
+1376-  validationDetail?: string;
+1377:  resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
+1378-  diagnosticCode?: string;
+1379-};
+1380-
+1381-/**
+1382- * Keep execution observability separate from the assistant report. The trace
+1383- * contains bounded metadata only — never the tool output body or model text.
+1384- */
+1385-function serializeToolTrace(
+--
+1575-          code: step.code,
+1576-          consistent: step.consistent,
+1577-          violations: step.violations,
+1578-          readAttempts: step.readAttempts,
+1579-          uniqueFilesRead: step.uniqueFilesRead,
+1580-          evidenceFileCount: step.evidenceFileCount,
+1581-          acceptedEvidenceCount: step.acceptedEvidenceCount,
+1582-          ...(step.completedReadFiles ? { completedReadFiles: step.completedReadFiles } : {}),
+1583:          ...(step.retainedBodyFiles ? { retainedBodyFiles: step.retainedBodyFiles } : {}),
+1584-          ...(step.acceptedEvidenceFiles ? { acceptedEvidenceFiles: step.acceptedEvidenceFiles } : {}),
+1585-          ...(step.acceptedClaimCount !== undefined ? { acceptedClaimCount: step.acceptedClaimCount } : {}),
+1586-          ...(step.objectiveType ? { objectiveType: step.objectiveType } : {}),
+1587-          ...(step.requiredEdges ? { requiredEdges: step.requiredEdges } : {}),
+1588-          ...(step.provenEdges ? { provenEdges: step.provenEdges } : {}),
+1589-          ...(step.completionGateResult ? { completionGateResult: step.completionGateResult } : {}),
+1590-          ...(step.finalAnswerType ? { finalAnswerType: step.finalAnswerType } : {}),
+1591-          ...(step.evidenceSourceCoverage
+--
+2023-        { requireTools: modelHasTools, qualityProfile: turnIntent.executionTaskType },
+2024-        undefined,
+2025-        (step) => traceSteps.push(step),
+2026-      );
+2027-      result = chatOut.result;
+2028-      if (turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps)) {
+2029-        result = {
+2030-          ...result,
+2031:          response: failClosedBeforeEvidenceResponse(message),
+2032-          sources: [],
+2033-          pendingChanges: [],
+2034-          repairPlan: undefined,
+2035-          taskResult: undefined,
+2036-          behaviorEvidence: undefined,
+2037-        };
+2038-      }
+2039-    } catch (err) {
+--
+2713-          type: "error",
+2714-          code: "EXECUTION_ALREADY_RUNNING",
+2715-          message: "This execution is already running. Reconnect through its status instead of starting a duplicate.",
+2716-          executionId: aiExecution.id,
+2717-        });
+2718-        res.end();
+2719-        return;
+2720-      }
+2721:      if (["cancelled", "completed", "cancelling"].includes(aiExecution.status)) {
+2722-        sse({
+2723-          type: "error",
+2724-          code: "EXECUTION_NOT_RESUMABLE",
+2725-          message: `Execution is already ${aiExecution.status}.`,
+2726-          executionId: aiExecution.id,
+2727-        });
+2728-        res.end();
+2729-        return;
+--
+2817-      persistedExecutionNodes,
+2818-      resumeCheckpoint?.nodeStates,
+2819-    );
+2820-    if (resumeCheckpoint?.nodeStates && !reconciledExecutionNodes) {
+2821-      await failAiExecution({
+2822-        executionId: aiExecution.id,
+2823-        workerId: executionWorkerId!,
+2824-        error: "Execution node checkpoint does not match the server-owned plan.",
+2825:        cancelled: false,
+2826-      });
+2827-      executionTerminal = true;
+2828-      sse({
+2829-        type: "error",
+2830-        code: "EXECUTION_NODE_CHECKPOINT_MISMATCH",
+2831-        message: "The saved execution progress does not match the approved plan. Start a fresh execution.",
+2832-        executionId: aiExecution.id,
+2833-      });
+--
+3009-    const executionDiagnosticDetails: string[] = [];
+3010-    let executionSummary:
+3011-      | {
+3012-          iterations: number;
+3013-          maxIterations: number;
+3014-          toolCalls: number;
+3015-          prefetchToolCalls: number;
+3016-          loopToolCalls: number;
+3017:          stopReason: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+3018-          synthesisStarted: boolean;
+3019-           synthesisAttempts?: number;
+3020-           synthesisMaxAttempts?: number;
+3021-           synthesisTimeoutMs?: number;
+3022-           synthesisElapsedMs?: number;
+3023-           synthesisTimedOut?: boolean;
+3024-          recoveryStarted?: boolean;
+3025-          diagnosticCodes: string[];
+--
+3222-          code: step.code,
+3223-          consistent: step.consistent,
+3224-          violations: step.violations,
+3225-          readAttempts: step.readAttempts,
+3226-          uniqueFilesRead: step.uniqueFilesRead,
+3227-          evidenceFileCount: step.evidenceFileCount,
+3228-          acceptedEvidenceCount: step.acceptedEvidenceCount,
+3229-          ...(step.completedReadFiles ? { completedReadFiles: step.completedReadFiles } : {}),
+3230:          ...(step.retainedBodyFiles ? { retainedBodyFiles: step.retainedBodyFiles } : {}),
+3231-          ...(step.acceptedEvidenceFiles ? { acceptedEvidenceFiles: step.acceptedEvidenceFiles } : {}),
+3232-          ...(step.acceptedClaimCount !== undefined ? { acceptedClaimCount: step.acceptedClaimCount } : {}),
+3233-          ...(step.objectiveType ? { objectiveType: step.objectiveType } : {}),
+3234-          ...(step.requiredEdges ? { requiredEdges: step.requiredEdges } : {}),
+3235-          ...(step.provenEdges ? { provenEdges: step.provenEdges } : {}),
+3236-          ...(step.completionGateResult ? { completionGateResult: step.completionGateResult } : {}),
+3237-          ...(step.finalAnswerType ? { finalAnswerType: step.finalAnswerType } : {}),
+3238-          ...(step.evidenceSourceCoverage
+--
+3295-          modelsUsed: traceSteps
+3296-            .filter((candidate): candidate is Extract<AgentStep, { kind: "model_call" | "recovery_model_call" }> =>
+3297-              candidate.kind === "model_call" || candidate.kind === "recovery_model_call",
+3298-            )
+3299-            .map((candidate) => candidate.model)
+3300-            .filter((model, index, models) => models.indexOf(model) === index)
+3301-            .slice(0, 12),
+3302-          diagnosticCodes: [...diagnosticCodes],
+3303:           ...(executionDiagnosticDetails.length > 0 && !activeExecutionAbortController.signal.aborted
+3304-            ? { diagnosticDetails: [...executionDiagnosticDetails] }
+3305-            : {}),
+3306-        };
+3307-      } else if (step.kind === "diagnostic") {
+3308-        // Forensic recovery/provider details are server diagnostics, not user
+3309-        // report content. Keep them in the internal trace for debugging, but
+3310-        // do not stream them to a forensic audit client.
+3311-        const visibleDiagnosticDetails = streamTurnIntent.requiresEvidence
+--
+3548-        onDelta,
+3549-        { requireTools: streamModelHasTools, qualityProfile: streamTurnIntent.executionTaskType },
+3550-        onStreamReset,
+3551-        onStep,
+3552-      );
+3553-      result = chatOut.result;
+3554-      endedBeforeEvidence =
+3555-        streamTurnIntent.requiresEvidence &&
+3556:        !activeExecutionAbortController.signal.aborted &&
+3557-        endedBeforeFirstSourceRead(traceSteps);
+3558-      // A required analysis/validation tool failure is a terminal operation
+3559-      // failure, even when the agent returned a blocked-looking response.
+3560-      // Do not let that response enter the normal successful assistant-message
+3561-      // and completeAiExecution path: doing so makes a failed run look
+3562-      // completed after a reconnect or dashboard reload.
+3563-      const terminalToolFailure = [...traceSteps]
+3564-        .reverse()
+3565-        .find((step) => step.kind === "done" && step.stopReason === "tool_failure");
+3566-      if (terminalToolFailure?.kind === "done") {
+3567-        const failedToolResult = [...traceSteps]
+3568-          .reverse()
+3569-          .find((step) =>
+3570-            step.kind === "tool_result" &&
+3571:            (step.resultKind === "failed" || step.resultKind === "unavailable" || step.resultKind === "cancelled"),
+3572-          );
+3573-        const diagnosticCode =
+3574-          failedToolResult?.kind === "tool_result" && failedToolResult.diagnosticCode
+3575-            ? failedToolResult.diagnosticCode
+3576-            : "TOOL_EXECUTION_FAILED";
+3577-        const safeDiagnostic =
+3578-          failedToolResult?.kind === "tool_result" && failedToolResult.resultSummary
+3579-            ? failedToolResult.resultSummary
+3580-            : "The required analysis did not complete; the operation is blocked.";
+3581:        const interrupted = failedToolResult?.kind === "tool_result" && failedToolResult.resultKind === "cancelled";
+3582-        sse({
+3583-          type: "error",
+3584-          code: diagnosticCode,
+3585-          message: safeDiagnostic,
+3586-          retryable: false,
