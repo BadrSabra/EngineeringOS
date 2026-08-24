@@ -23,6 +23,7 @@ import {
   type PhaseShape,
 } from "../services/workflow-service.js";
 import { parsePagination } from "../lib/pagination.js";
+import { executeWorkflowPhase } from "../lib/workflow-phase-execution.js";
 
 const router = Router();
 
@@ -201,6 +202,9 @@ router.post("/workflows/:workflowId/start", async (req, res) => {
         severity: "info",
         message: `Workflow "${workflow[0].name}" started — phase: ${firstPhase ?? "unknown"}`,
         correlationId,
+        payload: {
+          phase: firstPhase,
+        },
       });
 
       return [row];
@@ -225,7 +229,28 @@ router.post("/workflows/:workflowId/start", async (req, res) => {
 
   invalidateContextCache(workflow[0].projectId);
 
-  return res.status(202).json(execution);
+  const phase = (workflow[0].phases as Array<{ name: string; steps?: string[] }> | null)?.find((item) => item.name === firstPhase);
+  const phaseExecution = firstPhase
+    ? await executeWorkflowPhase({
+        userId: req.userId,
+        projectId: workflow[0].projectId,
+        workflowId,
+        workflowExecutionId: execution.id,
+        workflowName: workflow[0].name,
+        phaseName: firstPhase,
+        phaseSteps: phase?.steps ?? [],
+        revision: workflow[0].updatedAt.toISOString(),
+        completedPhaseNames: [],
+      })
+    : undefined;
+
+  return res.status(202).json({
+    ...execution,
+    ...(phaseExecution ? {
+      operationId: phaseExecution.operationId,
+      phaseExecutionStatus: phaseExecution.status,
+    } : {}),
+  });
 });
 
 // Stop workflow
@@ -329,7 +354,6 @@ router.post("/workflows/:workflowId/stop", async (req, res) => {
   });
 
   invalidateContextCache(workflow[0].projectId);
-
   return res.json(updatedExecution);
 });
 
@@ -404,7 +428,7 @@ router.post("/workflows/:workflowId/advance", async (req, res) => {
   // Evaluate the current phase's advance condition using the safe evaluator
   // (replaces the previous `new Function` approach — audit finding R-001/W-001).
   // An empty/absent condition means "always advance".
-  const allPhases = (workflow[0].phases as PhaseShape[]) ?? [];
+   const allPhases = (workflow[0].phases as Array<PhaseShape & { steps?: string[] }>) ?? [];
   const currentPhaseObj = allPhases.find((p) => p.name === execution.currentPhase);
   const conditionCheck = checkAdvanceCondition(currentPhaseObj?.condition, {
     qualityScore: advanceOwnerProject.qualityScore ?? null,
@@ -527,7 +551,30 @@ router.post("/workflows/:workflowId/advance", async (req, res) => {
 
   invalidateContextCache(workflow[0].projectId);
 
-  return res.json(updatedExecution);
+  const nextPhaseObj = nextPhase
+    ? allPhases.find((phase) => phase.name === nextPhase)
+    : undefined;
+  const phaseExecution = nextPhase
+    ? await executeWorkflowPhase({
+        userId: req.userId,
+        projectId: workflow[0].projectId,
+        workflowId,
+        workflowExecutionId: execution.id,
+        workflowName: workflow[0].name,
+        phaseName: nextPhase,
+        phaseSteps: nextPhaseObj?.steps ?? [],
+        revision: workflow[0].updatedAt.toISOString(),
+        completedPhaseNames: completedPhases,
+      })
+    : undefined;
+
+  return res.json({
+    ...updatedExecution,
+    ...(phaseExecution ? {
+      operationId: phaseExecution.operationId,
+      phaseExecutionStatus: phaseExecution.status,
+    } : {}),
+  });
   } finally {
     await transitionLock.release();
   }
