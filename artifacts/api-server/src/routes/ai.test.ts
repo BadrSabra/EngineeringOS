@@ -2460,6 +2460,67 @@ describe("delivery recovery routes", () => {
     expect(JSON.stringify(res.body)).not.toMatch(/workspace|path|content|diagnostic/i);
   });
 
+  it("keeps every proposal action on its safe not-found contract for stale links", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const projectRoot = `/tmp/ai-test-${projectId}`;
+    await fs.mkdir(projectRoot, { recursive: true });
+    const operation = await makeRecoverableProposal(projectId, "blocked", {
+      conflictReason: "Internal diagnostic: recovery stopped at /tmp/private-proposal-recovery.",
+    });
+    const privateDetails = [
+      operation.workspaceRoot,
+      operation.change.absolutePath,
+      operation.change.newContent,
+      "Internal diagnostic",
+    ];
+
+    await db.delete(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, operation.proposalId));
+
+    const responses = await Promise.all([
+      request(app)
+        .post("/api/ai/chat/apply-changes")
+        .send({
+          projectId,
+          proposalId: operation.proposalId,
+          changes: [{
+            path: operation.change.path,
+            absolutePath: operation.change.absolutePath,
+            newContent: operation.change.newContent,
+            originalContent: null,
+            reason: "Test proposal",
+            validationProfile: "api-ai-tests",
+          }],
+        }),
+      request(app)
+        .post(`/api/ai/chat/proposals/${operation.proposalId}/approve`)
+        .send({ projectId, revision: 0 }),
+      request(app)
+        .delete(`/api/ai/chat/proposals/${operation.proposalId}`),
+      request(app)
+        .post(`/api/ai/delivery/${operation.proposalId}/resume-validation`),
+      request(app)
+        .post(`/api/ai/delivery/${operation.proposalId}/discard`),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([404, 404, 404, 404, 404]);
+    expect(responses.map((response) => response.body)).toEqual([
+      { error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" },
+      { error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" },
+      { error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" },
+      { error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" },
+      { error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" },
+    ]);
+    for (const response of responses) {
+      const serialized = JSON.stringify(response.body);
+      for (const detail of privateDetails) {
+        if (detail) expect(serialized).not.toContain(detail);
+      }
+      expect(serialized).not.toMatch(/workspace|path|content|diagnostic/i);
+    }
+  });
+
   it("lists only owned recoverable operations and retains conflict evidence", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
