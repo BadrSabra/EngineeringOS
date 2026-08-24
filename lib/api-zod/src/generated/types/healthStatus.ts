@@ -8,6 +8,7 @@
 import type { AiDiagnosticsRetentionHealth } from './aiDiagnosticsRetentionHealth';
 import type { HealthStatusStatus } from './healthStatusStatus';
 import type { JobQueueStats } from './jobQueueStats';
+import type { JobRecoveryHealth } from './jobRecoveryHealth';
 import type { OperationalCounters } from './operationalCounters';
 import type { TaskExecutionRetentionHealth } from './taskExecutionRetentionHealth';
 
@@ -17,4 +18,5 @@ export interface HealthStatus {
   operationalCounters?: OperationalCounters;
   aiDiagnosticsRetention?: AiDiagnosticsRetentionHealth;
   taskExecutionRetention?: TaskExecutionRetentionHealth;
+  jobRecovery?: JobRecoveryHealth;
 }

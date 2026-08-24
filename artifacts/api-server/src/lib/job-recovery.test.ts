@@ -136,7 +136,7 @@ describe("recovery: jobs with expired leases after crash", () => {
     expect(row.workerId).toBeNull();
   });
 
-  it("a running scan job with an active lease is re-queued after process recovery", async () => {
+  it("a running scan job with an active lease is left for its healthy worker", async () => {
     const projectId = await insertProject("scanning");
     projectCleanup.push(projectId);
 
@@ -155,11 +155,11 @@ describe("recovery: jobs with expired leases after crash", () => {
     await reconcileStuckJobs();
 
     const [row] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
-    // Startup recovery treats all running rows as orphaned from the previous
-    // process; the active lease does not survive that process boundary.
-    expect(row.status).toBe("queued");
-    expect(row.workerId).toBeNull();
-    expect(row.leaseUntil).toBeNull();
+    // A second API instance must not interrupt a healthy worker merely because
+    // it is performing its own startup reconciliation.
+    expect(row.status).toBe("running");
+    expect(row.workerId).not.toBeNull();
+    expect(row.leaseUntil).not.toBeNull();
   });
 
   it("a pending discovery session is re-enqueued on recovery", async () => {

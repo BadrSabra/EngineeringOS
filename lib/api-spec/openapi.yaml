@@ -3715,6 +3715,41 @@ components:
           $ref: "#/components/schemas/AiDiagnosticsRetentionHealth"
         taskExecutionRetention:
           $ref: "#/components/schemas/TaskExecutionRetentionHealth"
+        jobRecovery:
+          $ref: "#/components/schemas/JobRecoveryHealth"
+
+    JobRecoveryHealth:
+      type: object
+      required:
+        - status
+        - queuedScanJobs
+        - pendingDiscoverySessions
+        - expiredScanLeases
+        - expiredDiscoveryLeases
+        - expiredTaskLeases
+        - retryExhaustedScanJobs
+        - retryExhaustedTasks
+      description: >
+        Content-free health projection of durable background work. A degraded
+        status means at least one worker lease has expired and needs recovery.
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded]
+        queuedScanJobs:
+          type: integer
+        pendingDiscoverySessions:
+          type: integer
+        expiredScanLeases:
+          type: integer
+        expiredDiscoveryLeases:
+          type: integer
+        expiredTaskLeases:
+          type: integer
+        retryExhaustedScanJobs:
+          type: integer
+        retryExhaustedTasks:
+          type: integer
 
     TaskExecutionRetentionHealth:
       type: object

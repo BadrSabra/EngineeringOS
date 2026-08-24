@@ -56,7 +56,7 @@ import {
   aiApplyJournalTable,
   aiChangeProposalsTable,
 } from "@workspace/db";
-import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, lt, or, count } from "drizzle-orm";
 import { invalidateContextCache } from "@workspace/ai-orchestrator";
 import { logger } from "./logger.js";
 import { heavyJobQueue } from "./job-queue.js";
@@ -212,6 +212,10 @@ async function reconcileInterruptedDeliveries(): Promise<number> {
  */
 async function reconcileScanJobs(): Promise<number> {
   const now = new Date();
+  const abandonedScan = or(
+    lt(scanJobsTable.leaseUntil, now),
+    isNull(scanJobsTable.leaseUntil),
+  );
 
   // ── 1. Running → failed ───────────────────────────────────────────────────
   // These jobs were actively executing when the process died. We cannot
@@ -227,7 +231,7 @@ async function reconcileScanJobs(): Promise<number> {
       maxRetries: scanJobsTable.maxRetries,
     })
     .from(scanJobsTable)
-    .where(eq(scanJobsTable.status, "running"));
+    .where(and(eq(scanJobsTable.status, "running"), abandonedScan));
 
   let retriedCount = 0;
   let failedCount  = 0;
@@ -237,7 +241,7 @@ async function reconcileScanJobs(): Promise<number> {
       // PR-01: Job was mid-flight when the process died. Re-queue it — transient
       // crashes (OOM, SIGKILL) shouldn't permanently fail a scan. Increment
       // retryCount so we eventually give up after maxRetries attempts.
-      await db
+      const [recovered] = await db
         .update(scanJobsTable)
         .set({
           status: "queued",
@@ -250,15 +254,20 @@ async function reconcileScanJobs(): Promise<number> {
           leaseUntil: null,
           lastHeartbeatAt: null,
         })
-        .where(eq(scanJobsTable.id, job.id));
+        .where(and(eq(scanJobsTable.id, job.id), eq(scanJobsTable.status, "running"), abandonedScan))
+        .returning({ id: scanJobsTable.id });
 
+      if (!recovered) {
+        logger.debug({ jobId: job.id }, "scan recovery lost ownership race");
+        continue;
+      }
       // PR-D1: use enqueueWithId to prevent double-execution if another
       // process or a concurrent reconciliation path already enqueued this job.
       heavyJobQueue.enqueueWithId(job.id, () => runScanJob(job.id, job.projectId));
       retriedCount++;
     } else {
       // Exceeded maxRetries — mark permanently failed and reset project status.
-      await db
+      const [recovered] = await db
         .update(scanJobsTable)
         .set({
           status: "failed",
@@ -269,7 +278,12 @@ async function reconcileScanJobs(): Promise<number> {
           leaseUntil: null,
           lastHeartbeatAt: null,
         })
-        .where(eq(scanJobsTable.id, job.id));
+        .where(and(eq(scanJobsTable.id, job.id), eq(scanJobsTable.status, "running"), abandonedScan))
+        .returning({ id: scanJobsTable.id });
+      if (!recovered) {
+        logger.debug({ jobId: job.id }, "scan failure recovery lost ownership race");
+        continue;
+      }
 
       // Only reset the project if it is still "scanning" — it may have already
       // been reassigned or completed by a newer job in the meantime.
@@ -340,6 +354,10 @@ async function reconcileScanJobs(): Promise<number> {
  */
 async function reconcileDiscoverySessions(): Promise<number> {
   const now = new Date();
+  const abandonedDiscovery = or(
+    lt(discoverySessionsTable.leaseUntil, now),
+    isNull(discoverySessionsTable.leaseUntil),
+  );
 
   // ── 1. Discovering → error ────────────────────────────────────────────────
   // These sessions were actively running the discovery pipeline. Their
@@ -347,10 +365,10 @@ async function reconcileDiscoverySessions(): Promise<number> {
   const discovering = await db
     .select({ id: discoverySessionsTable.id })
     .from(discoverySessionsTable)
-    .where(eq(discoverySessionsTable.status, "discovering"));
+    .where(and(eq(discoverySessionsTable.status, "discovering"), abandonedDiscovery));
 
-  for (const session of discovering) {
-    await db
+    for (const session of discovering) {
+      const [recovered] = await db
       .update(discoverySessionsTable)
       .set({
         status: "error",
@@ -361,7 +379,12 @@ async function reconcileDiscoverySessions(): Promise<number> {
         leaseUntil: null,
         lastHeartbeatAt: null,
       })
-      .where(eq(discoverySessionsTable.id, session.id));
+        .where(and(eq(discoverySessionsTable.id, session.id), eq(discoverySessionsTable.status, "discovering"), abandonedDiscovery))
+        .returning({ id: discoverySessionsTable.id });
+      if (!recovered) {
+        logger.debug({ sessionId: session.id }, "discovery recovery lost ownership race");
+        continue;
+      }
   }
 
   if (discovering.length > 0) {
@@ -490,7 +513,7 @@ export async function failStaleRunningJobs(): Promise<number> {
     if (staleJobs.length === 0) return 0;
 
     for (const job of staleJobs) {
-      await db
+      const [updated] = await db
         .update(scanJobsTable)
         .set({
           status: "failed",
@@ -502,7 +525,9 @@ export async function failStaleRunningJobs(): Promise<number> {
         })
         .where(
           and(eq(scanJobsTable.id, job.id), eq(scanJobsTable.status, "running")),
-        );
+        )
+        .returning({ id: scanJobsTable.id });
+      if (!updated) continue;
       staleCount++;
       logger.warn(
         {
@@ -520,6 +545,104 @@ export async function failStaleRunningJobs(): Promise<number> {
     logger.error({ err, scope: "job-reconciliation" }, "failStaleRunningJobs failed");
   }
   return staleCount;
+}
+
+/**
+ * Discovery has no safe checkpoint between pipeline steps. An abandoned
+ * session therefore becomes an explicit error once its lease expires rather
+ * than remaining "discovering" forever. The conditional update is the
+ * ownership fence: a live worker that heartbeats or finishes concurrently
+ * wins and is never clobbered by this sweep.
+ */
+export async function failStaleDiscoverySessions(): Promise<number> {
+  const now = new Date();
+  let failed = 0;
+  try {
+    const stale = await db
+      .select({ id: discoverySessionsTable.id, rootPath: discoverySessionsTable.rootPath })
+      .from(discoverySessionsTable)
+      .where(and(
+        eq(discoverySessionsTable.status, "discovering"),
+        lt(discoverySessionsTable.leaseUntil, now),
+      ));
+    for (const session of stale) {
+      const [updated] = await db.update(discoverySessionsTable).set({
+        status: "error",
+        error: "Discovery worker lease expired; restart discovery to retry.",
+        completedAt: now,
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+      }).where(and(
+        eq(discoverySessionsTable.id, session.id),
+        eq(discoverySessionsTable.status, "discovering"),
+        lt(discoverySessionsTable.leaseUntil, now),
+      )).returning({ id: discoverySessionsTable.id });
+      if (!updated) continue;
+      failed++;
+      logger.warn({
+        scope: "job-reconciliation",
+        code: "STALE_DISCOVERY_LEASE",
+        sessionId: session.id,
+      }, "discovery session lease expired — marked as error");
+    }
+  } catch (err) {
+    logger.error({ err, scope: "job-reconciliation" }, "failStaleDiscoverySessions failed");
+  }
+  return failed;
+}
+
+/**
+ * Reconcile abandoned AI task workers while the server remains healthy.
+ * Recovery is deliberately non-replaying: the task returns to verifying so
+ * a new execution can be explicitly started, preserving cancellation and
+ * avoiding duplicate model/tool side effects.
+ */
+export async function reconcileStaleAiTasks(): Promise<number> {
+  const now = new Date();
+  let recovered = 0;
+  try {
+    const stale = await db.select({
+      id: tasksTable.id,
+      projectId: tasksTable.projectId,
+      retryCount: tasksTable.retryCount,
+      maxRetries: tasksTable.maxRetries,
+    }).from(tasksTable).where(and(
+      eq(tasksTable.status, "running"),
+      lt(tasksTable.leaseUntil, now),
+    ));
+    for (const task of stale) {
+      const exhausted = task.retryCount >= task.maxRetries;
+      const [updated] = await db.update(tasksTable).set({
+        status: exhausted ? "failed" : "verifying",
+        retryCount: exhausted ? task.retryCount : task.retryCount + 1,
+        updatedAt: now,
+        completedAt: exhausted ? now : null,
+        workerId: null,
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+      }).where(and(
+        eq(tasksTable.id, task.id),
+        eq(tasksTable.status, "running"),
+        lt(tasksTable.leaseUntil, now),
+      )).returning({ id: tasksTable.id });
+      if (!updated) continue;
+      await db.insert(taskLogsTable).values({
+        id: randomUUID(),
+        taskId: task.id,
+        level: exhausted ? "error" : "warn",
+        message: exhausted
+          ? "Task failed because its worker lease expired and retry limit was reached."
+          : "Task returned to verifying because its worker lease expired; re-trigger to execute.",
+        correlationId: randomUUID(),
+      });
+      invalidateContextCache(task.projectId);
+      recovered++;
+    }
+  } catch (err) {
+    logger.error({ err, scope: "job-reconciliation" }, "reconcileStaleAiTasks failed");
+  }
+  return recovered;
 }
 
 /**
@@ -657,6 +780,61 @@ export async function dispatchPersistedPendingJobs(): Promise<number> {
   return dispatched;
 }
 
+/** Content-free durable queue health for operators and health checks. */
+export async function getDurableJobHealth(): Promise<{
+  status: "healthy" | "degraded";
+  queuedScanJobs: number;
+  pendingDiscoverySessions: number;
+  expiredScanLeases: number;
+  expiredDiscoveryLeases: number;
+  expiredTaskLeases: number;
+  retryExhaustedScanJobs: number;
+  retryExhaustedTasks: number;
+}> {
+  const now = new Date();
+  try {
+    const [
+      [queuedScans],
+      [pendingDiscoveries],
+      [expiredScans],
+      [expiredDiscoveries],
+      [expiredTasks],
+      [exhaustedScans],
+      [exhaustedTasks],
+    ] = await Promise.all([
+      db.select({ value: count() }).from(scanJobsTable).where(eq(scanJobsTable.status, "queued")),
+      db.select({ value: count() }).from(discoverySessionsTable).where(eq(discoverySessionsTable.status, "pending")),
+      db.select({ value: count() }).from(scanJobsTable).where(and(eq(scanJobsTable.status, "running"), lt(scanJobsTable.leaseUntil, now))),
+      db.select({ value: count() }).from(discoverySessionsTable).where(and(eq(discoverySessionsTable.status, "discovering"), lt(discoverySessionsTable.leaseUntil, now))),
+      db.select({ value: count() }).from(tasksTable).where(and(eq(tasksTable.status, "running"), lt(tasksTable.leaseUntil, now))),
+      db.select({ value: count() }).from(scanJobsTable).where(and(eq(scanJobsTable.status, "failed"), eq(scanJobsTable.retryCount, scanJobsTable.maxRetries))),
+      db.select({ value: count() }).from(tasksTable).where(and(eq(tasksTable.status, "failed"), eq(tasksTable.retryCount, tasksTable.maxRetries))),
+    ]);
+    const values = {
+      queuedScanJobs: Number(queuedScans.value),
+      pendingDiscoverySessions: Number(pendingDiscoveries.value),
+      expiredScanLeases: Number(expiredScans.value),
+      expiredDiscoveryLeases: Number(expiredDiscoveries.value),
+      expiredTaskLeases: Number(expiredTasks.value),
+      retryExhaustedScanJobs: Number(exhaustedScans.value),
+      retryExhaustedTasks: Number(exhaustedTasks.value),
+    };
+    return { status: values.expiredScanLeases + values.expiredDiscoveryLeases + values.expiredTaskLeases > 0 ? "degraded" : "healthy", ...values };
+  } catch (error) {
+    logger.error({ error, scope: "job-reconciliation" }, "durable job health query failed");
+    return {
+      status: "degraded",
+      queuedScanJobs: 0,
+      pendingDiscoverySessions: 0,
+      expiredScanLeases: 0,
+      expiredDiscoveryLeases: 0,
+      expiredTaskLeases: 0,
+      retryExhaustedScanJobs: 0,
+      retryExhaustedTasks: 0,
+    };
+  }
+}
+
 /**
  * Keep persisted pending work flowing while the server is alive. This
  * complements startup reconciliation and also lets a healthy instance recover
@@ -691,9 +869,11 @@ export function startStaleJobSweep(): NodeJS.Timeout {
     "stale-job sweep scheduled",
   );
   return setInterval(async () => {
-    const [failed, requeued, expiredUploads] = await Promise.all([
+    const [failed, requeued, failedDiscoveries, recoveredTasks, expiredUploads] = await Promise.all([
       failStaleRunningJobs(),
       requeueStalePendingJobs(),
+      failStaleDiscoverySessions(),
+      reconcileStaleAiTasks(),
       sweepExpiredUploads(),
     ]);
     if (failed > 0) {
@@ -701,6 +881,9 @@ export function startStaleJobSweep(): NodeJS.Timeout {
     }
     if (requeued > 0) {
       logger.warn({ requeued }, "stale-job sweep: stale pending scan jobs re-enqueued");
+    }
+    if (failedDiscoveries > 0 || recoveredTasks > 0) {
+      logger.warn({ failedDiscoveries, recoveredTasks }, "stale-job sweep: abandoned work reconciled");
     }
     if (expiredUploads > 0) {
       logger.info({ expiredUploads }, "stale-job sweep: expired upload entries removed");
@@ -729,6 +912,10 @@ export function startStaleJobSweep(): NodeJS.Timeout {
  */
 async function reconcileAiTasks(): Promise<number> {
   const now = new Date();
+  const abandonedTask = or(
+    lt(tasksTable.leaseUntil, now),
+    isNull(tasksTable.leaseUntil),
+  );
 
   const runningTasks = await db
     .select({
@@ -739,7 +926,7 @@ async function reconcileAiTasks(): Promise<number> {
       maxRetries: tasksTable.maxRetries,
     })
     .from(tasksTable)
-    .where(eq(tasksTable.status, "running"));
+    .where(and(eq(tasksTable.status, "running"), abandonedTask));
 
   if (runningTasks.length === 0) return 0;
 
@@ -763,7 +950,7 @@ async function reconcileAiTasks(): Promise<number> {
           leaseUntil: null,
           lastHeartbeatAt: null,
         })
-        .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running")))
+        .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running"), abandonedTask))
         .returning({ id: tasksTable.id });
 
       if (!resetTask) {
@@ -803,7 +990,7 @@ async function reconcileAiTasks(): Promise<number> {
           leaseUntil: null,
           lastHeartbeatAt: null,
         })
-        .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running")))
+        .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running"), abandonedTask))
         .returning({ id: tasksTable.id });
 
       if (!failedTask) {

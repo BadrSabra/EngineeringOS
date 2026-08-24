@@ -4,6 +4,8 @@ import { randomUUID } from "crypto";
 import { db, projectsTable, scanJobsTable, discoverySessionsTable, tasksTable, taskLogsTable } from "@workspace/db";
 import {
   dispatchPersistedPendingJobs,
+  failStaleDiscoverySessions,
+  reconcileStaleAiTasks,
   reconcileStuckJobs,
   requeueStalePendingJobs,
   STALE_PENDING_TIMEOUT_MS,
@@ -111,6 +113,50 @@ describe("reconcileStuckJobs", () => {
       .where(eq(projectsTable.id, projectId))
       .limit(1);
     expect(project[0]?.status).toBe("active");
+  });
+
+  it("only one concurrent reconciler owns an interrupted scan transition", async () => {
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+    const jobId = randomUUID();
+    await db.insert(scanJobsTable).values({
+      id: jobId,
+      projectId,
+      status: "running",
+      retryCount: 2,
+      maxRetries: 2,
+      startedAt: new Date(),
+      createdAt: new Date(),
+    });
+
+    await Promise.all([reconcileStuckJobs(), reconcileStuckJobs()]);
+
+    const [job] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+    expect(job.status).toBe("failed");
+    // The conditional recovery write prevents two reconciliation passes from
+    // both applying terminal side effects to the same durable row.
+    expect(job.error).toContain("retry limit");
+  });
+
+  it("does not recover a scan still leased by another healthy worker", async () => {
+    const projectId = await insertProject("scanning");
+    projectCleanup.push(projectId);
+    const jobId = randomUUID();
+    await db.insert(scanJobsTable).values({
+      id: jobId,
+      projectId,
+      status: "running",
+      workerId: randomUUID(),
+      leaseUntil: new Date(Date.now() + 60_000),
+      startedAt: new Date(),
+      createdAt: new Date(),
+    });
+
+    await reconcileStuckJobs();
+
+    const [job] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
+    expect(job.status).toBe("running");
+    expect(job.workerId).not.toBeNull();
   });
 
   // ── Scan jobs: queued → re-enqueued ────────────────────────────────────────
@@ -248,6 +294,46 @@ describe("reconcileStuckJobs", () => {
       sessionId,
       expect.any(Function),
     );
+  });
+
+  it("bounds abandoned discovery and AI-task workers by expiring their leases", async () => {
+    const sessionId = randomUUID();
+    sessionCleanup.push(sessionId);
+    await db.insert(discoverySessionsTable).values({
+      id: sessionId,
+      ownerId: "test-user",
+      status: "discovering",
+      rootPath: "/tmp/reconcile-expired-discovery",
+      sourceType: "LOCAL_FOLDER",
+      progress: 20,
+      currentStep: "Scanning source tree",
+      steps: [],
+      workerId: randomUUID(),
+      leaseUntil: new Date(Date.now() - 1_000),
+      startedAt: new Date(),
+    });
+
+    const projectId = await insertProject("active");
+    projectCleanup.push(projectId);
+    const taskId = randomUUID();
+    await db.insert(tasksTable).values({
+      id: taskId,
+      projectId,
+      title: "expired task",
+      status: "running",
+      workerId: randomUUID(),
+      leaseUntil: new Date(Date.now() - 1_000),
+      retryCount: 0,
+      maxRetries: 1,
+    });
+
+    expect(await failStaleDiscoverySessions()).toBe(1);
+    expect(await reconcileStaleAiTasks()).toBe(1);
+    const [session] = await db.select().from(discoverySessionsTable).where(eq(discoverySessionsTable.id, sessionId));
+    const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId));
+    expect(session.status).toBe("error");
+    expect(task.status).toBe("verifying");
+    expect(task.workerId).toBeNull();
   });
 
   // ── Cache invalidation ─────────────────────────────────────────────────────

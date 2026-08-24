@@ -537,12 +537,35 @@ export interface TaskExecutionRetentionHealth {
   receiptRowsRemoved: number;
 }
 
+export type JobRecoveryHealthStatus = typeof JobRecoveryHealthStatus[keyof typeof JobRecoveryHealthStatus];
+
+
+export const JobRecoveryHealthStatus = {
+  healthy: 'healthy',
+  degraded: 'degraded',
+} as const;
+
+/**
+ * Content-free health projection of durable background work. A degraded status means at least one worker lease has expired and needs recovery.
+ */
+export interface JobRecoveryHealth {
+  status: JobRecoveryHealthStatus;
+  queuedScanJobs: number;
+  pendingDiscoverySessions: number;
+  expiredScanLeases: number;
+  expiredDiscoveryLeases: number;
+  expiredTaskLeases: number;
+  retryExhaustedScanJobs: number;
+  retryExhaustedTasks: number;
+}
+
 export interface HealthStatus {
   status: HealthStatusStatus;
   jobQueue?: JobQueueStats;
   operationalCounters?: OperationalCounters;
   aiDiagnosticsRetention?: AiDiagnosticsRetentionHealth;
   taskExecutionRetention?: TaskExecutionRetentionHealth;
+  jobRecovery?: JobRecoveryHealth;
 }
 
 export interface GroqKeyStatus {

@@ -43,7 +43,17 @@ export const GetHealthResponse = zod.object({
   "taskLogRowsRemoved": zod.number(),
   "receiptRowsScanned": zod.number(),
   "receiptRowsRemoved": zod.number()
-}).optional().describe('Content-free status of the bounded task-log and terminal execution receipt retention sweep. Active and resumable executions are retained.\n')
+}).optional().describe('Content-free status of the bounded task-log and terminal execution receipt retention sweep. Active and resumable executions are retained.\n'),
+  "jobRecovery": zod.object({
+  "status": zod.enum(['healthy', 'degraded']),
+  "queuedScanJobs": zod.number(),
+  "pendingDiscoverySessions": zod.number(),
+  "expiredScanLeases": zod.number(),
+  "expiredDiscoveryLeases": zod.number(),
+  "expiredTaskLeases": zod.number(),
+  "retryExhaustedScanJobs": zod.number(),
+  "retryExhaustedTasks": zod.number()
+}).optional().describe('Content-free health projection of durable background work. A degraded status means at least one worker lease has expired and needs recovery.\n')
 })
 
 

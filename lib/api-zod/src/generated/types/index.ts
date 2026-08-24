@@ -222,6 +222,8 @@ export * from './healthStatusStatus';
 export * from './importProjectInput';
 export * from './importProjectInputOverrides';
 export * from './jobQueueStats';
+export * from './jobRecoveryHealth';
+export * from './jobRecoveryHealthStatus';
 export * from './layeredGraphSummary';
 export * from './layeredGraphSummaryByEdgeType';
 export * from './layeredGraphSummaryByLayer';

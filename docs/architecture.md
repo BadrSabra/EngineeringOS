@@ -111,7 +111,8 @@ Client POST /api/projects/discover
   → heavyJobQueue.enqueue(discoveryRunner)
        discoveryRunner: walks rootPath, extracts graph+metrics, inserts project row
        atomic claim: UPDATE discovery_sessions SET status=claimed WHERE status=pending
-  → job-reconciliation on startup: queued→re-enqueue, running→fail, pending→re-enqueue
+   → job-reconciliation on startup: queued→re-enqueue, expired running→retry/fail,
+     pending→re-enqueue, expired discovering→error
 ```
 
 See `.agents/memory/discovery-feature.md`, `.agents/memory/discovery-multi-source.md`, `.agents/memory/pr01-job-durability.md`.
@@ -130,7 +131,7 @@ Client POST /api/projects/:projectId/scan
          metrics-calc → quality scores
          knowledge-engine import (entities + relationships)
          DB: update metrics, insert events
-  → job-reconciliation on restart: interrupted→failed
+   → job-reconciliation on restart: interrupted/expired→retry within budget or failed
   → post-scan: triggers AI auto-trigger if project in "verifying" state (PR-C)
 ```
 
@@ -245,16 +246,33 @@ All agents: GroqClientError codes → `handleOrchestratorError` → 429/401/502/
 `heavyJobQueue` is a process-local, bounded-concurrency dispatcher (max 2
 concurrent slots), not the source of truth for queued work. The durable queue
 record is the existing `scan_jobs` or `discovery_sessions` row in Postgres.
+This is sufficient for the target deployment because API instances share
+Postgres and can rediscover work; introducing a third-party queue is not
+required by the current operational boundary. If deployment requirements
+change to require work execution independent of API lifetimes, the next
+boundary is a durable worker/checkpoint service rather than more in-memory
+queue state.
 
 - Each API instance periodically dispatches persisted `queued` scan jobs and
   `pending` discovery sessions into its local limiter.
 - PostgreSQL advisory locks plus atomic worker claims prevent duplicate work
   when multiple instances observe the same durable row.
-- On server startup, `lib/job-reconciliation.ts` audits the DB and resolves stale job states:
+- On server startup, `lib/job-reconciliation.ts` audits the DB and resolves abandoned job states:
   - `queued` → re-enqueue
-  - `running` → mark failed (process died mid-run)
+   - expired `running` → retry within the persisted retry budget, otherwise fail
   - `pending` → re-enqueue (for discovery sessions)
-  - `discovering` → mark error
+   - expired `discovering` → mark error (discovery has no safe checkpoint)
+   - expired AI task `running` → return to `verifying`, or fail when retries are exhausted
+- Every claim, heartbeat, terminal write, and recovery transition is fenced by
+  the current worker identity and status/lease predicate. A stale worker's
+  completion or follow-on mutation is ignored rather than being allowed to
+  overwrite a newer attempt.
+- A periodic dispatcher recovers fresh queued/pending rows after a commit-to-
+  dispatch crash window. A periodic stale sweep bounds expired scan,
+  discovery, and AI-task leases. Recovery is logged with stable operation IDs,
+  retry outcomes, and conflict skips; `/api/healthz` continues to expose the
+  local queue depth and operational degradation counters without presenting
+  recovered or incomplete work as success.
 - Scan jobs and discovery sessions both use this queue.
 
 ### Durability boundary
