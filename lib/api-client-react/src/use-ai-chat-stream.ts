@@ -176,6 +176,8 @@ export type AiStreamExecutionStartedEvent = {
   status: 'running' | 'queued';
   resumeToken?: string;
   resumable: boolean;
+  /** Safe operator-recovery outcome; never contains provider or runtime details. */
+  recoveryOutcome?: 'recovery_required' | 'resume_accepted' | 'abandoned' | 'already_abandoned' | null;
 };
 
 export type AiExecutionNodeStatus = 'queued' | 'running' | 'passed' | 'failed' | 'blocked';

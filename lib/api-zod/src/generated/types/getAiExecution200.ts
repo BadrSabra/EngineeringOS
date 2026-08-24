@@ -9,6 +9,7 @@ import type { GetAiExecution200Checkpoint } from './getAiExecution200Checkpoint'
 import type { GetAiExecution200EvidenceVerdict } from './getAiExecution200EvidenceVerdict';
 import type { GetAiExecution200FlightState } from './getAiExecution200FlightState';
 import type { GetAiExecution200Objective } from './getAiExecution200Objective';
+import type { GetAiExecution200Recovery } from './getAiExecution200Recovery';
 import type { GetAiExecution200Status } from './getAiExecution200Status';
 
 export type GetAiExecution200 = {
@@ -44,6 +45,7 @@ export type GetAiExecution200 = {
   operationId?: string | null;
   error?: string | null;
   resumable: boolean;
+  recovery?: GetAiExecution200Recovery;
   createdAt?: Date;
   updatedAt?: Date;
   startedAt?: Date | null;

@@ -5,6 +5,20 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+export type AiExecutionRecoveryRequestAction = typeof AiExecutionRecoveryRequestAction[keyof typeof AiExecutionRecoveryRequestAction];
+
+
+export const AiExecutionRecoveryRequestAction = {
+  resume: 'resume',
+  abandon: 'abandon',
+} as const;
+
+export interface AiExecutionRecoveryRequest {
+  action: AiExecutionRecoveryRequestAction;
+  /** @maxLength 2000 */
+  revision?: string | null;
+}
+
 export type ObjectiveContractRequiredClaimsItem = {
   /** @minLength 1 */
   claimId: string;
@@ -2783,6 +2797,14 @@ export const GetAiExecution200EvidenceVerdict = {
 
 export type GetAiExecution200Checkpoint = { [key: string]: unknown };
 
+export type GetAiExecution200Recovery = {
+  uncertain: boolean;
+  operationId: string | null;
+  revision: string | null;
+  phase: string | null;
+  outcome: string | null;
+};
+
 export type GetAiExecution200 = {
   /** UUID of the AI execution */
   id: string;
@@ -2816,6 +2838,7 @@ export type GetAiExecution200 = {
   operationId?: string | null;
   error?: string | null;
   resumable: boolean;
+  recovery?: GetAiExecution200Recovery;
   createdAt?: string;
   updatedAt?: string;
   startedAt?: string | null;
@@ -2847,6 +2870,24 @@ export type RecoverAiExecutionResumeCapability200 = {
   executionId: string;
   /** @minLength 32 */
   resumeToken: string;
+};
+
+export type RecoverAiExecution200Outcome = typeof RecoverAiExecution200Outcome[keyof typeof RecoverAiExecution200Outcome];
+
+
+export const RecoverAiExecution200Outcome = {
+  resume_accepted: 'resume_accepted',
+  abandoned: 'abandoned',
+  already_abandoned: 'already_abandoned',
+  already_running: 'already_running',
+} as const;
+
+export type RecoverAiExecution200 = {
+  executionId: string;
+  operationId?: string | null;
+  status: string;
+  outcome: RecoverAiExecution200Outcome;
+  resumeToken?: string | null;
 };
 
 export type CancelAiExecutionById200Status = typeof CancelAiExecutionById200Status[keyof typeof CancelAiExecutionById200Status];

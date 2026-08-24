@@ -305,6 +305,7 @@ function projectExecution(
   const evidenceVerdict = textValue(checkpoint.evidenceVerdict ?? checkpoint.evidenceStatus, 48);
   const autonomousOperation = asRecord(checkpoint.operation);
   const autonomousState = textValue(autonomousOperation?.state, 48);
+  const recovery = asRecord(checkpoint.recovery);
   const state = deriveFlightDeckState({
     executionStatus: execution.status,
     checkpointStage: textValue(checkpoint.stage, 48),
@@ -353,6 +354,12 @@ function projectExecution(
     recentEvents: steps.slice(-12).map(projectRecorderEvent),
     operationId: execution.operationId ?? execution.correlationId ?? execution.id,
     revision: operationEvidence?.revision ?? null,
+    phase: textValue(recovery?.phase) ?? autonomousState ?? textValue(checkpoint.stage),
+    recovery: {
+      uncertain: autonomousState === "uncertain",
+      outcome: textValue(recovery?.outcome),
+      action: textValue(recovery?.action),
+    },
     evidenceProjection: operationEvidence ? redactOperationEvidence(operationEvidence) : undefined,
     createdAt: execution.createdAt,
     updatedAt: execution.updatedAt,

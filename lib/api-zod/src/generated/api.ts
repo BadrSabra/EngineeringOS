@@ -2807,6 +2807,13 @@ export const GetAiExecutionResponse = zod.object({
   "operationId": zod.string().nullish().describe('Stable operation trace identity used by Apply'),
   "error": zod.string().nullish(),
   "resumable": zod.boolean(),
+  "recovery": zod.object({
+  "uncertain": zod.boolean(),
+  "operationId": zod.string().nullable(),
+  "revision": zod.string().nullable(),
+  "phase": zod.string().nullable(),
+  "outcome": zod.string().nullable()
+}).optional(),
   "createdAt": zod.coerce.date().optional(),
   "updatedAt": zod.coerce.date().optional(),
   "startedAt": zod.coerce.date().nullish(),
@@ -2879,6 +2886,32 @@ export const recoverAiExecutionResumeCapabilityResponseResumeTokenMin = 32;
 export const RecoverAiExecutionResumeCapabilityResponse = zod.object({
   "executionId": zod.string(),
   "resumeToken": zod.string().min(recoverAiExecutionResumeCapabilityResponseResumeTokenMin)
+})
+
+
+/**
+ * Owner-scoped, bounded recovery for an uncertain paused operation. The original operation, evidence, and user turn are retained.
+ * @summary Resume or abandon an uncertain AI execution
+ */
+export const RecoverAiExecutionParams = zod.object({
+  "executionId": zod.coerce.string()
+})
+
+export const recoverAiExecutionBodyRevisionMax = 2000;
+
+
+
+export const RecoverAiExecutionBody = zod.object({
+  "action": zod.enum(['resume', 'abandon']),
+  "revision": zod.string().max(recoverAiExecutionBodyRevisionMax).nullish()
+})
+
+export const RecoverAiExecutionResponse = zod.object({
+  "executionId": zod.string(),
+  "operationId": zod.string().nullish(),
+  "status": zod.string(),
+  "outcome": zod.enum(['resume_accepted', 'abandoned', 'already_abandoned', 'already_running']),
+  "resumeToken": zod.string().nullish()
 })
 
 

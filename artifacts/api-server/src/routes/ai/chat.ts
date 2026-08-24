@@ -121,6 +121,7 @@ import {
   parseAiExecutionCheckpoint,
   parseExecutionRequest,
   requestAiExecutionCancel,
+  requestAiExecutionRecovery,
   reconcileExecutionNodeCheckpoint,
   registerAiExecutionController,
   unregisterAiExecutionController,
@@ -2731,6 +2732,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     }
 
     let checkpointSequence = aiExecution.checkpointVersion;
+    const streamCheckpoint = parseAiExecutionCheckpoint(aiExecution.checkpoint);
     let checkpointFailure: unknown;
     const resumableStateForExecution = greetingTurnForExecution ? null : persistedActiveTaskState;
     const executionPlanForRun = !greetingTurnForExecution && approvedImplementationPlan
@@ -2837,6 +2839,16 @@ router.post("/ai/chat/stream", async (req, res) => {
       status: aiExecution.status,
       ...(executionResumeToken ? { resumeToken: executionResumeToken } : {}),
       resumable: true,
+      recoveryOutcome: (() => {
+        const recovery = (streamCheckpoint as (typeof streamCheckpoint & {
+          recovery?: unknown;
+        }) | undefined)?.recovery;
+        if (!recovery || typeof recovery !== "object") return null;
+        const outcome = (recovery as Record<string, unknown>).outcome;
+        return ["recovery_required", "resume_accepted", "abandoned", "already_abandoned"].includes(String(outcome))
+          ? outcome
+          : null;
+      })(),
     });
     if (executionNodeStates.length > 0) {
       sse({
@@ -4181,6 +4193,12 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     checkpoint: checkpointRecord,
     hasPendingProposal,
   });
+  const operationRecord = checkpointRecord.operation && typeof checkpointRecord.operation === "object"
+    ? checkpointRecord.operation as Record<string, unknown>
+    : undefined;
+  const recoveryRecord = checkpointRecord.recovery && typeof checkpointRecord.recovery === "object"
+    ? checkpointRecord.recovery as Record<string, unknown>
+    : undefined;
 
   return res.json({
     id: execution.id,
@@ -4223,6 +4241,13 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     startedAt: execution.startedAt,
     completedAt: execution.completedAt,
     resumable: execution.status === "paused" || execution.status === "failed",
+    recovery: {
+      uncertain: operationRecord?.state === "uncertain",
+      operationId,
+      revision: typeof storedRequest?.workspaceRevision === "string" ? storedRequest.workspaceRevision : null,
+      phase: typeof operationRecord?.state === "string" ? operationRecord.state : null,
+      outcome: typeof recoveryRecord?.outcome === "string" ? recoveryRecord.outcome : null,
+    },
   });
 });
 
@@ -4381,6 +4406,33 @@ router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
   };
   res.setHeader("Content-Disposition", `attachment; filename="execution-${execution.id}-audit.json"`);
   return res.json(body);
+});
+
+router.post("/ai/executions/:executionId/recovery", async (req, res) => {
+  const parsed = z.object({
+    action: z.enum(["resume", "abandon"]),
+    revision: z.string().min(1).max(2_000).optional(),
+  }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Recovery action must be resume or abandon." });
+  const recovered = await requestAiExecutionRecovery({
+    executionId: req.params.executionId,
+    userId: req.userId,
+    ...parsed.data,
+  });
+  if (!recovered) return res.status(404).json({ error: "AI execution not found" });
+  if (recovered.outcome === "stale") {
+    return res.status(409).json({ error: "This recovery request targets a stale workspace revision.", code: "EXECUTION_STALE" });
+  }
+  if (recovered.outcome === "not_eligible") {
+    return res.status(409).json({ error: "This execution is not eligible for operator recovery.", code: "EXECUTION_NOT_RECOVERABLE" });
+  }
+  return res.json({
+    executionId: recovered.execution.id,
+    operationId: recovered.execution.operationId,
+    status: recovered.execution.status,
+    outcome: recovered.outcome,
+    ...(recovered.resumeToken ? { resumeToken: recovered.resumeToken } : {}),
+  });
 });
 
 router.post("/ai/executions/:executionId/resume-capability", async (req, res) => {

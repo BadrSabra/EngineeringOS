@@ -31,6 +31,7 @@ import type {
   AiChatRequest,
   AiChatSession,
   AiCodeReview,
+  AiExecutionRecoveryRequest,
   AiFileContent,
   AiMissionControl,
   AiOrchestrateRequest,
@@ -112,6 +113,7 @@ import type {
   Project,
   ProjectSummary,
   ProviderKeyStatus,
+  RecoverAiExecution200,
   RecoverAiExecutionResumeCapability200,
   RegenerateMissionCorrelationReport200,
   ResumeAiDeliveryValidation200,
@@ -4872,6 +4874,79 @@ export const useRecoverAiExecutionResumeCapability = <TError = ErrorType<ApiErro
         TContext
       > => {
       return useMutation(getRecoverAiExecutionResumeCapabilityMutationOptions(options));
+    }
+
+export const getRecoverAiExecutionUrl = (executionId: string,) => {
+
+
+
+
+  return `/api/ai/executions/${executionId}/recovery`
+}
+
+/**
+ * Owner-scoped, bounded recovery for an uncertain paused operation. The original operation, evidence, and user turn are retained.
+ * @summary Resume or abandon an uncertain AI execution
+ */
+export const recoverAiExecution = async (executionId: string,
+    aiExecutionRecoveryRequest: AiExecutionRecoveryRequest, options?: RequestInit): Promise<RecoverAiExecution200> => {
+
+  return customFetch<RecoverAiExecution200>(getRecoverAiExecutionUrl(executionId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(aiExecutionRecoveryRequest)
+  }
+);}
+
+
+
+
+
+export const getRecoverAiExecutionMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recoverAiExecution>>, TError,{executionId: string;data: BodyType<AiExecutionRecoveryRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof recoverAiExecution>>, TError,{executionId: string;data: BodyType<AiExecutionRecoveryRequest>}, TContext> => {
+
+const mutationKey = ['recoverAiExecution'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recoverAiExecution>>, {executionId: string;data: BodyType<AiExecutionRecoveryRequest>}> = (props) => {
+          const {executionId,data} = props ?? {};
+
+          return  recoverAiExecution(executionId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecoverAiExecutionMutationResult = NonNullable<Awaited<ReturnType<typeof recoverAiExecution>>>
+    export type RecoverAiExecutionMutationBody = BodyType<AiExecutionRecoveryRequest>
+    export type RecoverAiExecutionMutationError = ErrorType<ApiError>
+
+    /**
+ * @summary Resume or abandon an uncertain AI execution
+ */
+export const useRecoverAiExecution = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recoverAiExecution>>, TError,{executionId: string;data: BodyType<AiExecutionRecoveryRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof recoverAiExecution>>,
+        TError,
+        {executionId: string;data: BodyType<AiExecutionRecoveryRequest>},
+        TContext
+      > => {
+      return useMutation(getRecoverAiExecutionMutationOptions(options));
     }
 
 export const getCancelAiExecutionByIdUrl = (executionId: string,) => {

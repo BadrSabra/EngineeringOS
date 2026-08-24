@@ -807,6 +807,107 @@ export async function recoverAiExecutionResumeToken(params: {
   return execution ? { execution, resumeToken } : undefined;
 }
 
+export type AiExecutionRecoveryAction = "resume" | "abandon";
+export type AiExecutionRecoveryOutcome =
+  | "resume_accepted"
+  | "abandoned"
+  | "already_abandoned"
+  | "already_running"
+  | "stale"
+  | "not_eligible";
+
+export type AiExecutionRecoveryResult = {
+  execution: AiExecution;
+  outcome: AiExecutionRecoveryOutcome;
+  resumeToken?: string;
+};
+
+function recoveryCheckpoint(execution: AiExecution): AiExecutionCheckpoint | undefined {
+  return parseAiExecutionCheckpoint(execution.checkpoint);
+}
+
+/**
+ * Operator recovery is deliberately narrower than the legacy capability
+ * endpoint. Only a paused execution whose server-owned operation is uncertain
+ * can be resumed or abandoned. The checkpoint and operation identity are
+ * retained for both outcomes; no new execution or user turn is created.
+ */
+export async function requestAiExecutionRecovery(params: {
+  executionId: string;
+  userId: string;
+  action: AiExecutionRecoveryAction;
+  revision?: string;
+}): Promise<AiExecutionRecoveryResult | undefined> {
+  const current = await getAiExecutionForUser(params.executionId, params.userId);
+  if (!current) return undefined;
+  const checkpoint = recoveryCheckpoint(current);
+  const operation = checkpoint?.operation;
+  const storedRevision = operation?.revisionManifest ?? null;
+  if (params.revision && params.revision !== storedRevision) {
+    return { execution: current, outcome: "stale" };
+  }
+  const priorRecovery = checkpoint && typeof checkpoint === "object"
+    ? (checkpoint as AiExecutionCheckpoint & { recovery?: { action?: string } }).recovery
+    : undefined;
+  if (priorRecovery?.action === "abandon" || current.status === "cancelled") {
+    return { execution: current, outcome: "already_abandoned" };
+  }
+  if (params.action === "resume" && priorRecovery?.action === "resume") {
+    return { execution: current, outcome: "resume_accepted" };
+  }
+  if (params.action === "resume" && current.status === "running") {
+    return { execution: current, outcome: "already_running" };
+  }
+  if (current.status !== "paused" || operation?.state !== "uncertain") {
+    return { execution: current, outcome: "not_eligible" };
+  }
+
+  if (params.action === "resume") {
+    const resumeToken = createResumeToken();
+    const nextCheckpoint = {
+      ...checkpoint,
+      recovery: { action: "resume", outcome: "resume_accepted", updatedAt: new Date().toISOString() },
+    };
+    const [updated] = await db.update(aiExecutionsTable).set({
+      resumeTokenHash: hashResumeToken(resumeToken),
+      checkpoint: JSON.stringify(nextCheckpoint),
+      updatedAt: new Date(),
+    }).where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.userId, params.userId),
+      eq(aiExecutionsTable.status, "paused"),
+    )).returning();
+    return updated
+      ? { execution: updated, outcome: "resume_accepted", resumeToken }
+      : { execution: current, outcome: "not_eligible" };
+  }
+
+  const now = new Date();
+  const nextCheckpoint = {
+    ...checkpoint,
+    stage: "cancelled" as const,
+    sequence: Date.now(),
+    recovery: { action: "abandon", outcome: "abandoned", updatedAt: now.toISOString() },
+    updatedAt: now.toISOString(),
+  };
+  const [updated] = await db.update(aiExecutionsTable).set({
+    status: "cancelled",
+    checkpoint: JSON.stringify(nextCheckpoint),
+    checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+    completedAt: now,
+    updatedAt: now,
+    leaseUntil: null,
+    lastHeartbeatAt: null,
+  }).where(and(
+    eq(aiExecutionsTable.id, params.executionId),
+    eq(aiExecutionsTable.userId, params.userId),
+    eq(aiExecutionsTable.status, "paused"),
+  )).returning();
+  return updated
+    ? { execution: updated, outcome: "abandoned" }
+    : { execution: current, outcome: "not_eligible" };
+}
+
 export async function claimAiExecution(params: {
   executionId: string;
   userId: string;
@@ -1120,19 +1221,39 @@ export function unregisterAiExecutionController(executionId: string, controller:
 
 export async function reconcileAiExecutions(): Promise<number> {
   const now = new Date();
-  const result = await db
-    .update(aiExecutionsTable)
-    .set({
+  const running = await db.select().from(aiExecutionsTable).where(eq(aiExecutionsTable.status, "running"));
+  let count = 0;
+  for (const execution of running) {
+    const checkpoint = parseAiExecutionCheckpoint(execution.checkpoint);
+    const operation = checkpoint?.operation;
+    const uncertainOperation = operation
+      ? { ...operation, state: "uncertain" as const, updatedAt: now.toISOString() }
+      : undefined;
+    const nextCheckpoint = checkpoint
+      ? {
+          ...checkpoint,
+          ...(uncertainOperation ? { operation: uncertainOperation } : {}),
+          recovery: {
+            action: "uncertain",
+            phase: operation?.state ?? null,
+            outcome: "recovery_required",
+            updatedAt: now.toISOString(),
+          },
+          updatedAt: now.toISOString(),
+        }
+      : undefined;
+    const [updated] = await db.update(aiExecutionsTable).set({
       status: "paused",
-      error: "Execution interrupted by server restart; resume explicitly to continue.",
+      error: "Execution interrupted; operator recovery is required.",
       workerId: null,
       leaseUntil: null,
       lastHeartbeatAt: null,
       updatedAt: now,
-    })
-    .where(eq(aiExecutionsTable.status, "running"))
-    .returning({ id: aiExecutionsTable.id });
-  return result.length;
+      ...(nextCheckpoint ? { checkpoint: JSON.stringify(nextCheckpoint) } : {}),
+    }).where(and(eq(aiExecutionsTable.id, execution.id), eq(aiExecutionsTable.status, "running"))).returning({ id: aiExecutionsTable.id });
+    if (updated) count += 1;
+  }
+  return count;
 }
 
 export async function listRecoverableAiExecutions(userId: string, sessionId: string): Promise<AiExecution[]> {

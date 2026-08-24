@@ -1544,6 +1544,16 @@ paths:
                   operationId: { type: string, nullable: true, description: Stable operation trace identity used by Apply, Commit, and Push }
                   error: { type: string, nullable: true }
                   resumable: { type: boolean }
+                  recovery:
+                    type: object
+                    required: [uncertain, operationId, revision, phase, outcome]
+                    properties:
+                      uncertain: { type: boolean }
+                      operationId: { type: string, nullable: true }
+                      revision: { type: string, nullable: true }
+                      phase: { type: string, nullable: true }
+                      outcome: { type: string, nullable: true }
+                    additionalProperties: false
                   createdAt: { type: string, format: date-time }
                   updatedAt: { type: string, format: date-time }
                   startedAt: { type: string, format: date-time, nullable: true }
@@ -1633,12 +1643,47 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
-        "409":
-          description: Execution is not paused or failed
+  /api/ai/executions/{executionId}/recovery:
+    post:
+      operationId: recoverAiExecution
+      summary: Resume or abandon an uncertain AI execution
+      description: Owner-scoped, bounded recovery for an uncertain paused operation. The original operation, evidence, and user turn are retained.
+      tags: [AI]
+      parameters:
+        - name: executionId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiExecutionRecoveryRequest"
+      responses:
+        "200":
+          description: Idempotent recovery outcome
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ApiError"
+                type: object
+                required: [executionId, status, outcome]
+                properties:
+                  executionId: { type: string }
+                  operationId: { type: string, nullable: true }
+                  status: { type: string }
+                  outcome: { type: string, enum: [resume_accepted, abandoned, already_abandoned, already_running] }
+                  resumeToken: { type: string, nullable: true }
+        "404":
+          description: Execution not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "409":
+          description: Recovery is stale or not eligible
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
   /api/ai/executions/{executionId}/cancel:
     post:
       operationId: cancelAiExecutionById
@@ -3111,6 +3156,14 @@ components:
         SDK after sign-in — no manual header injection is needed.
 
   schemas:
+    AiExecutionRecoveryRequest:
+      type: object
+      additionalProperties: false
+      required: [action]
+      properties:
+        action: { type: string, enum: [resume, abandon] }
+        revision: { type: string, nullable: true, maxLength: 2000 }
+
     ObjectiveContract:
       type: object
       additionalProperties: false

@@ -51,6 +51,7 @@ type MissionExecution = {
   operationId?: unknown;
   revision?: unknown;
   evidenceProjection?: unknown;
+  phase?: unknown;
 };
 
 type MetricEntry = {
@@ -702,6 +703,36 @@ export default function MissionControl() {
   const selectedImportedExecution = importedHistory?.executions.find((execution) => execution.id === comparisonImportedId)
     ?? importedHistory?.executions[0];
   const updatedLabel = formatDate(typedData?.updatedAt);
+  const [recoveryPendingId, setRecoveryPendingId] = useState<string | null>(null);
+  const [recoveryMessage, setRecoveryMessage] = useState<string | null>(null);
+
+  async function recoverExecution(execution: MissionExecution, action: 'resume' | 'abandon') {
+    const recovery = asRecord(execution.recovery);
+    if (recovery?.uncertain !== true || recoveryPendingId) return;
+    setRecoveryPendingId(execution.id);
+    setRecoveryMessage(null);
+    try {
+      const response = await fetch(`/api/ai/executions/${encodeURIComponent(execution.id)}/recovery`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          action,
+          ...(typeof execution.revision === 'string' && execution.revision ? { revision: execution.revision } : {}),
+        }),
+      });
+      const body = await response.json().catch(() => ({})) as { error?: string; outcome?: string };
+      if (!response.ok) throw new Error(body.error || 'Recovery is no longer available for this run.');
+      setRecoveryMessage(body.outcome === 'abandoned'
+        ? 'Run abandoned safely. Its original evidence remains available.'
+        : 'Resume accepted. Open the AI Assistant to continue from the saved checkpoint.');
+      await refetch();
+    } catch (error) {
+      setRecoveryMessage(error instanceof Error ? error.message : 'Recovery could not be completed.');
+    } finally {
+      setRecoveryPendingId(null);
+    }
+  }
 
   async function handleHistoryImport(event: React.ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.target.files?.[0];
@@ -943,6 +974,7 @@ export default function MissionControl() {
                           <span className="inline-flex items-center gap-1"><TerminalSquare className="h-3 w-3 text-muted-foreground" />{eventCount} events</span>
                            {failureCategory && <span>Failure: {failureCategory}</span>}
                            {recoveryAction && <span>Action: {recoveryAction}</span>}
+                           {asRecord(execution.recovery)?.uncertain === true && <span className="font-semibold text-amber-200">Uncertain recovery required</span>}
                         </div>
                       </div>
                       <ExternalLink className="mt-1 h-4 w-4 shrink-0 text-muted-foreground" />
@@ -1022,6 +1054,30 @@ export default function MissionControl() {
               )}
             </div>
           </section>
+
+           {asRecord(selectedExecution?.recovery)?.uncertain === true && selectedExecution && (
+             <section className="rounded-xl border border-amber-500/35 bg-amber-500/5 p-4" aria-label="Uncertain execution recovery">
+               <div className="flex items-start gap-3">
+                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
+                 <div className="min-w-0 flex-1">
+                   <h2 className="font-semibold text-amber-100">Uncertain run needs a decision</h2>
+                   <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                     Operation {textValue(selectedExecution.operationId) ?? selectedExecution.id} · revision {textValue(selectedExecution.revision) ?? 'not recorded'} · phase {textValue(selectedExecution.phase) ?? 'unknown'}.
+                     The original user turn and evidence receipt are preserved.
+                   </p>
+                   <div className="mt-3 flex flex-wrap gap-2">
+                     <button type="button" disabled={recoveryPendingId === selectedExecution.id} onClick={() => void recoverExecution(selectedExecution, 'resume')} className="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground hover-elevate disabled:opacity-50">
+                       {recoveryPendingId === selectedExecution.id ? 'Working…' : 'Resume once'}
+                     </button>
+                     <button type="button" disabled={recoveryPendingId === selectedExecution.id} onClick={() => void recoverExecution(selectedExecution, 'abandon')} className="rounded-md border border-amber-500/35 px-3 py-2 text-xs font-semibold text-amber-100 hover-elevate disabled:opacity-50">
+                       Abandon safely
+                     </button>
+                   </div>
+                   {recoveryMessage && <p className="mt-2 text-[11px] text-amber-100" role="status">{recoveryMessage}</p>}
+                 </div>
+               </div>
+             </section>
+           )}
 
           <section className="rounded-xl border border-border bg-card">
             <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3.5">
