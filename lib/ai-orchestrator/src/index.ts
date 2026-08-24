@@ -528,6 +528,7 @@ export type { BaselineApprovalOptions } from "./benchmark/baseline-approval.js";
 export {
   AUTONOMOUS_DELIVERY_ACCEPTANCE_VERSION,
   buildAutonomousDeliveryAcceptanceSummary,
+  validateAutonomousDeliveryCampaignPolicy,
   validateAutonomousDeliveryAcceptanceReceipts,
 } from "./benchmark/autonomous-delivery-acceptance.js";
 export type {

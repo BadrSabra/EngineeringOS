@@ -85,4 +85,15 @@ describe("autonomous delivery acceptance", () => {
       redacted: true,
     });
   });
+
+  it("rejects policies that could enable side effects without a live isolated campaign", () => {
+    expect(() => buildAutonomousDeliveryAcceptanceSummary({
+      campaign: { ...campaign, deployment: true },
+      receipts: [],
+    })).toThrow("deployment side effects require an explicitly live provider campaign");
+    expect(() => buildAutonomousDeliveryAcceptanceSummary({
+      campaign: { ...campaign, isolated: false as true },
+      receipts: [],
+    })).toThrow("campaign workspace must be isolated");
+  });
 });

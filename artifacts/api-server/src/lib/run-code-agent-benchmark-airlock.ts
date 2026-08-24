@@ -49,6 +49,28 @@ const benchmarkTargetPaths = [
   ...new Set(allCases.flatMap((testCase) => defaultApiBenchmarkTargetPaths(testCase))),
 ];
 const freeOnly = process.env.BENCHMARK_FREE_ONLY === "true";
+const liveCampaign = process.env.BENCHMARK_LIVE_CAMPAIGN === "1";
+const campaignModeSelection = process.env.BENCHMARK_MODE?.trim() || "live";
+if (campaignModeSelection !== "live") {
+  throw new Error("BENCHMARK_MODE must be live; deterministic release checks do not run this provider campaign.");
+}
+if (!liveCampaign) {
+  throw new Error(
+    "Live benchmark campaigns are measurement-only; set BENCHMARK_LIVE_CAMPAIGN=1 explicitly.",
+  );
+}
+if (!process.env.BENCHMARK_OUTPUT_DIR?.trim()) {
+  throw new Error(
+    "Live benchmark campaigns require BENCHMARK_OUTPUT_DIR so release artifacts cannot be overwritten.",
+  );
+}
+const campaignTimeoutMs = Number.parseInt(
+  process.env.BENCHMARK_CAMPAIGN_TIMEOUT_MS ?? "900000",
+  10,
+);
+if (!Number.isInteger(campaignTimeoutMs) || campaignTimeoutMs < 1) {
+  throw new Error("BENCHMARK_CAMPAIGN_TIMEOUT_MS must be a positive integer.");
+}
 const campaignMode = (process.env.BENCHMARK_CAMPAIGN_MODE?.trim() || "clean-witness") as BenchmarkCampaignMode;
 if (campaignMode !== "coverage" && campaignMode !== "clean-witness") {
   throw new Error("BENCHMARK_CAMPAIGN_MODE must be coverage or clean-witness.");
@@ -94,6 +116,14 @@ const outputDir = path.resolve(
         shardLabel ?? "",
       ),
 );
+if (campaignModeSelection === "live") {
+  const relativeOutput = path.relative(sourceRoot, outputDir);
+  if (relativeOutput === "" || (!relativeOutput.startsWith("..") && !path.isAbsolute(relativeOutput))) {
+    throw new Error(
+      "Live benchmark output must be outside the source workspace; use a disposable campaign directory such as /tmp/engineeringos-live-campaign.",
+    );
+  }
+}
 const runId = process.env.BENCHMARK_RUN_ID?.trim() ||
   `airlock-${shardLabel ? `${shardLabel}-` : ""}${Date.now()}`;
 const generatedAt = new Date().toISOString();
@@ -378,6 +408,8 @@ if (shard) {
   });
 }
 const isolated = await createIsolatedBenchmarkRoot();
+const campaignController = new AbortController();
+const campaignTimer = setTimeout(() => campaignController.abort(), campaignTimeoutMs);
 let providerHealth: readonly ProviderHealthProbeResult[] = [];
 let latestObservations = initialResults;
 function mergeObservations(
@@ -417,6 +449,7 @@ try {
     promptForCase: defaultApiBenchmarkPrompt,
     historyForCase: defaultApiBenchmarkHistory,
     caseTimeoutMs: Number.parseInt(process.env.BENCHMARK_CASE_TIMEOUT_MS ?? "90000", 10),
+    signal: campaignController.signal,
     onProviderHealth: async (health) => {
       providerHealth = health;
     },
@@ -527,5 +560,6 @@ ${(acceptance?.operations ?? []).map((operation) =>
     outputDir,
   }, null, 2));
 } finally {
+  clearTimeout(campaignTimer);
   await isolated.cleanup();
 }

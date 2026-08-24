@@ -271,6 +271,7 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
     generatedAt: opts.generatedAt,
     onObservation: opts.onObservation,
     onHealth: opts.onProviderHealth,
+    signal: opts.signal,
   });
 }
 

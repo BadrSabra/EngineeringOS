@@ -1399,6 +1399,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       process.env.DASHBOARD_E2E_LIVE_PROVIDER !== "1",
       "Live-provider release journey is opt-in.",
     );
+    if (process.env.DASHBOARD_E2E_LIVE_DISPOSABLE !== "1") {
+      throw new Error(
+        "Live-provider journey requires DASHBOARD_E2E_LIVE_DISPOSABLE=1 and a disposable project.",
+      );
+    }
     const projectId = process.env.DASHBOARD_E2E_LIVE_PROJECT_ID;
     if (!projectId)
       throw new Error(

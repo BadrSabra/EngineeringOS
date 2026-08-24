@@ -377,6 +377,19 @@ test("the opt-in live journey requests and captures forensic proof", () => {
   );
 });
 
+test("the live journey requires an explicitly disposable project", () => {
+  assert.match(
+    journeySource,
+    /DASHBOARD_E2E_LIVE_DISPOSABLE !== "1"/,
+    "Live browser campaigns must not run against an unspecified or production project.",
+  );
+  assert.match(
+    journeySource,
+    /DASHBOARD_E2E_LIVE_PROJECT_ID/,
+    "Live browser campaigns must identify their disposable project.",
+  );
+});
+
 test("runs the mission correlation report contract before browser startup", () => {
   assert.match(
     runnerSource,

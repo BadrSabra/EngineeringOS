@@ -99,7 +99,7 @@ function buildAcceptanceSummary(
 ): AutonomousDeliveryAcceptanceSummary {
   return buildAutonomousDeliveryAcceptanceSummary({
     campaign: {
-      provider: mode === "free-only" ? "live" : "deterministic",
+      provider: mode === "live" || mode === "free-only" ? "live" : "deterministic",
       browser: false,
       deployment: false,
       remoteDelivery: false,
@@ -154,6 +154,7 @@ export async function runCodeAgentBenchmarkAirlock(args: {
   runId: string;
   startedAt?: string;
   generatedAt?: string;
+  signal?: AbortSignal;
   onObservation?: (
     observation: BenchmarkAirlockObservation,
     observations: readonly BenchmarkAirlockObservation[],
@@ -311,6 +312,9 @@ export async function runCodeAgentBenchmarkAirlock(args: {
       providerCursor += 1;
       providerAttempts += 1;
       selectedProvider = provider;
+      if (args.signal?.aborted) {
+        throw new Error("Benchmark campaign exceeded its configured timeout.");
+      }
       const candidate = await provider.executeCase(testCase);
       telemetry = candidate;
       if (!candidate.providerUnavailable) break;

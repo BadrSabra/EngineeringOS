@@ -186,6 +186,22 @@ still require isolated workspaces and redacted receipts. These lanes are
 measurement-only and must not be added to the production operation path or
 make deterministic release checks depend on external availability.
 
+Live benchmark campaigns require both an explicit opt-in and a disposable
+output directory outside the repository:
+
+```bash
+BENCHMARK_LIVE_CAMPAIGN=1 \
+BENCHMARK_OUTPUT_DIR=/tmp/engineeringos-live-campaign \
+BENCHMARK_CAMPAIGN_TIMEOUT_MS=900000 \
+pnpm --filter @workspace/api-server run benchmark:airlock
+```
+
+The live runner also creates a temporary isolated source workspace and removes
+it after the campaign. `BENCHMARK_CAMPAIGN_TIMEOUT_MS` bounds the complete
+campaign, while per-case timeouts remain independently configurable. Live
+results are evidence for review only; they are never consumed as the
+deterministic release gate.
+
 Representative fixture coverage is the existing 34-case manifest: single and
 multi-file edits, test/typecheck repair, dependency and conflict recovery,
 cancellation, scope enforcement, malformed output, decomposition, and safely

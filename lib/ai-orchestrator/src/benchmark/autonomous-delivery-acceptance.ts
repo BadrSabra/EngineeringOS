@@ -58,6 +58,21 @@ export type AutonomousDeliveryAcceptanceSummary = {
   }>;
 };
 
+export function validateAutonomousDeliveryCampaignPolicy(
+  campaign: AutonomousDeliveryCampaignPolicy,
+): string[] {
+  const errors: string[] = [];
+  if (campaign.isolated !== true) errors.push("campaign workspace must be isolated");
+  if (campaign.redacted !== true) errors.push("campaign receipts must be redacted");
+  if (campaign.deployment && campaign.provider !== "live") {
+    errors.push("deployment side effects require an explicitly live provider campaign");
+  }
+  if (campaign.remoteDelivery && campaign.provider !== "live") {
+    errors.push("remote delivery side effects require an explicitly live provider campaign");
+  }
+  return errors;
+}
+
 const OUTCOMES: readonly AcceptanceTerminalOutcome[] = [
   "completed",
   "safely-blocked",
@@ -101,6 +116,10 @@ export function buildAutonomousDeliveryAcceptanceSummary(args: {
   campaign: AutonomousDeliveryCampaignPolicy;
   receipts: readonly AutonomousDeliveryAcceptanceReceipt[];
 }): AutonomousDeliveryAcceptanceSummary {
+  const policyErrors = validateAutonomousDeliveryCampaignPolicy(args.campaign);
+  if (policyErrors.length > 0) {
+    throw new Error(`Invalid autonomous delivery campaign policy: ${policyErrors.join("; ")}`);
+  }
   const errors = validateAutonomousDeliveryAcceptanceReceipts(args.receipts);
   if (errors.length > 0) {
     throw new Error(`Invalid autonomous delivery acceptance receipts: ${errors.join("; ")}`);
