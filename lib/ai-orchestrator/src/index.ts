@@ -525,6 +525,17 @@ export {
   approveCodeAgentBenchmarkBaseline,
 } from "./benchmark/baseline-approval.js";
 export type { BaselineApprovalOptions } from "./benchmark/baseline-approval.js";
+export {
+  AUTONOMOUS_DELIVERY_ACCEPTANCE_VERSION,
+  buildAutonomousDeliveryAcceptanceSummary,
+  validateAutonomousDeliveryAcceptanceReceipts,
+} from "./benchmark/autonomous-delivery-acceptance.js";
+export type {
+  AcceptanceTerminalOutcome,
+  AutonomousDeliveryAcceptanceReceipt,
+  AutonomousDeliveryAcceptanceSummary,
+  AutonomousDeliveryCampaignPolicy,
+} from "./benchmark/autonomous-delivery-acceptance.js";
 
 export {
   resolveModel,

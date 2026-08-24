@@ -154,3 +154,35 @@ Each Airlock run includes:
 
 The quality scorecard excludes `U` from quality rates, but `U` remains a
 rollout blocker and prevents baseline approval.
+
+## Unified operation-loop acceptance
+
+The benchmark scorecard is a case-quality report. The separate
+`autonomous-delivery-acceptance` reducer is the acceptance boundary for
+measuring the Task #46 unified operation loop. Its input is a bounded receipt
+per operation, keyed by `operationId` and `caseId`; it never starts an
+operation, writes production state, or treats an HTTP/model success as proof.
+
+Each receipt has exactly one terminal outcome:
+
+- `completed`: delivery is verified against the candidate bytes;
+- `safely-blocked`: the system stopped with a known safety or evidence reason;
+- `failed`: execution produced a known failure;
+- `uncertain`: evidence was missing, interrupted, or could not be reconciled.
+
+Recovery, scope violation, and repeated side effects are reported separately
+from terminal outcome. A completed receipt with an escape or repeated side
+effect is not counted as a verified completion. Duplicate operation identities
+and unverifiable completions fail closed.
+
+The campaign policy is deterministic by default. Provider, browser,
+deployment, and remote-delivery lanes must each be explicitly enabled and
+still require isolated workspaces and redacted receipts. These lanes are
+measurement-only and must not be added to the production operation path or
+make deterministic release checks depend on external availability.
+
+Representative fixture coverage is the existing 34-case manifest: single and
+multi-file edits, test/typecheck repair, dependency and conflict recovery,
+cancellation, scope enforcement, malformed output, decomposition, and safely
+blocked evidence. No production repository or production execution data is
+used as campaign input.
