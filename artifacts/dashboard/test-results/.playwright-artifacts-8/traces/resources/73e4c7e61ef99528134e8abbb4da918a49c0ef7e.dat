@@ -1,0 +1,10 @@
+data: {"type":"session_started","sessionId":"e2e-interrupted-resume-session"}
+
+data: {"type":"execution_started","executionId":"e2e-interrupted-resume-execution","status":"running","resumable":true,"resumeToken":"e2e-interrupted-recovered-token"}
+
+data: {"type":"stage","stage":"resuming-checkpoint"}
+
+data: {"type":"delta","delta":"The original release execution resumed after capability recovery."}
+
+data: {"type":"done","sessionId":"e2e-interrupted-resume-session","executionId":"e2e-interrupted-resume-execution","message":{"id":"e2e-interrupted-resume-message","sessionId":"e2e-interrupted-resume-session","role":"assistant","content":"The original release execution resumed after capability recovery.","executionId":"e2e-interrupted-resume-execution","outcome":"COMPLETED","createdAt":"2026-01-01T00:03:00.000Z"},"pendingChanges":[]}
+

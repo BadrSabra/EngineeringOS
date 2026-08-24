@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/react';
-import { Bot, Send, Plus, ChevronDown, Loader2, User, Zap, Search, Code2, GitMerge, Key, Trash2, Check, FileCode2, ChevronRight, X, Menu, Activity, ShieldAlert, ShieldCheck, CheckCircle2, FileSearch, RotateCcw, Square, Eye, Play, Pause, SkipBack, StepForward, ExternalLink, Clock3, Download } from 'lucide-react';
+import { Bot, Send, Plus, ChevronDown, Loader2, User, Zap, Search, Code2, GitMerge, Key, Trash2, Check, FileCode2, ChevronRight, X, Menu, Activity, ShieldAlert, ShieldCheck, CheckCircle2, FileSearch, RotateCcw, Square, Eye, Play, Pause, SkipBack, StepForward, ExternalLink, Clock3, Download, AlertCircle } from 'lucide-react';
 import { Link } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -6244,6 +6244,8 @@ function AgentExecutionProofPanel({
   exportPending,
   previewPending,
   auditPreview,
+  auditPreviewError,
+  onRetryPreview,
   onClosePreview,
   controlPending,
 }: {
@@ -6279,6 +6281,8 @@ function AgentExecutionProofPanel({
   exportPending?: boolean;
   previewPending?: boolean;
   auditPreview?: AuditPreview | null;
+  auditPreviewError?: string | null;
+  onRetryPreview?: () => void;
   onClosePreview?: () => void;
   controlPending?: boolean;
 }) {
@@ -6507,8 +6511,41 @@ function AgentExecutionProofPanel({
         </div>
       </div>
 
-      {auditPreview && (
+      {(auditPreview || auditPreviewError) && (
         <div className="border-b border-border/40 bg-background/30 px-3 py-3" aria-label="Redacted audit preview">
+          {auditPreviewError ? (
+            <div className="flex items-start gap-2.5">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold text-foreground">Audit preview temporarily unavailable</div>
+                <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+                  The redacted audit handoff is still available. Check the connection and retry this same execution and revision.
+                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={onRetryPreview}
+                    disabled={previewPending}
+                    aria-busy={previewPending}
+                  >
+                    {previewPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                    {previewPending ? 'Retrying…' : 'Retry preview'}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={onClosePreview}
+                    className="rounded p-1 text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                    aria-label="Close audit preview"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : auditPreview && (
+          <>
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
@@ -6541,6 +6578,8 @@ function AgentExecutionProofPanel({
           <pre className="mt-2 max-h-72 overflow-auto rounded-lg border border-border/50 bg-background/70 p-2.5 text-[9px] leading-4 text-foreground/80">
             {JSON.stringify(auditPreview, null, 2)}
           </pre>
+          </>
+          )}
         </div>
       )}
 
@@ -6685,6 +6724,7 @@ export default function AiChat() {
   const [auditExportPending, setAuditExportPending] = useState(false);
   const [auditPreviewPending, setAuditPreviewPending] = useState(false);
   const [auditPreview, setAuditPreview] = useState<AuditPreview | null>(null);
+  const [auditPreviewError, setAuditPreviewError] = useState<string | null>(null);
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [historicalReportError, setHistoricalReportError] = useState<string | null>(null);
   const [planDecisionPending, setPlanDecisionPending] = useState<string | null>(null);
@@ -6838,6 +6878,7 @@ export default function AiChat() {
 
   useEffect(() => {
     setAuditPreview(null);
+    setAuditPreviewError(null);
   }, [activeExecution?.id]);
 
   async function fetchExecutionAudit(): Promise<{ audit: AuditPreview; filename: string }> {
@@ -6863,13 +6904,15 @@ export default function AiChat() {
   async function previewExecutionAudit() {
     if (!activeExecution?.id || auditPreviewPending || auditExportPending) return;
     setAuditPreviewPending(true);
+    setAuditPreviewError(null);
     try {
       const { audit } = await fetchExecutionAudit();
       setAuditPreview(audit);
     } catch (error) {
+      setAuditPreviewError('temporary_network_failure');
       toast({
-        title: 'Audit preview failed',
-        description: error instanceof Error ? error.message : 'The execution audit could not be loaded.',
+        title: 'Audit preview temporarily unavailable',
+        description: 'Check the connection and retry the same redacted execution handoff.',
         variant: 'destructive',
       });
     } finally {
@@ -8978,10 +9021,15 @@ export default function AiChat() {
                    onResume={resumeActiveExecution}
                    onExport={exportExecutionAudit}
                    onPreview={previewExecutionAudit}
+                   onRetryPreview={previewExecutionAudit}
                    exportPending={auditExportPending}
                    previewPending={auditPreviewPending}
                    auditPreview={auditPreview}
-                   onClosePreview={() => setAuditPreview(null)}
+                   auditPreviewError={auditPreviewError}
+                   onClosePreview={() => {
+                     setAuditPreview(null);
+                     setAuditPreviewError(null);
+                   }}
                    controlPending={executionControlPending}
                  />
                )}

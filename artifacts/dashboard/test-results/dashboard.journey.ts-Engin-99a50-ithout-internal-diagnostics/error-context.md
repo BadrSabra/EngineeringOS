@@ -7,7 +7,7 @@
 # Test info
 
 - Name: dashboard.journey.ts >> EngineeringOS dashboard browser journey >> renders an Arabic source-backed AI answer without internal diagnostics
-- Location: e2e/dashboard.journey.ts:2156:3
+- Location: e2e/dashboard.journey.ts:2180:3
 
 # Error details
 
@@ -137,7 +137,7 @@ NOT PROVEN"
                 - generic [ref=f2e111]:
                   - generic [ref=f2e116]: OpenRouter API Key
                   - generic [ref=f2e117]: Priority
-                - paragraph [ref=f2e118]: Loading…
+                - paragraph [ref=f2e118]: Get a free key at openrouter.ai/keys — routes to 300+ models, used first when configured.
                 - generic [ref=f2e119]:
                   - textbox "sk-or-…" [ref=f2e120]
                   - button "Save" [disabled]
@@ -145,7 +145,7 @@ NOT PROVEN"
                 - generic [ref=f2e122]:
                   - generic [ref=f2e127]: Gemini API Key
                   - generic [ref=f2e128]: Free · Priority
-                - paragraph [ref=f2e129]: Loading…
+                - paragraph [ref=f2e129]: Free key at aistudio.google.com/apikey — 1,500 req/day, 1M tokens/day.
                 - generic [ref=f2e130]:
                   - textbox "AIza…" [ref=f2e131]
                   - button "Save" [ref=f2e132]
@@ -153,13 +153,13 @@ NOT PROVEN"
                 - generic [ref=f2e134]:
                   - generic [ref=f2e139]: DeepSeek API Key
                   - generic [ref=f2e140]: Optional
-                - paragraph [ref=f2e141]: Loading…
+                - paragraph [ref=f2e141]: Get a free API key at platform.deepseek.com to use DeepSeek as your AI provider.
                 - generic [ref=f2e142]:
                   - textbox "sk-…" [ref=f2e143]
                   - button "Save" [disabled]
               - generic [ref=f2e144]:
                 - generic [ref=f2e145]: Groq API Key
-                - paragraph [ref=f2e151]: Loading…
+                - paragraph [ref=f2e151]: No personal key saved — the server's key will be used if one is configured.
                 - generic [ref=f2e152]:
                   - textbox "gsk_…" [ref=f2e153]
                   - button "Save" [disabled]
@@ -218,206 +218,206 @@ NOT PROVEN"
 # Test source
 
 ```ts
-  2106 |           url.searchParams.get("page") === "2"
-  2107 |         );
-  2108 |       }),
-  2109 |       page.getByRole("button", { name: "Older" }).click(),
-  2110 |     ]);
-  2111 |     await expect(page.getByText("Page 2.", { exact: false })).toBeVisible();
-  2112 |     await expect(
-  2113 |       page.getByText("Older event 50", { exact: true }),
-  2114 |     ).toBeVisible();
-  2115 |     await expect(
-  2116 |       page.getByText("Filtered release event 0", { exact: true }),
-  2117 |     ).not.toBeVisible();
-  2118 |     expect(new URL(eventRequests.at(-1)!).searchParams.get("page")).toBe("2");
-  2119 |     await page.getByRole("button", { name: "Newer" }).click();
-  2120 |     await expect(page.getByText("Page 1.", { exact: false })).toBeVisible();
-  2121 |     await expect(
-  2122 |       page.getByText("Filtered release event 0", { exact: true }),
-  2123 |     ).toBeVisible();
-  2124 | 
-  2125 |     await page.getByPlaceholder("Search logs...").fill("Filtered release");
-  2126 |     await page.getByRole("button", { name: "Toggle event filters" }).click();
-  2127 |     await page.locator("select").nth(1).selectOption("success");
-  2128 |     await expect(
-  2129 |       page.getByText("Filtered release event 0", { exact: true }),
-  2130 |     ).toBeVisible();
-  2131 |     await expect(
-  2132 |       page.getByText("Older event 1", { exact: true }),
-  2133 |     ).not.toBeVisible();
-  2134 |     await expect(page).toHaveURL(/search=Filtered\+release/);
-  2135 |     await expect(page).toHaveURL(/severity=success/);
-  2136 | 
-  2137 |     await page.reload();
-  2138 |     await expect(
-  2139 |       page.getByText("Filtered release event 0", { exact: true }),
-  2140 |     ).toBeVisible();
-  2141 |     await expect(
-  2142 |       page.getByText("Older event 1", { exact: true }),
-  2143 |     ).not.toBeVisible();
-  2144 |     await expect(page.getByPlaceholder("Search logs...")).toHaveValue(
-  2145 |       "Filtered release",
-  2146 |     );
-  2147 |     await page.getByRole("button", { name: "Toggle event filters" }).click();
-  2148 |     await expect(page.locator("select").nth(1)).toHaveValue("success");
-  2149 |     const filteredRequest = new URL(eventRequests.at(-1)!);
-  2150 |     expect(filteredRequest.searchParams.get("limit")).toBe("50");
-  2151 |     expect(filteredRequest.searchParams.get("page")).toBe("1");
-  2152 |     expect(filteredRequest.searchParams.get("search")).toBe("Filtered release");
-  2153 |     expect(filteredRequest.searchParams.get("severity")).toBe("success");
-  2154 |   });
-  2155 | 
-  2156 |   test("renders an Arabic source-backed AI answer without internal diagnostics", async ({
-  2157 |     page,
-  2158 |   }) => {
-  2159 |     const fixture = await installArabicAiFixture(page);
-  2160 |     await installApiFixtures(page, { arabicAi: fixture });
-  2161 |     await programmaticSignIn(page);
-  2162 |     await page.goto(`${DASHBOARD_PATH}ai`);
-  2163 | 
-  2164 |     const composer = page.locator("textarea").first();
-  2165 |     await expect(composer).toBeVisible();
-  2166 |     await composer.fill(fixture.question);
-  2167 |     const sendButton = composer.locator("xpath=..").getByRole("button");
-  2168 |     await expect(sendButton).toBeEnabled();
-  2169 |     const streamResponsePromise = page.waitForResponse((response) =>
-  2170 |       response.url().includes("/api/ai/chat/stream"),
-  2171 |     );
-  2172 |     await sendButton.click();
-  2173 |     const streamResponse = await streamResponsePromise;
-  2174 |     expect(streamResponse.status()).toBe(200);
-  2175 | 
-  2176 |     await expect(
-  2177 |       page.getByText(fixture.question, { exact: true }).last(),
-  2178 |     ).toBeVisible();
-  2179 |     await expect(
-  2180 |       page.getByText(fixture.answer, { exact: true }).last(),
-  2181 |     ).toBeVisible();
-  2182 |     await expect(
-  2183 |       page.getByText("Agent activity", { exact: false }),
-  2184 |     ).toBeVisible();
-  2185 |     await page.locator("summary").filter({ hasText: "Agent activity" }).click();
-  2186 |     await expect(
-  2187 |       page.getByText("Reading source", { exact: false }),
-  2188 |     ).toBeVisible();
-  2189 |     await expect(
-  2190 |       page.getByText(fixture.source, { exact: true }).last(),
-  2191 |     ).toBeVisible();
-  2192 |     await expect(
-  2193 |       page.getByText(/Behavior evidence · 1 excerpt/i).last(),
-  2194 |     ).toBeVisible();
-  2195 |     await expect(
-  2196 |       page
-  2197 |         .getByText('return partialFromCollectedEvidence("provider timeout");', {
-  2198 |           exact: true,
-  2199 |         })
-  2200 |         .last(),
-  2201 |     ).toBeVisible();
-  2202 | 
-  2203 |     const visibleText = await page.locator("body").innerText();
-  2204 |     expect(visibleText).not.toContain("COMPLETED");
-  2205 |     expect(visibleText).not.toContain("Persisted execution proof");
-> 2206 |     expect(visibleText).toContain("The required analysis did not complete.");
+  2130 |           url.searchParams.get("page") === "2"
+  2131 |         );
+  2132 |       }),
+  2133 |       page.getByRole("button", { name: "Older" }).click(),
+  2134 |     ]);
+  2135 |     await expect(page.getByText("Page 2.", { exact: false })).toBeVisible();
+  2136 |     await expect(
+  2137 |       page.getByText("Older event 50", { exact: true }),
+  2138 |     ).toBeVisible();
+  2139 |     await expect(
+  2140 |       page.getByText("Filtered release event 0", { exact: true }),
+  2141 |     ).not.toBeVisible();
+  2142 |     expect(new URL(eventRequests.at(-1)!).searchParams.get("page")).toBe("2");
+  2143 |     await page.getByRole("button", { name: "Newer" }).click();
+  2144 |     await expect(page.getByText("Page 1.", { exact: false })).toBeVisible();
+  2145 |     await expect(
+  2146 |       page.getByText("Filtered release event 0", { exact: true }),
+  2147 |     ).toBeVisible();
+  2148 | 
+  2149 |     await page.getByPlaceholder("Search logs...").fill("Filtered release");
+  2150 |     await page.getByRole("button", { name: "Toggle event filters" }).click();
+  2151 |     await page.locator("select").nth(1).selectOption("success");
+  2152 |     await expect(
+  2153 |       page.getByText("Filtered release event 0", { exact: true }),
+  2154 |     ).toBeVisible();
+  2155 |     await expect(
+  2156 |       page.getByText("Older event 1", { exact: true }),
+  2157 |     ).not.toBeVisible();
+  2158 |     await expect(page).toHaveURL(/search=Filtered\+release/);
+  2159 |     await expect(page).toHaveURL(/severity=success/);
+  2160 | 
+  2161 |     await page.reload();
+  2162 |     await expect(
+  2163 |       page.getByText("Filtered release event 0", { exact: true }),
+  2164 |     ).toBeVisible();
+  2165 |     await expect(
+  2166 |       page.getByText("Older event 1", { exact: true }),
+  2167 |     ).not.toBeVisible();
+  2168 |     await expect(page.getByPlaceholder("Search logs...")).toHaveValue(
+  2169 |       "Filtered release",
+  2170 |     );
+  2171 |     await page.getByRole("button", { name: "Toggle event filters" }).click();
+  2172 |     await expect(page.locator("select").nth(1)).toHaveValue("success");
+  2173 |     const filteredRequest = new URL(eventRequests.at(-1)!);
+  2174 |     expect(filteredRequest.searchParams.get("limit")).toBe("50");
+  2175 |     expect(filteredRequest.searchParams.get("page")).toBe("1");
+  2176 |     expect(filteredRequest.searchParams.get("search")).toBe("Filtered release");
+  2177 |     expect(filteredRequest.searchParams.get("severity")).toBe("success");
+  2178 |   });
+  2179 | 
+  2180 |   test("renders an Arabic source-backed AI answer without internal diagnostics", async ({
+  2181 |     page,
+  2182 |   }) => {
+  2183 |     const fixture = await installArabicAiFixture(page);
+  2184 |     await installApiFixtures(page, { arabicAi: fixture });
+  2185 |     await programmaticSignIn(page);
+  2186 |     await page.goto(`${DASHBOARD_PATH}ai`);
+  2187 | 
+  2188 |     const composer = page.locator("textarea").first();
+  2189 |     await expect(composer).toBeVisible();
+  2190 |     await composer.fill(fixture.question);
+  2191 |     const sendButton = composer.locator("xpath=..").getByRole("button");
+  2192 |     await expect(sendButton).toBeEnabled();
+  2193 |     const streamResponsePromise = page.waitForResponse((response) =>
+  2194 |       response.url().includes("/api/ai/chat/stream"),
+  2195 |     );
+  2196 |     await sendButton.click();
+  2197 |     const streamResponse = await streamResponsePromise;
+  2198 |     expect(streamResponse.status()).toBe(200);
+  2199 | 
+  2200 |     await expect(
+  2201 |       page.getByText(fixture.question, { exact: true }).last(),
+  2202 |     ).toBeVisible();
+  2203 |     await expect(
+  2204 |       page.getByText(fixture.answer, { exact: true }).last(),
+  2205 |     ).toBeVisible();
+  2206 |     await expect(
+  2207 |       page.getByText("Agent activity", { exact: false }),
+  2208 |     ).toBeVisible();
+  2209 |     await page.locator("summary").filter({ hasText: "Agent activity" }).click();
+  2210 |     await expect(
+  2211 |       page.getByText("Reading source", { exact: false }),
+  2212 |     ).toBeVisible();
+  2213 |     await expect(
+  2214 |       page.getByText(fixture.source, { exact: true }).last(),
+  2215 |     ).toBeVisible();
+  2216 |     await expect(
+  2217 |       page.getByText(/Behavior evidence · 1 excerpt/i).last(),
+  2218 |     ).toBeVisible();
+  2219 |     await expect(
+  2220 |       page
+  2221 |         .getByText('return partialFromCollectedEvidence("provider timeout");', {
+  2222 |           exact: true,
+  2223 |         })
+  2224 |         .last(),
+  2225 |     ).toBeVisible();
+  2226 | 
+  2227 |     const visibleText = await page.locator("body").innerText();
+  2228 |     expect(visibleText).not.toContain("COMPLETED");
+  2229 |     expect(visibleText).not.toContain("Persisted execution proof");
+> 2230 |     expect(visibleText).toContain("The required analysis did not complete.");
        |                         ^ Error: expect(received).toContain(expected) // indexOf
-  2207 |   });
-  2208 | 
-  2209 |   test("keeps the AI session drawer overlaid on a phone viewport with accepted evidence", async ({
-  2210 |     page,
-  2211 |   }) => {
-  2212 |     await page.setViewportSize({ width: 390, height: 844 });
-  2213 |     const fixture = await installArabicAiFixture(page);
-  2214 |     await installApiFixtures(page, { arabicAi: fixture });
-  2215 |     await programmaticSignIn(page);
-  2216 |     await page.goto(`${DASHBOARD_PATH}ai`);
-  2217 | 
-  2218 |     const composer = page.locator("textarea").first();
-  2219 |     await composer.fill(fixture.question);
-  2220 |     await composer.locator("xpath=..").getByRole("button").click();
-  2221 | 
-  2222 |     await expect(
-  2223 |       page.getByText(fixture.answer, { exact: true }).last(),
-  2224 |     ).toBeVisible();
-  2225 |     await expect(
-  2226 |       page
-  2227 |         .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
-  2228 |           exact: false,
-  2229 |         })
-  2230 |         .last(),
-  2231 |     ).toBeVisible();
-  2232 |     await page
-  2233 |       .locator("summary")
-  2234 |       .filter({ hasText: "Agent activity" })
-  2235 |       .last()
-  2236 |       .click();
-  2237 |     await expect(page.locator("body")).toContainText("Reading source");
-  2238 |     await expect(page.locator("body")).toContainText(
-  2239 |       "src/missing-release-fixture.ts",
-  2240 |     );
-  2241 |     await expect(page.locator("body")).toContainText("Tool failed");
-  2242 |     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-  2243 |     await page
-  2244 |       .locator("summary")
-  2245 |       .filter({ hasText: "Persisted execution proof" })
-  2246 |       .last()
-  2247 |       .click();
-  2248 |     await expect(
-  2249 |       page
-  2250 |         .getByText("required tool failed — operation blocked", { exact: true })
-  2251 |         .last(),
-  2252 |     ).toBeVisible();
-  2253 |     await expectNoHorizontalOverflow(page);
-  2254 | 
-  2255 |     const visibleText = await page.locator("body").innerText();
-  2256 |     expect(visibleText).not.toMatch(
-  2257 |       /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
-  2258 |     );
-  2259 |   });
-  2260 | 
-  2261 |   test("keeps safe citation state across browser back and forward navigation with blocked evidence", async ({
-  2262 |     page,
-  2263 |   }) => {
-  2264 |     const accepted = await installArabicAiFixture(page, {
-  2265 |       sessionId: "e2e-history-accepted-session",
-  2266 |       question: "ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟",
-  2267 |     });
-  2268 |     const blocked = await installArabicAiFixture(page, {
-  2269 |       blocked: true,
-  2270 |       sessionId: "e2e-history-blocked-session",
-  2271 |       question: "ما هو الدليل المحجوب عند الرجوع عبر سجل المتصفح؟",
-  2272 |     });
-  2273 |     await installApiFixtures(page, {
-  2274 |       arabicAi: accepted,
-  2275 |       alternateAi: blocked,
-  2276 |     });
-  2277 |     await programmaticSignIn(page);
-  2278 |     await page.goto(`${DASHBOARD_PATH}ai`);
-  2279 | 
-  2280 |     const composer = page.locator("textarea").first();
-  2281 |     await composer.fill(fixture.question);
-  2282 |     await composer.locator("xpath=..").getByRole("button").click();
-  2283 | 
-  2284 |     await expect(
-  2285 |       page.getByText(fixture.answer, { exact: true }).last(),
-  2286 |     ).toBeVisible();
-  2287 |     await expect(
-  2288 |       page
-  2289 |         .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
-  2290 |           exact: false,
-  2291 |         })
-  2292 |         .last(),
-  2293 |     ).toBeVisible();
-  2294 |     await page
-  2295 |       .locator("summary")
-  2296 |       .filter({ hasText: "Agent activity" })
-  2297 |       .last()
-  2298 |       .click();
-  2299 |     await expect(page.locator("body")).toContainText("Reading source");
-  2300 |     await expect(page.locator("body")).toContainText(
-  2301 |       "src/missing-release-fixture.ts",
-  2302 |     );
-  2303 |     await expect(page.locator("body")).toContainText("Tool failed");
-  2304 |     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-  2305 |     await page
-  2306 |       .locator("summary")
+  2231 |   });
+  2232 | 
+  2233 |   test("keeps the AI session drawer overlaid on a phone viewport with accepted evidence", async ({
+  2234 |     page,
+  2235 |   }) => {
+  2236 |     await page.setViewportSize({ width: 390, height: 844 });
+  2237 |     const fixture = await installArabicAiFixture(page);
+  2238 |     await installApiFixtures(page, { arabicAi: fixture });
+  2239 |     await programmaticSignIn(page);
+  2240 |     await page.goto(`${DASHBOARD_PATH}ai`);
+  2241 | 
+  2242 |     const composer = page.locator("textarea").first();
+  2243 |     await composer.fill(fixture.question);
+  2244 |     await composer.locator("xpath=..").getByRole("button").click();
+  2245 | 
+  2246 |     await expect(
+  2247 |       page.getByText(fixture.answer, { exact: true }).last(),
+  2248 |     ).toBeVisible();
+  2249 |     await expect(
+  2250 |       page
+  2251 |         .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
+  2252 |           exact: false,
+  2253 |         })
+  2254 |         .last(),
+  2255 |     ).toBeVisible();
+  2256 |     await page
+  2257 |       .locator("summary")
+  2258 |       .filter({ hasText: "Agent activity" })
+  2259 |       .last()
+  2260 |       .click();
+  2261 |     await expect(page.locator("body")).toContainText("Reading source");
+  2262 |     await expect(page.locator("body")).toContainText(
+  2263 |       "src/missing-release-fixture.ts",
+  2264 |     );
+  2265 |     await expect(page.locator("body")).toContainText("Tool failed");
+  2266 |     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
+  2267 |     await page
+  2268 |       .locator("summary")
+  2269 |       .filter({ hasText: "Persisted execution proof" })
+  2270 |       .last()
+  2271 |       .click();
+  2272 |     await expect(
+  2273 |       page
+  2274 |         .getByText("required tool failed — operation blocked", { exact: true })
+  2275 |         .last(),
+  2276 |     ).toBeVisible();
+  2277 |     await expectNoHorizontalOverflow(page);
+  2278 | 
+  2279 |     const visibleText = await page.locator("body").innerText();
+  2280 |     expect(visibleText).not.toMatch(
+  2281 |       /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+  2282 |     );
+  2283 |   });
+  2284 | 
+  2285 |   test("keeps safe citation state across browser back and forward navigation with blocked evidence", async ({
+  2286 |     page,
+  2287 |   }) => {
+  2288 |     const accepted = await installArabicAiFixture(page, {
+  2289 |       sessionId: "e2e-history-accepted-session",
+  2290 |       question: "ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟",
+  2291 |     });
+  2292 |     const blocked = await installArabicAiFixture(page, {
+  2293 |       blocked: true,
+  2294 |       sessionId: "e2e-history-blocked-session",
+  2295 |       question: "ما هو الدليل المحجوب عند الرجوع عبر سجل المتصفح؟",
+  2296 |     });
+  2297 |     await installApiFixtures(page, {
+  2298 |       arabicAi: accepted,
+  2299 |       alternateAi: blocked,
+  2300 |     });
+  2301 |     await programmaticSignIn(page);
+  2302 |     await page.goto(`${DASHBOARD_PATH}ai`);
+  2303 | 
+  2304 |     const composer = page.locator("textarea").first();
+  2305 |     await composer.fill(fixture.question);
+  2306 |     await composer.locator("xpath=..").getByRole("button").click();
+  2307 | 
+  2308 |     await expect(
+  2309 |       page.getByText(fixture.answer, { exact: true }).last(),
+  2310 |     ).toBeVisible();
+  2311 |     await expect(
+  2312 |       page
+  2313 |         .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
+  2314 |           exact: false,
+  2315 |         })
+  2316 |         .last(),
+  2317 |     ).toBeVisible();
+  2318 |     await page
+  2319 |       .locator("summary")
+  2320 |       .filter({ hasText: "Agent activity" })
+  2321 |       .last()
+  2322 |       .click();
+  2323 |     await expect(page.locator("body")).toContainText("Reading source");
+  2324 |     await expect(page.locator("body")).toContainText(
+  2325 |       "src/missing-release-fixture.ts",
+  2326 |     );
+  2327 |     await expect(page.locator("body")).toContainText("Tool failed");
+  2328 |     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
+  2329 |     await page
+  2330 |       .locator("summary")
 ```

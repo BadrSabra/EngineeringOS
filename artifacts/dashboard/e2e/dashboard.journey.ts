@@ -184,6 +184,7 @@ async function installApiFixtures(
       requests: string[];
       execution?: Record<string, unknown>;
       messageOutcome?: string;
+      failFirstPreview?: boolean;
     };
     liveTask?: {
       id: string;
@@ -324,6 +325,17 @@ async function installApiFixtures(
       path === `/api/ai/executions/${EXECUTION_ID}/audit-export`
     ) {
       overrides.auditExport.requests.push(route.request().url());
+      if (
+        overrides.auditExport.failFirstPreview &&
+        overrides.auditExport.requests.length === 1
+      ) {
+        return route.fulfill(
+          jsonResponse(
+            { error: "Temporary preview network failure." },
+            503,
+          ),
+        );
+      }
       return route.fulfill(
         jsonResponse(overrides.auditExport.body, 200, {
           "Content-Disposition": `attachment; filename="${overrides.auditExport.filename}"`,
@@ -1702,6 +1714,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         body: auditBody,
         filename: "server-supplied-audit-name.json",
         requests: auditRequests,
+        failFirstPreview: true,
       },
     });
     await programmaticSignIn(page);
@@ -1731,13 +1744,19 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await proof.getByRole("button", { name: "Preview audit" }).click();
     const preview = page.getByLabel("Redacted audit preview");
     await expect(preview).toBeVisible();
+    await expect(preview).toContainText("Audit preview temporarily unavailable");
+    await expect(preview).toContainText("same execution and revision");
+    await expect(preview.getByRole("button", { name: "Retry preview" })).toBeVisible();
+    expect(auditRequests).toHaveLength(1);
+
+    await preview.getByRole("button", { name: "Retry preview" }).click();
     await expect(preview).toContainText("provider secrets");
     await expect(preview).toContainText("raw model output");
     await expect(preview).toContainText("private runtime paths");
     await expect(preview).toContainText(EXECUTION_ID);
     await expect(preview).toContainText("e2e-operation");
     await expect(preview).toContainText("e2e-revision-42");
-    expect(auditRequests).toHaveLength(1);
+    expect(auditRequests).toHaveLength(2);
     expect(new URL(auditRequests[0]).pathname).toBe(
       `/api/ai/executions/${EXECUTION_ID}/audit-export`,
     );
@@ -1749,7 +1768,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await proof.getByRole("button", { name: "Export audit" }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBe("server-supplied-audit-name.json");
-    expect(auditRequests).toHaveLength(2);
+    expect(auditRequests).toHaveLength(3);
 
     await page.reload();
     const reloadedProof = page.getByLabel("Agent execution proof");
@@ -1760,7 +1779,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByLabel("Redacted audit preview"),
     ).toBeHidden();
-    expect(auditRequests).toHaveLength(2);
+    expect(auditRequests).toHaveLength(3);
   });
 
   test("keeps the cancelled execution audit handoff redacted and terminal", async ({
