@@ -164,6 +164,13 @@ async function installApiFixtures(
     deliveryRecovery?: {
       operations: Array<Record<string, unknown>>;
       requests: string[];
+      actionRequests?: string[];
+      recoveryAction?: {
+        proposalId: string;
+        action: "resume-validation" | "discard";
+        response: Record<string, unknown>;
+        nextOperations?: Array<Record<string, unknown>>;
+      };
     };
     projects?: Array<Record<string, unknown>>;
     events?: Array<Record<string, unknown>>;
@@ -426,6 +433,20 @@ async function installApiFixtures(
       overrides.deliveryRecovery.requests.push(route.request().url());
       return route.fulfill(
         jsonResponse({ operations: overrides.deliveryRecovery.operations }),
+      );
+    }
+    if (
+      overrides?.deliveryRecovery?.recoveryAction &&
+      path ===
+        `/api/ai/delivery/${overrides.deliveryRecovery.recoveryAction.proposalId}/${overrides.deliveryRecovery.recoveryAction.action}`
+    ) {
+      overrides.deliveryRecovery.actionRequests?.push(route.request().url());
+      if (overrides.deliveryRecovery.recoveryAction.nextOperations) {
+        overrides.deliveryRecovery.operations =
+          overrides.deliveryRecovery.recoveryAction.nextOperations;
+      }
+      return route.fulfill(
+        jsonResponse(overrides.deliveryRecovery.recoveryAction.response, 409),
       );
     }
     if (path === "/api/events") {
@@ -3071,6 +3092,95 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toBeDisabled();
     expect(recovery.requests.length).toBeGreaterThanOrEqual(2);
     expect(recovery.requests.every((url) => url.includes("projectId=e2e-project"))).toBe(true);
+  });
+
+  test("explains when delivery recovery loses a race and refreshes state", async ({
+    page,
+  }) => {
+    const recovery = {
+      requests: [] as string[],
+      actionRequests: [] as string[],
+      operations: [
+        {
+          proposalId: "e2e-recovery-race-proposal",
+          operationId: "e2e-recovery-race-operation",
+          sessionId: "e2e-recovery-race-session",
+          lifecycle: "blocked",
+          status: "pending",
+          createdAt: "2026-01-01T00:04:00.000Z",
+          recoveryState: "recoverable",
+          operatorExplanation:
+            "The delivery stopped because the retained changes need review before validation can continue.",
+          nextAction:
+            "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.",
+          conflictReason: null,
+          validationEvidence: [{ profile: "workspace-typecheck", status: "failed" }],
+          workspaceAvailable: true,
+          changeCount: 1,
+        },
+      ],
+      recoveryAction: {
+        proposalId: "e2e-recovery-race-proposal",
+        action: "resume-validation" as const,
+        response: {
+          error: "This delivery recovery was already discarded.",
+          code: "DELIVERY_ALREADY_DISCARDED",
+          lifecycle: "cancelled",
+          recoveryState: "discarded",
+          nextAction: "No action is required.",
+          diagnostic: "Do not render this server detail.",
+        },
+        nextOperations: [
+          {
+            proposalId: "e2e-recovery-race-proposal",
+            operationId: "e2e-recovery-race-operation",
+            sessionId: "e2e-recovery-race-session",
+            lifecycle: "cancelled",
+            status: "rejected",
+            createdAt: "2026-01-01T00:04:00.000Z",
+            recoveryState: "discarded",
+            operatorExplanation: "This delivery recovery was already discarded.",
+            nextAction: "No action is required.",
+            conflictReason: null,
+            validationEvidence: null,
+            workspaceAvailable: false,
+            changeCount: 1,
+          },
+        ],
+      },
+    };
+    await installApiFixtures(page, { deliveryRecovery: recovery });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const region = page.getByRole("region", {
+      name: "Recoverable delivery operations",
+    });
+    const operation = region.locator(
+      '[data-operation-id="e2e-recovery-race-operation"]',
+    );
+    await expect(operation.getByRole("button", { name: "Resume validation" })).toBeEnabled();
+    await operation.getByRole("button", { name: "Resume validation" }).click();
+
+    await expect(page.getByText("Recovery state changed", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(
+        "This recovery was already discarded. The recovery list was refreshed.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect
+      .poll(() => recovery.requests.length)
+      .toBeGreaterThanOrEqual(2);
+    await expect(operation).toHaveAttribute("data-recovery-state", "discarded");
+    expect(recovery.actionRequests).toHaveLength(1);
+    expect(recovery.actionRequests[0]).toContain(
+      "/api/ai/delivery/e2e-recovery-race-proposal/resume-validation",
+    );
+    expect(await region.locator('[data-operation-id="e2e-recovery-race-operation"]').count()).toBe(1);
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toMatch(/Do not render this server detail|\/home\/runner|\/tmp\//i);
+    await expectNoHorizontalOverflow(page);
   });
 
   test("keeps the resumed AI session drawer overlaid on a phone viewport", async ({

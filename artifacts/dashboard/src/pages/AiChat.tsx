@@ -7438,8 +7438,28 @@ export default function AiChat() {
         headers: { Accept: 'application/json' },
         body: '{}',
       });
-      const payload = await response.json().catch(() => ({})) as { error?: string; lifecycle?: DeliveryLifecycle };
-      if (!response.ok) throw new Error(payload.error || 'Delivery recovery could not be completed.');
+      const payload = await response.json().catch(() => ({})) as {
+        error?: string;
+        code?: string;
+        lifecycle?: DeliveryLifecycle;
+      };
+      if (!response.ok) {
+        if (response.status === 409 && (
+          payload.code === 'DELIVERY_ALREADY_DISCARDED' ||
+          payload.code === 'DELIVERY_NOT_RECOVERABLE'
+        )) {
+          void qc.invalidateQueries({ queryKey: ['ai-delivery-recoverable', selectedProjectId] });
+          toast({
+            title: 'Recovery state changed',
+            description: payload.code === 'DELIVERY_ALREADY_DISCARDED'
+              ? 'This recovery was already discarded. The recovery list was refreshed.'
+              : 'This recovery workspace is no longer available. The recovery list was refreshed.',
+            variant: 'destructive',
+          });
+          return;
+        }
+        throw new Error(payload.error || 'Delivery recovery could not be completed.');
+      }
       void qc.invalidateQueries({ queryKey: ['ai-delivery-recoverable', selectedProjectId] });
       if (action === 'resume-validation') {
         setSessionId(proposal.sessionId);
