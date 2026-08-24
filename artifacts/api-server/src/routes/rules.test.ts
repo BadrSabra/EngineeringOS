@@ -282,6 +282,24 @@ describe("POST /rules/:ruleId/evaluate", () => {
     expect(res.body.error).toBe("Project not found");
   });
 
+  it("rejects evaluating a project-scoped rule against a different owned project", async () => {
+    const ruleProjectId = await insertProject();
+    const evaluationProjectId = await insertProject();
+    projectCleanup.push(ruleProjectId, evaluationProjectId);
+    const id = await insertRule({ projectId: ruleProjectId, pattern: "console\\.log" });
+    ruleCleanup.push(id);
+
+    const res = await request(app)
+      .post(`/api/rules/${id}/evaluate`)
+      .send({ projectId: evaluationProjectId });
+
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({
+      code: "rule_project_mismatch",
+      error: "Rule is scoped to a different project",
+    });
+  });
+
   it("skips evaluation and returns a note when the rule has no pattern", async () => {
     const id = await insertRule({ pattern: undefined }); // no pattern
     ruleCleanup.push(id);

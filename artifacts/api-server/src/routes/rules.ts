@@ -207,6 +207,12 @@ router.post("/rules/:ruleId/evaluate", async (req, res) => {
   // single place to update if ownership logic ever changes.
   const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
   if (!project) return;
+  if (rule[0].projectId && rule[0].projectId !== project.id) {
+    return res.status(403).json({
+      error: "Rule is scoped to a different project",
+      code: "rule_project_mismatch",
+    });
+  }
   if (!rule[0].projectId && !requireGlobalOperator(req, res)) return;
 
   if (!rule[0].pattern) {

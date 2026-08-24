@@ -156,7 +156,7 @@ vi.mock('@workspace/api-client-react', () => {
       error: null,
     })),
     useListEvents: vi.fn(() => ({
-      data: mocks.operationEvents,
+      data: { events: mocks.operationEvents, total: mocks.operationEvents.length },
       isLoading: false,
       isError: false,
       error: null,
@@ -492,7 +492,7 @@ describe('AiChat authenticated generated mutations', () => {
       sessionId: 'session-1',
       message: 'Continue after refresh',
     }));
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(
       JSON.stringify({
         executionId: 'execution-missing-token',
         resumeToken: 'recovered-opaque-resume-token',
@@ -949,7 +949,7 @@ describe('AiChat authenticated generated mutations', () => {
     });
 
     expect(await screen.findByText('Delivery proof')).toBeInTheDocument();
-    expect(screen.getByText('BLOCKED')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('BLOCKED')).toBeInTheDocument());
     expect(screen.getByText('commit hash mismatch')).toBeInTheDocument();
     expect(screen.getByText('proposal:')).toBeInTheDocument();
     expect(screen.getByText(/proof-proposal/)).toBeInTheDocument();

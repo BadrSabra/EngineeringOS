@@ -7139,6 +7139,23 @@ export default function AiChat() {
         if (cancelled) return;
         const recovered = { ...execution, resumeToken: body.resumeToken };
         activeExecutionRef.current = recovered;
+        // Persist the capability in the same turn as recovery. The effect
+        // below mirrors this state for normal updates, but an immediate write
+        // prevents a refresh between the response and the next React commit
+        // from losing the only resumable credential held by the browser.
+        if (executionStorageKey) {
+          localStorage.setItem(
+            executionStorageKey,
+            JSON.stringify({
+              ...recovered,
+              projectId: selectedProjectId,
+              sessionId: executionStorageSessionId,
+            }),
+          );
+          if (executionPointerKey && executionStorageSessionId) {
+            localStorage.setItem(executionPointerKey, executionStorageSessionId);
+          }
+        }
         setActiveExecution(recovered);
       })
       .catch((error: unknown) => {
@@ -7162,7 +7179,11 @@ export default function AiChat() {
     activeExecution?.id,
     activeExecution?.resumeToken,
     activeExecutionStatus?.status,
+    executionPointerKey,
+    executionStorageKey,
+    executionStorageSessionId,
     resumeRecoveryAttempt,
+    selectedProjectId,
   ]);
 
   function clearLiveActivityEvents() {
