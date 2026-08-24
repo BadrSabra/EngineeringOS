@@ -56,6 +56,13 @@ export type AutonomousOperationNode = {
   evidenceRefs: string[];
 };
 
+export type AutonomousAcceptanceCheck = {
+  id: string;
+  kind: "scope" | "behavior" | "validation" | "evidence";
+  description: string;
+  required: boolean;
+};
+
 export type AutonomousOperationContract = {
   operationId: string;
   objective: string;
@@ -63,6 +70,9 @@ export type AutonomousOperationContract = {
   planHash: string;
   policyRevision: string;
   candidateIdentity: string | null;
+  targetPaths: string[];
+  expectedBehavior: string;
+  acceptanceChecks: AutonomousAcceptanceCheck[];
   state: AutonomousOperationState;
   nodes: AutonomousOperationNode[];
   retryBudget: number;
@@ -100,8 +110,14 @@ export function transitionAutonomousOperation(
     && operation.nodes.some((node) => node.status === "failed" || node.status === "blocked")) {
     throw new Error("Autonomous operation cannot advance with failed or blocked nodes.");
   }
-  if (nextState === "succeeded" && operation.evidenceRefs.length === 0 && evidenceRefs.length === 0) {
-    throw new Error("Autonomous operation success requires retained evidence.");
+  if (nextState === "succeeded") {
+    const completion = validateAutonomousOperationCompletion(operation, {
+      evidenceRefs,
+      evidenceVerdict: "PROVEN",
+    });
+    if (!completion.allowed) {
+      throw new Error(`Autonomous operation success is blocked: ${completion.reasons.join("; ")}`);
+    }
   }
   return {
     ...operation,
@@ -111,14 +127,92 @@ export function transitionAutonomousOperation(
   };
 }
 
+export type AutonomousOperationCompletionCheck = {
+  allowed: boolean;
+  reasons: string[];
+};
+
+/**
+ * The terminal success contract for autonomous work. This is deliberately
+ * server-side and receipt-oriented: a provider response or a completed worker
+ * lease is not evidence that the requested bytes or behavior were accepted.
+ */
+export function validateAutonomousOperationCompletion(
+  operation: AutonomousOperationContract,
+  params: {
+    evidenceRefs?: readonly string[];
+    evidenceVerdict?: FlightDeckEvidenceVerdict;
+    workspaceRevision?: string;
+    candidateIdentity?: string | null;
+    nodeStates?: readonly Pick<AutonomousOperationNode, "status" | "evidenceRefs">[];
+  } = {},
+): AutonomousOperationCompletionCheck {
+  const reasons: string[] = [];
+  if (!operation.objective.trim()) reasons.push("objective is missing");
+  if (!operation.revisionManifest.trim() || operation.revisionManifest === "unbound") {
+    reasons.push("workspace revision is unbound");
+  }
+  if (!operation.expectedBehavior.trim()) reasons.push("expected behavior is missing");
+  if (operation.acceptanceChecks.length === 0) reasons.push("acceptance checks are missing");
+  if (params.workspaceRevision && operation.revisionManifest !== params.workspaceRevision) {
+    reasons.push("workspace revision does not match the execution request");
+  }
+  if (params.candidateIdentity !== undefined && operation.candidateIdentity !== params.candidateIdentity) {
+    reasons.push("candidate identity does not match the operation");
+  }
+  const requiredChecks = operation.acceptanceChecks.filter((check) => check.required);
+  if (requiredChecks.some((check) => !check.id || !check.description.trim())) {
+    reasons.push("acceptance checks are not executable");
+  }
+  const nodes = params.nodeStates ?? operation.nodes;
+  if (nodes.some((node) => node.status !== "passed")) reasons.push("not all execution nodes passed");
+  const mutatingOperation = operation.nodes.some((node) =>
+    ["mutate", "repair", "promote", "delivery"].includes(node.kind),
+  );
+  if (mutatingOperation && operation.targetPaths.length === 0) {
+    reasons.push("mutating operation has no approved target scope");
+  }
+  if (operation.targetPaths.length > 0) {
+    const approved = new Set(operation.targetPaths);
+    const outOfScope = operation.nodes
+      .flatMap((node) => node.allowedFiles)
+      .find((file) => !approved.has(file));
+    if (outOfScope) reasons.push(`execution node is outside approved target scope: ${outOfScope}`);
+  }
+  const refs = [...new Set([
+    ...operation.evidenceRefs,
+    ...(params.evidenceRefs ?? []),
+    ...nodes.flatMap((node) => node.evidenceRefs),
+  ])];
+  if (refs.length === 0) reasons.push("required acceptance evidence is missing");
+  if (params.evidenceVerdict !== "PROVEN") {
+    reasons.push(`evidence verdict is ${params.evidenceVerdict ?? "NOT_RECORDED"}`);
+  }
+  return { allowed: reasons.length === 0, reasons };
+}
+
 export function assertAutonomousOperationIdentity(
   original: AutonomousOperationContract,
   candidate: AutonomousOperationContract,
 ): void {
-  for (const key of ["operationId", "objective", "revisionManifest", "planHash", "policyRevision", "candidateIdentity"] as const) {
+  for (const key of [
+    "operationId",
+    "objective",
+    "revisionManifest",
+    "planHash",
+    "policyRevision",
+    "candidateIdentity",
+    "expectedBehavior",
+  ] as const) {
     if (original[key] !== candidate[key]) {
       throw new Error(`Autonomous operation identity changed: ${key}`);
     }
+  }
+  if (!sameStringArray(original.targetPaths, candidate.targetPaths)) {
+    throw new Error("Autonomous operation identity changed: targetPaths");
+  }
+  if (JSON.stringify(original.acceptanceChecks) !== JSON.stringify(candidate.acceptanceChecks)) {
+    throw new Error("Autonomous operation acceptance checks changed without policy approval.");
   }
   if (candidate.retryBudget < 0 || candidate.repairAttempts < 0 || candidate.repairAttempts > candidate.retryBudget) {
     throw new Error("Autonomous operation retry budget is invalid.");
@@ -204,6 +298,9 @@ export function createAutonomousOperationContract(params: {
   planHash?: string;
   policyRevision?: string;
   candidateIdentity?: string | null;
+  targetPaths?: string[];
+  expectedBehavior?: string;
+  acceptanceChecks?: AutonomousAcceptanceCheck[];
   nodes?: AutonomousOperationNode[];
 }): AutonomousOperationContract {
   const objective = params.objective.slice(0, 2_000);
@@ -214,6 +311,22 @@ export function createAutonomousOperationContract(params: {
     planHash: params.planHash ?? createHash("sha256").update(objective).digest("hex"),
     policyRevision: params.policyRevision ?? "server-policy-v1",
     candidateIdentity: params.candidateIdentity ?? null,
+    targetPaths: [...new Set((params.targetPaths ?? []).filter(Boolean))].slice(0, 48),
+    expectedBehavior: (params.expectedBehavior ?? objective).slice(0, 2_000),
+    acceptanceChecks: (params.acceptanceChecks ?? [
+      {
+        id: "validation-passed",
+        kind: "validation",
+        description: "Registered validation passes for the approved scope.",
+        required: true,
+      },
+      {
+        id: "evidence-bound",
+        kind: "evidence",
+        description: "Completion evidence is bound to this operation and revision.",
+        required: true,
+      },
+    ]).slice(0, 12),
     state: "planned",
     nodes: params.nodes ?? [],
     retryBudget: 3,
@@ -402,9 +515,27 @@ function parseAutonomousOperation(value: unknown): AutonomousOperationContract |
       evidenceRefs: item.evidenceRefs.filter((v): v is string => typeof v === "string").slice(0, 8),
     }];
   });
+  const acceptanceChecks = (candidate.acceptanceChecks ?? []).slice(0, 12).flatMap((check) => {
+    if (!check || typeof check !== "object") return [];
+    const item = check as Partial<AutonomousAcceptanceCheck>;
+    if (
+      typeof item.id !== "string"
+      || !["scope", "behavior", "validation", "evidence"].includes(item.kind ?? "")
+      || typeof item.description !== "string"
+      || typeof item.required !== "boolean"
+    ) return [];
+    return [{
+      id: item.id.slice(0, 120),
+      kind: item.kind as AutonomousAcceptanceCheck["kind"],
+      description: item.description.slice(0, 500),
+      required: item.required,
+    }];
+  });
   const retryBudget = candidate.retryBudget as number;
   const repairAttempts = candidate.repairAttempts as number;
-  if (nodes.length !== candidate.nodes.length || retryBudget < 0 || repairAttempts < 0
+  if (nodes.length !== candidate.nodes.length
+    || (candidate.acceptanceChecks && acceptanceChecks.length !== candidate.acceptanceChecks.length)
+    || retryBudget < 0 || repairAttempts < 0
     || repairAttempts > retryBudget) return undefined;
   return {
     operationId: candidate.operationId.slice(0, 160),
@@ -413,6 +544,9 @@ function parseAutonomousOperation(value: unknown): AutonomousOperationContract |
     planHash: candidate.planHash.slice(0, 160),
     policyRevision: candidate.policyRevision.slice(0, 160),
     candidateIdentity: candidate.candidateIdentity ? candidate.candidateIdentity.slice(0, 500) : null,
+    targetPaths: (candidate.targetPaths ?? []).filter((v): v is string => typeof v === "string").slice(0, 48),
+    expectedBehavior: typeof candidate.expectedBehavior === "string" ? candidate.expectedBehavior.slice(0, 2_000) : "",
+    acceptanceChecks,
     state: candidate.state as AutonomousOperationState,
     nodes,
     retryBudget: Math.min(retryBudget, 8),
@@ -574,6 +708,8 @@ export async function createAiExecution(params: {
       ? params.request.objective
       : params.request.message,
     revisionManifest: params.request.workspaceRevision,
+    targetPaths: params.request.validationTargetPaths,
+    expectedBehavior: params.request.message,
   });
   const [execution] = await db
     .insert(aiExecutionsTable)
@@ -756,7 +892,38 @@ export async function completeAiExecution(params: {
   evidenceVerdict?: FlightDeckEvidenceVerdict;
   evidenceReason?: string;
   proofRequired?: boolean;
+  evidenceRefs?: readonly string[];
 }): Promise<boolean> {
+  const [current] = await db
+    .select({
+      request: aiExecutionsTable.request,
+      checkpoint: aiExecutionsTable.checkpoint,
+    })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.workerId, params.workerId),
+      eq(aiExecutionsTable.status, "running"),
+    ))
+    .limit(1);
+  const request = current ? parseExecutionRequest(current.request) : undefined;
+  const checkpoint = current ? parseAiExecutionCheckpoint(current.checkpoint) : undefined;
+  const requiresProof = params.proofRequired ?? request?.proofRequired ?? false;
+  const operation = params.operation ?? checkpoint?.operation;
+  if (requiresProof) {
+    if (!operation) return false;
+    const completion = validateAutonomousOperationCompletion(operation, {
+      evidenceRefs: params.evidenceRefs,
+      evidenceVerdict: params.evidenceVerdict,
+      workspaceRevision: request?.workspaceRevision,
+      candidateIdentity: operation.candidateIdentity,
+      nodeStates: params.nodeStates?.map((node) => ({
+        status: node.status,
+        evidenceRefs: [],
+      })),
+    });
+    if (!completion.allowed) return false;
+  }
   const [updated] = await db
     .update(aiExecutionsTable)
     .set({
@@ -782,6 +949,9 @@ export async function completeAiExecution(params: {
             }
           : {}),
         ...(params.evidenceVerdict ? { evidenceVerdict: params.evidenceVerdict } : {}),
+        ...(params.evidenceRefs && params.evidenceRefs.length > 0
+          ? { evidenceRefs: [...new Set(params.evidenceRefs)].slice(0, 48) }
+          : {}),
         ...(params.evidenceReason ? { evidenceReason: params.evidenceReason.slice(0, 500) } : {}),
         ...(typeof params.proofRequired === "boolean" ? { proofRequired: params.proofRequired } : {}),
         updatedAt: new Date().toISOString(),

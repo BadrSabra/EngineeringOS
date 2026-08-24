@@ -86,6 +86,7 @@ import {
   createAutonomousOperationContract,
   parseAiExecutionCheckpoint,
   transitionAutonomousOperation,
+  validateAutonomousOperationCompletion,
 } from "./ai-execution-state.js";
 
 describe("createAiExecution", () => {
@@ -155,5 +156,45 @@ describe("autonomous operation contract", () => {
       operation: { ...operation, retryBudget: 1, repairAttempts: 2 },
       updatedAt: new Date().toISOString(),
     }))).toBeUndefined();
+  });
+
+  it("blocks completion when acceptance evidence is missing or bound to stale bytes", () => {
+    const operation = createAutonomousOperationContract({
+      operationId: "operation-3",
+      objective: "Update the parser",
+      revisionManifest: "revision-current",
+      targetPaths: ["src/parser.ts"],
+      expectedBehavior: "The parser accepts quoted values.",
+    });
+
+    expect(validateAutonomousOperationCompletion(operation, {
+      evidenceVerdict: "PARTIAL",
+      workspaceRevision: "revision-current",
+      evidenceRefs: [],
+    })).toMatchObject({ allowed: false });
+
+    expect(validateAutonomousOperationCompletion(operation, {
+      evidenceVerdict: "PROVEN",
+      workspaceRevision: "revision-stale",
+      evidenceRefs: ["validation-result:1"],
+    })).toMatchObject({
+      allowed: false,
+      reasons: expect.arrayContaining(["workspace revision does not match the execution request"]),
+    });
+  });
+
+  it("accepts a complete operation only with proven evidence and matching revision", () => {
+    const operation = createAutonomousOperationContract({
+      operationId: "operation-4",
+      objective: "Update the parser",
+      revisionManifest: "revision-current",
+      targetPaths: ["src/parser.ts"],
+      expectedBehavior: "The parser accepts quoted values.",
+    });
+    expect(validateAutonomousOperationCompletion(operation, {
+      evidenceVerdict: "PROVEN",
+      workspaceRevision: "revision-current",
+      evidenceRefs: ["validation-result:1"],
+    })).toEqual({ allowed: true, reasons: [] });
   });
 });

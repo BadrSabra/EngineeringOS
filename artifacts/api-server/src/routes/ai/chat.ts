@@ -3955,8 +3955,13 @@ router.post("/ai/chat/stream", async (req, res) => {
       .find((step) => step.kind === "validation");
     if (finalValidation?.kind === "validation") {
       if (finalValidation.status === "passed") {
-        executionEvidenceVerdict = "PARTIAL";
-        executionEvidenceReason = "Validation passed, but no server-owned objective or delivery proof has been recorded.";
+        executionEvidenceVerdict = isProvenValidation(finalValidation.result)
+          && !proposalId
+          ? "PROVEN"
+          : "PARTIAL";
+        executionEvidenceReason = executionEvidenceVerdict === "PROVEN"
+          ? "Registered validation passed with retained evidence bound to this execution."
+          : "Validation passed, but required server-owned objective or delivery proof has not been recorded.";
       } else if (finalValidation.status === "unavailable") {
         executionEvidenceVerdict = "UNAVAILABLE";
         executionEvidenceReason = finalValidation.detail ?? "Validation could not be executed.";
@@ -3986,9 +3991,28 @@ router.post("/ai/chat/stream", async (req, res) => {
         evidenceVerdict: executionEvidenceVerdict,
         evidenceReason: executionEvidenceReason,
         proofRequired,
+        evidenceRefs: finalValidation?.kind === "validation"
+          ? [finalValidation.result.evidence.artifactRef]
+          : [],
       });
       if (!completed) {
-        throw new Error("AI execution was cancelled or superseded before finalization");
+        await failAiExecution({
+          executionId: aiExecution.id,
+          workerId: executionWorkerId!,
+          error: "Execution blocked: required objective, scope, revision, or acceptance evidence was not proven.",
+          cancelled: false,
+          nodeStates: executionNodeStates,
+          operation: undefined,
+        });
+        executionTerminal = true;
+        sse({
+          type: "error",
+          code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+          message: "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.",
+          executionId: aiExecution.id,
+        });
+        res.end();
+        return;
       }
     }
     executionTerminal = true;

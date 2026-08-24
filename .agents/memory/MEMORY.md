@@ -61,3 +61,4 @@
 - [Browser validation block reasons](browser-validation-block-reasons.md) — preserve only allowlisted preflight reasons and translate them into safe operator actions.
 - [Autonomous delivery acceptance](autonomous-delivery-acceptance.md) — measure unified-loop receipts by unique operation identity; only verified, violation-free delivery counts as completion.
 - [Terminal ownership fences](terminal-ownership-fences.md) — durable terminal writes and follow-on mutations must verify the current worker owns the live row.
+- [Objective execution binding](objective-execution-binding.md) — terminal autonomous success needs bound acceptance checks, revision, scope, passed nodes, retained evidence, and a PROVEN verdict.
