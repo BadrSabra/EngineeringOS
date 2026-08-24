@@ -64,3 +64,4 @@
 - [Objective execution binding](objective-execution-binding.md) — terminal autonomous success needs bound acceptance checks, revision, scope, passed nodes, retained evidence, and a PROVEN verdict.
 - [OpenAPI recovery schemas](openapi-recovery-schemas.md) — inline operation request bodies can collide in generated Zod exports; use a named component schema for new contracts.
 - [Durable job boundary](durable-job-boundary.md) — Postgres rows plus leases are the durable queue; local dispatch is a recovery handle, not a source of truth.
+- [Dashboard process campaign](dashboard-process-campaign.md) — release browser campaigns coordinate real API restarts through a bounded localhost control surface.

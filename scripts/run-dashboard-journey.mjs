@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
@@ -75,6 +76,11 @@ const originDiagnosticsPath = resolve(
 const services = [];
 let releaseLockCleanup;
 const releasePorts = [apiPort, dashboardPort];
+const controlPort = Number(
+  process.env.DASHBOARD_E2E_CONTROL_PORT ?? apiPort + 1,
+);
+let apiService;
+let campaignControlServer;
 
 function redact(value) {
   const secretValues = Object.values(process.env).filter(
@@ -120,6 +126,50 @@ function startService(label, command, args, env, port) {
     console.error(`${label} could not start: ${redact(error.message)}`);
   });
   return child;
+}
+
+async function restartApiService() {
+  if (!apiService) throw new Error("API release service is not running.");
+  signalProcessGroup(apiService, "SIGTERM");
+  await waitForPortClosed(apiPort);
+  apiService = startService(
+    "API release service (restarted)",
+    "node",
+    ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
+    {
+      NODE_ENV: "development",
+      PORT: String(apiPort),
+      APP_ORIGINS: approvedDashboardOrigins.join(","),
+    },
+    apiPort,
+  );
+  await waitFor(apiHealthUrl, "restarted API workflow");
+}
+
+async function startCampaignControl() {
+  campaignControlServer = createServer(async (request, response) => {
+    if (request.method !== "POST" || request.url !== "/restart-api") {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    try {
+      await restartApiService();
+      response.writeHead(204);
+      response.end();
+    } catch (error) {
+      response.writeHead(503, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          error: redact(error instanceof Error ? error.message : String(error)),
+        }),
+      );
+    }
+  });
+  await new Promise((resolve, reject) => {
+    campaignControlServer.once("error", reject);
+    campaignControlServer.listen(controlPort, "127.0.0.1", resolve);
+  });
 }
 
 function listeningUsers(port) {
@@ -238,6 +288,10 @@ async function waitForChild(child, label) {
 }
 
 async function stopServices() {
+  if (campaignControlServer) {
+    await new Promise((resolve) => campaignControlServer.close(resolve));
+    campaignControlServer = undefined;
+  }
   for (const { child } of services) {
     try {
       signalProcessGroup(child, "SIGTERM");
@@ -485,7 +539,7 @@ async function startReleaseServices() {
     { NODE_ENV: "development" },
   );
   await waitForChild(apiBuild, "API release build");
-  startService(
+  apiService = startService(
     "API release service",
     "node",
     ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
@@ -512,6 +566,7 @@ async function startReleaseServices() {
     dashboardPort,
   );
   await waitFor(apiHealthUrl, "API workflow");
+  await startCampaignControl();
   const dashboardResponse = await waitFor(
     dashboardBaseUrl,
     "Dashboard workflow",
@@ -807,7 +862,17 @@ try {
     console.log(`Using isolated Clerk journey user ${testEmail}`);
     const journey = spawn(
       "pnpm",
-      ["--filter", "@workspace/dashboard", "run", "test:e2e"],
+      [
+        "--filter",
+        "@workspace/dashboard",
+        "exec",
+        "playwright",
+        "test",
+        "--config=e2e/playwright.config.ts",
+        ...(process.env.DASHBOARD_E2E_GREP
+          ? ["--grep", process.env.DASHBOARD_E2E_GREP]
+          : []),
+      ],
       {
         cwd: workspaceRoot,
         env: {
@@ -815,6 +880,7 @@ try {
           CI: "true",
           DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
           DASHBOARD_E2E_API_BASE_URL: apiBaseUrl,
+          DASHBOARD_E2E_CONTROL_URL: `http://127.0.0.1:${controlPort}`,
           DASHBOARD_E2E_EMAIL: testEmail,
           DASHBOARD_E2E_APPROVED_ORIGINS: approvedDashboardOrigins.join(","),
           DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH: originDiagnosticsPath,

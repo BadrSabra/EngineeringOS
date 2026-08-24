@@ -134,6 +134,22 @@ async function expectNoHorizontalOverflow(page: Page) {
   expect(overflow.body).toBeLessThanOrEqual(overflow.viewport + 1);
 }
 
+async function expectDashboardReady(page: Page) {
+  await expect(
+    page.getByRole("heading", { name: "System Overview" }),
+  ).toBeVisible();
+  await expect(page.getByText("SYSTEM ONLINE", { exact: true })).toBeVisible();
+}
+
+async function restartApiForCampaign(page: Page) {
+  const controlUrl = process.env.DASHBOARD_E2E_CONTROL_URL;
+  if (!controlUrl) throw new Error("Dashboard campaign control URL is missing.");
+  const response = await page.request.post(`${controlUrl}/restart-api`, {
+    timeout: 15_000,
+  });
+  expect(response.status()).toBe(204);
+}
+
 type ArabicAiFixture = {
   question: string;
   answer: string;
@@ -1683,6 +1699,91 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText("PROVEN", { exact: true }).first(),
     ).toBeVisible();
+  });
+
+  test("converges two browser sessions across reload, reconnect, stale results, and API restart", async ({
+    browser,
+    page,
+  }) => {
+    test.skip(
+      !process.env.DASHBOARD_E2E_CONTROL_URL,
+      "The multi-process convergence campaign runs only under the release runner.",
+    );
+    test.setTimeout(90_000);
+
+    const secondContext = await browser.newContext();
+    const secondPage = await secondContext.newPage();
+    try {
+      await Promise.all([programmaticSignIn(page), programmaticSignIn(secondPage)]);
+      await Promise.all([
+        page.goto(DASHBOARD_PATH),
+        secondPage.goto(`${DASHBOARD_PATH}ai`),
+      ]);
+      await expectDashboardReady(page);
+      await expect(secondPage.locator("textarea").first()).toBeVisible();
+
+      // A response that arrives after a newer request must not replace the
+      // visible ready state with stale data. Keep the delay bounded so a
+      // hung request cannot make this campaign pass indefinitely.
+      let staleResponseHeld = true;
+      let releaseStaleResponse!: () => void;
+      const staleResponseReleased = new Promise<void>((resolve) => {
+        releaseStaleResponse = resolve;
+      });
+      await page.route("**/api/dashboard", async (route) => {
+        if (!staleResponseHeld) return route.continue();
+        staleResponseHeld = false;
+        await staleResponseReleased;
+        return route.fulfill(jsonResponse(dashboardFixture));
+      });
+      const staleRefresh = page.getByRole("button", { name: "Refresh status" }).click();
+      await page.waitForTimeout(50);
+      releaseStaleResponse();
+      await staleRefresh;
+      await expectDashboardReady(page);
+
+      // Simulate a dropped connection in the second browser and assert the
+      // recovery action rendered by the dashboard, then let the next request
+      // reconnect normally.
+      let reconnectAttempt = 0;
+      await secondPage.goto(DASHBOARD_PATH);
+      await expectDashboardReady(secondPage);
+      await secondPage.route("**/api/dashboard", async (route) => {
+        reconnectAttempt += 1;
+        // useGetDashboard retries once; hold both bounded attempts so the
+        // rendered error state is observable before the operator retries.
+        if (reconnectAttempt <= 2) {
+          return route.fulfill(
+            jsonResponse({ error: "controlled reconnect interruption" }, 503),
+          );
+        }
+        return route.continue();
+      });
+      await secondPage.reload();
+      await expect(
+        secondPage.getByRole("heading", { name: "Failed to load dashboard" }),
+      ).toBeVisible();
+      await expect(
+        secondPage.getByRole("button", { name: "Retry Connection" }),
+      ).toBeVisible();
+      await secondPage.unroute("**/api/dashboard");
+      await secondPage.getByRole("button", { name: "Retry Connection" }).click();
+      await expectDashboardReady(secondPage);
+
+      await restartApiForCampaign(page);
+      await Promise.all([page.reload(), secondPage.reload()]);
+      await expectDashboardReady(page);
+      await expectDashboardReady(secondPage);
+
+      await page.reload();
+      await expectDashboardReady(page);
+      await expect(
+        page.getByRole("button", { name: "Retry Connection" }),
+      ).toHaveCount(0);
+      await expectNoHorizontalOverflow(page);
+    } finally {
+      await secondContext.close();
+    }
   });
 
   test("previews and downloads the completed execution audit without duplicating effects", async ({
