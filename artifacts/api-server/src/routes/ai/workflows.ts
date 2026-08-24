@@ -29,6 +29,16 @@ import {
   handleOrchestratorError,
   redactUserFacingValue,
 } from "../../lib/ai-route-helpers.js";
+import {
+  checkpointAiExecution,
+  claimAiExecution,
+  completeAiExecution,
+  createAiExecution,
+  createAutonomousOperationContract,
+  failAiExecution,
+  parseAiExecutionCheckpoint,
+  transitionAutonomousOperation,
+} from "../../lib/ai-execution-state.js";
 
 const router = Router();
 
@@ -99,6 +109,69 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
     });
   }
 
+  // Workflow executions predate the shared autonomous ledger. Use the
+  // workflow execution as the idempotency boundary so retries/restarts resume
+  // one server-owned operation instead of creating a parallel workflow log.
+  const workflowExecutionKey = execution?.id ?? `workflow:${workflowId}:${workflow.updatedAt.toISOString()}`;
+  const operationRequest = {
+    projectId: workflow.projectId,
+    message: `AI orchestration for workflow "${workflow.name}"`,
+    modelMessage: "Choose the next workflow phase from the server-provided phase list.",
+    workspaceRevision: workflow.updatedAt.toISOString(),
+    objective: `Orchestrate workflow "${workflow.name}" from phase "${currentPhase ?? "none"}"`,
+    validationTargetPaths: [],
+    proofRequired: true,
+  };
+  let operationExecution: Awaited<ReturnType<typeof createAiExecution>>["execution"];
+  let workerId: string | undefined;
+  let operation = undefined as ReturnType<typeof createAutonomousOperationContract> | undefined;
+  try {
+    const durable = await createAiExecution({
+      userId: req.userId,
+      projectId: workflow.projectId,
+      request: operationRequest,
+      idempotencyKey: workflowExecutionKey,
+      correlationId: undefined,
+    });
+    operationExecution = durable.execution;
+    const checkpoint = parseAiExecutionCheckpoint(operationExecution.checkpoint);
+    operation = checkpoint?.operation;
+    if (!operation) {
+      operation = createAutonomousOperationContract({
+        operationId: operationExecution.operationId ?? operationExecution.id,
+        objective: operationRequest.objective,
+        revisionManifest: operationRequest.workspaceRevision,
+        policyRevision: "server-policy-v1",
+      });
+    }
+    if (durable.created) {
+      workerId = `workflow-orchestrator:${randomUUID()}`;
+      const claimed = await claimAiExecution({
+        executionId: operationExecution.id,
+        userId: req.userId,
+        workerId,
+      });
+      if (!claimed) throw new Error("Workflow operation could not be claimed");
+      operationExecution = claimed;
+      operation = transitionAutonomousOperation(operation, "inspecting");
+      await checkpointAiExecution({
+        executionId: operationExecution.id,
+        workerId,
+        checkpoint: {
+          stage: "model_call",
+          sequence: 1,
+          operation,
+          detail: "Workflow orchestration decision in progress",
+          updatedAt: new Date().toISOString(),
+        },
+      });
+    }
+  } catch (err) {
+    await orchLock.release();
+    logger.error({ err, workflowId }, "workflow operation ledger initialization failed");
+    return res.status(500).json({ error: "Workflow operation could not be recorded." });
+  }
+
   let decision: Awaited<ReturnType<typeof orchestrateWorkflow>>;
   try {
     decision = await orchestrateWorkflow({
@@ -112,6 +185,14 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
       provider,
     });
   } catch (err) {
+    if (workerId && operation) {
+      await failAiExecution({
+        executionId: operationExecution.id,
+        workerId,
+        error: "Workflow orchestration provider failed",
+        operation: transitionAutonomousOperation(operation, "failed"),
+      });
+    }
     if (handleOrchestratorError(err, res, { projectId: workflow.projectId, operation: "workflow-orchestration", provider })) return;
     throw err;
   } finally {
@@ -119,6 +200,14 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
   }
 
   if (decision._parseError) {
+    if (workerId && operation) {
+      await failAiExecution({
+        executionId: operationExecution.id,
+        workerId,
+        error: "Workflow orchestration returned invalid model output",
+        operation: transitionAutonomousOperation(operation, "failed"),
+      });
+    }
     return res.status(422).json({
       error: "model_output_invalid",
       code: "model_output_invalid",
@@ -131,6 +220,24 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
 
   invalidateContextCache(workflow.projectId);
   const safeDecision = redactUserFacingValue(decision);
+  const evidenceRef = `workflow:${workflowId}:execution:${execution?.id ?? "unstarted"}:decision`;
+  if (workerId && operation) {
+    const completedOperation = transitionAutonomousOperation(
+      transitionAutonomousOperation(operation, "validating"),
+      "succeeded",
+      [evidenceRef],
+    );
+    await completeAiExecution({
+      executionId: operationExecution.id,
+      workerId,
+      finalMessageId: randomUUID(),
+      evidenceVerdict: "PROVEN",
+      evidenceReason: "The workflow decision and phase context were retained in the durable operation ledger.",
+      proofRequired: true,
+      operation: completedOperation,
+    });
+    operation = completedOperation;
+  }
 
   await Promise.all([
     recordAudit({
@@ -140,13 +247,21 @@ router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
       projectId: workflow.projectId,
       stateBefore: { currentPhase, completedPhases },
       stateAfter: { action: decision.action },
+      correlationId: operation?.operationId ?? operationExecution.operationId ?? operationExecution.id,
     }),
     db.insert(eventsTable).values({
       id: randomUUID(),
       type: "AiWorkflowOrchestration",
       projectId: workflow.projectId,
+      workflowId,
       severity: "info",
       message: `AI orchestrator decision for "${workflow.name}": ${safeDecision.action} — ${safeDecision.reasoning.slice(0, 100)}`,
+      correlationId: operation?.operationId ?? operationExecution.operationId ?? operationExecution.id,
+      payload: {
+        action: safeDecision.action,
+        phase: currentPhase ?? null,
+        evidenceRefs: [evidenceRef],
+      },
     }),
   ]);
 
