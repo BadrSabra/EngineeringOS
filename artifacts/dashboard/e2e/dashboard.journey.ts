@@ -175,6 +175,8 @@ async function installApiFixtures(
       body: Record<string, unknown>;
       filename: string;
       requests: string[];
+      execution?: Record<string, unknown>;
+      messageOutcome?: string;
     };
     liveTask?: {
       id: string;
@@ -299,7 +301,7 @@ async function installApiFixtures(
             role: "assistant",
             content: "Completed audit execution",
             executionId: EXECUTION_ID,
-            outcome: "SUCCEEDED",
+            outcome: overrides.auditExport.messageOutcome ?? "SUCCEEDED",
             createdAt: "2026-01-01T00:02:00.000Z",
           },
         ]),
@@ -472,7 +474,9 @@ async function installApiFixtures(
       );
     }
     if (path === `/api/ai/executions/${EXECUTION_ID}`)
-      return route.fulfill(jsonResponse(executionFixture));
+      return route.fulfill(
+        jsonResponse(overrides?.auditExport?.execution ?? executionFixture),
+      );
     if (path === "/api/ai/mission-control")
       return route.fulfill(
         jsonResponse({ updatedAt: "2026-01-01T00:01:00.000Z", executions: [] }),
@@ -1723,6 +1727,122 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByLabel("Redacted audit preview"),
     ).toBeHidden();
+    expect(auditRequests).toHaveLength(2);
+  });
+
+  test("keeps the cancelled execution audit handoff redacted and terminal", async ({
+    page,
+  }) => {
+    const auditRequests: string[] = [];
+    const cancelledExecution = {
+      ...executionFixture,
+      status: "cancelled",
+      flightState: "CANCELLED",
+      checkpoint: {
+        stage: "cancelled",
+        detail: "Execution cancelled before any changes were applied.",
+      },
+      terminalReason: "cancel_requested",
+      completedAt: "2026-01-01T00:01:30.000Z",
+      updatedAt: "2026-01-01T00:01:30.000Z",
+    };
+    const auditBody = {
+      format: "engineeringos.execution-audit.v1",
+      exportedAt: "2026-01-01T00:02:00.000Z",
+      execution: {
+        id: EXECUTION_ID,
+        projectId: "e2e-project",
+        sessionId: "e2e-audit-session",
+        operationId: executionFixture.operationId,
+        status: "cancelled",
+        terminalState: "cancelled",
+        revision: "e2e-revision-42",
+        proof: { required: false, verdict: "NOT_RECORDED" },
+      },
+      timeline: [
+        { type: "cancelled", detail: "Cancellation accepted by the server." },
+      ],
+      validations: [],
+      affectedFiles: [],
+      redaction: {
+        excluded: [
+          "provider secrets",
+          "raw model output",
+          "private runtime paths",
+        ],
+      },
+    };
+    await installApiFixtures(page, {
+      auditExport: {
+        body: auditBody,
+        filename: "cancelled-server-audit.json",
+        requests: auditRequests,
+        execution: cancelledExecution,
+        messageOutcome: "CANCELLED",
+      },
+    });
+    await programmaticSignIn(page);
+    await page.evaluate(() => {
+      const execution = {
+        id: "e2e-controlled-execution",
+        projectId: "e2e-project",
+        sessionId: "e2e-audit-session",
+        message: "Cancelled audit execution",
+      };
+      localStorage.setItem(
+        "eos_ai_execution_current_e2e-project",
+        "e2e-audit-session",
+      );
+      localStorage.setItem(
+        "eos_ai_execution_e2e-project_e2e-audit-session",
+        JSON.stringify(execution),
+      );
+    });
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const proof = page.getByLabel("Agent execution proof");
+    await expect(proof).toBeVisible();
+    await expect(proof).toContainText("Cancelled");
+    await expect(proof).toContainText("Execution e2e-controlled-execution");
+    await expect(proof).toContainText("Revision: e2e-revision-42");
+    await expect(proof).toContainText("Terminal reason: cancel_requested");
+    await expect(proof.getByRole("button", { name: "Cancel" })).toHaveCount(0);
+    await expect(proof.getByRole("button", { name: "Resume" })).toHaveCount(0);
+    await expect(
+      proof.getByRole("button", { name: "Approve & apply" }),
+    ).toHaveCount(0);
+    await expect(
+      proof.getByRole("button", { name: /commit verified changes/i }),
+    ).toHaveCount(0);
+    await expect(
+      proof.getByRole("button", { name: /push committed changes/i }),
+    ).toHaveCount(0);
+
+    await proof.getByRole("button", { name: "Preview audit" }).click();
+    const preview = page.getByLabel("Redacted audit preview");
+    await expect(preview).toBeVisible();
+    await expect(preview).toContainText("cancelled");
+    await expect(preview).toContainText(EXECUTION_ID);
+    await expect(preview).toContainText("e2e-operation");
+    await expect(preview).toContainText("e2e-revision-42");
+    await expect(preview).toContainText("provider secrets");
+    await expect(preview).toContainText("raw model output");
+    await expect(preview).toContainText("private runtime paths");
+    expect(auditRequests).toHaveLength(1);
+
+    await preview.getByRole("button", { name: "Close audit preview" }).click();
+    const downloadPromise = page.waitForEvent("download");
+    await proof.getByRole("button", { name: "Export audit" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("cancelled-server-audit.json");
+    expect(auditRequests).toHaveLength(2);
+
+    await page.reload();
+    const reloadedProof = page.getByLabel("Agent execution proof");
+    await expect(reloadedProof).toBeVisible();
+    await expect(reloadedProof).toContainText("Cancelled");
+    await expect(reloadedProof).toContainText("Revision: e2e-revision-42");
+    await expect(page.getByLabel("Redacted audit preview")).toBeHidden();
     expect(auditRequests).toHaveLength(2);
   });
 
