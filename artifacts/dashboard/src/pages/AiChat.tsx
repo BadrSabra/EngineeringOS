@@ -7487,6 +7487,15 @@ export default function AiChat() {
         lifecycle?: DeliveryLifecycle;
       };
       if (!response.ok) {
+        if (response.status === 404 && payload.code === 'DELIVERY_NOT_FOUND') {
+          void qc.invalidateQueries({ queryKey: ['ai-delivery-recoverable', selectedProjectId] });
+          toast({
+            title: 'Recovery link expired',
+            description: 'This recovery operation no longer exists. The recovery list was refreshed.',
+            variant: 'destructive',
+          });
+          return;
+        }
         if (response.status === 409 && (
           payload.code === 'DELIVERY_ALREADY_DISCARDED' ||
           payload.code === 'DELIVERY_NOT_RECOVERABLE'

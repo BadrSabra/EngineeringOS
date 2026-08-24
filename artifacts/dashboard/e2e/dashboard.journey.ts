@@ -169,6 +169,7 @@ async function installApiFixtures(
         proposalId: string;
         action: "resume-validation" | "discard";
         response: Record<string, unknown>;
+        status?: number;
         nextOperations?: Array<Record<string, unknown>>;
       };
     };
@@ -458,7 +459,10 @@ async function installApiFixtures(
           overrides.deliveryRecovery.recoveryAction.nextOperations;
       }
       return route.fulfill(
-        jsonResponse(overrides.deliveryRecovery.recoveryAction.response, 409),
+        jsonResponse(
+          overrides.deliveryRecovery.recoveryAction.response,
+          overrides.deliveryRecovery.recoveryAction.status ?? 409,
+        ),
       );
     }
     if (path === "/api/events") {
@@ -3204,6 +3208,76 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(await region.locator('[data-operation-id="e2e-recovery-race-operation"]').count()).toBe(1);
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toMatch(/Do not render this server detail|\/home\/runner|\/tmp\//i);
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test("explains when an old recovery link points to a deleted operation", async ({
+    page,
+  }) => {
+    const recovery = {
+      requests: [] as string[],
+      actionRequests: [] as string[],
+      operations: [
+        {
+          proposalId: "e2e-recovery-deleted-proposal",
+          operationId: "e2e-recovery-deleted-operation",
+          sessionId: "e2e-recovery-deleted-session",
+          lifecycle: "blocked",
+          status: "pending",
+          createdAt: "2026-01-01T00:05:00.000Z",
+          recoveryState: "recoverable",
+          operatorExplanation:
+            "The delivery stopped because the retained changes need review before validation can continue.",
+          nextAction:
+            "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.",
+          conflictReason: null,
+          validationEvidence: [{ profile: "workspace-typecheck", status: "failed" }],
+          workspaceAvailable: true,
+          changeCount: 1,
+        },
+      ],
+      recoveryAction: {
+        proposalId: "e2e-recovery-deleted-proposal",
+        action: "resume-validation" as const,
+        status: 404,
+        response: {
+          error: "Delivery operation not found",
+          code: "DELIVERY_NOT_FOUND",
+          diagnostic: "Do not render this server detail.",
+        },
+        nextOperations: [],
+      },
+    };
+    await installApiFixtures(page, { deliveryRecovery: recovery });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const region = page.getByRole("region", {
+      name: "Recoverable delivery operations",
+    });
+    const operation = region.locator(
+      '[data-operation-id="e2e-recovery-deleted-operation"]',
+    );
+    await expect(operation.getByRole("button", { name: "Resume validation" })).toBeEnabled();
+    await operation.getByRole("button", { name: "Resume validation" }).click();
+
+    await expect(page.getByText("Recovery link expired", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(
+        "This recovery operation no longer exists. The recovery list was refreshed.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect.poll(() => recovery.requests.length).toBeGreaterThanOrEqual(2);
+    await expect.poll(() => region.count()).toBe(0);
+    expect(recovery.actionRequests).toHaveLength(1);
+    expect(recovery.actionRequests[0]).toContain(
+      "/api/ai/delivery/e2e-recovery-deleted-proposal/resume-validation",
+    );
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toMatch(
+      /Delivery operation not found|Do not render this server detail|\/home\/runner|\/tmp\//i,
+    );
     await expectNoHorizontalOverflow(page);
   });
 
