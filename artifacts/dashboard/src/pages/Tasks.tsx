@@ -116,6 +116,8 @@ type ActivityItem = {
   count: number;
 };
 
+const MAX_RECONNECT_ATTEMPTS = 5;
+
 function activityItem(log: TaskLog): ActivityItem {
   const message = safeTaskText(log.message);
   const lower = message.toLowerCase();
@@ -166,7 +168,7 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
   // Live logs accumulated via SSE while the task is running
   const [liveLogs, setLiveLogs] = useState<TaskLog[]>([]);
   const [sseActive, setSseActive] = useState(false);
-  const [connectionState, setConnectionState] = useState<'connected' | 'reconnecting' | 'disconnected'>('disconnected');
+  const [connectionState, setConnectionState] = useState<'connected' | 'reconnecting' | 'exhausted' | 'disconnected'>('disconnected');
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seenIds = useRef(new Set<string>());
@@ -203,12 +205,14 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
     es.onerror = () => {
       es.close();
       setSseActive(false);
-      setConnectionState('reconnecting');
-      if (reconnectAttempt < 5) {
+      if (reconnectAttempt < MAX_RECONNECT_ATTEMPTS) {
+        setConnectionState('reconnecting');
         reconnectTimer.current = setTimeout(
           () => setReconnectAttempt((attempt) => attempt + 1),
           Math.min(1000 * 2 ** reconnectAttempt, 8000),
         );
+      } else {
+        setConnectionState('exhausted');
       }
     };
 
@@ -236,12 +240,20 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
   for (const log of liveLogs) allLogs.set(log.id, log);
   const logs: TaskLog[] = [...allLogs.values()].sort((a, b) =>
     a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id));
+  const operationId = logs
+    .map((log) => log.metadata?.operationId)
+    .find((value): value is string => typeof value === 'string');
   const groupedActivity = groupActivity(logs);
   const plan = taskPlan(task);
   const completedSteps = plan.filter((step) => step.status === 'done').length;
   const elapsedMs = Math.max(0, new Date((task.completedAt ?? task.updatedAt)).getTime() - new Date(task.createdAt).getTime());
   const elapsed = `${Math.floor(elapsedMs / 60_000)}m ${Math.floor((elapsedMs % 60_000) / 1000)}s`;
   const final = ['completed', 'failed', 'cancelled'].includes(taskStatus);
+  const retryLiveUpdates = () => {
+    if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+    setReconnectAttempt(0);
+    setConnectionState('reconnecting');
+  };
 
   return (
     <div>
@@ -262,12 +274,45 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
       <div className="flex items-center justify-between mb-4 text-xs">
         <span className="text-muted-foreground">Last confirmed update: {new Date(task.updatedAt).toLocaleString()}</span>
         {isRunning && (
-          <span className={`flex items-center gap-1.5 ${connectionState === 'connected' ? 'text-emerald-500' : 'text-yellow-500'}`}>
+          <span
+            className={`flex items-center gap-1.5 ${connectionState === 'connected' ? 'text-emerald-500' : connectionState === 'exhausted' ? 'text-destructive' : 'text-yellow-500'}`}
+            aria-live="polite"
+          >
             {connectionState === 'connected' ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-            {connectionState === 'connected' ? 'Connected' : 'Reconnecting…'}
+            {connectionState === 'connected'
+              ? 'Connected'
+              : connectionState === 'exhausted'
+                ? 'Reconnect exhausted'
+                : `Reconnecting… (attempt ${reconnectAttempt + 1} of ${MAX_RECONNECT_ATTEMPTS})`}
           </span>
         )}
       </div>
+      {isRunning && connectionState === 'reconnecting' && (
+        <div className="mb-4 rounded-lg border border-yellow-500/40 bg-yellow-500/5 px-3 py-2 text-xs text-yellow-700 dark:text-yellow-300" role="status">
+          Temporary stream failure. Retrying live task updates; the task itself is still running.
+        </div>
+      )}
+      {isRunning && connectionState === 'exhausted' && (
+        <div
+          className="mb-4 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-3 text-xs"
+          role="alert"
+          data-operation-id={operationId}
+        >
+          <p className="font-medium text-destructive">Live task updates could not reconnect.</p>
+          <p className="mt-1 text-muted-foreground">
+            Reconnect attempts are exhausted. The task has not been marked failed; refresh the task logs to see the latest confirmed state.
+            {operationId && <> Operation: <span className="font-mono">{safeTaskText(operationId)}</span>.</>}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-3">
+            <button type="button" onClick={retryLiveUpdates} className="inline-flex items-center gap-1.5 font-medium text-foreground underline">
+              <RotateCcw className="w-3.5 h-3.5" /> Retry live updates
+            </button>
+            <button type="button" onClick={() => void refetchLogs()} className="inline-flex items-center gap-1.5 font-medium text-foreground underline">
+              <RefreshCw className="w-3.5 h-3.5" /> Refresh task logs
+            </button>
+          </div>
+        </div>
+      )}
       <section aria-labelledby={`plan-${taskId}`} className="mb-5">
         <h4 id={`plan-${taskId}`} className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Execution plan</h4>
         <div className="border border-border rounded-lg divide-y divide-border bg-background">

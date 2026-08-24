@@ -183,8 +183,10 @@ async function installApiFixtures(
       title: string;
       projectId: string;
       log: Record<string, unknown>;
+      initialLogs?: Array<Record<string, unknown>>;
       streamRequests?: string[];
       failFirstStream?: boolean;
+      failStreamAttempts?: number;
     };
   },
 ) {
@@ -371,7 +373,7 @@ async function installApiFixtures(
       overrides?.liveTask &&
       path === `/api/tasks/${overrides.liveTask.id}/logs`
     ) {
-      return route.fulfill(jsonResponse([]));
+      return route.fulfill(jsonResponse(overrides.liveTask.initialLogs ?? []));
     }
     if (
       overrides?.liveTask &&
@@ -379,7 +381,12 @@ async function installApiFixtures(
     ) {
       const streamRequests = overrides.liveTask.streamRequests;
       streamRequests?.push(route.request().url());
-      if (overrides.liveTask.failFirstStream && streamRequests?.length === 1) {
+      if (
+        (overrides.liveTask.failFirstStream && streamRequests?.length === 1) ||
+        (overrides.liveTask.failStreamAttempts &&
+          streamRequests &&
+          streamRequests.length <= overrides.liveTask.failStreamAttempts)
+      ) {
         // Exercise the browser's reconnect path without changing the task
         // lifecycle or synthesizing a successful response for the first try.
         return route.abort("connectionreset");
@@ -1957,6 +1964,69 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(new URL(streamRequests[1]).pathname).toBe(
       `/api/tasks/${taskId}/logs/stream`,
     );
+    await expect(
+      activity.locator("summary").filter({ hasText: liveLog.message }),
+    ).toHaveCount(1);
+  });
+
+  test("shows an actionable terminal state when live task reconnects are exhausted", async ({
+    page,
+  }) => {
+    const taskId = "e2e-exhausted-live-task";
+    const operationId = "e2e-exhausted-operation";
+    const liveLog = {
+      id: "e2e-exhausted-live-log",
+      taskId,
+      level: "info",
+      message: "The only confirmed task update",
+      timestamp: "2026-01-01T00:00:02.000Z",
+      metadata: { operationId },
+    };
+    const streamRequests: string[] = [];
+    const nonStreamRequests: string[] = [];
+    page.on("request", (request) => {
+      if (!request.url().includes("/api/tasks/")) return;
+      if (!request.url().includes("/logs/stream")) nonStreamRequests.push(request.method());
+    });
+    await installApiFixtures(page, {
+      liveTask: {
+        id: taskId,
+        title: "Recover exhausted live task updates",
+        projectId: "e2e-project",
+        log: liveLog,
+        initialLogs: [liveLog],
+        streamRequests,
+        failStreamAttempts: 6,
+      },
+    });
+    await programmaticSignIn(page);
+
+    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+    await page.getByLabel("Expand task Recover exhausted live task updates").click();
+    await page.getByRole("button", { name: "Logs" }).click();
+
+    const activity = page.getByRole("region", { name: "Activity" });
+    await expect(activity).toContainText(liveLog.message);
+    await expect(page.getByText("Temporary stream failure.", { exact: false })).toBeVisible();
+    await expect
+      .poll(() => streamRequests.length, {
+        message: "the task log stream should exhaust its bounded reconnect budget",
+        timeout: 35_000,
+      })
+      .toBe(6);
+    const exhausted = page.getByRole("alert");
+    await expect(exhausted).toContainText("Live task updates could not reconnect");
+    await expect(exhausted).toContainText("Reconnect attempts are exhausted");
+    await expect(exhausted).toContainText(operationId);
+    await expect(exhausted).toContainText("task has not been marked failed");
+    await expect(exhausted.getByRole("button", { name: "Retry live updates" })).toBeVisible();
+    await expect(exhausted.getByRole("button", { name: "Refresh task logs" })).toBeVisible();
+
+    await exhausted.getByRole("button", { name: "Retry live updates" }).click();
+    await expect(activity).toContainText("The only confirmed task update");
+    await expect.poll(() => streamRequests.length).toBe(7);
+    expect(new Set(streamRequests).size).toBe(1);
+    expect(nonStreamRequests).not.toContain("POST");
     await expect(
       activity.locator("summary").filter({ hasText: liveLog.message }),
     ).toHaveCount(1);
