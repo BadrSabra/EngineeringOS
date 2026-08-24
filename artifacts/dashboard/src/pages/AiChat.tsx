@@ -6027,6 +6027,13 @@ type AgentExecutionProofStatus = {
   evidenceReason?: string | null;
   objective?: Record<string, unknown> | null;
   proofRequired?: boolean;
+  recovery?: {
+    uncertain: boolean;
+    operationId: string | null;
+    revision: string | null;
+    phase: string | null;
+    outcome: string | null;
+  };
   checkpoint?: Record<string, unknown>;
   checkpointVersion?: number;
   resumable?: boolean;
@@ -6451,6 +6458,13 @@ function AgentExecutionProofPanel({
       && onExport
       && (status === 'completed' || status === 'cancelled'),
   );
+  const isCancelledAudit = status === 'cancelled';
+  const isIncompleteAudit = isCancelledAudit
+    || status === 'failed'
+    || (execution?.proofRequired === true && execution.evidenceVerdict !== 'PROVEN');
+  const needsNewAuditRun = isIncompleteAudit
+    && execution?.evidenceVerdict !== 'PROVEN';
+  const hasRetainedAudit = Boolean(isCancelledAudit && executionId && canExport);
 
   return (
     <div
@@ -6665,6 +6679,41 @@ function AgentExecutionProofPanel({
         </div>
       )}
 
+      {isIncompleteAudit && (
+        <div
+          className={`border-b border-border/40 px-3 py-2.5 ${
+            needsNewAuditRun ? 'bg-amber-500/5' : 'bg-emerald-500/5'
+          }`}
+          aria-label="Audit operator disposition"
+        >
+          <div className="flex items-start gap-2">
+            {needsNewAuditRun
+              ? <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+              : <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />}
+            <div className="min-w-0">
+              <div className={`text-xs font-semibold ${
+                needsNewAuditRun ? 'text-amber-200' : 'text-emerald-200'
+              }`}>
+                {hasRetainedAudit
+                  ? 'Cancelled audit retained safely'
+                  : 'Audit needs operator attention'}
+              </div>
+              <div className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                {hasRetainedAudit
+                  ? needsNewAuditRun
+                    ? 'Collected evidence and the redacted audit are available for review, but cancellation leaves the audit incomplete. Start a new run before relying on a complete finding.'
+                    : 'Collected evidence is retained and the redacted audit is available for review.'
+                  : 'This audit does not have complete proof. Start a new run before relying on its result.'}
+              </div>
+              {execution?.evidenceReason && (
+                <div className="mt-1 text-[10px] text-muted-foreground">
+                  Evidence note: {execution.evidenceReason}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-px bg-border/30 sm:grid-cols-4">
         <div className="bg-background/20 px-3 py-2">
           <div className="text-[10px] text-muted-foreground">Evidence</div>
