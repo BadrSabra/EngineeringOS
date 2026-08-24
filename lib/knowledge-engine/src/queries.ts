@@ -25,6 +25,7 @@ import type {
   EvidenceBundle,
   AnnotatedPathStep,
 } from "./types.js";
+import { GRAPH_LIMITS } from "./graph-limits.js";
 
 type Db = typeof DbType;
 
@@ -115,7 +116,8 @@ async function fetchOutgoing(
   return db
     .select()
     .from(graphRelationshipsTable)
-    .where(and(...conditions));
+    .where(and(...conditions))
+    .limit(GRAPH_LIMITS.maxRelationships);
 }
 
 /**
@@ -132,7 +134,8 @@ async function fetchEntitiesByIds(
   return db
     .select()
     .from(graphEntitiesTable)
-    .where(and(...conditions));
+    .where(and(...conditions))
+    .limit(GRAPH_LIMITS.maxEntities);
 }
 
 // ─── Impact analysis ─────────────────────────────────────────────────────────
@@ -153,7 +156,7 @@ export async function getImpactedEntities(
   maxDepth = 4,
   projectId?: string,
 ): Promise<ImpactResult | null> {
-  const depth = Math.min(maxDepth, 6);
+  const depth = Math.min(Math.max(0, maxDepth), GRAPH_LIMITS.maxTraversalDepth);
 
   const rootRows = await db
     .select()
@@ -168,9 +171,16 @@ export async function getImpactedEntities(
   const impacted: TraversalHop[] = [];
   let frontier = [entityId];
   let currentDepth = 0;
+  let work = 0;
 
-  while (frontier.length > 0 && currentDepth < depth) {
+  while (
+    frontier.length > 0 &&
+    currentDepth < depth &&
+    impacted.length < GRAPH_LIMITS.maxTraversalEntities &&
+    work < GRAPH_LIMITS.maxTraversalWork
+  ) {
     const outgoing = await fetchOutgoing(db, frontier, projectId);
+    work += outgoing.length;
     const nextIds = outgoing
       .map((r) => r.targetId)
       .filter((id) => !visited.has(id));
@@ -185,6 +195,7 @@ export async function getImpactedEntities(
     const entityMap = new Map(nextEntities.map((e) => [e.id, e]));
 
     for (const rel of outgoing) {
+      if (impacted.length >= GRAPH_LIMITS.maxTraversalEntities) break;
       if (!visited.has(rel.targetId)) {
         const entity = entityMap.get(rel.targetId);
         if (entity) {
@@ -235,7 +246,7 @@ export async function getShortestPath(
     return { found: true, path: [{ entity: rows[0], relationship: null }], length: 0 };
   }
 
-  const depth = Math.min(maxDepth, 8);
+  const depth = Math.min(Math.max(0, maxDepth), GRAPH_LIMITS.maxTraversalDepth);
 
   // BFS: each queue entry is the path taken to reach this entity
   type BfsNode = { entityId: string; path: PathStep[] };
@@ -251,12 +262,18 @@ export async function getShortestPath(
   const queue: BfsNode[] = [
     { entityId: fromId, path: [{ entity: fromRows[0], relationship: null }] },
   ];
+  let work = 0;
 
-  while (queue.length > 0) {
+  while (
+    queue.length > 0 &&
+    work < GRAPH_LIMITS.maxTraversalWork &&
+    visited.size <= GRAPH_LIMITS.maxTraversalEntities
+  ) {
     const node = queue.shift()!;
     if (node.path.length > depth) break;
 
     const outgoing = await fetchOutgoing(db, [node.entityId], projectId);
+    work += outgoing.length;
     const targetIds = outgoing.map((r) => r.targetId).filter((id) => !visited.has(id));
     const entities = await fetchEntitiesByIds(db, [...new Set(targetIds)], projectId);
     const entityMap = new Map(entities.map((e) => [e.id, e]));
@@ -313,7 +330,7 @@ export async function getNeighborhood(
   const allEntities: GraphEntity[] = [];
   let frontier = [entityId];
 
-  for (let d = 0; d < Math.min(depth, 4); d++) {
+  for (let d = 0; d < Math.min(depth, GRAPH_LIMITS.maxTraversalDepth); d++) {
     // Outgoing
     const outgoing = await fetchOutgoing(db, frontier);
     // Incoming
@@ -461,12 +478,13 @@ export async function fetchProjectGraph(
   const entities = await db
     .select()
     .from(graphEntitiesTable)
-    .where(eq(graphEntitiesTable.projectId, projectId));
+    .where(eq(graphEntitiesTable.projectId, projectId))
+    .limit(GRAPH_LIMITS.maxEntities);
 
   if (entities.length === 0) return { entities: [], relationships: [] };
 
   const entityIds = entities.map((e) => e.id);
-  const relationships = await db
+   const relationships = await db
     .select()
     .from(graphRelationshipsTable)
     .where(
@@ -541,7 +559,7 @@ export async function getEdgesByType(
     .select()
     .from(graphRelationshipsTable)
     .where(and(...conditions))
-    .limit(2000);
+    .limit(GRAPH_LIMITS.maxRelationships);
 
   return results;
 }
@@ -567,13 +585,16 @@ export async function getEvidenceForNode(
     eq(graphRelationshipsTable.sourceId, entityId),
     isNotNull(graphRelationshipsTable.evidenceJson),
   ];
-  if (projectId) conditions.push(eq(graphRelationshipsTable.projectId, projectId));
+  if (projectId) {
+    conditions.push(
+      or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, projectId))!,
+    );
+  }
   const rels = await db
     .select()
     .from(graphRelationshipsTable)
-    .where(
-      and(...conditions),
-    );
+    .where(and(...conditions))
+    .limit(GRAPH_LIMITS.maxRelationships);
   const validTargetIds = projectId
     ? new Set(
         (
@@ -632,7 +653,7 @@ export async function getSemanticNeighborhood(
   const allEntities: GraphEntity[] = [];
   let frontier = [entityId];
 
-  for (let d = 0; d < Math.min(depth, 4); d++) {
+  for (let d = 0; d < Math.min(depth, GRAPH_LIMITS.maxSemanticDepth); d++) {
     // Build conditions for this hop's outgoing edges
     const conditions: SQL[] = [inArray(graphRelationshipsTable.sourceId, frontier)];
     if (projectId) {
@@ -663,6 +684,7 @@ export async function getSemanticNeighborhood(
           .select()
           .from(graphRelationshipsTable)
           .where(and(...conditions))
+          .limit(GRAPH_LIMITS.maxRelationships)
       : [];
     // KG-01/04: semanticTags filter — applied post-fetch per hop
     const outgoing =
@@ -675,7 +697,9 @@ export async function getSemanticNeighborhood(
       if (!visited.has(rel.targetId)) nextIds.add(rel.targetId);
     }
 
-    const newIds = [...nextIds].filter((id) => !visited.has(id));
+    const newIds = [...nextIds]
+      .filter((id) => !visited.has(id))
+      .slice(0, Math.max(0, GRAPH_LIMITS.maxTraversalEntities - visited.size));
     if (newIds.length === 0) break;
 
     const entities = await fetchEntitiesByIds(db, newIds, projectId);
@@ -720,7 +744,7 @@ export async function getHighConfidencePath(
     return { found: true, path: [{ entity: rows[0], relationship: null }], length: 0 };
   }
 
-  const depth = Math.min(maxDepth, 8);
+  const depth = Math.min(Math.max(0, maxDepth), GRAPH_LIMITS.maxTraversalDepth);
   const fromRows = await db
     .select()
     .from(graphEntitiesTable)
@@ -734,7 +758,12 @@ export async function getHighConfidencePath(
     { entityId: fromId, path: [{ entity: fromRows[0], relationship: null }] },
   ];
 
-  while (queue.length > 0) {
+  let work = 0;
+  while (
+    queue.length > 0 &&
+    work < GRAPH_LIMITS.maxTraversalWork &&
+    visited.size <= GRAPH_LIMITS.maxTraversalEntities
+  ) {
     const node = queue.shift()!;
     if (node.path.length > depth) break;
 
@@ -807,7 +836,8 @@ export async function getObservedRuntimeSubgraph(
         eq(graphRelationshipsTable.projectId, projectId),
         eq(graphRelationshipsTable.isRuntimeObserved, true),
       ),
-    );
+    )
+    .limit(GRAPH_LIMITS.maxRelationships);
 
   if (relationships.length === 0) {
     return {
@@ -829,7 +859,11 @@ export async function getObservedRuntimeSubgraph(
     entityIds.add(r.targetId);
   }
 
-  const entities = await fetchEntitiesByIds(db, [...entityIds], projectId);
+  const entities = await fetchEntitiesByIds(
+    db,
+    [...entityIds].slice(0, GRAPH_LIMITS.maxEntities),
+    projectId,
+  );
   const validEntityIds = new Set(entities.map((entity) => entity.id));
   const scopedRelationships = relationships.filter(
     (relationship) =>
@@ -872,7 +906,8 @@ export async function getLayeredGraphView(
   const entities = await db
     .select()
     .from(graphEntitiesTable)
-    .where(eq(graphEntitiesTable.projectId, projectId));
+      .where(eq(graphEntitiesTable.projectId, projectId))
+      .limit(GRAPH_LIMITS.maxEntities);
 
   const entityIds = entities.map((entity) => entity.id);
   const baseConditions: SQL[] = [
@@ -905,7 +940,8 @@ export async function getLayeredGraphView(
   const rawRels = await db
     .select()
     .from(graphRelationshipsTable)
-    .where(and(...baseConditions));
+    .where(and(...baseConditions))
+    .limit(GRAPH_LIMITS.maxRelationships);
   // KG-01/04: semanticTags filter — applied post-fetch (JSONB array intersection)
   const allRels =
     filters.semanticTags && filters.semanticTags.length > 0

@@ -23,6 +23,7 @@ import {
   annotatePathSteps,
   type GraphQueryFilters,
   type GraphEdgeType,
+  GRAPH_LIMITS,
 } from "@workspace/knowledge-engine";
 import { requireAuth } from "../middlewares/requireAuth.js";
 import {
@@ -32,6 +33,21 @@ import {
 import { parsePagination } from "../lib/pagination.js";
 
 const router = Router();
+
+function sendBoundedGraphResponse(
+  res: import("express").Response,
+  payload: unknown,
+): void {
+  const body = JSON.stringify(payload);
+  if (Buffer.byteLength(body, "utf8") > GRAPH_LIMITS.maxResponseBytes) {
+    res.status(413).json({
+      error: "Graph response exceeds the allowed size",
+      meta: { responseSizeLimit: GRAPH_LIMITS.maxResponseBytes, truncated: true },
+    });
+    return;
+  }
+  res.type("application/json").send(body);
+}
 
 // Defense-in-depth: requireAuth is already applied globally in app.ts, but
 // adding it here too means this router is safe even if mounted without it.
@@ -114,7 +130,7 @@ router.get("/graph/entities", async (req, res) => {
     .offset(pagination.offset);
 
   const [{ total }] = await db.select({ total: count() }).from(graphEntitiesTable).where(and(...conditions));
-  return res.json({ items: entities, meta: {
+  return sendBoundedGraphResponse(res, { items: entities, meta: {
     page: pagination.page, pageSize: pagination.pageSize, total: Number(total),
     truncated: pagination.offset > 0 || pagination.offset + entities.length < Number(total),
   } });
@@ -138,12 +154,18 @@ router.get("/graph/relationships", async (req, res) => {
   if (filters.edgeTypes || filters.minConfidence !== undefined ||
       filters.sourceTypes || filters.observedOnly || filters.heuristicOnly) {
     const rels = await getEdgesByType(db, project.id, filters, params.sourceId);
-    if (params.sourceId) {
-      const items = rels.slice(pagination.offset, pagination.offset + pagination.pageSize);
-      return res.json({ items, meta: { page: pagination.page, pageSize: pagination.pageSize, total: rels.length, truncated: pagination.offset > 0 || items.length < rels.length } });
-    }
     const items = rels.slice(pagination.offset, pagination.offset + pagination.pageSize);
-    return res.json({ items, meta: { page: pagination.page, pageSize: pagination.pageSize, total: rels.length, truncated: pagination.offset > 0 || items.length < rels.length } });
+    return sendBoundedGraphResponse(res, {
+      items,
+      meta: {
+        page: pagination.page,
+        pageSize: pagination.pageSize,
+        total: rels.length,
+        truncated: pagination.offset + items.length < rels.length,
+        relationshipLimit: GRAPH_LIMITS.maxRelationships,
+        responseSizeLimit: GRAPH_LIMITS.maxResponseBytes,
+      },
+    });
   }
 
   // Fallback: fetch entity IDs first to scope relationships to the project
@@ -151,10 +173,21 @@ router.get("/graph/relationships", async (req, res) => {
     .select({ id: graphEntitiesTable.id })
     .from(graphEntitiesTable)
     .where(eq(graphEntitiesTable.projectId, project.id))
+    .limit(GRAPH_LIMITS.maxEntities);
     ;
   const entityIds = new Set(allEntities.map((e: { id: string }) => e.id));
   if (entityIds.size === 0) {
-    return res.json({ items: [], meta: { page: pagination.page, pageSize: pagination.pageSize, total: 0, truncated: false } });
+    return sendBoundedGraphResponse(res, {
+      items: [],
+      meta: {
+        page: pagination.page,
+        pageSize: pagination.pageSize,
+        total: 0,
+        truncated: false,
+        relationshipLimit: GRAPH_LIMITS.maxRelationships,
+        responseSizeLimit: GRAPH_LIMITS.maxResponseBytes,
+      },
+    });
   }
 
   const directConditions = [];
@@ -172,15 +205,28 @@ router.get("/graph/relationships", async (req, res) => {
              inArray(graphRelationshipsTable.targetId, [...entityIds]),
              or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, project.id))!,
            ))
+           .limit(GRAPH_LIMITS.maxRelationships)
        : await db.select().from(graphRelationshipsTable).where(and(
            inArray(graphRelationshipsTable.sourceId, [...entityIds]),
            inArray(graphRelationshipsTable.targetId, [...entityIds]),
            or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, project.id))!,
-         ));
+          ))
+          .limit(GRAPH_LIMITS.maxRelationships);
 
   const scoped = rels.filter((r: { sourceId: string; targetId: string }) =>
     entityIds.has(r.sourceId) && entityIds.has(r.targetId));
-  return res.json({ items: scoped, meta: { page: pagination.page, pageSize: pagination.pageSize, total: scoped.length, truncated: scoped.length === pagination.pageSize } });
+  const items = scoped.slice(pagination.offset, pagination.offset + pagination.pageSize);
+  return sendBoundedGraphResponse(res, {
+    items,
+    meta: {
+      page: pagination.page,
+      pageSize: pagination.pageSize,
+      total: scoped.length,
+      truncated: pagination.offset + items.length < scoped.length,
+      relationshipLimit: GRAPH_LIMITS.maxRelationships,
+      responseSizeLimit: GRAPH_LIMITS.maxResponseBytes,
+    },
+  });
 });
 
 // ─── Direct neighbors ─────────────────────────────────────────────────────────
@@ -208,14 +254,16 @@ router.get("/graph/entities/:entityId/neighbors", async (req, res) => {
     .where(and(
       eq(graphRelationshipsTable.sourceId, entityId),
       or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, ownerProject.id))!,
-    ));
+    ))
+    .limit(GRAPH_LIMITS.maxRelationships);
   const incoming = await db
     .select()
     .from(graphRelationshipsTable)
     .where(and(
       eq(graphRelationshipsTable.targetId, entityId),
       or(isNull(graphRelationshipsTable.projectId), eq(graphRelationshipsTable.projectId, ownerProject.id))!,
-    ));
+    ))
+    .limit(GRAPH_LIMITS.maxRelationships);
 
   const neighborIds = new Set<string>();
   for (const r of outgoing) neighborIds.add(r.targetId);
@@ -227,17 +275,22 @@ router.get("/graph/entities/:entityId/neighbors", async (req, res) => {
           .select()
           .from(graphEntitiesTable)
            .where(and(
-             inArray(graphEntitiesTable.id, [...neighborIds]),
+             inArray(graphEntitiesTable.id, [...neighborIds].slice(0, GRAPH_LIMITS.maxEntities)),
              eq(graphEntitiesTable.projectId, ownerProject.id),
            ))
       : [];
 
   const neighborIdSet = new Set(neighbors.map((neighbor) => neighbor.id));
-  return res.json({
+  return sendBoundedGraphResponse(res, {
     entity,
     outgoing: outgoing.filter((relationship) => neighborIdSet.has(relationship.targetId)),
     incoming: incoming.filter((relationship) => neighborIdSet.has(relationship.sourceId)),
     neighbors,
+    meta: {
+      entityLimit: GRAPH_LIMITS.maxEntities,
+      relationshipLimit: GRAPH_LIMITS.maxRelationships,
+      responseSizeLimit: GRAPH_LIMITS.maxResponseBytes,
+    },
   });
 });
 
@@ -262,7 +315,7 @@ router.get("/graph/impact", async (req, res) => {
   const result = await getImpactedEntities(db, entityId, maxDepth ?? 4, ownerProject.id);
   if (!result) return res.status(404).json({ error: "Entity not found" });
 
-  return res.json({
+  return sendBoundedGraphResponse(res, {
     root: result.root,
     impacted: result.impacted,
     maxDepthReached: result.maxDepthReached,
@@ -292,7 +345,10 @@ router.get("/graph/path", async (req, res) => {
     .from(graphEntitiesTable)
     .where(and(eq(graphEntitiesTable.id, toId), eq(graphEntitiesTable.projectId, ownerProject.id)))
     .limit(1);
-  if (!destinationRows[0]) return res.json({ found: false, meta: { depthLimit: 8 } });
+  if (!destinationRows[0]) return sendBoundedGraphResponse(res, {
+    found: false,
+    meta: { depthLimit: GRAPH_LIMITS.maxTraversalDepth },
+  });
 
   // Use high-confidence path if minConfidence is specified
   const minConf = typeof req.query.minConfidence === "string"
@@ -309,9 +365,12 @@ router.get("/graph/path", async (req, res) => {
   // pure topology. The root step carries null confidence/evidence so the
   // shape is uniform across all steps and easy to iterate.
   // KG-05: depthLimit is 8 regardless of which path algorithm is used
-  if (!result.found) return res.json({ ...result, meta: { depthLimit: 8 } });
+  if (!result.found) return sendBoundedGraphResponse(res, {
+    ...result,
+    meta: { depthLimit: GRAPH_LIMITS.maxTraversalDepth },
+  });
 
-  return res.json({
+  return sendBoundedGraphResponse(res, {
     found: true,
     path: annotatePathSteps(result.path),
     length: result.length,
@@ -319,7 +378,10 @@ router.get("/graph/path", async (req, res) => {
       ? { minConfidenceApplied: minConf }
       : {}),
     // KG-05: BFS depth is always capped at 8 — longer paths are not searched
-    meta: { depthLimit: 8 },
+    meta: {
+      depthLimit: GRAPH_LIMITS.maxTraversalDepth,
+      responseSizeLimit: GRAPH_LIMITS.maxResponseBytes,
+    },
   });
 });
 
@@ -332,7 +394,15 @@ router.get("/graph/summary/:projectId", requireProjectAccess, async (req, res) =
   const { entities, relationships } = await fetchProjectGraph(db, project.id);
   const summary = computeGraphSummary(project.id, entities, relationships);
   const layered = computeLayeredGraphSummary(entities, relationships);
-  return res.json({ ...summary, layered });
+  return sendBoundedGraphResponse(res, {
+    ...summary,
+    layered,
+    meta: {
+      entityLimit: GRAPH_LIMITS.maxEntities,
+      relationshipLimit: GRAPH_LIMITS.maxRelationships,
+      responseSizeLimit: GRAPH_LIMITS.maxResponseBytes,
+    },
+  });
 });
 
 // ─── Knowledge Graph 2.0 endpoints ───────────────────────────────────────────
@@ -377,14 +447,25 @@ router.get("/graph/subgraph", async (req, res) => {
     ...view.runtime.entities,
   ].filter((e, i, arr) => arr.findIndex((x) => x.id === e.id) === i);
 
-  return res.json({
+  return sendBoundedGraphResponse(res, {
     entities: allEntities,
     relationships: [...new Map(allRels.map((r) => [r.id, r])).values()],
     filters,
     // KG-05: getLayeredGraphView has no hard row limit — all matching edges are
     // returned. The truncated flag is always false here; it is present so
     // consumers can check it uniformly across all graph endpoints.
-    meta: { truncated: false },
+    meta: {
+      truncated:
+        view.structural.relationships.length +
+          view.heuristic.relationships.length +
+          view.runtime.relationships.length >= GRAPH_LIMITS.maxRelationships ||
+        view.structural.entities.length +
+          view.heuristic.entities.length +
+          view.runtime.entities.length >= GRAPH_LIMITS.maxEntities,
+      entityLimit: GRAPH_LIMITS.maxEntities,
+      relationshipLimit: GRAPH_LIMITS.maxRelationships,
+      responseSizeLimit: GRAPH_LIMITS.maxResponseBytes,
+    },
     // PR-03: each layer now includes provenance statistics alongside counts
     // so callers can see not just how many edges are in each layer but
     // how trustworthy they are and where they came from.
@@ -441,15 +522,22 @@ router.get("/graph/semantic-neighborhood", async (req, res) => {
   if (requestedDepth < 1) {
     return res.status(400).json({ error: "depth must be at least 1" });
   }
-  const depth = Math.min(requestedDepth, 4);
+  const depth = Math.min(requestedDepth, GRAPH_LIMITS.maxSemanticDepth);
   const filters = parseKgFilters(req.query as Record<string, unknown>);
 
   const result = await getSemanticNeighborhood(db, entityId, depth, filters, ownerProject.id);
-  return res.json({
+  return sendBoundedGraphResponse(res, {
     ...result,
     // KG-05: depth is always capped at 4; expose effectiveDepth and whether
     // capping was applied so callers know the result may be a partial view.
-    meta: { effectiveDepth: depth, depthCapped: requestedDepth > 4, maxDepth: 4 },
+    meta: {
+      effectiveDepth: depth,
+      depthCapped: requestedDepth > GRAPH_LIMITS.maxSemanticDepth,
+      maxDepth: GRAPH_LIMITS.maxSemanticDepth,
+      entityLimit: GRAPH_LIMITS.maxTraversalEntities,
+      relationshipLimit: GRAPH_LIMITS.maxRelationships,
+      responseSizeLimit: GRAPH_LIMITS.maxResponseBytes,
+    },
   });
 });
 
@@ -477,7 +565,7 @@ router.get("/graph/evidence/:entityId", async (req, res) => {
   // see who extracted this entity without parsing the full entity row.
   // Each item in `evidence` is now an EvidenceBundle with confidence,
   // sourceType, isHeuristic, isRuntimeObserved, and provenanceSummary.
-  return res.json({
+  return sendBoundedGraphResponse(res, {
     entity,
     entityProvenance: entity.provenance ?? null,
     evidence,
@@ -492,7 +580,14 @@ router.get("/graph/evidence/:entityId", async (req, res) => {
 router.get("/graph/runtime-subgraph/:projectId", requireProjectAccess, async (req, res) => {
   const project = req.project!;
   const result = await getObservedRuntimeSubgraph(db, project.id);
-  return res.json(result);
+  return sendBoundedGraphResponse(res, {
+    ...result,
+    meta: {
+      entityLimit: GRAPH_LIMITS.maxEntities,
+      relationshipLimit: GRAPH_LIMITS.maxRelationships,
+      responseSizeLimit: GRAPH_LIMITS.maxResponseBytes,
+    },
+  });
 });
 
 export default router;
