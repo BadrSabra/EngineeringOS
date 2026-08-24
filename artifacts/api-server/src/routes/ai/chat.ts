@@ -95,6 +95,7 @@ import {
 } from "@workspace/ai-orchestrator";
 import { logger } from "../../lib/logger.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
+import { establishProjectRoot } from "../../lib/project-root.js";
 import { tryAdvisoryLock, LockNamespace } from "../../lib/advisory-lock.js";
 import {
   getRepairValidationProfile,
@@ -568,7 +569,13 @@ async function validatePlanContextForExecution(
 
   // A source tree can change without a scan. Re-walk it so approval cannot
   // authorize edits against bytes that were not part of the inspected snapshot.
-  const liveWalk = await walkProject(rootPath).catch(() => undefined);
+  // Re-establish the persisted root at the point of use. Checking only
+  // accessibility leaves a symlink replacement window in which a plan could
+  // be approved against a different directory.
+  const liveRoot = await establishProjectRoot(rootPath);
+  const liveWalk = liveRoot.ok
+    ? await walkProject(liveRoot.canonicalPath).catch(() => undefined)
+    : undefined;
   if (!liveWalk || liveWalk.revision !== currentManifest.projectRevision) {
     return {
       error: "The project files changed after inspection. Scan again, rebuild, and explicitly re-approve the plan.",
@@ -576,6 +583,109 @@ async function validatePlanContextForExecution(
     };
   }
   return null;
+}
+
+/**
+ * Planning must inspect the same source revision represented by the context
+ * manifest. The bounded filesystem inventory is useful for grounding paths,
+ * but it is not itself a source revision; the scanner walk is the immutable
+ * revision contract shared with scan, approval, mutation, and delivery.
+ *
+ * A mismatch is represented as an unavailable planning inventory so the
+ * planner's existing guarded fallback produces an explicitly blocked plan.
+ * This avoids asking a provider to plan from a stale or partial snapshot.
+ */
+async function buildPlanningFilesystemContext(
+  baseProjectContext: Awaited<ReturnType<typeof buildProjectContext>>,
+  rootPath: string | undefined,
+  message: string,
+): Promise<Awaited<ReturnType<typeof buildProjectContext>>> {
+  const unavailable = (reason: string) => ({
+    status: "UNAVAILABLE" as const,
+    files: [],
+    directories: [],
+    packageManifests: [],
+    configFiles: [],
+    truncated: false,
+    reason,
+  });
+  const unavailableSources = (reason: string) => ({
+    status: "UNAVAILABLE" as const,
+    files: [],
+    truncated: false,
+    reason,
+  });
+
+  const manifest = baseProjectContext.contextManifest;
+  if (!rootPath) {
+    return {
+      ...baseProjectContext,
+      filesystemManifest: unavailable("The project root is unavailable; planning is blocked until it is restored."),
+      filesystemSources: unavailableSources("The project root is unavailable; no source snapshot can be verified."),
+    };
+  }
+  if (!manifest || manifest.scanCompleteness !== "COMPLETE") {
+    return {
+      ...baseProjectContext,
+      filesystemManifest: unavailable("The project scan is incomplete; complete a fresh scan before creating a plan."),
+      filesystemSources: unavailableSources("The project scan is incomplete; source excerpts are not planning evidence."),
+    };
+  }
+  // Narrow once after the completeness gate so all subsequent comparisons
+  // use the exact manifest that authorized this planning attempt.
+  const completeManifest = manifest;
+
+  const rootResult = await establishProjectRoot(rootPath);
+  if (!rootResult.ok) {
+    return {
+      ...baseProjectContext,
+      filesystemManifest: unavailable(`The project root is unavailable: ${rootResult.reason}.`),
+      filesystemSources: unavailableSources("The project root could not be canonically established."),
+    };
+  }
+
+  const liveWalk = await walkProject(rootResult.canonicalPath).catch(() => undefined);
+  if (!liveWalk) {
+    return {
+      ...baseProjectContext,
+      filesystemManifest: unavailable("The project source tree could not be read; planning is blocked."),
+      filesystemSources: unavailableSources("The project source tree could not be read."),
+    };
+  }
+  if (liveWalk.truncated) {
+    return {
+      ...baseProjectContext,
+      filesystemManifest: unavailable("The live source walk is incomplete; planning requires a complete snapshot."),
+      filesystemSources: unavailableSources("The live source walk is incomplete."),
+    };
+  }
+  if (liveWalk.revision !== completeManifest.projectRevision) {
+    return {
+      ...baseProjectContext,
+      filesystemManifest: unavailable(
+        "The source tree changed after the last scan; complete a fresh scan before creating a plan.",
+      ),
+      filesystemSources: unavailableSources(
+        "The source tree revision is stale relative to the context snapshot.",
+      ),
+    };
+  }
+
+  const filesystemManifest = await buildProjectFileManifest(rootResult.canonicalPath);
+  if (filesystemManifest.status !== "VERIFIED" || filesystemManifest.truncated) {
+    return {
+      ...baseProjectContext,
+      filesystemManifest,
+      filesystemSources: unavailableSources(
+        filesystemManifest.reason ?? "The bounded filesystem inventory is incomplete.",
+      ),
+    };
+  }
+  return {
+    ...baseProjectContext,
+    filesystemManifest,
+    filesystemSources: await buildProjectFileSources(rootResult.canonicalPath, filesystemManifest, message),
+  };
 }
 
 async function validateBrowserProfileForDelivery(
@@ -1777,16 +1887,7 @@ router.post("/ai/chat", async (req, res) => {
       sections: profileContextSections(chatClassification.contextProfile),
     });
     const projectContext = chatClassification.implementationPlanMode
-      ? {
-          ...baseProjectContext,
-          ...await (async () => {
-            const filesystemManifest = await buildProjectFileManifest(validRootPath);
-            return {
-              filesystemManifest,
-              filesystemSources: await buildProjectFileSources(validRootPath, filesystemManifest, message),
-            };
-          })(),
-        }
+      ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
       : baseProjectContext;
     // Enrich context with cross-session memories (outside cache; always fresh).
     // Failure is non-fatal — agent proceeds without memory context.
@@ -2757,16 +2858,7 @@ router.post("/ai/chat/stream", async (req, res) => {
       sections: profileContextSections(streamClassification.contextProfile),
     });
     const projectContext = streamClassification.implementationPlanMode
-      ? {
-          ...baseProjectContext,
-          ...await (async () => {
-            const filesystemManifest = await buildProjectFileManifest(validRootPath);
-            return {
-              filesystemManifest,
-              filesystemSources: await buildProjectFileSources(validRootPath, filesystemManifest, message),
-            };
-          })(),
-        }
+      ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
       : baseProjectContext;
     // Enrich with cross-session memories (outside cache; always fresh).
     await enrichContextWithMemories(projectContext, projectId).catch((err) => {
