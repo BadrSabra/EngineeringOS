@@ -81,6 +81,20 @@ describe("bounded execution kernel", () => {
     })).rejects.toThrow(/inside the project root/i);
   });
 
+  it("fails closed when the approved root is deleted before execution", async () => {
+    const root = await makeRoot();
+    await rm(root, { recursive: true, force: true });
+
+    await expect(runBoundedCommand({
+      command: "node",
+      args: ["-e", "process.exit(0)"],
+      rootPath: root,
+      allowedCommands: new Set(["node"]),
+      timeoutMs: 2_000,
+      maxOutputBytes: 100,
+    })).rejects.toThrow();
+  });
+
   it("times out and bounds combined stdout/stderr", async () => {
     const root = await makeRoot();
     await writeFile(path.join(root, "fixture.txt"), "fixture");

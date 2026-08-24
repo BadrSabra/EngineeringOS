@@ -58,11 +58,11 @@ describe("validateRootPath — Rule 1: minimum depth", () => {
     expect(result).toMatch(/too shallow/i);
   });
 
-  it("allows a three-segment path outside Replit env", async () => {
+  it("rejects a three-segment path under the blocked /home system root on every host", async () => {
     const saved = process.env.REPLIT_DEV_DOMAIN;
     delete process.env.REPLIT_DEV_DOMAIN;
     try {
-      expect(await validateRootPath("/home/user/project")).toBeNull();
+      expect(await validateRootPath("/home/user/project")).toMatch(/system directory/i);
     } finally {
       if (saved !== undefined) process.env.REPLIT_DEV_DOMAIN = saved;
     }
@@ -70,18 +70,12 @@ describe("validateRootPath — Rule 1: minimum depth", () => {
 });
 
 describe("validateRootPath — Rule 2: system prefix block list", () => {
-  it("does not block /usr/local/bin by Rule 2 (only exact matches are blocked)", async () => {
-    // /usr/local/bin has 3 segments but starts with /usr which is in the block list
-    // as an exact-match only — /usr/local/bin is NOT an exact match of /usr, so
-    // Rule 2 won't fire. Only Rule 3 (Replit env) would catch it outside of workspace.
-    // Confirm it is NOT blocked by Rule 2 specifically when env is off.
+  it("blocks descendants of system roots when the Replit environment marker is absent", async () => {
     const saved = process.env.REPLIT_DEV_DOMAIN;
     delete process.env.REPLIT_DEV_DOMAIN;
     try {
       const result = await validateRootPath("/usr/local/bin");
-      // Rule 2 only blocks exact matches — /usr/local/bin is not in the set
-      // (we're checking that behaviour is as documented)
-      expect(result).toBeNull();
+      expect(result).toMatch(/system directory/i);
     } finally {
       if (saved !== undefined) process.env.REPLIT_DEV_DOMAIN = saved;
     }
@@ -106,7 +100,7 @@ describe("validateRootPath — Rule 3: Replit workspace constraint", () => {
   it("rejects a path outside /home/runner/workspace in Replit env", async () => {
     const result = await validateRootPath("/var/app/project");
     expect(result).not.toBeNull();
-    expect(result).toMatch(/home\/runner\/workspace/i);
+    expect(result).toMatch(/system directory/i);
   });
 
   it("allows /home/runner/workspace/my-project in Replit env", async () => {
@@ -118,10 +112,10 @@ describe("validateRootPath — Rule 3: Replit workspace constraint", () => {
     expect(await validateRootPath(path)).not.toBeNull();
   });
 
-  it("rejects /tmp/not-an-eos-git-path/with/depth in Replit env (Rule 3)", async () => {
+  it("rejects /tmp/not-an-eos-git-path/with/depth in Replit env", async () => {
     const result = await validateRootPath("/tmp/not-eos/nested/path");
     expect(result).not.toBeNull();
-    expect(result).toMatch(/home\/runner\/workspace/i);
+    expect(result).toMatch(/system directory/i);
   });
 });
 
@@ -179,7 +173,7 @@ describe("validateRootPath — Rule 4: symlink resolution", () => {
     expect(result).not.toBeNull();
   });
 
-  it("allows a symlink pointing to a valid project directory", async () => {
+  it("rejects a symlink pointing into the blocked temporary filesystem", async () => {
     // Create a real target dir with 3 path segments.
     const realTarget = join(workDir, "real-project");
     await mkdir(realTarget, { recursive: true });
@@ -193,13 +187,11 @@ describe("validateRootPath — Rule 4: symlink resolution", () => {
       return; // symlink not supported — skip
     }
 
-    // Unset Replit env so Rule 3 doesn't interfere with the /tmp paths.
+    // The host-independent policy rejects temporary filesystem roots.
     delete process.env.REPLIT_DEV_DOMAIN;
 
-    // realTarget resolves inside workDir which has > 3 segments (/tmp/eos-symlink-test-*/real-project)
-    // so it should pass all rules.
     const result = await validateRootPath(linkPath);
-    expect(result).toBeNull();
+    expect(result).toMatch(/system directory/i);
   });
 });
 

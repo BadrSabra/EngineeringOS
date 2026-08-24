@@ -165,5 +165,39 @@ export async function establishProjectRoot(
     }
   }
 
+  // The root may be replaced while the policy and marker checks are running.
+  // Never persist a canonical path whose identity no longer matches the path
+  // that was initially established.
+  try {
+    const [finalCanonicalPath, finalStats] = await Promise.all([
+      realpath(normalized),
+      stat(normalized),
+    ]);
+    if (
+      finalCanonicalPath !== canonicalPath ||
+      !finalStats.isDirectory() ||
+      finalStats.dev !== stats.dev ||
+      finalStats.ino !== stats.ino
+    ) {
+      return {
+        ok: false,
+        status: 409,
+        reason: "root_unavailable",
+        error:
+          "The project directory changed while it was being established. " +
+          "Retry with the current project workspace.",
+      };
+    }
+  } catch {
+    return {
+      ok: false,
+      status: 409,
+      reason: "root_unavailable",
+      error:
+        "The project directory became unavailable while it was being established. " +
+        "Retry with the current project workspace.",
+    };
+  }
+
   return { ok: true, canonicalPath };
 }

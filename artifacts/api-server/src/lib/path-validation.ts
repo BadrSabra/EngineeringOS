@@ -35,6 +35,7 @@ const BLOCKED_PATH_PREFIXES = new Set([
  * provenance path after canonicalization.
  */
 export const EOS_GIT_TEMP_PREFIX = "/tmp/eos-git-";
+export const APPROVED_WORKSPACE_ROOT = "/home/runner/workspace";
 
 export interface RootPathValidationOptions {
   /**
@@ -48,9 +49,10 @@ export interface RootPathValidationOptions {
  * Returns a rejection reason string if `rootPath` is unsafe, or null if OK.
  * Rules:
  *  1. Must have at least 3 path segments (e.g. /home/runner/workspace).
- *  2. Must not be an exact match of a known system prefix.
- *  3. In Replit environments (REPLIT_DEV_DOMAIN set), must be under
- *     /home/runner/workspace so we never scan the host OS.
+ *  2. Must not be a known system prefix or a descendant of one.
+ *  3. The same policy applies on every host. Host environment variables are
+ *     not a trust boundary; callers that need a narrower project boundary
+ *     must establish and retain that boundary separately.
  *  4. Symlink escape check: resolve all symlinks with realpath() and re-run
  *     Rules 1-3 on the resolved path.
  *     This prevents a symlink at /home/runner/workspace/evil-link → /etc from
@@ -100,25 +102,21 @@ export async function validateRootPath(
     );
   }
 
-  // Rule 2 — system root block list (exact match only)
-  if (BLOCKED_PATH_PREFIXES.has(resolved)) {
+  // Rule 2 — system roots and all descendants are blocked. Exact-match-only
+  // checks let paths such as /etc/app or /usr/local/bin become scan roots on
+  // non-Replit hosts.
+  const isApprovedWorkspace =
+    resolved === APPROVED_WORKSPACE_ROOT || resolved.startsWith(`${APPROVED_WORKSPACE_ROOT}/`);
+  const blockedPrefix = isApprovedWorkspace
+    ? undefined
+    : [...BLOCKED_PATH_PREFIXES].find(
+        (prefix) => resolved === prefix || resolved.startsWith(`${prefix}/`),
+      );
+  if (blockedPrefix) {
     return (
-      `Path "${normalized}" resolves to the system directory "${resolved}" and cannot be scanned. ` +
+      `Path "${normalized}" resolves under the system directory "${blockedPrefix}" and cannot be scanned. ` +
       "Provide the full path to a specific project directory."
     );
-  }
-
-  // Rule 3 — Replit environment: must be under /home/runner/workspace
-  if (process.env.REPLIT_DEV_DOMAIN) {
-    const WORKSPACE = "/home/runner/workspace";
-    // Separator-aware containment: "/home/runner/workspace-evil" must NOT
-    // pass just because it shares a string prefix with the workspace.
-    if (resolved !== WORKSPACE && !resolved.startsWith(`${WORKSPACE}/`)) {
-      return (
-        `In this environment, the project path must be under ${WORKSPACE}. ` +
-        `"${normalized}" resolves to "${resolved}".`
-      );
-    }
   }
 
   return null;

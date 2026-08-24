@@ -61,13 +61,58 @@ function validateLimits(spec: BoundedCommandSpec): void {
   }
 }
 
-async function resolveContainedCwd(rootPath: string, cwd: string): Promise<string> {
-  const [realRoot, realCwd] = await Promise.all([fs.realpath(rootPath), fs.realpath(cwd)]);
+type ExecutionBoundary = {
+  realRoot: string;
+  realCwd: string;
+  rootIdentity: { dev: number; ino: number };
+  cwdIdentity: { dev: number; ino: number };
+};
+
+async function resolveContainedCwd(rootPath: string, cwd: string): Promise<ExecutionBoundary> {
+  const [realRoot, realCwd, rootStats, cwdStats] = await Promise.all([
+    fs.realpath(rootPath),
+    fs.realpath(cwd),
+    fs.stat(rootPath),
+    fs.stat(cwd),
+  ]);
+  if (!rootStats.isDirectory() || !cwdStats.isDirectory()) {
+    throw new Error("Execution root and working directory must be directories.");
+  }
   const relative = path.relative(realRoot, realCwd);
   if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     throw new Error("Execution working directory must remain inside the project root.");
   }
-  return realCwd;
+  return {
+    realRoot,
+    realCwd,
+    rootIdentity: { dev: rootStats.dev, ino: rootStats.ino },
+    cwdIdentity: { dev: cwdStats.dev, ino: cwdStats.ino },
+  };
+}
+
+/**
+ * Re-resolve the boundary after all asynchronous setup and immediately before
+ * spawn. A previously checked cwd is not trusted: replacing either the root
+ * or a cwd symlink during setup must fail closed rather than execute in the
+ * replacement workspace.
+ */
+async function revalidateExecutionBoundary(
+  rootPath: string,
+  cwdPath: string,
+  expected: ExecutionBoundary,
+): Promise<string> {
+  const current = await resolveContainedCwd(rootPath, cwdPath);
+  if (
+    current.realRoot !== expected.realRoot ||
+    current.realCwd !== expected.realCwd ||
+    current.rootIdentity.dev !== expected.rootIdentity.dev ||
+    current.rootIdentity.ino !== expected.rootIdentity.ino ||
+    current.cwdIdentity.dev !== expected.cwdIdentity.dev ||
+    current.cwdIdentity.ino !== expected.cwdIdentity.ino
+  ) {
+    throw new Error("Execution root or working directory changed before command start.");
+  }
+  return current.realCwd;
 }
 
 function appendBounded(
@@ -95,7 +140,8 @@ function appendBounded(
  */
 export async function runBoundedCommand(spec: BoundedCommandSpec): Promise<BoundedCommandResult> {
   validateLimits(spec);
-  const cwd = await resolveContainedCwd(spec.rootPath, spec.cwd ?? spec.rootPath);
+  const requestedCwd = spec.cwd ?? spec.rootPath;
+  const boundary = await resolveContainedCwd(spec.rootPath, requestedCwd);
   const startedAt = Date.now();
   const remaining = { value: spec.maxOutputBytes };
   let stdout = "";
@@ -103,6 +149,8 @@ export async function runBoundedCommand(spec: BoundedCommandSpec): Promise<Bound
   let truncated = false;
   let timedOut = false;
   let cancelled = false;
+
+  const cwd = await revalidateExecutionBoundary(spec.rootPath, requestedCwd, boundary);
 
   return new Promise<BoundedCommandResult>((resolve) => {
     let settled = false;
