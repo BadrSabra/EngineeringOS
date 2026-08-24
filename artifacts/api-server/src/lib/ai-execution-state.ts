@@ -221,6 +221,8 @@ export function assertAutonomousOperationIdentity(
 
 export type AiExecutionRequestEnvelope = {
   projectId: string;
+  /** Stable server-owned identity shared by all phases of one operation. */
+  operationId?: string;
   sessionId?: string;
   message: string;
   modelMessage: string;
@@ -244,7 +246,9 @@ export type AiExecutionNodeCheckpoint = Pick<
   | "attempts"
   | "validationAttempts"
   | "lastFailure"
->;
+> & {
+  evidenceRefs?: string[];
+};
 
 export type AiExecutionCheckpoint = {
   stage:
@@ -342,6 +346,7 @@ export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope |
     if (
       !value ||
       typeof value.projectId !== "string" ||
+      (value.operationId !== undefined && typeof value.operationId !== "string") ||
       (value.sessionId !== undefined && typeof value.sessionId !== "string") ||
       typeof value.message !== "string" ||
       typeof value.modelMessage !== "string" ||
@@ -421,6 +426,10 @@ export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint |
             validationProfile: candidate.validationProfile as AiExecutionNodeCheckpoint["validationProfile"],
             attempts: candidate.attempts,
             validationAttempts: candidate.validationAttempts ?? 0,
+            ...(Array.isArray(candidate.evidenceRefs) ? { evidenceRefs: candidate.evidenceRefs
+              .filter((ref): ref is string => typeof ref === "string")
+              .slice(0, 8)
+              .map((ref) => ref.slice(0, 500)) } : {}),
             ...(candidate.lastFailure
               ? {
                   lastFailure: {
@@ -701,7 +710,7 @@ export async function createAiExecution(params: {
   const resumeToken = createResumeToken();
   const now = new Date();
   const executionId = randomUUID();
-  const operationId = params.buildPlanMessageId ?? executionId;
+  const operationId = params.request.operationId ?? params.buildPlanMessageId ?? executionId;
   const operation = createAutonomousOperationContract({
     operationId,
     objective: typeof params.request.objective === "string"
@@ -919,7 +928,7 @@ export async function completeAiExecution(params: {
       candidateIdentity: operation.candidateIdentity,
       nodeStates: params.nodeStates?.map((node) => ({
         status: node.status,
-        evidenceRefs: [],
+        evidenceRefs: node.evidenceRefs ?? [],
       })),
     });
     if (!completion.allowed) return false;

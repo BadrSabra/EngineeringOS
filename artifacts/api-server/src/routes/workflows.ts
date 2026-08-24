@@ -241,6 +241,7 @@ router.post("/workflows/:workflowId/start", async (req, res) => {
         phaseSteps: phase?.steps ?? [],
         revision: workflow[0].updatedAt.toISOString(),
         completedPhaseNames: [],
+         rootPath: ownerProject.rootPath,
       })
     : undefined;
 
@@ -565,6 +566,7 @@ router.post("/workflows/:workflowId/advance", async (req, res) => {
         phaseSteps: nextPhaseObj?.steps ?? [],
         revision: workflow[0].updatedAt.toISOString(),
         completedPhaseNames: completedPhases,
+        rootPath: advanceOwnerProject.rootPath,
       })
     : undefined;
 

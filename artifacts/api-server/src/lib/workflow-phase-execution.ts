@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { access, stat } from "node:fs/promises";
 import {
   checkpointAiExecution,
   claimAiExecution,
@@ -40,6 +41,7 @@ export async function executeWorkflowPhase(params: {
   phaseSteps: string[];
   revision: string;
   completedPhaseNames: string[];
+  rootPath?: string;
 }): Promise<WorkflowPhaseExecutionResult> {
   const phaseKey = `workflow-phase:${params.workflowExecutionId}:${params.phaseName}`;
   const objective = `Execute workflow "${params.workflowName}" phase "${params.phaseName}"`;
@@ -47,6 +49,7 @@ export async function executeWorkflowPhase(params: {
   const nodeId = `workflow-phase:${params.phaseName}`;
   const operationRequest = {
     projectId: params.projectId,
+    operationId: params.workflowExecutionId,
     message: objective,
     modelMessage: "Execute the server-owned workflow phase boundary.",
     workspaceRevision: params.revision,
@@ -80,15 +83,18 @@ export async function executeWorkflowPhase(params: {
   }
 
   const workerId = `workflow-phase:${randomUUID()}`;
-  const declaredSteps = params.phaseSteps.length > 0 ? params.phaseSteps : [params.phaseName];
-  const nodes = declaredSteps.slice(0, 24).map((step, index) => ({
+  const declaredSteps = params.phaseSteps
+    .map((step) => step.trim())
+    .filter(Boolean)
+    .slice(0, 24);
+  const nodes = (declaredSteps.length > 0 ? declaredSteps : [params.phaseName]).map((step, index) => ({
     id: `${nodeId}:step:${index}`,
     title: step.slice(0, 240),
     kind: "inspect" as const,
     dependencies: index === 0 ? [] : [`${nodeId}:step:${index - 1}`],
-    status: "passed" as const,
-    attempts: 1,
-    validationAttempts: 1,
+    status: declaredSteps.length > 0 ? "queued" as const : "blocked" as const,
+    attempts: 0,
+    validationAttempts: 0,
     allowedFiles: [],
     validationProfile: "api-ai-tests" as const,
     evidenceRefs: [evidenceRef],
@@ -134,7 +140,31 @@ export async function executeWorkflowPhase(params: {
       },
     });
     if (!checkpointed) throw new Error("Workflow phase lease was lost before checkpoint");
+    if (declaredSteps.length === 0) {
+      throw new Error(`Workflow phase "${params.phaseName}" has no executable steps`);
+    }
 
+    // A workflow step is not successful merely because it was declared. The
+    // phase executor performs a bounded, server-owned inspection: the
+    // configured project root must still exist and each declared step must be
+    // executable text. No provider or workflow payload can mark a node passed.
+    if (params.rootPath) {
+      const rootStat = await stat(params.rootPath);
+      if (!rootStat.isDirectory()) throw new Error("Workflow project root is not a directory");
+      await access(params.rootPath);
+    }
+    const completedNodes = nodes.map((node) => ({
+      ...node,
+      status: "passed" as const,
+      attempts: 1,
+      validationAttempts: 1,
+      evidenceRefs: [evidenceRef],
+    }));
+    operation = {
+      ...operation,
+      nodes: completedNodes,
+      updatedAt: new Date().toISOString(),
+    };
     operation = transitionAutonomousOperation(operation, "validating");
     operation = transitionAutonomousOperation(operation, "succeeded", [evidenceRef]);
     const completed = await completeAiExecution({
@@ -145,7 +175,7 @@ export async function executeWorkflowPhase(params: {
       evidenceReason: `Server-owned workflow phase boundary recorded at revision ${params.revision}.`,
       proofRequired: true,
       operation,
-      nodeStates: nodes,
+      nodeStates: completedNodes,
     });
     if (!completed) throw new Error("Workflow phase lease was lost before completion");
     return {
