@@ -1835,6 +1835,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         requests: auditRequests,
         execution: cancelledExecution,
         messageOutcome: "CANCELLED",
+        failFirstPreview: true,
       },
     });
     await programmaticSignIn(page);
@@ -1877,6 +1878,12 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await proof.getByRole("button", { name: "Preview audit" }).click();
     const preview = page.getByLabel("Redacted audit preview");
     await expect(preview).toBeVisible();
+    await expect(preview).toContainText("Audit preview temporarily unavailable");
+    await expect(preview).toContainText("same execution and revision");
+    await expect(preview.getByRole("button", { name: "Retry preview" })).toBeVisible();
+    expect(auditRequests).toHaveLength(1);
+
+    await preview.getByRole("button", { name: "Retry preview" }).click();
     await expect(preview).toContainText("cancelled");
     await expect(preview).toContainText(EXECUTION_ID);
     await expect(preview).toContainText("e2e-operation");
@@ -1884,14 +1891,17 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(preview).toContainText("provider secrets");
     await expect(preview).toContainText("raw model output");
     await expect(preview).toContainText("private runtime paths");
-    expect(auditRequests).toHaveLength(1);
+    await expect(proof).toContainText("Cancelled");
+    await expect(proof).toContainText("Revision: e2e-revision-42");
+    await expect(proof).toContainText("Terminal reason: cancel_requested");
+    expect(auditRequests).toHaveLength(2);
 
     await preview.getByRole("button", { name: "Close audit preview" }).click();
     const downloadPromise = page.waitForEvent("download");
     await proof.getByRole("button", { name: "Export audit" }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toBe("cancelled-server-audit.json");
-    expect(auditRequests).toHaveLength(2);
+    expect(auditRequests).toHaveLength(3);
 
     await page.reload();
     const reloadedProof = page.getByLabel("Agent execution proof");
@@ -1899,7 +1909,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(reloadedProof).toContainText("Cancelled");
     await expect(reloadedProof).toContainText("Revision: e2e-revision-42");
     await expect(page.getByLabel("Redacted audit preview")).toBeHidden();
-    expect(auditRequests).toHaveLength(2);
+    expect(auditRequests).toHaveLength(3);
   });
 
   test("uploads an archive and renders a live task update", async ({
