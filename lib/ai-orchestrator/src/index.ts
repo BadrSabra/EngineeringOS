@@ -56,6 +56,13 @@ export {
   type BenchmarkCampaignMode,
   type BenchmarkCampaignSummary,
 } from "./benchmark/benchmark-campaign.js";
+export {
+  BENCHMARK_PARITY_REPORT_VERSION,
+  buildBenchmarkParityReport,
+  benchmarkParityReportToMarkdown,
+  type BenchmarkParityGap,
+  type BenchmarkParityReport,
+} from "./benchmark/benchmark-parity-report.js";
 export type { ProviderConfig } from "./provider-registry.js";
 export type { ProviderStrategy, StrategyCallOptions, StrategyStreamOptions } from "./provider-strategy.js";
 export type { ProviderCapabilityHints, ProviderCapabilitySummary, ProviderCostTier } from "./provider-capabilities.js";

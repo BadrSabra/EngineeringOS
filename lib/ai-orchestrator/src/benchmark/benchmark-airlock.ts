@@ -24,6 +24,7 @@ import {
   buildAutonomousDeliveryAcceptanceSummary,
   type AutonomousDeliveryAcceptanceSummary,
 } from "./autonomous-delivery-acceptance.js";
+import type { BenchmarkParityReport } from "./benchmark-parity-report.js";
 
 export const BENCHMARK_AIRLOCK_VERSION = 1;
 
@@ -70,6 +71,7 @@ export type BenchmarkAirlockRun = {
   shard?: BenchmarkShardConfig & { caseIds: string[] };
   scorecard: CodeAgentBenchmarkScorecard;
   autonomousDeliveryAcceptance?: AutonomousDeliveryAcceptanceSummary;
+  parityReport?: BenchmarkParityReport;
 };
 
 function acceptanceReceipt(entry: BenchmarkAirlockObservation, runId: string) {

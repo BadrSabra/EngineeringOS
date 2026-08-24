@@ -26,6 +26,8 @@ import {
   type ProviderId,
   type BenchmarkCampaignMode,
   type CodeAgentBenchmarkTargetProfile,
+  buildBenchmarkParityReport,
+  benchmarkParityReportToMarkdown,
 } from "@workspace/ai-orchestrator";
 import {
   defaultApiBenchmarkAllowedPaths,
@@ -510,6 +512,13 @@ try {
     shard: outputShard,
   };
   const acceptance = finalRun.autonomousDeliveryAcceptance;
+  const parityReport = buildBenchmarkParityReport({
+    mode: finalRun.campaignMode,
+    cases,
+    scorecard: finalRun.scorecard,
+    observations: finalRun.observations,
+  });
+  finalRun.parityReport = parityReport;
   if (
     finalRun.campaignStatus === "clean-witness" &&
     !finalRun.recoveryOnly &&
@@ -540,7 +549,15 @@ quality scorecard. Deterministic release checks do not depend on it.
 ${(acceptance?.operations ?? []).map((operation) =>
   `- ${operation.operationId} (${operation.caseId}): ${operation.outcome}; verified=${operation.verifiedCompletion}; recovered=${operation.recovered}; scopeViolation=${operation.scopeViolation}; repeatedSideEffect=${operation.repeatedSideEffect}`,
 ).join("\n") || "- None"}
+
+${benchmarkParityReportToMarkdown(parityReport)}
 `,
+    "utf8",
+  );
+  await writeJsonAtomically(path.join(outputDir, "code-agent-benchmark-parity-report.json"), parityReport);
+  await fs.writeFile(
+    path.join(outputDir, "code-agent-benchmark-parity-report.md"),
+    benchmarkParityReportToMarkdown(parityReport),
     "utf8",
   );
   console.log(JSON.stringify({
