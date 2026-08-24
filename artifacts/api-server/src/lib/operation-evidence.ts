@@ -9,6 +9,7 @@ import {
 } from "@workspace/db";
 import type { AiExecution } from "@workspace/db";
 import { redactUserFacingText, redactUserFacingValue } from "./ai-route-helpers.js";
+import { evaluateReadinessFromEvidence, type OperationalReadinessDecision } from "./operational-readiness-gate.js";
 
 export const OPERATION_EVIDENCE_LIMITS = {
   events: 120,
@@ -67,6 +68,7 @@ export type OperationEvidenceProjection = {
   };
   receipts: OperationReceipt[];
   gaps: EvidenceGap[];
+  readiness?: OperationalReadinessDecision;
 };
 
 export type EvidenceInput = {
@@ -187,7 +189,7 @@ export function buildOperationEvidenceProjection(input: EvidenceInput): Operatio
   else if (["blocked", "paused"].includes(execution.status)) completeness = "blocked";
   else completeness = gaps.length > 0 ? "partial" : "uncertain";
 
-  return {
+  const projection: OperationEvidenceProjection = {
     version: 1,
     redacted: true,
     operationId,
@@ -212,6 +214,27 @@ export function buildOperationEvidenceProjection(input: EvidenceInput): Operatio
     receipts: receipts.slice(0, OPERATION_EVIDENCE_LIMITS.receipts),
     gaps,
   };
+  const operation = checkpoint.operation as { nodes?: Array<{
+    id: string;
+    status: string;
+    evidenceRefs?: string[];
+  }> } | undefined;
+  projection.readiness = evaluateReadinessFromEvidence(projection, {
+    approvedScope: Array.isArray(request.validationTargetPaths)
+      ? request.validationTargetPaths.filter((item): item is string => typeof item === "string")
+      : [],
+    candidateRevision: input.proposal?.baseRevision ?? null,
+    candidateIdentity: input.proposal?.changeSetHash ?? null,
+    requiredNodes: Array.isArray(operation?.nodes)
+      ? operation.nodes.map((node) => ({
+          id: node.id,
+          status: node.status,
+          evidenceRefs: node.evidenceRefs,
+        }))
+      : [],
+    terminalVerdict: typeof checkpoint.evidenceVerdict === "string" ? checkpoint.evidenceVerdict : null,
+  }, { evaluatedAt: execution.completedAt?.toISOString?.() ?? execution.createdAt.toISOString() });
+  return projection;
 }
 
 function parseJson(value: string | null): unknown {

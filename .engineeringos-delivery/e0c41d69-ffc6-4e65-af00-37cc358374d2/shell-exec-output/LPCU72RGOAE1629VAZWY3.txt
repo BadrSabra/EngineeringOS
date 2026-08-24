@@ -1,0 +1,65 @@
+docs/baseline-governance.md:8:| Code Agent Benchmark | The benchmark suite and its explicit approved benchmark artifacts | Code Agent Benchmark schema version `1`, suite version `flight-deck-v2` | Run the deterministic contract replay or an approved live campaign, review its suite/version and case comparison, then run `benchmark:baseline:check`; live quality approval is separate |
+docs/code-agent-benchmark-campaign.md:3:The `flight-deck-v2` benchmark is executed as a campaign, not as one
+docs/code-agent-benchmark-campaign.md:17:BENCHMARK_OUTPUT_DIR=/tmp/flight-deck-v2-campaign \
+docs/code-agent-benchmark-campaign.md:38:BENCHMARK_OUTPUT_DIR=/tmp/flight-deck-v2-campaign \
+docs/code-agent-benchmark-campaign.md:51:BENCHMARK_OUTPUT_DIR=/tmp/flight-deck-v2-campaign \
+docs/code-agent-benchmark-campaign.md:59:BENCHMARK_AIRLOCK_RUN_PATH=/tmp/flight-deck-v2-campaign/code-agent-benchmark-airlock.run.json \
+docs/code-agent-benchmark-campaign.md:60:BENCHMARK_BASELINE_ID=baseline-flight-deck-v2-reviewed \
+docs/code-agent-benchmark-campaign.md:75:BENCHMARK_OUTPUT_DIR=/tmp/flight-deck-v2-repair-loop \
+docs/code-agent-benchmark-campaign.md:118:   BENCHMARK_OUTPUT_DIR=/tmp/flight-deck-v2-case-<case-id> \
+docs/code-agent-benchmark-campaign.md:129:   BENCHMARK_OUTPUT_DIR=/tmp/flight-deck-v2-<profile> \
+docs/code-agent-benchmark-rollout.md:4:artifacts. The current follow-up suite is `flight-deck-v2`; it adds explicit
+docs/code-agent-benchmark-rollout.md:31:  "suiteVersion": "flight-deck-v2",
+docs/code-agent-benchmark-rollout.md:116:comparable enough to authorize rollout by itself; a complete `flight-deck-v2`
+docs/code-agent-benchmark-rollout.md:145:quality regression against the approved `flight-deck-v2` baseline.
+docs/code-agent-benchmark-rollout.md:173:BENCHMARK_TARGETED_RUN_PATH=/tmp/flight-deck-v2-repair-loop/code-agent-benchmark-airlock.run.json \
+docs/code-agent-benchmark-rollout.md:176:BENCHMARK_RELEASE_DECISION_PATH=/tmp/flight-deck-v2-release-decision.json \
+docs/code-agent-benchmark-rollout.md:192:BENCHMARK_OUTPUT_DIR=/tmp/flight-deck-v2-clean-witness \
+artifacts/dashboard/src/pages/MissionControl.test.tsx:16:      suiteVersion: 'flight-deck-v2',
+artifacts/dashboard/src/pages/MissionControl.test.tsx:292:    expect(csv).toContain('"flight-deck-v2"');
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.test.ts:23:  suiteVersion: "flight-deck-v2",
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:11:export const CODE_AGENT_BENCHMARK_VERSION = "flight-deck-v2";
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:112:    expect(markdown).toContain("Suite: flight-deck-v2");
+lib/ai-orchestrator/src/benchmark/benchmark-campaign.test.ts:59:    suiteVersion: "flight-deck-v2",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:33:      suiteVersion: "flight-deck-v2",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:50:        suiteVersion: "flight-deck-v2",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:101:      suiteVersion: "flight-deck-v2",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:113:      suiteVersion: "flight-deck-v2",
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:13:    suiteVersion: "flight-deck-v2",
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:59:    suiteVersion: "flight-deck-v2",
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:76:    baselineId: "approved-flight-deck-v2",
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:77:    suiteVersion: "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/task-179-preflight/code-agent-benchmark-airlock.run.md:3:Suite: flight-deck-v2
+lib/ai-orchestrator/benchmark-results/task-179-preflight/code-agent-benchmark-airlock.run.json:5:  "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/task-179-preflight/code-agent-benchmark-airlock.run.json:76:    "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/task-179-canary/code-agent-benchmark-airlock.run.md:3:Suite: flight-deck-v2
+lib/ai-orchestrator/benchmark-results/task-179-canary/code-agent-benchmark-airlock.run.json:5:  "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/task-179-canary/code-agent-benchmark-airlock.run.json:951:    "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/task-178-canary/code-agent-benchmark-manifest.md:3:Suite: flight-deck-v2
+lib/ai-orchestrator/benchmark-results/task-178-canary/code-agent-benchmark-manifest.json:3:  "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/task-178-canary/code-agent-benchmark-airlock.run.md:3:Suite: flight-deck-v2
+lib/ai-orchestrator/benchmark-results/task-178-canary/code-agent-benchmark-airlock.run.json:5:  "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/task-178-canary/code-agent-benchmark-airlock.run.json:951:    "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/code-agent-deterministic/code-agent-benchmark-deterministic-replay.json:4:  "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/paid-openrouter-one-time/code-agent-benchmark-airlock.run.md:3:Suite: flight-deck-v2
+lib/ai-orchestrator/benchmark-results/code-agent-deterministic/code-agent-benchmark-deterministic-baseline.json:4:  "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/code-agent-deterministic/code-agent-benchmark-deterministic-baseline.json:11:    "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/code-agent-benchmark-release-decision.json:7:  "baselineId": "baseline-flight-deck-v2-paid-clean-witness-20260819",
+lib/ai-orchestrator/benchmark-results/code-agent-benchmark-release-decision.json:8:  "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/paid-openrouter-one-time/code-agent-benchmark-airlock.run.json:5:  "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/paid-openrouter-one-time/code-agent-benchmark-airlock.run.json:1031:    "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/code-agent-benchmark-live.md:3:Suite: flight-deck-v2
+lib/ai-orchestrator/benchmark-results/code-agent-benchmark-live.md:6:Baseline gate: approved baseline-flight-deck-v2-paid-clean-witness-20260819
+lib/ai-orchestrator/benchmark-results/code-agent-benchmark-live.json:4:  "baselineId": "baseline-flight-deck-v2-paid-clean-witness-20260819",
+lib/ai-orchestrator/benchmark-results/code-agent-benchmark-live.json:5:  "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/paid-openrouter-gate-fix/code-agent-benchmark-airlock.run.md:3:Suite: flight-deck-v2
+lib/ai-orchestrator/benchmark-results/code-agent-benchmark-baseline.json:4:  "baselineId": "baseline-flight-deck-v2-paid-clean-witness-20260819",
+lib/ai-orchestrator/benchmark-results/code-agent-benchmark-baseline.json:5:  "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/paid-openrouter-gate-fix/code-agent-benchmark-airlock.run.json:5:  "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/paid-openrouter-gate-fix/code-agent-benchmark-airlock.run.json:1032:    "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/paid-openrouter-final-gates/code-agent-benchmark-airlock.run.md:3:Suite: flight-deck-v2
+lib/ai-orchestrator/benchmark-results/paid-openrouter-final-gates/code-agent-benchmark-airlock.run.json:5:  "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/paid-openrouter-final-gates/code-agent-benchmark-airlock.run.json:924:    "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/paid-openrouter-auto-validation/code-agent-benchmark-airlock.run.md:3:Suite: flight-deck-v2
+lib/ai-orchestrator/benchmark-results/paid-openrouter-auto-validation/code-agent-benchmark-airlock.run.json:5:  "suiteVersion": "flight-deck-v2",
+lib/ai-orchestrator/benchmark-results/paid-openrouter-auto-validation/code-agent-benchmark-airlock.run.json:1031:    "suiteVersion": "flight-deck-v2",

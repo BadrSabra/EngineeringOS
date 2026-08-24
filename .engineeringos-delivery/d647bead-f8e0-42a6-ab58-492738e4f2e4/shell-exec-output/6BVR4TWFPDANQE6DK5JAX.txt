@@ -1,0 +1,901 @@
+      "queued": 0,
+      "concurrency": 2
+    }
+[21:19:29.846] INFO (2743): stale-job sweep scheduled
+    intervalMs: 1800000
+    timeoutMs: 7200000
+    pendingTimeoutMs: 900000
+[21:19:29.846] INFO (2743): durable job dispatcher scheduled
+    intervalMs: 10000
+[21:19:29.877] INFO (2743): catalog-refresh: OpenRouter free-model catalog refreshed
+    staleModelCount: 5
+    staleModels: [
+      "inclusionai/ling-3.0-flash:free",
+      "nvidia/nemotron-nano-9b-v2:free",
+      "nvidia/nemotron-nano-12b-v2-vl:free",
+      "openai/gpt-oss-20b:free",
+      "nvidia/nemotron-3-nano-30b-a3b:free"
+    ]
+[21:19:30.022] INFO (2743): request completed
+    req: {
+      "id": 1,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+[21:19:30.110] INFO (2743): request completed
+    req: {
+      "id": 2,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 1
+
+> @workspace/dashboard@0.0.0 test:e2e /home/runner/workspace/artifacts/dashboard
+> playwright test --config=e2e/playwright.config.ts
+
+
+Running 23 tests using 1 worker
+[2/23] …ser journey › signs in and traverses the authenticated operational shell
+Attention: Clerk collects telemetry data from its SDKs when connected to development instances.
+The data collected is used to inform Clerk's product roadmap.
+To learn more, including how to opt-out from the telemetry program, visit: https://clerk.com/docs/telemetry.
+
+[21:20:00.064] INFO (2743): request completed
+    req: {
+      "id": 3,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 21
+[21:20:00.502] INFO (2743): request completed
+    req: {
+      "id": 4,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 8
+[21:20:00.564] INFO (2743): request completed
+    req: {
+      "id": 5,
+      "method": "OPTIONS",
+      "url": "/api/ai/chat"
+    }
+    res: {
+      "statusCode": 204
+    }
+    responseTime: 1
+[21:20:00.650] INFO (2743): request completed
+    req: {
+      "id": 6,
+      "method": "POST",
+      "url": "/api/ai/chat"
+    }
+    res: {
+      "statusCode": 401
+    }
+    responseTime: 51
+[21:20:00.680] INFO (2743): request completed
+    req: {
+      "id": 7,
+      "method": "POST",
+      "url": "/api/ai/chat"
+    }
+    res: {
+      "statusCode": 403
+    }
+    responseTime: 4
+[21:20:00.707] INFO (2743): request completed
+    req: {
+      "id": 8,
+      "method": "POST",
+      "url": "/api/upload/archive"
+    }
+    res: {
+      "statusCode": 403
+    }
+    responseTime: 12
+[21:20:00.726] INFO (2743): request completed
+    req: {
+      "id": 9,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 403
+    }
+  1) e2e/dashboard.journey.ts:1611:3 › EngineeringOS dashboard browser journey › signs in and traverses the authenticated operational shell 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByText('Showing 1–1 of 1', { exact: true })
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 10000ms
+      - waiting for getByText('Showing 1–1 of 1', { exact: true })
+
+
+      1633 |     await expect(
+      1634 |       page.getByText("Showing 1–1 of 1", { exact: true }),
+    > 1635 |     ).toBeVisible();
+           |       ^
+      1636 |     await expect(page.getByRole("button", { name: "Older" })).toBeDisabled();
+      1637 |
+      1638 |     await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:1635:7
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-629d5-enticated-operational-shell/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/dashboard.journey.ts-Engin-629d5-enticated-operational-shell/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-629d5-enticated-operational-shell/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-629d5-enticated-operational-shell/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────
+
+[3/23] … and downloads the completed execution audit without duplicating effects
+[21:20:24.267] INFO (2743): request completed
+    req: {
+      "id": 10,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[4/23] …rney › keeps the cancelled execution audit handoff redacted and terminal
+[21:20:39.544] INFO (2743): request completed
+    req: {
+      "id": 11,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[5/23] …oard browser journey › uploads an archive and renders a live task update
+[21:20:51.974] INFO (2743): request completed
+    req: {
+      "id": 12,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[6/23] …r journey › recovers a live task update after a temporary stream failure
+[21:20:57.720] INFO (2743): request completed
+    req: {
+      "id": 13,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[7/23] …ows an actionable terminal state when live task reconnects are exhausted
+[21:21:05.457] INFO (2743): request completed
+    req: {
+      "id": 14,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[8/23] … › pages and reloads the filtered event stream without losing its window
+[21:21:35.216] INFO (2743): request completed
+    req: {
+      "id": 15,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[9/23] …› renders an Arabic source-backed AI answer without internal diagnostics
+[21:21:44.957] INFO (2743): request completed
+    req: {
+      "id": 16,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+  2) e2e/dashboard.journey.ts:2194:3 › EngineeringOS dashboard browser journey › renders an Arabic source-backed AI answer without internal diagnostics 
+
+    Error: expect(received).toContain(expected) // indexOf
+
+    Expected substring: "The required analysis did not complete."
+    Received string:    "EngineeringOS
+    CORE OPS
+    Dashboard
+    Projects
+    Tasks
+    Rules Engine
+    Workflows
+    Event Stream
+    Metrics
+    Knowledge Graph
+    AI Assistant
+    Flight Deck
+    Mission Control
+    ED
+    EngineeringOS Dashboard Smoke
+    Connected
+    v1.0.4-stable
+    SESSIONS
+    Smoke Project
+    ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟
+    OPENROUTER API KEY
+    Priority·
+    Loading…·
+    Save
+    GEMINI API KEY
+    Free · Priority·
+    Loading…·
+    Save
+    DEEPSEEK API KEY
+    Optional·
+    Loading…·
+    Save
+    GROQ API KEY·
+    Loading…·
+    Save
+    EngineeringOS AI
+    Llama 3.3 · Groq
+    ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟·
+    عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.·
+    6) Final Judgment·
+    NOT PROVEN·
+    Behavior evidence · 1 excerpt
+    Accepted: source span verified.
+    return partialFromCollectedEvidence(\"provider timeout\");
+    src/execution-tools.ts:42
+    View file
+    Behavior answer
+    confidence 100%·
+    عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.·
+    src/execution-tools.ts
+    Answered fields: timeout behavior
+    Behavior evidence · 1 excerpt
+    Accepted: source span verified.
+    return partialFromCollectedEvidence(\"provider timeout\");
+    src/execution-tools.ts:42
+    View file
+    Agent activity
+    · 1 events
+    ✓
+    Reading source · src/execution-tools.ts
+    src/execution-tools.ts
+    Forensic evidence
+    NOT PROVEN"
+
+      2242 |     expect(visibleText).not.toContain("COMPLETED");
+      2243 |     expect(visibleText).not.toContain("Persisted execution proof");
+    > 2244 |     expect(visibleText).toContain("The required analysis did not complete.");
+           |                         ^
+      2245 |   });
+      2246 |
+      2247 |   test("keeps the AI session drawer overlaid on a phone viewport with accepted evidence", async ({
+        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:2244:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-99a50-ithout-internal-diagnostics/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/dashboard.journey.ts-Engin-99a50-ithout-internal-diagnostics/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-99a50-ithout-internal-diagnostics/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-99a50-ithout-internal-diagnostics/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────
+
+
+[21:21:48.064] INFO (2743): request aborted
+    req: {
+      "id": 17,
+      "method": "GET",
+      "url": "/api/ai/delivery/recoverable"
+    }
+    res: {
+      "statusCode": null
+    }
+[10/23] …e AI session drawer overlaid on a phone viewport with accepted evidence
+[21:21:54.537] INFO (2743): request completed
+    req: {
+      "id": 18,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+  3) e2e/dashboard.journey.ts:2247:3 › EngineeringOS dashboard browser journey › keeps the AI session drawer overlaid on a phone viewport with accepted evidence 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByText('required tool did not complete — BLOCKED/INCOMPLETE').last()
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 10000ms
+      - waiting for getByText('required tool did not complete — BLOCKED/INCOMPLETE').last()
+
+
+      2267 |         })
+      2268 |         .last(),
+    > 2269 |     ).toBeVisible();
+           |       ^
+      2270 |     await page
+      2271 |       .locator("summary")
+      2272 |       .filter({ hasText: "Agent activity" })
+        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:2269:7
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-e3df5-port-with-accepted-evidence/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/dashboard.journey.ts-Engin-e3df5-port-with-accepted-evidence/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-e3df5-port-with-accepted-evidence/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-e3df5-port-with-accepted-evidence/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────
+
+[11/23] … state across browser back and forward navigation with blocked evidence
+[21:22:12.416] INFO (2743): request completed
+    req: {
+      "id": 19,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+  4) e2e/dashboard.journey.ts:2299:3 › EngineeringOS dashboard browser journey › keeps safe citation state across browser back and forward navigation with blocked evidence 
+
+    ReferenceError: fixture is not defined
+
+      2317 |
+      2318 |     const composer = page.locator("textarea").first();
+    > 2319 |     await composer.fill(fixture.question);
+           |                         ^
+      2320 |     await composer.locator("xpath=..").getByRole("button").click();
+      2321 |
+      2322 |     await expect(
+        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:2319:25
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-f8501-ation-with-blocked-evidence/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/dashboard.journey.ts-Engin-f8501-ation-with-blocked-evidence/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-f8501-ation-with-blocked-evidence/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-f8501-ation-with-blocked-evidence/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────
+
+
+[21:22:14.452] INFO (2743): request completed
+    req: {
+      "id": 25,
+      "method": "GET",
+      "url": "/api/ai/metrics"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 37
+[21:22:14.456] INFO (2743): request completed
+    req: {
+      "id": 20,
+      "method": "GET",
+      "url": "/api/ai/openrouter-key"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 52
+[21:22:14.458] INFO (2743): request completed
+    req: {
+      "id": 22,
+      "method": "GET",
+      "url": "/api/ai/deepseek-key"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 48
+[21:22:14.460] INFO (2743): request aborted
+    req: {
+      "id": 21,
+      "method": "GET",
+      "url": "/api/ai/providers/gemini/key"
+    }
+    res: {
+      "statusCode": null
+    }
+    responseTime: 52
+[21:22:14.460] INFO (2743): request aborted
+    req: {
+      "id": 24,
+      "method": "GET",
+      "url": "/api/ai/active-provider"
+    }
+    res: {
+      "statusCode": null
+    }
+    responseTime: 47
+[21:22:14.460] INFO (2743): request aborted
+    req: {
+      "id": 23,
+      "method": "GET",
+      "url": "/api/ai/groq-key"
+    }
+    res: {
+      "statusCode": null
+    }
+    responseTime: 49
+[21:22:14.485] INFO (2743): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: null
+    requireTools: false
+    available: [
+      "openrouter"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+[21:22:14.485] INFO (2743): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+[12/23] …ard browser journey › keeps safe citation state when switching projects
+[21:22:20.488] INFO (2743): request completed
+    req: {
+      "id": 26,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[13/23] … browser journey › keeps safe citation state across repeated navigation
+[21:22:27.861] INFO (2743): request completed
+    req: {
+      "id": 27,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[14/23] …journey › keeps only the safe blocked citation reason after chat reload
+[21:22:38.315] INFO (2743): request completed
+    req: {
+      "id": 28,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+  5) e2e/dashboard.journey.ts:2577:3 › EngineeringOS dashboard browser journey › keeps only the safe blocked citation reason after chat reload 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByText('required tool did not complete — BLOCKED/INCOMPLETE').last()
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 10000ms
+      - waiting for getByText('required tool did not complete — BLOCKED/INCOMPLETE').last()
+
+
+      2596 |         })
+      2597 |         .last(),
+    > 2598 |     ).toBeVisible();
+           |       ^
+      2599 |     await page
+      2600 |       .locator("summary")
+      2601 |       .filter({ hasText: "Agent activity" })
+        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:2598:7
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-04417-on-reason-after-chat-reload/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/dashboard.journey.ts-Engin-04417-on-reason-after-chat-reload/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-04417-on-reason-after-chat-reload/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-04417-on-reason-after-chat-reload/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────
+
+[15/23] …urney › keeps the failed AI session drawer overlaid on a phone viewport
+[21:22:58.258] INFO (2743): request completed
+    req: {
+      "id": 29,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+  6) e2e/dashboard.journey.ts:2627:3 › EngineeringOS dashboard browser journey › keeps the failed AI session drawer overlaid on a phone viewport 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByText('required tool did not complete — BLOCKED/INCOMPLETE').last()
+    Expected: visible
+    Timeout: 10000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 10000ms
+      - waiting for getByText('required tool did not complete — BLOCKED/INCOMPLETE').last()
+
+
+      2647 |         })
+      2648 |         .last(),
+    > 2649 |     ).toBeVisible();
+           |       ^
+      2650 |     await page
+      2651 |       .locator("summary")
+      2652 |       .filter({ hasText: "Agent activity" })
+        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:2649:7
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-26a58-verlaid-on-a-phone-viewport/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/dashboard.journey.ts-Engin-26a58-verlaid-on-a-phone-viewport/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-26a58-verlaid-on-a-phone-viewport/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-26a58-verlaid-on-a-phone-viewport/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────
+
+[16/23] … one partial answer after a provider disconnect and marks it incomplete
+[21:23:19.154] INFO (2743): request completed
+    req: {
+      "id": 30,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+  7) e2e/dashboard.journey.ts:2721:3 › EngineeringOS dashboard browser journey › preserves one partial answer after a provider disconnect and marks it incomplete 
+
+    Error: expect(locator).toHaveCount(expected) failed
+
+    Locator:  getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.', { exact: true })
+    Expected: 1
+    Received: 2
+    Timeout:  10000ms
+
+    Call log:
+      - Expect "toHaveCount" with timeout 10000ms
+      - waiting for getByText('عند انتهاء مهلة مزود الذكاء الاصطناعي، يعيد المسار تقريرًا جزئيًا من الأدلة التي جُمعت بدل إصدار Finding غير مثبت.', { exact: true })
+        23 × locator resolved to 2 elements
+           - unexpected value "2"
+
+
+      2732 |
+      2733 |     const answer = page.getByText(fixture.answer, { exact: true });
+    > 2734 |     await expect(answer).toHaveCount(1);
+           |                          ^
+      2735 |     await expect(answer).toBeVisible();
+      2736 |     await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
+      2737 |     await expect(
+        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:2734:26
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-ccc76-ect-and-marks-it-incomplete/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/dashboard.journey.ts-Engin-ccc76-ect-and-marks-it-incomplete/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-ccc76-ect-and-marks-it-incomplete/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-ccc76-ect-and-marks-it-incomplete/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────
+
+[17/23] … journey › resumes a failed analysis and keeps the execution incomplete
+[21:23:43.667] INFO (2743): request completed
+    req: {
+      "id": 31,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 4
+[21:23:46.218] INFO (2743): request aborted
+    req: {
+      "id": 32,
+      "method": "GET",
+      "url": "/api/ai/openrouter-key"
+    }
+    res: {
+      "statusCode": null
+    }
+    responseTime: 85
+[21:23:46.218] INFO (2743): request aborted
+    req: {
+      "id": 33,
+      "method": "GET",
+      "url": "/api/ai/providers/gemini/key"
+    }
+    res: {
+      "statusCode": null
+    }
+    responseTime: 53
+[21:23:46.218] INFO (2743): request aborted
+    req: {
+      "id": 34,
+      "method": "GET",
+      "url": "/api/ai/deepseek-key"
+    }
+    res: {
+      "statusCode": null
+    }
+    responseTime: 13
+[21:23:46.238] INFO (2743): request aborted
+    req: {
+      "id": 35,
+      "method": "GET",
+      "url": "/api/ai/groq-key"
+    }
+    res: {
+      "statusCode": null
+    }
+    responseTime: 22
+[21:23:46.249] INFO (2743): request aborted
+    req: {
+      "id": 36,
+      "method": "GET",
+      "url": "/api/ai/active-provider"
+    }
+    res: {
+      "statusCode": null
+    }
+    responseTime: 12
+[21:23:46.258] INFO (2743): request aborted
+    req: {
+      "id": 37,
+      "method": "GET",
+      "url": "/api/ai/metrics"
+    }
+    res: {
+      "statusCode": null
+    }
+    responseTime: 11
+[21:23:46.265] INFO (2743): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: null
+    requireTools: false
+    available: [
+      "openrouter"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+[21:23:46.265] INFO (2743): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+  8) e2e/dashboard.journey.ts:2772:3 › EngineeringOS dashboard browser journey › resumes a failed analysis and keeps the execution incomplete 
+
+    Error: locator.click: Error: strict mode violation: getByRole('button', { name: 'Resume', exact: true }) resolved to 2 elements:
+        1) <button type="button" data-component-name="Comp" data-replit-metadata="artifacts/dashboard/src/components/ui/button.tsx:54:6" class="inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover-elevate active-elevate-2 border [border-color:var(--button-outline)] shadow-xs active:shadow…>…</button> aka getByLabel('Agent execution proof').getByRole('button', { name: 'Resume' })
+        2) <button data-component-name="Comp" data-replit-metadata="artifacts/dashboard/src/components/ui/button.tsx:54:6" class="inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover-elevate active-elevate-2 border [border-color:var(--button-outline)] shadow-xs active:shadow-none min-h-8 …>…</button> aka getByRole('button', { name: 'Resume' }).nth(1)
+
+    Call log:
+      - waiting for getByRole('button', { name: 'Resume', exact: true })
+
+
+      2815 |         request.method() === "POST",
+      2816 |     );
+    > 2817 |     await page.getByRole("button", { name: "Resume", exact: true }).click();
+           |                                                                     ^
+      2818 |     const requestBody = JSON.parse(
+      2819 |       (await resumeRequest).postData() ?? "{}",
+      2820 |     ) as Record<string, unknown>;
+        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:2817:69
+
+    Error: page.waitForRequest: Test ended.
+
+      2810 |       page.getByText("A saved AI execution is ready to resume"),
+      2811 |     ).toBeVisible();
+    > 2812 |     const resumeRequest = page.waitForRequest(
+           |                                ^
+      2813 |       (request) =>
+      2814 |         request.url().includes("/api/ai/chat/stream") &&
+      2815 |         request.method() === "POST",
+        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:2812:32
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-e1c61-ps-the-execution-incomplete/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/dashboard.journey.ts-Engin-e1c61-ps-the-execution-incomplete/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-e1c61-ps-the-execution-incomplete/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-e1c61-ps-the-execution-incomplete/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────
+
+[18/23] …ers a missing token after a real stream abort and resumes one execution
+[21:23:52.425] INFO (2743): request completed
+    req: {
+      "id": 38,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[19/23] …browser journey › projects delivery recovery states safely after reload
+[21:24:00.516] INFO (2743): request completed
+    req: {
+      "id": 39,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[20/23] …rney › explains when delivery recovery loses a race and refreshes state
+[21:24:08.043] INFO (2743): request completed
+    req: {
+      "id": 40,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[21/23] …rney › explains when an old recovery link points to a deleted operation
+[21:24:14.180] INFO (2743): request completed
+    req: {
+      "id": 41,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[22/23] …rney › keeps the resumed AI session drawer overlaid on a phone viewport
+[21:24:21.753] INFO (2743): request completed
+    req: {
+      "id": 42,
+      "method": "GET",
+      "url": "/api/healthz"
+    }
+    res: {
+      "statusCode": 200
+    }
+[23/23] …OS dashboard browser journey › renders a user-visible API failure state
+{"scope":"dynamic-catalog","code":"STALE_MODELS_DETECTED","staleModels":["inclusionai/ling-3.0-flash:free","nvidia/nemotron-nano-9b-v2:free","nvidia/nemotron-nano-12b-v2-vl:free","openai/gpt-oss-20b:free","nvidia/nemotron-3-nano-30b-a3b:free"],"hint":"These models are in model-catalog.ts but no longer listed on OpenRouter. They will be skipped during resolution and fallback will proceed automatically."}
+[21:24:29.680] INFO (2743): catalog-refresh: OpenRouter free-model catalog refreshed
+    staleModelCount: 5
+    staleModels: [
+      "inclusionai/ling-3.0-flash:free",
+      "nvidia/nemotron-nano-9b-v2:free",
+      "nvidia/nemotron-nano-12b-v2-vl:free",
+      "openai/gpt-oss-20b:free",
+      "nvidia/nemotron-3-nano-30b-a3b:free"
+    ]
+Dashboard browser journey exceeded the 300000ms timeout.
+[21:24:30.249] INFO (2743): Graceful shutdown started
+    signal: "SIGTERM"
+[21:24:30.249] INFO (2743): catalog-refresh: scheduler stopped
+[21:24:30.250] INFO (2743): Graceful shutdown complete
+/home/runner/workspace/artifacts/dashboard:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/dashboard@0.0.0 dev: `node ./scripts/ensure-port-free.mjs && vite --config vite.config.ts --host 0.0.0.0`
+Command failed with signal "SIGTERM"
+Release service teardown results:
+- API release build: exit 0
+- API release service: exit 0
+- Dashboard release service: signal SIGTERM
+Release services surviving teardown: none.
+Release origin diagnostics:
+- {"origin":"https://6aa0d55b-d211-4470-936b-5cd5c56e1e7a-00-wz1myvisw9tr-09ljz5gp.janeway.replit.dev","phase":"GET","status":200,"headers":{"access-control-allow-origin":"https://6aa0d55b-d211-4470-936b-5cd5c56e1e7a-00-wz1myvisw9tr-09ljz5gp.janeway.replit.dev","vary":"Origin"}}
+- {"origin":"https://6aa0d55b-d211-4470-936b-5cd5c56e1e7a-00-wz1myvisw9tr-09ljz5gp.janeway.replit.dev","phase":"preflight","status":204,"headers":{"access-control-allow-origin":"https://6aa0d55b-d211-4470-936b-5cd5c56e1e7a-00-wz1myvisw9tr-09ljz5gp.janeway.replit.dev","access-control-allow-methods":"GET,HEAD,PUT,PATCH,POST,DELETE","access-control-allow-headers":"content-type","vary":"Origin, Access-Control-Request-Headers"}}
+- {"origin":"https://6aa0d55b-d211-4470-936b-5cd5c56e1e7a-00-wz1myvisw9tr-09ljz5gp.janeway.replit.dev","phase":"mutation","status":401,"headers":{"access-control-allow-origin":"https://6aa0d55b-d211-4470-936b-5cd5c56e1e7a-00-wz1myvisw9tr-09ljz5gp.janeway.replit.dev","vary":"Origin"}}
+- {"origin":"https://attacker.example","phase":"rejection","status":403,"headers":{}}
+Release teardown artifact: /home/runner/workspace/test-results/dashboard-journey/release-teardown.json
+Release teardown evidence summary: validation run local; retained artifact /home/runner/workspace/test-results/dashboard-journey/release-teardown.json.
+Release teardown evidence coverage: API release build (process group 2710; descendants tracked by surviving PIDs); API release service (process group 2743; descendants tracked by surviving PIDs); Dashboard release service (process group 274
+  8 failed
+    e2e/dashboard.journey.ts:1611:3 › EngineeringOS dashboard browser journey › signs in and traverses the authenticated operational shell 
+    e2e/dashboard.journey.ts:2194:3 › EngineeringOS dashboard browser journey › renders an Arabic source-backed AI answer without internal diagnostics 
+    e2e/dashboard.journey.ts:2247:3 › EngineeringOS dashboard browser journey › keeps the AI session drawer overlaid on a phone viewport with accepted evidence 
+    e2e/dashboard.journey.ts:2299:3 › EngineeringOS dashboard browser journey › keeps safe citation state across browser back and forward navigation with blocked evidence 
+    e2e/dashboard.journey.ts:2577:3 › EngineeringOS dashboard browser journey › keeps only the safe blocked citation reason after chat reload 
+    e2e/dashboard.journey.ts:2627:3 › EngineeringOS dashboard browser journey › keeps the failed AI session drawer overlaid on a phone viewport 
+    e2e/dashboard.journey.ts:2721:3 › EngineeringOS dashboard browser journey › preserves one partial answer after a provider disconnect and marks it incomplete 
+    e2e/dashboard.journey.ts:2772:3 › EngineeringOS dashboard browser journey › resumes a failed analysis and keeps the execution incomplete 
+  1 skipped
+  14 passed (5.0m)
+/home/runner/workspace/artifacts/dashboard:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/dashboard@0.0.0 test:e2e: `playwright test --config=e2e/playwright.config.ts`
+Exit status 1
+ ELIFECYCLE  Command failed with exit code 1.

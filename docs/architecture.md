@@ -361,3 +361,25 @@ than a product-parity assessment:
 
 This reference is source- and deterministic-check based. It does not claim
 that the existing routes form one uninterrupted autonomous worker loop.
+
+The executable operation gate is the server-owned
+`evaluateOperationalReadiness` contract in
+`artifacts/api-server/src/lib/operational-readiness-gate.ts`. It produces one
+auditable decision with four states: `proven`, `incomplete`, `blocked`, and
+`failed`.
+
+- `proven` requires matching project/candidate revisions, an approved scope,
+  passed required nodes, complete redacted evidence, and a terminal
+  `PROVEN` verdict.
+- `incomplete` covers cancellation, restart/partial evidence, and other
+  evidence that is not sufficient to claim completion.
+- `blocked` identifies a failed blocking check and includes a bounded recovery
+  action; `failed` is reserved for a terminal operation failure.
+- Optional observable-agent campaign findings are evaluated only when they are
+  bound to the same operation and revision. They can block readiness, but
+  optional external observation never upgrades deterministic proof.
+
+Client state, model text, live-provider output, and deployment state cannot
+override a failed blocking check. Operation evidence projections carry this
+same readiness result so API receipts and dashboard projections share one
+server decision.

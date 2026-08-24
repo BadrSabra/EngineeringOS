@@ -1,7 +1,7 @@
 {
   "kind": "ai-release-quality-decision",
   "version": 1,
-  "generatedAt": "2026-08-24T20:05:23.732Z",
+  "generatedAt": "2026-08-24T21:24:45.581Z",
   "status": "blocked",
   "liveProviderChecks": "disabled",
   "previewChecks": "disabled",
@@ -28,7 +28,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 36340
+      "durationMs": 39097
     },
     {
       "id": "dashboard-typecheck",
@@ -40,7 +40,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 25577
+      "durationMs": 24720
     },
     {
       "id": "openapi-client-parity",
@@ -53,7 +53,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 9694
+      "durationMs": 9679
     },
     {
       "id": "truth-flow-parity",
@@ -65,7 +65,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1969
+      "durationMs": 1519
     },
     {
       "id": "ai-contract-and-json",
@@ -81,7 +81,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_CONTRACT_AND_JSON_FAILED_1",
-      "durationMs": 21785
+      "durationMs": 25058
     },
     {
       "id": "ai-sse-and-redaction",
@@ -97,7 +97,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_SSE_AND_REDACTION_FAILED_1",
-      "durationMs": 31013
+      "durationMs": 21696
     },
     {
       "id": "ai-operational-safety",
@@ -113,7 +113,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 188112
+      "durationMs": 166153
     },
     {
       "id": "ai-deterministic-benchmark",
@@ -128,7 +128,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 3396
+      "durationMs": 1454
     },
     {
       "id": "benchmark-baseline-regression",
@@ -142,7 +142,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 972
+      "durationMs": 471
     },
     {
       "id": "dashboard-preview-contract",

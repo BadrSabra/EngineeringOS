@@ -1,0 +1,190 @@
+    return ["failed", "blocked", "unavailable"].includes(String(validation?.status ?? step.status));
+  }).length;
+  const latestModelStep = [...steps].reverse().find((step) => textValue(step.model));
+  const latestProviderStep = [...steps].reverse().find((step) => textValue(step.provider));
+  const hasPendingProposal = Boolean(execution.proposalId);
+  const evidenceVerdict = textValue(checkpoint.evidenceVerdict ?? checkpoint.evidenceStatus, 48);
+  const autonomousOperation = asRecord(checkpoint.operation);
+  const autonomousState = textValue(autonomousOperation?.state, 48);
+  const recovery = asRecord(checkpoint.recovery);
+  const state = deriveFlightDeckState({
+    executionStatus: execution.status,
+    checkpointStage: textValue(checkpoint.stage, 48),
+    repairState: textValue(checkpoint.repairState, 48),
+    hasPendingProposal,
+    hasAppliedChanges: false,
+    hasCommittedChanges: false,
+    hasPushedChanges: false,
+    evidenceVerdict: evidenceVerdict as never,
+    proofRequired: checkpoint.proofRequired === true || Boolean(execution.linkedTaskId || execution.buildPlanMessageId || execution.proposalId),
+  });
+  const attempts = nodes.reduce((sum, node) => sum + (typeof node.attempts === "number" ? node.attempts : 0), 0);
+  const completedNodes = nodes.filter((node) => node.status === "passed").length;
+  const objective = asRecord(request.objective);
+  const objectiveText = textValue(
+    objective?.objective ?? objective?.description ?? objective?.title,
+    320,
+  ) ?? "Engineering execution";
+
+  return {
+    id: execution.id,
+    projectId: execution.projectId,
+    // The operation contract is the authoritative stage projection when
+    // present. Flight Deck derivation remains the compatibility projection for
+    // executions created before the contract was persisted.
+    state: autonomousState
+      && ["planned", "inspecting", "mutating", "validating", "diagnosing", "repairing", "promoting", "delivering", "succeeded", "failed", "cancelled", "blocked", "uncertain"].includes(autonomousState)
+      ? autonomousState.toUpperCase()
+      : state,
+    executionStatus: execution.status,
+    objective: objectiveText,
+    provider: textValue(latestProviderStep?.provider),
+    model: textValue(latestModelStep?.model),
+    attempts,
+    validationFailures,
+    evidence: {
+      verdict: evidenceVerdict ?? "NOT_RECORDED",
+      reason: textValue(checkpoint.evidenceReason ?? checkpoint.detail),
+      validationEvents: validationSteps.length,
+      readEvents: steps.filter((step) => step.kind === "tool_result" && textValue(step.source)).length,
+    },
+    checkpointVersion: execution.checkpointVersion,
+    eventCount: steps.length,
+    completedNodes,
+    totalNodes: nodes.length,
+    recentEvents: steps.slice(-12).map(projectRecorderEvent),
+    operationId: execution.operationId ?? execution.correlationId ?? execution.id,
+    revision: operationEvidence?.revision ?? null,
+    phase: textValue(recovery?.phase) ?? autonomousState ?? textValue(checkpoint.stage),
+    recovery: {
+      uncertain: autonomousState === "uncertain",
+      outcome: textValue(recovery?.outcome),
+      action: textValue(recovery?.action),
+    },
+    evidenceProjection: operationEvidence ? redactOperationEvidence(operationEvidence) : undefined,
+    createdAt: execution.createdAt,
+    updatedAt: execution.updatedAt,
+    startedAt: execution.startedAt,
+    completedAt: execution.completedAt,
+  };
+}
+
+async function readOptionalJson(filePath: string): Promise<unknown | undefined> {
+  try {
+    return JSON.parse(await fs.readFile(filePath, "utf8")) as unknown;
+  } catch (error) {
+    const code = error && typeof error === "object" && "code" in error
+      ? (error as { code?: string }).code
+      : undefined;
+    if (code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+function baselinePath(): string {
+  return path.resolve(
+    process.env.BENCHMARK_BASELINE_PATH ??
+      path.join(process.cwd(), "../../lib/ai-orchestrator/benchmark-results/code-agent-benchmark-baseline.json"),
+  );
+}
+
+function freeTierEnvelopePath(): string {
+            suiteVersion: rawBaseline.suiteVersion,
+            generatedAt: typeof rawBaseline.generatedAt === "string" ? rawBaseline.generatedAt : undefined,
+            metrics: {
+              totalCases: typeof rawBaseline.metrics.totalCases === "number" ? rawBaseline.metrics.totalCases : undefined,
+              observedCases: typeof rawBaseline.metrics.observedCases === "number" ? rawBaseline.metrics.observedCases : undefined,
+              gradeCounts: isRecord(rawBaseline.metrics.gradeCounts) ? rawBaseline.metrics.gradeCounts : undefined,
+              correctCompletionRate: typeof rawBaseline.metrics.correctCompletionRate === "number"
+                ? rawBaseline.metrics.correctCompletionRate
+                : undefined,
+              firstAttemptRate: typeof rawBaseline.metrics.firstAttemptRate === "number"
+                ? rawBaseline.metrics.firstAttemptRate
+                : undefined,
+              safelyBlockedRate: typeof rawBaseline.metrics.safelyBlockedRate === "number"
+                ? rawBaseline.metrics.safelyBlockedRate
+                : undefined,
+            },
+          }
+        : undefined;
+    const freeTierEnvelope = projectBoundedFreeTierEnvelope(rawFreeTierEnvelope);
+    const autonomousDeliveryAcceptance = projectAcceptanceSummary(
+      isRecord(rawAcceptance) ? rawAcceptance.autonomousDeliveryAcceptance : undefined,
+    );
+
+    return res.json({
+      updatedAt: new Date().toISOString(),
+      benchmark: scorecard || baseline || freeTierEnvelope
+        ? { scorecard, baseline, freeTierEnvelope, autonomousDeliveryAcceptance }
+        : null,
+      executions: await Promise.all(executions.map(async (execution) => (
+        projectExecution(execution, await loadOperationEvidence(execution))
+      ))),
+    });
+  } catch (error) {
+    req.log?.error?.({ error }, "mission control read failed");
+    return res.status(500).json({ error: "Mission Control data could not be read." });
+  }
+});
+
+export default router;  operation?: AutonomousOperationContract;
+  nodeStates?: AiExecutionCheckpoint["nodeStates"];
+  evidenceVerdict?: FlightDeckEvidenceVerdict;
+  evidenceReason?: string;
+  proofRequired?: boolean;
+  evidenceRefs?: readonly string[];
+}): Promise<boolean> {
+  const [current] = await db
+    .select({
+      request: aiExecutionsTable.request,
+      checkpoint: aiExecutionsTable.checkpoint,
+    })
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.workerId, params.workerId),
+      eq(aiExecutionsTable.status, "running"),
+    ))
+    .limit(1);
+  const request = current ? parseExecutionRequest(current.request) : undefined;
+  const checkpoint = current ? parseAiExecutionCheckpoint(current.checkpoint) : undefined;
+  const requiresProof = params.proofRequired ?? request?.proofRequired ?? false;
+  const operation = params.operation ?? checkpoint?.operation;
+  if (requiresProof) {
+    if (!operation) return false;
+    const completion = validateAutonomousOperationCompletion(operation, {
+      evidenceRefs: params.evidenceRefs,
+      evidenceVerdict: params.evidenceVerdict,
+      workspaceRevision: request?.workspaceRevision,
+      candidateIdentity: operation.candidateIdentity,
+      nodeStates: params.nodeStates?.map((node) => ({
+        status: node.status,
+        evidenceRefs: node.evidenceRefs ?? [],
+      })),
+    });
+    if (!completion.allowed) return false;
+  }
+  const [updated] = await db
+    .update(aiExecutionsTable)
+    .set({
+      status: "completed",
+      finalMessageId: params.finalMessageId,
+      proposalId: params.proposalId ?? null,
+      completedAt: new Date(),
+      updatedAt: new Date(),
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+      checkpoint: JSON.stringify({
+        stage: "completed",
+        sequence: Date.now(),
+        ...(params.operation ? { operation: params.operation } : {}),
+        ...(params.nodeStates && params.nodeStates.length > 0
+          ? {
+              nodeStates: params.nodeStates,
+              completedNodes: params.nodeStates
+                .filter((node) => node.status === "passed")
+                .map((node) => node.id)
+                .slice(0, AI_EXECUTION_NODE_LIMIT),
+            }
+          : {}),

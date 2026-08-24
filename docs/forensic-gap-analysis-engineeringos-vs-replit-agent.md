@@ -358,6 +358,18 @@ The provider-free checks that support this report are:
 * `pnpm run test:mission-correlation-report`
 * `pnpm run test:dashboard-journey-contract`
 * `pnpm --filter @workspace/api-server run test:release-fixture-collisions`
+
+The operation-level decision is implemented by
+`evaluateOperationalReadiness` in
+`artifacts/api-server/src/lib/operational-readiness-gate.ts`. It is a pure,
+idempotent server-side evaluation over the operation contract and retained
+evidence. Its `proven` result is the only completion classification that can
+recommend readiness; `incomplete`, `blocked`, and `failed` always recommend
+`not-ready` and include the failed gate plus a bounded recovery action.
+Campaign findings from observable-agent measurement are accepted only with a
+matching operation identity and project revision. Their presence does not
+turn optional external observation into deterministic proof, while an
+unresolved blocking finding prevents `proven`.
 * `pnpm --filter @workspace/api-server run test:release-synthesis-telemetry`
 * `pnpm --filter @workspace/api-server run test:process-recovery`
 * `pnpm --filter @workspace/api-server run typecheck`
