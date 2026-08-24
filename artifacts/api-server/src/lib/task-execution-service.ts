@@ -240,10 +240,22 @@ export async function executeTaskLifecycle(params: {
     }).catch((error) => logger.warn({ error, taskId: before.id }, "task execution log write failed"));
   };
   await log("info", "AI task execution claimed", { stage: "claim", workerId });
-  await checkpointAiExecution({
+  const initialCheckpointed = await checkpointAiExecution({
     executionId, workerId,
     checkpoint: { stage: "running", sequence: 1, detail: "Task claimed.", updatedAt: new Date().toISOString() },
   });
+  if (!initialCheckpointed) {
+    await failAiExecution({
+      executionId,
+      workerId,
+      error: "Execution checkpoint could not be persisted after claim.",
+    });
+    await db.update(tasksTable).set({
+      status: before.status, workerId: null, leaseUntil: null, lastHeartbeatAt: null,
+      updatedAt: new Date(),
+    }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running")));
+    return { ok: false, status: "failed", executionId, errorCode: "checkpoint_persistence_failed" };
+  }
   const heartbeat = setInterval(() => {
     void heartbeatAiExecution({ executionId, workerId });
     void db.update(tasksTable).set({

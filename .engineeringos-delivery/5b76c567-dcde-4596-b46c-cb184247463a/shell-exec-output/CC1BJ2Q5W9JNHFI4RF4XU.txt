@@ -1,0 +1,116 @@
+artifacts/api-server/src/lib/workflow-phase-execution.ts:3:  checkpointAiExecution,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:5:  completeAiExecution,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:8:  failAiExecution,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:122:    const checkpointed = await checkpointAiExecution({
+artifacts/api-server/src/lib/workflow-phase-execution.ts:127:        sequence: Math.max(1, durable.execution.checkpointVersion + 1),
+artifacts/api-server/src/lib/workflow-phase-execution.ts:140:    const completed = await completeAiExecution({
+artifacts/api-server/src/lib/workflow-phase-execution.ts:159:      await failAiExecution({
+artifacts/api-server/src/lib/ai-execution-state.ts:549:}): Promise<{ execution: AiExecution; resumeToken?: string; created: boolean }> {
+artifacts/api-server/src/lib/ai-execution-state.ts:567:  const resumeToken = createResumeToken();
+artifacts/api-server/src/lib/ai-execution-state.ts:591:      resumeTokenHash: hashResumeToken(resumeToken),
+artifacts/api-server/src/lib/ai-execution-state.ts:608:  if (execution) return { execution, resumeToken, created: true };
+artifacts/api-server/src/lib/ai-execution-state.ts:645:export async function recoverAiExecutionResumeToken(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:648:}): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
+artifacts/api-server/src/lib/ai-execution-state.ts:649:  const resumeToken = createResumeToken();
+artifacts/api-server/src/lib/ai-execution-state.ts:653:      resumeTokenHash: hashResumeToken(resumeToken),
+artifacts/api-server/src/lib/ai-execution-state.ts:662:  return execution ? { execution, resumeToken } : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:669:  resumeToken?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:671:  const tokenHash = params.resumeToken ? hashResumeToken(params.resumeToken) : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:682:      cancelRequestedAt: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:688:      ...(tokenHash ? [eq(aiExecutionsTable.resumeTokenHash, tokenHash)] : []),
+artifacts/api-server/src/lib/ai-execution-state.ts:694:export async function checkpointAiExecution(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:713:      checkpointVersion: durableCheckpoint.sequence,
+artifacts/api-server/src/lib/ai-execution-state.ts:723:      lt(aiExecutionsTable.checkpointVersion, params.checkpoint.sequence),
+artifacts/api-server/src/lib/ai-execution-state.ts:749:export async function completeAiExecution(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:770:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:799:export async function failAiExecution(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:819:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:846:export async function requestAiExecutionCancel(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:865:      cancelRequestedAt: now,
+artifacts/api-server/src/lib/ai-execution-state.ts:868:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:885:      cancelRequestedAt: now,
+artifacts/api-server/src/lib/ai-execution-state.test.ts:25:    resumeTokenHash: "hash",
+artifacts/api-server/src/lib/ai-execution-state.test.ts:28:    checkpointVersion: 0,
+artifacts/api-server/src/lib/ai-execution-state.test.ts:33:    cancelRequestedAt: null,
+artifacts/api-server/src/lib/task-execution-service.ts:18:  checkpointAiExecution,
+artifacts/api-server/src/lib/task-execution-service.ts:20:  failAiExecution,
+artifacts/api-server/src/lib/task-execution-service.ts:221:    await failAiExecution({ executionId, workerId, error: "Task state changed before claim." });
+artifacts/api-server/src/lib/task-execution-service.ts:226:    await failAiExecution({ executionId, workerId, error: claimConflict });
+artifacts/api-server/src/lib/task-execution-service.ts:243:  await checkpointAiExecution({
+artifacts/api-server/src/lib/task-execution-service.ts:268:    await checkpointAiExecution({
+artifacts/api-server/src/lib/task-execution-service.ts:304:      await failAiExecution({ executionId, workerId, error });
+artifacts/api-server/src/lib/task-execution-service.ts:451:    await failAiExecution({ executionId, workerId, error: message, cancelled });
+artifacts/api-server/src/lib/task-execution-retention.test.ts:115:      resumeTokenHash: "retention-concurrency-test-hash",
+artifacts/api-server/src/lib/task-execution-retention.test.ts:234:        resumeTokenHash: "retention-receipt-concurrency-test-racing-hash",
+artifacts/api-server/src/lib/task-execution-retention.test.ts:248:        resumeTokenHash: "retention-receipt-concurrency-test-eligible-hash",
+artifacts/api-server/src/routes/ai.test.ts:1390:        checkpointVersion: 7,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:53:  checkpointAiExecution,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:55:  failAiExecution,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:59:  requestAiExecutionCancel,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:552:      resumeToken: expect.any(String),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:554:    expect(recovered.body.resumeToken).not.toBe(created.resumeToken);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:559:      resumeToken: created.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:565:      resumeToken: recovered.body.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:575:    expect(JSON.stringify(terminal.body)).not.toContain("resumeTokenHash");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:690:        expect(created.resumeToken).toBeTruthy();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:700:            resumeToken: created.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:740:            resumeToken: created.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:863:    expect(created.resumeToken).toBeTruthy();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:870:    await checkpointAiExecution({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:910:        resumeToken: created.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:992:    expect(created.resumeToken).toBeTruthy();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1008:    await checkpointAiExecution({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1057:        resumeToken: created.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1110:    const cancelled = await requestAiExecutionCancel({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1158:    const cancelling = await requestAiExecutionCancel({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1168:    expect(await failAiExecution({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1219:    expect(created.resumeToken).toBeTruthy();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1228:    await checkpointAiExecution({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1287:        resumeToken: created.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3996:      | { executionId?: string; resumeToken?: string }
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4002:    expect(started?.resumeToken).toEqual(expect.any(String));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4013:        resumeToken: started?.resumeToken,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4053:        checkpointVersion: aiExecutionsTable.checkpointVersion,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4067:    expect(typeof execution?.checkpointVersion).toBe("number");
+artifacts/api-server/src/routes/ai/chat.ts:114:  checkpointAiExecution,
+artifacts/api-server/src/routes/ai/chat.ts:116:  completeAiExecution,
+artifacts/api-server/src/routes/ai/chat.ts:118:  failAiExecution,
+artifacts/api-server/src/routes/ai/chat.ts:120:  recoverAiExecutionResumeToken,
+artifacts/api-server/src/routes/ai/chat.ts:123:  requestAiExecutionCancel,
+artifacts/api-server/src/routes/ai/chat.ts:332:    checkpointVersion: number;
+artifacts/api-server/src/routes/ai/chat.ts:393:      ? Math.min(1, Math.max(0, params.execution.checkpointVersion > 0 || Object.keys(checkpoint).length > 0 ? 1 : 0))
+artifacts/api-server/src/routes/ai/chat.ts:2204:    resumeToken: z.string().min(32).max(128).optional(),
+artifacts/api-server/src/routes/ai/chat.ts:2228:    resumeToken,
+artifacts/api-server/src/routes/ai/chat.ts:2238:  const effectiveResumeToken = isolatedConversationTurn ? undefined : resumeToken;
+artifacts/api-server/src/routes/ai/chat.ts:2675:        resumeToken: effectiveResumeToken,
+artifacts/api-server/src/routes/ai/chat.ts:2701:      executionResumeToken = created.resumeToken;
+artifacts/api-server/src/routes/ai/chat.ts:2721:    let checkpointSequence = aiExecution.checkpointVersion;
+artifacts/api-server/src/routes/ai/chat.ts:2738:      await failAiExecution({
+artifacts/api-server/src/routes/ai/chat.ts:2787:          const persisted = await checkpointAiExecution({
+artifacts/api-server/src/routes/ai/chat.ts:2822:      ...(executionResumeToken ? { resumeToken: executionResumeToken } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:3465:      // and completeAiExecution path: doing so makes a failed run look
+artifacts/api-server/src/routes/ai/chat.ts:3510:          await failAiExecution({
+artifacts/api-server/src/routes/ai/chat.ts:3964:      await failAiExecution({
+artifacts/api-server/src/routes/ai/chat.ts:3972:      await completeAiExecution({
+artifacts/api-server/src/routes/ai/chat.ts:4069:      await failAiExecution({
+artifacts/api-server/src/routes/ai/chat.ts:4169:    checkpointVersion: execution.checkpointVersion,
+artifacts/api-server/src/routes/ai/chat.ts:4243:      for (const key of ["status", "phase", "profile", "scenario", "exitCode", "attempt", "checkpointVersion"]) {
+artifacts/api-server/src/routes/ai/chat.ts:4320:      checkpointVersion: execution.checkpointVersion,
+artifacts/api-server/src/routes/ai/chat.ts:4338:  const recovered = await recoverAiExecutionResumeToken({
+artifacts/api-server/src/routes/ai/chat.ts:4345:      resumeToken: recovered.resumeToken,
+artifacts/api-server/src/routes/ai/chat.ts:4359:  const execution = await requestAiExecutionCancel({
+artifacts/api-server/src/routes/ai/chat.ts:4375:    cancelRequestedAt: execution.cancelRequestedAt,
+artifacts/api-server/src/routes/ai/chat.ts:4516:        checkpointVersion: aiExecutionsTable.checkpointVersion,
+artifacts/api-server/src/routes/ai/workflows.ts:33:  checkpointAiExecution,
+artifacts/api-server/src/routes/ai/workflows.ts:35:  completeAiExecution,
+artifacts/api-server/src/routes/ai/workflows.ts:38:  failAiExecution,
+artifacts/api-server/src/routes/ai/workflows.ts:157:      await checkpointAiExecution({
+artifacts/api-server/src/routes/ai/workflows.ts:189:      await failAiExecution({
+artifacts/api-server/src/routes/ai/workflows.ts:204:      await failAiExecution({
+artifacts/api-server/src/routes/ai/workflows.ts:230:    await completeAiExecution({
+artifacts/api-server/src/routes/ai/benchmark.ts:303:    checkpointVersion: execution.checkpointVersion,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:70:    resumeTokenHash: "test-token-hash",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:79:    checkpointVersion: 0,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:84:    cancelRequestedAt: null,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:938:        resumeToken: "stale-resume-token-that-is-long-enough",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:140:    expect(response.body.executions[0]?.resumeToken).toBeUndefined();

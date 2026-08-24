@@ -2719,6 +2719,7 @@ router.post("/ai/chat/stream", async (req, res) => {
     }
 
     let checkpointSequence = aiExecution.checkpointVersion;
+    let checkpointFailure: unknown;
     const resumableStateForExecution = greetingTurnForExecution ? null : persistedActiveTaskState;
     const executionPlanForRun = !greetingTurnForExecution && approvedImplementationPlan
       ? approvedImplementationExecutionPlan
@@ -2790,10 +2791,13 @@ router.post("/ai/chat/stream", async (req, res) => {
             checkpoint: completeCheckpoint,
           });
           if (!persisted) {
-            logger.warn({ executionId: aiExecution!.id, sequence }, "AI execution checkpoint rejected by lease/state gate");
+            const error = new Error("AI execution checkpoint rejected by lease/state gate");
+            checkpointFailure = error;
+            logger.warn({ executionId: aiExecution!.id, sequence }, error.message);
           }
         })
         .catch((err) => {
+          checkpointFailure = err;
           logger.warn({ err, executionId: aiExecution!.id }, "AI execution checkpoint failed");
         });
     };
@@ -3960,6 +3964,9 @@ router.post("/ai/chat/stream", async (req, res) => {
         executionEvidenceReason = finalValidation.detail ?? "Validation ended with an unresolved failure.";
       }
     }
+    if (checkpointFailure) {
+      throw new Error("AI execution checkpoint persistence failed before finalization");
+    }
     if (endedBeforeEvidence) {
       await failAiExecution({
         executionId: aiExecution.id,
@@ -3969,7 +3976,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         nodeStates: executionNodeStates,
       });
     } else {
-      await completeAiExecution({
+      const completed = await completeAiExecution({
         executionId: aiExecution.id,
         workerId: executionWorkerId!,
         finalMessageId: assistantMsg.id,
@@ -3979,6 +3986,9 @@ router.post("/ai/chat/stream", async (req, res) => {
         evidenceReason: executionEvidenceReason,
         proofRequired,
       });
+      if (!completed) {
+        throw new Error("AI execution was cancelled or superseded before finalization");
+      }
     }
     executionTerminal = true;
 

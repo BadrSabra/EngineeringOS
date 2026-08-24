@@ -1,0 +1,469 @@
+    ) {
+      return undefined;
+    }
+  }
+
+  return planNodes.map((planNode) => {
+    const checkpointNode = checkpointById.get(planNode.id)!;
+    return {
+      ...planNode,
+      status: checkpointNode.status,
+      attempts: checkpointNode.attempts,
+      validationAttempts: checkpointNode.validationAttempts,
+      ...(checkpointNode.lastFailure ? { lastFailure: checkpointNode.lastFailure } : {}),
+    };
+  });
+}
+
+/**
+ * Turns the last durable checkpoint into server-owned continuation context.
+ * The provider still needs a fresh call after a process crash, but it receives
+ * the bounded checkpoint and can continue from the last observed stage instead
+ * of blindly replaying the original user request.
+ */
+export function buildAiExecutionResumeContext(
+  checkpoint: AiExecutionCheckpoint | undefined,
+): string {
+  if (!checkpoint || checkpoint.stage === "queued") return "";
+  return [
+    "SERVER-OWNED DURABLE RESUME CONTEXT",
+    "The previous worker stopped unexpectedly. Continue the same execution from the checkpoint below.",
+    "Do not claim that any step succeeded unless the current tool result or persisted evidence confirms it.",
+    "Do not repeat a completed deferred write or apply action; writes remain approval-gated.",
+    formatUntrustedContent(JSON.stringify(checkpoint), {
+      source: "checkpoint",
+      revision: checkpoint.updatedAt,
+    }),
+  ].join("\n");
+}
+
+export async function createAiExecution(params: {
+  userId: string;
+  request: AiExecutionRequestEnvelope;
+  idempotencyKey: string;
+  correlationId?: string;
+  attempt?: number;
+  projectId: string;
+  sessionId?: string;
+  linkedTaskId?: string;
+  buildPlanMessageId?: string;
+}): Promise<{ execution: AiExecution; resumeToken?: string; created: boolean }> {
+  const existing = await db
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.userId, params.userId),
+      eq(aiExecutionsTable.idempotencyKey, params.idempotencyKey),
+    ))
+    .limit(1);
+  if (existing[0]) {
+    const row = existing[0];
+    const storedRequest = parseExecutionRequest(row.request);
+    if (!storedRequest || storedRequest.projectId !== params.projectId || storedRequest.sessionId !== params.sessionId) {
+      throw new Error("Execution idempotency key is bound to a different request");
+    }
+    return { execution: row, created: false };
+  }
+
+  const resumeToken = createResumeToken();
+  const now = new Date();
+  const executionId = randomUUID();
+  const operationId = params.buildPlanMessageId ?? executionId;
+  const operation = createAutonomousOperationContract({
+    operationId,
+    objective: typeof params.request.objective === "string"
+      ? params.request.objective
+      : params.request.message,
+    revisionManifest: params.request.workspaceRevision,
+  });
+  const [execution] = await db
+    .insert(aiExecutionsTable)
+    .values({
+      id: executionId,
+      projectId: params.projectId,
+      sessionId: params.sessionId ?? null,
+      operationId,
+      linkedTaskId: params.linkedTaskId ?? null,
+      buildPlanMessageId: params.buildPlanMessageId ?? null,
+      userId: params.userId,
+      idempotencyKey: params.idempotencyKey,
+      correlationId: params.correlationId ?? null,
+      attempt: params.attempt ?? 0,
+      resumeTokenHash: hashResumeToken(resumeToken),
+      request: JSON.stringify(params.request),
+      checkpoint: JSON.stringify({
+        stage: "queued",
+        sequence: 0,
+        operation,
+        updatedAt: now.toISOString(),
+      } satisfies AiExecutionCheckpoint),
+      status: "queued",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing({
+      target: [aiExecutionsTable.userId, aiExecutionsTable.idempotencyKey],
+    })
+    .returning();
+
+  if (execution) return { execution, resumeToken, created: true };
+
+  // Another identical request won the unique-key race. Re-read the row rather
+  // than surfacing the expected conflict, so both callers get the same
+  // resumable execution identity. Keep the request binding check here as well:
+  // a conflicting key must never allow a different request to reuse it.
+  const [racedExecution] = await db
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.userId, params.userId),
+      eq(aiExecutionsTable.idempotencyKey, params.idempotencyKey),
+    ))
+    .limit(1);
+  if (!racedExecution) throw new Error("Failed to create AI execution");
+  const racedRequest = parseExecutionRequest(racedExecution.request);
+  if (!racedRequest || racedRequest.projectId !== params.projectId || racedRequest.sessionId !== params.sessionId) {
+    throw new Error("Execution idempotency key is bound to a different request");
+  }
+  return { execution: racedExecution, created: false };
+}
+
+export async function getAiExecutionForUser(
+  executionId: string,
+  userId: string,
+): Promise<AiExecution | undefined> {
+  const [execution] = await db
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.id, executionId),
+      eq(aiExecutionsTable.userId, userId),
+    ))
+    .limit(1);
+  return execution;
+}
+
+export async function recoverAiExecutionResumeToken(params: {
+  executionId: string;
+  userId: string;
+}): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
+  const resumeToken = createResumeToken();
+  const [execution] = await db
+    .update(aiExecutionsTable)
+    .set({
+      resumeTokenHash: hashResumeToken(resumeToken),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.userId, params.userId),
+      inArray(aiExecutionsTable.status, ["paused", "failed"]),
+    ))
+    .returning();
+  return execution ? { execution, resumeToken } : undefined;
+}
+
+export async function claimAiExecution(params: {
+  executionId: string;
+  userId: string;
+  workerId: string;
+  resumeToken?: string;
+}): Promise<AiExecution | undefined> {
+  const tokenHash = params.resumeToken ? hashResumeToken(params.resumeToken) : undefined;
+  const [claimed] = await db
+    .update(aiExecutionsTable)
+    .set({
+      status: "running",
+      workerId: params.workerId,
+      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+      lastHeartbeatAt: new Date(),
+      startedAt: new Date(),
+      updatedAt: new Date(),
+      error: null,
+      cancelRequestedAt: null,
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.userId, params.userId),
+      inArray(aiExecutionsTable.status, ["queued", "paused", "failed"]),
+      ...(tokenHash ? [eq(aiExecutionsTable.resumeTokenHash, tokenHash)] : []),
+    ))
+    .returning();
+  return claimed;
+}
+
+export async function checkpointAiExecution(params: {
+  executionId: string;
+  workerId: string;
+  checkpoint: AiExecutionCheckpoint;
+}): Promise<boolean> {
+  // Keep this update atomic: the worker lease and checkpoint version are the
+  // concurrency boundary. Callers that advance an operation include its
+  // server-validated contract in the checkpoint; legacy stage-only writers
+  // remain compatible and do not get a second read/race window here.
+  const durableOperation = params.checkpoint.operation
+    ? advanceOperationForCheckpoint(params.checkpoint.operation, params.checkpoint.stage)
+    : undefined;
+  const durableCheckpoint = durableOperation
+    ? { ...params.checkpoint, operation: durableOperation }
+    : params.checkpoint;
+  const [updated] = await db
+    .update(aiExecutionsTable)
+    .set({
+      checkpoint: JSON.stringify(durableCheckpoint),
+      checkpointVersion: durableCheckpoint.sequence,
+      updatedAt: new Date(),
+      lastHeartbeatAt: new Date(),
+      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.workerId, params.workerId),
+      eq(aiExecutionsTable.status, "running"),
+      // A stale worker must not overwrite a newer durable checkpoint.
+      lt(aiExecutionsTable.checkpointVersion, params.checkpoint.sequence),
+    ))
+    .returning({ id: aiExecutionsTable.id });
+  return Boolean(updated);
+}
+
+export async function heartbeatAiExecution(params: {
+  executionId: string;
+  workerId: string;
+}): Promise<boolean> {
+  const [updated] = await db
+    .update(aiExecutionsTable)
+    .set({
+      lastHeartbeatAt: new Date(),
+      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.workerId, params.workerId),
+      eq(aiExecutionsTable.status, "running"),
+    ))
+    .returning({ id: aiExecutionsTable.id });
+  return Boolean(updated);
+}
+
+export async function completeAiExecution(params: {
+  executionId: string;
+  workerId: string;
+  finalMessageId: string;
+  proposalId?: string;
+  operation?: AutonomousOperationContract;
+  nodeStates?: AiExecutionCheckpoint["nodeStates"];
+  evidenceVerdict?: FlightDeckEvidenceVerdict;
+  evidenceReason?: string;
+  proofRequired?: boolean;
+}): Promise<boolean> {
+  const [updated] = await db
+    .update(aiExecutionsTable)
+    .set({
+      status: "completed",
+      finalMessageId: params.finalMessageId,
+      proposalId: params.proposalId ?? null,
+      completedAt: new Date(),
+      updatedAt: new Date(),
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+      checkpoint: JSON.stringify({
+        stage: "completed",
+        sequence: Date.now(),
+        ...(params.operation ? { operation: params.operation } : {}),
+        ...(params.nodeStates && params.nodeStates.length > 0
+          ? {
+              nodeStates: params.nodeStates,
+              completedNodes: params.nodeStates
+                .filter((node) => node.status === "passed")
+                .map((node) => node.id)
+                .slice(0, AI_EXECUTION_NODE_LIMIT),
+            }
+          : {}),
+        ...(params.evidenceVerdict ? { evidenceVerdict: params.evidenceVerdict } : {}),
+        ...(params.evidenceReason ? { evidenceReason: params.evidenceReason.slice(0, 500) } : {}),
+        ...(typeof params.proofRequired === "boolean" ? { proofRequired: params.proofRequired } : {}),
+        updatedAt: new Date().toISOString(),
+      } satisfies AiExecutionCheckpoint),
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.workerId, params.workerId),
+      eq(aiExecutionsTable.status, "running"),
+    ))
+    .returning({ id: aiExecutionsTable.id });
+  return Boolean(updated);
+}
+
+export async function failAiExecution(params: {
+  executionId: string;
+  workerId: string;
+  error: string;
+  cancelled?: boolean;
+  nodeStates?: AiExecutionCheckpoint["nodeStates"];
+  recentSteps?: Array<Record<string, unknown>>;
+  streamedPreview?: string;
+  operation?: AutonomousOperationContract;
+}): Promise<boolean> {
+  const status = params.cancelled ? "cancelled" : "failed";
+  const [updated] = await db
+    .update(aiExecutionsTable)
+    .set({
+      status,
+      error: params.error.slice(0, 1000),
+      completedAt: new Date(),
+      updatedAt: new Date(),
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+      checkpoint: JSON.stringify({
+        stage: params.cancelled ? "cancelled" : "failed",
+        sequence: Date.now(),
+        ...(params.operation ? { operation: params.operation } : {}),
+        ...(params.streamedPreview ? { streamedPreview: params.streamedPreview.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT) } : {}),
+        ...(params.recentSteps && params.recentSteps.length > 0
+          ? { recentSteps: params.recentSteps.slice(-AI_EXECUTION_TRACE_LIMIT) }
+          : {}),
+        ...(params.nodeStates && params.nodeStates.length > 0
+          ? { nodeStates: params.nodeStates }
+          : {}),
+        detail: params.error.slice(0, 500),
+        updatedAt: new Date().toISOString(),
+      } satisfies AiExecutionCheckpoint),
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.workerId, params.workerId),
+      params.cancelled
+        ? inArray(aiExecutionsTable.status, ["running", "cancelling"])
+        : eq(aiExecutionsTable.status, "running"),
+    ))
+    .returning({ id: aiExecutionsTable.id });
+  return Boolean(updated);
+}
+
+export async function requestAiExecutionCancel(params: {
+  executionId: string;
+  userId: string;
+}): Promise<AiExecution | undefined> {
+  const now = new Date();
+  const cancelledCheckpoint = JSON.stringify({
+    stage: "cancelled",
+    sequence: Date.now(),
+    detail: "Execution cancelled before a worker started.",
+    updatedAt: now.toISOString(),
+  } satisfies AiExecutionCheckpoint);
+
+  // Queued and paused executions have no active worker to observe the
+  // cancellation signal. Transition them directly to a terminal state so
+  // they cannot remain permanently stuck in `cancelling`.
+  const [cancelledBeforeStart] = await db
+    .update(aiExecutionsTable)
+    .set({
+      status: "cancelled",
+      cancelRequestedAt: now,
+      completedAt: now,
+      checkpoint: cancelledCheckpoint,
+      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+      updatedAt: now,
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.userId, params.userId),
+      inArray(aiExecutionsTable.status, ["queued", "paused"]),
+    ))
+    .returning();
+  if (cancelledBeforeStart) return cancelledBeforeStart;
+
+  const [updated] = await db
+    .update(aiExecutionsTable)
+    .set({
+      status: "cancelling",
+      cancelRequestedAt: now,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(aiExecutionsTable.id, params.executionId),
+      eq(aiExecutionsTable.userId, params.userId),
+      eq(aiExecutionsTable.status, "running"),
+    ))
+    .returning();
+  if (updated) activeControllers.get(updated.id)?.abort(new Error("AI execution cancellation requested"));
+  return updated;
+}
+
+export function registerAiExecutionController(executionId: string, controller: AbortController): void {
+  activeControllers.set(executionId, controller);
+}
+
+export function unregisterAiExecutionController(executionId: string, controller: AbortController): void {
+  if (activeControllers.get(executionId) === controller) activeControllers.delete(executionId);
+}
+
+export async function reconcileAiExecutions(): Promise<number> {
+  const now = new Date();
+  const result = await db
+    .update(aiExecutionsTable)
+    .set({
+      status: "paused",
+      error: "Execution interrupted by server restart; resume explicitly to continue.",
+      workerId: null,
+      leaseUntil: null,
+      lastHeartbeatAt: null,
+      updatedAt: now,
+    })
+    .where(eq(aiExecutionsTable.status, "running"))
+    .returning({ id: aiExecutionsTable.id });
+  return result.length;
+}
+
+export async function listRecoverableAiExecutions(userId: string, sessionId: string): Promise<AiExecution[]> {
+  return db
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.userId, userId),
+      eq(aiExecutionsTable.sessionId, sessionId),
+      inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+    ));
+}
+--- task plan ---
+# Task #61: Fence cancellation and checkpoint races
+
+# Fence Cancellation Checkpoints
+
+## What & Why
+The durable operation loop and recovery coverage exist, but cancellation, provider/tool work, checkpoint persistence, and finalization still need a single verified race boundary. A late completion or failed checkpoint write must never publish progress or success after cancellation.
+
+## Done looks like
+- Cancellation propagates through provider, fallback, tool, command, browser, validation, repair, and delivery work.
+- Required checkpoint persistence failures become visible blocked or failed outcomes.
+- Resume-token and checkpoint compare-and-set races have one deterministic winner.
+- Late provider/tool completions cannot advance a cancelled or superseded operation.
+- Restart reconciliation prevents duplicate mutation, validation, promotion, or delivery.
+
+## Out of scope
+- Changing the user-facing cancellation design.
+- Replacing leases, checkpoints, or the operation state machine.
+- Expanding autonomous scope or bypassing approval gates.
+
+## Steps
+1. **Trace cancellation and finalization** — Follow cancel requests, abort signals, provider fallback, tool execution, checkpoint writes, and terminal transitions.
+2. **Close persistence fences** — Make cancellation, lease ownership, checkpoint version, resume token, and finalization participate in one authoritative compare-and-set boundary.
+3. **Stop late effects** — Require owned downstream operations to check cancellation and operation identity before publishing results or mutating durable state.
+4. **Reconcile uncertain workers** — Preserve evidence, prevent duplicate effects, and classify unknown effects as blocked/manual or uncertain.
+5. **Add race and crash coverage** — Test cancellation during each stage, checkpoint/database failure, token races, stale workers, restart recovery, and duplicate resumes.
+
+## Relevant files
+- `artifacts/api-server/src/lib/ai-execution-state.ts`
+- `artifacts/api-server/src/lib/task-execution-service.ts`
+- `artifacts/api-server/src/lib/job-reconciliation.ts`
+- `artifacts/api-server/src/lib/job-lease.ts`
+- `artifacts/api-server/src/routes/ai/chat.ts`
+- `lib/ai-orchestrator/src/execution-kernel.ts`
+- `lib/ai-orchestrator/src/execution-node-coordinator.ts`
+- `artifacts/api-server/src/lib/ai-execution-state.test.ts`

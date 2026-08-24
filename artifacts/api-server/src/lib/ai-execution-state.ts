@@ -835,12 +835,48 @@ export async function failAiExecution(params: {
     .where(and(
       eq(aiExecutionsTable.id, params.executionId),
       eq(aiExecutionsTable.workerId, params.workerId),
-      params.cancelled
-        ? inArray(aiExecutionsTable.status, ["running", "cancelling"])
-        : eq(aiExecutionsTable.status, "running"),
+      params.cancelled ? inArray(aiExecutionsTable.status, ["running", "cancelling"]) : eq(aiExecutionsTable.status, "running"),
     ))
     .returning({ id: aiExecutionsTable.id });
-  return Boolean(updated);
+  if (updated) return true;
+
+  // Cancellation is an authoritative terminal fence. If the worker learned
+  // about cancellation through the database (rather than its local signal),
+  // its ordinary failure path must still settle `cancelling` as cancelled and
+  // must never publish a failed outcome after the cancellation won.
+  if (!params.cancelled) {
+    const [cancelled] = await db
+      .update(aiExecutionsTable)
+      .set({
+        status: "cancelled",
+        error: params.error.slice(0, 1000),
+        completedAt: new Date(),
+        updatedAt: new Date(),
+        leaseUntil: null,
+        lastHeartbeatAt: null,
+        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+        checkpoint: JSON.stringify({
+          stage: "cancelled",
+          sequence: Date.now(),
+          ...(params.operation ? { operation: params.operation } : {}),
+          ...(params.streamedPreview ? { streamedPreview: params.streamedPreview.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT) } : {}),
+          ...(params.recentSteps && params.recentSteps.length > 0
+            ? { recentSteps: params.recentSteps.slice(-AI_EXECUTION_TRACE_LIMIT) }
+            : {}),
+          ...(params.nodeStates && params.nodeStates.length > 0 ? { nodeStates: params.nodeStates } : {}),
+          detail: "Cancellation won before the worker failure was finalized.",
+          updatedAt: new Date().toISOString(),
+        } satisfies AiExecutionCheckpoint),
+      })
+      .where(and(
+        eq(aiExecutionsTable.id, params.executionId),
+        eq(aiExecutionsTable.workerId, params.workerId),
+        eq(aiExecutionsTable.status, "cancelling"),
+      ))
+      .returning({ id: aiExecutionsTable.id });
+    return Boolean(cancelled);
+  }
+  return false;
 }
 
 export async function requestAiExecutionCancel(params: {

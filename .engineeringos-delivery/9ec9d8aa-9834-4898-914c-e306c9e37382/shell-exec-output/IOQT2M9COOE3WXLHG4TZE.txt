@@ -1,0 +1,379 @@
+          code: "EXECUTION_CLAIM_CONFLICT",
+          message: "Another resume won the execution claim. Retry after refreshing its status.",
+          executionId: aiExecution.id,
+        });
+        res.end();
+        return;
+      }
+      aiExecution = claimed;
+      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
+    } else {
+      const created = await createAiExecution({
+        userId: req.userId,
+        request: executionRequest,
+        idempotencyKey: idempotencyKey ?? randomUUID(),
+        projectId,
+        sessionId: sessionIdToUse,
+        linkedTaskId: effectiveLinkedTaskId,
+        buildPlanMessageId: effectiveBuildPlanMessageId,
+      });
+      aiExecution = created.execution;
+      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
+      executionResumeToken = created.resumeToken;
+      const claimed = await claimAiExecution({
+        executionId: aiExecution.id,
+        userId: req.userId,
+        workerId: executionWorkerId,
+      });
+      if (!claimed) {
+        sse({
+          type: "error",
+          code: "EXECUTION_CLAIM_CONFLICT",
+          message: "Another request won the execution claim. Retry after refreshing its status.",
+          executionId: aiExecution.id,
+        });
+        res.end();
+        return;
+      }
+      aiExecution = claimed;
+      analysisCorrelation.operationId = aiExecution.operationId ?? aiExecution.id;
+    }
+
+    let checkpointSequence = aiExecution.checkpointVersion;
+    const resumableStateForExecution = greetingTurnForExecution ? null : persistedActiveTaskState;
+    const executionPlanForRun = !greetingTurnForExecution && approvedImplementationPlan
+      ? approvedImplementationExecutionPlan
+        ?? buildActiveTaskExecutionPlan({
+            implementationPlan: approvedImplementationPlan,
+            objective,
+            projectId,
+            rootPath: validRootPath,
+          })
+      : resumableStateForExecution?.executionPlan ?? null;
+    const persistedExecutionNodes = executionPlanForRun?.nodes ?? [];
+    const reconciledExecutionNodes = reconcileExecutionNodeCheckpoint(
+      persistedExecutionNodes,
+      resumeCheckpoint?.nodeStates,
+    );
+    if (resumeCheckpoint?.nodeStates && !reconciledExecutionNodes) {
+      await failAiExecution({
+        executionId: aiExecution.id,
+        workerId: executionWorkerId!,
+        error: "Execution node checkpoint does not match the server-owned plan.",
+        cancelled: false,
+      });
+      executionTerminal = true;
+      sse({
+        type: "error",
+        code: "EXECUTION_NODE_CHECKPOINT_MISMATCH",
+        message: "The saved execution progress does not match the approved plan. Start a fresh execution.",
+        executionId: aiExecution.id,
+      });
+      res.end();
+      return;
+    }
+    executionNodeStates = reconciledExecutionNodes ?? persistedExecutionNodes;
+    const activeExecutionAbortController = new AbortController();
+    executionAbortController = activeExecutionAbortController;
+    registerAiExecutionController(aiExecution.id, activeExecutionAbortController);
+    let checkpointChain: Promise<void> = Promise.resolve();
+    let executionEvidenceVerdict: FlightDeckEvidenceVerdict = "NOT_RECORDED";
+    let executionEvidenceReason = proofRequired
+      ? "No accepted validation evidence has been recorded."
+      : "Ordinary chat response; Flight Deck proof is not required.";
+    const persistExecutionCheckpoint = (checkpoint: Omit<AiExecutionCheckpoint, "sequence" | "updatedAt">): void => {
+      const sequence = ++checkpointSequence;
+      const completeCheckpoint: AiExecutionCheckpoint = {
+        ...checkpoint,
+        ...(executionNodeStates.length > 0
+          ? {
+              nodeStates: executionNodeStates,
+              completedNodes: executionNodeStates
+                .filter((node) => node.status === "passed")
+                .map((node) => node.id)
+                .slice(0, 24),
+              ...(executionNodeStates.find((node) => node.status === "running")
+                ? { currentNode: executionNodeStates.find((node) => node.status === "running")?.id }
+                : {}),
+            }
+          : {}),
+        evidenceVerdict: executionEvidenceVerdict,
+        evidenceReason: executionEvidenceReason,
+        proofRequired,
+        sequence,
+        updatedAt: new Date().toISOString(),
+      };
+      checkpointChain = checkpointChain
+        .then(async () => {
+          const persisted = await checkpointAiExecution({
+            executionId: aiExecution!.id,
+            workerId: executionWorkerId!,
+            checkpoint: completeCheckpoint,
+          });
+          if (!persisted) {
+            logger.warn({ executionId: aiExecution!.id, sequence }, "AI execution checkpoint rejected by lease/state gate");
+          }
+        })
+        .catch((err) => {
+          logger.warn({ err, executionId: aiExecution!.id }, "AI execution checkpoint failed");
+        });
+    };
+    const publishExecutionNodes = (nodes: ExecutionNode[]): void => {
+      executionNodeStates = nodes.map((node) => ({
+        ...node,
+        allowedFiles: [...node.allowedFiles],
+        dependencies: [...node.dependencies],
+      }));
+      sse({
+        type: "execution_nodes",
+        executionId: aiExecution!.id,
+        nodes: executionNodeStates,
+      });
+      persistExecutionCheckpoint({
+        stage: "running",
+        streamedPreview: streamedContent.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT),
+        recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+      });
+    };
+
+    sse({
+      type: "execution_started",
+      executionId: aiExecution.id,
+      status: aiExecution.status,
+      ...(executionResumeToken ? { resumeToken: executionResumeToken } : {}),
+      resumable: true,
+    });
+    if (executionNodeStates.length > 0) {
+      sse({
+        type: "execution_nodes",
+        executionId: aiExecution.id,
+        nodes: executionNodeStates,
+      });
+    }
+    persistExecutionCheckpoint({ stage: "running" });
+    res.on("close", () => {
+      if (!res.writableEnded && !executionTerminal) {
+        persistExecutionCheckpoint({
+             operation: "build",
+           },
+          validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
+           buildHandoff: Boolean(!streamIsGreetingTurn && approvedImplementationPlan && effectiveBuildPlanMessageId),
+          onExecutionNodes: publishExecutionNodes,
+          signal: activeExecutionAbortController.signal,
+          turnIntent: streamTurnIntent,
+          allowAnalysisTools: Boolean(streamModelHasTools && analysisToolRunner),
+          analysisToolRunner,
+          analysisCorrelation,
+        },
+        { provider, apiKey },
+        onDelta,
+        { requireTools: streamModelHasTools, qualityProfile: streamTurnIntent.executionTaskType },
+        onStreamReset,
+        onStep,
+      );
+      result = chatOut.result;
+      endedBeforeEvidence =
+        streamTurnIntent.requiresEvidence &&
+        !activeExecutionAbortController.signal.aborted &&
+        endedBeforeFirstSourceRead(traceSteps);
+      // A required analysis/validation tool failure is a terminal operation
+      // failure, even when the agent returned a blocked-looking response.
+      // Do not let that response enter the normal successful assistant-message
+      // and completeAiExecution path: doing so makes a failed run look
+      // completed after a reconnect or dashboard reload.
+      const terminalToolFailure = [...traceSteps]
+        .reverse()
+        .find((step) => step.kind === "done" && step.stopReason === "tool_failure");
+      if (terminalToolFailure?.kind === "done") {
+        const failedToolResult = [...traceSteps]
+          .reverse()
+          .find((step) =>
+            step.kind === "tool_result" &&
+            (step.resultKind === "failed" || step.resultKind === "unavailable" || step.resultKind === "cancelled"),
+          );
+        const diagnosticCode =
+          failedToolResult?.kind === "tool_result" && failedToolResult.diagnosticCode
+            ? failedToolResult.diagnosticCode
+            : "TOOL_EXECUTION_FAILED";
+        const safeDiagnostic =
+          failedToolResult?.kind === "tool_result" && failedToolResult.resultSummary
+            ? failedToolResult.resultSummary
+            : "The required analysis did not complete; the operation is blocked.";
+        const interrupted = failedToolResult?.kind === "tool_result" && failedToolResult.resultKind === "cancelled";
+        sse({
+          type: "error",
+          code: diagnosticCode,
+          message: safeDiagnostic,
+          retryable: false,
+          suggestedFix: "Retry the analysis after the required project analysis is available.",
+        });
+        await persistFailedChatTurn({
+          sessionId: sessionIdToUse,
+          projectId,
+          message,
+          turnIntent: streamTurnIntent.kind,
+          executionId: aiExecution?.id,
+          outcome: interrupted ? "INTERRUPTED" : "FAILED",
+          errorCode: diagnosticCode,
+          errorMessage: safeDiagnostic,
+          createdAt: now,
+          assistantAt: msgNow,
+          toolTrace: traceSteps,
+        }).catch((persistError) => logger.error(
+          { persistError, sessionId: sessionIdToUse },
+          "chat stream: failed to persist terminal tool failure",
+        ));
+        if (aiExecution) {
+          await failAiExecution({
+            executionId: aiExecution.id,
+            workerId: executionWorkerId!,
+            error: safeDiagnostic,
+            cancelled: interrupted,
+            nodeStates: executionNodeStates,
+            streamedPreview: streamedContent,
+            recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+          });
+          executionTerminal = true;
+        }
+        res.end();
+        return;
+      }
+      if (endedBeforeEvidence) {
+        result = {
+          ...result,
+          response: failClosedBeforeEvidenceResponse(message),
+          sources: [],
+          pendingChanges: [],
+          repairPlan: undefined,
+          taskResult: undefined,
+          behaviorEvidence: undefined,
+        };
+      }
+      if (approvedImplementationPlan && implementationPlanScope && validRootPath) {
+          END`,
+          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+        })
+        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+      return msg;
+    });
+
+    persistExecutionCheckpoint({
+      stage: "finalizing",
+      streamedPreview: streamedContent.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT),
+      recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+    });
+    await checkpointChain;
+    const finalValidation = [...traceSteps]
+      .reverse()
+      .find((step) => step.kind === "validation");
+    if (finalValidation?.kind === "validation") {
+      if (finalValidation.status === "passed") {
+        executionEvidenceVerdict = "PARTIAL";
+        executionEvidenceReason = "Validation passed, but no server-owned objective or delivery proof has been recorded.";
+      } else if (finalValidation.status === "unavailable") {
+        executionEvidenceVerdict = "UNAVAILABLE";
+        executionEvidenceReason = finalValidation.detail ?? "Validation could not be executed.";
+      } else if (finalValidation.status === "failed" || finalValidation.status === "blocked") {
+        executionEvidenceVerdict = "BLOCKED";
+        executionEvidenceReason = finalValidation.detail ?? "Validation ended with an unresolved failure.";
+      }
+    }
+    if (endedBeforeEvidence) {
+      await failAiExecution({
+        executionId: aiExecution.id,
+        workerId: executionWorkerId!,
+        error: "Execution stopped before the first source read.",
+        cancelled: false,
+        nodeStates: executionNodeStates,
+      });
+    } else {
+      await completeAiExecution({
+        executionId: aiExecution.id,
+        workerId: executionWorkerId!,
+        finalMessageId: assistantMsg.id,
+        proposalId,
+        nodeStates: executionNodeStates,
+        evidenceVerdict: executionEvidenceVerdict,
+        evidenceReason: executionEvidenceReason,
+        proofRequired,
+      });
+    }
+    executionTerminal = true;
+
+    // Fire-and-forget memory write — must not block the SSE done event.
+    writeSessionMemories(
+      sessionIdToUse,
+      projectId,
+      redactUserFacingValue(result.sources),
+      sanitizeResponseText(result.response),
+    ).catch((err) => {
+      logger.warn({ err, projectId }, "memory-write: failed to persist session memories (stream)");
+    });
+
+    // PR-010: surface latency and model info in done event.
+      checkpointVersion: execution.checkpointVersion,
+      createdAt: execution.createdAt,
+      startedAt: execution.startedAt,
+      completedAt: execution.completedAt,
+      terminalReason: safeText(execution.error ?? checkpoint.detail, 500) ?? null,
+    },
+    timeline,
+    validations,
+    affectedFiles,
+    redaction: {
+      excluded: ["provider secrets", "raw model output", "private runtime paths"],
+    },
+  };
+  res.setHeader("Content-Disposition", `attachment; filename="execution-${execution.id}-audit.json"`);
+  return res.json(body);
+});
+
+router.post("/ai/executions/:executionId/resume-capability", async (req, res) => {
+  const recovered = await recoverAiExecutionResumeToken({
+    executionId: req.params.executionId,
+    userId: req.userId,
+  });
+  if (recovered) {
+    return res.json({
+      executionId: recovered.execution.id,
+      resumeToken: recovered.resumeToken,
+    });
+  }
+
+  const current = await getAiExecutionForUser(req.params.executionId, req.userId);
+  if (!current) return res.status(404).json({ error: "AI execution not found" });
+  return res.status(409).json({
+    error: "This AI execution is no longer eligible for resume.",
+    code: "EXECUTION_NOT_RESUMABLE",
+    status: current.status,
+  });
+});
+
+router.post("/ai/executions/:executionId/cancel", async (req, res) => {
+  const execution = await requestAiExecutionCancel({
+    executionId: req.params.executionId,
+    userId: req.userId,
+  });
+  if (!execution) {
+    const current = await getAiExecutionForUser(req.params.executionId, req.userId);
+    if (!current) return res.status(404).json({ error: "AI execution not found" });
+    return res.status(409).json({
+      error: `Execution is already ${current.status}.`,
+      code: "EXECUTION_NOT_CANCELLABLE",
+      status: current.status,
+    });
+  }
+  return res.json({
+    id: execution.id,
+    status: execution.status,
+    cancelRequestedAt: execution.cancelRequestedAt,
+  });
+});
+
+// ── GET /api/ai/chat/sessions ────────────────────────────────────────────────
+
+router.get("/ai/chat/sessions", async (req, res) => {
+  const project = await loadProjectByIdForUser(
+    typeof req.query.projectId === "string" ? req.query.projectId : undefined,
+    req.userId,
+    res,

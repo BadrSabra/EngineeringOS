@@ -110,18 +110,17 @@ export async function heartbeatScanJob(
 
 /**
  * Atomically mark a scan_job as completed and release the lease in one write.
- * The WHERE clause does NOT filter by workerId — the caller is responsible for
- * ensuring it owns the job before calling (via claimScanJob). Omitting the
- * workerId guard prevents a silent no-op if the workerId column was cleared
- * by a concurrent reconciliation pass.
+ * The workerId guard is part of the terminal fence. A stale worker must not
+ * complete a job after reconciliation has cleared its lease and another
+ * worker has claimed it.
  */
 export async function completeScanJob(
   jobId: string,
-  _workerId: string,
+  workerId: string,
   result: Record<string, unknown>,
   finishedAt?: Date,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const updated = await db
     .update(scanJobsTable)
     .set({
       status: "completed",
@@ -131,7 +130,9 @@ export async function completeScanJob(
       leaseUntil: null,
       lastHeartbeatAt: null,
     })
-    .where(eq(scanJobsTable.id, jobId));
+    .where(and(eq(scanJobsTable.id, jobId), eq(scanJobsTable.workerId, workerId), eq(scanJobsTable.status, "running")))
+    .returning({ id: scanJobsTable.id });
+  return updated.length > 0;
 }
 
 /**
@@ -139,11 +140,11 @@ export async function completeScanJob(
  */
 export async function failScanJob(
   jobId: string,
-  _workerId: string,
+  workerId: string,
   error: string,
   finishedAt?: Date,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const updated = await db
     .update(scanJobsTable)
     .set({
       status: "failed",
@@ -153,7 +154,9 @@ export async function failScanJob(
       leaseUntil: null,
       lastHeartbeatAt: null,
     })
-    .where(eq(scanJobsTable.id, jobId));
+    .where(and(eq(scanJobsTable.id, jobId), eq(scanJobsTable.workerId, workerId), eq(scanJobsTable.status, "running")))
+    .returning({ id: scanJobsTable.id });
+  return updated.length > 0;
 }
 
 // ── Discovery-session lease helpers ───────────────────────────────────────────

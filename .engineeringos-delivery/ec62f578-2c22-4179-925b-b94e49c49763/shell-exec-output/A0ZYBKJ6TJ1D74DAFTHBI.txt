@@ -1,0 +1,212 @@
+artifacts/api-server/src/lib/job-lease.ts:117:export async function completeScanJob(
+artifacts/api-server/src/lib/job-lease.ts:139:export async function failScanJob(
+artifacts/api-server/src/lib/job-lease.test.ts:13:  completeScanJob,
+artifacts/api-server/src/lib/job-lease.test.ts:14:  failScanJob,
+artifacts/api-server/src/lib/job-lease.test.ts:148:  it("completeScanJob sets status=completed and clears all lease fields", async () => {
+artifacts/api-server/src/lib/job-lease.test.ts:152:    await completeScanJob(jobId, workerId, { summary: "done" });
+artifacts/api-server/src/lib/job-lease.test.ts:162:  it("failScanJob sets status=failed with error message and clears lease fields", async () => {
+artifacts/api-server/src/lib/job-lease.test.ts:166:    await failScanJob(jobId, workerId, "something went wrong");
+artifacts/api-server/src/lib/job-idempotency.test.ts:12:import { claimScanJob, completeScanJob, failScanJob, SCAN_LEASE_MS } from "./job-lease.js";
+artifacts/api-server/src/lib/job-idempotency.test.ts:83:    await completeScanJob(jobId, workerId, { summary: "done" });
+artifacts/api-server/src/lib/job-idempotency.test.ts:98:    await failScanJob(jobId, workerId, "test failure");
+artifacts/api-server/src/lib/job-concurrency.test.ts:14:  completeScanJob,
+artifacts/api-server/src/lib/job-concurrency.test.ts:15:  failScanJob,
+artifacts/api-server/src/lib/job-concurrency.test.ts:95:    await completeScanJob(jobId, winner, { result: "ok" });
+artifacts/api-server/src/lib/job-concurrency.test.ts:147:    // w2 calls failScanJob anyway (e.g. from a bug in its error path)
+artifacts/api-server/src/lib/job-concurrency.test.ts:148:    // completeScanJob/failScanJob use eq(scanJobsTable.id, jobId) without
+artifacts/api-server/src/lib/job-concurrency.test.ts:152:    await failScanJob(jobId, w2, "w2 lost the race");
+artifacts/api-server/src/lib/scan-runner.ts:34:  completeScanJob,
+artifacts/api-server/src/lib/scan-runner.ts:35:  failScanJob,
+artifacts/api-server/src/lib/scan-runner.ts:144:    await completeScanJob(
+artifacts/api-server/src/lib/scan-runner.ts:159:      await failScanJob(jobId, workerId, message, failedAt);
+diff --git a/artifacts/api-server/src/lib/ai-execution-state.ts b/artifacts/api-server/src/lib/ai-execution-state.ts
+index 37d233a..82c43a8 100644
+--- a/artifacts/api-server/src/lib/ai-execution-state.ts
++++ b/artifacts/api-server/src/lib/ai-execution-state.ts
+@@ -835,12 +835,48 @@ export async function failAiExecution(params: {
+     .where(and(
+       eq(aiExecutionsTable.id, params.executionId),
+       eq(aiExecutionsTable.workerId, params.workerId),
+-      params.cancelled
+-        ? inArray(aiExecutionsTable.status, ["running", "cancelling"])
+-        : eq(aiExecutionsTable.status, "running"),
++      params.cancelled ? inArray(aiExecutionsTable.status, ["running", "cancelling"]) : eq(aiExecutionsTable.status, "running"),
+     ))
+     .returning({ id: aiExecutionsTable.id });
+-  return Boolean(updated);
++  if (updated) return true;
++
++  // Cancellation is an authoritative terminal fence. If the worker learned
++  // about cancellation through the database (rather than its local signal),
++  // its ordinary failure path must still settle `cancelling` as cancelled and
++  // must never publish a failed outcome after the cancellation won.
++  if (!params.cancelled) {
++    const [cancelled] = await db
++      .update(aiExecutionsTable)
++      .set({
++        status: "cancelled",
++        error: params.error.slice(0, 1000),
++        completedAt: new Date(),
++        updatedAt: new Date(),
++        leaseUntil: null,
++        lastHeartbeatAt: null,
++        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
++        checkpoint: JSON.stringify({
++          stage: "cancelled",
++          sequence: Date.now(),
++          ...(params.operation ? { operation: params.operation } : {}),
++          ...(params.streamedPreview ? { streamedPreview: params.streamedPreview.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT) } : {}),
++          ...(params.recentSteps && params.recentSteps.length > 0
++            ? { recentSteps: params.recentSteps.slice(-AI_EXECUTION_TRACE_LIMIT) }
++            : {}),
++          ...(params.nodeStates && params.nodeStates.length > 0 ? { nodeStates: params.nodeStates } : {}),
++          detail: "Cancellation won before the worker failure was finalized.",
++          updatedAt: new Date().toISOString(),
++        } satisfies AiExecutionCheckpoint),
++      })
++      .where(and(
++        eq(aiExecutionsTable.id, params.executionId),
++        eq(aiExecutionsTable.workerId, params.workerId),
++        eq(aiExecutionsTable.status, "cancelling"),
++      ))
++      .returning({ id: aiExecutionsTable.id });
++    return Boolean(cancelled);
++  }
++  return false;
+ }
+ 
+ export async function requestAiExecutionCancel(params: {
+diff --git a/artifacts/api-server/src/lib/job-lease.ts b/artifacts/api-server/src/lib/job-lease.ts
+index 3c64d89..d05de92 100644
+--- a/artifacts/api-server/src/lib/job-lease.ts
++++ b/artifacts/api-server/src/lib/job-lease.ts
+@@ -110,14 +110,13 @@ export async function heartbeatScanJob(
+ 
+ /**
+  * Atomically mark a scan_job as completed and release the lease in one write.
+- * The WHERE clause does NOT filter by workerId — the caller is responsible for
+- * ensuring it owns the job before calling (via claimScanJob). Omitting the
+- * workerId guard prevents a silent no-op if the workerId column was cleared
+- * by a concurrent reconciliation pass.
++ * The workerId guard is part of the terminal fence. A stale worker must not
++ * complete a job after reconciliation has cleared its lease and another
++ * worker has claimed it.
+  */
+ export async function completeScanJob(
+   jobId: string,
+-  _workerId: string,
++  workerId: string,
+   result: Record<string, unknown>,
+   finishedAt?: Date,
+ ): Promise<void> {
+@@ -131,7 +130,7 @@ export async function completeScanJob(
+       leaseUntil: null,
+       lastHeartbeatAt: null,
+     })
+-    .where(eq(scanJobsTable.id, jobId));
++    .where(and(eq(scanJobsTable.id, jobId), eq(scanJobsTable.workerId, workerId), eq(scanJobsTable.status, "running")));
+ }
+ 
+ /**
+@@ -139,7 +138,7 @@ export async function completeScanJob(
+  */
+ export async function failScanJob(
+   jobId: string,
+-  _workerId: string,
++  workerId: string,
+   error: string,
+   finishedAt?: Date,
+ ): Promise<void> {
+@@ -153,7 +152,7 @@ export async function failScanJob(
+       leaseUntil: null,
+       lastHeartbeatAt: null,
+     })
+-    .where(eq(scanJobsTable.id, jobId));
++    .where(and(eq(scanJobsTable.id, jobId), eq(scanJobsTable.workerId, workerId), eq(scanJobsTable.status, "running")));
+ }
+ 
+ // ── Discovery-session lease helpers ───────────────────────────────────────────
+diff --git a/artifacts/api-server/src/lib/task-execution-service.ts b/artifacts/api-server/src/lib/task-execution-service.ts
+index 0539973..3c1babd 100644
+--- a/artifacts/api-server/src/lib/task-execution-service.ts
++++ b/artifacts/api-server/src/lib/task-execution-service.ts
+@@ -240,10 +240,22 @@ export async function executeTaskLifecycle(params: {
+     }).catch((error) => logger.warn({ error, taskId: before.id }, "task execution log write failed"));
+   };
+   await log("info", "AI task execution claimed", { stage: "claim", workerId });
+-  await checkpointAiExecution({
++  const initialCheckpointed = await checkpointAiExecution({
+     executionId, workerId,
+     checkpoint: { stage: "running", sequence: 1, detail: "Task claimed.", updatedAt: new Date().toISOString() },
+   });
++  if (!initialCheckpointed) {
++    await failAiExecution({
++      executionId,
++      workerId,
++      error: "Execution checkpoint could not be persisted after claim.",
++    });
++    await db.update(tasksTable).set({
++      status: before.status, workerId: null, leaseUntil: null, lastHeartbeatAt: null,
++      updatedAt: new Date(),
++    }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running")));
++    return { ok: false, status: "failed", executionId, errorCode: "checkpoint_persistence_failed" };
++  }
+   const heartbeat = setInterval(() => {
+     void heartbeatAiExecution({ executionId, workerId });
+     void db.update(tasksTable).set({
+diff --git a/artifacts/api-server/src/routes/ai/chat.ts b/artifacts/api-server/src/routes/ai/chat.ts
+index 99050fd..4381f35 100644
+--- a/artifacts/api-server/src/routes/ai/chat.ts
++++ b/artifacts/api-server/src/routes/ai/chat.ts
+@@ -2719,6 +2719,7 @@ router.post("/ai/chat/stream", async (req, res) => {
+     }
+ 
+     let checkpointSequence = aiExecution.checkpointVersion;
++    let checkpointFailure: unknown;
+     const resumableStateForExecution = greetingTurnForExecution ? null : persistedActiveTaskState;
+     const executionPlanForRun = !greetingTurnForExecution && approvedImplementationPlan
+       ? approvedImplementationExecutionPlan
+@@ -2790,10 +2791,13 @@ router.post("/ai/chat/stream", async (req, res) => {
+             checkpoint: completeCheckpoint,
+           });
+           if (!persisted) {
+-            logger.warn({ executionId: aiExecution!.id, sequence }, "AI execution checkpoint rejected by lease/state gate");
++            const error = new Error("AI execution checkpoint rejected by lease/state gate");
++            checkpointFailure = error;
++            logger.warn({ executionId: aiExecution!.id, sequence }, error.message);
+           }
+         })
+         .catch((err) => {
++          checkpointFailure = err;
+           logger.warn({ err, executionId: aiExecution!.id }, "AI execution checkpoint failed");
+         });
+     };
+@@ -3960,6 +3964,9 @@ router.post("/ai/chat/stream", async (req, res) => {
+         executionEvidenceReason = finalValidation.detail ?? "Validation ended with an unresolved failure.";
+       }
+     }
++    if (checkpointFailure) {
++      throw new Error("AI execution checkpoint persistence failed before finalization");
++    }
+     if (endedBeforeEvidence) {
+       await failAiExecution({
+         executionId: aiExecution.id,
+@@ -3969,7 +3976,7 @@ router.post("/ai/chat/stream", async (req, res) => {
+         nodeStates: executionNodeStates,
+       });
+     } else {
+-      await completeAiExecution({
++      const completed = await completeAiExecution({
+         executionId: aiExecution.id,
+         workerId: executionWorkerId!,
+         finalMessageId: assistantMsg.id,
+@@ -3979,6 +3986,9 @@ router.post("/ai/chat/stream", async (req, res) => {
+         evidenceReason: executionEvidenceReason,
+         proofRequired,
+       });
++      if (!completed) {
++        throw new Error("AI execution was cancelled or superseded before finalization");
++      }
+     }
+     executionTerminal = true;
+ 

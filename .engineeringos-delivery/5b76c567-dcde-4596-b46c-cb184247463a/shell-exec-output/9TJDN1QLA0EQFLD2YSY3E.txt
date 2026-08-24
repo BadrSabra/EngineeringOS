@@ -1,0 +1,1001 @@
+
+ RUN  v4.1.10 /home/runner/workspace/artifacts/api-server
+
+[12:40:38.287] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "6742694e-3840-415c-b650-72da2ec63a57"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: true
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "6742694e-3840-415c-b650-72da2ec63a57",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.294] INFO (336): request completed
+    req: {
+      "id": 1,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 63
+[12:40:38.326] INFO (336): chat: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_chat_trace"
+    provider: "openai"
+    sessionId: "6742694e-3840-415c-b650-72da2ec63a57"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 2
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": true,
+      "sessionId": "6742694e-3840-415c-b650-72da2ec63a57",
+      "historyMessageCount": 2,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.329] INFO (336): request completed
+    req: {
+      "id": 2,
+      "method": "POST",
+      "url": "/api/ai/chat"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 23
+[12:40:38.341] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "6742694e-3840-415c-b650-72da2ec63a57"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 4
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": true,
+      "sessionId": "6742694e-3840-415c-b650-72da2ec63a57",
+      "historyMessageCount": 4,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.343] INFO (336): request completed
+    req: {
+      "id": 3,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 9
+[12:40:38.371] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "5ca1a110-dfa7-4634-b98a-317b0ea29d8a"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: false
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "5ca1a110-dfa7-4634-b98a-317b0ea29d8a",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.372] INFO (336): request completed
+    req: {
+      "id": 4,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 9
+[12:40:38.387] INFO (336): chat: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_chat_trace"
+    provider: "openai"
+    sessionId: null
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": null,
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.388] INFO (336): request completed
+    req: {
+      "id": 5,
+      "method": "POST",
+      "url": "/api/ai/chat"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 11
+[12:40:38.395] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "074b4c40-bb6b-4c76-b24c-4cf0e18069b4"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 2
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "074b4c40-bb6b-4c76-b24c-4cf0e18069b4",
+      "historyMessageCount": 2,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.396] INFO (336): request completed
+    req: {
+      "id": 6,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 4
+[12:40:38.404] INFO (336): chat: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_chat_trace"
+    provider: "openai"
+    sessionId: null
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": null,
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.405] INFO (336): request completed
+    req: {
+      "id": 7,
+      "method": "POST",
+      "url": "/api/ai/chat"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[12:40:38.416] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "fa24592a-d602-4132-a7d3-eac1dd28ce3b"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 2
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "fa24592a-d602-4132-a7d3-eac1dd28ce3b",
+      "historyMessageCount": 2,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.417] INFO (336): request completed
+    req: {
+      "id": 8,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 5
+[12:40:38.428] INFO (336): chat: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_chat_trace"
+    provider: "openai"
+    sessionId: null
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "DELIVERY"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": null,
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.429] INFO (336): request completed
+    req: {
+      "id": 9,
+      "method": "POST",
+      "url": "/api/ai/chat"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 5
+[12:40:38.435] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "6aebe004-b31b-451a-88eb-f62a52e77e28"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 2
+    turnIntent: "DELIVERY"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "6aebe004-b31b-451a-88eb-f62a52e77e28",
+      "historyMessageCount": 2,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.436] INFO (336): request completed
+    req: {
+      "id": 10,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[12:40:38.447] INFO (336): chat: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_chat_trace"
+    provider: "openai"
+    sessionId: null
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": null,
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.447] INFO (336): request completed
+    req: {
+      "id": 11,
+      "method": "POST",
+      "url": "/api/ai/chat"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 1
+[12:40:38.452] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "d2b1ef12-44bf-4f1c-83a4-113f1011853d"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 2
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "d2b1ef12-44bf-4f1c-83a4-113f1011853d",
+      "historyMessageCount": 2,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.453] INFO (336): request completed
+    req: {
+      "id": 12,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+[12:40:38.460] INFO (336): chat: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_chat_trace"
+    provider: "openai"
+    sessionId: null
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "DELIVERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "task_execution"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": null,
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.461] INFO (336): request completed
+    req: {
+      "id": 13,
+      "method": "POST",
+      "url": "/api/ai/chat"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[12:40:38.470] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "f6eed86b-4ff6-462d-8cf4-72f842a12b74"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 2
+    turnIntent: "DELIVERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "task_execution"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "f6eed86b-4ff6-462d-8cf4-72f842a12b74",
+      "historyMessageCount": 2,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.470] INFO (336): request completed
+    req: {
+      "id": 14,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+[12:40:38.477] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "12b0977b-8139-46e0-a881-bd069232b3d0"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "12b0977b-8139-46e0-a881-bd069232b3d0",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.478] INFO (336): request completed
+    req: {
+      "id": 15,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[12:40:38.487] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "a9691bb8-d221-4acb-807f-53b06f1c490e"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: false
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "a9691bb8-d221-4acb-807f-53b06f1c490e",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.488] INFO (336): request completed
+    req: {
+      "id": 16,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+[12:40:38.494] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "8545c2f2-eac3-4e46-83bf-bdc4f97dbbc1"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: false
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "8545c2f2-eac3-4e46-83bf-bdc4f97dbbc1",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.495] INFO (336): request completed
+    req: {
+      "id": 17,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+[12:40:38.502] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "352925c7-460b-4ba1-aba9-e0f5a37e1133"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: false
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "352925c7-460b-4ba1-aba9-e0f5a37e1133",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.504] INFO (336): request completed
+    req: {
+      "id": 18,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+[12:40:38.511] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "f67537e7-181a-4984-9920-a0065c367e25"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: false
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "f67537e7-181a-4984-9920-a0065c367e25",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.512] INFO (336): request completed
+    req: {
+      "id": 19,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[12:40:38.518] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "bd8eafc7-b42c-4c5c-b8ee-8f7a81530afe"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: false
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "bd8eafc7-b42c-4c5c-b8ee-8f7a81530afe",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.519] INFO (336): request completed
+    req: {
+      "id": 20,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[12:40:38.526] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "df00e15a-8cfe-44b9-b0d3-9023eb398004"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "PROJECT_QUERY"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "tool_chat"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "df00e15a-8cfe-44b9-b0d3-9023eb398004",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.527] INFO (336): request completed
+    req: {
+      "id": 21,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[12:40:38.534] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "67da558b-f801-4fca-a883-49be5a4a3bd5"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "67da558b-f801-4fca-a883-49be5a4a3bd5",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.536] INFO (336): request completed
+    req: {
+      "id": 22,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+[12:40:38.543] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "771d817b-b20d-49df-aa96-1bc4294f76fb"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "771d817b-b20d-49df-aa96-1bc4294f76fb",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.544] INFO (336): request completed
+    req: {
+      "id": 23,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[12:40:38.554] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "4258636e-70cb-457f-ac72-524d8180f2ad"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "4258636e-70cb-457f-ac72-524d8180f2ad",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.555] INFO (336): request completed
+    req: {
+      "id": 24,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[12:40:38.560] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "68fd9ed2-4ab6-4034-819f-74d64ff39e0c"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "68fd9ed2-4ab6-4034-819f-74d64ff39e0c",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.560] INFO (336): request completed
+    req: {
+      "id": 25,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 1
+[12:40:38.568] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "f687fa41-5815-407c-a6ad-26dc684f8342"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "f687fa41-5815-407c-a6ad-26dc684f8342",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.571] INFO (336): request completed
+    req: {
+      "id": 26,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 6
+[12:40:38.576] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "de450e4b-5306-4a60-88bb-a6e93d46f121"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "de450e4b-5306-4a60-88bb-a6e93d46f121",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.577] INFO (336): request completed
+    req: {
+      "id": 27,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[12:40:38.598] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "fa4c3e67-b9cd-469c-b48e-4f7d458aea05"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "fa4c3e67-b9cd-469c-b48e-4f7d458aea05",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.599] INFO (336): request completed
+    req: {
+      "id": 28,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[12:40:38.604] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "99f2667a-9922-4d50-af51-0e8897bea0cc"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "99f2667a-9922-4d50-af51-0e8897bea0cc",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.604] INFO (336): request completed
+    req: {
+      "id": 29,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 1
+[12:40:38.609] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "e4242b90-bfff-4c12-946f-5e9a81326360"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: false
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "e4242b90-bfff-4c12-946f-5e9a81326360",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.611] INFO (336): request completed
+    req: {
+      "id": 30,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+[12:40:38.616] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "a151b7c4-f7be-4e26-986b-b7b4ff7f97c4"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "a151b7c4-f7be-4e26-986b-b7b4ff7f97c4",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.617] INFO (336): request completed
+    req: {
+      "id": 31,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[12:40:38.623] INFO (336): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "dc9867f7-bf79-4d73-afd2-ca0796e9c7c9"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: false
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "dc9867f7-bf79-4d73-afd2-ca0796e9c7c9",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[12:40:38.625] INFO (336): request completed
+    req: {
+      "id": 32,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 4
+
+ Test Files  2 passed (2)
+      Tests  28 passed (28)
+   Start at  12:40:31
+   Duration  7.71s (transform 3.60s, setup 0ms, import 6.98s, tests 430ms, environment 0ms)
+

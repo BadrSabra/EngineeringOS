@@ -134,7 +134,7 @@ describe("concurrent workers", () => {
     expect(row.leaseUntil!.getTime()).toBeGreaterThan(Date.now());
   });
 
-  it("a worker that loses a race can still fail gracefully without corrupting the winner's state", async () => {
+  it("a worker that loses a race cannot overwrite the winner's lease", async () => {
     const jobId = await insertQueuedJob();
 
     const w1 = randomUUID();
@@ -144,16 +144,14 @@ describe("concurrent workers", () => {
     const w2won = await claimScanJob(jobId, w2, SCAN_LEASE_MS);
     expect(w2won).toBe(false);
 
-    // w2 calls failScanJob anyway (e.g. from a bug in its error path)
-    // completeScanJob/failScanJob use eq(scanJobsTable.id, jobId) without
-    // a workerId guard — but since w1 owns the row, this is acceptable;
-    // the important thing is the row ends up in a terminal state.
-    // This test verifies the DB row is not left in a corrupt state.
-    await failScanJob(jobId, w2, "w2 lost the race");
+    // A stale worker may still reach its error path, but the terminal write
+    // must be fenced by the worker identity.
+    const failed = await failScanJob(jobId, w2, "w2 lost the race");
+    expect(failed).toBe(false);
 
     const [row] = await db.select().from(scanJobsTable).where(eq(scanJobsTable.id, jobId));
-    // Row should be in a terminal state regardless
-    expect(["running", "failed"]).toContain(row.status);
-    expect(row.leaseUntil).toBeNull();
+    expect(row.status).toBe("running");
+    expect(row.workerId).toBe(w1);
+    expect(row.leaseUntil).not.toBeNull();
   });
 });

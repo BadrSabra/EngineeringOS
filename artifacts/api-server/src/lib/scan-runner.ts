@@ -141,12 +141,15 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
     clearInterval(heartbeatInterval);
     heartbeatInterval = undefined;
     const finishedAt = new Date();
-    await completeScanJob(
+    const completed = await completeScanJob(
       jobId,
       workerId,
       result as unknown as Record<string, unknown>,
       finishedAt,
     );
+    if (!completed) {
+      logger.warn({ jobId, workerId }, "scan completion ignored because the worker no longer owns the job");
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error({ err, projectId, jobId }, "scan job failed");
@@ -156,7 +159,11 @@ export async function runScanJob(jobId: string, projectId: string): Promise<void
         heartbeatInterval = undefined;
       }
       const failedAt = new Date();
-      await failScanJob(jobId, workerId, message, failedAt);
+      const failed = await failScanJob(jobId, workerId, message, failedAt);
+      if (!failed) {
+        logger.warn({ jobId, workerId }, "scan failure ignored because the worker no longer owns the job");
+        return;
+      }
       // Guard with `status = "scanning"` so a newer job that has already
       // taken ownership of this project is not clobbered by this failure path.
       await db
