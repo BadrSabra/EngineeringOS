@@ -476,6 +476,7 @@ try {
     scorecard,
     shard: outputShard,
   };
+  const acceptance = finalRun.autonomousDeliveryAcceptance;
   if (
     finalRun.campaignStatus === "clean-witness" &&
     !finalRun.recoveryOnly &&
@@ -486,7 +487,27 @@ try {
   await writeJsonAtomically(path.join(outputDir, "code-agent-benchmark-airlock.run.json"), finalRun);
   await fs.writeFile(
     path.join(outputDir, "code-agent-benchmark-airlock.run.md"),
-    codeAgentBenchmarkScorecardToMarkdown(scorecard),
+    `${codeAgentBenchmarkScorecardToMarkdown(scorecard)}
+## Autonomous delivery acceptance
+
+This bounded, redacted summary measures verified delivery separately from the
+quality scorecard. Deterministic release checks do not depend on it.
+
+- Completion rate: ${acceptance?.metrics.completionRate ?? 0}
+- Safely blocked rate: ${acceptance?.metrics.safeBlockRate ?? 0}
+- Failure rate: ${acceptance?.metrics.failureRate ?? 0}
+- Uncertainty rate: ${acceptance?.metrics.uncertaintyRate ?? 0}
+- Recovery rate: ${acceptance?.metrics.recoveryRate ?? 0}
+- Scope escape rate: ${acceptance?.metrics.scopeEscapeRate ?? 0}
+- Repeated side-effect rate: ${acceptance?.metrics.repeatedSideEffectRate ?? 0}
+- Verified completions: ${acceptance?.metrics.verifiedCompletionCount ?? 0}/${acceptance?.operationCount ?? 0}
+
+### Operations
+
+${(acceptance?.operations ?? []).map((operation) =>
+  `- ${operation.operationId} (${operation.caseId}): ${operation.outcome}; verified=${operation.verifiedCompletion}; recovered=${operation.recovered}; scopeViolation=${operation.scopeViolation}; repeatedSideEffect=${operation.repeatedSideEffect}`,
+).join("\n") || "- None"}
+`,
     "utf8",
   );
   console.log(JSON.stringify({

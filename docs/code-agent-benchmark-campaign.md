@@ -151,6 +151,11 @@ Each Airlock run includes:
 - `baselineEligibility`: targeted/partial artifacts are explicitly
   `"not-eligible"`
 - per-case `providerAttempts`, provider/model identity, and bounded observation
+- `autonomousDeliveryAcceptance`, a bounded redacted summary keyed by
+  `operationId` and `caseId`. It reports completion, safe blocking, failure,
+  uncertainty, recovery, scope escape, repeated side effects, and the
+  verified-completion count. Provider output, source text, patches, and
+  credentials are never included.
 
 The quality scorecard excludes `U` from quality rates, but `U` remains a
 rollout blocker and prevents baseline approval.

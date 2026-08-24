@@ -683,6 +683,14 @@ export default function MissionControl() {
       ? envelope.providerRecoverySummaries
       : [];
   }, [typedData?.benchmark]);
+  const acceptanceSummary = useMemo(
+    () => asRecord(asRecord(typedData?.benchmark)?.autonomousDeliveryAcceptance),
+    [typedData?.benchmark],
+  );
+  const acceptanceMetrics = asRecord(acceptanceSummary?.metrics);
+  const acceptanceOperations = Array.isArray(acceptanceSummary?.operations)
+    ? acceptanceSummary.operations
+    : [];
   const selectedEvidenceRows = evidenceRows(selectedExecution?.evidence);
   const selectedEvents = Array.isArray(selectedExecution?.recentEvents) ? selectedExecution.recentEvents : [];
   const selectedImportedExecution = importedHistory?.executions.find((execution) => execution.id === comparisonImportedId)
@@ -1052,6 +1060,73 @@ export default function MissionControl() {
                   })}
                   {scorecardMetrics.length === 0 && <p className="text-xs text-muted-foreground">Scorecard metrics not recorded; baseline data is present.</p>}
                 </div>
+              )}
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-emerald-500/25 bg-card" aria-label="Autonomous delivery acceptance report">
+            <div className="flex items-center gap-2 border-b border-emerald-500/20 px-4 py-3.5">
+              <ShieldCheck className="h-4 w-4 text-emerald-200" />
+              <div>
+                <h2 className="font-semibold">Verified delivery outcomes</h2>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  Isolated acceptance evidence, separate from deterministic release checks.
+                </p>
+              </div>
+              {acceptanceSummary && (
+                <span className="ml-auto rounded-full border border-emerald-500/30 px-2 py-0.5 text-[10px] uppercase text-emerald-200">
+                  {formatValue(acceptanceSummary.operationCount)} operations
+                </span>
+              )}
+            </div>
+            <div className="p-4">
+              {!acceptanceSummary ? (
+                <p className="rounded-lg border border-dashed border-border/70 bg-background/20 p-5 text-center text-xs text-muted-foreground">
+                  No autonomous delivery acceptance report was returned.
+                </p>
+              ) : (
+                <>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    {[
+                      ['Verified completion', acceptanceMetrics?.completionRate],
+                      ['Safely blocked', acceptanceMetrics?.safeBlockRate],
+                      ['Known failure', acceptanceMetrics?.failureRate],
+                      ['Uncertain', acceptanceMetrics?.uncertaintyRate],
+                      ['Recovery', acceptanceMetrics?.recoveryRate],
+                      ['Scope escape', acceptanceMetrics?.scopeEscapeRate],
+                      ['Repeated side effect', acceptanceMetrics?.repeatedSideEffectRate],
+                      ['Verified count', acceptanceMetrics?.verifiedCompletionCount],
+                    ].map(([label, value]) => (
+                      <div key={String(label)} className="rounded-md border border-border/45 bg-background/20 px-3 py-2">
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{String(label)}</div>
+                        <div className="mt-1 font-mono text-sm font-semibold text-foreground">
+                          {typeof value === 'number' && String(label) !== 'Verified count'
+                            ? `${(value * 100).toFixed(1)}%`
+                            : formatValue(value)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {acceptanceOperations.length > 0 && (
+                    <div className="mt-4 space-y-1.5" aria-label="Acceptance operations">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Operations</div>
+                      {acceptanceOperations.slice(0, 12).map((raw, index) => {
+                        const operation = asRecord(raw);
+                        if (!operation) return null;
+                        return (
+                          <div key={`${textValue(operation.operationId) ?? 'operation'}-${index}`} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border/45 bg-background/20 px-3 py-2 text-xs">
+                            <span className="font-mono text-foreground">{textValue(operation.operationId) ?? 'Unknown operation'}</span>
+                            <span className="text-muted-foreground">·</span>
+                            <span className="text-muted-foreground">{textValue(operation.caseId) ?? 'Unknown case'}</span>
+                            <span className="ml-auto rounded-full border border-border/60 px-1.5 py-0.5 text-[10px] uppercase">
+                              {textValue(operation.outcome) ?? 'unknown'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </section>

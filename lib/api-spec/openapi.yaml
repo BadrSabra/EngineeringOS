@@ -3181,6 +3181,64 @@ components:
         baselineComparison:
           $ref: "#/components/schemas/AiBenchmarkBaselineComparison"
 
+    AiAutonomousDeliveryAcceptance:
+      type: object
+      additionalProperties: false
+      description: >
+        Bounded, redacted acceptance outcomes for isolated campaign operations.
+        This measurement is independent from deterministic release checks.
+      required: [kind, version, campaign, operationCount, outcomeCounts, metrics, operations]
+      properties:
+        kind: { type: string, enum: [autonomous-delivery-acceptance] }
+        version: { type: integer }
+        campaign:
+          type: object
+          additionalProperties: false
+          required: [provider, browser, deployment, remoteDelivery, isolated, redacted]
+          properties:
+            provider: { type: string, enum: [deterministic, live] }
+            browser: { type: boolean }
+            deployment: { type: boolean }
+            remoteDelivery: { type: boolean }
+            isolated: { type: boolean }
+            redacted: { type: boolean }
+        operationCount: { type: integer }
+        outcomeCounts:
+          type: object
+          additionalProperties: false
+          properties:
+            completed: { type: integer }
+            safely-blocked: { type: integer }
+            failed: { type: integer }
+            uncertain: { type: integer }
+        metrics:
+          type: object
+          additionalProperties: false
+          properties:
+            completionRate: { type: number }
+            safeBlockRate: { type: number }
+            failureRate: { type: number }
+            uncertaintyRate: { type: number }
+            recoveryRate: { type: number }
+            scopeEscapeRate: { type: number }
+            repeatedSideEffectRate: { type: number }
+            verifiedCompletionCount: { type: integer }
+        operations:
+          type: array
+          maxItems: 256
+          items:
+            type: object
+            additionalProperties: false
+            required: [operationId, caseId, outcome, verifiedCompletion, recovered, scopeViolation, repeatedSideEffect]
+            properties:
+              operationId: { type: string }
+              caseId: { type: string }
+              outcome: { type: string, enum: [completed, safely-blocked, failed, uncertain] }
+              verifiedCompletion: { type: boolean }
+              recovered: { type: boolean }
+              scopeViolation: { type: boolean }
+              repeatedSideEffect: { type: boolean }
+
     AiBenchmarkMetrics:
       type: object
       additionalProperties: false

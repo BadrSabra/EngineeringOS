@@ -154,6 +154,82 @@ export interface AiBenchmarkScorecard {
   baselineComparison?: AiBenchmarkBaselineComparison;
 }
 
+export type AiAutonomousDeliveryAcceptanceKind = typeof AiAutonomousDeliveryAcceptanceKind[keyof typeof AiAutonomousDeliveryAcceptanceKind];
+
+
+export const AiAutonomousDeliveryAcceptanceKind = {
+  'autonomous-delivery-acceptance': 'autonomous-delivery-acceptance',
+} as const;
+
+export type AiAutonomousDeliveryAcceptanceCampaignProvider = typeof AiAutonomousDeliveryAcceptanceCampaignProvider[keyof typeof AiAutonomousDeliveryAcceptanceCampaignProvider];
+
+
+export const AiAutonomousDeliveryAcceptanceCampaignProvider = {
+  deterministic: 'deterministic',
+  live: 'live',
+} as const;
+
+export type AiAutonomousDeliveryAcceptanceCampaign = {
+  provider: AiAutonomousDeliveryAcceptanceCampaignProvider;
+  browser: boolean;
+  deployment: boolean;
+  remoteDelivery: boolean;
+  isolated: boolean;
+  redacted: boolean;
+};
+
+export type AiAutonomousDeliveryAcceptanceOutcomeCounts = {
+  completed?: number;
+  'safely-blocked'?: number;
+  failed?: number;
+  uncertain?: number;
+};
+
+export type AiAutonomousDeliveryAcceptanceMetrics = {
+  completionRate?: number;
+  safeBlockRate?: number;
+  failureRate?: number;
+  uncertaintyRate?: number;
+  recoveryRate?: number;
+  scopeEscapeRate?: number;
+  repeatedSideEffectRate?: number;
+  verifiedCompletionCount?: number;
+};
+
+export type AiAutonomousDeliveryAcceptanceOperationsItemOutcome = typeof AiAutonomousDeliveryAcceptanceOperationsItemOutcome[keyof typeof AiAutonomousDeliveryAcceptanceOperationsItemOutcome];
+
+
+export const AiAutonomousDeliveryAcceptanceOperationsItemOutcome = {
+  completed: 'completed',
+  'safely-blocked': 'safely-blocked',
+  failed: 'failed',
+  uncertain: 'uncertain',
+} as const;
+
+export type AiAutonomousDeliveryAcceptanceOperationsItem = {
+  operationId: string;
+  caseId: string;
+  outcome: AiAutonomousDeliveryAcceptanceOperationsItemOutcome;
+  verifiedCompletion: boolean;
+  recovered: boolean;
+  scopeViolation: boolean;
+  repeatedSideEffect: boolean;
+};
+
+/**
+ * Bounded, redacted acceptance outcomes for isolated campaign operations. This measurement is independent from deterministic release checks.
+ */
+export interface AiAutonomousDeliveryAcceptance {
+  kind: AiAutonomousDeliveryAcceptanceKind;
+  version: number;
+  campaign: AiAutonomousDeliveryAcceptanceCampaign;
+  operationCount: number;
+  outcomeCounts: AiAutonomousDeliveryAcceptanceOutcomeCounts;
+  metrics: AiAutonomousDeliveryAcceptanceMetrics;
+  /** @maxItems 256 */
+  operations: AiAutonomousDeliveryAcceptanceOperationsItem[];
+}
+
 export interface AiBenchmarkBaselineSnapshot {
   baselineId?: string;
   suiteVersion?: string;

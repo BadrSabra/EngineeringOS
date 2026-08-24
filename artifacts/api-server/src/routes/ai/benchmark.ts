@@ -4,6 +4,7 @@ import { Router } from "express";
 import { desc, eq } from "drizzle-orm";
 import { db, aiExecutionsTable } from "@workspace/db";
 import { deriveFlightDeckState } from "@workspace/ai-orchestrator";
+import type { AutonomousDeliveryAcceptanceSummary } from "@workspace/ai-orchestrator";
 
 const router = Router();
 
@@ -58,6 +59,47 @@ type BoundedFreeTierEnvelope = {
   suiteVersion?: string;
   providerRecoverySummaries?: BoundedProviderRecoverySummary[];
 };
+
+function projectAcceptanceSummary(value: unknown): AutonomousDeliveryAcceptanceSummary | undefined {
+  if (!isRecord(value) || value.kind !== "autonomous-delivery-acceptance" ||
+      value.version !== 1 || !isRecord(value.campaign) ||
+      typeof value.operationCount !== "number" || !isRecord(value.metrics) ||
+      !Array.isArray(value.operations)) return undefined;
+  const campaign = value.campaign;
+  const metrics = value.metrics;
+  const outcomeCounts = value.outcomeCounts;
+  const outcomes = ["completed", "safely-blocked", "failed", "uncertain"] as const;
+  if ((campaign.provider !== "deterministic" && campaign.provider !== "live") ||
+      campaign.isolated !== true || campaign.redacted !== true ||
+      !isRecord(outcomeCounts) ||
+      !outcomes.every((key) => typeof outcomeCounts[key] === "number") ||
+      !["completionRate", "safeBlockRate", "failureRate", "uncertaintyRate", "recoveryRate",
+        "scopeEscapeRate", "repeatedSideEffectRate", "verifiedCompletionCount"]
+        .every((key) => typeof metrics[key] === "number")) return undefined;
+  const operations = value.operations.slice(0, 256).flatMap((raw): AutonomousDeliveryAcceptanceSummary["operations"] => {
+    if (!isRecord(raw) || typeof raw.operationId !== "string" || typeof raw.caseId !== "string" ||
+        !outcomes.includes(raw.outcome as typeof outcomes[number]) ||
+        typeof raw.verifiedCompletion !== "boolean" || typeof raw.recovered !== "boolean" ||
+        typeof raw.scopeViolation !== "boolean" || typeof raw.repeatedSideEffect !== "boolean") return [];
+    return [{ operationId: raw.operationId.slice(0, 128), caseId: raw.caseId.slice(0, 128),
+      outcome: raw.outcome as typeof outcomes[number], verifiedCompletion: raw.verifiedCompletion,
+      recovered: raw.recovered, scopeViolation: raw.scopeViolation, repeatedSideEffect: raw.repeatedSideEffect }];
+  });
+  return {
+    kind: "autonomous-delivery-acceptance", version: 1,
+    campaign: {
+      provider: campaign.provider, browser: campaign.browser === true, deployment: campaign.deployment === true,
+      remoteDelivery: campaign.remoteDelivery === true, isolated: true, redacted: true,
+    },
+    operationCount: Math.min(256, Math.max(0, Math.floor(value.operationCount))),
+    outcomeCounts: Object.fromEntries(outcomes.map((key) => [key, outcomeCounts[key]])) as AutonomousDeliveryAcceptanceSummary["outcomeCounts"],
+    metrics: Object.fromEntries([
+      "completionRate", "safeBlockRate", "failureRate", "uncertaintyRate", "recoveryRate",
+      "scopeEscapeRate", "repeatedSideEffectRate", "verifiedCompletionCount",
+    ].map((key) => [key, metrics[key]])) as AutonomousDeliveryAcceptanceSummary["metrics"],
+    operations,
+  };
+}
 
 function scorecardPath(): string {
   return path.resolve(
@@ -418,10 +460,11 @@ router.get("/ai/benchmark/scorecard", async (_req, res) => {
  */
 router.get("/ai/mission-control", async (req, res) => {
   try {
-    const [rawScorecard, rawBaseline, rawFreeTierEnvelope, executions] = await Promise.all([
+    const [rawScorecard, rawBaseline, rawFreeTierEnvelope, rawAcceptance, executions] = await Promise.all([
       readOptionalJson(scorecardPath()),
       readOptionalJson(baselinePath()),
       readOptionalJson(freeTierEnvelopePath()),
+      readOptionalJson(path.join(path.dirname(scorecardPath()), "code-agent-benchmark-airlock.run.json")),
       db
         .select()
         .from(aiExecutionsTable)
@@ -459,11 +502,14 @@ router.get("/ai/mission-control", async (req, res) => {
           }
         : undefined;
     const freeTierEnvelope = projectBoundedFreeTierEnvelope(rawFreeTierEnvelope);
+    const autonomousDeliveryAcceptance = projectAcceptanceSummary(
+      isRecord(rawAcceptance) ? rawAcceptance.autonomousDeliveryAcceptance : undefined,
+    );
 
     return res.json({
       updatedAt: new Date().toISOString(),
       benchmark: scorecard || baseline || freeTierEnvelope
-        ? { scorecard, baseline, freeTierEnvelope }
+        ? { scorecard, baseline, freeTierEnvelope, autonomousDeliveryAcceptance }
         : null,
       executions: executions.map(projectExecution),
     });

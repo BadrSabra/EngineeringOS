@@ -20,6 +20,10 @@ import {
   getBenchmarkRecoveryCaseIds,
   type BenchmarkCampaignMode,
 } from "./benchmark-campaign.js";
+import {
+  buildAutonomousDeliveryAcceptanceSummary,
+  type AutonomousDeliveryAcceptanceSummary,
+} from "./autonomous-delivery-acceptance.js";
 
 export const BENCHMARK_AIRLOCK_VERSION = 1;
 
@@ -65,7 +69,46 @@ export type BenchmarkAirlockRun = {
   observations: BenchmarkAirlockObservation[];
   shard?: BenchmarkShardConfig & { caseIds: string[] };
   scorecard: CodeAgentBenchmarkScorecard;
+  autonomousDeliveryAcceptance?: AutonomousDeliveryAcceptanceSummary;
 };
+
+function acceptanceReceipt(entry: BenchmarkAirlockObservation, runId: string) {
+  const observation = entry.observation;
+  const terminal = observation.providerUnavailable || observation.grade === "U"
+    ? "uncertain" as const
+    : observation.safelyBlocked
+      ? "safely-blocked" as const
+      : observation.grade === "F"
+        ? "failed" as const
+        : "completed" as const;
+  return {
+    operationId: `${runId}:${entry.caseId}`,
+    caseId: entry.caseId,
+    terminal,
+    deliveryVerified: terminal === "completed" && observation.correct,
+    recovered: observation.repairedWithinThreeAttempts,
+    scopeViolation: observation.scopeEscape,
+    repeatedSideEffect: false,
+  };
+}
+
+function buildAcceptanceSummary(
+  observations: readonly BenchmarkAirlockObservation[],
+  mode: "live" | "free-only" | undefined,
+  runId: string,
+): AutonomousDeliveryAcceptanceSummary {
+  return buildAutonomousDeliveryAcceptanceSummary({
+    campaign: {
+      provider: mode === "free-only" ? "live" : "deterministic",
+      browser: false,
+      deployment: false,
+      remoteDelivery: false,
+      isolated: true,
+      redacted: true,
+    },
+    receipts: observations.map((entry) => acceptanceReceipt(entry, runId)),
+  });
+}
 
 function unavailableTelemetry(allowedPaths: readonly string[]): CodeAgentExecutionTelemetry {
   return {
@@ -242,6 +285,7 @@ export async function runCodeAgentBenchmarkAirlock(args: {
         ? { shard: { ...args.shard, caseIds: cases.map((testCase) => testCase.id) } }
         : {}),
       scorecard,
+      autonomousDeliveryAcceptance: buildAcceptanceSummary(observations, args.mode, args.runId),
     };
   }
   let providerCursor = 0;
@@ -379,5 +423,6 @@ export async function runCodeAgentBenchmarkAirlock(args: {
       ? { shard: { ...args.shard, caseIds: cases.map((testCase) => testCase.id) } }
       : {}),
     scorecard,
+    autonomousDeliveryAcceptance: buildAcceptanceSummary(observations, args.mode, args.runId),
   };
 }
