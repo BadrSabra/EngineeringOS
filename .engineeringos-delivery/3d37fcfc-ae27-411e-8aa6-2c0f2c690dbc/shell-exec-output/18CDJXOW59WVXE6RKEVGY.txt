@@ -1,0 +1,91 @@
+40:describe("verified repair proposal gate", () => {
+85:describe("mission correlation report persistence contract", () => {
+646:describe("POST /api/ai/chat", () => {
+1331:describe("GET /api/ai/executions/:executionId/audit-export", () => {
+1465:describe("GET /api/ai/chat/sessions", () => {
+1658:describe("GET /api/ai/chat/:sessionId/messages", () => {
+1947:describe("GET /api/ai/chat/file-content", () => {
+2068:describe("POST /api/ai/projects/:projectId/analyze", () => {
+2143:describe("POST /api/ai/projects/:projectId/review", () => {
+2215:describe("POST /api/ai/workflows/:workflowId/orchestrate", () => {
+2366:describe("POST /api/ai/chat/plans/:messageId/decision", () => {
+2449:describe("delivery recovery routes", () => {
+2647:describe("POST /api/ai/chat/apply-changes", () => {
+3643:describe("POST /api/ai/tasks/:taskId/execute", () => {
+4023:describe("resolveProvider tool-capability filtering", () => {
+artifacts/api-server/src/routes/rules.ts:18:import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/rules.ts:42:    const project = await loadProjectByIdForUser(params.projectId, req.userId, res);
+artifacts/api-server/src/routes/rules.ts:65:    const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
+artifacts/api-server/src/routes/rules.ts:106:    const project = await loadProjectByIdForUser(rule[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/rules.ts:123:    const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/rules.ts:169:    const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/rules.ts:208:  const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
+artifacts/api-server/src/routes/git.ts:326:        return res.status(404).json({ error: "AI change proposal not found", code: "AI_PROPOSAL_NOT_FOUND" });
+artifacts/api-server/src/routes/events.ts:5:import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/events.ts:49:    const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:132:import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/ai/chat.ts:1743:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:1775:      return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+artifacts/api-server/src/routes/ai/chat.ts:1791:      return res.status(404).json({ error: "Task not found", code: "TASK_NOT_FOUND" });
+artifacts/api-server/src/routes/ai/chat.ts:2243:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:2310:      return res.status(404).json({ error: "Implementation plan not found", code: "PLAN_NOT_FOUND" });
+artifacts/api-server/src/routes/ai/chat.ts:2415:      return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+artifacts/api-server/src/routes/ai/chat.ts:4483:  const project = await loadProjectByIdForUser(
+artifacts/api-server/src/routes/ai/chat.ts:4567:  if (!session) return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+artifacts/api-server/src/routes/ai/chat.ts:4568:  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:4584:  if (!target) return res.status(404).json({ error: "Chat message not found", code: "MESSAGE_NOT_FOUND" });
+artifacts/api-server/src/routes/ai/chat.ts:4670:  if (!updated) return res.status(404).json({ error: "Chat message not found", code: "MESSAGE_NOT_FOUND" });
+artifacts/api-server/src/routes/ai/chat.ts:4688:  if (!session) return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+artifacts/api-server/src/routes/ai/chat.ts:4691:    const ownerProject = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:4764:    return res.status(404).json({ error: "Implementation plan not found", code: "PLAN_NOT_FOUND" });
+artifacts/api-server/src/routes/ai/chat.ts:4767:  const project = await loadProjectByIdForUser(row.session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:4882:// quoted. Project-authorized (loadProjectByIdForUser) and path-guarded against
+artifacts/api-server/src/routes/ai/chat.ts:4888:  const project = await loadProjectByIdForUser(
+artifacts/api-server/src/routes/ai/chat.ts:4986:  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5047:  const project = await loadProjectByIdForUser(
+artifacts/api-server/src/routes/ai/chat.ts:5121:  if (!proposal) return res.status(404).json({ error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" });
+artifacts/api-server/src/routes/ai/chat.ts:5122:  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5208:  if (!proposal) return res.status(404).json({ error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" });
+artifacts/api-server/src/routes/ai/chat.ts:5209:  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5281:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5312:      return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+artifacts/api-server/src/routes/ai/chat.ts:5541:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5553:    return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+artifacts/api-server/src/routes/ai/chat.ts:5621:  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5698:  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/chat.ts:5772:      return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+artifacts/api-server/src/routes/tasks.ts:27:import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/tasks.ts:44:  const project = await loadProjectByIdForUser(params.projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:65:  const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:101:  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:113:  const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:207:  const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:276:  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:462:  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:548:  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:648:  const _project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:671:  const _project = await loadProjectByIdForUser(task.projectId, req.userId, res);
+artifacts/api-server/src/routes/metrics.ts:7:import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/metrics.ts:27:  const project = await loadProjectByIdForUser(params.projectId, req.userId, res);
+artifacts/api-server/src/routes/metrics.ts:58:    const project = await loadProjectByIdForUser(projectIdFilter, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:18:import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/workflows.ts:43:  const project = await loadProjectByIdForUser(params.projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:58:  const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:95:  const ownerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:111:  const ownerProject = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:146:  const ownerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:267:  const stopOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:370:  const execOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:413:  const advanceOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:593:  const failOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:667:  const retryOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:757:  const rollbackOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/graph.ts:30:  loadProjectByIdForUser,
+artifacts/api-server/src/routes/graph.ts:96:  const project = await loadProjectByIdForUser(
+artifacts/api-server/src/routes/graph.ts:142:  const project = await loadProjectByIdForUser(
+artifacts/api-server/src/routes/graph.ts:248:  const ownerProject = await loadProjectByIdForUser(entity.projectId, req.userId, res);
+artifacts/api-server/src/routes/graph.ts:312:  const ownerProject = await loadProjectByIdForUser(entity.projectId, req.userId, res);
+artifacts/api-server/src/routes/graph.ts:341:  const ownerProject = await loadProjectByIdForUser(entity.projectId, req.userId, res);
+artifacts/api-server/src/routes/graph.ts:425:  const project = await loadProjectByIdForUser(
+artifacts/api-server/src/routes/graph.ts:514:  const ownerProject = await loadProjectByIdForUser(entity.projectId, req.userId, res);
+artifacts/api-server/src/routes/graph.ts:560:  const ownerProject = await loadProjectByIdForUser(entity.projectId, req.userId, res);

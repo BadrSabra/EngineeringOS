@@ -1,0 +1,63 @@
+__vite_ssr_exportName__("eventSeverityEnum", () => { try { return eventSeverityEnum } catch {} });
+__vite_ssr_exportName__("eventsTable", () => { try { return eventsTable } catch {} });
+const __vite_ssr_import_0__ = await __vite_ssr_import__("/node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/drizzle-orm/pg-core/index.js", {"importedNames":["pgTable","text","timestamp","jsonb","pgEnum","index"]});
+const __vite_ssr_import_1__ = await __vite_ssr_import__("/lib/db/src/schema/projects.ts", {"importedNames":["projectsTable"]});
+const __vite_ssr_import_2__ = await __vite_ssr_import__("/lib/db/src/schema/tasks.ts", {"importedNames":["tasksTable"]});
+const __vite_ssr_import_3__ = await __vite_ssr_import__("/lib/db/src/schema/workflows.ts", {"importedNames":["workflowsTable"]});
+"use strict";
+
+
+
+
+const eventSeverityEnum = (0,__vite_ssr_import_0__.pgEnum)("event_severity", [
+  "info",
+  "warning",
+  "error",
+  "success"
+]);
+const eventsTable = (0,__vite_ssr_import_0__.pgTable)("events", {
+  id: (0,__vite_ssr_import_0__.text)("id").primaryKey(),
+  type: (0,__vite_ssr_import_0__.text)("type").notNull(),
+  projectId: (0,__vite_ssr_import_0__.text)("project_id").notNull().references(() => __vite_ssr_import_1__.projectsTable.id, { onDelete: "cascade" }),
+  taskId: (0,__vite_ssr_import_0__.text)("task_id").references(() => __vite_ssr_import_2__.tasksTable.id, { onDelete: "set null" }),
+  workflowId: (0,__vite_ssr_import_0__.text)("workflow_id").references(() => __vite_ssr_import_3__.workflowsTable.id, { onDelete: "set null" }),
+  payload: (0,__vite_ssr_import_0__.jsonb)("payload").$type(),
+  severity: eventSeverityEnum("severity").notNull().default("info"),
+  message: (0,__vite_ssr_import_0__.text)("message").notNull().default(""),
+  timestamp: (0,__vite_ssr_import_0__.timestamp)("timestamp").notNull().defaultNow(),
+  /**
+   * Soft link to a logical operation (scan, task execute, workflow advance,
+   * etc.). All records sharing the same correlationId were produced by one
+   * call. Nullable: older rows and operations that span no secondary tables
+   * (e.g. a plain project update) carry no correlationId.
+   */
+  correlationId: (0,__vite_ssr_import_0__.text)("correlation_id")
+}, (t) => [
+  (0,__vite_ssr_import_0__.index)("idx_events_project_id").on(t.projectId),
+  // Covers: WHERE project_id = ? ORDER BY timestamp DESC LIMIT n  (no type filter)
+  (0,__vite_ssr_import_0__.index)("idx_events_project_id_timestamp").on(t.projectId, t.timestamp),
+  /**
+   * DB-17: Covers the most common filtered query in events.ts:
+   *   WHERE project_id = ? AND type = ? ORDER BY timestamp DESC
+   * PostgreSQL uses a backward index scan on timestamp, so DESC ordering is
+   * served efficiently without a separate sort step.
+   */
+  (0,__vite_ssr_import_0__.index)("idx_events_project_id_type_timestamp").on(t.projectId, t.type, t.timestamp),
+  /**
+   * DB-17: Covers the correlationId scoped lookup in events.ts:
+   *   WHERE project_id = ? AND correlation_id = ?
+   * The project_id leading column means this index is scoped — a correlationId
+   * from a different project cannot accidentally match.
+   */
+  (0,__vite_ssr_import_0__.index)("idx_events_project_id_correlation_id").on(t.projectId, t.correlationId),
+  // Global timestamp index — kept for admin/dashboard time-range queries
+  // that do not have a project_id filter (e.g. system-wide event feed).
+  (0,__vite_ssr_import_0__.index)("idx_events_timestamp").on(t.timestamp),
+  // Single-column correlationId index — kept for cross-project audit trail
+  // lookups (e.g. "show me everything from correlation X regardless of project").
+  (0,__vite_ssr_import_0__.index)("idx_events_correlation_id").on(t.correlationId)
+]);
+//# sourceMappingSource=vite-generated
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJtYXBwaW5ncyI6IkFBQUEsQ0FBQTs7QUFBQTtBQUNBO0FBQ0E7QUFDQTs7Ozs7O0FBRU8sTUFBTSx1QkFBb0IsOEJBQU8sa0JBQWtCO0FBQUEsRUFDeEQ7QUFBQSxFQUNBO0FBQUEsRUFDQTtBQUFBLEVBQ0E7QUFDRixDQUFDO0FBRU0sTUFBTSxpQkFBYywrQkFBUSxVQUFVO0FBQUEsRUFDM0MsT0FBSSw0QkFBSyxJQUFJLEVBQUUsV0FBVztBQUFBLEVBQzFCLFNBQU0sNEJBQUssTUFBTSxFQUFFLFFBQVE7QUFBQSxFQUMzQixjQUFXLDRCQUFLLFlBQVksRUFDekIsUUFBUSxFQUNSLFdBQVcsTUFBTSxvQ0FBYyxJQUFJLEVBQUUsVUFBVSxVQUFVLENBQUM7QUFBQSxFQUM3RCxXQUFRLDRCQUFLLFNBQVMsRUFBRSxXQUFXLE1BQU0saUNBQVcsSUFBSSxFQUFFLFVBQVUsV0FBVyxDQUFDO0FBQUEsRUFDaEYsZUFBWSw0QkFBSyxhQUFhLEVBQUUsV0FBVyxNQUFNLHFDQUFlLElBQUksRUFBRSxVQUFVLFdBQVcsQ0FBQztBQUFBLEVBQzVGLFlBQVMsNkJBQU0sU0FBUyxFQUFFLE1BQStCO0FBQUEsRUFDekQsVUFBVSxrQkFBa0IsVUFBVSxFQUFFLFFBQVEsRUFBRSxRQUFRLE1BQU07QUFBQSxFQUNoRSxZQUFTLDRCQUFLLFNBQVMsRUFBRSxRQUFRLEVBQUUsUUFBUSxFQUFFO0FBQUEsRUFDN0MsY0FBVyxpQ0FBVSxXQUFXLEVBQUUsUUFBUSxFQUFFLFdBQVc7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQSxFQU92RCxrQkFBZSw0QkFBSyxnQkFBZ0I7QUFDdEMsR0FBRyxDQUFDLE1BQU07QUFBQSxLQUNSLDZCQUFNLHVCQUF1QixFQUFFLEdBQUcsRUFBRSxTQUFTO0FBQUE7QUFBQSxLQUU3Qyw2QkFBTSxpQ0FBaUMsRUFBRSxHQUFHLEVBQUUsV0FBVyxFQUFFLFNBQVM7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQSxLQU9wRSw2QkFBTSxzQ0FBc0MsRUFBRSxHQUFHLEVBQUUsV0FBVyxFQUFFLE1BQU0sRUFBRSxTQUFTO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUEsS0FPakYsNkJBQU0sc0NBQXNDLEVBQUUsR0FBRyxFQUFFLFdBQVcsRUFBRSxhQUFhO0FBQUE7QUFBQTtBQUFBLEtBRzdFLDZCQUFNLHNCQUFzQixFQUFFLEdBQUcsRUFBRSxTQUFTO0FBQUE7QUFBQTtBQUFBLEtBRzVDLDZCQUFNLDJCQUEyQixFQUFFLEdBQUcsRUFBRSxhQUFhO0FBQ3ZELENBQUMiLCJuYW1lcyI6W10sImlnbm9yZUxpc3QiOltdLCJzb3VyY2VzIjpbImV2ZW50cy50cyJdLCJzb3VyY2VzQ29udGVudCI6WyJpbXBvcnQgeyBwZ1RhYmxlLCB0ZXh0LCB0aW1lc3RhbXAsIGpzb25iLCBwZ0VudW0sIGluZGV4IH0gZnJvbSBcImRyaXp6bGUtb3JtL3BnLWNvcmVcIjtcbmltcG9ydCB7IHByb2plY3RzVGFibGUgfSBmcm9tIFwiLi9wcm9qZWN0cy5qc1wiO1xuaW1wb3J0IHsgdGFza3NUYWJsZSB9IGZyb20gXCIuL3Rhc2tzLmpzXCI7XG5pbXBvcnQgeyB3b3JrZmxvd3NUYWJsZSB9IGZyb20gXCIuL3dvcmtmbG93cy5qc1wiO1xuXG5leHBvcnQgY29uc3QgZXZlbnRTZXZlcml0eUVudW0gPSBwZ0VudW0oXCJldmVudF9zZXZlcml0eVwiLCBbXG4gIFwiaW5mb1wiLFxuICBcIndhcm5pbmdcIixcbiAgXCJlcnJvclwiLFxuICBcInN1Y2Nlc3NcIixcbl0pO1xuXG5leHBvcnQgY29uc3QgZXZlbnRzVGFibGUgPSBwZ1RhYmxlKFwiZXZlbnRzXCIsIHtcbiAgaWQ6IHRleHQoXCJpZFwiKS5wcmltYXJ5S2V5KCksXG4gIHR5cGU6IHRleHQoXCJ0eXBlXCIpLm5vdE51bGwoKSxcbiAgcHJvamVjdElkOiB0ZXh0KFwicHJvamVjdF9pZFwiKVxuICAgIC5ub3ROdWxsKClcbiAgICAucmVmZXJlbmNlcygoKSA9PiBwcm9qZWN0c1RhYmxlLmlkLCB7IG9uRGVsZXRlOiBcImNhc2NhZGVcIiB9KSxcbiAgdGFza0lkOiB0ZXh0KFwidGFza19pZFwiKS5yZWZlcmVuY2VzKCgpID0+IHRhc2tzVGFibGUuaWQsIHsgb25EZWxldGU6IFwic2V0IG51bGxcIiB9KSxcbiAgd29ya2Zsb3dJZDogdGV4dChcIndvcmtmbG93X2lkXCIpLnJlZmVyZW5jZXMoKCkgPT4gd29ya2Zsb3dzVGFibGUuaWQsIHsgb25EZWxldGU6IFwic2V0IG51bGxcIiB9KSxcbiAgcGF5bG9hZDoganNvbmIoXCJwYXlsb2FkXCIpLiR0eXBlPFJlY29yZDxzdHJpbmcsIHVua25vd24+PigpLFxuICBzZXZlcml0eTogZXZlbnRTZXZlcml0eUVudW0oXCJzZXZlcml0eVwiKS5ub3ROdWxsKCkuZGVmYXVsdChcImluZm9cIiksXG4gIG1lc3NhZ2U6IHRleHQoXCJtZXNzYWdlXCIpLm5vdE51bGwoKS5kZWZhdWx0KFwiXCIpLFxuICB0aW1lc3RhbXA6IHRpbWVzdGFtcChcInRpbWVzdGFtcFwiKS5ub3ROdWxsKCkuZGVmYXVsdE5vdygpLFxuICAvKipcbiAgICogU29mdCBsaW5rIHRvIGEgbG9naWNhbCBvcGVyYXRpb24gKHNjYW4sIHRhc2sgZXhlY3V0ZSwgd29ya2Zsb3cgYWR2YW5jZSxcbiAgICogZXRjLikuIEFsbCByZWNvcmRzIHNoYXJpbmcgdGhlIHNhbWUgY29ycmVsYXRpb25JZCB3ZXJlIHByb2R1Y2VkIGJ5IG9uZVxuICAgKiBjYWxsLiBOdWxsYWJsZTogb2xkZXIgcm93cyBhbmQgb3BlcmF0aW9ucyB0aGF0IHNwYW4gbm8gc2Vjb25kYXJ5IHRhYmxlc1xuICAgKiAoZS5nLiBhIHBsYWluIHByb2plY3QgdXBkYXRlKSBjYXJyeSBubyBjb3JyZWxhdGlvbklkLlxuICAgKi9cbiAgY29ycmVsYXRpb25JZDogdGV4dChcImNvcnJlbGF0aW9uX2lkXCIpLFxufSwgKHQpID0+IFtcbiAgaW5kZXgoXCJpZHhfZXZlbnRzX3Byb2plY3RfaWRcIikub24odC5wcm9qZWN0SWQpLFxuICAvLyBDb3ZlcnM6IFdIRVJFIHByb2plY3RfaWQgPSA/IE9SREVSIEJZIHRpbWVzdGFtcCBERVNDIExJTUlUIG4gIChubyB0eXBlIGZpbHRlcilcbiAgaW5kZXgoXCJpZHhfZXZlbnRzX3Byb2plY3RfaWRfdGltZXN0YW1wXCIpLm9uKHQucHJvamVjdElkLCB0LnRpbWVzdGFtcCksXG4gIC8qKlxuICAgKiBEQi0xNzogQ292ZXJzIHRoZSBtb3N0IGNvbW1vbiBmaWx0ZXJlZCBxdWVyeSBpbiBldmVudHMudHM6XG4gICAqICAgV0hFUkUgcHJvamVjdF9pZCA9ID8gQU5EIHR5cGUgPSA/IE9SREVSIEJZIHRpbWVzdGFtcCBERVNDXG4gICAqIFBvc3RncmVTUUwgdXNlcyBhIGJhY2t3YXJkIGluZGV4IHNjYW4gb24gdGltZXN0YW1wLCBzbyBERVNDIG9yZGVyaW5nIGlzXG4gICAqIHNlcnZlZCBlZmZpY2llbnRseSB3aXRob3V0IGEgc2VwYXJhdGUgc29ydCBzdGVwLlxuICAgKi9cbiAgaW5kZXgoXCJpZHhfZXZlbnRzX3Byb2plY3RfaWRfdHlwZV90aW1lc3RhbXBcIikub24odC5wcm9qZWN0SWQsIHQudHlwZSwgdC50aW1lc3RhbXApLFxuICAvKipcbiAgICogREItMTc6IENvdmVycyB0aGUgY29ycmVsYXRpb25JZCBzY29wZWQgbG9va3VwIGluIGV2ZW50cy50czpcbiAgICogICBXSEVSRSBwcm9qZWN0X2lkID0gPyBBTkQgY29ycmVsYXRpb25faWQgPSA/XG4gICAqIFRoZSBwcm9qZWN0X2lkIGxlYWRpbmcgY29sdW1uIG1lYW5zIHRoaXMgaW5kZXggaXMgc2NvcGVkIOKAlCBhIGNvcnJlbGF0aW9uSWRcbiAgICogZnJvbSBhIGRpZmZlcmVudCBwcm9qZWN0IGNhbm5vdCBhY2NpZGVudGFsbHkgbWF0Y2guXG4gICAqL1xuICBpbmRleChcImlkeF9ldmVudHNfcHJvamVjdF9pZF9jb3JyZWxhdGlvbl9pZFwiKS5vbih0LnByb2plY3RJZCwgdC5jb3JyZWxhdGlvbklkKSxcbiAgLy8gR2xvYmFsIHRpbWVzdGFtcCBpbmRleCDigJQga2VwdCBmb3IgYWRtaW4vZGFzaGJvYXJkIHRpbWUtcmFuZ2UgcXVlcmllc1xuICAvLyB0aGF0IGRvIG5vdCBoYXZlIGEgcHJvamVjdF9pZCBmaWx0ZXIgKGUuZy4gc3lzdGVtLXdpZGUgZXZlbnQgZmVlZCkuXG4gIGluZGV4KFwiaWR4X2V2ZW50c190aW1lc3RhbXBcIikub24odC50aW1lc3RhbXApLFxuICAvLyBTaW5nbGUtY29sdW1uIGNvcnJlbGF0aW9uSWQgaW5kZXgg4oCUIGtlcHQgZm9yIGNyb3NzLXByb2plY3QgYXVkaXQgdHJhaWxcbiAgLy8gbG9va3VwcyAoZS5nLiBcInNob3cgbWUgZXZlcnl0aGluZyBmcm9tIGNvcnJlbGF0aW9uIFggcmVnYXJkbGVzcyBvZiBwcm9qZWN0XCIpLlxuICBpbmRleChcImlkeF9ldmVudHNfY29ycmVsYXRpb25faWRcIikub24odC5jb3JyZWxhdGlvbklkKSxcbl0pO1xuXG5leHBvcnQgdHlwZSBJbnNlcnRFdmVudCA9IHR5cGVvZiBldmVudHNUYWJsZS4kaW5mZXJJbnNlcnQ7XG5leHBvcnQgdHlwZSBFdmVudCA9IHR5cGVvZiBldmVudHNUYWJsZS4kaW5mZXJTZWxlY3Q7XG4iXSwiZmlsZSI6Ii9saWIvZGIvc3JjL3NjaGVtYS9ldmVudHMudHMifQ==
+
+//# vitestCache=W3siZmlsZSI6IjEiLCJpZCI6IjEiLCJ1cmwiOiIyIiwiaW1wb3J0ZWRVcmxzIjoiMyIsIm1hcHBpbmdzIjpmYWxzZX0sIi9ob21lL3J1bm5lci93b3Jrc3BhY2UvbGliL2RiL3NyYy9zY2hlbWEvZXZlbnRzLnRzIiwiL2xpYi9kYi9zcmMvc2NoZW1hL2V2ZW50cy50cyIsW11d

@@ -5617,7 +5617,9 @@ router.delete("/ai/chat/proposals/:proposalId", async (req, res) => {
     .from(aiChangeProposalsTable)
     .where(eq(aiChangeProposalsTable.id, req.params.proposalId))
     .limit(1);
-  if (!proposal) return res.status(404).json({ error: "Change proposal not found" });
+  if (!proposal) {
+    return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+  }
   const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
   if (!project) return;
   if (proposal.status !== "pending") {

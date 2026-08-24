@@ -2447,6 +2447,19 @@ describe("POST /api/ai/chat/plans/:messageId/decision", () => {
 });
 
 describe("delivery recovery routes", () => {
+  it("keeps deleted legacy proposal links on the safe not-found contract", async () => {
+    const deletedProposalId = randomUUID();
+    const res = await request(app)
+      .delete(`/api/ai/chat/proposals/${deletedProposalId}`);
+
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({
+      error: "Change proposal not found",
+      code: "PROPOSAL_NOT_FOUND",
+    });
+    expect(JSON.stringify(res.body)).not.toMatch(/workspace|path|content|diagnostic/i);
+  });
+
   it("lists only owned recoverable operations and retains conflict evidence", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);

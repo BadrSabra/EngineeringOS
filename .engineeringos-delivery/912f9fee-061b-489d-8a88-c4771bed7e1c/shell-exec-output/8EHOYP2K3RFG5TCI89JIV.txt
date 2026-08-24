@@ -1,0 +1,320 @@
+3014-      expect(res.status).toBe(207);
+3015-      expect(res.body.results[0].ok).toBe(false);
+3016-      expect(res.body.results[0].error).toContain("changed after");
+3017-      expect(await fs.readFile(absolutePath, "utf-8")).toBe("export const current = true;\n");
+--
+3045-      absolutePath,
+3046-      originalContent: original,
+3047-      baseHash: hashPatchBase(original),
+3048-      hunks: buildPatchHunks(original, replacement, "Replace the guarded value"),
+3049-      newContent: replacement,
+3050-      reason: "Replace the guarded value",
+3051-      validationProfile: "api-ai-tests" as const,
+3052-    }];
+3053:    const proposalId = await insertChangeProposal(id, proposalChanges);
+3054-
+3055-    try {
+3056-      await fs.writeFile(absolutePath, "export const userEdit = true;\n", "utf-8");
+3057-      const res = await request(app)
+3058-        .post("/api/ai/chat/apply-changes")
+3059:        .send({ projectId: id, proposalId, changes: proposalChanges });
+3060-
+3061-      expect(res.status).toBe(207);
+3062-      expect(res.body.results[0]).toMatchObject({
+3063-        ok: false,
+3064-        code: "STALE_BASE",
+3065-        conflict: { kind: "base_hash_mismatch" },
+3066-      });
+3067-      expect(await fs.readFile(absolutePath, "utf-8")).toBe("export const userEdit = true;\n");
+--
+3113-        originalContent: validOriginal,
+3114-        baseHash: hashPatchBase(validOriginal),
+3115-        hunks: buildPatchHunks(validOriginal, validReplacement, "Update valid file"),
+3116-        newContent: validReplacement,
+3117-        reason: "Update valid file",
+3118-        validationProfile: "api-ai-tests" as const,
+3119-      },
+3120-    ];
+3121:    const proposalId = await insertChangeProposal(id, proposalChanges);
+3122-
+3123-    try {
+3124-      await fs.writeFile(stalePath, "export const user_edit = true;\n", "utf-8");
+3125-      const res = await request(app)
+3126-        .post("/api/ai/chat/apply-changes")
+3127:        .send({ projectId: id, proposalId, changes: proposalChanges });
+3128-
+3129-      expect(res.status).toBe(207);
+3130-      const staleResult = res.body.results.find((result: { path: string }) => result.path === staleName);
+3131-      const validResult = res.body.results.find((result: { path: string }) => result.path === validName);
+3132-      expect(staleResult).toMatchObject({
+3133-        ok: false,
+3134-        code: "STALE_BASE",
+3135-        conflict: { kind: "base_hash_mismatch" },
+--
+3176-        expectedText: "export const stale = true;",
+3177-        replacementText: "export const next = true;",
+3178-        reason: "Test stale hunk",
+3179-      }],
+3180-      newContent: "export const next = true;\n",
+3181-      reason: "Test stale hunk",
+3182-      validationProfile: "api-ai-tests" as const,
+3183-    }];
+3184:    const proposalId = await insertChangeProposal(id, proposalChanges);
+3185-
+3186-    try {
+3187-      const res = await request(app)
+3188-        .post("/api/ai/chat/apply-changes")
+3189:        .send({ projectId: id, proposalId, changes: proposalChanges });
+3190-
+3191-      expect(res.status).toBe(207);
+3192-      expect(res.body.results[0]).toMatchObject({
+3193-        ok: false,
+3194-        code: "PATCH_HUNK_MISMATCH",
+3195-        conflict: { kind: "hunk_mismatch", hunkIndex: 0 },
+3196-      });
+3197-      expect(await fs.readFile(absolutePath, "utf-8")).toBe(current);
+--
+3262-      absolutePath,
+3263-      originalContent: original,
+3264-      baseHash: hashPatchBase(original),
+3265-      hunks: [firstHunk, secondHunk],
+3266-      newContent: "const a = 10;\nconst b = 20;\nconst c = 3;\n",
+3267-      reason: "Partial hunk apply",
+3268-      validationProfile: "workspace-typecheck" as const,
+3269-    }];
+3270:    const proposalId = await insertChangeProposal(id, storedChanges);
+3271-
+3272-    // The UI submits only the first hunk (second is rejected by the user).
+3273-    // authorizeChangeSubset must accept this as a valid subset.
+3274-    const partialChanges = [{ ...storedChanges[0], hunks: [firstHunk] }];
+3275-
+3276-    try {
+3277-      const res = await request(app)
+3278-        .post("/api/ai/chat/apply-changes")
+3279:        .send({ projectId: id, proposalId, changes: partialChanges });
+3280-
+3281-      // allOk=true → 200; 207 is for partial success only.
+3282-      expect(res.status).toBe(200);
+3283-      expect(res.body.results[0]).toMatchObject({ ok: true });
+3284-      // Only the first hunk (a→10) was applied; b stays at 2.
+3285-      expect(await fs.readFile(absolutePath, "utf-8")).toBe(
+3286-        "const a = 10;\nconst b = 2;\nconst c = 3;\n",
+3287-      );
+--
+3318-      reason: "Stored hunk",
+3319-    };
+3320-    const storedChanges = [{
+3321-      path: fileName, absolutePath, originalContent: original,
+3322-      baseHash: hashPatchBase(original), hunks: [storedHunk],
+3323-      newContent: "const a = 10;\n", reason: "Stored",
+3324-      validationProfile: "workspace-typecheck" as const,
+3325-    }];
+3326:    const proposalId = await insertChangeProposal(id, storedChanges);
+3327-
+3328-    // Submit with hunks: [] — would bypass subset check and write full newContent.
+3329-    try {
+3330-      const res = await request(app)
+3331-        .post("/api/ai/chat/apply-changes")
+3332:        .send({ projectId: id, proposalId, changes: [{ ...storedChanges[0], hunks: [] }] });
+3333-      expect(res.status).toBe(409);
+3334-      expect(res.body.code).toBe("PROPOSAL_MISMATCH");
+3335-      expect(await fs.readFile(absolutePath, "utf-8")).toBe(original);
+3336-    } finally {
+3337-      await fs.rm(absolutePath, { force: true });
+3338-    }
+3339-  });
+3340-
+--
+3365-      reason: "Stored hunk",
+3366-    };
+3367-    const storedChanges = [{
+3368-      path: fileName, absolutePath, originalContent: original,
+3369-      baseHash: hashPatchBase(original), hunks: [storedHunk],
+3370-      newContent: "const a = 10;\n", reason: "Stored",
+3371-      validationProfile: "workspace-typecheck" as const,
+3372-    }];
+3373:    const proposalId = await insertChangeProposal(id, storedChanges);
+3374-
+3375-    // Submit with no hunks key — Zod allows undefined; would bypass to write newContent.
+3376-    const { hunks: _omitted, ...changeWithoutHunks } = storedChanges[0];
+3377-    try {
+3378-      const res = await request(app)
+3379-        .post("/api/ai/chat/apply-changes")
+3380:        .send({ projectId: id, proposalId, changes: [changeWithoutHunks] });
+3381-      expect(res.status).toBe(409);
+3382-      expect(res.body.code).toBe("PROPOSAL_MISMATCH");
+3383-      expect(await fs.readFile(absolutePath, "utf-8")).toBe(original);
+3384-    } finally {
+3385-      await fs.rm(absolutePath, { force: true });
+3386-    }
+3387-  });
+3388-
+--
+3409-      reason: "Stored hunk",
+3410-    };
+3411-    const storedChanges = [{
+3412-      path: fileName, absolutePath, originalContent: original,
+3413-      baseHash: hashPatchBase(original), hunks: [storedHunk],
+3414-      newContent: "const a = 10;\n", reason: "Stored",
+3415-      validationProfile: "workspace-typecheck" as const,
+3416-    }];
+3417:    const proposalId = await insertChangeProposal(id, storedChanges);
+3418-
+3419-    // Submit the same valid hunk twice — one-to-one multiset matching must reject this.
+3420-    try {
+3421-      const res = await request(app)
+3422-        .post("/api/ai/chat/apply-changes")
+3423-        .send({
+3424:          projectId: id, proposalId,
+3425-          changes: [{ ...storedChanges[0], hunks: [storedHunk, storedHunk] }],
+3426-        });
+3427-      expect(res.status).toBe(409);
+3428-      expect(res.body.code).toBe("PROPOSAL_MISMATCH");
+3429-      expect(await fs.readFile(absolutePath, "utf-8")).toBe(original);
+3430-    } finally {
+3431-      await fs.rm(absolutePath, { force: true });
+3432-    }
+--
+3459-      reason: "Stored hunk",
+3460-    };
+3461-    const storedChanges = [{
+3462-      path: fileName, absolutePath, originalContent: original,
+3463-      baseHash: hashPatchBase(original), hunks: [storedHunk],
+3464-      newContent: "const a = 10;\n", reason: "Store one hunk",
+3465-      validationProfile: "workspace-typecheck" as const,
+3466-    }];
+3467:    const proposalId = await insertChangeProposal(id, storedChanges);
+3468-
+3469-    // Submit a fabricated hunk that differs from the stored proposal.
+3470-    // authorizeChangeSubset must reject this and return PROPOSAL_MISMATCH.
+3471-    const fabricatedHunk = { ...storedHunk, replacementText: "const a = 999;", reason: "Fabricated" };
+3472-    try {
+3473-      const res = await request(app)
+3474-        .post("/api/ai/chat/apply-changes")
+3475:        .send({ projectId: id, proposalId, changes: [{ ...storedChanges[0], hunks: [fabricatedHunk] }] });
+3476-      expect(res.status).toBe(409);
+3477-      expect(res.body.code).toBe("PROPOSAL_MISMATCH");
+3478-      // File must not have been written.
+3479-      expect(await fs.readFile(absolutePath, "utf-8")).toBe(original);
+3480-    } finally {
+3481-      await fs.rm(absolutePath, { force: true });
+3482-    }
+3483-  });
+--
+3506-      absolutePath,
+3507-      originalContent: original,
+3508-      baseHash: hashPatchBase(original),
+3509-      hunks: buildPatchHunks(original, replacement, "Update the value"),
+3510-      newContent: replacement,
+3511-      reason: "Update the value",
+3512-      validationProfile: "api-ai-tests" as const,
+3513-    }];
+3514:    const proposalId = await insertChangeProposal(id, proposalChanges);
+3515-    const drifted = `// user header\n${original}`;
+3516-
+3517-    try {
+3518-      await fs.writeFile(absolutePath, drifted, "utf-8");
+3519-      const res = await request(app)
+3520-        .post("/api/ai/chat/rebase-changes")
+3521:        .send({ projectId: id, proposalId, changes: proposalChanges });
+3522-
+3523-      expect(res.status).toBe(200);
+3524-      expect(res.body).toMatchObject({
+3525:        proposalId,
+3526-        approvalRequired: true,
+3527-        rebasedFiles: [fileName],
+3528-      });
+3529-      expect(res.body.changes[0]).toMatchObject({
+3530-        path: fileName,
+3531-        originalContent: drifted,
+3532-        baseHash: hashPatchBase(drifted),
+3533-        newContent: "// user header\nexport const value = 2;\n",
+3534-      });
+3535-      expect(await fs.readFile(absolutePath, "utf-8")).toBe(drifted);
+3536-
+3537-      const [stored] = await db
+3538-        .select({ status: aiChangeProposalsTable.status, changes: aiChangeProposalsTable.changes })
+3539-        .from(aiChangeProposalsTable)
+3540:        .where(eq(aiChangeProposalsTable.id, proposalId));
+3541-      expect(stored?.status).toBe("pending");
+3542-      expect(JSON.parse(stored!.changes)[0]).toMatchObject({
+3543-        originalContent: drifted,
+3544-        newContent: "// user header\nexport const value = 2;\n",
+3545-      });
+3546-
+3547-      const blockedApply = await request(app)
+3548-        .post("/api/ai/chat/apply-changes")
+3549-        .send({
+3550-          projectId: id,
+3551:          proposalId,
+3552-          changes: res.body.changes,
+3553-        });
+3554-      expect(blockedApply.status).toBe(409);
+3555-      expect(blockedApply.body).toMatchObject({
+3556-        code: "PROPOSAL_REAPPROVAL_REQUIRED",
+3557-        approvalRequired: true,
+3558-        revision: 1,
+3559-      });
+3560-
+3561-      const approval = await request(app)
+3562:        .post(`/api/ai/chat/proposals/${proposalId}/approve`)
+3563-        .send({ projectId: id, revision: blockedApply.body.revision });
+3564-      expect(approval.status).toBe(200);
+3565-      expect(approval.body).toEqual({
+3566:        proposalId,
+3567-        approvalRequired: false,
+3568-        revision: 1,
+3569-      });
+3570-      const [approvedProposal] = await db
+3571-        .select({
+3572-          approvalRequired: aiChangeProposalsTable.approvalRequired,
+3573-          revision: aiChangeProposalsTable.revision,
+3574-        })
+3575-        .from(aiChangeProposalsTable)
+3576:        .where(eq(aiChangeProposalsTable.id, proposalId));
+3577-      expect(approvedProposal).toEqual({ approvalRequired: false, revision: 1 });
+3578-    } finally {
+3579-      await fs.rm(absolutePath, { force: true });
+3580-    }
+3581-  });
+3582-
+3583-  it("does not update a proposal when one rebase hunk conflicts", async () => {
+3584-    const id = randomUUID();
+--
+3604-      absolutePath,
+3605-      originalContent: original,
+3606-      baseHash: hashPatchBase(original),
+3607-      hunks: buildPatchHunks(original, replacement, "Update the value"),
+3608-      newContent: replacement,
+3609-      reason: "Update the value",
+3610-      validationProfile: "api-ai-tests" as const,
+3611-    }];
+3612:    const proposalId = await insertChangeProposal(id, proposalChanges);
+3613-
+3614-    try {
+3615-      await fs.writeFile(absolutePath, "export const value = 9;\n", "utf-8");
+3616-      const res = await request(app)
+3617-        .post("/api/ai/chat/rebase-changes")
+3618:        .send({ projectId: id, proposalId, changes: proposalChanges });
+3619-
+3620-      expect(res.status).toBe(409);
+3621-      expect(res.body).toMatchObject({
+3622-        code: "PATCH_REBASE_CONFLICT",
+3623-        results: [{
+3624-          path: fileName,
+3625-          code: "PATCH_REBASE_CONFLICT",
+3626-          conflict: { kind: "hunk_mismatch", hunkIndex: 0 },
+3627-        }],
+3628-      });
+3629-      const [stored] = await db
+3630-        .select({ status: aiChangeProposalsTable.status, changes: aiChangeProposalsTable.changes })
+3631-        .from(aiChangeProposalsTable)
+3632:        .where(eq(aiChangeProposalsTable.id, proposalId));
+3633-      expect(stored?.status).toBe("pending");
+3634-      expect(JSON.parse(stored!.changes)).toEqual(proposalChanges);
+3635-      expect(await fs.readFile(absolutePath, "utf-8")).toBe("export const value = 9;\n");
+3636-    } finally {
+3637-      await fs.rm(absolutePath, { force: true });
+3638-    }
+3639-  });
+3640-

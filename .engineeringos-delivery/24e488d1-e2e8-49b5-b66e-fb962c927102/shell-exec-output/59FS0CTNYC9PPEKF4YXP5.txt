@@ -1,0 +1,422 @@
+    needsHumanReview: false,
+  })),
+  parseWorkflowPhases: vi.fn((raw: unknown) => {
+    // Minimal real implementation for tests: parse array of phase-like objects.
+    if (!Array.isArray(raw)) return { ok: false, error: "phases must be an array" };
+    return { ok: true, phases: raw };
+  }),
+  // GroqClientError must be a real class so handleOrchestratorError can use
+  // `instanceof` checks. Without it vitest throws "No GroqClientError export".
+  GroqClientError: class GroqClientError extends Error {
+    readonly code: string;
+    constructor(code: string, message: string) {
+      super(message);
+      this.name = "GroqClientError";
+      this.code = code;
+    }
+  },
+  // PR-07: circuit breaker — collectAvailableProviders calls isCircuitOpen for
+  // every candidate provider. Must be in the mock or all routes that trigger
+  // provider selection throw "No isCircuitOpen export defined on the mock".
+  isCircuitOpen: vi.fn().mockReturnValue(false),
+  // PR-05/PR-11: metrics recording helpers called from chat.ts after each
+  // provider attempt.  Must be stubs so the recording calls are no-ops in tests.
+  recordRequest:        vi.fn(),
+  recordFailure:        vi.fn(),
+  recordSuccess:        vi.fn(),
+  recordFallbackSuccess: vi.fn(),
+  recordInvalidModel:   vi.fn(),
+  recordLatency:        vi.fn(),
+  // Used by collectAvailableProviders to sort providers by quality profile.
+  sortProviderIdsByQuality: vi.fn((ids: string[]) => ids),
+  // classifyRequest is called by the chat route to determine prompt profile.
+  classifyRequest: vi.fn(() => ({ category: "code", contextDepth: "full", historyDepth: 4, maxTokens: 4096, temperature: 0.2, qualityProfile: "code_review" })),
+  isImmediateExecutionRequest: vi.fn((message: string) =>
+    /^(?:نفذ|نفذها|طبق|طبقها|اصلح|اصلحها|ابدأ|ابدا|إبدأ|start|proceed|go\s+ahead|do\s+it|implement|apply|fix|patch|edit|modify|run|execute)(?:\s|$)/i.test(
+      message.trim(),
+    ),
+  ),
+  // enrichContextWithMemories and writeSessionMemories are called by the chat route.
+  enrichContextWithMemories: vi.fn(async (ctx: string) => ctx),
+  writeSessionMemories: vi.fn(async () => undefined),
+  };
+});
+
+// ─── Fixtures ─────────────────────────────────────────────────────────────────
+
+async function insertProject(): Promise<string> {
+  const id = randomUUID();
+  const now = new Date();
+  await db.insert(projectsTable).values({
+    id,
+    ownerId: "test-user",
+    name: `ai-test-${id.slice(0, 8)}`,
+    rootPath: `/tmp/ai-test-${id}`,
+    language: "typescript",
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
+}
+
+async function insertChangeProposal(
+  projectId: string,
+  changes: Array<{
+    path: string;
+    absolutePath: string;
+    newContent: string;
+    originalContent?: string | null;
+    baseHash?: string;
+    hunks?: Array<{
+      startLine: number;
+      endLine: number;
+      expectedText: string;
+      replacementText: string;
+      reason: string;
+    }>;
+    reason?: string;
+    validationProfile?: "ai-orchestrator-tests" | "knowledge-engine-tests" | "api-ai-tests" | "workspace-typecheck";
+  }>,
+): Promise<string> {
+  const sessionId = randomUUID();
+  const messageId = randomUUID();
+  const proposalId = randomUUID();
+  const now = new Date();
+  await db.insert(aiChatSessionsTable).values({
+    id: sessionId,
+    projectId,
+    title: "Test repair proposal",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiChatMessagesTable).values({
+    id: messageId,
+    sessionId,
+    role: "assistant",
+    content: "Test repair proposal",
+    createdAt: now,
+  });
+  await db.insert(aiChangeProposalsTable).values({
+    id: proposalId,
+    projectId,
+    sessionId,
+    messageId,
+    changes: JSON.stringify(changes.map((change) => ({
+      path: change.path,
+      absolutePath: change.absolutePath,
+      newContent: change.newContent,
+      originalContent: change.originalContent ?? null,
+      ...(change.baseHash ? { baseHash: change.baseHash } : {}),
+      ...(change.hunks ? { hunks: change.hunks } : {}),
+      reason: change.reason ?? "Test proposal",
+      ...(change.validationProfile ? { validationProfile: change.validationProfile } : {}),
+    }))),
+    status: "pending",
+    createdAt: now,
+  });
+  return proposalId;
+}
+
+async function makeRecoverableProposal(
+  projectId: string,
+  lifecycle: "abandoned" | "blocked" | "conflicted" = "blocked",
+  options: { withWorkspace?: boolean; conflictReason?: string } = {},
+): Promise<{ proposalId: string; operationId: string; workspaceRoot: string | null; change: {
+  path: string;
+  absolutePath: string;
+  newContent: string;
+  validationProfile: "api-ai-tests";
+} }> {
+  const operationId = randomUUID();
+  const fileName = `recovery-${operationId.slice(0, 8)}.ts`;
+  const change = {
+    path: fileName,
+    absolutePath: `/tmp/${fileName}`,
+    newContent: "export const recovered = true;\n",
+    validationProfile: "api-ai-tests" as const,
+  };
+  const proposalId = await insertChangeProposal(projectId, [change]);
+  let workspaceRoot: string | null = null;
+  if (options.withWorkspace !== false) {
+    const sourceRoot = `/tmp/recovery-source-${operationId}`;
+    await fs.mkdir(sourceRoot, { recursive: true });
+    await fs.writeFile(`${sourceRoot}/package.json`, "{}\n", "utf8");
+    const workspace = await createDeliveryWorkspace({
+      rootPath: sourceRoot,
+      operationId,
+      baseRevision: "base-revision",
+      changes: [change],
+    });
+    workspaceRoot = workspace.workspaceRoot;
+    deliveryWorkspaceRoots.push(workspaceRoot);
+    await fs.rm(sourceRoot, { recursive: true, force: true });
+  }
+  await db.update(aiChangeProposalsTable).set({
+    operationId,
+    workspaceRoot,
+    baseRevision: "base-revision",
+    changeSetHash: "change-set-hash",
+    lifecycle,
+    conflictReason: options.conflictReason ?? "Validation was interrupted before delivery completed.",
+  }).where(eq(aiChangeProposalsTable.id, proposalId));
+  return { proposalId, operationId, workspaceRoot, change };
+}
+
+async function insertTask(projectId: string, status = "pending"): Promise<string> {
+  const id = randomUUID();
+  const now = new Date();
+  await db.insert(tasksTable).values({
+    id,
+    projectId,
+    title: `AI task ${id.slice(0, 6)}`,
+    description: "A task for AI to execute",
+    status: status as "pending",
+    priority: "p2",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
+}
+
+async function insertWorkflow(projectId: string): Promise<string> {
+  const id = randomUUID();
+  const now = new Date();
+  await db.insert(workflowsTable).values({
+    id,
+    projectId,
+    name: `AI Workflow ${id.slice(0, 6)}`,
+    status: "running",
+    phases: [{ name: "Phase 1", steps: ["step-a"] }, { name: "Phase 2", steps: ["step-b"] }],
+    currentPhase: "Phase 1",
+  it("lists only owned recoverable operations and retains conflict evidence", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId, "conflicted", {
+      conflictReason: "Apply stopped after a file conflict; review is required.",
+    });
+
+    const res = await request(app)
+      .get("/api/ai/delivery/recoverable")
+      .query({ projectId });
+
+    expect(res.status).toBe(200);
+    expect(res.body.operations).toHaveLength(1);
+    expect(res.body.operations[0]).toMatchObject({
+      proposalId: operation.proposalId,
+      operationId: operation.operationId,
+      lifecycle: "conflicted",
+      status: "pending",
+      conflictReason: "Apply stopped after a file conflict; review is required.",
+      recoveryState: "recoverable",
+      operatorExplanation: "The delivery stopped because the retained changes need review before validation can continue.",
+      nextAction: "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.",
+      workspaceAvailable: true,
+      changeCount: 1,
+      validationEvidence: null,
+    });
+    expect(res.body.operations[0]).not.toHaveProperty("workspaceRoot");
+    expect(res.body.operations[0]).not.toHaveProperty("changes");
+  });
+
+  it("explains missing and already-discarded recovery states without exposing paths", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const missing = await makeRecoverableProposal(projectId, "abandoned", {
+      withWorkspace: false,
+      conflictReason: "Recovery stopped at /tmp/private-delivery-root after a diagnostic failure.",
+    });
+
+    const discarded = await makeRecoverableProposal(projectId, "blocked");
+    await request(app).post(`/api/ai/delivery/${discarded.proposalId}/discard`);
+
+    const res = await request(app)
+      .get("/api/ai/delivery/recoverable")
+      .query({ projectId });
+
+    expect(res.status).toBe(200);
+    const missingItem = res.body.operations.find((item: { proposalId: string }) => item.proposalId === missing.proposalId);
+    const discardedItem = res.body.operations.find((item: { proposalId: string }) => item.proposalId === discarded.proposalId);
+    expect(missingItem).toMatchObject({
+      recoveryState: "missing_workspace",
+      operatorExplanation: "The saved delivery workspace is no longer available, so recovery cannot continue.",
+      nextAction: "Start a new delivery from the current project rather than retrying this recovery.",
+      workspaceAvailable: false,
+    });
+    expect(discardedItem).toMatchObject({
+      recoveryState: "discarded",
+      workspaceAvailable: false,
+    });
+    expect(JSON.stringify(res.body)).not.toContain("/tmp/private-delivery-root");
+    expect(JSON.stringify(res.body)).not.toContain("workspaceRoot");
+  });
+
+  it("returns the safe not-found contract for deleted recovery links", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId, "blocked", {
+      conflictReason: "Internal diagnostic: recovery stopped at /tmp/private-recovery-root.",
+    });
+    const privateDetails = [
+      operation.workspaceRoot,
+      operation.change.absolutePath,
+      operation.change.newContent,
+      "Internal diagnostic",
+    ];
+
+    await db.delete(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, operation.proposalId));
+
+    const [resume, discard] = await Promise.all([
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/resume-validation`),
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/discard`),
+    ]);
+
+    for (const response of [resume, discard]) {
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({
+        error: "Delivery operation not found",
+        code: "DELIVERY_NOT_FOUND",
+      });
+      const serialized = JSON.stringify(response.body);
+      for (const detail of privateDetails) {
+        if (detail) expect(serialized).not.toContain(detail);
+      }
+    }
+  });
+
+  it("enforces project ownership for recovery listing and actions", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId);
+    await db.update(projectsTable).set({ ownerId: "another-user" })
+      .where(eq(projectsTable.id, projectId));
+
+    const [list, resume, discard] = await Promise.all([
+      request(app).get("/api/ai/delivery/recoverable").query({ projectId }),
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/resume-validation`),
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/discard`),
+    ]);
+
+    expect(list.status).toBe(403);
+    expect(resume.status).toBe(403);
+    expect(discard.status).toBe(403);
+    const [proposal] = await db.select().from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, operation.proposalId));
+    expect(proposal?.lifecycle).toBe("blocked");
+    expect(await deliveryWorkspaceExists(operation.workspaceRoot, operation.operationId)).toBe(true);
+  });
+
+  it("rejects resume when the server-owned workspace marker is missing", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId, "abandoned");
+    await fs.rm(operation.workspaceRoot!, { recursive: true, force: true });
+
+    const res = await request(app)
+      .post(`/api/ai/delivery/${operation.proposalId}/resume-validation`);
+
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({
+      code: "DELIVERY_NOT_RECOVERABLE",
+      lifecycle: "abandoned",
+    });
+  });
+
+  it("makes concurrent resume clicks idempotent and never repeats delivery stages", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId);
+    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
+      .mockResolvedValue({
+        status: "passed",
+        profile: "api-ai-tests",
+        exitCode: 0,
+        scenario: "Run API AI tests.",
+        command: "pnpm test",
+        stdout: "",
+        stderr: "",
+        failedTests: [],
+        changedFiles: [],
+        evidence: { evidenceId: randomUUID(), observedAt: new Date().toISOString(), artifactRef: "test" },
+        detail: "Validation passed.",
+      });
+
+    const responses = await Promise.all([
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/resume-validation`),
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/resume-validation`),
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/resume-validation`),
+    ]);
+
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(responses.filter((response) => response.body.idempotent).length).toBeGreaterThan(0);
+    expect(responses.every((response) => response.body.lifecycle === "validated")).toBe(true);
+    expect(validationSpy).toHaveBeenCalled();
+    const [proposal] = await db.select().from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, operation.proposalId));
+    expect(proposal?.lifecycle).toBe("validated");
+    expect(proposal?.status).toBe("pending");
+    expect(await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
+    expect(await fs.readFile(`${operation.workspaceRoot}/${operation.change.path}`, "utf8"))
+      .toBe(operation.change.newContent);
+  });
+
+  it("makes concurrent discard clicks idempotent and removes the workspace once", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId, "blocked");
+
+    const responses = await Promise.all([
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/discard`),
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/discard`),
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/discard`),
+    ]);
+
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(responses.filter((response) => response.body.discarded).length).toBe(1);
+    expect(responses.every((response) => response.body.lifecycle === "cancelled")).toBe(true);
+    const [proposal] = await db.select().from(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, operation.proposalId));
+    expect(proposal?.status).toBe("rejected");
+    expect(proposal?.lifecycle).toBe("cancelled");
+    expect(await deliveryWorkspaceExists(operation.workspaceRoot, operation.operationId)).toBe(false);
+    expect(await db.select().from(aiApplyJournalTable)
+      .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
+  });
+});
+
+describe("POST /api/ai/chat/apply-changes", () => {
+  it("returns 400 when changes array is missing", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const res = await request(app)
+      .post("/api/ai/chat/apply-changes")
+      .send({ projectId });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when projectId is missing", async () => {
+    const res = await request(app)
+      .post("/api/ai/chat/apply-changes")
+      .send({ changes: [{ path: "a.ts", absolutePath: "/tmp/a.ts", newContent: "" }] });
+    expect(res.status).toBe(400);
+  });
+
+  it("emits a warning AiChangesApplied event when no file can be written", async () => {
+    // Use /tmp as the project rootPath but point the change outside the root so
+    // the handler records a no-op apply with an event/audit trail.
+    const id = randomUUID();
+    const now = new Date();
+    await db.insert(projectsTable).values({
+      id,
+      ownerId: "test-user",
+      name: `apply-test-${id.slice(0, 8)}`,
+      rootPath: "/tmp",
+      language: "typescript",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    projectIds.push(id);
+    const proposalChanges = [{
