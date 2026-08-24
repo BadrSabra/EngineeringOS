@@ -342,3 +342,22 @@ All PRs A–I and forensic audit PRs 1–5 are closed.
 - `pnpm run codegen:check` (CI gate) fails if generated files are out of sync with the spec.
 - The dashboard never calls raw `fetch` for API routes — it uses the generated React Query hooks.
 - esbuild bundles the API server to CJS for production; Vite bundles the dashboard.
+
+## 11. Autonomous readiness baseline
+
+The current readiness decision is documented in
+`docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md` under
+**Recalibrated Autonomous Readiness Gate**. The gate is deliberately narrower
+than a product-parity assessment:
+
+- verified completion requires objective/acceptance binding, approved scope,
+  matching project and candidate revision/hash, passed required nodes,
+  retained redacted evidence, and a terminal `PROVEN` verdict;
+- core execution integrity and operator recovery are scored separately;
+- live providers, deployment, remote push, repository freshness, graph-limit
+  presentation, and exhaustive dashboard reload/reconnect behavior are
+  explicitly `NOT VERIFIED`, `INCOMPLETE`, or deferred rather than passing;
+- proposed or cancelled follow-up work is never treated as merged evidence.
+
+This reference is source- and deterministic-check based. It does not claim
+that the existing routes form one uninterrupted autonomous worker loop.

@@ -275,6 +275,108 @@ Validation must prove final side effects, not only helper behavior.
 
 The release/browser workflow must remain opt-in for real providers and deployment. Screenshots, fixture names, and generated API contracts are not acceptance evidence by themselves. Each accepted result must include operation ID, revision, candidate/changeset hash, profile revision, terminal state, and retained evidence completeness. Live-provider, browser-in-deployment, and remote-push success remain **Cannot Verify From Current Source** until such an artifact is intentionally produced.
 
+## Recalibrated Autonomous Readiness Gate
+
+**Decision (2026-08-24): NOT READY for autonomous delivery.** This is a
+smaller evidence gate over the merged execution, boundary, evidence, and
+recovery foundations. It is not a parity claim and does not treat proposed or
+cancelled follow-up work as evidence. The gate is reproducible from source and
+deterministic checks; live provider, deployment, remote repository, and
+long-horizon browser behavior are separate measurements.
+
+### Completion rule
+
+An operation is **verified complete** only when the retained receipt binds all
+of the following to one operation identity:
+
+1. objective and machine-checkable acceptance checks;
+2. approved, server-owned scope and policy/profile revisions;
+3. project and workspace revision;
+4. candidate/changeset hash, with validation performed against that candidate;
+5. passed receipts for every required node;
+6. retained, redacted evidence sufficient to reconstruct the decision; and
+7. a terminal `PROVEN` verdict with no scope violation, repeated side effect,
+   unresolved recovery, or cancellation.
+
+Anything else is classified as **partial**, **safely blocked**, **failed**,
+**uncertain**, or **not verified**. A model assertion, a fixture name, a
+dashboard screenshot, or a passed check against the live root cannot substitute
+for a candidate-bound receipt.
+
+### Lifecycle evidence matrix
+
+| Phase | Current source evidence | Gate result | Required receipt or blocking condition |
+|---|---|---|---|
+| Inspect | Bounded file walker, graph provenance, project-root re-establishment, read-tool traces | **Partial / bounded** | Operation, revision, scope, complete retained reads; missing or partial reads remain incomplete |
+| Plan | Server-owned objective contract, required claims/edges, dependency-aware nodes, approval and file-scope checks | **Partial** | Immutable plan hash, acceptance checks, approved scope, context/revision manifest |
+| Candidate mutation | Deferred writes, exact proposal subset, lexical/realpath guards, delivery workspace and changeset hashing | **Partial** | Candidate root identity and candidate hash; no direct live-root write before candidate validation |
+| Validation | Registered command/browser profiles, bounded kernel, public validation evidence, provenance fields | **Blocked for autonomous completion** | Validation must target the immutable candidate and match revision, changeset, and candidate hash; current apply path passes the live root |
+| Repair | Bounded repair state and dependency-aware retry primitives; cancellation reaches task provider execution | **Partial** | Failure evidence linked to the same operation/candidate; repair may not expand scope or profile without policy |
+| Promotion | Durable promotion intent, atomic per-file replacement, journal, startup reconciliation | **Partial / recoverable** | Every interruption must be promoted, rolled back, or conservatively blocked; whole-tree crash atomicity is not established |
+| Delivery | Scoped commit/push guards check applied content, evidence, paths, and `HEAD` | **Partial / approval-gated** | Commit/push receipt bound to operation, exact content hash, expected ref, and remote identity |
+| Recovery | Leases, checkpoints, cancellation state, resume handling, recovery listing, owner checks, and redacted operator projections | **Partial** | Current owner, operation, revision, retained evidence, and explicit resume/discard outcome; token/checkpoint races remain gaps |
+| Cancellation | Owned abort signal and terminalization fences exist in task execution and bounded command execution | **Partial** | Cancellation must win over every downstream success, including validation, promotion, recovery, and restart continuation |
+
+### Separate readiness scorecards
+
+| Scorecard | Source-backed result | Interpretation |
+|---|---|---|
+| Core execution integrity | **BLOCKED** | Strong boundaries and evidence gates exist, but candidate validation targets the live root and the full server-owned loop is absent |
+| Operator recovery | **PARTIAL** | Durable state, journals, reconciliation, owner scoping, and safe recovery projections exist; restart/cancel/token edge coverage is not complete |
+| Live provider behavior | **NOT VERIFIED** | Deterministic fixtures and bounded fallback are available; no retained live campaign is required or claimed |
+| Deployment behavior | **NOT VERIFIED** | Deployment is intentionally opt-in and is not an ordinary-release prerequisite |
+| Repository freshness | **INCOMPLETE** | Scanner/context freshness and revisioned completeness are not one authoritative operation input |
+| Graph-limit presentation | **NOT VERIFIED** | This gate does not recreate deferred graph-limit presentation coverage |
+| Dashboard reload/reconnect | **INCOMPLETE** | Dashboard projections and recovery surfaces exist, but exhaustive reload/reconnect convergence is outside this gate |
+| Remote push | **NOT VERIFIED** | Guarded push exists; successful external delivery is not source evidence |
+
+The aggregate decision is **NOT READY** because the core scorecard is blocked.
+The operator scorecard does not upgrade it, and deferred or unverified
+scorecards never count as passing evidence.
+
+### Explicitly deferred or unavailable evidence
+
+The following are named limitations rather than silent passes:
+
+* repository-freshness and incremental semantic indexing;
+* exhausted-update/dashboard reload convergence and graph-limit presentation;
+* cancelled audit-preview recovery after service restart;
+* direct recovery-API redaction acceptance for deleted recovery links;
+* live-provider quality, deployment behavior, and remote-push success;
+* parity with undocumented Replit Agent internals.
+
+The cancelled/proposed follow-up work is not counted as merged acceptance
+evidence. Existing source-level redaction and recovery behavior may be
+reported as implementation evidence, but it does not close the corresponding
+operator acceptance item until its independently scoped coverage is accepted.
+
+### Reproducible deterministic gate
+
+The provider-free checks that support this report are:
+
+* `pnpm run validate:ai-release`
+* `pnpm run test:mission-correlation-report`
+* `pnpm run test:dashboard-journey-contract`
+* `pnpm --filter @workspace/api-server run test:release-fixture-collisions`
+* `pnpm --filter @workspace/api-server run test:release-synthesis-telemetry`
+* `pnpm --filter @workspace/api-server run test:process-recovery`
+* `pnpm --filter @workspace/api-server run typecheck`
+
+The latest run is **BLOCKED**, not passing: API typecheck, deterministic
+benchmark, benchmark baseline verification, mission-correlation, and dashboard
+journey-contract checks passed; the aggregate gate reported four blocking
+families. The truth-flow check cannot run because its expected attached
+matrix is absent, the API parity suite reports three recovery routes missing
+from the OpenAPI contract, and the remaining API/SSE/operational suites have
+deterministic failures that require separate repair. Real process recovery is
+explicitly opt-in and was skipped. These results reinforce the gate decision;
+they are not converted into autonomous capability claims.
+
+These checks validate contracts and deterministic failure handling; they do
+not create live-provider or deployment evidence. A rollback-safe response to
+any new integrity regression is to block promotion/recovery and preserve the
+durable operation receipt for operator review rather than infer success.
+
 ## Final Gap Count
 
 Counts below are matrix rows, with one primary status and one primary severity per finding; categories are mutually exclusive for reconciliation.
