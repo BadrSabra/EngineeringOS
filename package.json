@@ -24,6 +24,8 @@
     "validate:dashboard-client-contract": "node scripts/validate-dashboard-client-contract.mjs",
     "validate": "pnpm run validate:github-workflows && pnpm run validate:dashboard-client-contract && pnpm run typecheck && pnpm run validate:dashboard-restart",
     "validate:dashboard-restart": "pnpm --filter @workspace/dashboard run smoke:restart",
+    "truth:baseline:check": "pnpm --filter @workspace/scripts run generate-truth-flow",
+    "truth:baseline:materialize": "pnpm --filter @workspace/scripts run generate-truth-flow -- --write",
     "truth:validate": "pnpm --filter @workspace/scripts run validate-truth-flow",
     "build": "pnpm run codegen && pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",

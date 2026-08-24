@@ -19,6 +19,30 @@
 - الحالات الصالحة للـ status: `complete` | `partial` | `missing` (من `TruthFlowNodeStatusSchema`).
 - drift signals من `listTruthFlowDriftSignals()` هي: `missing` | `unexpected` | `status-mismatch` | `confidence-mismatch` | `repo-path-mismatch` | `duplicate-node` | `duplicate-path`.
 
+## Baseline update safeguards
+
+The exported `EXPECTED_CURRENT_TRUTH_FLOW_MATRIX` in
+`lib/api-zod/src/truth-flow-matrix.schema.ts` is the single authority for the
+current baseline. The checked-in JSON is a deterministic, reviewable
+representation of that constant; the schema and JSON must move together.
+
+Maintainer workflow:
+
+1. Make an intentional, reviewed change to the schema baseline. Do not derive
+   status, confidence, paths, node names, or actions from runtime or historical
+   evidence automatically.
+2. Run `pnpm run truth:baseline:materialize`. This explicit command writes the
+   JSON from the exported schema constant using stable formatting and ordering.
+3. Inspect the diff. The changed node fields must be explainable by the review
+   decision; unrelated changes indicate a problem and must be corrected.
+4. Run `pnpm run truth:baseline:check` to compare the checked-in JSON byte-for-byte
+   with the schema representation.
+5. Run `pnpm run truth:validate`. This remains the blocking structural and
+   provider-free parity gate.
+
+`truth:baseline:check` fails clearly when the JSON is missing or diverges. It
+never falls back to historical files, runtime output, or inferred values.
+
 ## 1) Source Contracts
 - [ ] إضافة contract drift check بين OpenAPI وDB schema والـ runtime routes.
 - [ ] منع merge إذا وُجد mismatch غير مبرر.

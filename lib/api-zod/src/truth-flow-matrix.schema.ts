@@ -8,10 +8,12 @@ import { z } from "zod";
  *
  * ─── Four Data Categories ──────────────────────────────────────────────────────
  *
- * BASELINE  — The frozen reference captured in EXPECTED_CURRENT_TRUTH_FLOW_MATRIX.
- *             This is what CI compares against. It changes only when a deliberate
- *             engineering decision is made and reviewed (e.g., a node transitions
- *             from "partial" to "complete"). Validated by CurrentTruthFlowMatrixSchema.
+ * BASELINE  — The exported EXPECTED_CURRENT_TRUTH_FLOW_MATRIX is authoritative for
+ *             the current matrix. The checked-in JSON representation must be
+ *             materialized from it and reviewed together. It changes only when a
+ *             deliberate engineering decision is made and reviewed (e.g., a node
+ *             transitions from "partial" to "complete"). Validated by
+ *             CurrentTruthFlowMatrixSchema.
  *
  * DERIVED   — Signals produced by comparing the live JSON matrix against the baseline.
  *             See listTruthFlowDriftSignals(). These signals are ephemeral: they exist

@@ -108,10 +108,11 @@ console.error(`
   Baseline at:   ${SCHEMA_SOURCE}
 
   How to fix:
-    Option A — The JSON is the source of truth: update EXPECTED_CURRENT_TRUTH_FLOW_MATRIX
-               in ${SCHEMA_SOURCE} to match the JSON.
-    Option B — The baseline is the source of truth: revert the JSON to match
-               EXPECTED_CURRENT_TRUTH_FLOW_MATRIX.
+    The schema baseline is authoritative: update EXPECTED_CURRENT_TRUTH_FLOW_MATRIX
+    in ${SCHEMA_SOURCE} only after an explicit, reviewed engineering decision.
+    Then materialize the checked-in JSON with:
+      pnpm run truth:baseline:materialize
+    Inspect the focused diff before re-running this blocking validation.
 
   Then re-run:   pnpm run truth:validate
 `);
