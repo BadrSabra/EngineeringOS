@@ -2043,9 +2043,18 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         controller.abort();
       }, remaining);
       try {
+        // Preserve the configured timeout for the first synthesis attempt.
+        // Computing the shared deadline and setting up the abort timer can
+        // consume a millisecond, which otherwise turns a requested 5,000 ms
+        // provider timeout into 4,999 ms and makes the contract needlessly
+        // timing-sensitive. The local timer still enforces the shared
+        // deadline; retries use the remaining time.
+        const attemptTimeoutMs = synthesisAttempts === 1
+          ? Math.min(options.timeoutMs ?? 60_000, boundedSynthesisTimeoutMs)
+          : Math.min(options.timeoutMs ?? 60_000, remaining);
         return await strategy.call(callMessages, {
           ...options,
-          timeoutMs: Math.min(options.timeoutMs ?? 60_000, remaining),
+          timeoutMs: attemptTimeoutMs,
           signal: controller.signal,
         });
       } catch (error) {
