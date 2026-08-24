@@ -10,4 +10,14 @@ export interface ValidationEvidence {
   evidenceId: string;
   observedAt: Date;
   artifactRef: string;
+  profileName?: string;
+  permittedOrigin?: string;
+  revision?: string;
+  operationId?: string;
+  projectRevision?: string;
+  candidateHash?: string;
+  changeSetHash?: string;
+  promotedHash?: string;
+  screenshotAvailable?: boolean;
+  consoleErrorCount?: number;
 }

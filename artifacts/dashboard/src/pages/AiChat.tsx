@@ -146,6 +146,8 @@ type DeliveryLifecycle =
 type RecoverableDelivery = {
   proposalId: string;
   operationId: string;
+  projectRevision?: string | null;
+  changeSetHash?: string | null;
   sessionId: string;
   lifecycle: DeliveryLifecycle;
   status: string;
@@ -154,15 +156,79 @@ type RecoverableDelivery = {
   recoveryState: 'recoverable' | 'missing_workspace' | 'discarded';
   operatorExplanation: string;
   nextAction: string;
-  validationEvidence?: Array<{
-    profile?: string;
-    status?: string;
-    detail?: string;
-    reasonCode?: BrowserValidationBlockReason;
-  }> | null;
+  validationEvidence?: PublicValidationResult[] | null;
   workspaceAvailable: boolean;
   changeCount: number;
 };
+
+function CandidateValidationProof({
+  evidence,
+  operationId,
+  projectRevision,
+  changeSetHash,
+  lifecycle,
+}: {
+  evidence?: PublicValidationResult[] | null;
+  operationId?: string | null;
+  projectRevision?: string | null;
+  changeSetHash?: string | null;
+  lifecycle?: DeliveryLifecycle | null;
+}) {
+  const receipts = evidence?.filter((item) => item && item.evidence) ?? [];
+  const hasEvidence = receipts.length > 0;
+  const receipt = receipts[0];
+  const displayedOperationId = operationId ?? receipt?.evidence.operationId;
+  const displayedRevision = projectRevision ?? receipt?.evidence.projectRevision;
+  const displayedChangeSetHash = changeSetHash ?? receipt?.evidence.changeSetHash;
+  const isBlocked = lifecycle === 'blocked' || lifecycle === 'conflicted';
+  const isPromoted = lifecycle === 'applied' || lifecycle === 'committed';
+  const statusLabel = !hasEvidence
+    ? 'Unavailable'
+    : isBlocked
+      ? 'Blocked'
+      : isPromoted
+        ? 'Promoted'
+        : evidence?.every((item) => item.status === 'passed')
+          ? 'Validated candidate'
+          : 'Review required';
+  const statusClass = statusLabel === 'Promoted' || statusLabel === 'Validated candidate'
+    ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-200'
+    : statusLabel === 'Blocked' || statusLabel === 'Review required'
+      ? 'border-amber-500/30 bg-amber-500/5 text-amber-200'
+      : 'border-border/60 bg-background/30 text-muted-foreground';
+
+  return (
+    <div className={`border-y px-4 py-3 ${statusClass}`} aria-label="Candidate validation proof">
+      <div className="flex items-center gap-2">
+        <ShieldCheck className="h-4 w-4 shrink-0" />
+        <span className="text-xs font-semibold">Candidate validation receipt</span>
+        <span className="ml-auto rounded-full border border-current/30 px-1.5 py-0.5 text-[10px] font-semibold">
+          {statusLabel}
+        </span>
+      </div>
+      <div className="mt-2 grid gap-1.5 text-[10px] sm:grid-cols-2">
+        <div><span className="text-muted-foreground">Operation ID </span><code className="break-all">{displayedOperationId ?? 'Unavailable'}</code></div>
+        <div><span className="text-muted-foreground">Project revision </span><code className="break-all">{displayedRevision ?? 'Unavailable'}</code></div>
+        <div><span className="text-muted-foreground">Candidate hash </span><code className="break-all">{receipt?.evidence.candidateHash ?? 'Unavailable'}</code></div>
+        <div><span className="text-muted-foreground">Changeset hash </span><code className="break-all">{displayedChangeSetHash ?? 'Unavailable'}</code></div>
+      </div>
+      {hasEvidence ? (
+        <div className="mt-2 space-y-1 border-t border-current/10 pt-2">
+          {receipts.map((item) => (
+            <div key={item.evidence.evidenceId} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="font-medium">{item.profile}</span>
+              <span className="text-muted-foreground">{item.status}</span>
+              <span className="text-muted-foreground">{item.scenario}</span>
+              {item.evidence.promotedHash && <span className="text-emerald-300">promoted bytes verified</span>}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 border-t border-current/10 pt-2 text-[10px]">No public validation receipt is available for this candidate.</p>
+      )}
+    </div>
+  );
+}
 
 function browserValidationBlockExplanation(reasonCode: BrowserValidationBlockReason | undefined): {
   title: string;
@@ -387,7 +453,7 @@ function validationProfileLabel(profile: PendingChange['validationProfile']): st
 }
 
 type BehavioralVerification = {
-  status: 'passed' | 'failed' | 'skipped' | 'unavailable';
+  status: 'passed' | 'failed' | 'skipped' | 'unavailable' | 'blocked';
   profile?: string;
   scenario?: string;
   detail?: string;
@@ -2906,6 +2972,10 @@ function ForensicFallbackBanner({
 function PendingChangesCard({
   changes,
   verificationResults,
+  validationEvidence,
+  operationId,
+  projectRevision,
+  changeSetHash,
   onApply,
   onRebase,
   onReject,
@@ -2916,6 +2986,10 @@ function PendingChangesCard({
 }: {
   changes: PendingChange[];
   verificationResults: Record<string, BehavioralVerification>;
+  validationEvidence?: PublicValidationResult[] | null;
+  operationId?: string | null;
+  projectRevision?: string | null;
+  changeSetHash?: string | null;
   onApply: (changes: PendingChange[]) => void;
   onRebase: (changes: PendingChange[]) => void;
   onReject: () => void;
@@ -2995,6 +3069,14 @@ function PendingChangesCard({
                    : approvalRequired ? 'Review and approve this rebased diff' : 'Waiting for your approval'}
            </span>
         </div>
+
+        <CandidateValidationProof
+          evidence={validationEvidence}
+          operationId={operationId}
+          projectRevision={projectRevision}
+          changeSetHash={changeSetHash}
+          lifecycle={lifecycle}
+        />
 
         {/* Changes list */}
         <div className="divide-y divide-border/40">
@@ -6736,6 +6818,7 @@ export default function AiChat() {
   const [proposalRequiresApproval, setProposalRequiresApproval] = useState(false);
   const [proposalRevision, setProposalRevision] = useState<number | undefined>(undefined);
   const [deliveryLifecycle, setDeliveryLifecycle] = useState<DeliveryLifecycle | undefined>(undefined);
+  const [validationEvidence, setValidationEvidence] = useState<PublicValidationResult[]>([]);
   const reapprovalApplyRef = useRef<ApprovedPendingChange[] | null>(null);
   const [verificationResults, setVerificationResults] = useState<Record<string, BehavioralVerification>>({});
   const [commitReadyPaths, setCommitReadyPaths] = useState<string[]>([]);
@@ -7445,7 +7528,9 @@ export default function AiChat() {
     lifecycle?: DeliveryLifecycle | null;
     workspaceRoot?: string | null;
     baseRevision?: string | null;
+    changeSetHash?: string | null;
     conflictReason?: string | null;
+    validationEvidence?: PublicValidationResult[] | null;
   }>(
     sessionId ?? '',
     {
@@ -7605,6 +7690,7 @@ export default function AiChat() {
     setProposalRequiresApproval(serverProposal.approvalRequired === true);
     setProposalRevision(serverProposal.revision ?? undefined);
     setDeliveryLifecycle(serverProposal.lifecycle ?? (serverProposal.changes.length > 0 ? 'proposed' : undefined));
+    setValidationEvidence(serverProposal.validationEvidence ?? []);
     // The server is authoritative after a session reload. An empty response
     // means the proposal was rejected/consumed (or never existed), so clear
     // any stale localStorage-backed changes instead of showing an unapprovable
@@ -7724,6 +7810,8 @@ export default function AiChat() {
           });
         }
         setOperationId(data.correlationId);
+        setValidationEvidence(data.validationEvidence ?? []);
+        setDeliveryLifecycle(data.applyStatus === 'APPLIED' ? 'applied' : 'blocked');
         setProposalRequiresApproval(false);
         setProposalRevision(undefined);
         setVerificationResults((prev) => ({
@@ -8939,9 +9027,13 @@ export default function AiChat() {
                       <div className="mt-1 break-words text-red-200">Retained reason: {delivery.conflictReason}</div>
                     )}
                     {delivery.validationEvidence && delivery.validationEvidence.length > 0 && (
-                      <div className="mt-1 text-muted-foreground">
-                        Retained checks: {delivery.validationEvidence.map((e) => `${e.profile ?? 'check'} · ${e.status ?? 'unknown'}`).join(', ')}
-                      </div>
+                      <CandidateValidationProof
+                        evidence={delivery.validationEvidence}
+                        operationId={delivery.operationId}
+                        projectRevision={delivery.projectRevision}
+                        changeSetHash={delivery.changeSetHash}
+                        lifecycle={delivery.lifecycle}
+                      />
                     )}
                     {(() => {
                       const blockedCheck = delivery.validationEvidence?.find((check) => check.reasonCode);
@@ -9159,6 +9251,10 @@ export default function AiChat() {
                 <PendingChangesCard
                   changes={pendingChanges}
                   verificationResults={verificationResults}
+                  validationEvidence={validationEvidence}
+                  operationId={operationId}
+                  projectRevision={serverProposal?.baseRevision}
+                  changeSetHash={serverProposal?.changeSetHash}
                   onApply={handleApplyChanges}
                   onRebase={handleRebaseChanges}
                   onReject={handleRejectProposal}
@@ -9167,6 +9263,17 @@ export default function AiChat() {
                   approvalRequired={proposalRequiresApproval}
                   lifecycle={deliveryLifecycle}
                 />
+              )}
+              {pendingChanges.length === 0 && validationEvidence.length > 0 && (
+                <div className="mx-auto mb-4 w-full max-w-3xl overflow-hidden rounded-xl border border-border/60 bg-card/30">
+                  <CandidateValidationProof
+                    evidence={validationEvidence}
+                    operationId={operationId}
+                    projectRevision={serverProposal?.baseRevision}
+                    changeSetHash={serverProposal?.changeSetHash}
+                    lifecycle={deliveryLifecycle}
+                  />
+                </div>
               )}
               {commitReadyPaths.length > 0 && pendingChanges.length === 0 && (
                 <VerifiedCommitCard

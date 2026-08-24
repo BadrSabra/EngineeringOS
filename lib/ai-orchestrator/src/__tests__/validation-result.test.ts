@@ -65,4 +65,25 @@ describe("canonical validation evidence", () => {
     expect(publicResult).not.toHaveProperty("failedTests");
     expect(publicResult).not.toHaveProperty("changedFiles");
   });
+
+  it("retains candidate integrity identifiers in the public receipt", () => {
+    const publicResult = toPublicValidationResult(result({
+      evidence: {
+        ...result().evidence,
+        operationId: "operation-1",
+        projectRevision: "revision-1",
+        candidateHash: "candidate-1",
+        changeSetHash: "changeset-1",
+        promotedHash: "promoted-1",
+      },
+    }));
+
+    expect(publicResult.evidence).toMatchObject({
+      operationId: "operation-1",
+      projectRevision: "revision-1",
+      candidateHash: "candidate-1",
+      changeSetHash: "changeset-1",
+      promotedHash: "promoted-1",
+    });
+  });
 });

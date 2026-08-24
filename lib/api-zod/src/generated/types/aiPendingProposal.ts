@@ -6,6 +6,8 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { AiPendingChange } from './aiPendingChange';
+import type { AiPendingProposalLifecycle } from './aiPendingProposalLifecycle';
+import type { PublicValidationResult } from './publicValidationResult';
 
 export interface AiPendingProposal {
   proposalId: string | null;
@@ -19,4 +21,9 @@ export interface AiPendingProposal {
      * @minimum 0
      */
   revision: number | null;
+  lifecycle?: AiPendingProposalLifecycle;
+  baseRevision?: string;
+  changeSetHash?: string;
+  conflictReason?: string;
+  validationEvidence?: PublicValidationResult[];
 }

@@ -94,6 +94,16 @@ export interface ValidationEvidence {
   evidenceId: string;
   observedAt: string;
   artifactRef: string;
+  profileName?: string;
+  permittedOrigin?: string;
+  revision?: string;
+  operationId?: string;
+  projectRevision?: string;
+  candidateHash?: string;
+  changeSetHash?: string;
+  promotedHash?: string;
+  screenshotAvailable?: boolean;
+  consoleErrorCount?: number;
 }
 
 /**
@@ -1331,6 +1341,53 @@ export interface AiApproveRebasedProposalResult {
   revision: number;
 }
 
+export type AiPendingProposalLifecycle = typeof AiPendingProposalLifecycle[keyof typeof AiPendingProposalLifecycle];
+
+
+export const AiPendingProposalLifecycle = {
+  proposed: 'proposed',
+  isolated: 'isolated',
+  validated: 'validated',
+  applied: 'applied',
+  conflicted: 'conflicted',
+  committed: 'committed',
+  cancelled: 'cancelled',
+  abandoned: 'abandoned',
+  blocked: 'blocked',
+} as const;
+
+export type PublicValidationResultStatus = typeof PublicValidationResultStatus[keyof typeof PublicValidationResultStatus];
+
+
+export const PublicValidationResultStatus = {
+  passed: 'passed',
+  failed: 'failed',
+  skipped: 'skipped',
+  unavailable: 'unavailable',
+  blocked: 'blocked',
+} as const;
+
+export type PublicValidationResultReasonCode = typeof PublicValidationResultReasonCode[keyof typeof PublicValidationResultReasonCode];
+
+
+export const PublicValidationResultReasonCode = {
+  ownership: 'ownership',
+  invalid_profile: 'invalid_profile',
+  resource_limit: 'resource_limit',
+  stale_revision: 'stale_revision',
+} as const;
+
+export interface PublicValidationResult {
+  profile: string;
+  status: PublicValidationResultStatus;
+  scenario: string;
+  /** @nullable */
+  exitCode: number | null;
+  evidence: ValidationEvidence;
+  reasonCode?: PublicValidationResultReasonCode;
+  detail?: string;
+}
+
 export interface AiPendingProposal {
   proposalId: string | null;
   /** Plan message ID used as the root of the end-to-end operation trace */
@@ -1343,7 +1400,27 @@ export interface AiPendingProposal {
      * @minimum 0
      */
   revision: number | null;
+  lifecycle?: AiPendingProposalLifecycle;
+  baseRevision?: string;
+  changeSetHash?: string;
+  conflictReason?: string;
+  validationEvidence?: PublicValidationResult[];
 }
+
+export type AiApplyChangesResultApplyStatus = typeof AiApplyChangesResultApplyStatus[keyof typeof AiApplyChangesResultApplyStatus];
+
+
+export const AiApplyChangesResultApplyStatus = {
+  APPLIED: 'APPLIED',
+  PARTIAL: 'PARTIAL',
+  BLOCKED: 'BLOCKED',
+  ROLLBACK_FAILED: 'ROLLBACK_FAILED',
+} as const;
+
+export type AiApplyChangesResultRollbackFailuresItem = {
+  path?: string;
+  error?: string;
+};
 
 export type AiApplyChangesResultResultsItemConflictKind = typeof AiApplyChangesResultResultsItemConflictKind[keyof typeof AiApplyChangesResultResultsItemConflictKind];
 
@@ -1379,6 +1456,7 @@ export const AiApplyChangesResultResultsItemBehavioralVerificationStatus = {
   failed: 'failed',
   skipped: 'skipped',
   unavailable: 'unavailable',
+  blocked: 'blocked',
 } as const;
 
 /**
@@ -1408,6 +1486,9 @@ export type AiApplyChangesResultResultsItem = {
 export interface AiApplyChangesResult {
   /** Logical operation identifier shared with the proposal's plan and later Git operations */
   correlationId: string;
+  applyStatus: AiApplyChangesResultApplyStatus;
+  rollbackFailures?: AiApplyChangesResultRollbackFailuresItem[];
+  validationEvidence?: PublicValidationResult[];
   results: AiApplyChangesResultResultsItem[];
 }
 

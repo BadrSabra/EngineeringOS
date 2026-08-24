@@ -78,12 +78,27 @@ function sanitizeValidationDetail(value: string): string {
 }
 
 export function toPublicValidationResult(result: ValidationResult): PublicValidationResult {
+  const evidence = result.evidence;
   return {
     profile: result.profile,
     status: result.status,
     scenario: result.scenario,
     exitCode: result.exitCode,
-    evidence: result.evidence,
+    evidence: {
+      evidenceId: evidence.evidenceId,
+      observedAt: evidence.observedAt,
+      artifactRef: evidence.artifactRef,
+      ...(evidence.profileName ? { profileName: evidence.profileName } : {}),
+      ...(evidence.permittedOrigin ? { permittedOrigin: evidence.permittedOrigin } : {}),
+      ...(evidence.revision ? { revision: evidence.revision } : {}),
+      ...(evidence.operationId ? { operationId: evidence.operationId } : {}),
+      ...(evidence.projectRevision ? { projectRevision: evidence.projectRevision } : {}),
+      ...(evidence.candidateHash ? { candidateHash: evidence.candidateHash } : {}),
+      ...(evidence.changeSetHash ? { changeSetHash: evidence.changeSetHash } : {}),
+      ...(evidence.promotedHash ? { promotedHash: evidence.promotedHash } : {}),
+      ...(evidence.screenshotAvailable !== undefined ? { screenshotAvailable: evidence.screenshotAvailable } : {}),
+      ...(evidence.consoleErrorCount !== undefined ? { consoleErrorCount: evidence.consoleErrorCount } : {}),
+    },
     ...(result.reasonCode ? { reasonCode: result.reasonCode } : {}),
     ...(result.detail ? { detail: sanitizeValidationDetail(result.detail) } : {}),
   };

@@ -80,6 +80,7 @@ import type {
   FlightDeckEvidenceVerdict,
   BrowserValidationBlockReason,
   ValidationResult,
+  PublicValidationResult,
 } from "@workspace/ai-orchestrator";
 import type { ValidationProfile } from "@workspace/ai-orchestrator";
 import { ListAiChatMessagesResponseItem } from "@workspace/api-zod";
@@ -305,6 +306,73 @@ function parseJsonRecord(value: string | null | undefined): Record<string, unkno
   return parsed && typeof parsed === "object" && !Array.isArray(parsed)
     ? parsed as Record<string, unknown>
     : {};
+}
+
+/**
+ * Validation receipts are the only proof shape allowed to cross the apply and
+ * recovery boundaries. Keep this projection explicit so persisted historical
+ * records can never reintroduce commands, output, paths, or diagnostics.
+ */
+function publicValidationReceipt(
+  result: ValidationResult,
+  overrides: Partial<Pick<ValidationResult, "status" | "detail" | "reasonCode">> = {},
+): PublicValidationResult {
+  return toPublicValidationResult({
+    ...result,
+    ...overrides,
+    evidence: {
+      ...result.evidence,
+      operationId: result.evidence.operationId,
+      projectRevision: result.evidence.projectRevision,
+      candidateHash: result.evidence.candidateHash,
+      changeSetHash: result.evidence.changeSetHash,
+      promotedHash: result.evidence.promotedHash,
+    },
+  });
+}
+
+function parsePublicValidationReceipts(value: unknown): PublicValidationResult[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const candidate = entry as Record<string, unknown>;
+    // Older records stored one receipt per file. Only retain entries that
+    // already satisfy the public contract; never project their raw fields.
+    if (
+      typeof candidate.profile !== "string"
+      || typeof candidate.status !== "string"
+      || typeof candidate.scenario !== "string"
+      || !("evidence" in candidate)
+      || !candidate.evidence
+      || typeof candidate.evidence !== "object"
+    ) return [];
+    const evidence = candidate.evidence as Record<string, unknown>;
+    if (
+      typeof evidence.evidenceId !== "string"
+      || typeof evidence.observedAt !== "string"
+      || typeof evidence.artifactRef !== "string"
+    ) return [];
+    return [{
+      profile: candidate.profile,
+      status: candidate.status as PublicValidationResult["status"],
+      scenario: candidate.scenario,
+      exitCode: typeof candidate.exitCode === "number" || candidate.exitCode === null
+        ? candidate.exitCode
+        : null,
+      evidence: {
+        evidenceId: evidence.evidenceId,
+        observedAt: evidence.observedAt,
+        artifactRef: evidence.artifactRef,
+        ...(typeof evidence.operationId === "string" ? { operationId: evidence.operationId } : {}),
+        ...(typeof evidence.projectRevision === "string" ? { projectRevision: evidence.projectRevision } : {}),
+        ...(typeof evidence.candidateHash === "string" ? { candidateHash: evidence.candidateHash } : {}),
+        ...(typeof evidence.changeSetHash === "string" ? { changeSetHash: evidence.changeSetHash } : {}),
+        ...(typeof evidence.promotedHash === "string" ? { promotedHash: evidence.promotedHash } : {}),
+      },
+      ...(typeof candidate.reasonCode === "string" ? { reasonCode: candidate.reasonCode as PublicValidationResult["reasonCode"] } : {}),
+      ...(typeof candidate.detail === "string" ? { detail: redactUserFacingText(candidate.detail).slice(0, 240) } : {}),
+    }];
+  });
 }
 
 /**
@@ -5024,7 +5092,10 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
       changes,
       approvalRequired: proposal.status === "pending" ? proposal.approvalRequired : false,
       revision: proposal.status === "pending" ? proposal.revision : null,
-      ...(proposal.lifecycle !== "proposed" || proposal.workspaceRoot
+      ...(
+        proposal.lifecycle !== "proposed"
+        || proposal.workspaceRoot
+        || proposal.validationEvidence
         ? {
             lifecycle: proposal.lifecycle,
             baseRevision: proposal.baseRevision,
@@ -5032,8 +5103,12 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
             conflictReason: proposal.conflictReason
               ? redactUserFacingText(proposal.conflictReason).slice(0, 500)
               : null,
+            validationEvidence: proposal.validationEvidence
+              ? parsePublicValidationReceipts(parseStoredJson(proposal.validationEvidence))
+              : [],
           }
-        : {}),
+        : {}
+      ),
     });
   } catch {
     logger.error({ proposalId: proposal.id }, "Invalid stored AI change proposal");
@@ -5088,6 +5163,8 @@ router.get("/ai/delivery/recoverable", async (req, res) => {
     return {
       proposalId: proposal.id,
       operationId: proposal.operationId ?? proposal.messageId,
+      projectRevision: proposal.baseRevision,
+      changeSetHash: proposal.changeSetHash,
       sessionId: proposal.sessionId,
       lifecycle: proposal.lifecycle,
       status: proposal.status,
@@ -5157,6 +5234,8 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
   }
   const workspaceRoot = proposal.workspaceRoot!;
   const results: Array<Record<string, unknown>> = [];
+  const candidateHash = await hashDeliveryWorkspace(workspaceRoot);
+  const changeSetHash = proposal.changeSetHash ?? hashChangeSet(changes);
   const groups = new Map<string, typeof changes>();
   for (const change of changes) {
     if (typeof change.path !== "string" || typeof change.newContent !== "string" || !change.validationProfile) continue;
@@ -5174,13 +5253,13 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
       undefined,
       [],
     );
-    results.push({
-      profile: result.profile ?? profile,
-      status: result.status,
-      detail: result.detail,
-      failedTests: result.failedTests?.slice(0, 20),
-      affectedFiles: result.changedFiles?.slice(0, 50),
-    });
+    if ("evidence" in result) {
+      result.evidence.operationId = proposal.operationId ?? proposal.messageId;
+      result.evidence.projectRevision = proposal.baseRevision ?? undefined;
+      result.evidence.candidateHash = candidateHash;
+      result.evidence.changeSetHash = changeSetHash;
+    }
+    results.push(publicValidationReceipt(result));
   }
   const passed = results.length === groups.size && results.length > 0
     && results.every((result) => result.status === "passed");
@@ -5199,7 +5278,12 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
       .from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposal.id)).limit(1);
     return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: current?.lifecycle ?? proposal.lifecycle, idempotent: true });
   }
-  return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: passed ? "validated" : "blocked", validationEvidence: results });
+  return res.json({
+    proposalId: proposal.id,
+    operationId: proposal.operationId,
+    lifecycle: passed ? "validated" : "blocked",
+    validationEvidence: parsePublicValidationReceipts(results),
+  });
 });
 
 router.post("/ai/delivery/:proposalId/discard", async (req, res) => {
@@ -6234,8 +6318,26 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       });
     }
     for (const validation of verificationByProfile.values()) {
-      if ("evidence" in validation) validation.evidence.promotedHash = promotedHash;
+      if (
+        writtenChanges.length > 0
+        && promotedHash === candidateFilesHash
+        && "evidence" in validation
+      ) {
+        validation.evidence.promotedHash = promotedHash;
+      }
     }
+    const validationEvidence = [...verificationByProfile.values()].flatMap((validation) => {
+      if (!("evidence" in validation)) return [];
+      const stale = candidateChangedDuringValidation || liveRootChangedBeforePromotion;
+      return [publicValidationReceipt(validation, stale
+        ? {
+            status: "blocked",
+            detail: candidateChangedDuringValidation
+              ? "The immutable candidate changed during validation and was not promoted."
+              : "The project changed before promotion and the validated candidate was not promoted.",
+          }
+        : undefined)];
+    });
 
     const responseResults = results.map((result) => {
       const change = writableChanges.find((item) => item.path === result.path);
@@ -6402,13 +6504,7 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
             status: "applied",
             lifecycle: verificationNeedsReviewAfterPromotion ? "blocked" : "applied",
             consumedAt: new Date(),
-            validationEvidence: JSON.stringify(responseResults.map((result) => ({
-              path: result.path,
-              status: result.behavioralVerification.status,
-              evidence: "evidence" in result.behavioralVerification
-                ? result.behavioralVerification.evidence
-                : null,
-            }))),
+            validationEvidence: JSON.stringify(validationEvidence),
             committedHash: allOk ? promotedHash : null,
           })
           .where(and(
@@ -6424,13 +6520,7 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
               : failedPaths.length > 0
                 ? "One or more approved files could not be applied."
                 : "No approved files were applied.",
-            validationEvidence: JSON.stringify(responseResults.map((result) => ({
-              path: result.path,
-              status: result.behavioralVerification.status,
-              evidence: "evidence" in result.behavioralVerification
-                ? result.behavioralVerification.evidence
-                : null,
-            }))),
+            validationEvidence: JSON.stringify(validationEvidence),
           })
           .where(and(
             eq(aiChangeProposalsTable.id, proposalId),
@@ -6447,6 +6537,7 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       correlationId: applyCorrelationId,
       applyStatus,
       rollbackFailures,
+      validationEvidence,
     });
   } finally {
     await applyLock.release();

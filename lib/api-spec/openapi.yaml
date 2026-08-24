@@ -3283,6 +3283,26 @@ components:
           format: date-time
         artifactRef:
           type: string
+        profileName:
+          type: string
+        permittedOrigin:
+          type: string
+        revision:
+          type: string
+        operationId:
+          type: string
+        projectRevision:
+          type: string
+        candidateHash:
+          type: string
+        changeSetHash:
+          type: string
+        promotedHash:
+          type: string
+        screenshotAvailable:
+          type: boolean
+        consoleErrorCount:
+          type: integer
 
     AiBenchmarkScorecard:
       type: object
@@ -4635,6 +4655,19 @@ components:
           nullable: true
           minimum: 0
           description: Current server-owned proposal revision, or null when no pending proposal exists
+        lifecycle:
+          type: string
+          enum: [proposed, isolated, validated, applied, conflicted, committed, cancelled, abandoned, blocked]
+        baseRevision:
+          type: string
+        changeSetHash:
+          type: string
+        conflictReason:
+          type: string
+        validationEvidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicValidationResult"
 
     AiFilePatchHunk:
       type: object
@@ -4687,11 +4720,26 @@ components:
 
     AiApplyChangesResult:
       type: object
-      required: [results, correlationId]
+      required: [results, correlationId, applyStatus]
       properties:
         correlationId:
           type: string
           description: Logical operation identifier shared with the proposal's plan and later Git operations
+        applyStatus:
+          type: string
+          enum: [APPLIED, PARTIAL, BLOCKED, ROLLBACK_FAILED]
+        rollbackFailures:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              path: { type: string }
+              error: { type: string }
+        validationEvidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicValidationResult"
         results:
           type: array
           items:
@@ -4732,7 +4780,7 @@ components:
                 properties:
                   status:
                     type: string
-                    enum: [passed, failed, skipped, unavailable]
+                    enum: [passed, failed, skipped, unavailable, blocked]
                   profile:
                     type: string
                   scenario:
@@ -4740,6 +4788,25 @@ components:
                   detail:
                     type: string
                 description: Registered behavioral verification runs after the guarded write. Any status other than `passed` rolls the change back and leaves its approval proposal pending.
+
+    PublicValidationResult:
+      type: object
+      additionalProperties: false
+      required: [profile, status, scenario, exitCode, evidence]
+      properties:
+        profile: { type: string }
+        status:
+          type: string
+          enum: [passed, failed, skipped, unavailable, blocked]
+        scenario: { type: string }
+        exitCode:
+          type: [integer, "null"]
+        evidence:
+          $ref: "#/components/schemas/ValidationEvidence"
+        reasonCode:
+          type: string
+          enum: [ownership, invalid_profile, resource_limit, stale_revision]
+        detail: { type: string }
 
     AiChatOutput:
       type: object

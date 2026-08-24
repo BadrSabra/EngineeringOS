@@ -6,10 +6,10 @@
  * OpenAPI spec version: 1.0.0
  */
 
-export type AiApplyChangesResultResultsItemBehavioralVerificationStatus = typeof AiApplyChangesResultResultsItemBehavioralVerificationStatus[keyof typeof AiApplyChangesResultResultsItemBehavioralVerificationStatus];
+export type PublicValidationResultStatus = typeof PublicValidationResultStatus[keyof typeof PublicValidationResultStatus];
 
 
-export const AiApplyChangesResultResultsItemBehavioralVerificationStatus = {
+export const PublicValidationResultStatus = {
   passed: 'passed',
   failed: 'failed',
   skipped: 'skipped',

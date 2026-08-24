@@ -3450,6 +3450,34 @@ export const AiApplyChangesBody = zod.object({
 
 export const AiApplyChangesResponse = zod.object({
   "correlationId": zod.string().describe('Logical operation identifier shared with the proposal\'s plan and later Git operations'),
+  "applyStatus": zod.enum(['APPLIED', 'PARTIAL', 'BLOCKED', 'ROLLBACK_FAILED']),
+  "rollbackFailures": zod.array(zod.object({
+  "path": zod.string().optional(),
+  "error": zod.string().optional()
+})).optional(),
+  "validationEvidence": zod.array(zod.object({
+  "profile": zod.string(),
+  "status": zod.enum(['passed', 'failed', 'skipped', 'unavailable', 'blocked']),
+  "scenario": zod.string(),
+  "exitCode": zod.number().nullable(),
+  "evidence": zod.object({
+  "evidenceId": zod.string(),
+  "observedAt": zod.coerce.date(),
+  "artifactRef": zod.string(),
+  "profileName": zod.string().optional(),
+  "permittedOrigin": zod.string().optional(),
+  "revision": zod.string().optional(),
+  "operationId": zod.string().optional(),
+  "projectRevision": zod.string().optional(),
+  "candidateHash": zod.string().optional(),
+  "changeSetHash": zod.string().optional(),
+  "promotedHash": zod.string().optional(),
+  "screenshotAvailable": zod.boolean().optional(),
+  "consoleErrorCount": zod.number().optional()
+}),
+  "reasonCode": zod.enum(['ownership', 'invalid_profile', 'resource_limit', 'stale_revision']).optional(),
+  "detail": zod.string().optional()
+})).optional(),
   "results": zod.array(zod.object({
   "path": zod.string(),
   "ok": zod.boolean(),
@@ -3464,7 +3492,7 @@ export const AiApplyChangesResponse = zod.object({
   "writeStatus": zod.enum(['written', 'not_written']).optional().describe('`not_written` also covers a guarded rollback when mandatory behavioral verification does not pass.'),
   "persistenceVerified": zod.boolean().optional().describe('True only when the new bytes remain persisted after the behavioral gate passes.'),
   "behavioralVerification": zod.object({
-  "status": zod.enum(['passed', 'failed', 'skipped', 'unavailable']),
+  "status": zod.enum(['passed', 'failed', 'skipped', 'unavailable', 'blocked']),
   "profile": zod.string().optional(),
   "scenario": zod.string().optional(),
   "detail": zod.string().optional()
@@ -3697,7 +3725,34 @@ export const GetAiPendingProposalResponse = zod.object({
 })).max(getAiPendingProposalResponseChangesItemEvidenceMax).optional()
 })),
   "approvalRequired": zod.boolean().describe('True when a rebased proposal must be reviewed and approved again'),
-  "revision": zod.number().min(getAiPendingProposalResponseRevisionMin).nullable().describe('Current server-owned proposal revision, or null when no pending proposal exists')
+  "revision": zod.number().min(getAiPendingProposalResponseRevisionMin).nullable().describe('Current server-owned proposal revision, or null when no pending proposal exists'),
+  "lifecycle": zod.enum(['proposed', 'isolated', 'validated', 'applied', 'conflicted', 'committed', 'cancelled', 'abandoned', 'blocked']).optional(),
+  "baseRevision": zod.string().optional(),
+  "changeSetHash": zod.string().optional(),
+  "conflictReason": zod.string().optional(),
+  "validationEvidence": zod.array(zod.object({
+  "profile": zod.string(),
+  "status": zod.enum(['passed', 'failed', 'skipped', 'unavailable', 'blocked']),
+  "scenario": zod.string(),
+  "exitCode": zod.number().nullable(),
+  "evidence": zod.object({
+  "evidenceId": zod.string(),
+  "observedAt": zod.coerce.date(),
+  "artifactRef": zod.string(),
+  "profileName": zod.string().optional(),
+  "permittedOrigin": zod.string().optional(),
+  "revision": zod.string().optional(),
+  "operationId": zod.string().optional(),
+  "projectRevision": zod.string().optional(),
+  "candidateHash": zod.string().optional(),
+  "changeSetHash": zod.string().optional(),
+  "promotedHash": zod.string().optional(),
+  "screenshotAvailable": zod.boolean().optional(),
+  "consoleErrorCount": zod.number().optional()
+}),
+  "reasonCode": zod.enum(['ownership', 'invalid_profile', 'resource_limit', 'stale_revision']).optional(),
+  "detail": zod.string().optional()
+})).optional()
 })
 
 
