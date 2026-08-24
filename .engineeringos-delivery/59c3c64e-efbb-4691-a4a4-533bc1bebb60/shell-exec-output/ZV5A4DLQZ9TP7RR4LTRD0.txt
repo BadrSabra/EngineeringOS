@@ -1,0 +1,393 @@
+  if (effectiveBuildPlanMessageId) {
+    if (!sessionId) {
+      return res.status(400).json({
+        error: "Build handoff requires the original chat session",
+        code: "BUILD_SESSION_REQUIRED",
+      });
+    }
+    if (!validRootPath) {
+      return res.status(409).json({
+        error: "The project root is unavailable for Build Mode",
+        code: "BUILD_ROOT_UNAVAILABLE",
+      });
+    }
+
+    const [planRow] = await db
+      .select({
+        message: aiChatMessagesTable,
+        session: aiChatSessionsTable,
+      })
+      .from(aiChatMessagesTable)
+      .innerJoin(
+        aiChatSessionsTable,
+        eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+      )
+      .where(eq(aiChatMessagesTable.id, effectiveBuildPlanMessageId))
+      .limit(1);
+
+    if (!planRow) {
+      return res.status(404).json({ error: "Implementation plan not found", code: "PLAN_NOT_FOUND" });
+    }
+    if (planRow.session.projectId !== projectId) {
+      return res.status(403).json({ error: "Implementation plan does not belong to this project" });
+    }
+    if (planRow.session.id !== sessionId) {
+      return res.status(409).json({
+        error: "Build Mode must use the session that produced the approved plan",
+        code: "BUILD_SESSION_MISMATCH",
+      });
+    }
+
+    const storedPlan = parseTaskResult(planRow.message.taskResult);
+    if (!storedPlan || storedPlan.kind !== "IMPLEMENTATION_PLAN_RESULT") {
+      return res.status(400).json({ error: "The selected message is not an implementation plan", code: "PLAN_INVALID" });
+    }
+    if (storedPlan.approvalStatus !== "APPROVED" || storedPlan.writeAccess !== "APPROVED_FOR_BUILD") {
+      return res.status(409).json({
+        error: "Approve the implementation plan before starting Build Mode",
+        code: "PLAN_APPROVAL_REQUIRED",
+        approvalStatus: storedPlan.approvalStatus,
+      });
+    }
+    const contextFailure = await validatePlanContextForExecution(
+      storedPlan,
+      projectId,
+      validRootPath,
+    );
+    if (contextFailure) return res.status(409).json(contextFailure);
+    const browserProfileFailure = await validateBrowserProfileForDelivery(
+      projectId,
+      project.updatedAt.toISOString(),
+      storedPlan.browserValidationProfile,
+    );
+    if (browserProfileFailure) return res.status(409).json(browserProfileFailure);
+
+    approvedImplementationPlan = storedPlan;
+    implementationPlanScope = getImplementationPlanScope(storedPlan, validRootPath);
+    if (implementationPlanScope.size === 0) {
+      return res.status(409).json({
+        error: "This implementation plan has no safe file scope and cannot enter Build Mode",
+        code: "PLAN_FILE_SCOPE_REQUIRED",
+      });
+    }
+    approvedImplementationExecutionPlan = buildActiveTaskExecutionPlan({
+      implementationPlan: storedPlan,
+      objective,
+      projectId,
+      rootPath: validRootPath,
+    }) ?? undefined;
+    if (
+      !approvedImplementationExecutionPlan ||
+      approvedImplementationExecutionPlan.readiness !== "READY" ||
+      approvedImplementationExecutionPlan.nodes.length === 0
+    ) {
+      return res.status(409).json({
+        error: "This implementation plan is not executable by the server-owned Build coordinator",
+        code: "PLAN_BUILD_BLOCKED",
+        readiness: approvedImplementationExecutionPlan?.readiness ?? "BLOCKED",
+      });
+    }
+    await db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiBuildStarted",
+      projectId,
+      severity: "info",
+      message: "Build Mode started from the approved implementation plan",
+      correlationId: effectiveBuildPlanMessageId,
+      payload: { messageId: effectiveBuildPlanMessageId, approvedFiles: [...implementationPlanScope] },
+    });
+    modelMessage = [
+      message,
+      "",
+      "BUILD HANDOFF — execute only the approved implementation plan below.",
+      `Objective: ${storedPlan.objective}`,
+      `Approved files: ${[...implementationPlanScope].join(", ") || "(none)"}`,
+      "Use the existing read and deferred-write flow. Prepare pending changes only; do not claim that files were applied, committed, or published.",
+      "Do not read, write, or propose changes for files outside the approved file list.",
+      `Approved plan JSON: ${JSON.stringify(storedPlan)}`,
+    ].join("\n");
+  }
+
+  let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
+  if (sessionId) {
+    const [found] = await db
+      .select()
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, sessionId))
+      .limit(1);
+    if (found && found.projectId !== projectId) {
+      return res.status(403).json({ error: "Session does not belong to this project" });
+    }
+    if (!found) {
+      return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+    }
+    existingSession = found;
+  }
+
+  const persistedActiveTaskState = resolveSessionTaskState(
+    existingSession?.activeTaskState,
+    projectId,
+  );
+  const streamResumableStateForTurn = isolatedConversationTurn
+    ? null
+    : persistedActiveTaskState;
+  const streamClassificationResolution = resumeActiveTaskClassification(
+    message,
+    rawTurnClassification,
+    rawTurnClassification,
+    streamResumableStateForTurn,
+  );
+  const streamImplementationPlanResume = isImplementationPlanContinuation(
+    message,
+    streamResumableStateForTurn,
+  );
+  const streamClassification = streamClassificationResolution.classification;
+  const streamTurnIntent = resolveTurnIntent(message, {
+    classification: streamClassification,
+    resumed: streamClassificationResolution.resumed,
+    implementationPlanResume: streamImplementationPlanResume,
+    buildHandoff: Boolean(approvedImplementationPlan && effectiveBuildPlanMessageId),
+  });
+  // Keep this compatible with consumers that still resolve the pre-scope
+  // TurnIntent declaration while the workspace packages are being rebuilt.
+  const streamAuditScopeDescription = (streamTurnIntent as unknown as {
+    auditScopeDescription?: string;
+  }).auditScopeDescription;
+  const streamModelHasTools = Boolean(validRootPath && streamTurnIntent.requiresTools);
+  let analysisCorrelation: {
+    operationId: string;
+    projectId: string;
+    projectRevision: string;
+    rootAvailable: boolean;
+    evidenceProvenance: string;
+  } = {
+    operationId: randomUUID(),
+    projectId,
+    projectRevision: project.updatedAt.toISOString(),
+    rootAvailable: Boolean(validRootPath),
+    evidenceProvenance: "project-analysis",
+  };
+  const analysisToolRunner = validRootPath
+    ? createProjectAnalysisToolRunner(projectId, validRootPath)
+    : undefined;
+
+  // Provider/model routing must use the same authoritative intent as the
+  // downstream agent. In particular, a terse continuation can inherit a
+  // persisted forensic task and must not be routed from its raw text alone.
+  const providerResolved = await requireProvider(req.userId, res, {
+    requireTools: streamModelHasTools,
+    qualityProfile: streamTurnIntent.executionTaskType,
+  });
+  if (!providerResolved) return;
+  const { provider, apiKey } = providerResolved;
+
+  const applyLock = streamModelHasTools
+    ? await tryAdvisoryLock(LockNamespace.APPLY, projectId)
+    : { acquired: true, release: async () => undefined };
+  if (!applyLock.acquired) {
+    return res.status(409).json({
+      error: "apply_in_progress",
+      hint: "File changes are still being written for this project — wait a moment, then retry.",
+    });
+  }
+
+  let executionWorkerId: string | undefined;
+  let aiExecution: Awaited<ReturnType<typeof getAiExecutionForUser>>;
+  let executionAbortController: AbortController | undefined;
+  let executionTerminal = false;
+            profile: string,
+            targetPaths: string[],
+            signal?: AbortSignal,
+            pendingChanges?: readonly PendingValidationChange[],
+          ) => {
+            const parsedProfile = ValidationProfileSchema.safeParse(profile);
+            if (!parsedProfile.success) {
+              return {
+                status: "unavailable" as const,
+                detail: `Validation profile "${profile}" is not registered.`,
+              };
+            }
+            return runRepairValidation(
+              validRootPath,
+              parsedProfile.data,
+              targetPaths,
+              signal,
+              pendingChanges ?? [],
+            );
+          }
+        : undefined;
+    const requestedBrowserValidationProfile = approvedImplementationPlan?.browserValidationProfile;
+    const registeredBrowserProfile = requestedBrowserValidationProfile
+      ? (await db.select().from(browserValidationProfilesTable).where(and(
+          eq(browserValidationProfilesTable.projectId, projectId),
+          eq(browserValidationProfilesTable.name, requestedBrowserValidationProfile),
+        )).limit(1))[0]
+      : undefined;
+    // A profile is valid only for the exact project revision it was registered
+    // against. Stale profiles are not silently rebound to the current project.
+    const browserValidationProfile = registeredBrowserProfile
+      && registeredBrowserProfile.revision === analysisCorrelation.projectRevision
+      ? registeredBrowserProfile
+      : undefined;
+    const browserValidationProfileName = requestedBrowserValidationProfile;
+    const browserValidationManager = browserValidationProfile ? new PreviewSessionManager() : undefined;
+    const browserValidationRunner = browserValidationProfileName && validRootPath
+      ? async (request: { profile: string; rootPath: string; pendingChanges?: readonly PendingValidationChange[]; operationId?: string; revision?: string; signal?: AbortSignal }) => {
+          if (!browserValidationProfile || request.profile !== browserValidationProfile.name) {
+            return {
+              profile: request.profile, status: "unavailable" as const,
+              scenario: "Registered browser validation profile is unavailable.",
+              command: "browser-preview", exitCode: null, stdout: "", stderr: "",
+              failedTests: [], changedFiles: [],
+              evidence: {
+                evidenceId: `browser-profile:${request.profile}`,
+                observedAt: new Date().toISOString(),
+                artifactRef: "browser-preview:profile-unavailable",
+              },
+              detail: "The browser validation profile is not approved for this plan.",
+              reasonCode: (browserValidationProfile
+                ? "invalid_profile"
+                : registeredBrowserProfile
+                  ? "stale_revision"
+                  : "ownership") as BrowserValidationBlockReason,
+            };
+          }
+          const workspace = await createValidationWorkspace(request.rootPath, request.pendingChanges ?? []);
+          const session = await browserValidationManager!.start({
+            projectRoot: workspace.rootPath,
+            revision: request.revision ?? analysisCorrelation.projectRevision,
+            port: 4300,
+            lifetimeMs: 60_000,
+          });
+          let browser: PreviewBrowser | undefined;
+          try {
+            const playwright = await import("playwright");
+            browser = await playwright.chromium.launch({ headless: true }) as unknown as PreviewBrowser;
+            return await runRepairPreviewValidation({
+              session,
+              operationId: request.operationId ?? analysisCorrelation.operationId,
+              executionId: aiExecution?.id ?? "browser-validation",
+              revision: request.revision ?? analysisCorrelation.projectRevision,
+              contract: {
+                revision: request.revision ?? analysisCorrelation.projectRevision,
+                permittedOrigin: browserValidationProfile.permittedOrigin,
+                steps: browserValidationProfile.steps as PreviewStep[],
+                timeoutMs: browserValidationProfile.timeoutMs,
+              },
+              steps: browserValidationProfile.steps as PreviewStep[],
+              browser,
+              profileName: browserValidationProfile.name,
+            });
+          } catch (error) {
+            return {
+              profile: "browser-preview", status: "unavailable" as const,
+              scenario: "Run the registered browser checks against the project Preview.",
+              command: "browser-preview", exitCode: null, stdout: "", stderr: "",
+              failedTests: [], changedFiles: [],
+              evidence: {
+                evidenceId: `browser-start:${request.operationId ?? "unknown"}`,
+                observedAt: new Date().toISOString(),
+                artifactRef: "browser-preview:startup-failure",
+              },
+              detail: "Preview browser validation was unavailable.",
+              reasonCode: (error instanceof Error && /stale/i.test(error.message)
+                ? "stale_revision"
+                : error instanceof Error && /limit|timeout|steps|selector|screenshot/i.test(error.message)
+                  ? "resource_limit"
+                  : "invalid_profile") as BrowserValidationBlockReason,
+            };
+          } finally {
+            await browserValidationManager!.stop();
+            await workspace.cleanup();
+          }
+        }
+      : undefined;
+    // Terminal execution is deliberately narrower than validation: one
+    // server-owned profile, fixed argv, and only during an approved Build
+    // handoff. The model can select the profile but cannot select a command,
+    // shell, cwd, or arguments.
+    const commandProfiles = approvedImplementationPlan && implementationPlanScope && validRootPath
+      ? [{
+          name: "workspace-typecheck",
+          command: "pnpm",
+          args: ["run", "typecheck"],
+          timeoutMs: 10 * 60 * 1000,
+          maxOutputBytes: 8 * 1024 * 1024,
+          allowedOperations: ["build"],
+          allowedPaths: [...implementationPlanScope],
+        }]
+      : undefined;
+
+    let result: Awaited<ReturnType<typeof chat>>;
+    let endedBeforeEvidence = false;
+    try {
+      const chatOut = await chatWithFallback(
+        req.userId,
+        {
+          message: modelMessage,
+          history: historyRows
+            .reverse()
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({
+              role: m.role as "user" | "assistant",
+              content: m.content,
+              ...(m.role === "assistant" && parseRepairPlanMetadata(m.repairPlanMetadata)
+                ? { repairPlan: parseRepairPlanMetadata(m.repairPlanMetadata) }
+                : {}),
+            })),
+          projectContext,
+          rootPath: validRootPath,
+          projectId,
+          activeTaskState: streamResumableStateForTurn,
+          executionPlanOverride: executionPlanForRun ?? undefined,
+          activeTask,
+          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat/stream"),
+          objective,
+          allowValidationTools: Boolean(validationRunner),
+          validationRunner,
+          browserValidationRunner,
+          browserValidationContext: {
+            operationId: analysisCorrelation.operationId,
+            revision: analysisCorrelation.projectRevision,
+          },
+          approvedValidationProfiles: [
+            ...(validationRunner ? ["workspace-typecheck", "ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests"] : []),
+            ...(browserValidationProfileName ? [browserValidationProfileName] : []),
+          ],
+           commandProfiles,
+           commandRunner: commandProfiles ? runRegisteredCommand : undefined,
+           commandContext: {
+             operationId: analysisCorrelation.operationId,
+             revision: analysisCorrelation.projectRevision,
+             targetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
+             operation: "build",
+           },
+          validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
+           buildHandoff: Boolean(!streamIsGreetingTurn && approvedImplementationPlan && effectiveBuildPlanMessageId),
+          onExecutionNodes: publishExecutionNodes,
+          signal: activeExecutionAbortController.signal,
+          turnIntent: streamTurnIntent,
+          allowAnalysisTools: Boolean(streamModelHasTools && analysisToolRunner),
+          analysisToolRunner,
+          analysisCorrelation,
+        },
+        { provider, apiKey },
+        onDelta,
+        { requireTools: streamModelHasTools, qualityProfile: streamTurnIntent.executionTaskType },
+        onStreamReset,
+        onStep,
+      );
+      result = chatOut.result;
+      endedBeforeEvidence =
+        streamTurnIntent.requiresEvidence &&
+        !activeExecutionAbortController.signal.aborted &&
+        endedBeforeFirstSourceRead(traceSteps);
+      // A required analysis/validation tool failure is a terminal operation
+      // failure, even when the agent returned a blocked-looking response.
+      // Do not let that response enter the normal successful assistant-message
+      // and completeAiExecution path: doing so makes a failed run look
+      // completed after a reconnect or dashboard reload.
+      const terminalToolFailure = [...traceSteps]
+        .reverse()
+        .find((step) => step.kind === "done" && step.stopReason === "tool_failure");
+      if (terminalToolFailure?.kind === "done") {

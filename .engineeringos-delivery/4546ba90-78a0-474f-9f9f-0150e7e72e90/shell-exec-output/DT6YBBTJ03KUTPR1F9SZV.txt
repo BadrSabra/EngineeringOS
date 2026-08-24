@@ -1,0 +1,180 @@
+artifacts/api-server/src/routes/ai/chat.ts:1015:  metadata: {
+artifacts/api-server/src/routes/ai/chat.ts:1099:      .find((step): step is Extract<AgentStep, { kind: "forensic_status" }> =>
+artifacts/api-server/src/routes/ai/chat.ts:1100:        step.kind === "forensic_status",
+artifacts/api-server/src/routes/ai/chat.ts:1399:      case "forensic_status":
+artifacts/api-server/src/routes/ai/chat.ts:2102:          repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
+artifacts/api-server/src/routes/ai/chat.ts:2486:    function sse(data: Record<string, unknown>): void {
+artifacts/api-server/src/routes/ai/chat.ts:2487:      res.write(`data: ${JSON.stringify(data)}\n\n`);
+artifacts/api-server/src/routes/ai/chat.ts:2559:        type: "forensic_status",
+artifacts/api-server/src/routes/ai/chat.ts:2977:    function onStep(step: AgentStep): void {
+artifacts/api-server/src/routes/ai/chat.ts:2993:          onStep({
+artifacts/api-server/src/routes/ai/chat.ts:3004:            onStep({
+artifacts/api-server/src/routes/ai/chat.ts:3105:      } else if (step.kind === "forensic_status") {
+artifacts/api-server/src/routes/ai/chat.ts:3107:          type: "forensic_status",
+artifacts/api-server/src/routes/ai/chat.ts:3256:      onStep({ kind: "plan_activity", stage: "understand", status: "done" });
+artifacts/api-server/src/routes/ai/chat.ts:3257:      onStep({ kind: "plan_activity", stage: "scope", status: "done", files: safePlanFiles(current?.files, validRootPath) });
+artifacts/api-server/src/routes/ai/chat.ts:3258:      onStep({ kind: "plan_activity", stage: "plan", status: "done", stepTitle: current?.title });
+artifacts/api-server/src/routes/ai/chat.ts:3260:        onStep({
+artifacts/api-server/src/routes/ai/chat.ts:3460:        onStep,
+artifacts/api-server/src/routes/ai/chat.ts:3883:          repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
+artifacts/api-server/src/routes/ai/chat.ts:4052:      repairPlanMetadata: assistantMsg.repairPlanMetadata,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:4: * Integration test for the `onStep` closure inside the
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:9: *     immediately calls the `onStep` callback it receives with a
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:10: *     `forensic_status` AgentStep.
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:12: *   - Assert that the SSE response contains the expected `forensic_status`
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:13: *     event written by the real `onStep` closure in chat.ts.
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:15: * If the `forensic_status` branch in `onStep` is deleted or broken, the event
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:35:  assistantRepairPlanMetadata: null as string | null,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:59:    repairPlanMetadata: null,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:329:const FIXTURE_LOCAL_STEP: Extract<AgentStep, { kind: "forensic_status" }> = {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:330:  kind: "forensic_status",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:344:const PRODUCTION_STEP: Extract<AgentStep, { kind: "forensic_status" }> = {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:345:  kind: "forensic_status",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:364:      { id: "on-step", name: "onStep", path: "src/chat.ts", stage: "OTHER" },
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:372:      evidence: "src/chat.ts:932:11 — function onStep(step) {",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:377:        snippet: "function onStep(step) {",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:468:function parseSseFrames(text: string): unknown[] {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:473:      const dataLine = chunk.split("\n").find((l) => l.startsWith("data: "));
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:476:        return [JSON.parse(dataLine.slice("data: ".length))];
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:568:describe("POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration)", () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:601:      async (_userId, _params, _provider, onDelta, _options, _reset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:602:        (onStep as ((step: AgentStep) => void) | undefined)?.(readStep);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:730:      async (_userId, _params, _provider, onDelta, _options, _reset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:732:        (onStep as ((step: AgentStep) => void) | undefined)?.({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:738:        (onStep as ((step: AgentStep) => void) | undefined)?.({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:968:  it("emits a forensic_status SSE event when chatWithFallback calls onStep with an isFixtureLocal:true step", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:969:    // Arrange: mock chatWithFallback to call the real onStep closure with a
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:970:    // fixture-local forensic_status step.  The real onStep in chat.ts will then
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:971:    // call sse({ type: 'forensic_status', auditScope, isFixtureLocal }).
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:973:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:974:        (onStep as ((s: AgentStep) => void) | undefined)?.(FIXTURE_LOCAL_STEP);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:988:    // Assert: exactly one forensic_status frame is present.
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:992:        typeof f === "object" && f !== null && (f as Record<string, unknown>).type === "forensic_status",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:997:  it("forensic_status event carries isFixtureLocal:true when the step has it", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:999:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1000:        (onStep as ((s: AgentStep) => void) | undefined)?.(FIXTURE_LOCAL_STEP);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1012:        typeof f === "object" && f !== null && (f as Record<string, unknown>).type === "forensic_status",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1020:  it("isFixtureLocal is absent from the forensic_status event when the step has a production scope", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1022:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1023:        (onStep as ((s: AgentStep) => void) | undefined)?.(PRODUCTION_STEP);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1035:        typeof f === "object" && f !== null && (f as Record<string, unknown>).type === "forensic_status",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1044:  it("forensic_status event arrives before the done event in the SSE stream", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1046:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1047:        (onStep as ((s: AgentStep) => void) | undefined)?.(FIXTURE_LOCAL_STEP);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1061:    const forensicIdx = types.indexOf("forensic_status");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1062:    const doneIdx     = types.indexOf("done");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1069:  it("the done event is still emitted after the forensic_status event", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1071:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1072:        (onStep as ((s: AgentStep) => void) | undefined)?.(FIXTURE_LOCAL_STEP);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1092:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1093:        (onStep as ((s: AgentStep) => void) | undefined)?.(CROSS_FILE_STEP);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1123:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1124:        (onStep as ((s: AgentStep) => void) | undefined)?.(DECISION_TRACE_STEP);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1153:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1154:        (onStep as ((s: AgentStep) => void) | undefined)?.(FIXTURE_VERDICT_STEP);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1181:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1182:        (onStep as ((s: AgentStep) => void) | undefined)?.(DECISION_TRACE_STEP);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1204:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, _onStep) =>
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1241:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1242:        (onStep as ((s: AgentStep) => void) | undefined)?.(step);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1288:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1289:        (onStep as ((s: AgentStep) => void) | undefined)?.(SENSITIVE_VALIDATION_STEP);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1355:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1356:        (onStep as ((s: AgentStep) => void) | undefined)?.(FIXTURE_VERDICT_STEP);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1405:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1406:        (onStep as ((s: AgentStep) => void) | undefined)?.(DECISION_TRACE_STEP);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1428:      async (_userId, _params, _cfg, _onDelta, _opts, _onStreamReset, _onStep) => ({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:207:      onStep?: (step: {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:227:      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:234:      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:241:      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:246:      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:844:    const sessionId = parseSseEvents(first.text)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:919:    expect(parseSseEvents(resumed.text).some((event) =>
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1290:    const resumedEvents = parseSseEvents(resumed.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1367:      onStep,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1369:      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1410:    const done = parseSseEvents(stream.text).find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1557:    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1600:    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1601:    const doneEvent = events.find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1684:    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1799:    const buildEvents = parseSseEvents(build.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1959:function parseSseEvents(body: string): SseEvent[] {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1963:    .filter((chunk) => chunk.startsWith("data: "))
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2076:    const events = parseSseEvents(stream.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2077:    const done = events.find((event) => event.type === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2216:    expect(parseSseEvents(firstStream.text).some((event) => event.type === "done")).toBe(true);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2217:    expect(parseSseEvents(secondStream.text).some((event) => event.type === "done")).toBe(true);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2438:      const onStep = args[6] as ((step: unknown) => void) | undefined;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2440:      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2478:      const events = parseSseEvents(response.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2481:      const done = events.find((event) => event.type === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2519:    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2538:    const doneEvent = events.find((e) => e["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2610:    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2611:    const done = events.find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2733:    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2735:    const done = events.find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2849:      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2850:      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2857:      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2864:      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2879:      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2904:    const events = parseSseEvents(streamResponse.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2914:    const done = events.find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3057:    const firstDone = parseSseEvents(first.text).find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3087:      .set({ content: "Audit report retained without executable Markdown metadata.", repairPlanMetadata: null })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3184:    const sessionId = parseSseEvents(first.text).find((event) => event["type"] === "done")?.["sessionId"] as string;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3317:    const auditEvents = parseSseEvents(auditRes.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3328:    const executionEvents = parseSseEvents(executionRes.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3366:    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3367:    const done = events.find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3454:        onStep: any,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3456:        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3464:        onStep?.(timeoutStep as never);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3479:    const streamEvents = parseSseEvents(streamed.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3535:        onStep,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3538:        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3543:        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3565:    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3566:    const done = events.find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3632:        onStep,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3635:        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3643:        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3649:        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3657:        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3683:    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3685:    const done = events.find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3777:        onStep,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3781:        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3789:        onStep?.({ kind: "forensic_recovery_start", attempt: 1 });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3790:        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3804:        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3813:        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3840:    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3841:    const done = events.find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3883:      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3884:      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3891:      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3916:    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3958:      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3959:      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3966:      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3994:    const firstEvents = parseSseEvents(first.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4015:    const resumedEvents = parseSseEvents(resumed.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4084:        onStep,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4086:        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4091:        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4121:    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4122:    const done = events.find((event) => event["type"] === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4188:      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4193:      onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4222:    const events = parseSseEvents(res.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4232:    const done = events.find((event) => event.type === "done");
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4271:      const onStep = args[6] as ((step: Record<string, unknown>) => void) | undefined;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4273:        onStep?.({ kind: "tool_call", tool: "read_file", args: { path: source }, cached: false });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4274:        onStep?.({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4302:    const firstEvents = parseSseEvents(first.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4334:    const resumedEvents = parseSseEvents(resumed.text);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4374:    const events = parseSseEvents(res.text);

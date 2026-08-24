@@ -1,0 +1,900 @@
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: false
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "9b8fd048-c55c-4a23-9008-385496281cb7",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.241] INFO (1654): request completed
+    req: {
+      "id": 17,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+ × src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > keeps the cancelled Arabic incomplete report intact in the SSE done frame 11ms
+   → expected undefined to be defined
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > redacts runtime paths and opaque IDs from JSON, SSE, and persisted assistant content 17ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > redacts runtime paths and opaque IDs from sources and persisted tool traces in both exports 11ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > routes implementation-plan requests as read-only chat on JSON and SSE 14ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > keeps non-imperative action questions in ordinary chat on JSON and SSE 13ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > routes composed polite modification requests as delivery on JSON and SSE 13ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > ignores stale Build and execution metadata for an Arabic greeting 10ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > emits a forensic_status SSE event when chatWithFallback calls onStep with an isFixtureLocal:true step 7ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > forensic_status event carries isFixtureLocal:true when the step has it 5ms
+[16:15:12.249] INFO (1654): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "07a1dae3-1fd1-4e1b-b1a3-61097e5c4243"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: false
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "07a1dae3-1fd1-4e1b-b1a3-61097e5c4243",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.250] INFO (1654): request completed
+    req: {
+      "id": 18,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[16:15:12.255] INFO (1654): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "591c3946-dfff-4f09-bb94-d427a07ba102"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: false
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "591c3946-dfff-4f09-bb94-d427a07ba102",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.256] INFO (1654): request completed
+    req: {
+      "id": 19,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[16:15:12.265] INFO (1654): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "13d3fb2e-fd3c-4c86-a366-62e1957e4390"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: false
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "13d3fb2e-fd3c-4c86-a366-62e1957e4390",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.266] INFO (1654): request completed
+    req: {
+      "id": 20,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[16:15:12.272] INFO (1654): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "6c650333-ef0f-4c02-b566-369ca4db0462"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "PROJECT_QUERY"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "tool_chat"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "6c650333-ef0f-4c02-b566-369ca4db0462",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.273] INFO (1654): request completed
+    req: {
+      "id": 21,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+[16:15:12.278] INFO (1654): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "d03df11d-9924-45a2-8409-d861ac07f240"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "d03df11d-9924-45a2-8409-d861ac07f240",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.279] INFO (1654): request completed
+    req: {
+      "id": 22,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[16:15:12.284] INFO (1654): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "276a83f1-7639-41cb-bf82-7af953b0addd"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "276a83f1-7639-41cb-bf82-7af953b0addd",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.285] INFO (1654): request completed
+    req: {
+      "id": 23,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[16:15:12.292] INFO (1654): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "249b3ff2-db8e-4837-9575-3b93a8de0588"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "249b3ff2-db8e-4837-9575-3b93a8de0588",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.293] INFO (1654): request completed
+    req: {
+      "id": 24,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[16:15:12.298] INFO (1654): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "ae5edd6f-369e-4422-9908-4a348f75e1eb"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "ae5edd6f-369e-4422-9908-4a348f75e1eb",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.298] INFO (1654): request completed
+    req: {
+      "id": 25,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[16:15:12.304] INFO (1654): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "92ced4e7-cc36-468d-9b74-c1886b489110"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "92ced4e7-cc36-468d-9b74-c1886b489110",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.305] INFO (1654): request completed
+    req: {
+      "id": 26,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+[16:15:12.314] INFO (1654): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "13a9df80-b1e5-440f-b7ea-71c47d7f70b1"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "13a9df80-b1e5-440f-b7ea-71c47d7f70b1",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.314] INFO (1654): request completed
+    req: {
+      "id": 27,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+[16:15:12.320] INFO (1654): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "55dc3f7a-7925-4de3-879a-6b1e0e4bfd2d"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "55dc3f7a-7925-4de3-879a-6b1e0e4bfd2d",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.321] INFO (1654): request completed
+    req: {
+      "id": 28,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 3
+[16:15:12.325] INFO (1654): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "9c20fb78-6294-4f79-b5ea-57461e51da81"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-lite"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "9c20fb78-6294-4f79-b5ea-57461e51da81",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.325] INFO (1654): request completed
+    req: {
+      "id": 29,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 1
+[16:15:12.333] INFO (1654): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "8a05a06f-a463-4aad-b252-27c5aec879ce"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: false
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "8a05a06f-a463-4aad-b252-27c5aec879ce",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.335] INFO (1654): request completed
+    req: {
+      "id": 30,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 4
+[16:15:12.338] INFO (1654): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "c5da78b5-558c-444f-90b0-e2355fe28efa"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "CHAT"
+    requireTools: false
+    requiresEvidence: false
+    qualityProfile: "chat"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "c5da78b5-558c-444f-90b0-e2355fe28efa",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.339] INFO (1654): request completed
+    req: {
+      "id": 31,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > isFixtureLocal is absent from the forensic_status event when the step has a production scope 10ms
+ × src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > forensic_status event arrives before the done event in the SSE stream 6ms
+   → expected -1 to be greater than or equal to 0
+ × src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > the done event is still emitted after the forensic_status event 10ms
+   → expected undefined to be defined
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > emits a cross_file_trace event with its exact source span 7ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > emits a decision_trace event proving the task router reached the client 6ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > forwards verdictScope + scopedFindingStatus when the decision_trace step has them 6ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > omits verdictScope + scopedFindingStatus when the step has none 7ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > done event forwards behaviorEvidence as a parsed array with exact source spans 5ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — validation privacy boundary > emits the public nested validation schema for 'failed' events 6ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — validation privacy boundary > emits the public nested validation schema for 'passed' events 9ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — validation privacy boundary > removes command output and test/source details from SSE and persisted trace 6ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — scoped verdict persists into tool_trace/repair_plan_metadata > persists verdictScope + scopedFindingStatus into tool_trace for a scoped decision_trace step 4ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — scoped verdict persists into tool_trace/repair_plan_metadata > persists verdictScope + scopedFindingStatus into repair_plan_metadata for a scoped scenario 9ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — scoped verdict persists into tool_trace/repair_plan_metadata > omits scope fields from the persisted tool_trace when the step has none 4ms
+ ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — scoped verdict persists into tool_trace/repair_plan_metadata > omits scope fields from the persisted repair_plan_metadata when the plan has none 6ms
+[16:15:12.343] INFO (1654): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "openai"
+    sessionId: "2d33e980-b904-4a11-a942-8a73972dcb18"
+    projectId: "test-project-id"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: false
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "2d33e980-b904-4a11-a942-8a73972dcb18",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[16:15:12.344] INFO (1654): request completed
+    req: {
+      "id": 32,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 2
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 25 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > Durable AI execution crash/reconnect > keeps a forensic ابدأ resume read-only after server-layer reinitialization
+AssertionError: expected undefined to be truthy
+
+- Expected:
+true
+
++ Received:
+undefined
+
+ ❯ src/routes/ai-stream-integration.test.ts:846:23
+    844|     const sessionId = parseSseEvents(first.text)
+    845|       .find((event) => event["type"] === "done")?.["sessionId"] as str…
+    846|     expect(sessionId).toBeTruthy();
+       |                       ^
+    847|
+    848|     const requestEnvelope = {
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > Durable AI execution crash/reconnect > resumes from a checkpoint, then rebases drifted changes and requires fresh approval
+AssertionError: expected 409 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 409
+
+ ❯ src/routes/ai-stream-integration.test.ts:1289:28
+    1287|         resumeToken: created.resumeToken,
+    1288|       });
+    1289|     expect(resumed.status).toBe(200);
+       |                            ^
+    1290|     const resumedEvents = parseSseEvents(resumed.text);
+    1291|     const resumedDone = resumedEvents.find((event) => event["type"] ==…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > keeps a non-Build execution identity through proposal reload and apply
+AssertionError: expected undefined to deeply equal Any<String>
+
+- Expected:
+Any<String>
+
++ Received:
+undefined
+
+ ❯ src/routes/ai-stream-integration.test.ts:1414:24
+    1412|     const operationId = done?.["operationId"] as string;
+    1413|     const assistantMessageId = (done?.["message"] as { id?: string } |…
+    1414|     expect(proposalId).toEqual(expect.any(String));
+       |                        ^
+    1415|     expect(operationId).toEqual(expect.any(String));
+    1416|     expect(operationId).not.toBe(assistantMessageId);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > blocks Build Mode for an already-approved plan with no safe file scope
+AssertionError: expected 'PLAN_CONTEXT_INCOMPLETE' to be 'PLAN_FILE_SCOPE_REQUIRED' // Object.is equality
+
+Expected: "PLAN_FILE_SCOPE_REQUIRED"
+Received: "PLAN_CONTEXT_INCOMPLETE"
+
+ ❯ src/routes/ai-stream-integration.test.ts:1498:27
+    1496|
+    1497|     expect(res.status).toBe(409);
+    1498|     expect(res.body.code).toBe("PLAN_FILE_SCOPE_REQUIRED");
+       |                           ^
+    1499|   });
+    1500|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > blocks an approved read-only plan before opening a provider turn
+AssertionError: expected 'PLAN_CONTEXT_INCOMPLETE' to be 'PLAN_BUILD_BLOCKED' // Object.is equality
+
+Expected: "PLAN_BUILD_BLOCKED"
+Received: "PLAN_CONTEXT_INCOMPLETE"
+
+ ❯ src/routes/ai-stream-integration.test.ts:1520:27
+    1518|
+    1519|     expect(res.status).toBe(409);
+    1520|     expect(res.body.code).toBe("PLAN_BUILD_BLOCKED");
+       |                           ^
+    1521|     expect(vi.mocked(chatWithFallback).mock.calls.length).toBe(callsBe…
+    1522|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > blocks a proposed file outside the approved plan scope
+AssertionError: expected 409 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 409
+
+ ❯ src/routes/ai-stream-integration.test.ts:1556:24
+    1554|       });
+    1555|
+    1556|     expect(res.status).toBe(200);
+       |                        ^
+    1557|     const events = parseSseEvents(res.text);
+    1558|     const errorEvent = events.find((event) => event["type"] === "error…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > binds in-scope implementation changes to the safe workspace typecheck
+AssertionError: expected 409 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 409
+
+ ❯ src/routes/ai-stream-integration.test.ts:1599:24
+    1597|       });
+    1598|
+    1599|     expect(res.status).toBe(200);
+       |                        ^
+    1600|     const events = parseSseEvents(res.text);
+    1601|     const doneEvent = events.find((event) => event["type"] === "done");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > keeps hostile repository evidence from changing the approved Build contract
+AssertionError: expected 409 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 409
+
+ ❯ src/routes/ai-stream-integration.test.ts:1683:24
+    1681|       });
+    1682|
+    1683|     expect(res.status).toBe(200);
+       |                        ^
+    1684|     const events = parseSseEvents(res.text);
+    1685|     expect(events.find((event) => event["type"] === "error")?.["code"])
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > Plan-to-push agent cycle > proves Plan -> Approve -> Build -> Diff -> Apply -> Commit -> Push
+AssertionError: expected 409 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 409
+
+ ❯ src/routes/ai-stream-integration.test.ts:1798:26
+    1796|         message: "Build the approved implementation plan.",
+    1797|       });
+    1798|     expect(build.status).toBe(200);
+       |                          ^
+    1799|     const buildEvents = parseSseEvents(build.text);
+    1800|     const buildDone = buildEvents.find((event) => event["type"] === "d…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > Phase 6 — Arabic evidence persistence and history rehydration > preserves the Arabic report, structured evidence, verdict, and redacted trace after reload
+AssertionError: expected undefined to be defined
+ ❯ src/routes/ai-stream-integration.test.ts:2078:18
+    2076|     const events = parseSseEvents(stream.text);
+    2077|     const done = events.find((event) => event.type === "done");
+    2078|     expect(done).toBeDefined();
+       |                  ^
+    2079|     const doneMessage = done?.message as {
+    2080|       id: string;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > should stream successful OpenRouter completion over SSE
+AssertionError: expected 0 to be less than -1
+ ❯ src/routes/ai-stream-integration.test.ts:2541:50
+    2539|     expect(sessionStartedEvent).toBeDefined();
+    2540|     expect(typeof sessionStartedEvent!["sessionId"]).toBe("string");
+    2541|     expect(events.indexOf(sessionStartedEvent!)).toBeLessThan(events.i…
+       |                                                  ^
+    2542|     expect(doneEvent).toBeDefined();
+    2543|     expect(typeof doneEvent!["sessionId"]).toBe("string");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > persists an Arabic behavioral answer with accepted evidence through SSE
+AssertionError: expected undefined to be defined
+ ❯ src/routes/ai-stream-integration.test.ts:2612:18
+    2610|     const events = parseSseEvents(res.text);
+    2611|     const done = events.find((event) => event["type"] === "done");
+    2612|     expect(done).toBeDefined();
+       |                  ^
+    2613|     expect(done?.["error"]).toBeUndefined();
+    2614|     expect(done?.["sources"]).toEqual([source]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > keeps a completed read out of accepted sources when SSE has insufficient behavioral evidence
+AssertionError: expected undefined to be defined
+ ❯ src/routes/ai-stream-integration.test.ts:2743:18
+    2741|       acceptedEvidenceFiles: [],
+    2742|     });
+    2743|     expect(done).toBeDefined();
+       |                  ^
+    2744|     expect(done?.["sources"]).toEqual([]);
+    2745|     expect((done?.["message"] as Record<string, unknown> | undefined)?…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > completes the Arabic behavior journey through session, API, SSE, and history endpoints
+AssertionError: expected -1 to be greater than 6
+ ❯ src/routes/ai-stream-integration.test.ts:2912:29
+    2910|     expect(indexOf("tool_result")).toBeGreaterThan(indexOf("tool_call"…
+    2911|     expect(indexOf("evidence_integrity")).toBeGreaterThan(indexOf("too…
+    2912|     expect(indexOf("done")).toBeGreaterThan(indexOf("evidence_integrit…
+       |                             ^
+    2913|
+    2914|     const done = events.find((event) => event["type"] === "done");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > persists and restores the resumable task contract for an SSE continuation
+AssertionError: expected undefined to be truthy
+
+- Expected:
+true
+
++ Received:
+undefined
+
+ ❯ src/routes/ai-stream-integration.test.ts:3059:23
+    3057|     const firstDone = parseSseEvents(first.text).find((event) => event…
+    3058|     const sessionId = firstDone?.["sessionId"] as string;
+    3059|     expect(sessionId).toBeTruthy();
+       |                       ^
+    3060|
+    3061|     const persistedAfterFirst = await db
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > keeps the newest resumable contract when same-session turns finish out of order
+AssertionError: expected undefined to be truthy
+
+- Expected:
+true
+
++ Received:
+undefined
+
+ ❯ src/routes/ai-stream-integration.test.ts:3185:23
+    3183|     expect(first.status).toBe(200);
+    3184|     const sessionId = parseSseEvents(first.text).find((event) => event…
+    3185|     expect(sessionId).toBeTruthy();
+       |                       ^
+    3186|
+    3187|     let releaseOld!: () => void;
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > should carry the persisted audit report into a same-session execution follow-up
+AssertionError: expected undefined to be defined
+ ❯ src/routes/ai-stream-integration.test.ts:3335:40
+    3333|
+    3334|     expect(executionRes.status).toBe(200);
+    3335|     expect(executionDone?.["message"]).toBeDefined();
+       |                                        ^
+    3336|     expect(executionInput.history).toContainEqual({ role: "assistant",…
+    3337|     expect(executionInput.history.some((entry) => entry.content === "ن…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > persists bounded synthesis timeout telemetry while keeping incomplete reports sanitized
+AssertionError: the given combination of arguments (undefined and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string
+ ❯ src/routes/ai-stream-integration.test.ts:3487:36
+    3485|
+    3486|     expect(streamed.status).toBe(200);
+    3487|     expect(streamMessage?.content).toContain("ANALYSIS_INCOMPLETE");
+       |                                    ^
+    3488|     expect(streamMessage?.content).not.toContain("provider timeout");
+    3489|     expect(streamed.text).not.toContain("fixture provider diagnostic");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > hides provider and recovery diagnostic details from evidence-required SSE
+AssertionError: expected undefined to be 'Evidence-backed report' // Object.is equality
+
+- Expected:
+"Evidence-backed report"
+
++ Received:
+undefined
+
+ ❯ src/routes/ai-stream-integration.test.ts:3695:30
+    3693|
+    3694|     expect(res.status).toBe(200);
+    3695|     expect(message?.content).toBe("Evidence-backed report");
+       |                              ^
+    3696|     expect(diagnostic).toEqual({
+    3697|       type: "execution_diagnostic",
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > keeps a streamed forensic cancellation incomplete after recovery retains partial evidence
+Error: aborted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'ECONNRESET', response: null }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > INT-006 — POST /api/ai/chat/stream: provider failover surfaced cleanly through SSE > retains completed evidence after a native stream reset and resumes read-only
+AssertionError: the given combination of arguments (undefined and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string
+ ❯ src/routes/ai-stream-integration.test.ts:4234:30
+    4232|     const done = events.find((event) => event.type === "done");
+    4233|     const message = done?.message as Record<string, unknown> | undefin…
+    4234|     expect(message?.content).toContain("ANALYSIS_INCOMPLETE");
+       |                              ^
+    4235|     expect(message?.content).toContain(source);
+    4236|     expect(done?.sources).toEqual([source]);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/25]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > INT-006 — POST /api/ai/chat/stream: provider failover surfaced cleanly through SSE > retains a completed read when the primary fails and the text-only fallback is resumed
+AssertionError: the given combination of arguments (undefined and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string
+ ❯ src/routes/ai-stream-integration.test.ts:4305:35
+    4303|     const firstDone = firstEvents.find((event) => event.type === "done…
+    4304|     const firstMessage = firstDone?.message as Record<string, unknown>…
+    4305|     expect(firstMessage?.content).toContain("ANALYSIS_INCOMPLETE");
+       |                                   ^
+    4306|     expect(firstMessage?.content).toContain(source);
+    4307|     expect(firstMessage?.content).not.toMatch(/\/tmp\/|\/home\/runner\…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/25]⎯
+
+ FAIL  src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > keeps the cancelled Arabic incomplete report intact in the SSE done frame
+AssertionError: expected undefined to be defined
+ ❯ src/routes/ai/chat-sse.test.ts:689:18
+    687|       (frame) => typeof frame === "object" && frame !== null && (frame…
+    688|     ) as Record<string, unknown> | undefined;
+    689|     expect(done).toBeDefined();
+       |                  ^
+    690|     expect(JSON.stringify(done)).toContain("ANALYSIS_INCOMPLETE");
+    691|     expect(JSON.stringify(done)).toContain("Recovery needed");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/25]⎯
+
+ FAIL  src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > forensic_status event arrives before the done event in the SSE stream
+AssertionError: expected -1 to be greater than or equal to 0
+ ❯ src/routes/ai/chat-sse.test.ts:1065:21
+    1063|
+    1064|     expect(forensicIdx).toBeGreaterThanOrEqual(0);
+    1065|     expect(doneIdx).toBeGreaterThanOrEqual(0);
+       |                     ^
+    1066|     expect(forensicIdx).toBeLessThan(doneIdx);
+    1067|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/25]⎯
+
+ FAIL  src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > the done event is still emitted after the forensic_status event
+AssertionError: expected undefined to be defined
+ ❯ src/routes/ai/chat-sse.test.ts:1087:23
+    1085|     );
+    1086|
+    1087|     expect(doneFrame).toBeDefined();
+       |                       ^
+    1088|   });
+    1089|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/25]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  25 failed | 49 passed | 1 skipped (75)
+   Start at  16:15:00
+   Duration  11.58s (transform 4.19s, setup 0ms, import 7.63s, tests 3.60s, environment 0ms)
+
+/home/runner/workspace/artifacts/api-server:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/routes/ai-stream-integration.test.ts src/routes/ai/chat-sse.test.ts --reporter=verbose

@@ -14,6 +14,8 @@ import { resolve } from "path";
 
 const LOOSE_OBJECT = "zod.looseObject(";
 const OBJECT = "zod.object(";
+const UUID = "zod.uuid()";
+const STRING_UUID = "zod.string().uuid()";
 
 export function patchGeneratedZod(filePath: string): number {
   const path = resolve(filePath);
@@ -41,7 +43,9 @@ export function patchGeneratedZod(filePath: string): number {
     );
   }
 
-  const patched = content.replaceAll(LOOSE_OBJECT, OBJECT);
+  const patched = content
+    .replaceAll(LOOSE_OBJECT, OBJECT)
+    .replaceAll(UUID, STRING_UUID);
   const remaining = patched.split(LOOSE_OBJECT).length - 1;
   const transformed = patched.split(OBJECT).length - 1;
 

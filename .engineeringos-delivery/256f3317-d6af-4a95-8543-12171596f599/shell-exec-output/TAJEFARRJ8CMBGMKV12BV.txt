@@ -1,0 +1,234 @@
+artifacts/api-server/src/routes/ai.test.ts:111:        operationId: "internal-operation-id",
+artifacts/api-server/src/routes/ai.test.ts:131:      operationId: "operation",
+artifacts/api-server/src/routes/ai.test.ts:168:      operationId: "123e4567-e89b-12d3-a456-426614174000",
+artifacts/api-server/src/routes/ai.test.ts:198:      operationId: "[internal id]",
+artifacts/api-server/src/routes/ai.test.ts:212:      operationId: "123e4567-e89b-12d3-a456-426614174000",
+artifacts/api-server/src/routes/ai.test.ts:241:      operationId: "[internal id]",
+artifacts/api-server/src/routes/ai.test.ts:464:): Promise<{ proposalId: string; operationId: string; workspaceRoot: string | null; change: {
+artifacts/api-server/src/routes/ai.test.ts:470:  const operationId = randomUUID();
+artifacts/api-server/src/routes/ai.test.ts:471:  const fileName = `recovery-${operationId.slice(0, 8)}.ts`;
+artifacts/api-server/src/routes/ai.test.ts:481:    const sourceRoot = `/tmp/recovery-source-${operationId}`;
+artifacts/api-server/src/routes/ai.test.ts:486:      operationId,
+artifacts/api-server/src/routes/ai.test.ts:495:    operationId,
+artifacts/api-server/src/routes/ai.test.ts:502:  return { proposalId, operationId, workspaceRoot, change };
+artifacts/api-server/src/routes/ai.test.ts:736:      operationId: proposal.messageId,
+artifacts/api-server/src/routes/ai.test.ts:1335:    const operationId = randomUUID();
+artifacts/api-server/src/routes/ai.test.ts:1341:      correlationId: operationId,
+artifacts/api-server/src/routes/ai.test.ts:1359:        operationId,
+artifacts/api-server/src/routes/ai.test.ts:1403:      correlationId: operationId,
+artifacts/api-server/src/routes/ai.test.ts:1826:      operationId: "stored-operation",
+artifacts/api-server/src/routes/ai.test.ts:2465:      operationId: operation.operationId,
+artifacts/api-server/src/routes/ai.test.ts:2565:    expect(await deliveryWorkspaceExists(operation.workspaceRoot, operation.operationId)).toBe(true);
+artifacts/api-server/src/routes/ai.test.ts:2618:      .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
+artifacts/api-server/src/routes/ai.test.ts:2641:    expect(await deliveryWorkspaceExists(operation.workspaceRoot, operation.operationId)).toBe(false);
+artifacts/api-server/src/routes/ai.test.ts:2643:      .where(eq(aiApplyJournalTable.operationId, operation.operationId))).toHaveLength(0);
+artifacts/api-server/src/routes/ai.test.ts:2845:        .where(eq(aiApplyJournalTable.operationId, proposal?.messageId ?? proposalId));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:993:    expect(created.execution.operationId).toBe(created.execution.id);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:998:    expect(queuedStatus.body.operationId).toBe(created.execution.id);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1037:    const resumedCorrelations: Array<{ operationId?: string; projectRevision?: string }> = [];
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1039:      const params = args[1] as { analysisCorrelation?: { operationId: string; projectRevision: string } };
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1062:      operationId: created.execution.operationId ?? created.execution.id,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1064:      projectRevision: requestEnvelope.workspaceRevision,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1065:      rootAvailable: true,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1412:    const operationId = done?.["operationId"] as string;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1415:    expect(operationId).toEqual(expect.any(String));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1416:    expect(operationId).not.toBe(assistantMessageId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1421:        operationId: aiExecutionsTable.operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1428:      operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1435:    expect(pending.body.operationId).toBe(operationId);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1450:      .send({ projectId, proposalId, operationId, changes: [proposedChange] });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1457:      event.type === "AiChangesApplied" && event.correlationId === operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1807:    const operationId = plan.messageId;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1813:      operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1824:        operationId: randomUUID(),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1835:        operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1857:        .send({ message: "Apply verified AI changes", proposalId, operationId });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1861:      correlationId: operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1905:        .send({ proposalId, operationId });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1910:        correlationId: operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1929:          .filter((event) => event.correlationId === operationId)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2497:      expect(done?.operationId).toEqual(expect.any(String));
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4050:        operationId: aiExecutionsTable.operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4060:      operationId: started?.executionId,
+  project: typeof projectsTable.$inferSelect,
+): Promise<StructuredAuditMetadata> {
+  const root = await resolveRootPath(project.rootPath, projectId);
+  return {
+    operationId: randomUUID(),
+    projectId,
+    projectRevision: project.updatedAt.toISOString(),
+    rootAvailable: Boolean(root.validRootPath),
+    incomplete: !root.validRootPath,
+    operationalTrace: [],
+  };
+}
+
+function beginTaskStream(
+  res: import("express").Response,
+  task: StructuredTask,
+  projectId: string,
+  metadata: StructuredAuditMetadata,
+) {
+  res.status(200).set({
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  res.flushHeaders();
+
+  let closed = false;
+  const heartbeat = setInterval(() => {
+    if (!closed && !res.writableEnded) res.write(": heartbeat\n\n");
+  }, 15_000);
+
+  const emit = (event: StructuredTaskEvent) => {
+    if (!closed && !res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ ...event, ...auditEnvelope(metadata) })}\n\n`);
+    }
+  };
+
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(heartbeat);
+    if (!res.writableEnded) res.end();
+  };
+
+  res.once("close", () => {
+          id: randomUUID(),
+          type: "AiPlanCreated",
+          projectId,
+          severity: "info",
+          message: "AI implementation plan created and is awaiting approval",
+          correlationId: operationId,
+          payload: {
+            messageId: proposalMessageId,
+            operationId,
+            proposalId: proposalId ?? null,
+            buildPlanMessageId: effectiveBuildPlanMessageId ?? null,
+          },
+        });
+      }
+      await tx
+        .update(aiChatSessionsTable)
+        .set({
+          // The session row lock serializes concurrent completions, but the
+          // older turn may acquire it after the newer turn. Compare against
+          // the state-owned progress timestamp, not only the session
+          // timestamp, so a late completion cannot resurrect stale evidence
+          // or an older execution plan.
+          activeTaskState: sql`CASE
+            WHEN CAST(${activeTaskState} AS text) IS NULL THEN NULL
+            WHEN ${aiChatSessionsTable.activeTaskState} IS NULL THEN ${activeTaskState}
+            WHEN COALESCE(
+              NULLIF(${aiChatSessionsTable.activeTaskState}::jsonb->>'lastProgressAt', '')::timestamptz,
+              ${aiChatSessionsTable.updatedAt}
+            ) <= ${msgNow} THEN ${activeTaskState}
+            ELSE ${aiChatSessionsTable.activeTaskState}
+          END`,
+          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+        })
+        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+      return msg;
+    });
+
+    persistExecutionCheckpoint({
+      stage: "finalizing",
+      streamedPreview: streamedContent.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT),
+      recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+    });
+    await checkpointChain;
+    const finalValidation = [...traceSteps]
+      .reverse()
+      .find((step) => step.kind === "validation");
+    if (finalValidation?.kind === "validation") {
+      if (finalValidation.status === "passed") {
+        executionEvidenceVerdict = isProvenValidation(finalValidation.result)
+          && !proposalId
+          ? "PROVEN"
+          : "PARTIAL";
+        executionEvidenceReason = executionEvidenceVerdict === "PROVEN"
+          ? "Registered validation passed with retained evidence bound to this execution."
+          : "Validation passed, but required server-owned objective or delivery proof has not been recorded.";
+      } else if (finalValidation.status === "unavailable") {
+        executionEvidenceVerdict = "UNAVAILABLE";
+        executionEvidenceReason = finalValidation.detail ?? "Validation could not be executed.";
+      } else if (finalValidation.status === "failed" || finalValidation.status === "blocked") {
+        executionEvidenceVerdict = "BLOCKED";
+        executionEvidenceReason = finalValidation.detail ?? "Validation ended with an unresolved failure.";
+      }
+    }
+    if (checkpointFailure) {
+      throw new Error("AI execution checkpoint persistence failed before finalization");
+    }
+    if (endedBeforeEvidence) {
+      await failAiExecution({
+        executionId: aiExecution.id,
+        workerId: executionWorkerId!,
+        error: "Execution stopped before the first source read.",
+        cancelled: false,
+        nodeStates: executionNodeStates,
+      });
+    } else {
+      const completed = await completeAiExecution({
+        executionId: aiExecution.id,
+        workerId: executionWorkerId!,
+        finalMessageId: assistantMsg.id,
+        proposalId,
+        nodeStates: executionNodeStates,
+        evidenceVerdict: executionEvidenceVerdict,
+        evidenceReason: executionEvidenceReason,
+        proofRequired,
+        evidenceRefs: finalValidation?.kind === "validation"
+          ? [finalValidation.result.evidence.artifactRef]
+          : [],
+      });
+      if (!completed) {
+        await failAiExecution({
+          executionId: aiExecution.id,
+          workerId: executionWorkerId!,
+          error: "Execution blocked: required objective, scope, revision, or acceptance evidence was not proven.",
+          cancelled: false,
+          nodeStates: executionNodeStates,
+          operation: undefined,
+        });
+        executionTerminal = true;
+        sse({
+          type: "error",
+          code: "EXECUTION_ACCEPTANCE_INCOMPLETE",
+          message: "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.",
+          executionId: aiExecution.id,
+        });
+        res.end();
+        return;
+      }
+    }
+    executionTerminal = true;
+
+    // Fire-and-forget memory write — must not block the SSE done event.
+    writeSessionMemories(
+      sessionIdToUse,
+      projectId,
+      redactUserFacingValue(result.sources),
+      sanitizeResponseText(result.response),
+    ).catch((err) => {
+      logger.warn({ err, projectId }, "memory-write: failed to persist session memories (stream)");
+    });
+
+    // PR-010: surface latency and model info in done event.
+    const chatLatencyMs = Date.now() - chatStartMs;
+    const operationMode =
+      proposalId
+      || result.repairPlan
+      || result.taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT"
+      || Boolean(effectiveBuildPlanMessageId)
+        ? "DELIVERY"
+        : streamTurnIntent.operationMode;
+
+    const publicToolTrace = streamTurnIntent.requiresEvidence
+        ? serializeToolTrace(traceSteps, false, streamAuditScopeDescription)
+      : assistantMsg.toolTrace;
+    // The database row is intentionally retained with full diagnostics, but
+    // every SSE projection of that row must use the public trace.
+    assistantMsg.toolTrace = publicToolTrace;

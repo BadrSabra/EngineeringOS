@@ -1,0 +1,388 @@
+      relatedFiles: foundTask.relatedFiles,
+    };
+  }
+
+  const { validRootPath, fallbackUsed: rootFallbackUsed, originalPath: rootOriginalPath } =
+    await resolveRootPath(project.rootPath, projectId);
+
+  // Classify the request upfront — pure sync, zero cost. Short continuation
+  // messages reuse the verified contract stored on the session.
+  const persistedActiveTaskState = resolveSessionTaskState(existingSession?.activeTaskState, projectId);
+  const rawTurnClassification = classifyRequest(message);
+  const rawTurnIntent = resolveTurnIntent(message, {
+    classification: rawTurnClassification,
+  });
+  // Any ordinary CHAT request starts an isolated conversational turn unless it
+  // is an explicit continuation. This mirrors the SSE path, so stale forensic
+  // state cannot turn neutral conversation into an evidence-gated audit.
+  const isolatedConversationTurn =
+    rawTurnIntent.kind === "CHAT" && !isTaskContinuationRequest(message);
+  const resumableStateForTurn = isolatedConversationTurn
+    ? null
+    : persistedActiveTaskState;
+  const classificationResolution = resumeActiveTaskClassification(
+    message,
+    rawTurnClassification,
+    resumableStateForTurn,
+  );
+  const implementationPlanResume = isImplementationPlanContinuation(
+    message,
+    resumableStateForTurn,
+  );
+  const chatClassification = classificationResolution.classification;
+  const turnIntent = resolveTurnIntent(message, {
+    classification: chatClassification,
+    resumed: classificationResolution.resumed,
+    implementationPlanResume,
+  });
+  const modelHasTools = Boolean(validRootPath && turnIntent.requiresTools);
+  let analysisCorrelation: {
+    operationId: string;
+    projectId: string;
+    projectRevision: string;
+    rootAvailable: boolean;
+    evidenceProvenance: string;
+  } = {
+    operationId: randomUUID(),
+    projectId,
+    projectRevision: project.updatedAt.toISOString(),
+    rootAvailable: Boolean(validRootPath),
+    evidenceProvenance: "project-analysis",
+  };
+  const analysisToolRunner = validRootPath
+    ? createProjectAnalysisToolRunner(projectId, validRootPath)
+    : undefined;
+  const immediateExecutionRequest = isImmediateExecutionRequest(message);
+  // Fetch a stable bounded history for every ordinary request. chat-agent
+  // keeps the latest complete turns verbatim and summarizes older turns,
+  // while execution handoffs can still recover an older repair plan from this
+  // larger fixed window.
+  const historyLimit = CONVERSATION_HISTORY_FETCH_MESSAGES;
+
+    const historyRows = existingSession
+      ? await db
+          .select()
+          .from(aiChatMessagesTable)
+          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+          .orderBy(desc(aiChatMessagesTable.createdAt))
+          .limit(historyLimit)
+      : [];
+
+  const providerResolved = await requireProvider(req.userId, res, {
+    requireTools: modelHasTools,
+    qualityProfile: turnIntent.executionTaskType,
+  });
+  if (!providerResolved) return;
+  const { provider, apiKey } = providerResolved;
+
+  const applyProbe = modelHasTools
+    ? await tryAdvisoryLock(LockNamespace.APPLY, projectId)
+    : { acquired: true, release: async () => undefined };
+  if (!applyProbe.acquired) {
+    return res.status(409).json({
+      error: "apply_in_progress",
+      hint: "File changes are still being written for this project — wait a moment, then retry.",
+    });
+  }
+  try {
+    const baseProjectContext = await buildProjectContext(projectId, {
+      sections: profileContextSections(chatClassification.contextProfile),
+    });
+    const projectContext = chatClassification.implementationPlanMode
+      ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
+      : baseProjectContext;
+    // Enrich context with cross-session memories (outside cache; always fresh).
+    // Failure is non-fatal — agent proceeds without memory context.
+    await enrichContextWithMemories(projectContext, projectId).catch((err) => {
+      logger.warn({ err, projectId }, "memory-enrich: failed to load session memories");
+    });
+    // AI-TASK-007: Structured chat context trace.
+    logger.info({
+      scope: "chat-route",
+      action: "pre_chat_trace",
+      provider,
+      sessionId: existingSession?.id ?? sessionId ?? null,
+      projectId,
+      linkedTaskId: effectiveLinkedTaskId ?? null,
+      taskLoaded: !!activeTask,
+      promptMode: activeTask ? "task" : "chat",
+      messageCount: historyRows.length,
+      turnIntent: turnIntent.kind,
+      requireTools: modelHasTools,
+      requiresEvidence: turnIntent.requiresEvidence,
+      qualityProfile: turnIntent.executionTaskType,
+      contextProfile: chatClassification.contextProfile,
+      executionHandoff: {
+        requested: immediateExecutionRequest,
+        sessionId: existingSession?.id ?? sessionId ?? null,
+        historyMessageCount: historyRows.length,
+        repairPlanCandidateCount: countRepairPlanCandidates(historyRows),
+      },
+    }, "chat: dispatching chatWithFallback");
+
+    let result: Awaited<ReturnType<typeof chat>>;
+    const traceSteps: AgentStep[] = [];
+    try {
+      const chatOut = await chatWithFallback(
+        req.userId,
+        {
+          message,
+          history: historyRows
+            .reverse()
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({
+              role: m.role as "user" | "assistant",
+              content: m.content,
+              ...(m.role === "assistant" && parseRepairPlanMetadata(m.repairPlanMetadata)
+                ? { repairPlan: parseRepairPlanMetadata(m.repairPlanMetadata) }
+                : {}),
+            })),
+          projectContext,
+          rootPath: validRootPath,
+          projectId,
+          activeTaskState: resumableStateForTurn,
+          activeTask,
+          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat"),
+          objective,
+          turnIntent,
+          allowAnalysisTools: Boolean(modelHasTools && analysisToolRunner),
+          analysisToolRunner,
+          analysisCorrelation,
+        },
+        { provider, apiKey },
+        undefined,
+        { requireTools: modelHasTools, qualityProfile: turnIntent.executionTaskType },
+        undefined,
+        (step) => traceSteps.push(step),
+      );
+      result = chatOut.result;
+      if (turnIntent.requiresEvidence && endedBeforeFirstSourceRead(traceSteps)) {
+        result = {
+          ...result,
+          response: failClosedBeforeEvidenceResponse(message),
+          sources: [],
+          pendingChanges: [],
+          repairPlan: undefined,
+          taskResult: undefined,
+          behaviorEvidence: undefined,
+        };
+      }
+    } catch (err) {
+      if (handleOrchestratorError(err, res, { projectId, operation: "chat", provider })) return;
+      throw err;
+    }
+
+    if (result._parseError) {
+      if (!result.response) {
+      skipped.push({ provider, reason: "no_api_key" });
+      continue;
+    }
+    if (!providerCanHandleRequest(provider, options)) {
+      const reason = options?.requireTools ? "no_tool_support" : "capability_mismatch";
+      logger.info(
+        { provider, requireTools: !!options?.requireTools, reason },
+        "Skipping provider that cannot satisfy the current request",
+      );
+      skipped.push({ provider, reason });
+      continue;
+    }
+    // PR-07: skip providers whose circuit breaker is open (cooldown not elapsed).
+    if (isCircuitOpen(provider)) {
+      logger.warn(
+        { provider, reason: "circuit_open" },
+        "Skipping provider — circuit is open due to consecutive failures",
+      );
+      skipped.push({ provider, reason: "circuit_open" });
+      continue;
+    }
+    available.push({ provider, apiKey: key });
+  }
+
+  if (options?.qualityProfile && available.length > 1) {
+    const orderedIds = sortProviderIdsByQuality(
+      available.map((candidate) => candidate.provider),
+      options.qualityProfile,
+      { requireTools: options.requireTools },
+    );
+    const byProvider = new Map(available.map((candidate) => [candidate.provider, candidate.apiKey]));
+    const reordered = orderedIds
+      .map((provider) => ({ provider, apiKey: byProvider.get(provider) }))
+      .filter((candidate): candidate is { provider: ProviderId; apiKey: string } => Boolean(candidate?.apiKey));
+
+    logger.info(
+      {
+        scope: "provider-selection",
+        action: "collect_available_providers",
+        qualityProfile: options.qualityProfile,
+        requireTools: !!options?.requireTools,
+        available: reordered.map((c) => c.provider),
+        skipped,
+        finalOrder: reordered.map((c) => c.provider),
+      },
+      "provider selection complete (quality-ordered)",
+    );
+    return reordered;
+  }
+
+  logger.info(
+    {
+      scope: "provider-selection",
+      action: "collect_available_providers",
+      qualityProfile: options?.qualityProfile ?? null,
+      requireTools: !!options?.requireTools,
+      available: available.map((c) => c.provider),
+      skipped,
+    },
+    "provider selection complete",
+  );
+  return available;
+}
+
+// ── Per-provider key resolution ───────────────────────────────────────────────
+
+/**
+ * Generic: resolve the saved API key for any provider.
+ *
+ * Resolution order:
+ *   1. User's own saved key (decrypted from DB).
+ *   2. Server-wide env fallback: OPENROUTER_API_KEY / DEEPSEEK_API_KEY / GROQ_API_KEY.
+ *   3. undefined — caller MUST return 428 to the client.
+ */
+export async function resolveProviderKey(
+  userId: string,
+  provider: ProviderId,
+): Promise<string | undefined> {
+  const [row] = await db
+    .select()
+    .from(aiProviderCredentialsTable)
+    .where(
+      and(
+        eq(aiProviderCredentialsTable.ownerId, userId),
+        eq(aiProviderCredentialsTable.provider, provider),
+      ),
+    )
+    .limit(1);
+
+  if (row) {
+    try {
+      return decryptApiKey(row.encryptedApiKey);
+    } catch (err) {
+      const label = PROVIDER_REGISTRY[provider]?.label ?? provider;
+      logger.error(
+        { err, ownerId: userId, provider },
+        `Failed to decrypt stored ${label} API key — falling back to env`,
+      );
+    }
+  }
+
+  // Server-wide env fallback — supported for all providers via dedicated env vars.
+  const ENV_FALLBACK: Record<ProviderId, string | undefined> = {
+    openrouter: process.env.OPENROUTER_API_KEY,
+    gemini: process.env.GEMINI_API_KEY,
+    deepseek: process.env.DEEPSEEK_API_KEY,
+    groq: process.env.GROQ_API_KEY,
+  };
+  return ENV_FALLBACK[provider] || undefined;
+}
+
+// Backward-compat named wrappers (used by parity tests and older callers).
+export async function resolveGroqApiKey(userId: string): Promise<string | undefined> {
+  return resolveProviderKey(userId, "groq");
+}
+export async function resolveDeepSeekApiKey(userId: string): Promise<string | undefined> {
+  return resolveProviderKey(userId, "deepseek");
+}
+export async function resolveOpenRouterApiKey(userId: string): Promise<string | undefined> {
+  return resolveProviderKey(userId, "openrouter");
+}
+
+// ── Provider resolution (priority-ordered) ────────────────────────────────────
+
+/**
+ * Resolve which AI provider to use for a request.
+ *
+ * Iterates PROVIDER_PRIORITY ([openrouter, gemini, deepseek, groq]) and returns
+ * the first provider whose key is available. This is the single place that
+ * controls which provider wins — edit PROVIDER_PRIORITY in provider-registry.ts
+ * to reorder.
+
+class TaskStateConflictError extends Error {}
+
+// ── POST /api/ai/tasks/:taskId/execute ───────────────────────────────────────
+
+router.post("/ai/tasks/:taskId/execute", async (req, res) => {
+  const { taskId } = req.params;
+
+  const [task] = await db
+    .select()
+    .from(tasksTable)
+    .where(eq(tasksTable.id, taskId))
+    .limit(1);
+  if (!task) return res.status(404).json({ error: "Task not found" });
+
+  const ownerProject = await loadProjectByIdForUser(task.projectId, req.userId, res);
+  if (!ownerProject) return;
+
+  if (!["pending", "queued", "verifying"].includes(task.status)) {
+    return res
+      .status(409)
+      .json({ error: `Cannot AI-execute task with status "${task.status}"` });
+  }
+
+  const providerResolved = await requireProvider(req.userId, res, {
+    qualityProfile: "task_execution",
+  });
+  if (!providerResolved) return;
+  const { provider, apiKey } = providerResolved;
+
+  const rlExecute = await checkProjectRateLimitDb(task.projectId);
+  if (!rlExecute.allowed) {
+    return res.status(429).json({
+      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlExecute.retryAfterSec}s.`,
+    });
+  }
+
+  const lifecycle = await executeTaskLifecycle({
+    taskId,
+    userId: req.userId,
+    provider: { provider, apiKey },
+    trigger: "manual",
+    expectedStatuses: [task.status as "pending" | "queued" | "verifying"],
+    workspaceRevision: ownerProject.updatedAt?.toISOString(),
+  });
+  if (lifecycle.status === "conflict") {
+    return res.status(409).json({ error: "task_state_changed_concurrently" });
+  }
+  if (!lifecycle.ok) {
+    if (lifecycle.errorCode === "model_output_invalid") {
+      return res.status(422).json({
+        error: "model_output_invalid",
+        code: "model_output_invalid",
+        parseCode: lifecycle.parseCode,
+        hint: "The AI model returned an unexpected response — try executing the task again.",
+      });
+    }
+    if (handleOrchestratorError(lifecycle.error, res, {
+      projectId: task.projectId,
+      operation: "task-execution",
+      provider,
+    })) return;
+    if (lifecycle.errorCode === "context_build_failed") {
+      return res.status(500).json({
+        error: "Failed to build project context",
+        hint: "Try executing the task again or refresh the project graph and metrics.",
+      });
+    }
+    return res.status(500).json({
+      error: lifecycle.errorCode ?? "task_execution_failed",
+      reason: "The AI task could not be completed. Try again in a moment.",
+    });
+  }
+  return res.status(202).json(lifecycle.task);
+
+  const correlationId = randomUUID();
+  const now = new Date();
+
+  const [claimed] = await db
+    .update(tasksTable)
+    .set({ status: "running", updatedAt: now })

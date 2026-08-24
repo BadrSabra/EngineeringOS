@@ -2863,6 +2863,18 @@ export type CancelAiExecutionById200 = {
   status: CancelAiExecutionById200Status;
 };
 
+export type ListRecoverableAiDeliveriesParams = {
+projectId: string;
+};
+
+export type ListRecoverableAiDeliveries200OperationsItem = { [key: string]: unknown };
+
+export type ListRecoverableAiDeliveries200 = {
+  operations: ListRecoverableAiDeliveries200OperationsItem[];
+};
+
+export type ResumeAiDeliveryValidation200 = { [key: string]: unknown };
+
 export type DecideAiImplementationPlan200TaskResult = { [key: string]: unknown };
 
 export type DecideAiImplementationPlan200 = {

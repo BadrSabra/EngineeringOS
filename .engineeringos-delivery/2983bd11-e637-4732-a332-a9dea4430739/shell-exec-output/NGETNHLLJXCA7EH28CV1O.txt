@@ -1,0 +1,220 @@
+artifacts/api-server/src/routes/ai/chat.ts-114-  checkpointAiExecution,
+artifacts/api-server/src/routes/ai/chat.ts-115-  claimAiExecution,
+artifacts/api-server/src/routes/ai/chat.ts-116-  completeAiExecution,
+artifacts/api-server/src/routes/ai/chat.ts-117-  createAiExecution,
+artifacts/api-server/src/routes/ai/chat.ts-118-  failAiExecution,
+artifacts/api-server/src/routes/ai/chat.ts-119-  getAiExecutionForUser,
+artifacts/api-server/src/routes/ai/chat.ts-120-  recoverAiExecutionResumeToken,
+artifacts/api-server/src/routes/ai/chat.ts-121-  parseAiExecutionCheckpoint,
+artifacts/api-server/src/routes/ai/chat.ts-122-  parseExecutionRequest,
+artifacts/api-server/src/routes/ai/chat.ts-123-  requestAiExecutionCancel,
+artifacts/api-server/src/routes/ai/chat.ts-124-  reconcileExecutionNodeCheckpoint,
+artifacts/api-server/src/routes/ai/chat.ts-125-  registerAiExecutionController,
+artifacts/api-server/src/routes/ai/chat.ts-126-  unregisterAiExecutionController,
+artifacts/api-server/src/routes/ai/chat.ts-127-  type AiExecutionCheckpoint,
+artifacts/api-server/src/routes/ai/chat.ts-128-  type AiExecutionRequestEnvelope,
+artifacts/api-server/src/routes/ai/chat.ts-129-} from "../../lib/ai-execution-state.js";
+artifacts/api-server/src/routes/ai/chat.ts-130-import { inspectAiChange } from "../../lib/ai-change-guard.js";
+artifacts/api-server/src/routes/ai/chat.ts-131-import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+artifacts/api-server/src/routes/ai/chat.ts-132-import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
+artifacts/api-server/src/routes/ai/chat.ts-133-import {
+artifacts/api-server/src/routes/ai/chat.ts:134:  requireProvider,
+artifacts/api-server/src/routes/ai/chat.ts-135-  chatWithFallback,
+artifacts/api-server/src/routes/ai/chat.ts-136-  handleOrchestratorError,
+artifacts/api-server/src/routes/ai/chat.ts-137-  redactUserFacingText,
+artifacts/api-server/src/routes/ai/chat.ts-138-  redactUserFacingValue,
+artifacts/api-server/src/routes/ai/chat.ts-139-} from "../../lib/ai-route-helpers.js";
+artifacts/api-server/src/routes/ai/chat.ts-140-import { createProjectAnalysisToolRunner } from "../../lib/ai-analysis-tools.js";
+artifacts/api-server/src/routes/ai/chat.ts-141-import { scrubHistoricalValidationRecord } from "../../lib/startup-migrations.js";
+artifacts/api-server/src/routes/ai/chat.ts-142-import {
+artifacts/api-server/src/routes/ai/chat.ts-143-  createDeliveryWorkspace,
+artifacts/api-server/src/routes/ai/chat.ts-144-  discardDeliveryWorkspace,
+artifacts/api-server/src/routes/ai/chat.ts-145-  deliveryWorkspaceExists,
+artifacts/api-server/src/routes/ai/chat.ts-146-  hashChangeSet,
+artifacts/api-server/src/routes/ai/chat.ts-147-  hashDeliveryFiles,
+artifacts/api-server/src/routes/ai/chat.ts-148-  hashDeliveryWorkspace,
+artifacts/api-server/src/routes/ai/chat.ts-149-  atomicallyPromoteFile,
+artifacts/api-server/src/routes/ai/chat.ts-150-} from "../../lib/delivery-workspace.js";
+artifacts/api-server/src/routes/ai/chat.ts-151-import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
+artifacts/api-server/src/routes/ai/chat.ts-152-
+artifacts/api-server/src/routes/ai/chat.ts-153-const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
+artifacts/api-server/src/routes/ai/chat.ts-154-  "PROVEN",
+artifacts/api-server/src/routes/ai/chat.ts-155-  "PARTIAL",
+artifacts/api-server/src/routes/ai/chat.ts-156-  "UNAVAILABLE",
+artifacts/api-server/src/routes/ai/chat.ts-157-  "BLOCKED",
+artifacts/api-server/src/routes/ai/chat.ts-158-  "NOT_RECORDED",
+artifacts/api-server/src/routes/ai/chat.ts-159-]);
+artifacts/api-server/src/routes/ai/chat.ts-160-
+artifacts/api-server/src/routes/ai/chat.ts-161-function derivePersistedEvidenceVerdict(params: {
+artifacts/api-server/src/routes/ai/chat.ts-162-  executionStatus?: string;
+artifacts/api-server/src/routes/ai/chat.ts-163-  checkpoint: Record<string, unknown>;
+artifacts/api-server/src/routes/ai/chat.ts-164-  hasPendingProposal: boolean;
+artifacts/api-server/src/routes/ai/chat.ts-165-}): FlightDeckEvidenceVerdict {
+artifacts/api-server/src/routes/ai/chat.ts-166-  const explicit = params.checkpoint.evidenceVerdict;
+artifacts/api-server/src/routes/ai/chat.ts-167-  if (typeof explicit === "string" && FLIGHT_DECK_EVIDENCE_VERDICTS.has(explicit as FlightDeckEvidenceVerdict)) {
+artifacts/api-server/src/routes/ai/chat.ts-168-    return explicit as FlightDeckEvidenceVerdict;
+artifacts/api-server/src/routes/ai/chat.ts-169-  }
+artifacts/api-server/src/routes/ai/chat.ts-170-
+artifacts/api-server/src/routes/ai/chat.ts-171-  const recentSteps = Array.isArray(params.checkpoint.recentSteps)
+artifacts/api-server/src/routes/ai/chat.ts-172-    ? params.checkpoint.recentSteps
+artifacts/api-server/src/routes/ai/chat.ts-173-    : [];
+artifacts/api-server/src/routes/ai/chat.ts-174-  const latestValidation = [...recentSteps]
+artifacts/api-server/src/routes/ai/chat.ts-175-    .reverse()
+artifacts/api-server/src/routes/ai/chat.ts-176-    .find((step) => (
+artifacts/api-server/src/routes/ai/chat.ts-177-      step
+artifacts/api-server/src/routes/ai/chat.ts-178-      && typeof step === "object"
+artifacts/api-server/src/routes/ai/chat.ts-179-      && (step as Record<string, unknown>).kind === "validation"
+artifacts/api-server/src/routes/ai/chat.ts-180-    )) as Record<string, unknown> | undefined;
+artifacts/api-server/src/routes/ai/chat.ts-181-  const validation = latestValidation?.validation as ValidationResult | undefined;
+artifacts/api-server/src/routes/ai/chat.ts-182-  const validationStatus = validation?.status;
+artifacts/api-server/src/routes/ai/chat.ts-183-
+artifacts/api-server/src/routes/ai/chat.ts-184-  if (validationStatus === "passed") {
+artifacts/api-server/src/routes/ai/chat.ts-185-    return isProvenValidation(validation)
+artifacts/api-server/src/routes/ai/chat.ts-186-      ? params.hasPendingProposal ? "PARTIAL" : "PROVEN"
+artifacts/api-server/src/routes/ai/chat.ts-187-      : "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts-188-  }
+artifacts/api-server/src/routes/ai/chat.ts-189-  if (validationStatus === "unavailable") return "UNAVAILABLE";
+artifacts/api-server/src/routes/ai/chat.ts-190-  if (validationStatus === "failed" || validationStatus === "blocked") return "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts-191-  if (params.executionStatus === "failed") return "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts-192-  return "NOT_RECORDED";
+artifacts/api-server/src/routes/ai/chat.ts-193-}
+artifacts/api-server/src/routes/ai/chat.ts-194-
+artifacts/api-server/src/routes/ai/chat.ts-195-// ── AI-02: Last-resort response sanitizer ────────────────────────────────────
+artifacts/api-server/src/routes/ai/chat.ts-196-// Even if the AI orchestrator has its own normalisation layer, a JSON envelope
+artifacts/api-server/src/routes/ai/chat.ts-197-// may slip through (e.g. a provider returns {"response":"...","sources":[...]}).
+artifacts/api-server/src/routes/ai/chat.ts-198-// This guard sits at the storage + SSE boundary so nothing reaches the DB or
+artifacts/api-server/src/routes/ai/chat.ts-199-// the client without being cleaned first.
+artifacts/api-server/src/routes/ai/chat.ts-200-function sanitizeResponseText(raw: string): string {
+artifacts/api-server/src/routes/ai/chat.ts-201-  if (!raw) return raw;
+artifacts/api-server/src/routes/ai/chat.ts-202-  const trimmed = raw.trim();
+artifacts/api-server/src/routes/ai/chat.ts-203-  // Only attempt extraction when the value looks like a JSON object that
+artifacts/api-server/src/routes/ai/chat.ts-204-  // wraps a string `response` field — not for ordinary markdown/text.
+artifacts/api-server/src/routes/ai/chat.ts-205-  if (!trimmed.startsWith("{")) return redactUserFacingText(raw);
+artifacts/api-server/src/routes/ai/chat.ts-206-  try {
+artifacts/api-server/src/routes/ai/chat.ts-207-    const parsed = JSON.parse(trimmed);
+artifacts/api-server/src/routes/ai/chat.ts-208-    if (
+artifacts/api-server/src/routes/ai/chat.ts-209-      parsed !== null &&
+artifacts/api-server/src/routes/ai/chat.ts-210-      typeof parsed === "object" &&
+artifacts/api-server/src/routes/ai/chat.ts-211-      !Array.isArray(parsed) &&
+artifacts/api-server/src/routes/ai/chat.ts-212-      typeof (parsed as Record<string, unknown>)["response"] === "string"
+artifacts/api-server/src/routes/ai/chat.ts-213-    ) {
+artifacts/api-server/src/routes/ai/chat.ts-214-      const inner = ((parsed as Record<string, unknown>)["response"] as string).trim();
+--
+artifacts/api-server/src/routes/ai/chat.ts-1850-  };
+artifacts/api-server/src/routes/ai/chat.ts-1851-  const analysisToolRunner = validRootPath
+artifacts/api-server/src/routes/ai/chat.ts-1852-    ? createProjectAnalysisToolRunner(projectId, validRootPath)
+artifacts/api-server/src/routes/ai/chat.ts-1853-    : undefined;
+artifacts/api-server/src/routes/ai/chat.ts-1854-  const immediateExecutionRequest = isImmediateExecutionRequest(message);
+artifacts/api-server/src/routes/ai/chat.ts-1855-  // Fetch a stable bounded history for every ordinary request. chat-agent
+artifacts/api-server/src/routes/ai/chat.ts-1856-  // keeps the latest complete turns verbatim and summarizes older turns,
+artifacts/api-server/src/routes/ai/chat.ts-1857-  // while execution handoffs can still recover an older repair plan from this
+artifacts/api-server/src/routes/ai/chat.ts-1858-  // larger fixed window.
+artifacts/api-server/src/routes/ai/chat.ts-1859-  const historyLimit = CONVERSATION_HISTORY_FETCH_MESSAGES;
+artifacts/api-server/src/routes/ai/chat.ts-1860-
+artifacts/api-server/src/routes/ai/chat.ts-1861-    const historyRows = existingSession
+artifacts/api-server/src/routes/ai/chat.ts-1862-      ? await db
+artifacts/api-server/src/routes/ai/chat.ts-1863-          .select()
+artifacts/api-server/src/routes/ai/chat.ts-1864-          .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts-1865-          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+artifacts/api-server/src/routes/ai/chat.ts-1866-          .orderBy(desc(aiChatMessagesTable.createdAt))
+artifacts/api-server/src/routes/ai/chat.ts-1867-          .limit(historyLimit)
+artifacts/api-server/src/routes/ai/chat.ts-1868-      : [];
+artifacts/api-server/src/routes/ai/chat.ts-1869-
+artifacts/api-server/src/routes/ai/chat.ts:1870:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/chat.ts-1871-    requireTools: modelHasTools,
+artifacts/api-server/src/routes/ai/chat.ts-1872-    qualityProfile: turnIntent.executionTaskType,
+artifacts/api-server/src/routes/ai/chat.ts-1873-  });
+artifacts/api-server/src/routes/ai/chat.ts-1874-  if (!providerResolved) return;
+artifacts/api-server/src/routes/ai/chat.ts-1875-  const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/chat.ts-1876-
+artifacts/api-server/src/routes/ai/chat.ts-1877-  const applyProbe = modelHasTools
+artifacts/api-server/src/routes/ai/chat.ts-1878-    ? await tryAdvisoryLock(LockNamespace.APPLY, projectId)
+artifacts/api-server/src/routes/ai/chat.ts-1879-    : { acquired: true, release: async () => undefined };
+artifacts/api-server/src/routes/ai/chat.ts-1880-  if (!applyProbe.acquired) {
+artifacts/api-server/src/routes/ai/chat.ts-1881-    return res.status(409).json({
+artifacts/api-server/src/routes/ai/chat.ts-1882-      error: "apply_in_progress",
+artifacts/api-server/src/routes/ai/chat.ts-1883-      hint: "File changes are still being written for this project — wait a moment, then retry.",
+artifacts/api-server/src/routes/ai/chat.ts-1884-    });
+artifacts/api-server/src/routes/ai/chat.ts-1885-  }
+artifacts/api-server/src/routes/ai/chat.ts-1886-  try {
+artifacts/api-server/src/routes/ai/chat.ts-1887-    const baseProjectContext = await buildProjectContext(projectId, {
+artifacts/api-server/src/routes/ai/chat.ts-1888-      sections: profileContextSections(chatClassification.contextProfile),
+artifacts/api-server/src/routes/ai/chat.ts-1889-    });
+artifacts/api-server/src/routes/ai/chat.ts-1890-    const projectContext = chatClassification.implementationPlanMode
+artifacts/api-server/src/routes/ai/chat.ts-1891-      ? await buildPlanningFilesystemContext(baseProjectContext, validRootPath, message)
+artifacts/api-server/src/routes/ai/chat.ts-1892-      : baseProjectContext;
+artifacts/api-server/src/routes/ai/chat.ts-1893-    // Enrich context with cross-session memories (outside cache; always fresh).
+artifacts/api-server/src/routes/ai/chat.ts-1894-    // Failure is non-fatal — agent proceeds without memory context.
+artifacts/api-server/src/routes/ai/chat.ts-1895-    await enrichContextWithMemories(projectContext, projectId).catch((err) => {
+artifacts/api-server/src/routes/ai/chat.ts-1896-      logger.warn({ err, projectId }, "memory-enrich: failed to load session memories");
+artifacts/api-server/src/routes/ai/chat.ts-1897-    });
+artifacts/api-server/src/routes/ai/chat.ts-1898-    // AI-TASK-007: Structured chat context trace.
+artifacts/api-server/src/routes/ai/chat.ts-1899-    logger.info({
+artifacts/api-server/src/routes/ai/chat.ts-1900-      scope: "chat-route",
+artifacts/api-server/src/routes/ai/chat.ts-1901-      action: "pre_chat_trace",
+artifacts/api-server/src/routes/ai/chat.ts-1902-      provider,
+artifacts/api-server/src/routes/ai/chat.ts-1903-      sessionId: existingSession?.id ?? sessionId ?? null,
+artifacts/api-server/src/routes/ai/chat.ts-1904-      projectId,
+artifacts/api-server/src/routes/ai/chat.ts-1905-      linkedTaskId: effectiveLinkedTaskId ?? null,
+artifacts/api-server/src/routes/ai/chat.ts-1906-      taskLoaded: !!activeTask,
+artifacts/api-server/src/routes/ai/chat.ts-1907-      promptMode: activeTask ? "task" : "chat",
+artifacts/api-server/src/routes/ai/chat.ts-1908-      messageCount: historyRows.length,
+artifacts/api-server/src/routes/ai/chat.ts-1909-      turnIntent: turnIntent.kind,
+artifacts/api-server/src/routes/ai/chat.ts-1910-      requireTools: modelHasTools,
+artifacts/api-server/src/routes/ai/chat.ts-1911-      requiresEvidence: turnIntent.requiresEvidence,
+artifacts/api-server/src/routes/ai/chat.ts-1912-      qualityProfile: turnIntent.executionTaskType,
+artifacts/api-server/src/routes/ai/chat.ts-1913-      contextProfile: chatClassification.contextProfile,
+artifacts/api-server/src/routes/ai/chat.ts-1914-      executionHandoff: {
+artifacts/api-server/src/routes/ai/chat.ts-1915-        requested: immediateExecutionRequest,
+artifacts/api-server/src/routes/ai/chat.ts-1916-        sessionId: existingSession?.id ?? sessionId ?? null,
+artifacts/api-server/src/routes/ai/chat.ts-1917-        historyMessageCount: historyRows.length,
+artifacts/api-server/src/routes/ai/chat.ts-1918-        repairPlanCandidateCount: countRepairPlanCandidates(historyRows),
+artifacts/api-server/src/routes/ai/chat.ts-1919-      },
+artifacts/api-server/src/routes/ai/chat.ts-1920-    }, "chat: dispatching chatWithFallback");
+artifacts/api-server/src/routes/ai/chat.ts-1921-
+artifacts/api-server/src/routes/ai/chat.ts-1922-    let result: Awaited<ReturnType<typeof chat>>;
+artifacts/api-server/src/routes/ai/chat.ts-1923-    const traceSteps: AgentStep[] = [];
+artifacts/api-server/src/routes/ai/chat.ts-1924-    try {
+artifacts/api-server/src/routes/ai/chat.ts-1925-      const chatOut = await chatWithFallback(
+artifacts/api-server/src/routes/ai/chat.ts-1926-        req.userId,
+artifacts/api-server/src/routes/ai/chat.ts-1927-        {
+artifacts/api-server/src/routes/ai/chat.ts-1928-          message,
+artifacts/api-server/src/routes/ai/chat.ts-1929-          history: historyRows
+artifacts/api-server/src/routes/ai/chat.ts-1930-            .reverse()
+artifacts/api-server/src/routes/ai/chat.ts-1931-            .filter((m) => m.role === "user" || m.role === "assistant")
+artifacts/api-server/src/routes/ai/chat.ts-1932-            .map((m) => ({
+artifacts/api-server/src/routes/ai/chat.ts-1933-              role: m.role as "user" | "assistant",
+artifacts/api-server/src/routes/ai/chat.ts-1934-              content: m.content,
+artifacts/api-server/src/routes/ai/chat.ts-1935-              ...(m.role === "assistant" && parseRepairPlanMetadata(m.repairPlanMetadata)
+artifacts/api-server/src/routes/ai/chat.ts-1936-                ? { repairPlan: parseRepairPlanMetadata(m.repairPlanMetadata) }
+artifacts/api-server/src/routes/ai/chat.ts-1937-                : {}),
+artifacts/api-server/src/routes/ai/chat.ts-1938-            })),
+artifacts/api-server/src/routes/ai/chat.ts-1939-          projectContext,
+artifacts/api-server/src/routes/ai/chat.ts-1940-          rootPath: validRootPath,
+artifacts/api-server/src/routes/ai/chat.ts-1941-          projectId,
+artifacts/api-server/src/routes/ai/chat.ts-1942-          activeTaskState: resumableStateForTurn,
+artifacts/api-server/src/routes/ai/chat.ts-1943-          activeTask,
+artifacts/api-server/src/routes/ai/chat.ts-1944-          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat"),
+artifacts/api-server/src/routes/ai/chat.ts-1945-          objective,
+artifacts/api-server/src/routes/ai/chat.ts-1946-          turnIntent,
+artifacts/api-server/src/routes/ai/chat.ts-1947-          allowAnalysisTools: Boolean(modelHasTools && analysisToolRunner),
+artifacts/api-server/src/routes/ai/chat.ts-1948-          analysisToolRunner,
+artifacts/api-server/src/routes/ai/chat.ts-1949-          analysisCorrelation,
+artifacts/api-server/src/routes/ai/chat.ts-1950-        },
+--
+artifacts/api-server/src/routes/ai/chat.ts-2435-  let analysisCorrelation: {
+artifacts/api-server/src/routes/ai/chat.ts-2436-    operationId: string;
+artifacts/api-server/src/routes/ai/chat.ts-2437-    projectId: string;
+artifacts/api-server/src/routes/ai/chat.ts-2438-    projectRevision: string;
+artifacts/api-server/src/routes/ai/chat.ts-2439-    rootAvailable: boolean;
+artifacts/api-server/src/routes/ai/chat.ts-2440-    evidenceProvenance: string;
+artifacts/api-server/src/routes/ai/chat.ts-2441-  } = {
+artifacts/api-server/src/routes/ai/chat.ts-2442-    operationId: randomUUID(),
+artifacts/api-server/src/routes/ai/chat.ts-2443-    projectId,
+artifacts/api-server/src/routes/ai/chat.ts-2444-    projectRevision: project.updatedAt.toISOString(),
+artifacts/api-server/src/routes/ai/chat.ts-2445-    rootAvailable: Boolean(validRootPath),
+artifacts/api-server/src/routes/ai/chat.ts-2446-    evidenceProvenance: "project-analysis",
+artifacts/api-server/src/routes/ai/chat.ts-2447-  };
+artifacts/api-server/src/routes/ai/chat.ts-2448-  const analysisToolRunner = validRootPath
+artifacts/api-server/src/routes/ai/chat.ts-2449-    ? createProjectAnalysisToolRunner(projectId, validRootPath)
+artifacts/api-server/src/routes/ai/chat.ts-2450-    : undefined;

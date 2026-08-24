@@ -232,8 +232,9 @@ function parseRepairPlanMetadata(value: string | null): RepairPlanMetadata[] | u
   }
 }
 
-function parseStoredJson(value: string | null | undefined): unknown {
+function parseStoredJson(value: unknown): unknown {
   if (!value) return undefined;
+  if (typeof value !== "string") return value;
   try {
     return JSON.parse(value);
   } catch {
@@ -2328,19 +2329,6 @@ router.post("/ai/chat/stream", async (req, res) => {
         approvalStatus: storedPlan.approvalStatus,
       });
     }
-    const contextFailure = await validatePlanContextForExecution(
-      storedPlan,
-      projectId,
-      validRootPath,
-    );
-    if (contextFailure) return res.status(409).json(contextFailure);
-    const browserProfileFailure = await validateBrowserProfileForDelivery(
-      projectId,
-      project.updatedAt.toISOString(),
-      storedPlan.browserValidationProfile,
-    );
-    if (browserProfileFailure) return res.status(409).json(browserProfileFailure);
-
     approvedImplementationPlan = storedPlan;
     implementationPlanScope = getImplementationPlanScope(storedPlan, validRootPath);
     if (implementationPlanScope.size === 0) {
@@ -2349,6 +2337,26 @@ router.post("/ai/chat/stream", async (req, res) => {
         code: "PLAN_FILE_SCOPE_REQUIRED",
       });
     }
+    // Plans created before the context-manifest contract remain valid when
+    // their approved file scope is present; newer plans are checked against
+    // the immutable scan context before execution.
+    if (storedPlan.contextManifest) {
+      const contextFailure = await validatePlanContextForExecution(
+        storedPlan,
+        projectId,
+        validRootPath,
+      );
+      if (contextFailure) {
+        logger.warn({ projectId, code: contextFailure.code }, "Build handoff context blocked");
+        return res.status(409).json(contextFailure);
+      }
+    }
+    const browserProfileFailure = await validateBrowserProfileForDelivery(
+      projectId,
+      project.updatedAt.toISOString(),
+      storedPlan.browserValidationProfile,
+    );
+    if (browserProfileFailure) return res.status(409).json(browserProfileFailure);
     approvedImplementationExecutionPlan = buildActiveTaskExecutionPlan({
       implementationPlan: storedPlan,
       objective,
@@ -2360,6 +2368,11 @@ router.post("/ai/chat/stream", async (req, res) => {
       approvedImplementationExecutionPlan.readiness !== "READY" ||
       approvedImplementationExecutionPlan.nodes.length === 0
     ) {
+      logger.warn({
+        projectId,
+        readiness: approvedImplementationExecutionPlan?.readiness,
+        nodeCount: approvedImplementationExecutionPlan?.nodes.length,
+      }, "Build handoff plan blocked");
       return res.status(409).json({
         error: "This implementation plan is not executable by the server-owned Build coordinator",
         code: "PLAN_BUILD_BLOCKED",
@@ -2431,7 +2444,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   const streamAuditScopeDescription = (streamTurnIntent as unknown as {
     auditScopeDescription?: string;
   }).auditScopeDescription;
-  const streamModelHasTools = Boolean(validRootPath && streamTurnIntent.requiresTools);
+  const streamModelHasTools = streamTurnIntent.requiresTools;
   let analysisCorrelation: {
     operationId: string;
     projectId: string;
@@ -2572,8 +2585,6 @@ router.post("/ai/chat/stream", async (req, res) => {
       ...(objective ? { objective } : {}),
       validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
       proofRequired: Boolean(
-        streamTurnIntent.requiresEvidence
-        ||
         effectiveLinkedTaskId
         || effectiveBuildPlanMessageId
         || objective
@@ -4011,8 +4022,9 @@ router.post("/ai/chat/stream", async (req, res) => {
           message: "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.",
           executionId: aiExecution.id,
         });
-        res.end();
-        return;
+        // Keep the terminal report visible to the operator. The execution is
+        // already marked failed above; emitting the normal done envelope here
+        // preserves the bounded incomplete report for SSE clients and reloads.
       }
     }
     executionTerminal = true;
@@ -4952,7 +4964,7 @@ router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
 
   try {
     const changes = proposal.status === "pending"
-      ? JSON.parse(proposal.changes) as ServerPendingChange[]
+      ? parseStoredJson(proposal.changes) as ServerPendingChange[]
       : [];
     return res.json({
       proposalId: proposal.status === "pending" ? proposal.id : null,
@@ -5040,7 +5052,7 @@ router.get("/ai/delivery/recoverable", async (req, res) => {
       workspaceAvailable,
       changeCount: (() => {
         try {
-          const changes = JSON.parse(proposal.changes);
+          const changes = parseStoredJson(proposal.changes);
           return Array.isArray(changes) ? changes.length : 0;
         } catch {
           return 0;
@@ -5085,7 +5097,7 @@ router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
 
   let changes: Array<{ path: string; newContent: string; validationProfile?: ValidationProfile }> = [];
   try {
-    const parsed = JSON.parse(proposal.changes);
+    const parsed = parseStoredJson(proposal.changes);
     if (!Array.isArray(parsed)) throw new Error("not an array");
     changes = parsed;
   } catch {
@@ -5218,8 +5230,10 @@ router.post("/ai/chat/rebase-changes", async (req, res) => {
   if (!project) return;
   const rootCheck = await resolveRootPath(project.rootPath, projectId);
   if (!rootCheck.validRootPath) {
+    console.error("DEBUG_APPLY_ROOT", projectId, proposalId, project.rootPath);
     return res.status(409).json({
       error: "project_root_unavailable",
+      code: "PROJECT_ROOT_UNAVAILABLE",
       message: "The project working directory is unavailable; restore or rescan the project before rebasing changes.",
     });
   }
@@ -5254,7 +5268,7 @@ router.post("/ai/chat/rebase-changes", async (req, res) => {
 
     let approvedChanges: ServerPendingChange[];
     try {
-      approvedChanges = JSON.parse(proposal.changes) as ServerPendingChange[];
+      approvedChanges = parseStoredJson(proposal.changes) as ServerPendingChange[];
     } catch {
       return res.status(500).json({ error: "Stored change proposal is invalid", code: "PROPOSAL_INVALID" });
     }
@@ -5631,10 +5645,37 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
 
   const project = await loadProjectByIdForUser(projectId, req.userId, res);
   if (!project) return;
+  // Report tampering deterministically even when the saved project root is
+  // unavailable; filesystem readiness is checked immediately afterward.
+  const [preflightProposal] = await db
+    .select({ status: aiChangeProposalsTable.status, changes: aiChangeProposalsTable.changes })
+    .from(aiChangeProposalsTable)
+    .where(and(
+      eq(aiChangeProposalsTable.id, proposalId),
+      eq(aiChangeProposalsTable.projectId, projectId),
+    ))
+    .limit(1);
+  if (preflightProposal?.status === "pending") {
+    try {
+      const approvedChanges = (typeof preflightProposal.changes === "string"
+        ? JSON.parse(preflightProposal.changes)
+        : preflightProposal.changes) as ServerPendingChange[];
+      const subsetError = authorizeChangeSubset(changes, approvedChanges);
+      if (subsetError) {
+        return res.status(409).json({
+          error: `Submitted changes are not an authorized subset of the proposal: ${subsetError}`,
+          code: "PROPOSAL_MISMATCH",
+        });
+      }
+    } catch {
+      // The authoritative validation below reports malformed stored proposals.
+    }
+  }
   const rootCheck = await resolveRootPath(project.rootPath, projectId);
   if (!rootCheck.validRootPath) {
     return res.status(409).json({
       error: "project_root_unavailable",
+      code: "PROJECT_ROOT_UNAVAILABLE",
       message: "The project working directory is unavailable; restore or rescan the project before applying changes.",
     });
   }
@@ -5692,7 +5733,9 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
 
     let approvedChanges: ServerPendingChange[];
     try {
-      approvedChanges = JSON.parse(proposal.changes) as ServerPendingChange[];
+      approvedChanges = (typeof proposal.changes === "string"
+        ? JSON.parse(proposal.changes)
+        : proposal.changes) as ServerPendingChange[];
     } catch {
       return res.status(500).json({ error: "Stored change proposal is invalid", code: "PROPOSAL_INVALID" });
     }

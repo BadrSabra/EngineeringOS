@@ -1,0 +1,494 @@
+
+ RUN  v4.1.10 /home/runner/workspace/artifacts/api-server
+
+[17:32:11.694] INFO (18388): request completed
+    req: {
+      "id": 1,
+      "method": "PUT",
+      "url": "/api/ai/providers/groq/key"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 25
+[17:32:11.739] INFO (18388): request completed
+    req: {
+      "id": 2,
+      "method": "POST",
+      "url": "/api/ai/executions/776b6fd1-c99d-48a7-b1f6-7cc42ff296b2/resume-capability"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 7
+[17:32:11.758] INFO (18388): request completed
+    req: {
+      "id": 3,
+      "method": "POST",
+      "url": "/api/ai/executions/776b6fd1-c99d-48a7-b1f6-7cc42ff296b2/resume-capability"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 6
+[17:32:11.843] INFO (18388): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "48970935-066e-4179-a606-f456f7e1f101"
+    projectId: "0bfe1510-3358-4dba-b2fd-c390317b6792"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: true
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "48970935-066e-4179-a606-f456f7e1f101",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[17:32:11.882] INFO (18388): request completed
+    req: {
+      "id": 4,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 96
+[17:32:11.936] INFO (18388): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "48970935-066e-4179-a606-f456f7e1f101"
+    projectId: "0bfe1510-3358-4dba-b2fd-c390317b6792"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 2
+    turnIntent: "FORENSIC_AUDIT"
+    requireTools: true
+    requiresEvidence: true
+    qualityProfile: "analysis"
+    contextProfile: "chat-deep"
+    executionHandoff: {
+      "requested": true,
+      "sessionId": "48970935-066e-4179-a606-f456f7e1f101",
+      "historyMessageCount": 2,
+      "repairPlanCandidateCount": 1
+    }
+[17:32:11.960] INFO (18388): request completed
+    req: {
+      "id": 5,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 53
+[17:32:12.010] INFO (18388): request completed
+    req: {
+      "id": 6,
+      "method": "GET",
+      "url": "/api/ai/executions/74901883-ec10-4669-abad-35f314a7c727"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 4
+[17:32:12.055] INFO (18388): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "3b2b70b9-238f-4ece-bca8-e71b6bfbafa6"
+    projectId: "404a423f-0a1b-43e1-baa6-025f9c9e45ca"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 1
+    turnIntent: "PROJECT_QUERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "tool_chat"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "3b2b70b9-238f-4ece-bca8-e71b6bfbafa6",
+      "historyMessageCount": 1,
+      "repairPlanCandidateCount": 0
+    }
+[17:32:12.071] INFO (18388): request completed
+    req: {
+      "id": 7,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 40
+[17:32:12.272] INFO (18388): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "e61fb359-beab-4744-a8f8-e9849a3665eb"
+    projectId: "3829920f-6d51-4db9-b6fe-639d1da1a7bc"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 1
+    turnIntent: "DELIVERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "task_execution"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": true,
+      "sessionId": "e61fb359-beab-4744-a8f8-e9849a3665eb",
+      "historyMessageCount": 1,
+      "repairPlanCandidateCount": 0
+    }
+[17:32:12.301] INFO (18388): request completed
+    req: {
+      "id": 8,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 61
+[17:32:12.329] INFO (18388): request completed
+    req: {
+      "id": 9,
+      "method": "POST",
+      "url": "/api/ai/chat/rebase-changes"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 24
+[17:32:12.399] INFO (18388): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "6966d876-eeb7-471f-97cd-5d69226190f3"
+    projectId: "9475142d-e7d0-47b8-ab53-0893975b4bf4"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 0
+    turnIntent: "DELIVERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "task_execution"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": true,
+      "sessionId": "6966d876-eeb7-471f-97cd-5d69226190f3",
+      "historyMessageCount": 0,
+      "repairPlanCandidateCount": 0
+    }
+[17:32:12.424] INFO (18388): request completed
+    req: {
+      "id": 10,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 50
+[17:32:12.437] INFO (18388): request completed
+    req: {
+      "id": 11,
+      "method": "GET",
+      "url": "/api/ai/chat/6966d876-eeb7-471f-97cd-5d69226190f3/pending-proposal"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 8
+[17:32:12.519] INFO (18388): request completed
+    req: {
+      "id": 12,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 78
+[17:32:12.575] INFO (18388): request completed
+    req: {
+      "id": 13,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 8
+[17:32:12.635] INFO (18388): request completed
+    req: {
+      "id": 14,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 11
+[17:32:12.695] WARN (18388): Build handoff plan blocked
+    projectId: "285d8152-432e-4e89-a9ae-969def8d2100"
+    readiness: "BLOCKED"
+    nodeCount: 0
+[17:32:12.695] INFO (18388): request completed
+    req: {
+      "id": 15,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 17
+[17:32:12.767] INFO (18388): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "dcc7e682-eb0c-41f1-a7e2-6d9dcb2d95ce"
+    projectId: "81a1a1b8-0d2f-4a76-8dcb-399a1d5e2670"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 1
+    turnIntent: "DELIVERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "task_execution"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "dcc7e682-eb0c-41f1-a7e2-6d9dcb2d95ce",
+      "historyMessageCount": 1,
+      "repairPlanCandidateCount": 0
+    }
+[17:32:12.767] WARN (18388): Build Mode proposed a file outside the approved implementation plan
+    scope: "chat-route"
+    code: "IMPLEMENTATION_PLAN_SCOPE_BLOCKED"
+    buildPlanMessageId: "55470ca6-9039-4a99-a963-adb29bc1aeef"
+    outOfScopeFiles: [
+      "src/outside.ts"
+    ]
+[17:32:12.771] INFO (18388): request completed
+    req: {
+      "id": 16,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 39
+[17:32:12.873] INFO (18388): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "82872385-91c2-46ef-9fdb-34c51986ff94"
+    projectId: "6ec55aa9-a4f6-41b2-af33-29959afd5146"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 1
+    turnIntent: "DELIVERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "task_execution"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "82872385-91c2-46ef-9fdb-34c51986ff94",
+      "historyMessageCount": 1,
+      "repairPlanCandidateCount": 0
+    }
+[17:32:12.904] INFO (18388): request completed
+    req: {
+      "id": 17,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 68
+[17:32:12.972] INFO (18388): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "cc093142-163a-4ef9-8cc0-59e54c06a8c5"
+    projectId: "9a200e5d-e29b-4410-a239-9303861f3e5c"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 1
+    turnIntent: "DELIVERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "task_execution"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "cc093142-163a-4ef9-8cc0-59e54c06a8c5",
+      "historyMessageCount": 1,
+      "repairPlanCandidateCount": 0
+    }
+[17:32:12.972] WARN (18388): Build Mode proposed a file outside the approved implementation plan
+    scope: "chat-route"
+    code: "IMPLEMENTATION_PLAN_SCOPE_BLOCKED"
+    buildPlanMessageId: "a9e152cf-d076-45f6-a076-457270aa3efa"
+    outOfScopeFiles: [
+      "README.md"
+    ]
+[17:32:12.973] INFO (18388): request completed
+    req: {
+      "id": 18,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 29
+[17:32:12.983] WARN (18388): AI execution checkpoint rejected by lease/state gate
+    executionId: "4e295e47-fe6d-41ee-9fb4-2a89e889a4f3"
+    sequence: 2
+[17:32:13.142] INFO (18388): request completed
+    req: {
+      "id": 19,
+      "method": "POST",
+      "url": "/api/ai/chat/plans/33064297-bb66-4146-b5c8-94843f35f831/decision"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 17
+[17:32:13.171] INFO (18388): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "c2a64f13-a100-4071-8b3d-d88327e44c64"
+    projectId: "f0143efe-c6a6-4a6c-8a29-bd0bcfdeb9ec"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 1
+    turnIntent: "DELIVERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "task_execution"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "c2a64f13-a100-4071-8b3d-d88327e44c64",
+      "historyMessageCount": 1,
+      "repairPlanCandidateCount": 0
+    }
+[17:32:13.216] INFO (18388): request completed
+    req: {
+      "id": 20,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 70
+[17:32:13.228] INFO (18388): request completed
+    req: {
+      "id": 21,
+      "method": "GET",
+      "url": "/api/ai/chat/c2a64f13-a100-4071-8b3d-d88327e44c64/pending-proposal"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 5
+[17:32:13.246] INFO (18388): request completed
+    req: {
+      "id": 22,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 11
+[17:32:13.312] INFO (18388): request completed
+    req: {
+      "id": 23,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 62
+[17:32:13.464] INFO (18388): request completed
+    req: {
+      "id": 24,
+      "method": "POST",
+      "url": "/api/projects/f0143efe-c6a6-4a6c-8a29-bd0bcfdeb9ec/git/commit"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 147
+[17:32:13.576] INFO (18388): request completed
+    req: {
+      "id": 25,
+      "method": "POST",
+      "url": "/api/projects/f0143efe-c6a6-4a6c-8a29-bd0bcfdeb9ec/git/push"
+    }
+    res: {
+      "statusCode": 400
+    }
+    responseTime: 8
+··-·············x*********************************
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > Plan-to-push agent cycle > proves Plan -> Approve -> Build -> Diff -> Apply -> Commit -> Push
+AssertionError: expected 400 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 400
+
+ ❯ src/routes/ai-stream-integration.test.ts:1906:27
+    1904|         .post(`/api/projects/${projectId}/git/push`)
+    1905|         .send({ proposalId, operationId });
+    1906|       expect(push.status).toBe(200);
+       |                           ^
+    1907|       expect(push.body).toMatchObject({
+    1908|         ok: true,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (2)
+      Tests  1 failed | 15 passed | 1 skipped (50)
+   Start at  17:32:04
+   Duration  8.67s (transform 4.45s, setup 0ms, import 6.38s, tests 2.04s, environment 0ms)
+
+/home/runner/workspace/artifacts/api-server:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/routes/ai-stream-integration.test.ts src/routes/ai/chat-sse.test.ts --bail=1 --reporter=dot

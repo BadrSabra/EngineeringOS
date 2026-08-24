@@ -147,11 +147,35 @@ export async function createDeliveryWorkspace(input: {
     } catch {
       // The destination does not exist yet.
     }
-    await cp(input.rootPath, workspaceRoot, {
+    const resolvedInputRoot = path.resolve(input.rootPath);
+    const resolvedWorkspaceRoot = path.resolve(workspaceRoot);
+    const workspaceIsInsideSource =
+      resolvedWorkspaceRoot.startsWith(`${resolvedInputRoot}${path.sep}`);
+    const copyDestination = workspaceIsInsideSource
+      ? path.join("/tmp", `engineeringos-delivery-${input.operationId}`)
+      : workspaceRoot;
+    await rm(copyDestination, { recursive: true, force: true });
+    await cp(input.rootPath, copyDestination, {
       recursive: true,
       force: false,
       errorOnExist: true,
       filter: (source) => {
+        // Runtime command sockets/pipes are never project content and are
+        // not copyable by fs.cp.
+        if (source.endsWith(".pipe") || source.endsWith(".sock")) return false;
+        if (source.includes(".engineeringos-delivery")) return false;
+        // The managed delivery directory may live inside the project root
+        // (the workspace itself is a valid project root). Never recurse into
+        // it while cloning a new delivery workspace; it can contain active
+        // test/runtime pipes that cannot be copied.
+        const resolvedSource = path.resolve(source);
+        const resolvedManagedRoot = path.resolve(WORKSPACES_DIR);
+        if (
+          resolvedSource === resolvedManagedRoot ||
+          resolvedSource.startsWith(`${resolvedManagedRoot}${path.sep}`)
+        ) {
+          return false;
+        }
         const normalized = source.replaceAll("\\", "/");
         return ![
           ".git",
@@ -165,6 +189,9 @@ export async function createDeliveryWorkspace(input: {
           && !normalized.includes("/.engineeringos-delivery/");
       },
     });
+    if (copyDestination !== workspaceRoot) {
+      await rename(copyDestination, workspaceRoot);
+    }
     await writeFile(path.join(workspaceRoot, MARKER), `${input.operationId}\n`, { flag: "wx", mode: 0o600 });
     for (const change of input.changes) {
       const relative = change.path.replaceAll("\\", "/").replace(/^(\.\/)+/, "");

@@ -1,0 +1,319 @@
+1606:  /api/ai/executions/{executionId}/resume-capability:
+1642:  /api/ai/executions/{executionId}/cancel:
+1671:  /api/ai/benchmark/scorecard:
+1696:  /api/ai/mission-control:
+1715:  /api/ai/chat/stream:
+1974:  /api/ai/chat/apply-changes:
+2007:  /api/ai/chat/rebase-changes:
+2040:  /api/ai/chat/proposals/{proposalId}/approve:
+2077:  /api/ai/chat/{sessionId}/pending-proposal:
+2101:  /api/ai/chat/proposals/{proposalId}:
+2123:  /api/ai/chat/plans/{messageId}/decision:
+2162:  /api/ai/chat/sessions:
+2183:  /api/ai/chat/{sessionId}/messages:
+2204:  /api/ai/chat/{sessionId}/messages/{messageId}/mission-correlation-report/regenerate:
+2238:  /api/ai/chat/file-content:
+2284:  /api/ai/projects/{projectId}/analyze:
+2303:  /api/ai/projects/{projectId}/review:
+2327:  /api/ai/projects/{projectId}/analyze/stream:
+2359:  /api/ai/projects/{projectId}/review/stream:
+2396:  /api/ai/workflows/{workflowId}/orchestrate:
+2420:  /api/ai/tasks/{taskId}/execute:
+2439:  /api/ai/groq-key:
+2494:  /api/ai/deepseek-key:
+2549:  /api/ai/openrouter-key:
+2606:  /api/ai/gemini-key:
+2663:  /api/ai/providers/{provider}/key:
+2732:  /api/ai/metrics:
+2755:  /api/ai/active-provider:
+2770:  /api/ai/github-token:
+3023:components:
+  const operations = await Promise.all(proposals.map(async (proposal) => {
+    const workspaceAvailable = Boolean(
+      proposal.operationId
+      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+    );
+    const recoveryState = proposal.lifecycle === "cancelled" || proposal.status === "rejected"
+      ? "discarded"
+      : workspaceAvailable
+        ? "recoverable"
+        : "missing_workspace";
+    const operatorExplanation = recoveryState === "discarded"
+      ? "This delivery recovery was already discarded."
+      : recoveryState === "missing_workspace"
+        ? "The saved delivery workspace is no longer available, so recovery cannot continue."
+        : proposal.lifecycle === "conflicted"
+          ? "The delivery stopped because the retained changes need review before validation can continue."
+          : proposal.lifecycle === "abandoned"
+            ? "The delivery was interrupted before it finished; its saved workspace can be checked again."
+            : "Validation did not complete successfully; the saved workspace can be checked again.";
+    const nextAction = recoveryState === "discarded"
+      ? "No action is required."
+      : recoveryState === "missing_workspace"
+        ? "Start a new delivery from the current project rather than retrying this recovery."
+        : "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.";
+    return {
+      proposalId: proposal.id,
+      operationId: proposal.operationId ?? proposal.messageId,
+      sessionId: proposal.sessionId,
+      lifecycle: proposal.lifecycle,
+      status: proposal.status,
+      createdAt: proposal.createdAt,
+      conflictReason: proposal.conflictReason
+        ? redactUserFacingText(proposal.conflictReason).slice(0, 500)
+        : null,
+      recoveryState,
+      operatorExplanation,
+      nextAction,
+      validationEvidence: proposal.validationEvidence
+        ? redactUserFacingValue(parseStoredJson(proposal.validationEvidence))
+        : null,
+      workspaceAvailable,
+      changeCount: (() => {
+        try {
+          const changes = JSON.parse(proposal.changes);
+          return Array.isArray(changes) ? changes.length : 0;
+        } catch {
+          return 0;
+        }
+      })(),
+    };
+  }));
+  return res.json({ operations });
+});
+
+router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
+  const [proposal] = await db.select().from(aiChangeProposalsTable)
+    .where(eq(aiChangeProposalsTable.id, req.params.proposalId)).limit(1);
+  if (!proposal) return res.status(404).json({ error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" });
+  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+  if (!project) return;
+
+  if (proposal.lifecycle === "validated") {
+    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: proposal.lifecycle, idempotent: true });
+  }
+  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)
+    || proposal.status !== "pending"
+    || !proposal.operationId
+    || !(await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId))) {
+    const discarded = proposal.lifecycle === "cancelled" || proposal.status === "rejected";
+    const workspaceAvailable = Boolean(
+      proposal.operationId
+      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+    );
+    return res.status(409).json({
+      error: discarded
+        ? "This delivery recovery was already discarded."
+        : "The saved delivery workspace is no longer available, so recovery cannot continue.",
+      code: discarded ? "DELIVERY_ALREADY_DISCARDED" : "DELIVERY_NOT_RECOVERABLE",
+      lifecycle: proposal.lifecycle,
+      recoveryState: discarded ? "discarded" : workspaceAvailable ? "recoverable" : "missing_workspace",
+      nextAction: discarded
+        ? "No action is required."
+        : "Start a new delivery from the current project rather than retrying this recovery.",
+    });
+  }
+
+  let changes: Array<{ path: string; newContent: string; validationProfile?: ValidationProfile }> = [];
+  try {
+    const parsed = JSON.parse(proposal.changes);
+    if (!Array.isArray(parsed)) throw new Error("not an array");
+    changes = parsed;
+  } catch {
+    return res.status(409).json({ error: "Stored delivery changes are invalid.", code: "DELIVERY_INVALID" });
+  }
+  const workspaceRoot = proposal.workspaceRoot!;
+  const results: Array<Record<string, unknown>> = [];
+  const groups = new Map<string, typeof changes>();
+  for (const change of changes) {
+    if (typeof change.path !== "string" || typeof change.newContent !== "string" || !change.validationProfile) continue;
+    const group = groups.get(change.validationProfile) ?? [];
+    group.push(change);
+    groups.set(change.validationProfile, group);
+  }
+  for (const [profile, group] of groups) {
+    const parsedProfile = ValidationProfileSchema.safeParse(profile);
+    if (!parsedProfile.success) continue;
+    const result = await runRepairValidation(
+      workspaceRoot,
+      parsedProfile.data,
+      group.map((change) => change.path),
+      undefined,
+      [],
+    );
+    results.push({
+      profile: result.profile ?? profile,
+      status: result.status,
+      detail: result.detail,
+      failedTests: result.failedTests?.slice(0, 20),
+      affectedFiles: result.changedFiles?.slice(0, 50),
+    });
+  }
+  const passed = results.length === groups.size && results.length > 0
+    && results.every((result) => result.status === "passed");
+  const evidence = JSON.stringify(results);
+  const [updated] = await db.update(aiChangeProposalsTable).set({
+    lifecycle: passed ? "validated" : "blocked",
+    validationEvidence: evidence,
+    conflictReason: passed ? null : "Validation recovery did not pass all registered profiles.",
+  }).where(and(
+    eq(aiChangeProposalsTable.id, proposal.id),
+    eq(aiChangeProposalsTable.status, "pending"),
+    inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted"]),
+  )).returning({ id: aiChangeProposalsTable.id });
+  if (!updated) {
+    const [current] = await db.select({ lifecycle: aiChangeProposalsTable.lifecycle })
+      .from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposal.id)).limit(1);
+    return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: current?.lifecycle ?? proposal.lifecycle, idempotent: true });
+  }
+  return res.json({ proposalId: proposal.id, operationId: proposal.operationId, lifecycle: passed ? "validated" : "blocked", validationEvidence: results });
+});
+
+router.post("/ai/delivery/:proposalId/discard", async (req, res) => {
+  const [proposal] = await db.select().from(aiChangeProposalsTable)
+    .where(eq(aiChangeProposalsTable.id, req.params.proposalId)).limit(1);
+  if (!proposal) return res.status(404).json({ error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" });
+  const project = await loadProjectByIdForUser(proposal.projectId, req.userId, res);
+  if (!project) return;
+  if (proposal.lifecycle === "cancelled" || proposal.status === "rejected") {
+    return res.json({ proposalId: proposal.id, lifecycle: "cancelled", idempotent: true });
+  }
+  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)) {
+    return res.status(409).json({ error: "Only abandoned or blocked delivery work can be discarded.", code: "DELIVERY_NOT_DISCARDABLE" });
+  }
+  const [updated] = await db.update(aiChangeProposalsTable).set({
+    status: "rejected",
+    lifecycle: "cancelled",
+    consumedAt: new Date(),
+  }).where(and(eq(aiChangeProposalsTable.id, proposal.id), eq(aiChangeProposalsTable.status, "pending"))).returning({ id: aiChangeProposalsTable.id });
+  if (updated && proposal.workspaceRoot && proposal.operationId) {
+    await discardDeliveryWorkspace(proposal.workspaceRoot, proposal.operationId);
+  }
+  return res.json({ proposalId: proposal.id, lifecycle: "cancelled", discarded: Boolean(updated) });
+});
+
+// ── POST /api/ai/chat/rebase-changes ──────────────────────────────────────────
+//
+// A stale proposal never writes through automatically. This endpoint attempts a
+// deterministic, reviewable rebase onto the current workspace and updates the
+// still-pending proposal only when every hunk matches uniquely.
+router.post("/ai/chat/rebase-changes", async (req, res) => {
+  const RebaseChangeSchema = z.object({
+    path: z.string().min(1),
+    absolutePath: z.string().min(1).refine(path.isAbsolute, "absolutePath must be an absolute path"),
+    newContent: z.string(),
+    originalContent: z.string().nullable(),
+    baseHash: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+    hunks: z.array(z.object({
+      startLine: z.number().int().min(1),
+      endLine: z.number().int().min(1),
+      expectedText: z.string(),
+      replacementText: z.string(),
+      reason: z.string().min(1),
+      risk: z.enum(["low", "medium", "high"]).optional(),
+      evidence: z.array(z.object({
+        kind: z.enum(["finding", "source", "validation"]),
+        id: z.string().min(1),
+        label: z.string().min(1).max(240),
+        file: z.string().min(1).optional(),
+        line: z.number().int().min(1).optional(),
+      }).strict()).max(4).optional(),
+    }).strict()).max(100).optional(),
+    reason: z.string().min(1),
+    validationProfile: z.enum(["ai-orchestrator-tests", "knowledge-engine-tests", "api-ai-tests", "workspace-typecheck"]).optional(),
+    risk: z.enum(["low", "medium", "high"]).optional(),
+    evidence: z.array(z.object({
+      kind: z.enum(["finding", "source", "validation"]),
+55:export function redactUserFacingValue<T>(value: T): T {
+    const byProvider = new Map(available.map((candidate) => [candidate.provider, candidate.apiKey]));
+    const reordered = orderedIds
+      .map((provider) => ({ provider, apiKey: byProvider.get(provider) }))
+      .filter((candidate): candidate is { provider: ProviderId; apiKey: string } => Boolean(candidate?.apiKey));
+
+    logger.info(
+      {
+        scope: "provider-selection",
+        action: "collect_available_providers",
+        qualityProfile: options.qualityProfile,
+        requireTools: !!options?.requireTools,
+        available: reordered.map((c) => c.provider),
+        skipped,
+        finalOrder: reordered.map((c) => c.provider),
+      },
+      "provider selection complete (quality-ordered)",
+    );
+    return reordered;
+  }
+
+  logger.info(
+    {
+      scope: "provider-selection",
+      action: "collect_available_providers",
+      qualityProfile: options?.qualityProfile ?? null,
+      requireTools: !!options?.requireTools,
+      available: available.map((c) => c.provider),
+      skipped,
+    },
+    "provider selection complete",
+  );
+  return available;
+}
+
+// ── Per-provider key resolution ───────────────────────────────────────────────
+
+/**
+ * Generic: resolve the saved API key for any provider.
+ *
+ * Resolution order:
+ *   1. User's own saved key (decrypted from DB).
+ *   2. Server-wide env fallback: OPENROUTER_API_KEY / DEEPSEEK_API_KEY / GROQ_API_KEY.
+ *   3. undefined — caller MUST return 428 to the client.
+ */
+export async function resolveProviderKey(
+  userId: string,
+  provider: ProviderId,
+): Promise<string | undefined> {
+  const [row] = await db
+    .select()
+    .from(aiProviderCredentialsTable)
+    .where(
+      and(
+        eq(aiProviderCredentialsTable.ownerId, userId),
+        eq(aiProviderCredentialsTable.provider, provider),
+      ),
+    )
+    .limit(1);
+
+  if (row) {
+    try {
+      return decryptApiKey(row.encryptedApiKey);
+    } catch (err) {
+      const label = PROVIDER_REGISTRY[provider]?.label ?? provider;
+      logger.error(
+        { err, ownerId: userId, provider },
+        `Failed to decrypt stored ${label} API key — falling back to env`,
+      );
+    }
+  }
+
+4: * POST /api/ai/tasks/:taskId/execute
+19:  executeTask,
+32:import { executeTaskLifecycle } from "../../lib/task-execution-service.js";
+38:// ── POST /api/ai/tasks/:taskId/execute ───────────────────────────────────────
+40:router.post("/ai/tasks/:taskId/execute", async (req, res) => {
+56:      .json({ error: `Cannot AI-execute task with status "${task.status}"` });
+72:  const lifecycle = await executeTaskLifecycle({
+98:      return res.status(500).json({
+103:    return res.status(500).json({
+158:    return res.status(500).json({
+186:  let agentResult: Awaited<ReturnType<typeof executeTask>>;
+192:      (opts) => executeTask({
+248:    return res.status(500).json({
+328:        message: `AI executed "${task.title}" → ${finalStatus} (${agentResult.confidence} confidence)`,
+345:    action: "ai_executed",
+365:  // two closures and execute the AI agent twice for the same task ID.
+409:      const lifecycle = await executeTaskLifecycle({
+505:      let agentResult: Awaited<ReturnType<typeof executeTask>>;
+510:          (opts) => executeTask({
+672:        message: `AI auto-executed "${task.title}" → ${autoFinalStatus} (${agentResult.confidence} confidence)`,
+680:        action: "ai_auto_executed",

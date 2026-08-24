@@ -1,0 +1,334 @@
+23-      "statusCode": 200
+24-    }
+25-    responseTime: 2
+26: × src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > keeps the cancelled Arabic incomplete report intact in the SSE done frame 11ms
+27-   → expected undefined to be defined
+28- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > redacts runtime paths and opaque IDs from JSON, SSE, and persisted assistant content 17ms
+29- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > redacts runtime paths and opaque IDs from sources and persisted tool traces in both exports 11ms
+30- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > routes implementation-plan requests as read-only chat on JSON and SSE 14ms
+31- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > keeps non-imperative action questions in ordinary chat on JSON and SSE 13ms
+32- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > routes composed polite modification requests as delivery on JSON and SSE 13ms
+33- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > ignores stale Build and execution metadata for an Arabic greeting 10ms
+34- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > emits a forensic_status SSE event when chatWithFallback calls onStep with an isFixtureLocal:true step 7ms
+35- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > forensic_status event carries isFixtureLocal:true when the step has it 5ms
+36-[16:15:12.249] INFO (1654): chat/stream: dispatching chatWithFallback
+37-    scope: "chat-route"
+38-    action: "pre_stream_trace"
+--
+468-    }
+469-    responseTime: 2
+470- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > isFixtureLocal is absent from the forensic_status event when the step has a production scope 10ms
+471: × src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > forensic_status event arrives before the done event in the SSE stream 6ms
+472-   → expected -1 to be greater than or equal to 0
+473: × src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > the done event is still emitted after the forensic_status event 10ms
+474-   → expected undefined to be defined
+475- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > emits a cross_file_trace event with its exact source span 7ms
+476- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > emits a decision_trace event proving the task router reached the client 6ms
+477- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > forwards verdictScope + scopedFindingStatus when the decision_trace step has them 6ms
+478- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > omits verdictScope + scopedFindingStatus when the step has none 7ms
+479- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — forensic_status SSE emission (onStep integration) > done event forwards behaviorEvidence as a parsed array with exact source spans 5ms
+480- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — validation privacy boundary > emits the public nested validation schema for 'failed' events 6ms
+481- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — validation privacy boundary > emits the public nested validation schema for 'passed' events 9ms
+482- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — validation privacy boundary > removes command output and test/source details from SSE and persisted trace 6ms
+483- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — scoped verdict persists into tool_trace/repair_plan_metadata > persists verdictScope + scopedFindingStatus into tool_trace for a scoped decision_trace step 4ms
+484- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — scoped verdict persists into tool_trace/repair_plan_metadata > persists verdictScope + scopedFindingStatus into repair_plan_metadata for a scoped scenario 9ms
+485- ✓ src/routes/ai/chat-sse.test.ts > POST /api/ai/chat/stream — scoped verdict persists into tool_trace/repair_plan_metadata > omits scope fields from the persisted tool_trace when the step has none 4ms
+--
+518-
+519-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 25 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+520-
+521: FAIL  src/routes/ai-stream-integration.test.ts > Durable AI execution crash/reconnect > keeps a forensic ابدأ resume read-only after server-layer reinitialization
+522-AssertionError: expected undefined to be truthy
+523-
+524-- Expected:
+525-true
+526-
+527-+ Received:
+528-undefined
+529-
+530- ❯ src/routes/ai-stream-integration.test.ts:846:23
+531-    844|     const sessionId = parseSseEvents(first.text)
+532-    845|       .find((event) => event["type"] === "done")?.["sessionId"] as str…
+533-    846|     expect(sessionId).toBeTruthy();
+--
+537-
+538-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/25]⎯
+539-
+540: FAIL  src/routes/ai-stream-integration.test.ts > Durable AI execution crash/reconnect > resumes from a checkpoint, then rebases drifted changes and requires fresh approval
+541-AssertionError: expected 409 to be 200 // Object.is equality
+542-
+543-- Expected
+544-+ Received
+545-
+546-- 200
+547-+ 409
+548-
+549- ❯ src/routes/ai-stream-integration.test.ts:1289:28
+550-    1287|         resumeToken: created.resumeToken,
+551-    1288|       });
+552-    1289|     expect(resumed.status).toBe(200);
+--
+556-
+557-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/25]⎯
+558-
+559: FAIL  src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > keeps a non-Build execution identity through proposal reload and apply
+560-AssertionError: expected undefined to deeply equal Any<String>
+561-
+562-- Expected:
+563-Any<String>
+564-
+565-+ Received:
+566-undefined
+567-
+568- ❯ src/routes/ai-stream-integration.test.ts:1414:24
+569-    1412|     const operationId = done?.["operationId"] as string;
+570-    1413|     const assistantMessageId = (done?.["message"] as { id?: string } |…
+571-    1414|     expect(proposalId).toEqual(expect.any(String));
+--
+575-
+576-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/25]⎯
+577-
+578: FAIL  src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > blocks Build Mode for an already-approved plan with no safe file scope
+579-AssertionError: expected 'PLAN_CONTEXT_INCOMPLETE' to be 'PLAN_FILE_SCOPE_REQUIRED' // Object.is equality
+580-
+581-Expected: "PLAN_FILE_SCOPE_REQUIRED"
+582-Received: "PLAN_CONTEXT_INCOMPLETE"
+583-
+584- ❯ src/routes/ai-stream-integration.test.ts:1498:27
+585-    1496|
+586-    1497|     expect(res.status).toBe(409);
+587-    1498|     expect(res.body.code).toBe("PLAN_FILE_SCOPE_REQUIRED");
+588-       |                           ^
+589-    1499|   });
+590-    1500|
+591-
+592-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/25]⎯
+593-
+594: FAIL  src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > blocks an approved read-only plan before opening a provider turn
+595-AssertionError: expected 'PLAN_CONTEXT_INCOMPLETE' to be 'PLAN_BUILD_BLOCKED' // Object.is equality
+596-
+597-Expected: "PLAN_BUILD_BLOCKED"
+598-Received: "PLAN_CONTEXT_INCOMPLETE"
+599-
+600- ❯ src/routes/ai-stream-integration.test.ts:1520:27
+601-    1518|
+602-    1519|     expect(res.status).toBe(409);
+603-    1520|     expect(res.body.code).toBe("PLAN_BUILD_BLOCKED");
+604-       |                           ^
+605-    1521|     expect(vi.mocked(chatWithFallback).mock.calls.length).toBe(callsBe…
+606-    1522|   });
+607-
+608-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/25]⎯
+609-
+610: FAIL  src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > blocks a proposed file outside the approved plan scope
+611-AssertionError: expected 409 to be 200 // Object.is equality
+612-
+613-- Expected
+614-+ Received
+615-
+616-- 200
+617-+ 409
+618-
+619- ❯ src/routes/ai-stream-integration.test.ts:1556:24
+620-    1554|       });
+621-    1555|
+622-    1556|     expect(res.status).toBe(200);
+--
+626-
+627-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/25]⎯
+628-
+629: FAIL  src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > binds in-scope implementation changes to the safe workspace typecheck
+630-AssertionError: expected 409 to be 200 // Object.is equality
+631-
+632-- Expected
+633-+ Received
+634-
+635-- 200
+636-+ 409
+637-
+638- ❯ src/routes/ai-stream-integration.test.ts:1599:24
+639-    1597|       });
+640-    1598|
+641-    1599|     expect(res.status).toBe(200);
+--
+645-
+646-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/25]⎯
+647-
+648: FAIL  src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > keeps hostile repository evidence from changing the approved Build contract
+649-AssertionError: expected 409 to be 200 // Object.is equality
+650-
+651-- Expected
+652-+ Received
+653-
+654-- 200
+655-+ 409
+656-
+657- ❯ src/routes/ai-stream-integration.test.ts:1683:24
+658-    1681|       });
+659-    1682|
+660-    1683|     expect(res.status).toBe(200);
+--
+664-
+665-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/25]⎯
+666-
+667: FAIL  src/routes/ai-stream-integration.test.ts > Plan-to-push agent cycle > proves Plan -> Approve -> Build -> Diff -> Apply -> Commit -> Push
+668-AssertionError: expected 409 to be 200 // Object.is equality
+669-
+670-- Expected
+671-+ Received
+672-
+673-- 200
+674-+ 409
+675-
+676- ❯ src/routes/ai-stream-integration.test.ts:1798:26
+677-    1796|         message: "Build the approved implementation plan.",
+678-    1797|       });
+679-    1798|     expect(build.status).toBe(200);
+--
+683-
+684-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/25]⎯
+685-
+686: FAIL  src/routes/ai-stream-integration.test.ts > Phase 6 — Arabic evidence persistence and history rehydration > preserves the Arabic report, structured evidence, verdict, and redacted trace after reload
+687-AssertionError: expected undefined to be defined
+688- ❯ src/routes/ai-stream-integration.test.ts:2078:18
+689-    2076|     const events = parseSseEvents(stream.text);
+690-    2077|     const done = events.find((event) => event.type === "done");
+691-    2078|     expect(done).toBeDefined();
+692-       |                  ^
+693-    2079|     const doneMessage = done?.message as {
+694-    2080|       id: string;
+695-
+696-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/25]⎯
+697-
+698: FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > should stream successful OpenRouter completion over SSE
+699-AssertionError: expected 0 to be less than -1
+700- ❯ src/routes/ai-stream-integration.test.ts:2541:50
+701-    2539|     expect(sessionStartedEvent).toBeDefined();
+702-    2540|     expect(typeof sessionStartedEvent!["sessionId"]).toBe("string");
+703-    2541|     expect(events.indexOf(sessionStartedEvent!)).toBeLessThan(events.i…
+704-       |                                                  ^
+705-    2542|     expect(doneEvent).toBeDefined();
+706-    2543|     expect(typeof doneEvent!["sessionId"]).toBe("string");
+707-
+708-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/25]⎯
+709-
+710: FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > persists an Arabic behavioral answer with accepted evidence through SSE
+711-AssertionError: expected undefined to be defined
+712- ❯ src/routes/ai-stream-integration.test.ts:2612:18
+713-    2610|     const events = parseSseEvents(res.text);
+714-    2611|     const done = events.find((event) => event["type"] === "done");
+715-    2612|     expect(done).toBeDefined();
+716-       |                  ^
+717-    2613|     expect(done?.["error"]).toBeUndefined();
+718-    2614|     expect(done?.["sources"]).toEqual([source]);
+719-
+720-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/25]⎯
+721-
+722: FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > keeps a completed read out of accepted sources when SSE has insufficient behavioral evidence
+723-AssertionError: expected undefined to be defined
+724- ❯ src/routes/ai-stream-integration.test.ts:2743:18
+725-    2741|       acceptedEvidenceFiles: [],
+726-    2742|     });
+727-    2743|     expect(done).toBeDefined();
+728-       |                  ^
+729-    2744|     expect(done?.["sources"]).toEqual([]);
+730-    2745|     expect((done?.["message"] as Record<string, unknown> | undefined)?…
+731-
+732-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/25]⎯
+733-
+734: FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > completes the Arabic behavior journey through session, API, SSE, and history endpoints
+735-AssertionError: expected -1 to be greater than 6
+825-              at afterWriteTick (node:internal/streams/writable:696:10)
+826-              at processTicksAndRejections (node:internal/process/task_queues:81:21)
+827-    }
+828: × src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > returns 409 and preserves a concurrent status change instead of overwriting it 88ms
+829-   → expected 500 to be 409 // Object.is equality
+830- ✓ src/routes/ai.test.ts > resolveProvider tool-capability filtering > skips Gemini when a request requires tools 3ms
+831-[16:14:59.058] INFO (1571): Skipping provider that cannot satisfy the current request
+832-    provider: "gemini"
+833-    requireTools: true
+834-    reason: "no_tool_support"
+835-[16:14:59.060] INFO (1571): provider selection complete
+836-    scope: "provider-selection"
+837-    action: "collect_available_providers"
+838-    qualityProfile: null
+839-    requireTools: true
+840-    available: []
+--
+862-    selected: null
+863-    requireTools: true
+864-    qualityProfile: null
+865: × src/routes/ai-route-parity.test.ts > AI route / OpenAPI spec parity (PR-06) > has no code-only AI routes missing from the OpenAPI spec 17ms
+866-   → Routes in code but not in spec:
+867-  GET /api/ai/delivery/recoverable
+868-  POST /api/ai/delivery/{proposalId}/resume-validation
+869-  POST /api/ai/delivery/{proposalId}/discard: expected [ …(3) ] to deeply equal []
+870- ✓ src/routes/ai-route-parity.test.ts > AI route / OpenAPI spec parity (PR-06) > has no spec-only AI paths not implemented in code 1ms
+871- ✓ src/routes/ai-route-parity.test.ts > AI route / OpenAPI spec parity (PR-06) > spec covers at least the known baseline AI routes 0ms
+872-
+873-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+874-
+875: FAIL  src/routes/ai-route-parity.test.ts > AI route / OpenAPI spec parity (PR-06) > has no code-only AI routes missing from the OpenAPI spec
+876-AssertionError: Routes in code but not in spec:
+877-  GET /api/ai/delivery/recoverable
+878-  POST /api/ai/delivery/{proposalId}/resume-validation
+879-  POST /api/ai/delivery/{proposalId}/discard: expected [ …(3) ] to deeply equal []
+880-
+881-- Expected
+882-+ Received
+883-
+884-- []
+885-+ [
+886-+   "GET /api/ai/delivery/recoverable",
+887-+   "POST /api/ai/delivery/{proposalId}/resume-validation",
+--
+898-
+899-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+900-
+901: FAIL  src/routes/ai.test.ts > POST /api/ai/chat > rejects a submitted payload that differs from the approved proposal
+902-AssertionError: expected undefined to be 'PROPOSAL_MISMATCH' // Object.is equality
+903-
+904-- Expected:
+905-"PROPOSAL_MISMATCH"
+906-
+907-+ Received:
+908-undefined
+909-
+910- ❯ src/routes/ai.test.ts:763:27
+911-    761|       });
+912-    762|     expect(res.status).toBe(409);
+913-    763|     expect(res.body.code).toBe("PROPOSAL_MISMATCH");
+--
+917-
+918-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+919-
+920: FAIL  src/routes/ai.test.ts > POST /api/ai/projects/:projectId/analyze > returns 422 with model_output_invalid when analyzeScan returns _parseError
+921-AssertionError: expected '{"operationId":"7c76775f-ca59-425e-88…' not to match /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f…/i
+922-
+923-- Expected:
+924-/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i
+925-
+926-+ Received:
+927-"{\"operationId\":\"7c76775f-ca59-425e-88bf-7025899a098c\",\"projectId\":\"978c895b-6971-4a45-9227-fc57f12987b2\",\"projectRevision\":\"2026-08-24T16:14:43.783Z\",\"rootAvailable\":false,\"incomplete\":true,\"operationalTrace\":[{\"stage\":\"analyze\",\"status\":\"started\"},{\"stage\":\"analyze\",\"status\":\"incomplete\",\"provider\":\"openrouter\"}],\"error\":\"model_output_invalid\",\"code\":\"model_output_invalid\",\"hint\":\"The AI model returned an unexpected response — try again in a moment.\",\"parseCode\":\"MALFORMED_JSON\"}"
+928-
+929- ❯ src/routes/ai.test.ts:2123:28
+930-    2121|     expect(serialized).not.toContain("req-analysis-123");
+931-    2122|     expect(serialized).not.toContain("/tmp/");
+932-    2123|     expect(serialized).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a…
+--
+936-
+937-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+938-
+939: FAIL  src/routes/ai.test.ts > POST /api/ai/tasks/:taskId/execute > returns 409 and preserves a concurrent status change instead of overwriting it
+940-AssertionError: expected 500 to be 409 // Object.is equality
+941-
+942-- Expected
+943-+ Received
+944-
+945-- 409
+946-+ 500
+947-
+948- ❯ src/routes/ai.test.ts:4010:24
+949-    4008|
+950-    4009|     const res = await requestPromise;
+951-    4010|     expect(res.status).toBe(409);

@@ -552,7 +552,8 @@ router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (r
     });
   }
 
-  const allowLegacyFixture = config.nodeEnv === "test" && project.gitRemoteUrl === TEST_FIXTURE_REMOTE;
+  const allowLegacyFixture = config.nodeEnv === "test"
+    && (project.gitRemoteUrl === TEST_FIXTURE_REMOTE || Boolean(process.env.ENGINEERINGOS_TEST_PUSH_REMOTE));
   if (!parseGitHubRemote(project.gitRemoteUrl) && !allowLegacyFixture) {
     return res.status(400).json({
       error: "Remote URL must be a credential-free HTTPS github.com repository URL.",

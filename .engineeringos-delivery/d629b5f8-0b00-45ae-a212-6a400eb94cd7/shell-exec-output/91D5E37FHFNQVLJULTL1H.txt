@@ -1,0 +1,140 @@
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 81
+[17:15:41.163] INFO (15941): request completed
+    req: {
+      "id": 6,
+      "method": "GET",
+      "url": "/api/ai/executions/80fe4394-3988-4884-90bd-819e778453b9"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 7
+ ✓ src/routes/ai-stream-integration.test.ts > Durable AI execution crash/reconnect > keeps a forensic ابدأ resume read-only after server-layer reinitialization 319ms
+ ✓ src/routes/ai-stream-integration.test.ts > Durable AI execution crash/reconnect > rehydrates node progress only when the checkpoint matches the approved plan 1ms
+[17:15:41.218] INFO (15941): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "771e3754-fb16-4f46-985a-8b218777bc43"
+    projectId: "987f1fd2-1c35-42a4-82a8-31481956b1fc"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 1
+    turnIntent: "PROJECT_QUERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "tool_chat"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": false,
+      "sessionId": "771e3754-fb16-4f46-985a-8b218777bc43",
+      "historyMessageCount": 1,
+      "repairPlanCandidateCount": 0
+    }
+[17:15:41.246] INFO (15941): request completed
+    req: {
+      "id": 7,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 61
+ ✓ src/routes/ai-stream-integration.test.ts > Durable AI execution crash/reconnect > pauses an interrupted execution and resumes the same ID from its checkpoint 143ms
+ ✓ src/routes/ai-stream-integration.test.ts > Durable AI execution crash/reconnect > cancels a queued execution as a terminal state with a durable checkpoint 58ms
+ ✓ src/routes/ai-stream-integration.test.ts > Durable AI execution crash/reconnect > moves running cancellation through cancelling and prevents a late worker success 65ms
+[17:15:41.462] WARN (15941): Build handoff context blocked
+    projectId: "56572d86-7db7-4c67-9ab7-93d4b5866fcc"
+    code: "PLAN_CONTEXT_INCOMPLETE"
+[17:15:41.463] INFO (15941): request completed
+    req: {
+      "id": 8,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 23
+ × src/routes/ai-stream-integration.test.ts > Durable AI execution crash/reconnect > resumes from a checkpoint, then rebases drifted changes and requires fresh approval 213ms
+   → expected 409 to be 200 // Object.is equality
+ · src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > keeps a non-Build execution identity through proposal reload and apply
+ · src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > rejects Build Mode before the plan is approved
+ · src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > blocks Build Mode for an already-approved plan with no safe file scope
+ · src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > blocks an approved read-only plan before opening a provider turn
+ · src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > blocks a proposed file outside the approved plan scope
+ · src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > binds in-scope implementation changes to the safe workspace typecheck
+ · src/routes/ai-stream-integration.test.ts > Implementation Plan Build handoff > keeps hostile repository evidence from changing the approved Build contract
+ · src/routes/ai-stream-integration.test.ts > Plan-to-push agent cycle > proves Plan -> Approve -> Build -> Diff -> Apply -> Commit -> Push
+ · src/routes/ai-stream-integration.test.ts > Phase 6 — Arabic evidence persistence and history rehydration > preserves the Arabic report, structured evidence, verdict, and redacted trace after reload
+ · src/routes/ai-stream-integration.test.ts > Concurrent Arabic chat turns > keeps each assistant result adjacent to its prompt after simultaneous streams
+ · src/routes/ai-stream-integration.test.ts > Concurrent chat ordering and ownership > persists concurrent JSON turns in submission order with request-owned evidence
+ · src/routes/ai-stream-integration.test.ts > Concurrent chat ordering and ownership > keeps interleaved SSE deltas, evidence, executions, and done messages request-owned
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > should stream successful OpenRouter completion over SSE
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > persists an Arabic behavioral answer with accepted evidence through SSE
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > keeps a completed read out of accepted sources when SSE has insufficient behavioral evidence
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > completes the Arabic behavior journey through session, API, SSE, and history endpoints
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > persists and restores the resumable task contract for an SSE continuation
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > keeps the newest resumable contract when same-session turns finish out of order
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > should carry the persisted audit report into a same-session execution follow-up
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > keeps execution trace separate from the persisted SSE report content
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > persists bounded synthesis timeout telemetry while keeping incomplete reports sanitized
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > keeps forensic diagnostic details in metadata, not report content
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > hides provider and recovery diagnostic details from evidence-required SSE
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > keeps a streamed forensic cancellation incomplete after recovery retains partial evidence
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > persists required analysis failures and never replays them as completed
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > keeps a resumed required-analysis failure terminal when the analysis remains unavailable
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > records zero-read evidence stops as failed, not completed
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > should reject execution without a session before opening an SSE/model turn
+ · src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > should reject an unknown stream session instead of creating a new one
+ · src/routes/ai-stream-integration.test.ts > INT-006 — POST /api/ai/chat/stream: provider failover surfaced cleanly through SSE > retains completed evidence after a native stream reset and resumes read-only
+ · src/routes/ai-stream-integration.test.ts > INT-006 — POST /api/ai/chat/stream: provider failover surfaced cleanly through SSE > retains a completed read when the primary fails and the text-only fallback is resumed
+ · src/routes/ai-stream-integration.test.ts > INT-006 — POST /api/ai/chat/stream: provider failover surfaced cleanly through SSE > should surface provider failover cleanly through the SSE stream
+ · src/routes/ai-stream-integration.test.ts > INT-006 — POST /api/ai/chat/stream: provider failover surfaced cleanly through SSE > should expose a bounded Retry-After hint for an exhausted rate-limited chain
+ · src/routes/ai-stream-integration.test.ts > INT-006 — POST /api/ai/chat/stream: provider failover surfaced cleanly through SSE > should respond with 400 before opening SSE stream when request body is invalid
+ · src/routes/ai-stream-integration.test.ts > INT-007 — chatWithFallback call counts prove the resolver controls request issuance > should not call chatWithFallback when projectId validation fails
+ · src/routes/ai-stream-integration.test.ts > INT-007 — chatWithFallback call counts prove the resolver controls request issuance > should call chatWithFallback exactly once on the success path
+ · src/routes/ai-stream-integration.test.ts > INT-007 — chatWithFallback call counts prove the resolver controls request issuance > passes an accessible project root to the agent with file tools enabled
+ · src/routes/ai-stream-integration.test.ts > INT-007 — chatWithFallback call counts prove the resolver controls request issuance > threads a request objective into chatWithFallback for the streaming Objective Completion Gate
+ · src/routes/ai-stream-integration.test.ts > INT-007 — chatWithFallback call counts prove the resolver controls request issuance > returns 400 before opening the SSE stream when the objective body is invalid
+ · src/routes/ai-stream-integration.test.ts > INT-007 — chatWithFallback call counts prove the resolver controls request issuance > should not issue OpenRouter requests when the resolved chain is empty (fetch = 0)
+ · src/routes/ai-stream-integration.test.ts > INT-008 — concurrent idempotent stream retries > returns one execution identity to both callers and invokes the provider once
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > Durable AI execution crash/reconnect > resumes from a checkpoint, then rebases drifted changes and requires fresh approval
+AssertionError: expected 409 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 409
+
+ ❯ src/routes/ai-stream-integration.test.ts:1289:28
+    1287|         resumeToken: created.resumeToken,
+    1288|       });
+    1289|     expect(resumed.status).toBe(200);
+       |                            ^
+    1290|     const resumedEvents = parseSseEvents(resumed.text);
+    1291|     const resumedDone = resumedEvents.find((event) => event["type"] ==…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (2)
+      Tests  1 failed | 7 passed | 1 skipped (50)
+   Start at  17:15:33
+   Duration  7.88s (transform 4.34s, setup 0ms, import 6.54s, tests 1.06s, environment 0ms)
+
+undefined
+/home/runner/workspace/artifacts/api-server:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/routes/ai-stream-integration.test.ts src/routes/ai/chat-sse.test.ts --bail=1 --reporter=verbose

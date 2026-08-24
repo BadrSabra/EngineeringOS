@@ -1,0 +1,312 @@
+1718:router.post("/ai/chat", async (req, res) => {
+1963:          pendingChanges: [],
+2014:      (result.pendingChanges ?? []) as ServerPendingChange[],
+2017:    const proposalId = canCreateProposal(
+2110:      if (proposalId || result.repairPlan || result.taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT") {
+2112:        if (proposalId) {
+2114:          id: proposalId,
+2130:          payload: { messageId: operationId, proposalId: proposalId ?? null },
+2159:      pendingChanges: proposalId
+2162:      proposalId,
+2163:      proposalUnavailable: (result.pendingChanges?.length ?? 0) > 0 && !proposalId
+3283:            pendingChanges?: readonly PendingValidationChange[],
+3297:              pendingChanges ?? [],
+3317:      ? async (request: { profile: string; rootPath: string; pendingChanges?: readonly PendingValidationChange[]; operationId?: string; revision?: string; signal?: AbortSignal }) => {
+3337:          const workspace = await createValidationWorkspace(request.rootPath, request.pendingChanges ?? []);
+3534:          pendingChanges: [],
+3542:          (result.pendingChanges ?? []) as ServerPendingChange[],
+3576:            proposedChanges: result.pendingChanges?.length ?? 0,
+3767:        (result.pendingChanges ?? []) as ServerPendingChange[],
+3772:    const proposalId = canCreateProposal(
+3890:      if (proposalId || result.repairPlan || result.taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT") {
+3894:        if (proposalId) {
+3896:          id: proposalId,
+3906:          .set({ proposalId, updatedAt: msgNow })
+3919:            proposalId: proposalId ?? null,
+3959:          && !proposalId
+3989:        proposalId,
+4033:      proposalId
+4069:      pendingChanges: proposalId
+4072:      proposalId,
+4075:      proposalUnavailable: (result.pendingChanges?.length ?? 0) > 0 && !proposalId
+4143:  let operationId = execution.operationId ?? execution.buildPlanMessageId ?? execution.proposalId ?? null;
+4144:  if (!execution.operationId && execution.proposalId) {
+4148:      .where(eq(aiChangeProposalsTable.id, execution.proposalId))
+4164:  const hasPendingProposal = Boolean(execution.proposalId);
+4166:    || Boolean(execution.linkedTaskId || execution.buildPlanMessageId || execution.proposalId);
+4206:    proposalId: execution.proposalId,
+4933:  if (!proposal) return res.json({ proposalId: null, operationId: null, changes: [], lifecycle: null });
+4943:      eq(aiExecutionsTable.proposalId, proposal.id),
+4958:      proposalId: proposal.status === "pending" ? proposal.id : null,
+/**
+ * Execution handoff observability.
+ *
+ * The assistant history is the source of truth for a Repair Plan handoff. Keep
+ * this diagnostic bounded and content-free: it proves whether the route loaded
+ * a usable audit candidate without logging the audit itself.
+ */
+function countRepairPlanCandidates(
+  rows: Array<{ role: string; content: string; repairPlanMetadata?: string | null }>,
+): number {
+  const marker = /(?:repair\s+plan|خطة\s+الإصلاح|خطة\s+الاصلاح|findings|النتائج\s+الجنائية|إصلاح\s+مقترح)/i;
+  return rows.filter((row) => {
+    if (row.role !== "assistant") return false;
+    const structuredPlan = parseRepairPlanMetadata(row.repairPlanMetadata ?? null);
+    return Boolean(structuredPlan?.length) || marker.test(row.content);
+  }).length;
+}
+
+function resolveSessionTaskState(
+  serializedState: string | null | undefined,
+  projectId: string,
+): ReturnType<typeof parseActiveTaskState> {
+  const state = parseActiveTaskState(serializedState);
+  return state?.scope.projectId === projectId ? state : null;
+}
+
+function collectReadEvidencePaths(steps: AgentStep[]): string[] {
+  return steps
+    .filter(
+      (step): step is Extract<AgentStep, { kind: "tool_result" }> =>
+        step.kind === "tool_result" &&
+        (step.tool === "read_file" || step.tool === "read_file_range") &&
+        typeof step.source === "string" &&
+        step.source.trim().length > 0,
+    )
+    .map((step) => step.source!.trim())
+    .filter((file, index, files) => files.indexOf(file) === index)
+    .slice(-48);
+}
+
+function nextSessionTaskState(args: {
+  persisted: ReturnType<typeof parseActiveTaskState>;
+  classification: ReturnType<typeof classifyRequest>;
+  resumed: boolean;
+  projectId: string;
+  rootPath: string | undefined;
+  linkedTaskId: string | undefined;
+  now: Date;
+  readFiles: string[];
+  executionPlan: ActiveTaskExecutionPlan | null;
+}): string | null {
+  if (args.persisted && (args.resumed || args.executionPlan)) {
+    const touched = touchActiveTaskState(args.persisted, args.now);
+    const existingPlan = touched.executionPlan;
+    const progressedPlan = existingPlan
+      ? advanceImplementationPlan(existingPlan, args.readFiles)
+      : null;
+    return serializeActiveTaskState(
+      {
+        ...mergeActiveTaskEvidence(touched, args.readFiles, args.now),
+        executionPlan: args.executionPlan ?? progressedPlan ?? touched.executionPlan,
+      },
+    );
+  }
+  const shouldPersistExecutionPlan = Boolean(args.executionPlan);
+  if (isResumableTaskType(args.classification.taskType) || shouldPersistExecutionPlan) {
+    const stateClassification = isResumableTaskType(args.classification.taskType)
+      ? args.classification
+      : {
+          ...args.classification,
+          taskType: "REPAIR_ANALYSIS" as const,
+          outputContract: "REPAIR_PLAN" as const,
+        };
+    const state = buildActiveTaskState({
+      classification: stateClassification,
+      projectId: args.projectId,
+      rootPath: args.rootPath,
+      linkedTaskId: args.linkedTaskId,
+      now: args.now,
+    });
+    return serializeActiveTaskState(state
+      ? {
+          ...mergeActiveTaskEvidence(state, args.readFiles, args.now),
+          executionPlan: args.executionPlan,
+        }
+      : null);
+  }
+  // A new non-resumable request (for example a behavior question) ends the
+  // previous forensic continuation chain. Otherwise a later "continue" could
+  // unexpectedly revive an older audit after the user changed subjects.
+  return null;
+}
+
+const router = Router();
+
+function runtimeChatTraceLinks(routeName: string): ProductionTraceLink[] {
+  return [{
+    from: {
+      id: `route:${routeName}`,
+      name: routeName,
+      path: "artifacts/api-server/src/routes/ai/chat.ts",
+      stage: "API_ROUTE",
+    },
+    to: {
+      id: "orchestrator:chat",
+      name: "chat()",
+      path: "lib/ai-orchestrator/src/agents/chat-agent.ts",
+      stage: "ORCHESTRATOR",
+    },
+    relation: "invokes",
+    source: "artifacts/api-server/src/routes/ai/chat.ts",
+    evidence: "runtime chatWithFallback dispatch",
+    runtimeObserved: true,
+  }];
+}
+
+// ── POST /api/ai/chat ────────────────────────────────────────────────────────
+
+router.post("/ai/chat", async (req, res) => {
+  const ChatBodySchema = z.object({
+    projectId:    z.string({ required_error: "projectId is required" }).min(1, "projectId is required"),
+    message:      z.string({ required_error: "message is required" }).trim().min(1, "message is required"),
+    sessionId:    z.string().uuid("sessionId must be a valid UUID").optional(),
+    // AI-TASK-002: optional task linkage — switches agent into task-aware mode
+    linkedTaskId: z.string().uuid("linkedTaskId must be a valid UUID").optional(),
+    // AI-OBJ-005: optional validated Objective Completion contract; when present
+    // the chat() call runs the Objective Completion Gate on the real entry point
+    // and refuses finalization while any required claim/edge is unproven.
+    objective:    ObjectiveContractSchema.optional(),
+  });
+  const chatBody = ChatBodySchema.safeParse(req.body);
+  if (!chatBody.success) {
+    const issue = chatBody.error.issues[0];
+    const raw   = issue?.message ?? "Invalid request body";
+    const field = String(issue?.path[0] ?? "");
+    const error = raw === "Required" && field ? `${field} is required` : raw;
+    return res.status(400).json({ error });
+  }
+  const { projectId, message, sessionId, linkedTaskId, objective } = chatBody.data;
+  const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
+
+  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+  if (!project) return;
+
+  // Keep execution handoff fail-closed in the streaming route too. This check
+  // happens before provider resolution and before SSE headers are committed.
+  if (!sessionId && isImmediateExecutionRequest(message)) {
+    return res.status(409).json({
+      error: "execution_session_required",
+      message: "Repair Plan execution requires the original audit session.",
+    });
+  }
+
+  const rlChat = await checkProjectRateLimitDb(projectId);
+  if (!rlChat.allowed) {
+    return res.status(429).json({
+      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlChat.retryAfterSec}s.`,
+    });
+  }
+
+  let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
+  if (sessionId) {
+    const [found] = await db
+      .select()
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, sessionId))
+      .limit(1);
+    // Prevent cross-project session leakage: reject sessions that belong to a
+    // different project even if the UUID is known to the caller.
+    if (found && found.projectId !== projectId) {
+      return res.status(403).json({ error: "Session does not belong to this project" });
+    }
+    if (!found) {
+      return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+    }
+    existingSession = found;
+  }
+
+  // AI-TASK-003 & 009: Resolve the effective linked task.
+  // Priority: (1) explicit linkedTaskId in request, (2) stored in existing session.
+    const effectiveLinkedTaskId = linkedTaskId ?? existingSession?.linkedTaskId ?? undefined;
+    let activeTask: { id: string; title: string; description: string | null; priority: string; relatedFiles: string[] } | undefined;
+    if (effectiveLinkedTaskId) {
+      const [foundTask] = await db
+        .select()
+        .from(tasksTable)
+        .where(eq(tasksTable.id, effectiveLinkedTaskId))
+        .limit(1);
+    if (!foundTask) {
+      return res.status(404).json({ error: "Task not found", code: "TASK_NOT_FOUND" });
+    }
+    // AI-TASK-009: Ownership guard — task must belong to the same project.
+    if (foundTask.projectId !== projectId) {
+      return res.status(400).json({ error: "Invalid task context — task does not belong to this project", code: "INVALID_TASK_CONTEXT" });
+    }
+    activeTask = {
+      id: foundTask.id,
+      title: foundTask.title,
+      description: foundTask.description ?? null,
+      priority: foundTask.priority,
+      relatedFiles: foundTask.relatedFiles,
+    };
+  }
+
+  const { validRootPath, fallbackUsed: rootFallbackUsed, originalPath: rootOriginalPath } =
+    await resolveRootPath(project.rootPath, projectId);
+
+  // Classify the request upfront — pure sync, zero cost. Short continuation
+  // messages reuse the verified contract stored on the session.
+  const persistedActiveTaskState = resolveSessionTaskState(existingSession?.activeTaskState, projectId);
+  const rawTurnClassification = classifyRequest(message);
+  const rawTurnIntent = resolveTurnIntent(message, {
+    classification: rawTurnClassification,
+  });
+  // Any ordinary CHAT request starts an isolated conversational turn unless it
+  // is an explicit continuation. This mirrors the SSE path, so stale forensic
+      }
+      continue;
+    }
+  }
+
+  return routes;
+}
+
+// ── Parity test ───────────────────────────────────────────────────────────────
+
+describe("AI route / OpenAPI spec parity (PR-06)", () => {
+  const codeRoutes = extractCodeRoutes();
+  const specRoutes = extractSpecRoutes();
+
+  // Some routes intentionally absent from the spec (streaming endpoint uses
+  // text/event-stream content-type which is harder to describe in OpenAPI 3.0
+  // and is documented in code comments instead).
+  const SPEC_EXEMPTIONS = new Set(["POST /api/ai/chat/stream"]);
+
+  it("has no code-only AI routes missing from the OpenAPI spec", () => {
+    const missing: string[] = [];
+    for (const route of codeRoutes) {
+      if (!specRoutes.has(route) && !SPEC_EXEMPTIONS.has(route)) {
+        missing.push(route);
+      }
+    }
+    expect(missing, `Routes in code but not in spec:\n  ${missing.join("\n  ")}`).toEqual([]);
+  });
+
+  it("has no spec-only AI paths not implemented in code", () => {
+    const missing: string[] = [];
+    for (const route of specRoutes) {
+      if (!codeRoutes.has(route)) {
+        missing.push(route);
+      }
+    }
+    expect(missing, `Spec paths not implemented in code:\n  ${missing.join("\n  ")}`).toEqual([]);
+  });
+
+  it("spec covers at least the known baseline AI routes", () => {
+    const baseline = [
+      "GET /api/ai/groq-key",
+      "PUT /api/ai/groq-key",
+      "DELETE /api/ai/groq-key",
+      "GET /api/ai/deepseek-key",
+      "PUT /api/ai/deepseek-key",
+      "DELETE /api/ai/deepseek-key",
+      "GET /api/ai/active-provider",
+      "POST /api/ai/chat",
+      "POST /api/ai/tasks/{taskId}/execute",
+      "POST /api/ai/workflows/{workflowId}/orchestrate",
+    ];
+    const uncovered = baseline.filter((r) => !specRoutes.has(r));
+    expect(uncovered, `Baseline routes missing from spec:\n  ${uncovered.join("\n  ")}`).toEqual([]);
+  });
+});

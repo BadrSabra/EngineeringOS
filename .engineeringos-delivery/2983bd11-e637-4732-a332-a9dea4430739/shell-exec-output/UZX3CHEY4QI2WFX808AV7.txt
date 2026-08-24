@@ -1,0 +1,535 @@
+          type: "execution_diagnostic",
+          code: step.code,
+          ...(visibleDiagnosticDetails ? { details: visibleDiagnosticDetails } : {}),
+          ...(step.code === "EXECUTION_PHASE_TOOL_REJECTED" && step.phase
+            ? { phase: step.phase, tool: step.tool }
+            : {}),
+        });
+      }
+    }
+
+    // Persist the same safe lifecycle representation that the live dashboard
+    // receives. Only plan-owned relative file names are projected; roots,
+    // fingerprints, execution IDs, and provider details stay server-side.
+    if (streamImplementationPlanResume && executionPlanForRun?.implementationPlan) {
+      const plan = executionPlanForRun.implementationPlan;
+      const current = plan.steps[executionPlanForRun.currentStepIndex];
+      onStep({ kind: "plan_activity", stage: "understand", status: "done" });
+      onStep({ kind: "plan_activity", stage: "scope", status: "done", files: safePlanFiles(current?.files, validRootPath) });
+      onStep({ kind: "plan_activity", stage: "plan", status: "done", stepTitle: current?.title });
+      if (current) {
+        onStep({
+          kind: "plan_activity",
+          stage: "execute",
+          status: "active",
+          stepTitle: current.title,
+          action: current.action,
+          files: safePlanFiles(current.files, validRootPath),
+          ...(["create", "modify", "delete", "configure"].includes(current.action)
+            ? {
+                approvalRequired: true,
+                approvalReason: "Approval is required before changing these files. No files have been changed.",
+              }
+            : {}),
+        });
+      }
+    }
+
+    const validationRunner =
+      approvedImplementationPlan && implementationPlanScope && validRootPath
+        ? async (
+            profile: string,
+            targetPaths: string[],
+            signal?: AbortSignal,
+            pendingChanges?: readonly PendingValidationChange[],
+          ) => {
+            const parsedProfile = ValidationProfileSchema.safeParse(profile);
+            if (!parsedProfile.success) {
+              return {
+                status: "unavailable" as const,
+                detail: `Validation profile "${profile}" is not registered.`,
+              };
+            }
+            return runRepairValidation(
+              validRootPath,
+              parsedProfile.data,
+              targetPaths,
+              signal,
+              pendingChanges ?? [],
+            );
+          }
+        : undefined;
+    const requestedBrowserValidationProfile = approvedImplementationPlan?.browserValidationProfile;
+    const registeredBrowserProfile = requestedBrowserValidationProfile
+      ? (await db.select().from(browserValidationProfilesTable).where(and(
+          eq(browserValidationProfilesTable.projectId, projectId),
+          eq(browserValidationProfilesTable.name, requestedBrowserValidationProfile),
+           commandRunner: commandProfiles ? runRegisteredCommand : undefined,
+           commandContext: {
+             operationId: analysisCorrelation.operationId,
+             revision: analysisCorrelation.projectRevision,
+             targetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
+             operation: "build",
+           },
+          validationTargetPaths: implementationPlanScope ? [...implementationPlanScope] : [],
+           buildHandoff: Boolean(!streamIsGreetingTurn && approvedImplementationPlan && effectiveBuildPlanMessageId),
+          onExecutionNodes: publishExecutionNodes,
+          signal: activeExecutionAbortController.signal,
+          turnIntent: streamTurnIntent,
+          allowAnalysisTools: Boolean(streamModelHasTools && analysisToolRunner),
+          analysisToolRunner,
+          analysisCorrelation,
+        },
+        { provider, apiKey },
+        onDelta,
+        { requireTools: streamModelHasTools, qualityProfile: streamTurnIntent.executionTaskType },
+        onStreamReset,
+        onStep,
+      );
+      result = chatOut.result;
+      endedBeforeEvidence =
+        streamTurnIntent.requiresEvidence &&
+        !activeExecutionAbortController.signal.aborted &&
+        endedBeforeFirstSourceRead(traceSteps);
+      // A required analysis/validation tool failure is a terminal operation
+      // failure, even when the agent returned a blocked-looking response.
+      // Do not let that response enter the normal successful assistant-message
+      // and completeAiExecution path: doing so makes a failed run look
+      // completed after a reconnect or dashboard reload.
+      const terminalToolFailure = [...traceSteps]
+        .reverse()
+        .find((step) => step.kind === "done" && step.stopReason === "tool_failure");
+      if (terminalToolFailure?.kind === "done") {
+        const failedToolResult = [...traceSteps]
+          .reverse()
+          .find((step) =>
+            step.kind === "tool_result" &&
+            (step.resultKind === "failed" || step.resultKind === "unavailable" || step.resultKind === "cancelled"),
+          );
+        const diagnosticCode =
+          failedToolResult?.kind === "tool_result" && failedToolResult.diagnosticCode
+            ? failedToolResult.diagnosticCode
+            : "TOOL_EXECUTION_FAILED";
+        const safeDiagnostic =
+          failedToolResult?.kind === "tool_result" && failedToolResult.resultSummary
+            ? failedToolResult.resultSummary
+            : "The required analysis did not complete; the operation is blocked.";
+        const interrupted = failedToolResult?.kind === "tool_result" && failedToolResult.resultKind === "cancelled";
+        sse({
+          type: "error",
+          code: diagnosticCode,
+          message: safeDiagnostic,
+          retryable: false,
+
+    const aiExecutionId = aiExecution.id;
+    let missionCorrelationReport: string | null;
+    try {
+      missionCorrelationReport = serializeMissionCorrelationReport(
+        (result as { missionCorrelationReport?: unknown }).missionCorrelationReport,
+      );
+    } catch (error) {
+      if (error instanceof MissionCorrelationReportValidationError) {
+        sse({
+          type: "error",
+          code: error.code,
+          message: error.message,
+          suggestedFix: "Retry the mission so the server can generate a supported report.",
+        });
+        res.end();
+        return;
+      }
+      throw error;
+    }
+    let assistantOperationId: string | undefined = aiExecution.operationId ?? effectiveBuildPlanMessageId;
+    const assistantMsg = await db.transaction(async (tx) => {
+      if (existingSession) {
+        await tx
+          .select({ id: aiChatSessionsTable.id })
+          .from(aiChatSessionsTable)
+          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+          .for("update");
+      }
+      if (!existingSession) {
+        const [created] = await tx
+          .insert(aiChatSessionsTable)
+          .values({
+            id: sessionIdToUse,
+            projectId,
+            // AI-TASK-001: persist task linkage so re-opened sessions remain task-aware.
+            linkedTaskId: effectiveLinkedTaskId ?? null,
+            activeTaskState,
+            // BUG-5 fix: don't use a bare greeting as the session title.
+            // "مرحبا", "Hello", "Hi" etc. give no context in the sessions list.
+            // Use the first 60 chars only when the opener is substantive.
+            title: (() => {
+              const trimmed = message.trim();
+              const isGreeting = /^(مرحبا|مرحبً?ا|أهلاً?|سلام|هلا|hi|hello|hey|greetings|سلاماً?|صباح الخير|مساء الخير|good (morning|afternoon|evening))[\s!.،,]*$/i.test(trimmed);
+              return (!isGreeting && trimmed.length > 10)
+                ? trimmed.slice(0, 60)
+                : `Session ${now.toISOString().slice(0, 16).replace("T", " ")}`;
+            })(),
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning();
+        if (!created) {
+          throw new Error("Failed to create chat session");
+        }
+      }
+      // A resumed execution already owns its original user turn. Only a new
+      // execution appends a user message; otherwise reconnecting duplicates
+      // the prompt in conversation history.
+      if (!effectiveExecutionId) {
+        await tx.insert(aiChatMessagesTable).values({
+          id: randomUUID(),
+          sessionId: sessionIdToUse,
+          role: "user",
+          content: message,
+          turnIntent: streamTurnIntent.kind,
+          executionId: aiExecutionId,
+          outcome: "SUCCEEDED",
+          createdAt: now,
+        });
+      }
+      const [msg] = await tx
+        .insert(aiChatMessagesTable)
+        .values({
+          id: randomUUID(),
+          sessionId: sessionIdToUse,
+          role: "assistant",
+          content: sanitizeResponseText(result.response),
+          turnIntent: streamTurnIntent.kind,
+          executionId: aiExecutionId,
+          outcome: "SUCCEEDED",
+          sources: JSON.stringify(redactUserFacingValue(result.sources)),
+          toolTrace: serializeToolTrace(traceSteps, true, streamAuditScopeDescription),
+          repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
+          behaviorEvidence: serializeBehaviorEvidence(result.behaviorEvidence),
+          missionCorrelationReport,
+          taskResult: serializeTaskResult(result.taskResult),
+          createdAt: msgNow,
+        })
+        .returning();
+      if (proposalId || result.repairPlan || result.taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT") {
+        const proposalMessageId = effectiveBuildPlanMessageId ?? msg.id;
+        const operationId = assistantOperationId ?? proposalMessageId;
+        assistantOperationId = operationId;
+        if (proposalId) {
+        await tx.insert(aiChangeProposalsTable).values({
+          id: proposalId,
+          projectId,
+          sessionId: sessionIdToUse,
+          messageId: proposalMessageId,
+          changes: serializeServerPendingChanges(proposalChanges),
+          status: "pending",
+          createdAt: msgNow,
+        });
+        await tx
+          .update(aiExecutionsTable)
+          .update(aiExecutionsTable)
+          .set({ proposalId, updatedAt: msgNow })
+          .where(eq(aiExecutionsTable.id, aiExecutionId));
+        }
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "AiPlanCreated",
+          projectId,
+          severity: "info",
+          message: "AI implementation plan created and is awaiting approval",
+          correlationId: operationId,
+          payload: {
+            messageId: proposalMessageId,
+            operationId,
+            proposalId: proposalId ?? null,
+            buildPlanMessageId: effectiveBuildPlanMessageId ?? null,
+          },
+        });
+      }
+      await tx
+        .update(aiChatSessionsTable)
+        .set({
+          // The session row lock serializes concurrent completions, but the
+          // older turn may acquire it after the newer turn. Compare against
+          // the state-owned progress timestamp, not only the session
+          // timestamp, so a late completion cannot resurrect stale evidence
+          // or an older execution plan.
+          activeTaskState: sql`CASE
+            WHEN CAST(${activeTaskState} AS text) IS NULL THEN NULL
+            WHEN ${aiChatSessionsTable.activeTaskState} IS NULL THEN ${activeTaskState}
+            WHEN COALESCE(
+              NULLIF(${aiChatSessionsTable.activeTaskState}::jsonb->>'lastProgressAt', '')::timestamptz,
+              ${aiChatSessionsTable.updatedAt}
+            ) <= ${msgNow} THEN ${activeTaskState}
+            ELSE ${aiChatSessionsTable.activeTaskState}
+          END`,
+          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+        })
+        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+      return msg;
+    });
+
+    persistExecutionCheckpoint({
+      stage: "finalizing",
+      streamedPreview: streamedContent.slice(-AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT),
+      recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+    });
+    await checkpointChain;
+    const finalValidation = [...traceSteps]
+      .reverse()
+      .find((step) => step.kind === "validation");
+    if (finalValidation?.kind === "validation") {
+      if (finalValidation.status === "passed") {
+        executionEvidenceVerdict = isProvenValidation(finalValidation.result)
+          && !proposalId
+          ? "PROVEN"
+          : "PARTIAL";
+        executionEvidenceReason = executionEvidenceVerdict === "PROVEN"
+          ? "Registered validation passed with retained evidence bound to this execution."
+          : "Validation passed, but required server-owned objective or delivery proof has not been recorded.";
+      } else if (finalValidation.status === "unavailable") {
+        executionEvidenceVerdict = "UNAVAILABLE";
+        executionEvidenceReason = finalValidation.detail ?? "Validation could not be executed.";
+      } else if (finalValidation.status === "failed" || finalValidation.status === "blocked") {
+        executionEvidenceVerdict = "BLOCKED";
+        executionEvidenceReason = finalValidation.detail ?? "Validation ended with an unresolved failure.";
+      }
+    }
+    if (checkpointFailure) {
+      throw new Error("AI execution checkpoint persistence failed before finalization");
+    }
+    if (endedBeforeEvidence) {
+      await failAiExecution({
+        executionId: aiExecution.id,
+        workerId: executionWorkerId!,
+        error: "Execution stopped before the first source read.",
+        cancelled: false,
+        nodeStates: executionNodeStates,
+      });
+    } else {
+      const completed = await completeAiExecution({
+        executionId: aiExecution.id,
+        workerId: executionWorkerId!,
+        finalMessageId: assistantMsg.id,
+        proposalId,
+        nodeStates: executionNodeStates,
+        evidenceVerdict: executionEvidenceVerdict,
+        evidenceReason: executionEvidenceReason,
+        proofRequired,
+        evidenceRefs: finalValidation?.kind === "validation"
+          ? [finalValidation.result.evidence.artifactRef]
+                type: object
+                required: [id, status, flightState, evidenceVerdict, proofRequired, checkpoint, checkpointVersion, resumable]
+                properties:
+                  id: { type: string, description: UUID of the AI execution }
+                  projectId: { type: string }
+                  sessionId: { type: string, description: UUID of the chat session }
+                  objective:
+                    type: object
+                    nullable: true
+                    additionalProperties: true
+                    description: Server-retained objective contract used to scope this execution
+                  linkedTaskId: { type: string, nullable: true }
+                  buildPlanMessageId: { type: string, nullable: true }
+                  attempt: { type: integer, description: Current bounded execution attempt }
+                  projectRevision:
+                    type: string
+                    nullable: true
+                    description: Workspace revision captured when this execution began
+                  status:
+                    type: string
+                    enum: [queued, running, paused, cancelling, cancelled, completed, failed]
+                  flightState:
+                    type: string
+                    enum: [BUILDING, VALIDATING, REPAIRING, READY_FOR_REVIEW, BLOCKED, APPLIED, COMMITTED, PUSHED, CANCELLED, COMPLETED]
+                    description: Unified server-derived Code Flight Deck lifecycle state
+                  evidenceVerdict:
+                    type: string
+                    enum: [PROVEN, PARTIAL, UNAVAILABLE, BLOCKED, NOT_RECORDED]
+                    description: Evidence confidence for the durable execution; absence of proof never implies success
+                  proofRequired:
+                    type: boolean
+                    description: Whether this execution is a Code Flight Deck operation that requires accepted engineering evidence
+                  evidenceReason:
+                    type: string
+                    nullable: true
+                    description: Bounded explanation for the current evidence verdict
+                  terminalReason:
+                    type: string
+                    nullable: true
+                    description: Safe reason explaining why the execution stopped or is blocked
+                  checkpoint: { type: object, additionalProperties: true }
+                  checkpointVersion: { type: integer }
+                  finalMessageId: { type: string, nullable: true }
+                  proposalId: { type: string, nullable: true }
+                  operationId: { type: string, nullable: true, description: Stable operation trace identity used by Apply, Commit, and Push }
+                  error: { type: string, nullable: true }
+                  resumable: { type: boolean }
+                  createdAt: { type: string, format: date-time }
+                  updatedAt: { type: string, format: date-time }
+                  startedAt: { type: string, format: date-time, nullable: true }
+                  completedAt: { type: string, format: date-time, nullable: true }
+        "404":
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/ai/executions/{executionId}/audit-export:
+    get:
+      operationId: exportAiExecutionAudit
+      summary: Preview or download a redacted durable AI execution audit
+      description: Returns the selected execution's portable timeline, terminal state, revision, proof verdict, validation checkpoints, and affected files. The same response can be previewed in the dashboard or downloaded. Provider secrets, raw model output, and private runtime paths are excluded.
+      tags: [AI]
+      parameters:
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+            description: UUID of the AI execution
+      responses:
+        "200":
+          description: Redacted execution audit JSON, suitable for preview or download
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [format, exportedAt, execution, operationEvidence, timeline, validations, affectedFiles, redaction]
+                properties:
+                  format: { type: string, example: engineeringos.execution-audit.v1 }
+                  exportedAt: { type: string, format: date-time }
+                  execution: { type: object, additionalProperties: true }
+                  operationEvidence:
+                    $ref: "#/components/schemas/OperationEvidenceProjection"
+                  timeline: { type: array, items: { type: object, additionalProperties: true } }
+                  validations: { type: array, items: { type: object, additionalProperties: true } }
+                  affectedFiles: { type: array, items: { type: string } }
+                  redaction:
+                    type: object
+                    required: [excluded]
+                    properties:
+                      excluded:
+                        type: array
+                        items: { type: string }
+                        example: [provider secrets, raw model output, private runtime paths]
+                    additionalProperties: false
+        "404":
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/ai/executions/{executionId}/resume-capability:
+    post:
+      operationId: recoverAiExecutionResumeCapability
+      summary: Rotate and return a one-time opaque resume capability
+      description: Owner-scoped recovery for paused or failed executions. The stored token hash and provider diagnostics are never returned.
+      tags: [AI]
+      parameters:
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+            description: UUID of the AI execution
+      responses:
+        "200":
+          description: Newly rotated resume capability
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [executionId, resumeToken]
+                properties:
+                  executionId: { type: string }
+                  resumeToken: { type: string, minLength: 32 }
+        "404":
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Execution is not paused or failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/ai/executions/{executionId}/cancel:
+    post:
+      operationId: cancelAiExecutionById
+      summary: Request cancellation of a durable AI execution
+      tags: [AI]
+      parameters:
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+            description: UUID of the AI execution
+      responses:
+        "200":
+          description: Cancellation requested
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status]
+                properties:
+                  id: { type: string, description: UUID of the AI execution }
+                  status: { type: string, enum: [cancelling, cancelled] }
+        "404":
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /api/ai/benchmark/scorecard:
+    get:
+      operationId: getAiBenchmarkScorecard
+      summary: Get the bounded live Code Agent benchmark scorecard
+      tags: [AI]
+      responses:
+        "200":
+          description: Bounded benchmark metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiBenchmarkScorecard"
+        "404":
+          description: No live benchmark scorecard is available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: Benchmark scorecard is malformed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/ai/mission-control:
+    get:
+      operationId: getAiMissionControl
+      summary: Get the bounded AI execution ledger and benchmark posture
+      tags: [AI]
+      responses:
+        "200":
+          description: Mission Control execution and benchmark metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiMissionControl"
+        "500":
+          description: Mission Control data could not be read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /api/ai/chat/stream:

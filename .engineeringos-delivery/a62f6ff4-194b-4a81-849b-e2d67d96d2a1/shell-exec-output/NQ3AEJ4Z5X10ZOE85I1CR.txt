@@ -1,0 +1,188 @@
+
+Relevant scripts:
+{
+  "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+  "codegen": "pnpm --filter @workspace/api-spec run codegen",
+  "codegen:check": "pnpm --filter @workspace/scripts run check-codegen-drift",
+  "db:schema:check": "pnpm --filter @workspace/db run check-audit-schema",
+  "verify:benchmark-rollout": "node scripts/verify-benchmark-rollout.mjs",
+  "test:benchmark-rollout": "node --test scripts/verify-benchmark-rollout.test.mjs",
+  "test:mission-correlation-report": "node --test scripts/mission-correlation-report.test.mjs",
+  "test:dashboard-journey-contract": "node --test scripts/dashboard-journey-contract.test.mjs",
+  "test:release-port-cleanup": "node --test scripts/release-port-cleanup.test.mjs",
+  "test:dashboard-contract-trigger": "node --test scripts/dashboard-contract-trigger.test.mjs",
+  "validate:github-workflows": "pnpm --filter @workspace/scripts run validate-github-workflows",
+  "validate:app-origins": "NODE_ENV=production node scripts/validate-app-origins.mjs",
+  "validate:release": "pnpm run validate:app-origins && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+  "validate:release:controlled": "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
+  "validate:ai-release": "pnpm --filter @workspace/api-server run validate:ai-release",
+  "validate:dashboard-journey": "RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs",
+  "validate:live-empty-model-response": "pnpm --filter @workspace/api-server run test:live-empty-model-response",
+  "deployment:post-build": "pnpm run db:schema:check && pnpm run test:benchmark-rollout && pnpm run verify:benchmark-rollout && pnpm run validate:release && pnpm store prune",
+  "validate:dashboard-client-contract": "node scripts/validate-dashboard-client-contract.mjs",
+  "validate": "pnpm run validate:github-workflows && pnpm run validate:dashboard-client-contract && pnpm run typecheck && pnpm run validate:dashboard-restart",
+  "validate:dashboard-restart": "pnpm --filter @workspace/dashboard run smoke:restart",
+  "truth:validate": "pnpm --filter @workspace/scripts run validate-truth-flow",
+  "build": "pnpm run codegen && pnpm run typecheck && pnpm -r --if-present run build",
+  "typecheck:libs": "tsc --build",
+  "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
+  "test": "pnpm -r --if-present run test"
+}
+
+Task references:
+package.json
+18:    "validate:release": "pnpm run validate:app-origins && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+20:    "validate:ai-release": "pnpm --filter @workspace/api-server run validate:ai-release",
+
+artifacts/api-server/src/lib/ai-release-quality-gate.ts
+32:  kind: "ai-release-quality-decision";
+66:    id: "openapi-client-parity",
+70:    coverage: ["OpenAPI/client parity", "Zod 3 generated-schema compatibility"],
+73:    id: "truth-flow-parity",
+82:    command: "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-route-parity.test.ts src/routes/ai.test.ts",
+87:    id: "ai-sse-and-redaction",
+91:    coverage: ["SSE contract", "redaction", "stale revision", "resume"],
+157:    kind: "ai-release-quality-decision",
+238:      path.join(workspaceRoot, "lib/ai-orchestrator/benchmark-results/ai-release-quality-decision.json"),
+
+artifacts/api-server/src/routes/ai-route-parity.test.ts
+2: * PR-06 — Route parity enforcement
+110:describe("AI route / OpenAPI spec parity (PR-06)", () => {
+
+artifacts/api-server/src/routes/ai-stream-integration.test.ts
+2: * INT-005 / INT-006 / INT-007 — SSE Stream Integration Tests
+6: *   INT-006  Error path    : provider failover surfaces a structured SSE error event
+16: *   • Supertest collects the complete SSE body after res.end(), which the route
+89:const recoveryTeardownFixtures: RecoveryTeardownFixture[] = [];
+180:  const redactText = (value: string) => value
+184:  const redactValue = (value: unknown): unknown => {
+185:    if (typeof value === "string") return redactText(value);
+186:    if (Array.isArray(value)) return value.map(redactValue);
+188:      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactValue(item)]));
+193:  redactUserFacingText: redactText,
+194:  redactUserFacingValue: redactValue,
+283:          "SSE integration fixture exhausted its injected validation results. "
+385:  const recoveryFixtures = recoveryTeardownFixtures.splice(0);
+408:  for (const fixture of recoveryFixtures) {
+517:describe("AI execution resume-capability recovery", () => {
+619:        const rootPath = await fs.mkdtemp("/tmp/stream-real-process-recovery-");
+621:        const relativePath = "src/process-recovery.ts";
+628:        const recoveryFixture: RecoveryTeardownFixture = { projectId, rootPath, childPids: [] };
+629:        recoveryTeardownFixtures.push(recoveryFixture);
+635:          title: "Process recovery forensic audit",
+673:        if (server.pid !== undefined) recoveryFixture.childPids.push(server.pid);
+681:            message: "forensic audit of src/process-recovery.ts",
+682:            modelMessage: "forensic audit of src/process-recovery.ts",
+698:            message: "forensic audit of src/process-recovery.ts",
+729:        if (server.pid !== undefined) recoveryFixture.childPids.push(server.pid);
+738:            message: "forensic audit of src/process-recovery.ts",
+1954:// ─── SSE helpers ─────────────────────────────────────────────────────────────
+1958:/** Parse a raw SSE response body into an array of JSON event objects. */
+1975:  it("preserves the Arabic report, structured evidence, verdict, and redacted trace after reload", async () => {
+2426:  it("keeps interleaved SSE deltas, evidence, executions, and done messages request-owned", async () => {
+2503:// ─── INT-005: SSE success path ────────────────────────────────────────────────
+2505:describe("INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE", () => {
+2506:  it("should stream successful OpenRouter completion over SSE", async () => {
+2515:    // SSE routes always respond with 200 — errors are surfaced as SSE events
+2558:  it("persists an Arabic behavioral answer with accepted evidence through SSE", async () => {
+2640:  it("keeps a completed read out of accepted sources when SSE has insufficient behavioral evidence", async () => {
+2797:  it("completes the Arabic behavior journey through session, API, SSE, and history endpoints", async () => {
+2846:    // callbacks deterministic while retaining the route, DB, and SSE layers.
+2962:  it("persists and restores the resumable task contract for an SSE continuation", async () => {
+3357:  it("keeps execution trace separate from the persisted SSE report content", async () => {
+3595:  it("hides provider and recovery diagnostic details from evidence-required SSE", async () => {
+3644:          kind: "recovery_model_call",
+3645:          model: "recovery-provider-model",
+3646:          provider: "recovery-provider",
+3653:            "provider recovery-provider returned an unusable response",
+3654:            "recovery attempt 2 failed with provider timeout",
+3702:      "provider recovery-provider returned an unusable response",
+3703:      "recovery attempt 2 failed with provider timeout",
+3709:        kind: "recovery_model_call",
+3710:        model: "recovery-provider-model",
+3711:        provider: "recovery-provider",
+3717:          "provider recovery-provider returned an unusable response",
+3718:          "recovery attempt 2 failed with provider timeout",
+3724:  it("keeps a streamed forensic cancellation incomplete after recovery retains partial evidence", async () => {
+3745:      "ANALYSIS_INCOMPLETE — no verified defect was established because the audit was cancelled during recovery.",
+3747:    const recoveryStarted = new Promise<void>((resolve, reject) => {
+3758:          reject(new Error("SSE cancellation fixture could not find its running execution."));
+3789:        onStep?.({ kind: "forensic_recovery_start", attempt: 1 });
+3791:          kind: "recovery_model_call",
+3792:          model: "recovery-provider-model",
+3793:          provider: "recovery-provider",
+3796:        await recoveryStarted;
+3808:            "AbortError: recovery provider request was cancelled",
+3809:            "provider recovery-provider diagnostic: cancellation requested by user",
+3861:    expect(res.text).not.toContain("recovery-provider diagnostic");
+3864:    expect(publicToolTrace).not.toContain("recovery-provider diagnostic");
+4137:  it("should reject execution without a session before opening an SSE/model turn", async () => {
+4170:// ─── INT-006: SSE error path (provider failover / empty chain) ────────────────
+4172:describe("INT-006 — POST /api/ai/chat/stream: provider failover surfaced cleanly through SSE", () => {
+4283:          "SSE failover fixture exhausted: expected only the initial fallback and one resumed read-only turn.",
+4348:  it("should surface provider failover cleanly through the SSE stream", async () => {
+4370:    // Route responds with 200 regardless — errors surface in the SSE body
+4385:    // No unhandled exception or stack trace leaked into the SSE body
+4431:  it("should respond with 400 before opening SSE stream when request body is invalid", async () => {
+4432:    // Validation errors return JSON 400, not SSE — the stream is never opened
+4534:  // opening any SSE/model turn. Without this, a real /api/ai/chat/stream request
+4560:  it("returns 400 before opening the SSE stream when the objective body is invalid", async () => {
+
+artifacts/api-server/src/routes/ai.test.ts
+90:      redacted: true,
+110:        redacted: true,
+130:      redacted: true,
+167:      redacted: true,
+211:      redacted: true,
+471:  const fileName = `recovery-${operationId.slice(0, 8)}.ts`;
+481:    const sourceRoot = `/tmp/recovery-source-${operationId}`;
+861:    // Task #22 proved the SSE done event and GET /messages carry behaviorEvidence
+865:    // without breaking the in-app SSE path, and only a non-streaming test catches
+1737:    // live SSE path does — dropping this parse leaves the panel empty on reload.
+1825:      redacted: true,
+2449:describe("delivery recovery routes", () => {
+2469:      recoveryState: "recoverable",
+2471:      nextAction: "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.",
+2480:  it("explains missing and already-discarded recovery states without exposing paths", async () => {
+2499:      recoveryState: "missing_workspace",
+2500:      operatorExplanation: "The saved delivery workspace is no longer available, so recovery cannot continue.",
+2501:      nextAction: "Start a new delivery from the current project rather than retrying this recovery.",
+2505:      recoveryState: "discarded",
+2512:  it("returns the safe not-found contract for deleted recovery links", async () => {
+2516:      conflictReason: "Internal diagnostic: recovery stopped at /tmp/private-recovery-root.",
+2546:  it("enforces project ownership for recovery listing and actions", async () => {
+
+lib/api-spec/openapi.yaml
+1560:      summary: Preview or download a redacted durable AI execution audit
+1581:                required: [format, exportedAt, execution, operationEvidence, timeline, validations, affectedFiles, redaction]
+1591:                  redaction:
+1610:      description: Owner-scoped recovery for paused or failed executions. The stored token hash and provider diagnostics are never returned.
+1718:      summary: Send a message to the AI assistant (SSE streaming)
+1722:        by Orval — SSE responses cannot be represented in standard OpenAPI.
+1728:        surface without first confirming Orval supports SSE. See PR-06.
+1730:        Event shapes — each SSE frame is `data: <JSON>\n\n`:
+1746:             the conversation content. An SSE disconnect is not cancellation; use the
+1784:             "recoveryStarted": false,
+1865:             "recoveryAttempt": 0, "recoveryFailureKind"?: "...",
+1887:               — Bounded execution/recovery metadata; details are optional,
+1928:            "synthesisStarted": true, "recoveryStarted": false,
+1940:      # PR-02: SSE endpoint is authenticated — Clerk session required.
+1946:      # only sanctioned consumer. Any new SSE consumers must use that hook.
+1957:          description: SSE stream of typed progress, validation, done, and error events
+2332:        Handwritten SSE variant of the structured scan-analysis endpoint.
+2353:          description: Structured scan-analysis SSE stream
+2364:        Handwritten SSE variant of the structured code-review endpoint.
+2390:          description: Structured code-review SSE stream
+3088:        repair loop, API trace/SSE, and dashboard. Evidence metadata identifies
+3190:        Bounded, redacted acceptance outcomes for isolated campaign operations.
+3199:          required: [provider, browser, deployment, remoteDelivery, isolated, redacted]
+3206:            redacted: { type: boolean }
+3224:            recoveryRate: { type: number }
+3428:      required: [version, redacted, operationId, projectId, revision, terminalState,
+3432:        redacted: { type: boolean, enum: [true] }
+3669:          description: Audit rows currently awaiting durable recovery.
+3971:          description: Combined stdout/stderr from git, with any embedded credentials redacted
+4006:          description: Combined stdout/stderr from git push, with any embedded credentials redacted
+4082:        - redacted
+4099:        redacted:
+4189:          description: Versioned, redacted correlation report retained with a historical mission message

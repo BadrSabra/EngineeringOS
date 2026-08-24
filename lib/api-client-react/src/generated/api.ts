@@ -100,6 +100,8 @@ import type {
   ListGraphRelationshipsParams,
   ListMetricsParams,
   ListProjectsParams,
+  ListRecoverableAiDeliveries200,
+  ListRecoverableAiDeliveriesParams,
   ListRulesParams,
   ListTasksParams,
   ListWorkflowsParams,
@@ -112,6 +114,7 @@ import type {
   ProviderKeyStatus,
   RecoverAiExecutionResumeCapability200,
   RegenerateMissionCorrelationReport200,
+  ResumeAiDeliveryValidation200,
   RollbackWorkflowPhaseInput,
   Rule,
   RuleEvaluationResult,
@@ -5095,6 +5098,232 @@ export function useGetAiMissionControl<TData = Awaited<ReturnType<typeof getAiMi
 
 
 
+
+export const getListRecoverableAiDeliveriesUrl = (params: ListRecoverableAiDeliveriesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ai/delivery/recoverable?${stringifiedParams}` : `/api/ai/delivery/recoverable`
+}
+
+/**
+ * @summary List owner-scoped delivery recoveries
+ */
+export const listRecoverableAiDeliveries = async (params: ListRecoverableAiDeliveriesParams, options?: RequestInit): Promise<ListRecoverableAiDeliveries200> => {
+
+  return customFetch<ListRecoverableAiDeliveries200>(getListRecoverableAiDeliveriesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListRecoverableAiDeliveriesQueryKey = (params?: ListRecoverableAiDeliveriesParams,) => {
+    return [
+    `/api/ai/delivery/recoverable`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListRecoverableAiDeliveriesQueryOptions = <TData = Awaited<ReturnType<typeof listRecoverableAiDeliveries>>, TError = ErrorType<ApiError>>(params: ListRecoverableAiDeliveriesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listRecoverableAiDeliveries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListRecoverableAiDeliveriesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listRecoverableAiDeliveries>>> = ({ signal }) => listRecoverableAiDeliveries(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listRecoverableAiDeliveries>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListRecoverableAiDeliveriesQueryResult = NonNullable<Awaited<ReturnType<typeof listRecoverableAiDeliveries>>>
+export type ListRecoverableAiDeliveriesQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary List owner-scoped delivery recoveries
+ */
+
+export function useListRecoverableAiDeliveries<TData = Awaited<ReturnType<typeof listRecoverableAiDeliveries>>, TError = ErrorType<ApiError>>(
+ params: ListRecoverableAiDeliveriesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listRecoverableAiDeliveries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListRecoverableAiDeliveriesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getResumeAiDeliveryValidationUrl = (proposalId: string,) => {
+
+
+
+
+  return `/api/ai/delivery/${proposalId}/resume-validation`
+}
+
+/**
+ * @summary Resume validation for a saved delivery recovery
+ */
+export const resumeAiDeliveryValidation = async (proposalId: string, options?: RequestInit): Promise<ResumeAiDeliveryValidation200> => {
+
+  return customFetch<ResumeAiDeliveryValidation200>(getResumeAiDeliveryValidationUrl(proposalId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getResumeAiDeliveryValidationMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resumeAiDeliveryValidation>>, TError,{proposalId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resumeAiDeliveryValidation>>, TError,{proposalId: string}, TContext> => {
+
+const mutationKey = ['resumeAiDeliveryValidation'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resumeAiDeliveryValidation>>, {proposalId: string}> = (props) => {
+          const {proposalId} = props ?? {};
+
+          return  resumeAiDeliveryValidation(proposalId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResumeAiDeliveryValidationMutationResult = NonNullable<Awaited<ReturnType<typeof resumeAiDeliveryValidation>>>
+
+    export type ResumeAiDeliveryValidationMutationError = ErrorType<ApiError>
+
+    /**
+ * @summary Resume validation for a saved delivery recovery
+ */
+export const useResumeAiDeliveryValidation = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resumeAiDeliveryValidation>>, TError,{proposalId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resumeAiDeliveryValidation>>,
+        TError,
+        {proposalId: string},
+        TContext
+      > => {
+      return useMutation(getResumeAiDeliveryValidationMutationOptions(options));
+    }
+
+export const getDiscardAiDeliveryRecoveryUrl = (proposalId: string,) => {
+
+
+
+
+  return `/api/ai/delivery/${proposalId}/discard`
+}
+
+/**
+ * @summary Discard a saved delivery recovery
+ */
+export const discardAiDeliveryRecovery = async (proposalId: string, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDiscardAiDeliveryRecoveryUrl(proposalId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getDiscardAiDeliveryRecoveryMutationOptions = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof discardAiDeliveryRecovery>>, TError,{proposalId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof discardAiDeliveryRecovery>>, TError,{proposalId: string}, TContext> => {
+
+const mutationKey = ['discardAiDeliveryRecovery'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof discardAiDeliveryRecovery>>, {proposalId: string}> = (props) => {
+          const {proposalId} = props ?? {};
+
+          return  discardAiDeliveryRecovery(proposalId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DiscardAiDeliveryRecoveryMutationResult = NonNullable<Awaited<ReturnType<typeof discardAiDeliveryRecovery>>>
+
+    export type DiscardAiDeliveryRecoveryMutationError = ErrorType<ApiError>
+
+    /**
+ * @summary Discard a saved delivery recovery
+ */
+export const useDiscardAiDeliveryRecovery = <TError = ErrorType<ApiError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof discardAiDeliveryRecovery>>, TError,{proposalId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof discardAiDeliveryRecovery>>,
+        TError,
+        {proposalId: string},
+        TContext
+      > => {
+      return useMutation(getDiscardAiDeliveryRecoveryMutationOptions(options));
+    }
 
 export const getAiChatStreamUrl = () => {
 

@@ -1,0 +1,998 @@
+      "id": 89,
+      "method": "POST",
+      "url": "/api/ai/delivery/53ecd57e-9344-4b12-a1a5-ebfc709e9bf8/discard"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 20
+[17:41:09.351] INFO (19492): request completed
+    req: {
+      "id": 92,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 400
+    }
+    responseTime: 2
+[17:41:09.364] INFO (19492): request completed
+    req: {
+      "id": 93,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 400
+    }
+    responseTime: 2
+[17:41:14.334] INFO (19492): request completed
+    req: {
+      "id": 94,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 207
+    }
+    responseTime: 4952
+[17:41:19.147] INFO (19492): request completed
+    req: {
+      "id": 95,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 207
+    }
+    responseTime: 4763
+[17:41:23.836] INFO (19492): request completed
+    req: {
+      "id": 96,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 207
+    }
+    responseTime: 4626
+[17:41:29.959] INFO (19492): request completed
+    req: {
+      "id": 97,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 207
+    }
+    responseTime: 6074
+[17:41:35.912] INFO (19492): request completed
+    req: {
+      "id": 98,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 207
+    }
+    responseTime: 5894
+[17:41:40.364] INFO (19492): request completed
+    req: {
+      "id": 99,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 207
+    }
+    responseTime: 4404
+[17:41:45.816] INFO (19492): request completed
+    req: {
+      "id": 100,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 207
+    }
+    responseTime: 5412
+[17:41:50.920] INFO (19492): request completed
+    req: {
+      "id": 101,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 207
+    }
+    responseTime: 5055
+[17:41:56.070] INFO (19492): request completed
+    req: {
+      "id": 102,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 207
+    }
+    responseTime: 5101
+[17:42:01.048] INFO (19492): request completed
+    req: {
+      "id": 103,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 4931
+[17:42:01.097] INFO (19492): request completed
+    req: {
+      "id": 104,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 3
+[17:42:01.135] INFO (19492): request completed
+    req: {
+      "id": 105,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 4
+[17:42:01.166] INFO (19492): request completed
+    req: {
+      "id": 106,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 3
+[17:42:01.203] INFO (19492): request completed
+    req: {
+      "id": 107,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 5
+[17:42:01.247] INFO (19492): request completed
+    req: {
+      "id": 108,
+      "method": "POST",
+      "url": "/api/ai/chat/rebase-changes"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 11
+[17:42:01.257] INFO (19492): request completed
+    req: {
+      "id": 109,
+      "method": "POST",
+      "url": "/api/ai/chat/apply-changes"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 5
+[17:42:01.272] INFO (19492): request completed
+    req: {
+      "id": 110,
+      "method": "POST",
+      "url": "/api/ai/chat/proposals/1f4d5ecf-7bed-4835-9d14-2825a8635037/approve"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 11
+[17:42:01.308] INFO (19492): request completed
+    req: {
+      "id": 111,
+      "method": "POST",
+      "url": "/api/ai/chat/rebase-changes"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 4
+[17:42:01.331] INFO (19492): request completed
+    req: {
+      "id": 112,
+      "method": "POST",
+      "url": "/api/ai/tasks/f6bc20b9-ac15-4336-8270-2dbbc912c3d3/execute"
+    }
+    res: {
+      "statusCode": 404
+    }
+    responseTime: 3
+[17:42:01.343] INFO (19492): request completed
+    req: {
+      "id": 113,
+      "method": "POST",
+      "url": "/api/ai/tasks/39a8a449-7b0d-4f47-8484-ec5d44f912e5/execute"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 3
+[17:42:01.365] INFO (19492): request completed
+    req: {
+      "id": 114,
+      "method": "POST",
+      "url": "/api/ai/tasks/b6eb194a-fa6b-4d5a-af10-21439e30a623/execute"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 3
+[17:42:01.396] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:01.397] INFO (19492): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[17:42:01.434] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:01.445] INFO (19492): request completed
+    req: {
+      "id": 115,
+      "method": "POST",
+      "url": "/api/ai/tasks/00f0d394-8982-4aa1-9f32-3b358e14b082/execute"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 53
+[17:42:01.476] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:01.477] INFO (19492): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[17:42:01.661] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:01.670] INFO (19492): request completed
+    req: {
+      "id": 116,
+      "method": "POST",
+      "url": "/api/ai/tasks/ed9d48d2-d466-4810-9bc5-623d014b4804/execute"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 198
+[17:42:01.705] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:01.705] INFO (19492): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[17:42:01.738] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:01.748] INFO (19492): request completed
+    req: {
+      "id": 117,
+      "method": "POST",
+      "url": "/api/ai/tasks/ff07b85b-32f2-430e-84b8-ff7ea05b764c/execute"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 50
+[17:42:01.787] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:01.787] INFO (19492): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[17:42:01.826] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:01.834] INFO (19492): request completed
+    req: {
+      "id": 118,
+      "method": "POST",
+      "url": "/api/ai/tasks/238796dd-8aaf-4c69-89ab-2b263950ae26/execute"
+    }
+    res: {
+      "statusCode": 202
+    }
+    responseTime: 53
+[17:42:01.869] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:01.869] INFO (19492): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[17:42:01.912] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:01.933] INFO (19492): request completed
+    req: {
+      "id": 119,
+      "method": "POST",
+      "url": "/api/ai/tasks/a9f339c9-8b94-40ff-8c65-24d34f618a87/execute"
+    }
+    res: {
+      "statusCode": 422
+    }
+    responseTime: 70
+[17:42:01.967] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:01.967] INFO (19492): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[17:42:02.018] INFO (19492): request errored
+    req: {
+      "id": 120,
+      "method": "POST",
+      "url": "/api/ai/tasks/a202e3ae-5ee2-4e2f-b98d-07b4eeceb3c5/execute"
+    }
+    res: {
+      "statusCode": 500
+    }
+    responseTime: 56
+    err: {
+      "type": "Error",
+      "message": "failed with status code 500",
+      "stack":
+          Error: failed with status code 500
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:536:35)
+              at onFinish (node:_http_outgoing:1031:10)
+              at callback (node:internal/streams/writable:766:21)
+              at afterWrite (node:internal/streams/writable:710:5)
+              at afterWriteTick (node:internal/streams/writable:696:10)
+              at processTicksAndRejections (node:internal/process/task_queues:81:21)
+    }
+[17:42:02.053] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:02.053] INFO (19492): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[17:42:02.083] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:02.083] WARN (19492): provider failed — trying next in chain
+    provider: "openrouter"
+    code: "SERVER_ERROR"
+    message: "provider request req-raw-task-123 failed at /srv/app/task.ts"
+[17:42:02.083] INFO (19492): primary provider error; retrying agent with fallback provider
+    primary: "openrouter"
+    fallback: "groq"
+    errorCode: "SERVER_ERROR"
+[17:42:02.083] WARN (19492): provider failed — trying next in chain
+    provider: "groq"
+    code: "SERVER_ERROR"
+    message: "provider request req-raw-task-123 failed at /srv/app/task.ts"
+[17:42:02.104] ERROR (19492): AI orchestrator request failed
+    projectId: "5e590798-aaba-4bfd-829d-1b5e7a2ba284"
+    operation: "task-execution"
+    provider: "openrouter"
+    err: {
+      "type": "GroqClientError",
+      "message": "provider request req-raw-task-123 failed at /srv/app/task.ts",
+      "stack":
+          GroqClientError: provider request req-raw-task-123 failed at /srv/app/task.ts
+              at /home/runner/workspace/artifacts/api-server/src/routes/ai.test.ts:3837:7
+              at processTicksAndRejections (node:internal/process/task_queues:95:5)
+              at file:///home/runner/workspace/node_modules/.pnpm/@vitest+runner@4.1.10/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+      "code": "SERVER_ERROR",
+      "name": "GroqClientError"
+    }
+[17:42:02.105] INFO (19492): request errored
+    req: {
+      "id": 121,
+      "method": "POST",
+      "url": "/api/ai/tasks/36f7ec45-b4c6-48d6-b011-fa81deb676e4/execute"
+    }
+    res: {
+      "statusCode": 502
+    }
+    responseTime: 58
+    err: {
+      "type": "Error",
+      "message": "failed with status code 502",
+      "stack":
+          Error: failed with status code 502
+              at onResFinished (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:115:39)
+              at ServerResponse.onResponseComplete (/home/runner/workspace/node_modules/.pnpm/pino-http@10.5.0/node_modules/pino-http/logger.js:178:14)
+              at ServerResponse.emit (node:events:536:35)
+              at onFinish (node:_http_outgoing:1031:10)
+              at callback (node:internal/streams/writable:766:21)
+              at afterWrite (node:internal/streams/writable:710:5)
+              at afterWriteTick (node:internal/streams/writable:696:10)
+              at processTicksAndRejections (node:internal/process/task_queues:81:21)
+    }
+[17:42:02.151] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:02.151] INFO (19492): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[17:42:02.191] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:02.211] WARN (19492): AI auto-trigger: lifecycle failed
+    taskId: "530cf46e-42b1-4bcc-ae34-e7d712ce9032"
+    executionId: "50dd9302-be05-4f45-95f5-3674e5620373"
+    code: "task_execution_failed"
+[17:42:02.258] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:02.258] INFO (19492): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[17:42:02.295] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:02.313] WARN (19492): AI auto-trigger: lifecycle failed
+    taskId: "97b102b6-4c26-42c5-a6ed-c8eb1941ef9d"
+    executionId: "d03c61c7-8ae0-4c31-94a3-d22f330870e9"
+    code: "model_output_invalid"
+[17:42:02.373] INFO (19492): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: []
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+[17:42:02.373] INFO (19492): no provider available
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: null
+    requireTools: false
+    qualityProfile: "task_execution"
+[17:42:02.374] INFO (19492): request completed
+    req: {
+      "id": 122,
+      "method": "POST",
+      "url": "/api/ai/tasks/6efc5e4c-b633-493c-b035-7a6ce2032738/execute"
+    }
+    res: {
+      "statusCode": 428
+    }
+    responseTime: 6
+[17:42:02.404] INFO (19492): provider selection complete (quality-ordered)
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: false
+    available: [
+      "openrouter",
+      "groq"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      }
+    ]
+    finalOrder: [
+      "openrouter",
+      "groq"
+    ]
+[17:42:02.404] INFO (19492): resolved primary provider: openrouter
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: "openrouter"
+    requireTools: false
+    qualityProfile: "task_execution"
+[17:42:02.431] INFO (19492): request completed
+    req: {
+      "id": 123,
+      "method": "POST",
+      "url": "/api/ai/tasks/55106fe6-0c5d-4696-a7a2-d21d0449464f/execute"
+    }
+    res: {
+      "statusCode": 409
+    }
+    responseTime: 33
+···························-·············x········x······x······················
+[17:42:02.451] INFO (19492): Skipping provider that cannot satisfy the current request
+    provider: "gemini"
+    requireTools: true
+    reason: "no_tool_support"
+[17:42:02.452] INFO (19492): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: null
+    requireTools: true
+    available: []
+    skipped: [
+      {
+        "provider": "openrouter",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "gemini",
+        "reason": "no_tool_support"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+[17:42:02.452] INFO (19492): no provider available
+    scope: "provider-selection"
+    action: "resolve_provider"
+    selected: null
+    requireTools: true
+    qualityProfile: null
+······································································································
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > Plan-to-push agent cycle > proves Plan -> Approve -> Build -> Diff -> Apply -> Commit -> Push
+AssertionError: expected 400 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 400
+
+ ❯ src/routes/ai-stream-integration.test.ts:1906:27
+    1904|         .post(`/api/projects/${projectId}/git/push`)
+    1905|         .send({ proposalId, operationId });
+    1906|       expect(push.status).toBe(200);
+       |                           ^
+    1907|       expect(push.body).toMatchObject({
+    1908|         ok: true,
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > persists and restores the resumable task contract for an SSE continuation
+AssertionError: expected [ { requireTools: false, …(1) }, …(2) ] to deeply equal [ { requireTools: true, …(1) }, …(2) ]
+
+- Expected
++ Received
+
+@@ -1,13 +1,13 @@
+  [
+    {
+      "qualityProfile": "analysis",
+-     "requireTools": true,
++     "requireTools": false,
+    },
+    {
+      "qualityProfile": "analysis",
+-     "requireTools": true,
++     "requireTools": false,
+    },
+    {
+      "qualityProfile": "chat",
+      "requireTools": false,
+    },
+
+ ❯ src/routes/ai-stream-integration.test.ts:3113:84
+    3111|     });
+    3112|
+    3113|     expect(vi.mocked(requireProvider).mock.calls.slice(-3).map((call) …
+       |                                                                                    ^
+    3114|       { requireTools: true, qualityProfile: "analysis" },
+    3115|       { requireTools: true, qualityProfile: "analysis" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  src/routes/ai-stream-integration.test.ts > INT-005 — POST /api/ai/chat/stream: successful OpenRouter completion over SSE > keeps a streamed forensic cancellation incomplete after recovery retains partial evidence
+Error: aborted
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  3 failed | 178 passed | 1 skipped (182)
+   Start at  17:40:32
+   Duration  90.24s (transform 4.77s, setup 0ms, import 10.44s, tests 79.29s, environment 0ms)
+
+/home/runner/workspace/artifacts/api-server:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: vitest run src/routes/ai.test.ts src/routes/ai-stream-integration.test.ts src/routes/ai/chat-sse.test.ts --reporter=dot

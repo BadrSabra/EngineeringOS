@@ -1712,6 +1712,85 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiError"
 
+  /api/ai/delivery/recoverable:
+    get:
+      operationId: listRecoverableAiDeliveries
+      summary: List owner-scoped delivery recoveries
+      tags: [AI]
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Bounded recovery summaries without workspace contents
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [operations]
+                properties:
+                  operations:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+        "404":
+          description: Project not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /api/ai/delivery/{proposalId}/resume-validation:
+    post:
+      operationId: resumeAiDeliveryValidation
+      summary: Resume validation for a saved delivery recovery
+      tags: [AI]
+      parameters:
+        - name: proposalId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Validation resumed or already complete
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+        "404":
+          description: Delivery operation not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "409":
+          description: Delivery cannot be recovered
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
+  /api/ai/delivery/{proposalId}/discard:
+    post:
+      operationId: discardAiDeliveryRecovery
+      summary: Discard a saved delivery recovery
+      tags: [AI]
+      parameters:
+        - name: proposalId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: Recovery discarded
+        "404":
+          description: Delivery operation not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "409":
+          description: Delivery cannot be discarded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+
   /api/ai/chat/stream:
     post:
       operationId: aiChatStream

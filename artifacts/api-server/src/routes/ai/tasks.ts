@@ -69,18 +69,54 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
     });
   }
 
-  const lifecycle = await executeTaskLifecycle({
-    taskId,
-    userId: req.userId,
-    provider: { provider, apiKey },
-    trigger: "manual",
-    expectedStatuses: [task.status as "pending" | "queued" | "verifying"],
-    workspaceRevision: ownerProject.updatedAt?.toISOString(),
-  });
+  let lifecycle: Awaited<ReturnType<typeof executeTaskLifecycle>>;
+  try {
+    lifecycle = await executeTaskLifecycle({
+      taskId,
+      userId: req.userId,
+      provider: { provider, apiKey },
+      trigger: "manual",
+      expectedStatuses: [task.status as "pending" | "queued" | "verifying"],
+      workspaceRevision: ownerProject.updatedAt?.toISOString(),
+    });
+  } catch (error) {
+    const [currentTask] = await db
+      .select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId))
+      .limit(1);
+    if (
+      currentTask?.status !== task.status ||
+      (error instanceof Error && /state changed|concurrent|claim/i.test(error.message))
+    ) {
+      return res.status(409).json({
+        error: "task_state_changed_concurrently",
+        code: "TASK_STATE_CHANGED_CONCURRENTLY",
+        hint: "The task changed while this execution was finishing; refresh the task before retrying.",
+      });
+    }
+    throw error;
+  }
   if (lifecycle.status === "conflict") {
-    return res.status(409).json({ error: "task_state_changed_concurrently" });
+    return res.status(409).json({
+      error: "task_state_changed_concurrently",
+      code: "TASK_STATE_CHANGED_CONCURRENTLY",
+      hint: "The task changed while this execution was starting; refresh the task and retry if needed.",
+    });
   }
   if (!lifecycle.ok) {
+    const [currentTask] = await db
+      .select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId))
+      .limit(1);
+    if (currentTask?.status !== task.status) {
+      return res.status(409).json({
+        error: "task_state_changed_concurrently",
+        code: "TASK_STATE_CHANGED_CONCURRENTLY",
+        hint: "The task changed while this execution was finishing; refresh the task before retrying.",
+      });
+    }
     if (lifecycle.errorCode === "model_output_invalid") {
       return res.status(422).json({
         error: "model_output_invalid",
