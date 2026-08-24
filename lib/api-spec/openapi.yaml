@@ -1578,11 +1578,13 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [format, exportedAt, execution, timeline, validations, affectedFiles, redaction]
+                required: [format, exportedAt, execution, operationEvidence, timeline, validations, affectedFiles, redaction]
                 properties:
                   format: { type: string, example: engineeringos.execution-audit.v1 }
                   exportedAt: { type: string, format: date-time }
                   execution: { type: object, additionalProperties: true }
+                  operationEvidence:
+                    $ref: "#/components/schemas/OperationEvidenceProjection"
                   timeline: { type: array, items: { type: object, additionalProperties: true } }
                   validations: { type: array, items: { type: object, additionalProperties: true } }
                   affectedFiles: { type: array, items: { type: string } }
@@ -3345,7 +3347,8 @@ components:
       required:
         [id, projectId, state, executionStatus, objective, attempts,
          validationFailures, evidence, checkpointVersion, eventCount,
-         completedNodes, totalNodes, recentEvents, createdAt, updatedAt]
+         completedNodes, totalNodes, recentEvents, operationId, revision,
+         evidenceProjection, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -3379,6 +3382,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AiMissionControlRecorderEvent"
+        operationId:
+          type: string
+        revision:
+          type: ["string", "null"]
+        evidenceProjection:
+          $ref: "#/components/schemas/OperationEvidenceProjection"
         createdAt:
           type: string
           format: date-time
@@ -3412,6 +3421,55 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AiMissionControlExecution"
+
+    OperationEvidenceProjection:
+      type: object
+      additionalProperties: false
+      required: [version, redacted, operationId, projectId, revision, terminalState,
+                completeness, verified, hashes, counts, receipts, gaps]
+      properties:
+        version: { type: integer, enum: [1] }
+        redacted: { type: boolean, enum: [true] }
+        operationId: { type: string }
+        projectId: { type: string }
+        revision: { type: ["string", "null"] }
+        terminalState: { type: string }
+        completeness:
+          type: string
+          enum: [complete, partial, retained-with-gaps, blocked, failed, cancelled, uncertain]
+        verified: { type: boolean, enum: [false] }
+        hashes:
+          type: object
+          additionalProperties: false
+          required: [changeSet, committed]
+          properties:
+            changeSet: { type: ["string", "null"] }
+            committed: { type: ["string", "null"] }
+        counts:
+          type: object
+          additionalProperties: false
+          required: [executions, checkpoints, events, audit, taskLogs, journal, receipts]
+          properties:
+            executions: { type: integer }
+            checkpoints: { type: integer }
+            events: { type: integer }
+            audit: { type: integer }
+            taskLogs: { type: integer }
+            journal: { type: integer }
+            receipts: { type: integer }
+        receipts:
+          type: array
+          items: { type: object, additionalProperties: true }
+        gaps:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [kind, source, detail]
+            properties:
+              kind: { type: string, enum: [missing, expired, inaccessible, mismatch, unrecorded] }
+              source: { type: string, enum: [execution, checkpoint, event, audit, task-log, journal, proposal, revision] }
+              detail: { type: string }
 
     AiPlanDecisionRequest:
       type: object

@@ -5,6 +5,7 @@ import { desc, eq } from "drizzle-orm";
 import { db, aiExecutionsTable } from "@workspace/db";
 import { deriveFlightDeckState } from "@workspace/ai-orchestrator";
 import type { AutonomousDeliveryAcceptanceSummary } from "@workspace/ai-orchestrator";
+import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
 
 const router = Router();
 
@@ -281,7 +282,10 @@ function projectRecorderEvent(step: Record<string, unknown>): Record<string, unk
   };
 }
 
-function projectExecution(execution: typeof aiExecutionsTable.$inferSelect) {
+function projectExecution(
+  execution: typeof aiExecutionsTable.$inferSelect,
+  operationEvidence?: ReturnType<typeof redactOperationEvidence>,
+) {
   const checkpoint = parseRecord(execution.checkpoint);
   const request = parseRecord(execution.request);
   const steps = Array.isArray(checkpoint.recentSteps)
@@ -347,6 +351,9 @@ function projectExecution(execution: typeof aiExecutionsTable.$inferSelect) {
     completedNodes,
     totalNodes: nodes.length,
     recentEvents: steps.slice(-12).map(projectRecorderEvent),
+    operationId: execution.operationId ?? execution.correlationId ?? execution.id,
+    revision: operationEvidence?.revision ?? null,
+    evidenceProjection: operationEvidence ? redactOperationEvidence(operationEvidence) : undefined,
     createdAt: execution.createdAt,
     updatedAt: execution.updatedAt,
     startedAt: execution.startedAt,
@@ -511,7 +518,9 @@ router.get("/ai/mission-control", async (req, res) => {
       benchmark: scorecard || baseline || freeTierEnvelope
         ? { scorecard, baseline, freeTierEnvelope, autonomousDeliveryAcceptance }
         : null,
-      executions: executions.map(projectExecution),
+      executions: await Promise.all(executions.map(async (execution) => (
+        projectExecution(execution, await loadOperationEvidence(execution))
+      ))),
     });
   } catch (error) {
     req.log?.error?.({ error }, "mission control read failed");

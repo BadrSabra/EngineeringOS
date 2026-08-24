@@ -48,6 +48,9 @@ type MissionExecution = {
   failureCategory?: unknown;
   recoveryAction?: unknown;
   evidenceStatus?: unknown;
+  operationId?: unknown;
+  revision?: unknown;
+  evidenceProjection?: unknown;
 };
 
 type MetricEntry = {
@@ -201,7 +204,9 @@ function ComparisonRunColumn({
   }
 
   const evidence = asRecord(execution.evidence);
-  const evidenceStatus = recoveryDetail(execution, 'evidenceStatus') ?? textValue(evidence?.verdict);
+  const evidenceStatus = textValue(asRecord(execution.evidenceProjection)?.completeness)
+    ?? recoveryDetail(execution, 'evidenceStatus')
+    ?? textValue(evidence?.verdict);
   const failureCategory = recoveryDetail(execution, 'failureCategory');
   const recoveryAction = recoveryDetail(execution, 'recoveryAction');
   const events = Array.isArray(execution.recentEvents) ? execution.recentEvents : [];
@@ -215,6 +220,7 @@ function ComparisonRunColumn({
     ['Event count', String(eventCount)],
     ['Failure category', failureCategory ?? 'Not categorized'],
     ['Recovery action', recoveryAction ?? 'No recovery action'],
+    ['Evidence completeness', evidenceStatus ?? 'Not recorded'],
   ];
 
   return (
@@ -909,7 +915,9 @@ export default function MissionControl() {
               const eventCount = numberValue(execution.eventCount) ?? (Array.isArray(execution.recentEvents) ? execution.recentEvents.length : 0);
                const failureCategory = recoveryDetail(execution, 'failureCategory');
                const recoveryAction = recoveryDetail(execution, 'recoveryAction');
-               const evidenceStatus = recoveryDetail(execution, 'evidenceStatus') ?? textValue(evidence?.verdict);
+               const evidenceStatus = textValue(asRecord(execution.evidenceProjection)?.completeness)
+                 ?? recoveryDetail(execution, 'evidenceStatus')
+                 ?? textValue(evidence?.verdict);
               return (
                 <button
                   type="button"

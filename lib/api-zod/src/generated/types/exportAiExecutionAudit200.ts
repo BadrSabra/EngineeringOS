@@ -9,11 +9,13 @@ import type { ExportAiExecutionAudit200Execution } from './exportAiExecutionAudi
 import type { ExportAiExecutionAudit200Redaction } from './exportAiExecutionAudit200Redaction';
 import type { ExportAiExecutionAudit200TimelineItem } from './exportAiExecutionAudit200TimelineItem';
 import type { ExportAiExecutionAudit200ValidationsItem } from './exportAiExecutionAudit200ValidationsItem';
+import type { OperationEvidenceProjection } from './operationEvidenceProjection';
 
 export type ExportAiExecutionAudit200 = {
   format: string;
   exportedAt: Date;
   execution: ExportAiExecutionAudit200Execution;
+  operationEvidence: OperationEvidenceProjection;
   timeline: ExportAiExecutionAudit200TimelineItem[];
   validations: ExportAiExecutionAudit200ValidationsItem[];
   affectedFiles: string[];

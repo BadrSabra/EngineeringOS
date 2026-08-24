@@ -254,6 +254,92 @@ export interface AiMissionControlRecorderEvent {
   detail?: string;
 }
 
+export type OperationEvidenceProjectionVersion = typeof OperationEvidenceProjectionVersion[keyof typeof OperationEvidenceProjectionVersion];
+
+
+export const OperationEvidenceProjectionVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type OperationEvidenceProjectionCompleteness = typeof OperationEvidenceProjectionCompleteness[keyof typeof OperationEvidenceProjectionCompleteness];
+
+
+export const OperationEvidenceProjectionCompleteness = {
+  complete: 'complete',
+  partial: 'partial',
+  'retained-with-gaps': 'retained-with-gaps',
+  blocked: 'blocked',
+  failed: 'failed',
+  cancelled: 'cancelled',
+  uncertain: 'uncertain',
+} as const;
+
+export type OperationEvidenceProjectionGapsItemKind = typeof OperationEvidenceProjectionGapsItemKind[keyof typeof OperationEvidenceProjectionGapsItemKind];
+
+
+export const OperationEvidenceProjectionGapsItemKind = {
+  missing: 'missing',
+  expired: 'expired',
+  inaccessible: 'inaccessible',
+  mismatch: 'mismatch',
+  unrecorded: 'unrecorded',
+} as const;
+
+export type OperationEvidenceProjectionGapsItemSource = typeof OperationEvidenceProjectionGapsItemSource[keyof typeof OperationEvidenceProjectionGapsItemSource];
+
+
+export const OperationEvidenceProjectionGapsItemSource = {
+  execution: 'execution',
+  checkpoint: 'checkpoint',
+  event: 'event',
+  audit: 'audit',
+  'task-log': 'task-log',
+  journal: 'journal',
+  proposal: 'proposal',
+  revision: 'revision',
+} as const;
+
+export type OperationEvidenceProjectionHashes = {
+  /** @nullable */
+  changeSet: string | null;
+  /** @nullable */
+  committed: string | null;
+};
+
+export type OperationEvidenceProjectionCounts = {
+  executions: number;
+  checkpoints: number;
+  events: number;
+  audit: number;
+  taskLogs: number;
+  journal: number;
+  receipts: number;
+};
+
+export type OperationEvidenceProjectionReceiptsItem = { [key: string]: unknown };
+
+export type OperationEvidenceProjectionGapsItem = {
+  kind: OperationEvidenceProjectionGapsItemKind;
+  source: OperationEvidenceProjectionGapsItemSource;
+  detail: string;
+};
+
+export interface OperationEvidenceProjection {
+  version: OperationEvidenceProjectionVersion;
+  redacted: true;
+  operationId: string;
+  projectId: string;
+  /** @nullable */
+  revision: string | null;
+  terminalState: string;
+  completeness: OperationEvidenceProjectionCompleteness;
+  verified: false;
+  hashes: OperationEvidenceProjectionHashes;
+  counts: OperationEvidenceProjectionCounts;
+  receipts: OperationEvidenceProjectionReceiptsItem[];
+  gaps: OperationEvidenceProjectionGapsItem[];
+}
+
 export interface AiMissionControlExecution {
   id: string;
   projectId: string;
@@ -272,6 +358,10 @@ export interface AiMissionControlExecution {
   completedNodes: number;
   totalNodes: number;
   recentEvents: AiMissionControlRecorderEvent[];
+  operationId: string;
+  /** @nullable */
+  revision: string | null;
+  evidenceProjection: OperationEvidenceProjection;
   createdAt: string;
   updatedAt: string;
   /** @nullable */
@@ -2746,6 +2836,7 @@ export type ExportAiExecutionAudit200 = {
   format: string;
   exportedAt: string;
   execution: ExportAiExecutionAudit200Execution;
+  operationEvidence: OperationEvidenceProjection;
   timeline: ExportAiExecutionAudit200TimelineItem[];
   validations: ExportAiExecutionAudit200ValidationsItem[];
   affectedFiles: string[];

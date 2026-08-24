@@ -7,6 +7,7 @@
  */
 import type { AiMissionControlEvidence } from './aiMissionControlEvidence';
 import type { AiMissionControlRecorderEvent } from './aiMissionControlRecorderEvent';
+import type { OperationEvidenceProjection } from './operationEvidenceProjection';
 
 export interface AiMissionControlExecution {
   id: string;
@@ -26,6 +27,10 @@ export interface AiMissionControlExecution {
   completedNodes: number;
   totalNodes: number;
   recentEvents: AiMissionControlRecorderEvent[];
+  operationId: string;
+  /** @nullable */
+  revision: string | null;
+  evidenceProjection: OperationEvidenceProjection;
   createdAt: Date;
   updatedAt: Date;
   /** @nullable */

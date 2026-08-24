@@ -148,6 +148,7 @@ import {
   hashDeliveryWorkspace,
   atomicallyPromoteFile,
 } from "../../lib/delivery-workspace.js";
+import { loadOperationEvidence, redactOperationEvidence } from "../../lib/operation-evidence.js";
 
 const FLIGHT_DECK_EVIDENCE_VERDICTS = new Set<FlightDeckEvidenceVerdict>([
   "PROVEN",
@@ -4198,6 +4199,7 @@ router.get("/ai/executions/:executionId", async (req, res) => {
 router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
   const execution = await getAiExecutionForUser(req.params.executionId, req.userId);
   if (!execution) return res.status(404).json({ error: "AI execution not found" });
+  const operationEvidence = await loadOperationEvidence(execution);
 
   const parseRecord = (raw: string): Record<string, unknown> => {
     try {
@@ -4333,6 +4335,7 @@ router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
       completedAt: execution.completedAt,
       terminalReason: safeText(execution.error ?? checkpoint.detail, 500) ?? null,
     },
+    operationEvidence: redactOperationEvidence(operationEvidence),
     timeline,
     validations,
     affectedFiles,

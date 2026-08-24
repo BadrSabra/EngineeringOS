@@ -1,8 +1,0 @@
-data: {"type":"session_started","sessionId":"e2e-interrupted-resume-session"}
-
-data: {"type":"execution_started","executionId":"e2e-interrupted-resume-execution","status":"running","resumable":true,"resumeToken":"e2e-interrupted-initial-token"}
-
-data: {"type":"stage","stage":"calling-model"}
-
-data: {"type":"delta","delta":"The release execution started before the browser disconnected."}
-
