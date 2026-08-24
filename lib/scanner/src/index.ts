@@ -1,5 +1,5 @@
 export { walkProject } from "./file-walker.js";
-export type { ScannedFile, WalkResult } from "./file-walker.js";
+export type { ScannedFile, WalkResult, RevisionManifest, RevisionManifestFile } from "./file-walker.js";
 
 export { matchRule, matchRules, checkPatternInFiles } from "./rule-matcher.js";
 export type { RuleInput, RuleMatch, RuleMatchResult } from "./rule-matcher.js";

@@ -1,0 +1,239 @@
+artifacts/api-server/src/lib/scan-runner.ts
+9:  projectsTable,
+12:  metricsTable,
+14:  graphEntitiesTable,
+15:  graphRelationshipsTable,
+170:        .update(projectsTable)
+172:        .where(and(eq(projectsTable.id, projectId), eq(projectsTable.status, "scanning")));
+222:    db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
+361:        name: graphEntitiesTable.name,
+362:        type: graphEntitiesTable.type,
+363:        id: graphEntitiesTable.id,
+364:        path: graphEntitiesTable.path,
+366:      .from(graphEntitiesTable)
+367:      .where(eq(graphEntitiesTable.projectId, projectId));
+422:  await tx.delete(graphRelationshipsTable).where(
+423:    eq(graphRelationshipsTable.projectId, projectId),
+428:    await tx.delete(graphEntitiesTable).where(
+429:      inArray(graphEntitiesTable.id, staleEntityIds),
+466:    await tx.insert(graphEntitiesTable).values(entityRows);
+525:    await tx.insert(graphRelationshipsTable).values(relRows);
+529:    await tx.insert(metricsTable).values({
+551:      .update(projectsTable)
+558:      .where(and(eq(projectsTable.id, projectId), eq(projectsTable.status, "scanning")));
+
+lib/ai-orchestrator/src/index.ts
+21:  contextManifestMatches,
+22:  contextManifestAllowsExecution,
+
+lib/db/src/schema/browser_validation_profiles.ts
+2:import { projectsTable } from "./projects.js";
+7:  projectId: text("project_id").notNull().references(() => projectsTable.id, { onDelete: "cascade" }),
+
+lib/ai-orchestrator/src/context-manifest.ts
+23:export function contextManifestMatches(
+39:export function contextManifestAllowsExecution(manifest: ContextManifest | undefined): boolean {
+
+lib/db/src/schema/ai_executions.ts
+2:import { projectsTable } from "./projects.js";
+23:export const aiExecutionsTable = pgTable("ai_executions", {
+27:    .references(() => projectsTable.id, { onDelete: "cascade" }),
+76:export type InsertAiExecution = typeof aiExecutionsTable.$inferInsert;
+77:export type AiExecution = typeof aiExecutionsTable.$inferSelect;
+
+lib/ai-orchestrator/src/context-loader.ts
+3:  projectsTable,
+5:  metricsTable,
+6:  graphEntitiesTable,
+7:  graphRelationshipsTable,
+10:  scanJobsTable,
+45:  typeof scanJobsTable.$inferSelect,
+51:  typeof graphRelationshipsTable.$inferSelect,
+108:  contextManifest: import("./context-manifest.js").ContextManifest;
+172:    .from(projectsTable)
+173:    .where(eq(projectsTable.id, projectId))
+200:    .from(metricsTable)
+201:    .where(eq(metricsTable.projectId, projectId))
+202:    .orderBy(desc(metricsTable.timestamp))
+221:          .from(graphEntitiesTable)
+222:          .where(eq(graphEntitiesTable.projectId, projectId))
+223:          .orderBy(desc(graphEntitiesTable.confidence))
+229:            id: graphRelationshipsTable.id,
+230:            sourceId: graphRelationshipsTable.sourceId,
+231:            targetId: graphRelationshipsTable.targetId,
+232:            relation: graphRelationshipsTable.relation,
+233:            relationType: graphRelationshipsTable.relationType,
+234:            confidence: graphRelationshipsTable.confidence,
+235:            isHeuristic: graphRelationshipsTable.isHeuristic,
+237:          .from(graphRelationshipsTable)
+238:          .where(eq(graphRelationshipsTable.projectId, projectId))
+239:          .orderBy(desc(graphRelationshipsTable.confidence))
+282:      status: scanJobsTable.status,
+283:      error: scanJobsTable.error,
+284:      finishedAt: scanJobsTable.finishedAt,
+285:      result: scanJobsTable.result,
+287:    .from(scanJobsTable)
+288:    .where(eq(scanJobsTable.projectId, projectId))
+289:    .orderBy(desc(scanJobsTable.createdAt))
+386:      const contextManifest = {
+432:        contextManifest,
+
+lib/db/src/schema/ai_change_proposals.ts
+2:import { projectsTable } from "./projects.js";
+32:    .references(() => projectsTable.id, { onDelete: "cascade" }),
+
+lib/db/src/schema/workflows.ts
+10:import { projectsTable } from "./projects.js";
+30:    .references(() => projectsTable.id, { onDelete: "cascade" }),
+
+lib/ai-orchestrator/src/context-builder.ts
+179:    contextManifest: loaded.contextManifest,
+
+lib/db/src/schema/tasks.ts
+10:import { projectsTable } from "./projects.js";
+35:    .references(() => projectsTable.id, { onDelete: "cascade" }),
+
+lib/db/src/schema/scan_jobs.ts
+11:import { projectsTable } from "./projects.js";
+20:export const scanJobsTable = pgTable("scan_jobs", {
+24:    .references(() => projectsTable.id, { onDelete: "cascade" }),
+91:export type InsertScanJob = typeof scanJobsTable.$inferInsert;
+92:export type ScanJob = typeof scanJobsTable.$inferSelect;
+
+lib/db/src/schema/rules.ts
+11:import { projectsTable } from "./projects.js";
+23:  projectId: text("project_id").references(() => projectsTable.id, { onDelete: "set null" }),
+
+lib/db/src/schema/projects.ts
+10:export const projectsTable = pgTable("projects", {
+41:export type InsertProject = typeof projectsTable.$inferInsert;
+42:export type Project = typeof projectsTable.$inferSelect;
+
+lib/db/src/schema/metrics.ts
+10:import { projectsTable } from "./projects.js";
+38:export const metricsTable = pgTable("metrics", {
+42:    .references(() => projectsTable.id, { onDelete: "cascade" }),
+69:export type InsertMetric = typeof metricsTable.$inferInsert;
+70:export type MetricRecord = typeof metricsTable.$inferSelect;
+
+lib/db/src/schema/graph.ts
+14:import { projectsTable } from "./projects.js";
+15:import { scanJobsTable } from "./scan_jobs.js";
+129:export const graphEntitiesTable = pgTable(
+135:      .references(() => projectsTable.id, { onDelete: "cascade" }),
+137:    scanJobId: text("scan_job_id").references(() => scanJobsTable.id, {
+193:export const graphRelationshipsTable = pgTable(
+199:      .references(() => graphEntitiesTable.id, { onDelete: "cascade" }),
+202:      .references(() => graphEntitiesTable.id, { onDelete: "cascade" }),
+207:    projectId: text("project_id").references(() => projectsTable.id, {
+213:    scanJobId: text("scan_job_id").references(() => scanJobsTable.id, {
+288:export type InsertGraphEntity = typeof graphEntitiesTable.$inferInsert;
+289:export type GraphEntity = typeof graphEntitiesTable.$inferSelect;
+291:  typeof graphRelationshipsTable.$inferInsert;
+292:export type GraphRelationship = typeof graphRelationshipsTable.$inferSelect;
+
+lib/ai-orchestrator/src/context-builder.test.ts
+85:  projectsTable:            { _t: "projects" },
+87:  metricsTable:             { _t: "metrics" },
+88:  graphEntitiesTable:       { _t: "graphEntities" },
+89:  graphRelationshipsTable:  { _t: "graphRelationships" },
+92:  scanJobsTable:            { _t: "scanJobs" },
+102:  projectsTable,
+104:  metricsTable,
+105:  graphEntitiesTable,
+106:  graphRelationshipsTable,
+109:  scanJobsTable,
+177:    _tableData.set(projectsTable as object, [makeProject()]);
+179:    _tableData.set(metricsTable as object, [makeMetric()]);
+180:    _tableData.set(graphEntitiesTable as object, []);
+181:    _tableData.set(graphRelationshipsTable as object, []);
+184:    _tableData.set(scanJobsTable as object, [makeScanJob()]);
+216:    _tableData.set(scanJobsTable as object, [makeScanJob("completed")]);
+223:    _tableData.set(scanJobsTable as object, []);
+230:    _tableData.set(scanJobsTable as object, [makeScanJob("failed")]);
+244:    _tableData.set(metricsTable as object, []);   // no metrics row
+245:    _tableData.set(graphEntitiesTable as object, []);
+246:    _tableData.set(graphRelationshipsTable as object, []);
+249:    _tableData.set(scanJobsTable as object, []); // no scan job
+263:    _tableData.set(scanJobsTable as object, []); // no scan job at all
+271:    _tableData.set(projectsTable as object, []); // project not found
+277:    _tableData.set(graphEntitiesTable as object, [
+281:    _tableData.set(graphRelationshipsTable as object, [
+295:    _tableData.set(graphEntitiesTable as object, [
+313:    expect(_tableHits.get(projectsTable as object)).toBe(1);
+314:    expect(_tableHits.get(metricsTable as object)).toBe(1);
+315:    expect(_tableHits.get(scanJobsTable as object)).toBe(1);
+317:    expect(_tableHits.get(graphEntitiesTable as object) ?? 0).toBe(0);
+318:    expect(_tableHits.get(graphRelationshipsTable as object) ?? 0).toBe(0);
+329:    _tableData.set(projectsTable as object, [makeProject({ name: "MutatedProject" })]);
+340:    _tableData.set(projectsTable as object, [makeProject({ name: "PostScanProject" })]);
+358:    _tableData.set(projectsTable as object, [makeProject()]);
+365:    _tableData.set(projectsTable as object, [makeProject({ name: "UpdatedProject" })]);
+413:    _tableData.set(projectsTable as object, [makeProject({ name: "PostFailedNotify" })]);
+477:    _tableData.set(projectsTable as object, [makeProject()]);
+479:    _tableData.set(metricsTable as object, [makeMetric()]);
+480:    _tableData.set(graphEntitiesTable as object, []);
+481:    _tableData.set(graphRelationshipsTable as object, []);
+484:    _tableData.set(scanJobsTable as object, [makeScanJob()]);
+514:    _tableData.set(projectsTable as object, [makeProject({ name: "CrossProcessUpdate" })]);
+538:    _tableData.set(projectsTable as object, [makeProject({ name: "ShouldNotAppear" })]);
+
+lib/db/src/schema/events.ts
+2:import { projectsTable } from "./projects.js";
+18:    .references(() => projectsTable.id, { onDelete: "cascade" }),
+
+lib/db/src/schema/discovery.ts
+3:import { projectsTable } from "./projects.js";
+135:  importedProjectId: text("imported_project_id").references(() => projectsTable.id, {
+
+lib/ai-orchestrator/src/schemas/implementation-plan.schema.ts
+38:  contextManifest: ContextManifestSchema.optional(),
+
+lib/db/src/schema/audit_logs.ts
+10:import { projectsTable } from "./projects.js";
+61:  projectId: text("project_id").references(() => projectsTable.id, {
+
+lib/ai-orchestrator/src/schemas/context.schema.ts
+30:    contextManifest: ContextManifestSchema.optional(),
+
+lib/db/src/schema/ai_chats.ts
+2:import { projectsTable } from "./projects.js";
+15:    .references(() => projectsTable.id, { onDelete: "cascade" }),
+109:    .references(() => projectsTable.id, { onDelete: "cascade" }),
+
+lib/db/src/schema/ai_apply_journal.ts
+2:import { projectsTable } from "./projects.js";
+18:    .references(() => projectsTable.id, { onDelete: "cascade" }),
+
+lib/ai-orchestrator/src/agents/implementation-planner.ts
+95:    contextManifest: input.projectContext.contextManifest,
+113:  if (ungroundedPaths.length === 0) return { ...result, contextManifest: input.projectContext.contextManifest };
+
+lib/ai-orchestrator/src/__tests__/context-loader.test.ts
+47:  projectsTable: { _t: "projects" },
+49:  metricsTable: { _t: "metrics" },
+50:  graphEntitiesTable: { _t: "graphEntities" },
+51:  graphRelationshipsTable: { _t: "graphRelationships" },
+54:  scanJobsTable: { _t: "scanJobs" },
+62:  projectsTable,
+64:  metricsTable,
+65:  graphEntitiesTable,
+66:  graphRelationshipsTable,
+69:  scanJobsTable,
+215:    _tableData.set(projectsTable as object, [makeProject()]);
+222:    _tableData.set(projectsTable as object, []);
+227:    _tableData.set(projectsTable as object, [
+268:    _tableData.set(metricsTable as object, [makeMetric()]);
+275:    _tableData.set(metricsTable as object, []);
+281:    _tableData.set(metricsTable as object, [makeMetric()]);
+292:    _tableData.set(graphEntitiesTable as object, [makeEntity()]);
+293:    _tableData.set(graphRelationshipsTable as object, [makeRelationship()]);
+401:    _tableData.set(scanJobsTable as object, [makeScanJob("completed")]);
+408:    _tableData.set(scanJobsTable as object, []);
+414:    _tableData.set(scanJobsTable as object, [makeScanJob("failed")]);
+422:    _tableData.set(scanJobsTable as object, [makeScanJob("failed")]);
+428:    _tableData.set(scanJobsTable as object, [makeScanJob("queued")]);
+
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts
+101:      'import { graphEntitiesTable } from "@workspace/db";\nexport function getImpactedEntities() { return []; }\n',
+107:      '* Evidence: `import { graphEntitiesTable } from "@workspace/db";`',

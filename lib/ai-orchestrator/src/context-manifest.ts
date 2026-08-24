@@ -3,6 +3,26 @@ import { z } from "zod";
 export const ScanCompletenessSchema = z.enum(["COMPLETE", "PARTIAL", "UNAVAILABLE"]);
 export type ScanCompleteness = z.infer<typeof ScanCompletenessSchema>;
 
+const RevisionManifestFileSchema = z.object({
+  path: z.string().min(1),
+  size: z.number().int().nonnegative(),
+  contentHash: z.string().min(1),
+  oversized: z.boolean(),
+}).strict();
+
+export const RepositoryRevisionManifestSchema = z.object({
+  revision: z.string().min(1),
+  sourceRoot: z.string().min(1),
+  files: z.array(RevisionManifestFileSchema),
+  completeness: ScanCompletenessSchema,
+  derivedArtifacts: z.object({
+    scanner: ScanCompletenessSchema,
+    graph: ScanCompletenessSchema,
+    metrics: ScanCompletenessSchema,
+  }).strict().optional(),
+}).strict();
+export type RepositoryRevisionManifest = z.infer<typeof RepositoryRevisionManifestSchema>;
+
 export const ContextManifestSchema = z.object({
   projectId: z.string().min(1),
   projectRevision: z.string().min(1),
@@ -10,6 +30,7 @@ export const ContextManifestSchema = z.object({
   sourceProvenance: z.string().min(1),
   scanCorrelationId: z.string().min(1).optional(),
   scannerVersion: z.string().min(1).optional(),
+  repositoryManifest: RepositoryRevisionManifestSchema.optional(),
   capturedAt: z.string().datetime(),
 }).strict().transform((manifest) => {
   // Keep compatibility with older consumers that treated every context
@@ -32,7 +53,12 @@ export function contextManifestMatches(
     expected.scanCompleteness === actual.scanCompleteness &&
     expected.sourceProvenance === actual.sourceProvenance &&
     expected.scanCorrelationId === actual.scanCorrelationId &&
-    expected.scannerVersion === actual.scannerVersion,
+    expected.scannerVersion === actual.scannerVersion &&
+    (!expected.repositoryManifest || (
+      actual.repositoryManifest?.revision === expected.repositoryManifest.revision &&
+      actual.repositoryManifest.sourceRoot === expected.repositoryManifest.sourceRoot &&
+      actual.repositoryManifest.completeness === expected.repositoryManifest.completeness
+    )),
   );
 }
 

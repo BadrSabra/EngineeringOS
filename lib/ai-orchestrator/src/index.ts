@@ -17,11 +17,12 @@ export type {
 export { classifyReadStatus, EMPTY_SOURCE_RETRIEVAL_TELEMETRY, ReadStatusSchema } from "./tool-execution-engine.js";
 export {
   ContextManifestSchema,
+  RepositoryRevisionManifestSchema,
   ScanCompletenessSchema,
   contextManifestMatches,
   contextManifestAllowsExecution,
 } from "./context-manifest.js";
-export type { ContextManifest, ScanCompleteness } from "./context-manifest.js";
+export type { ContextManifest, ScanCompleteness, RepositoryRevisionManifest } from "./context-manifest.js";
 export { buildForensicEvidencePackets } from "./forensic-evidence-packets.js";
 export type { ForensicEvidencePacket } from "./forensic-evidence-packets.js";
 export { mergeForensicRecoveryEnvelopes } from "./forensic-recovery.js";

@@ -1,0 +1,278 @@
+import { pgEnum, pgTable, text, timestamp, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { projectsTable } from "./projects.js";
+import { aiChatMessagesTable, aiChatSessionsTable } from "./ai_chats.js";
+import { tasksTable } from "./tasks.js";
+
+export const aiExecutionStatusEnum = pgEnum("ai_execution_status", [
+  "queued",
+  "running",
+  "paused",
+  "cancelling",
+  "cancelled",
+  "completed",
+  "failed",
+]);
+
+/**
+ * Durable control-plane state for a long-running chat/tool execution.
+ *
+ * The model/provider call is still performed by the orchestrator, but the
+ * ownership, request binding, checkpoints, and terminal result identity live
+ * here so an SSE connection is only a subscriber and not the source of truth.
+ */
+export const aiExecutionsTable = pgTable("ai_executions", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projectsTable.id, { onDelete: "cascade" }),
+  /** Chat session for conversational runs; null for standalone task runs. */
+  sessionId: text("session_id")
+    .references(() => aiChatSessionsTable.id, { onDelete: "cascade" }),
+  /** Stable server-owned Plan → Build → Apply operation identity. */
+  operationId: text("operation_id"),
+  linkedTaskId: text("linked_task_id")
+    .references(() => tasksTable.id, { onDelete: "set null" }),
+  buildPlanMessageId: text("build_plan_message_id")
+    .references(() => aiChatMessagesTable.id, { onDelete: "set null" }),
+  /** Clerk user id; intentionally not a DB foreign key. */
+  userId: text("user_id").notNull(),
+  /** Client retry key. A retry with the same key must reuse this execution. */
+  idempotencyKey: text("idempotency_key").notNull(),
+  /** Operation trace identity shared with task logs/events/audit rows. */
+  correlationId: text("correlation_id"),
+  /** Monotonic task attempt number for retry/recovery reporting. */
+  attempt: integer("attempt").notNull().default(0),
+  /** SHA-256 of the opaque token returned once in execution_started. */
+  resumeTokenHash: text("resume_token_hash").notNull(),
+  /** Immutable, server-validated request envelope used for explicit resume. */
+  request: text("request").notNull(),
+  /** Bounded, content-minimized checkpoint/telemetry envelope. */
+  checkpoint: text("checkpoint").notNull().default("{}"),
+  checkpointVersion: integer("checkpoint_version").notNull().default(0),
+  status: aiExecutionStatusEnum("status").notNull().default("queued"),
+  workerId: text("worker_id"),
+  leaseUntil: timestamp("lease_until"),
+  lastHeartbeatAt: timestamp("last_heartbeat_at"),
+  cancelRequestedAt: timestamp("cancel_requested_at"),
+  error: text("error"),
+  finalMessageId: text("final_message_id"),
+  proposalId: text("proposal_id"),
+  /** Delivery workspace identity, when this execution can write files. */
+  workspaceRoot: text("workspace_root"),
+  baseRevision: text("base_revision"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+}, (t) => [
+  index("idx_ai_executions_project_status").on(t.projectId, t.status),
+  index("idx_ai_executions_session_status").on(t.sessionId, t.status),
+  index("idx_ai_executions_status_lease").on(t.status, t.leaseUntil),
+  index("idx_ai_executions_linked_task").on(t.linkedTaskId),
+  index("idx_ai_executions_correlation_id").on(t.correlationId),
+  uniqueIndex("uq_ai_executions_user_idempotency").on(t.userId, t.idempotencyKey),
+]);
+
+export type InsertAiExecution = typeof aiExecutionsTable.$inferInsert;
+export type AiExecution = typeof aiExecutionsTable.$inferSelect;import {
+  pgTable,
+  text,
+  timestamp,
+  jsonb,
+  pgEnum,
+  real,
+  boolean,
+  integer,
+  index,
+  check,
+} from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { projectsTable } from "./projects.js";
+import { scanJobsTable } from "./scan_jobs.js";
+
+export const entityTypeEnum = pgEnum("entity_type", [
+  "file",
+  "function",
+  "class",
+  "api",
+  "task",
+  "rule",
+  "phase",
+  "module",
+]);
+
+/**
+ * DB-12: Enum for the broad extraction category that produced a graph element.
+ * Using a DB enum rather than free text means new extractor types require an
+ * explicit schema change — preventing silent category drift.
+ *
+ * Valid values:
+ *   typescript-ast           — TypeScript compiler API (highest confidence)
+ *   python-ast               — Python AST subprocess
+ *   regex-fallback           — regex heuristic (lowest confidence)
+ *   manual                   — hand-authored or seeded entry
+ *   discovery-import         — imported via discovery pipeline
+ *   provenance-registry-import — imported via provenance registry
+ */
+export const graphSourceTypeEnum = pgEnum("graph_source_type", [
+  "typescript-ast",
+  "python-ast",
+  "regex-fallback",
+  "manual",
+  "discovery-import",
+  "provenance-registry-import",
+]);
+
+/**
+ * DB-12: Enum for typed relationship categories between graph entities.
+ * Matches GraphEdgeType in lib/scanner/src/graph-extractor.ts exactly —
+ * any new edge type must be added to both the TypeScript type and this enum.
+ */
+export const graphRelationTypeEnum = pgEnum("graph_relation_type", [
+  "imports",
+  "calls",
+  "extends",
+  "implements",
+  "uses",
+  "emits",
+  "observes",
+  "produces",
+  "depends_on",
+]);
+
+/**
+ * A single piece of evidence that justifies the existence of an entity or
+ * relationship. Knowledge Graph 2.0 makes every graph element traceable to
+ * its source — not just to the extractor, but to the specific file and line.
+ *
+ * Keep this in sync with `GraphEvidence` in lib/scanner/src/graph-extractor.ts.
+ */
+export type GraphEvidenceRecord = {
+  file: string;
+  line?: number;
+  column?: number;
+  snippet?: string;
+  kind:
+    | "import-statement"
+    | "call-site"
+    | "class-definition"
+    | "function-definition"
+    | "interface-definition"
+    | "jsdoc"
+    | "heuristic";
+};
+
+/**
+ * Unified provenance record stored on every graph entity and relationship.
+ * Covers both automated scanner extractors and manual/import paths so the
+ * same column shape is used regardless of how the row was produced.
+ *
+ * Field semantics:
+ *   sourceType  — broad extraction category (see graphSourceTypeEnum)
+ *   method      — the specific mechanism within that category:
+ *                 "ts-compiler-api" | "python-ast-subprocess" |
+ *                 "regex-heuristic" | "manual-import" |
+ *                 "api-route-detection" | "manual-seed"
+ *   extractedAt — ISO-8601 timestamp of when this element was produced
+ *   evidence    — ≥1 records linking to the exact source location
+ *                 (present for automated extractors; omitted for manual seeds)
+ *
+ * Backward-compat note: the former `extractor` field is replaced by
+ * `sourceType`. Any historical rows with `extractor` are read as opaque JSONB
+ * and are not rejected by the DB.
+ */
+export type GraphProvenance = {
+  sourceType: string;
+  method: string;
+/**
+ * Background scan jobs.
+ *
+ * Project scans (file walk + rule matching + graph extraction + metrics) are
+ * heavy and used to run fully inline inside the HTTP request, blocking the
+ * response until the whole project was processed. This table lets the scan
+ * route enqueue the work and return immediately; the actual computation runs
+ * out-of-band and reports its progress/result here.
+ */
+import { pgTable, text, timestamp, jsonb, integer, pgEnum, index } from "drizzle-orm/pg-core";
+import { projectsTable } from "./projects.js";
+
+export const scanJobStatusEnum = pgEnum("scan_job_status", [
+  "queued",
+  "running",
+  "completed",
+  "failed",
+]);
+
+export const scanJobsTable = pgTable("scan_jobs", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projectsTable.id, { onDelete: "cascade" }),
+  status: scanJobStatusEnum("status").notNull().default("queued"),
+  /** Populated once the job finishes successfully — same shape as the old synchronous ScanResult. */
+  result: jsonb("result").$type<Record<string, unknown>>(),
+  /** Populated if the job fails. */
+  error: text("error"),
+  /**
+   * PR-01: Number of times this job has been re-enqueued after a crash-restart
+   * interrupted it mid-execution. Incremented by job-reconciliation before
+   * re-enqueuing so the counter is accurate in the DB before the job runs.
+   */
+  retryCount: integer("retry_count").notNull().default(0),
+  /**
+   * PR-01: Maximum number of crash-restart retries allowed before the job is
+   * permanently marked failed. Default is 2 — a scan should succeed within
+   * three total attempts; more retries suggest a structural problem (OOM, bad
+   * rootPath) rather than a transient crash.
+   */
+  maxRetries: integer("max_retries").notNull().default(2),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  startedAt: timestamp("started_at"),
+  finishedAt: timestamp("finished_at"),
+  /**
+   * PR-01 (Durable Jobs): Worker ID that claimed and is executing this job.
+   * Set atomically on claim; cleared to NULL on completion or failure.
+   * Lets reconciliation distinguish "this instance owns the job" from
+   * "job was abandoned by a crashed worker".
+   */
+  workerId: text("worker_id"),
+  /**
+   * PR-01: Wall-clock deadline for the current worker's lease. The executing
+   * worker sends periodic heartbeats to extend this timestamp. If it falls
+   * behind now() the job is considered abandoned and eligible for recovery.
+   */
+  leaseUntil: timestamp("lease_until"),
+  /**
+   * PR-01: Timestamp of the most recent successful heartbeat from the worker.
+   * Useful for monitoring how stale a stuck job's last contact was.
+   */
+  lastHeartbeatAt: timestamp("last_heartbeat_at"),
+  /**
+   * PR-01: Stable idempotency key set at job creation. Allows deduplication
+   * at the DB level across recovery paths (defaults to the job's own ID).
+   */
+  idempotencyKey: text("idempotency_key"),
+}, (t) => [
+  index("idx_scan_jobs_project_id").on(t.projectId),
+  index("idx_scan_jobs_status").on(t.status),
+  /**
+   * DB-16: Covers failStaleRunningJobs (job-reconciliation.ts):
+   *   WHERE status = 'running' AND started_at < cutoff
+   * Without this, the sweep degrades to a full-table scan as the job table grows.
+   */
+  index("idx_scan_jobs_status_started_at").on(t.status, t.startedAt),
+  /**
+   * DB-16: Covers requeueStalePendingJobs (job-reconciliation.ts):
+   *   WHERE status = 'queued' AND created_at < cutoff
+   * Also covers startup reconciliation: WHERE status = 'queued' (leftmost-prefix scan).
+   */
+  index("idx_scan_jobs_status_created_at").on(t.status, t.createdAt),
+  /**
+   * PR-01: Covers lease-expiry detection in failStaleRunningJobs:
+   *   WHERE status = 'running' AND lease_until IS NOT NULL AND lease_until < NOW()
+   */
+  index("idx_scan_jobs_status_lease_until").on(t.status, t.leaseUntil),
+]);
+
+export type InsertScanJob = typeof scanJobsTable.$inferInsert;
+export type ScanJob = typeof scanJobsTable.$inferSelect;

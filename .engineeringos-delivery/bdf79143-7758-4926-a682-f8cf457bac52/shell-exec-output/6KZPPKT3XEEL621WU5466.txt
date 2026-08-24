@@ -1,0 +1,272 @@
+import { randomUUID } from "node:crypto";
+import { and, eq, inArray } from "drizzle-orm";
+import {
+  db,
+  aiExecutionsTable,
+  eventsTable,
+  taskLogsTable,
+  tasksTable,
+} from "@workspace/db";
+import {
+  buildProjectContext,
+  executeTask,
+  invalidateContextCache,
+  PROVIDER_REGISTRY,
+} from "@workspace/ai-orchestrator";
+import {
+  createAiExecution,
+  checkpointAiExecution,
+  claimAiExecution,
+  failAiExecution,
+  heartbeatAiExecution,
+  AI_EXECUTION_LEASE_MS,
+  registerAiExecutionController,
+  unregisterAiExecutionController,
+} from "./ai-execution-state.js";
+import { redactUserFacingText, runAgentWithFallback } from "./ai-route-helpers.js";
+import type { ProviderId } from "./ai-route-helpers.js";
+import { recordAudit, recordAuditInTransaction } from "./audit.js";
+import { logger } from "./logger.js";
+import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
+
+const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationships", "events"] as const;
+
+export type TaskExecutionTrigger = "manual" | "automatic" | "reconciliation";
+export type TaskExecutionOutcome = {
+  ok: boolean;
+  status: "completed" | "verifying" | "failed" | "conflict";
+  task?: typeof tasksTable.$inferSelect;
+  executionId?: string;
+  errorCode?: string;
+  parseCode?: string;
+  error?: unknown;
+};
+
+type Provider = { provider: ProviderId; apiKey: string };
+
+const RECEIPT_MAX_BYTES = 8_000;
+const RECEIPT_MAX_STAGES = 12;
+const RECEIPT_MAX_STEPS = 24;
+const RECEIPT_MAX_TEXT = 480;
+
+export type AiTaskExecutionReceipt = {
+  kind: "AI_TASK_EXECUTION_RECEIPT";
+  operationId: string;
+  correlationId: string;
+  revision: string | null;
+  provider: ProviderId;
+  model: string;
+  attempt: number;
+  attempts: number;
+  durationMs: number;
+  stages: string[];
+  terminalStatus: "SUCCEEDED" | "BLOCKED" | "FAILED" | "CANCELLED";
+  terminalReason: string;
+  summary?: string;
+  confidence?: string;
+  steps?: string[];
+  evidenceRefs: string[];
+};
+
+function safeText(value: unknown, max = RECEIPT_MAX_TEXT): string {
+  return redactUserFacingText(String(value ?? ""))
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
+}
+
+function boundedReceipt(receiptValue: AiTaskExecutionReceipt): AiTaskExecutionReceipt {
+  const bounded = {
+    ...receiptValue,
+    stages: receiptValue.stages.slice(0, RECEIPT_MAX_STAGES).map((stage) => safeText(stage, 80)),
+    evidenceRefs: receiptValue.evidenceRefs.slice(0, 8).map((ref) => safeText(ref, 120)),
+    ...(receiptValue.summary ? { summary: safeText(receiptValue.summary, 2_000) } : {}),
+    ...(receiptValue.steps ? { steps: receiptValue.steps.slice(0, RECEIPT_MAX_STEPS).map((step) => safeText(step)) } : {}),
+    terminalReason: safeText(receiptValue.terminalReason, 240),
+  };
+  // Keep this envelope bounded even if future fields are added to the contract.
+  const serialized = JSON.stringify(bounded);
+  return serialized.length <= RECEIPT_MAX_BYTES
+    ? bounded
+    : { ...bounded, summary: bounded.summary?.slice(0, 240), steps: bounded.steps?.slice(0, 8) };
+}
+
+export function buildAiTaskExecutionReceipt(params: {
+  executionId: string;
+  correlationId: string;
+  revision?: string;
+  provider: ProviderId;
+  attempt: number;
+  durationMs: number;
+  stages: string[];
+  attempts?: number;
+  result: Awaited<ReturnType<typeof executeTask>>;
+}): AiTaskExecutionReceipt {
+  return boundedReceipt({
+    kind: "AI_TASK_EXECUTION_RECEIPT",
+    operationId: params.executionId,
+    correlationId: params.correlationId,
+    revision: params.revision ?? null,
+    provider: params.provider,
+    model: PROVIDER_REGISTRY[params.provider]?.defaultModels.powerful ?? "provider-default",
+    attempt: params.attempt,
+    attempts: Math.max(1, Math.min(params.attempts ?? 1, 8)),
+    durationMs: Math.max(0, Math.min(Math.round(params.durationMs), 86_400_000)),
+    stages: params.stages,
+    terminalStatus: params.result.needsHumanReview ? "BLOCKED" : "SUCCEEDED",
+    terminalReason: params.result.needsHumanReview ? "human_review_required" : "structured_result_verified",
+    summary: params.result.summary,
+    confidence: safeText(params.result.confidence, 40),
+    steps: params.result.steps.map((step) => String(step)),
+    ? "CANCELLED"
+    : params.execution?.status === "failed" || target.outcome === "FAILED"
+      ? "FAILED"
+      : "COMPLETED";
+  const validationCount = traces.filter((entry) =>
+    entry && typeof entry === "object" && (
+      (entry as { kind?: unknown }).kind === "validation"
+      || (entry as { phase?: unknown }).phase === "validation"
+    ),
+  ).length + params.events.filter((event) => /validation/i.test(event.type)).length;
+  const counts = {
+    messages: params.messages.length,
+    sseEvents: Math.min(traces.length, REPORT_REGENERATION_MAX_EVENTS),
+    executionCheckpoints: params.execution
+      ? Math.min(1, Math.max(0, params.execution.checkpointVersion > 0 || Object.keys(checkpoint).length > 0 ? 1 : 0))
+      : 0,
+    evidence: evidenceCount + sourceCount,
+    proposals: params.proposals,
+    validation: validationCount,
+    correlatedEvents: params.events.length,
+  };
+  const agreement = {
+    execution: Boolean(params.execution),
+    messages: counts.messages > 0,
+    sse: counts.sseEvents > 0,
+    checkpoints: counts.executionCheckpoints > 0,
+    dashboard: true,
+    evidence: counts.evidence >= 0,
+    proposals: counts.proposals >= 0,
+    validation: counts.validation >= 0,
+  };
+  return {
+    kind: "mission-correlation-report" as const,
+    version: 1 as const,
+    redacted: true as const,
+    operationId,
+    projectId: params.projectId,
+    sessionId: params.sessionId,
+    generatedAt: new Date().toISOString(),
+    workspaceRevision: typeof request.workspaceRevision === "string"
+      ? request.workspaceRevision
+      : params.projectUpdatedAt.toISOString(),
+    terminalState,
+    outcomeClass: terminalState === "COMPLETED" ? "success" : "non-success",
+    counts,
+    agreement,
+  };
+}
+
+export class MissionCorrelationReportValidationError extends Error {
+  readonly code = "mission_correlation_report_invalid";
+
+  constructor() {
+    super("Mission correlation report does not match the supported versioned contract.");
+    this.name = "MissionCorrelationReportValidationError";
+  }
+}
+
+/**
+ * Validate before any historical report reaches the database. The generated
+ * response schema is deliberately the source of truth here; serialising its
+ * parsed value also removes fields that are not part of the public contract.
+ */
+export function serializeMissionCorrelationReport(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+
+  const parsed = StoredMissionCorrelationReportSchema.safeParse(value);
+  if (!parsed.success || parsed.data === null || parsed.data === undefined) {
+    throw new MissionCorrelationReportValidationError();
+  }
+  return JSON.stringify(projectMissionCorrelationReportForExport(parsed.data));
+}
+
+/**
+ * Build the public report projection used by JSON responses and historical
+ * audit exports. Keep the optional generatedAt field after schema parsing
+ * (Zod coerces it to Date in typed consumers), while applying the normal
+ * redaction boundary to identifiers and any provider-derived values.
+ */
+export function projectMissionCorrelationReportForExport(
+  value: unknown,
+): Record<string, unknown> {
+  const report = value as Record<string, unknown>;
+  const normalized = report.generatedAt instanceof Date
+    ? { ...report, generatedAt: report.generatedAt.toISOString() }
+    : report;
+  return redactUserFacingValue(normalized) as Record<string, unknown>;
+}
+
+// A turn is persisted only after its provider call completes, but history must
+// remain ordered by the time the user submitted each turn. Allocate a unique
+    if (planRow.session.projectId !== projectId) {
+      return res.status(403).json({ error: "Implementation plan does not belong to this project" });
+    }
+    if (planRow.session.id !== sessionId) {
+      return res.status(409).json({
+        error: "Build Mode must use the session that produced the approved plan",
+        code: "BUILD_SESSION_MISMATCH",
+      });
+    }
+
+    const storedPlan = parseTaskResult(planRow.message.taskResult);
+    if (!storedPlan || storedPlan.kind !== "IMPLEMENTATION_PLAN_RESULT") {
+      return res.status(400).json({ error: "The selected message is not an implementation plan", code: "PLAN_INVALID" });
+    }
+    if (storedPlan.approvalStatus !== "APPROVED" || storedPlan.writeAccess !== "APPROVED_FOR_BUILD") {
+      return res.status(409).json({
+        error: "Approve the implementation plan before starting Build Mode",
+        code: "PLAN_APPROVAL_REQUIRED",
+        approvalStatus: storedPlan.approvalStatus,
+      });
+    }
+    approvedImplementationPlan = storedPlan;
+    implementationPlanScope = getImplementationPlanScope(storedPlan, validRootPath);
+    if (implementationPlanScope.size === 0) {
+      return res.status(409).json({
+        error: "This implementation plan has no safe file scope and cannot enter Build Mode",
+        code: "PLAN_FILE_SCOPE_REQUIRED",
+      });
+    }
+    // Plans created before the context-manifest contract remain valid when
+    // their approved file scope is present; newer plans are checked against
+    // the immutable scan context before execution.
+    if (storedPlan.contextManifest) {
+      const contextFailure = await validatePlanContextForExecution(
+        storedPlan,
+        projectId,
+        validRootPath,
+      );
+      if (contextFailure) {
+        logger.warn({ projectId, code: contextFailure.code }, "Build handoff context blocked");
+        return res.status(409).json(contextFailure);
+      }
+    }
+    const browserProfileFailure = await validateBrowserProfileForDelivery(
+      projectId,
+      project.updatedAt.toISOString(),
+      storedPlan.browserValidationProfile,
+    );
+    if (browserProfileFailure) return res.status(409).json(browserProfileFailure);
+    approvedImplementationExecutionPlan = buildActiveTaskExecutionPlan({
+      implementationPlan: storedPlan,
+      objective,
+      projectId,
+      rootPath: validRootPath,
+    }) ?? undefined;
+    if (
+      !approvedImplementationExecutionPlan ||
+      approvedImplementationExecutionPlan.readiness !== "READY" ||
+      approvedImplementationExecutionPlan.nodes.length === 0
+    ) {
+      logger.warn({

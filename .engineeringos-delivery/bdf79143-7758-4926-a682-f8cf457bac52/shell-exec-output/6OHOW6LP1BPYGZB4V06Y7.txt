@@ -1,0 +1,345 @@
+        confidence: rel.confidence,
+        isHeuristic: rel.isHeuristic ?? false,
+        isRuntimeObserved: rel.isRuntimeObserved ?? false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        evidenceJson: evArr as any,
+        evidenceCount: evArr.length,
+        evidenceSummary:
+          evArr.length > 0
+            ? `${evArr.length} evidence item${evArr.length === 1 ? "" : "s"}`
+            : null,
+        semanticTags: rel.semanticTags,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        sourceType: rel.sourceType as any,
+        // ── Provenance (mergeResult() guarantees this is present) ────────
+        // GAP-2/GAP-3 fix: stamp every relationship with the scan session and extractor version.
+        provenance: rel.provenance
+          ? provenanceFromRelationship(rel.provenance, now, { scanSessionId: correlationId, extractorVersion: SCANNER_VERSION })
+          : manualProvenance(rel.sourceType ?? "typescript-ast", "ts-compiler-api", now, undefined, { scanSessionId: correlationId, extractorVersion: SCANNER_VERSION }),
+        metadata: {},
+        createdAt: now,
+      };
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null);
+
+  if (relRows.length > 0) {
+    await tx.insert(graphRelationshipsTable).values(relRows);
+  }
+
+    // ── 6. Insert metrics record ──────────────────────────────────────────
+    await tx.insert(metricsTable).values({
+      id: randomUUID(),
+      projectId,
+      timestamp: now,
+      overallScore: metrics.overallScore,
+      architectureScore: metrics.architectureScore,
+      securityScore: metrics.securityScore,
+      maintainabilityScore: metrics.maintainabilityScore,
+      reliabilityScore: metrics.reliabilityScore,
+      performanceScore: metrics.performanceScore,
+      structuralTestEstimate: metrics.structuralTestEstimate,
+      technicalDebt: metrics.technicalDebt,
+      lintIssues: metrics.lintIssues,
+      avgFileSizeKb: metrics.avgFileSizeKb,
+      codeToTestRatio: metrics.codeToTestRatio,
+      correlationId,
+    });
+
+    // ── 7. Update project quality score and restore status ─────────────────
+    // Guard with `status = "scanning"` so a concurrent newer job that owns
+    // the project is not overwritten if, somehow, two jobs run in overlap.
+    await tx
+      .update(projectsTable)
+      .set({
+        status: "active",
+        qualityScore: metrics.overallScore,
+        lastScanAt: now,
+        updatedAt: now,
+      })
+      .where(and(eq(projectsTable.id, projectId), eq(projectsTable.status, "scanning")));
+
+    // ── 8. Emit scan event ───────────────────────────────────────────────
+    const issuesDetected = ruleResults.reduce((s, r) => s + r.matchCount, 0);
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "ProjectScanned",
+      projectId,
+      severity: "success",
+      message: `Scan complete: ${walkResult.totalFiles} files, ${issuesDetected} issues detected`,
+      payload: {
+        filesFound: walkResult.totalFiles,
+        sourceFiles: walkResult.sourceFiles,
+        issuesDetected,
+        tasksCreated: newTaskIds.length,
+        rootExists: walkResult.rootExists,
+        entitiesExtracted: entitiesToInsert.length,
+        relationshipsExtracted: relRows.length,
+        qualityScore: metrics.overallScore,
+      },
+      correlationId,
+    });
+
+    checkCancelled();
+    return {
+      projectId,
+      scannedAt: now.toISOString(),
+      rootPath: walkResult.rootPath,
+      rootExists: walkResult.rootExists,
+      filesFound: walkResult.totalFiles,
+      sourceFiles: walkResult.sourceFiles,
+      issuesDetected,
+      tasksCreated: newTaskIds.length,
+      entitiesExtracted: entitiesToInsert.length,
+      relationshipsExtracted: relRows.length,
+      summary: `Scanned ${walkResult.totalFiles} files. Found ${issuesDetected} issues. Created ${newTaskIds.length} tasks. Quality score: ${metrics.overallScore}/100.`,
+      projectRevision: walkResult.revision,
+      scanCompleteness: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
+      sourceProvenance: "filesystem-scan",
+      scanCorrelationId: correlationId,
+      scannerVersion: SCANNER_VERSION,
+      _priorQualityScore: project[0].qualityScore ?? null,
+    };
+  }).then(async (result) => {
+    // Audit is intentionally recorded *after* the transaction commits and
+    // outside it (see audit.ts) — it reflects a state change that has
+    // already durably happened, and an audit-table outage must not roll
+    // back an otherwise-successful scan.
+    const { _priorQualityScore, ...scanResult } = result;
+    await recordAudit({
+      entityType: "project",
+      entityId: projectId,
+      action: "scanned",
+      projectId,
+      stateBefore: { qualityScore: _priorQualityScore },
+      stateAfter: { qualityScore: metrics.overallScore },
+      changedFields: {
+        filesFound: scanResult.filesFound,
+        tasksCreated: scanResult.tasksCreated,
+        entitiesExtracted: scanResult.entitiesExtracted,
+        relationshipsExtracted: scanResult.relationshipsExtracted,
+      },
+      correlationId,
+    });
+
+    // Bust the context cache so the very next AI chat turn reflects the
+    // completed scan (new metrics, graph entities, scan status = "completed")
+    // rather than the pre-scan or mid-scan snapshot that was cached while the
+    // job was in progress.  Placed after recordAudit so it only fires when
+    // the full transaction has durably committed.
+    invalidateContextCache(projectId);
+
+    // Dispatch plugin hooks outside the transaction — same best-effort
+    // semantics as recordAudit: a plugin failure must not roll back a
+    // successful scan. Errors are logged but swallowed here.
+    await dispatchOnScanComplete({
+      projectId,
+      language: project[0].language,
+      framework: project[0].framework ?? null,
+      filesFound: scanResult.filesFound,
+      sourceFiles: scanResult.sourceFiles,
+      issuesDetected: scanResult.issuesDetected,
+      tasksCreated: scanResult.tasksCreated,
+      entitiesExtracted: scanResult.entitiesExtracted,
+      relationshipsExtracted: scanResult.relationshipsExtracted,
+      ruleViolations: ruleResults
+        .filter((r) => r.matched)
+        .map((r): RuleViolationSummary => {
+          const rule = projectRules.find((pr) => pr.id === r.ruleId);
+          return {
+            ruleId: r.ruleId,
+            code: rule?.code ?? r.ruleId,
+            severity: rule?.severity ?? "medium",
+            matchCount: r.matchCount,
+          };
+        }),
+      entities: capturedEntities,
+    });
+
+    return scanResult;
+  });
+}
+import type { ProjectContext } from "../context-builder.js";
+import type { AgentCompleteOpts } from "../agent-complete.js";
+import type { Message } from "../groq-client.js";
+import { BaseAgent, type AgentRunResult } from "./base-agent.js";
+import {
+  ImplementationPlanSchema,
+  type ImplementationPlan,
+} from "../schemas/implementation-plan.schema.js";
+import { buildImplementationPlanMessages } from "../prompts/implementation-plan.prompt.js";
+import type { ProjectFileManifest } from "../filesystem-manifest.js";
+
+export type ImplementationPlanInput = {
+  message: string;
+  projectContext: ProjectContext;
+};
+
+export type ImplementationPlanResult = AgentRunResult<ImplementationPlan>;
+
+function fallbackPlan(message: string, reason = "The available project context was insufficient for a verified file-level plan."): ImplementationPlan {
+  return {
+    kind: "IMPLEMENTATION_PLAN_RESULT",
+    objective: message.trim().slice(0, 500) || "Define the requested implementation",
+    summary: "A safe implementation plan could not be structured by the provider. Review the request and retry before granting write access.",
+    assumptions: [reason],
+    steps: [
+      {
+        id: "step-1",
+        title: "Inspect the requested area",
+        description: "Identify the relevant source files and current behavior before proposing changes.",
+        action: "inspect",
+        files: [],
+        dependsOn: [],
+        validation: ["Confirm the target files and current behavior from the workspace."],
+      },
+    ],
+    validationCommands: [],
+    risks: ["No file-level changes are authorized until the project files are verified."],
+    approvalStatus: "PENDING_APPROVAL",
+    writeAccess: "NOT_AUTHORIZED",
+  };
+}
+
+function normalizePlanPath(value: string): string {
+  return value.replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/+$/, "");
+}
+
+function isGroundedPlanPath(
+  value: string,
+  action: ImplementationPlan["steps"][number]["action"],
+  manifest: ProjectFileManifest,
+): boolean {
+  const normalized = normalizePlanPath(value);
+  const knownFiles = new Set(manifest.files.map(normalizePlanPath));
+  const knownDirectories = new Set(manifest.directories.map(normalizePlanPath));
+  if (knownFiles.has(normalized) || knownDirectories.has(normalized)) return true;
+  if (action !== "create") return false;
+
+  const parent = normalized.includes("/") ? normalized.slice(0, normalized.lastIndexOf("/")) : "";
+  return parent === "" || knownDirectories.has(parent);
+}
+
+function guardPlanPaths(plan: ImplementationPlan, manifest: ProjectFileManifest): string[] {
+  return plan.steps.flatMap((step) =>
+    step.files
+      .filter((file) => !isGroundedPlanPath(file, step.action, manifest))
+      .map((file) => `${step.id}: ${file}`),
+  );
+}
+
+class ImplementationPlannerAgent extends BaseAgent<ImplementationPlanInput, ImplementationPlan> {
+  protected readonly scope = "implementation-plan";
+  protected readonly schema = ImplementationPlanSchema;
+
+  protected buildQualityProfile(): "analysis" {
+    return "analysis";
+  }
+
+  protected buildMessages(input: ImplementationPlanInput): Message[] {
+    return buildImplementationPlanMessages(input.message, input.projectContext);
+  }
+
+  protected fallbackOutput(raw: string): ImplementationPlan {
+    return fallbackPlan(raw);
+  }
+}
+
+const implementationPlanner = new ImplementationPlannerAgent();
+
+export async function createImplementationPlan(
+  input: ImplementationPlanInput,
+  opts?: AgentCompleteOpts,
+): Promise<ImplementationPlanResult> {
+  const guardedFallback = (reason: string): ImplementationPlanResult => ({
+    ...fallbackPlan(input.message, reason),
+    contextManifest: input.projectContext.contextManifest,
+  });
+  const manifest = input.projectContext.filesystemManifest;
+  if (!manifest || manifest.status !== "VERIFIED" || (manifest.files.length === 0 && manifest.directories.length === 0)) {
+    return guardedFallback(
+      manifest?.reason ?? "No verified project filesystem manifest was available; discover files before approving a plan.",
+    );
+  }
+  const sources = input.projectContext.filesystemSources;
+  if (!sources || sources.status !== "VERIFIED" || sources.files.length === 0) {
+    return guardedFallback(
+      sources?.reason ?? "No verified source excerpts were read; discover source files before approving a file-grounded plan.",
+    );
+  }
+
+  const result = await implementationPlanner.run(input, opts);
+  const { _parseError, ...plan } = result;
+  const ungroundedPaths = guardPlanPaths(plan, manifest);
+  if (ungroundedPaths.length === 0) return { ...result, contextManifest: input.projectContext.contextManifest };
+
+  const guarded = guardedFallback(
+    `The provider referenced unverified project paths: ${ungroundedPaths.slice(0, 8).join(", ")}.`,
+  );
+  return _parseError ? { ...guarded, _parseError } : guarded;
+}
+
+export function renderImplementationPlan(plan: ImplementationPlan): string {
+  const lines = [
+    `## Implementation plan`,
+    `**Objective:** ${plan.objective}`,
+    "",
+    plan.summary,
+    "",
+    `**Approval:** pending approval · write access not authorized`,
+    "",
+    "### Steps",
+    ...plan.steps.map(
+      (step, index) =>
+        `${index + 1}. **${step.title}** — ${step.description}\n   - Action: ${step.action}\n   - Files: ${step.files.length > 0 ? step.files.join(", ") : "to be confirmed during inspection"}\n   - Validation: ${step.validation.join("; ") || "to be defined"}`,
+    ),
+  ];
+
+  if (plan.risks.length > 0) {
+    lines.push("", "### Risks", ...plan.risks.map((risk) => `- ${risk}`));
+  }
+
+  return lines.join("\n");
+}import { z } from "zod";
+import {
+  ProjectFileManifestSchema,
+  ProjectFileSourcesSchema,
+} from "../filesystem-manifest.js";
+import { ContextManifestSchema } from "../context-manifest.js";
+
+/**
+ * Validates the shape of the context object every agent prompt is built from.
+ *
+ * Every field is a non-empty string: the builder always produces a non-empty
+ * value (empty states use explicit fallback strings such as "No tasks yet").
+ * z.string().min(1) therefore reflects the real contract and rejects blank
+ * fields that indicate a broken builder, rather than silently accepting them.
+ *
+ * .strict() rejects objects that carry extra keys, so any future builder field
+ * that is not declared here fails loudly instead of being silently stripped.
+ */
+export const AgentContextSchema = z
+  .object({
+    project: z.string().min(1),
+    recentTasks: z.string().min(1),
+    latestMetrics: z.string().min(1),
+    graphSummary: z.string().min(1),
+    recentEvents: z.string().min(1),
+    workflows: z.string().min(1),
+    /** Structural flag: true only when a real scan has completed successfully. */
+    metricsVerified: z.boolean(),
+    /** Immutable revision/completeness contract for all downstream work. */
+    contextManifest: ContextManifestSchema.optional(),
+    /**
+     * Optional: formatted text summarising files and findings from previous
+     * chat sessions for this project, injected via the session-memory layer.
+     * Present only when the project has prior session memories.
+     */
+    sessionMemories: z.string().optional(),
+     /** Optional verified filesystem inventory used only by implementation planning. */
+     filesystemManifest: ProjectFileManifestSchema.optional(),
+    /** Optional bounded source excerpts read specifically for implementation planning. */
+    filesystemSources: ProjectFileSourcesSchema.optional(),
+  })
+  .strict();
+
+export type AgentContext = z.infer<typeof AgentContextSchema>;

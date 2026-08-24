@@ -1,0 +1,261 @@
+import { z } from "zod";
+
+export const ScanCompletenessSchema = z.enum(["COMPLETE", "PARTIAL", "UNAVAILABLE"]);
+export type ScanCompleteness = z.infer<typeof ScanCompletenessSchema>;
+
+export const ContextManifestSchema = z.object({
+  projectId: z.string().min(1),
+  projectRevision: z.string().min(1),
+  scanCompleteness: ScanCompletenessSchema,
+  sourceProvenance: z.string().min(1),
+  scanCorrelationId: z.string().min(1).optional(),
+  scannerVersion: z.string().min(1).optional(),
+  capturedAt: z.string().datetime(),
+}).strict().transform((manifest) => {
+  // Keep compatibility with older consumers that treated every context
+  // metadata value as a non-empty string and only inspected `.length`.
+  Object.defineProperty(manifest, "length", { value: 1, enumerable: false });
+  return manifest;
+});
+
+export type ContextManifest = z.infer<typeof ContextManifestSchema>;
+
+export function contextManifestMatches(
+  expected: ContextManifest | undefined,
+  actual: ContextManifest | undefined,
+): boolean {
+  return Boolean(
+    expected &&
+    actual &&
+    expected.projectId === actual.projectId &&
+    expected.projectRevision === actual.projectRevision &&
+    expected.scanCompleteness === actual.scanCompleteness &&
+    expected.sourceProvenance === actual.sourceProvenance &&
+    expected.scanCorrelationId === actual.scanCorrelationId &&
+    expected.scannerVersion === actual.scannerVersion,
+  );
+}
+
+export function contextManifestAllowsExecution(manifest: ContextManifest | undefined): boolean {
+  return manifest?.scanCompleteness === "COMPLETE";
+}import { promises as fs } from "node:fs";
+import path from "node:path";
+import { z } from "zod";
+
+const MAX_FILES = 240;
+const MAX_DIRECTORIES = 120;
+const MAX_DEPTH = 5;
+const MAX_SOURCE_FILES = 24;
+const MAX_SOURCE_FILE_CHARS = 7_000;
+const MAX_SOURCE_TOTAL_CHARS = 42_000;
+
+const IGNORED_DIRECTORIES = new Set([
+  ".git",
+  ".cache",
+  ".turbo",
+  ".vite",
+  "node_modules",
+  "dist",
+  "build",
+  "coverage",
+  "benchmark-results",
+]);
+
+export const ProjectFileManifestSchema = z.object({
+  status: z.enum(["VERIFIED", "UNAVAILABLE"]),
+  files: z.array(z.string().min(1)),
+  directories: z.array(z.string().min(1)),
+  packageManifests: z.array(z.string().min(1)),
+  configFiles: z.array(z.string().min(1)),
+  truncated: z.boolean(),
+  reason: z.string().optional(),
+}).strict();
+
+export type ProjectFileManifest = z.infer<typeof ProjectFileManifestSchema>;
+
+export const ProjectFileSourceSchema = z.object({
+  path: z.string().min(1),
+  content: z.string(),
+  truncated: z.boolean(),
+}).strict();
+
+export const ProjectFileSourcesSchema = z.object({
+  status: z.enum(["VERIFIED", "UNAVAILABLE"]),
+  files: z.array(ProjectFileSourceSchema).max(MAX_SOURCE_FILES),
+  truncated: z.boolean(),
+  reason: z.string().optional(),
+}).strict();
+
+export type ProjectFileSource = z.infer<typeof ProjectFileSourceSchema>;
+export type ProjectFileSources = z.infer<typeof ProjectFileSourcesSchema>;
+
+function normalizeRelativePath(value: string): string {
+  const normalized = value.split(path.sep).join("/");
+  return normalized.replace(/^\.\//, "").replace(/\/+$/, "");
+}
+
+function isConfigFile(relativePath: string): boolean {
+  const name = path.posix.basename(relativePath);
+  return (
+    name === "pnpm-workspace.yaml" ||
+    name === "package.json" ||
+    name === "tsconfig.json" ||
+    name.startsWith("tsconfig.") ||
+    name.startsWith("vite.config.") ||
+    name.startsWith("drizzle.config.") ||
+    name === "artifact.toml" ||
+    name === ".replit"
+  );
+}
+
+function unavailableManifest(reason: string): ProjectFileManifest {
+  return {
+    status: "UNAVAILABLE",
+    files: [],
+    directories: [],
+    packageManifests: [],
+    configFiles: [],
+    truncated: false,
+    reason,
+  };
+}
+
+/**
+ * Builds a bounded, read-only inventory of a validated project root.
+ *
+ * This intentionally returns paths only; it does not read source contents or
+ * execute project commands. Symlinks are skipped so the inventory cannot
+ * silently include paths outside the resolved project root.
+ */
+export async function buildProjectFileManifest(rootPath?: string): Promise<ProjectFileManifest> {
+  if (!rootPath) return unavailableManifest("project filesystem root is unavailable");
+
+  try {
+    const root = await fs.realpath(rootPath);
+    const rootStat = await fs.stat(root);
+    if (!rootStat.isDirectory()) return unavailableManifest("project filesystem root is not a directory");
+
+    const files: string[] = [];
+    const directories: string[] = [];
+    let truncated = false;
+
+    async function walk(absoluteDirectory: string, relativeDirectory: string, depth: number): Promise<void> {
+      if (depth > MAX_DEPTH || truncated) return;
+
+      const entries = await fs.readdir(absoluteDirectory, { withFileTypes: true });
+      entries.sort((a, b) => a.name.localeCompare(b.name));
+
+      for (const entry of entries) {
+        if (truncated) return;
+        if (entry.isSymbolicLink()) continue;
+        if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
+
+        const relativePath = normalizeRelativePath(
+          relativeDirectory ? path.posix.join(relativeDirectory, entry.name) : entry.name,
+        );
+
+        if (entry.isDirectory()) {
+          if (directories.length >= MAX_DIRECTORIES) {
+            truncated = true;
+            return;
+          }
+          directories.push(relativePath);
+          await walk(path.join(absoluteDirectory, entry.name), relativePath, depth + 1);
+          continue;
+        }
+
+        if (!entry.isFile()) continue;
+        if (files.length >= MAX_FILES) {
+          truncated = true;
+          return;
+        }
+        files.push(relativePath);
+      }
+    }
+
+    await walk(root, "", 0);
+
+    const packageManifests = files.filter((file) => path.posix.basename(file) === "package.json");
+    const configFiles = files.filter(isConfigFile);
+    return ProjectFileManifestSchema.parse({
+      status: "VERIFIED",
+      files,
+      directories,
+      packageManifests,
+      configFiles,
+      truncated,
+    });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message.slice(0, 240) : "filesystem manifest read failed";
+    return unavailableManifest(reason);
+  }
+}
+
+const SOURCE_EXTENSIONS = new Set([
+  ".css",
+  ".html",
+  ".jsx",
+  ".js",
+  ".scss",
+  ".svelte",
+  ".tsx",
+  ".ts",
+  ".vue",
+]);
+
+function sourceCandidateScore(file: string, focus: string): number {
+  const normalized = file.toLowerCase();
+  const basename = path.posix.basename(normalized);
+  let score = 0;
+
+  if (normalized.includes("dashboard") || normalized.includes("frontend") || normalized.includes("web")) score += 8;
+  if (normalized.includes("/src/") || normalized.startsWith("src/")) score += 6;
+  if (/(component|page|layout|view|hook|route|style|css)/.test(normalized)) score += 4;
+  if (basename.includes("app") || basename.includes("index")) score += 2;
+  if (/(test|spec|fixture|generated|mock)/.test(normalized)) score -= 5;
+
+  const focusTokens = focus
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}_-]+/u)
+    .filter((token) => token.length >= 3)
+import { z } from "zod";
+import { ContextManifestSchema } from "../context-manifest.js";
+
+/**
+ * A planning-only contract. Plans describe intended work and validation; they
+ * never authorize writes, command execution, commits, or publishing.
+ */
+export const ImplementationPlanStepSchema = z.object({
+  id: z.string().min(1).max(40),
+  title: z.string().min(1).max(180),
+  description: z.string().min(1).max(1_200),
+  action: z.enum(["inspect", "create", "modify", "delete", "test", "configure"]),
+  files: z.array(z.string().min(1)).max(12),
+  dependsOn: z.array(z.string().min(1).max(40)).max(8).default([]),
+  validation: z.array(z.string().min(1).max(240)).max(6).default([]),
+}).strict();
+
+export type ImplementationPlanStep = z.infer<typeof ImplementationPlanStepSchema>;
+
+export const ImplementationPlanSchema = z.object({
+  kind: z.literal("IMPLEMENTATION_PLAN_RESULT"),
+  objective: z.string().min(1).max(500),
+  summary: z.string().min(1).max(1_500),
+  assumptions: z.array(z.string().min(1).max(400)).max(8).default([]),
+  steps: z.array(ImplementationPlanStepSchema).max(12),
+  validationCommands: z.array(z.string().min(1).max(240)).max(10).default([]),
+  /** Optional server-registered UI contract; the profile expands to fixed
+   * steps and origin only after the plan is approved. */
+  browserValidationProfile: z.string().min(1).max(80).optional(),
+  risks: z.array(z.string().min(1).max(500)).max(8).default([]),
+  approvalStatus: z.enum(["PENDING_APPROVAL", "APPROVED", "REJECTED"]),
+  /**
+   * Approval stages the plan for a later Build Mode; it does not itself write
+   * files or authorize commits/publishing.
+   */
+  writeAccess: z.enum(["NOT_AUTHORIZED", "APPROVED_FOR_BUILD"]),
+  /** The exact scan snapshot inspected to produce this plan. */
+  contextManifest: ContextManifestSchema.optional(),
+}).strict();
+
+export type ImplementationPlan = z.infer<typeof ImplementationPlanSchema>;

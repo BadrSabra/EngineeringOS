@@ -83,6 +83,21 @@ export interface ScannedFile {
   oversized: boolean;
 }
 
+export interface RevisionManifestFile {
+  path: string;
+  size: number;
+  contentHash: string;
+  oversized: boolean;
+}
+
+/** Server-owned snapshot identity shared by scan-derived artifacts. */
+export interface RevisionManifest {
+  revision: string;
+  sourceRoot: string;
+  files: RevisionManifestFile[];
+  completeness: "COMPLETE" | "PARTIAL";
+}
+
 export interface WalkResult {
   files: ScannedFile[];
   rootPath: string;
@@ -109,6 +124,8 @@ export interface WalkResult {
   filesSkipped: number;
   /** Stable digest of the exact file inventory and readable contents. */
   revision: string;
+  /** Exact file inventory used to derive scanner, graph, and metric results. */
+  revisionManifest: RevisionManifest;
 }
 
 /** Mutable walk state — shared across the recursive walkDir calls. */
@@ -244,7 +261,17 @@ export async function walkProject(rootPath: string): Promise<WalkResult> {
       f.language !== "toml",
   ).length;
   const revisionHash = createHash("sha256");
+  const manifestFiles: RevisionManifestFile[] = [];
   for (const file of files) {
+    const contentHash = createHash("sha256")
+      .update(file.oversized ? `oversized:${file.size}` : file.content)
+      .digest("hex");
+    manifestFiles.push({
+      path: file.path,
+      size: file.size,
+      contentHash,
+      oversized: file.oversized,
+    });
     revisionHash.update(file.path);
     revisionHash.update("\0");
     revisionHash.update(String(file.size));
@@ -253,6 +280,7 @@ export async function walkProject(rootPath: string): Promise<WalkResult> {
     revisionHash.update("\n");
   }
 
+  const revision = revisionHash.digest("hex");
   return {
     files,
     rootPath,
@@ -264,6 +292,12 @@ export async function walkProject(rootPath: string): Promise<WalkResult> {
     // When aborted by file count, skipped count is unknown (Promise.all
     // branches were concurrent); signal with -1.
     filesSkipped: state.aborted ? -1 : 0,
-    revision: revisionHash.digest("hex"),
+    revision,
+    revisionManifest: {
+      revision,
+      sourceRoot: rootPath,
+      files: manifestFiles,
+      completeness: state.aborted ? "PARTIAL" : "COMPLETE",
+    },
   };
 }

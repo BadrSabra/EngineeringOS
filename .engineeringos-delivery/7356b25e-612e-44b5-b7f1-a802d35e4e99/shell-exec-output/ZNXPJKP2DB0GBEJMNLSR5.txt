@@ -1,0 +1,429 @@
+    // ── 8. Emit scan event ───────────────────────────────────────────────
+    const issuesDetected = ruleResults.reduce((s, r) => s + r.matchCount, 0);
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "ProjectScanned",
+      projectId,
+      severity: "success",
+      message: `Scan complete: ${walkResult.totalFiles} files, ${issuesDetected} issues detected`,
+      payload: {
+        filesFound: walkResult.totalFiles,
+        sourceFiles: walkResult.sourceFiles,
+        issuesDetected,
+        tasksCreated: newTaskIds.length,
+        rootExists: walkResult.rootExists,
+        entitiesExtracted: entitiesToInsert.length,
+        relationshipsExtracted: relRows.length,
+        qualityScore: metrics.overallScore,
+      },
+      correlationId,
+    });
+
+    checkCancelled();
+    return {
+      projectId,
+      scannedAt: now.toISOString(),
+      rootPath: walkResult.rootPath,
+      rootExists: walkResult.rootExists,
+      filesFound: walkResult.totalFiles,
+      sourceFiles: walkResult.sourceFiles,
+      issuesDetected,
+      tasksCreated: newTaskIds.length,
+      entitiesExtracted: entitiesToInsert.length,
+      relationshipsExtracted: relRows.length,
+      summary: `Scanned ${walkResult.totalFiles} files. Found ${issuesDetected} issues. Created ${newTaskIds.length} tasks. Quality score: ${metrics.overallScore}/100.`,
+      projectRevision: walkResult.revision,
+      scanCompleteness: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
+      sourceProvenance: "filesystem-scan",
+      scanCorrelationId: correlationId,
+      scannerVersion: SCANNER_VERSION,
+      _priorQualityScore: project[0].qualityScore ?? null,
+    };
+  }).then(async (result) => {
+    // Audit is intentionally recorded *after* the transaction commits and
+    // outside it (see audit.ts) — it reflects a state change that has
+    // already durably happened, and an audit-table outage must not roll
+    // back an otherwise-successful scan.
+    const { _priorQualityScore, ...scanResult } = result;
+    await recordAudit({
+      entityType: "project",
+      entityId: projectId,
+      action: "scanned",
+      projectId,
+      stateBefore: { qualityScore: _priorQualityScore },
+      stateAfter: { qualityScore: metrics.overallScore },
+      changedFields: {
+        filesFound: scanResult.filesFound,
+        tasksCreated: scanResult.tasksCreated,
+        entitiesExtracted: scanResult.entitiesExtracted,
+        relationshipsExtracted: scanResult.relationshipsExtracted,
+      },
+      correlationId,
+    });
+
+    // Bust the context cache so the very next AI chat turn reflects the
+    // completed scan (new metrics, graph entities, scan status = "completed")
+    // rather than the pre-scan or mid-scan snapshot that was cached while the
+    // job was in progress.  Placed after recordAudit so it only fires when
+    // the full transaction has durably committed.
+    invalidateContextCache(projectId);
+
+    // Dispatch plugin hooks outside the transaction — same best-effort
+    // semantics as recordAudit: a plugin failure must not roll back a
+    // successful scan. Errors are logged but swallowed here.
+    await dispatchOnScanComplete({
+      projectId,
+      language: project[0].language,
+      framework: project[0].framework ?? null,
+      filesFound: scanResult.filesFound,
+      sourceFiles: scanResult.sourceFiles,
+      issuesDetected: scanResult.issuesDetected,
+      tasksCreated: scanResult.tasksCreated,
+import type { AgentContext as ProjectContext } from "./schemas/context.schema.js";
+import type { ExecutionPlan } from "./model-selection/execution-plan.js";
+import type { SliceId } from "./context-runtime/context-object.js";
+
+const CONTEXT_CACHE_TTL_MS = 30_000;
+const contextCache = new Map<string, { data: ProjectContext; expiresAt: number }>();
+
+let _invalidationNotifier: ((projectId: string) => void) | null = null;
+
+export type NotifyPoolClient = {
+  query(sql: string, params?: unknown[]): Promise<unknown>;
+  on(event: "notification", listener: (msg: { channel: string; payload?: string }) => void): NotifyPoolClient;
+  on(event: "error", listener: (err: Error) => void): NotifyPoolClient;
+  on(event: "end", listener: () => void): NotifyPoolClient;
+  release(): void;
+  removeAllListeners(): NotifyPoolClient;
+};
+
+export type NotifyPool = {
+  connect(): Promise<NotifyPoolClient>;
+};
+
+/**
+ * Derive a short, stable hash from the budget-relevant fields of an ExecutionPlan.
+ * Used as the third segment of the cache key so plan changes bust the cache.
+ */
+export function hashExecutionPlan(
+  plan: Pick<ExecutionPlan, "contextBudget" | "graphBudget"> & {
+    contextIntensity?: string;
+    graphMode?: string;
+  },
+): string {
+  return [
+    plan.contextIntensity ?? "?",
+    plan.graphMode        ?? "?",
+    plan.contextBudget,
+    plan.graphBudget,
+  ].join(":");
+}
+
+export function buildContextCacheKey(
+  projectId: string,
+  sections?: readonly string[],
+  planHash?: string,
+): string {
+  const normalized = [...new Set(sections && sections.length > 0 ? sections : [])].sort();
+  const base = `${projectId}::${normalized.join(",")}`;
+  return planHash ? `${base}::plan:${planHash}` : base;
+}
+
+/** Maps each SliceId to the section name(s) stored in the cache key segments. */
+const SLICE_TO_SECTIONS: Record<SliceId, string[]> = {
+  project:       [],   // always present → full invalidation
+  recentTasks:   ["tasks"],
+  latestMetrics: ["metrics"],
+  graphSummary:  ["graphEntities", "graphRelationships"],
+  recentEvents:  ["events"],
+  workflows:     ["workflows"],
+};
+
+/**
+ * Selectively invalidate cache entries that include a specific slice.
+ * Avoids a full project cache bust when only one domain changes.
+ * Falls back to full invalidation for the "project" slice.
+ */
+export function invalidateContextSlice(projectId: string, sliceId: SliceId): void {
+  const targetSections = SLICE_TO_SECTIONS[sliceId];
+  if (targetSections.length === 0) {
+    // "project" appears in every entry → full bust
+    invalidateContextCache(projectId);
+    return;
+  }
+  const prefix = `${projectId}::`;
+  for (const key of contextCache.keys()) {
+    if (!key.startsWith(prefix)) continue;
+    const segments = key.slice(prefix.length).split("::");
+    const sectionPart = segments[0] ?? "";
+    const sections = sectionPart.split(",");
+    if (targetSections.some((s) => sections.includes(s))) {
+      contextCache.delete(key);
+    }
+  }
+}
+
+export function getCachedContext(cacheKey: string): { data: ProjectContext; expiresAt: number } | undefined {
+  return contextCache.get(cacheKey);
+}
+
+export function setCachedContext(cacheKey: string, data: ProjectContext): void {
+  contextCache.set(cacheKey, { data, expiresAt: Date.now() + CONTEXT_CACHE_TTL_MS });
+}
+
+export function setInvalidationNotifier(fn: (projectId: string) => void): void {
+  _invalidationNotifier = fn;
+}
+
+/**
+ * Invalidate the cached context for a project immediately.
+ * Call after any write that changes context-relevant data — e.g. applying AI
+ * file changes, completing a scan, or updating a task.
+ */
+export function invalidateContextCache(projectId: string): void {
+  for (const key of contextCache.keys()) {
+    if (key.startsWith(`${projectId}::`)) {
+      contextCache.delete(key);
+    }
+  }
+  if (_invalidationNotifier) {
+    try {
+      _invalidationNotifier(projectId);
+    } catch {
+      /* swallowed — degrades to TTL */
+    }
+  }
+}
+
+/**
+ * Start a dedicated PostgreSQL LISTEN connection for cross-process cache
+ * invalidation.
+ */
+export function startContextInvalidationChannel(pool: NotifyPool): { stop: () => void } {
+  let client: NotifyPoolClient | null = null;
+  let stopped = false;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function connect(): Promise<void> {
+    if (stopped) return;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+
+    let acquired: NotifyPoolClient | null = null;
+    try {
+      acquired = await pool.connect();
+      await acquired.query("LISTEN ctx_invalid");
+
+      client = acquired;
+      acquired = null;
+
+      client.on("notification", (msg) => {
+        if (msg.channel === "ctx_invalid" && msg.payload) {
+          const prefix = `${msg.payload}::`;
+          for (const key of contextCache.keys()) {
+            if (key.startsWith(prefix)) {
+              contextCache.delete(key);
+            }
+          }
+        }
+      });
+
+      client.on("error", (err) => {
+        console.warn(JSON.stringify({ scope: "ctx-cache-channel", code: "LISTEN_ERROR", error: String(err) }));
+        disconnect();
+      });
+
+      client.on("end", () => {
+        if (!stopped) {
+          console.warn(JSON.stringify({ scope: "ctx-cache-channel", code: "LISTEN_ENDED" }));
+          disconnect();
+        }
+      });
+
+      console.info(JSON.stringify({ scope: "ctx-cache-channel", code: "LISTEN_READY", channel: "ctx_invalid" }));
+    } catch (err) {
+      if (acquired) {
+        try { acquired.removeAllListeners(); } catch { /* ignore */ }
+        try { acquired.release(); } catch { /* ignore */ }
+      }
+      console.warn(JSON.stringify({ scope: "ctx-cache-channel", code: "CONNECT_FAILED", error: String(err) }));
+      scheduleReconnect();
+    }
+  }
+
+  function releaseClient(): void {
+    if (client) {
+      client.removeAllListeners();
+      client.release();
+      client = null;
+    }
+  }
+
+  function scheduleReconnect(): void {
+    if (stopped) return;
+    if (reconnectTimer) return;
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      void connect();
+    }, 5_000);
+  }
+
+  function disconnect(): void {
+    releaseClient();
+    scheduleReconnect();
+  }
+
+  void connect();
+
+  return {
+    stop(): void {
+      stopped = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      releaseClient();
+    },
+  };
+}
+import type { ProjectContext } from "../context-builder.js";
+import type { AgentCompleteOpts } from "../agent-complete.js";
+import type { Message } from "../groq-client.js";
+import { BaseAgent, type AgentRunResult } from "./base-agent.js";
+import {
+  ImplementationPlanSchema,
+  type ImplementationPlan,
+} from "../schemas/implementation-plan.schema.js";
+import { buildImplementationPlanMessages } from "../prompts/implementation-plan.prompt.js";
+import type { ProjectFileManifest } from "../filesystem-manifest.js";
+
+export type ImplementationPlanInput = {
+  message: string;
+  projectContext: ProjectContext;
+};
+
+export type ImplementationPlanResult = AgentRunResult<ImplementationPlan>;
+
+function fallbackPlan(message: string, reason = "The available project context was insufficient for a verified file-level plan."): ImplementationPlan {
+  return {
+    kind: "IMPLEMENTATION_PLAN_RESULT",
+    objective: message.trim().slice(0, 500) || "Define the requested implementation",
+    summary: "A safe implementation plan could not be structured by the provider. Review the request and retry before granting write access.",
+    assumptions: [reason],
+    steps: [
+      {
+        id: "step-1",
+        title: "Inspect the requested area",
+        description: "Identify the relevant source files and current behavior before proposing changes.",
+        action: "inspect",
+        files: [],
+        dependsOn: [],
+        validation: ["Confirm the target files and current behavior from the workspace."],
+      },
+    ],
+    validationCommands: [],
+    risks: ["No file-level changes are authorized until the project files are verified."],
+    approvalStatus: "PENDING_APPROVAL",
+    writeAccess: "NOT_AUTHORIZED",
+  };
+}
+
+function normalizePlanPath(value: string): string {
+  return value.replaceAll("\\", "/").replace(/^\.\//, "").replace(/\/+$/, "");
+}
+
+function isGroundedPlanPath(
+  value: string,
+  action: ImplementationPlan["steps"][number]["action"],
+  manifest: ProjectFileManifest,
+): boolean {
+  const normalized = normalizePlanPath(value);
+  const knownFiles = new Set(manifest.files.map(normalizePlanPath));
+  const knownDirectories = new Set(manifest.directories.map(normalizePlanPath));
+  if (knownFiles.has(normalized) || knownDirectories.has(normalized)) return true;
+  if (action !== "create") return false;
+
+  const parent = normalized.includes("/") ? normalized.slice(0, normalized.lastIndexOf("/")) : "";
+  return parent === "" || knownDirectories.has(parent);
+}
+
+function guardPlanPaths(plan: ImplementationPlan, manifest: ProjectFileManifest): string[] {
+  return plan.steps.flatMap((step) =>
+    step.files
+      .filter((file) => !isGroundedPlanPath(file, step.action, manifest))
+      .map((file) => `${step.id}: ${file}`),
+  );
+}
+
+class ImplementationPlannerAgent extends BaseAgent<ImplementationPlanInput, ImplementationPlan> {
+  protected readonly scope = "implementation-plan";
+  protected readonly schema = ImplementationPlanSchema;
+
+  protected buildQualityProfile(): "analysis" {
+    return "analysis";
+  }
+
+  protected buildMessages(input: ImplementationPlanInput): Message[] {
+    return buildImplementationPlanMessages(input.message, input.projectContext);
+  }
+
+  protected fallbackOutput(raw: string): ImplementationPlan {
+    return fallbackPlan(raw);
+  }
+}
+
+const implementationPlanner = new ImplementationPlannerAgent();
+
+export async function createImplementationPlan(
+  input: ImplementationPlanInput,
+  opts?: AgentCompleteOpts,
+): Promise<ImplementationPlanResult> {
+  const guardedFallback = (reason: string): ImplementationPlanResult => ({
+    ...fallbackPlan(input.message, reason),
+    contextManifest: input.projectContext.contextManifest,
+  });
+  const manifest = input.projectContext.filesystemManifest;
+  if (!manifest || manifest.status !== "VERIFIED" || (manifest.files.length === 0 && manifest.directories.length === 0)) {
+    return guardedFallback(
+      manifest?.reason ?? "No verified project filesystem manifest was available; discover files before approving a plan.",
+    );
+  }
+  const sources = input.projectContext.filesystemSources;
+  if (!sources || sources.status !== "VERIFIED" || sources.files.length === 0) {
+    return guardedFallback(
+      sources?.reason ?? "No verified source excerpts were read; discover source files before approving a file-grounded plan.",
+    );
+  }
+
+  const result = await implementationPlanner.run(input, opts);
+  const { _parseError, ...plan } = result;
+  const ungroundedPaths = guardPlanPaths(plan, manifest);
+  if (ungroundedPaths.length === 0) return { ...result, contextManifest: input.projectContext.contextManifest };
+
+  const guarded = guardedFallback(
+    `The provider referenced unverified project paths: ${ungroundedPaths.slice(0, 8).join(", ")}.`,
+  );
+  return _parseError ? { ...guarded, _parseError } : guarded;
+}
+
+export function renderImplementationPlan(plan: ImplementationPlan): string {
+  const lines = [
+    `## Implementation plan`,
+    `**Objective:** ${plan.objective}`,
+    "",
+    plan.summary,
+    "",
+    `**Approval:** pending approval · write access not authorized`,
+    "",
+    "### Steps",
+    ...plan.steps.map(
+      (step, index) =>
+        `${index + 1}. **${step.title}** — ${step.description}\n   - Action: ${step.action}\n   - Files: ${step.files.length > 0 ? step.files.join(", ") : "to be confirmed during inspection"}\n   - Validation: ${step.validation.join("; ") || "to be defined"}`,
+    ),
+  ];
+
+  if (plan.risks.length > 0) {
+    lines.push("", "### Risks", ...plan.risks.map((risk) => `- ${risk}`));
+  }
+
+  return lines.join("\n");
+}

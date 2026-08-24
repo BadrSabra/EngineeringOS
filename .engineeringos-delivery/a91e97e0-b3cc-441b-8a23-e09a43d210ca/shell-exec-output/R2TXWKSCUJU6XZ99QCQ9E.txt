@@ -1,0 +1,280 @@
+artifacts/api-server/src/index.ts
+90:// Wire a pg_notify call into every invalidateContextCache() invocation so
+
+lib/ai-orchestrator/src/validation-result.ts
+35:  projectRevision?: string;
+95:      ...(evidence.projectRevision ? { projectRevision: evidence.projectRevision } : {}),
+
+lib/ai-orchestrator/src/index.ts
+180:  invalidateContextCache,
+193:export { buildContextCacheKey, getCachedContext, setCachedContext } from "./context-cache-manager.js";
+
+lib/ai-orchestrator/src/context-manifest.ts
+8:  projectRevision: z.string().min(1),
+10:  sourceProvenance: z.string().min(1),
+11:  scanCorrelationId: z.string().min(1).optional(),
+31:    expected.projectRevision === actual.projectRevision &&
+33:    expected.sourceProvenance === actual.sourceProvenance &&
+34:    expected.scanCorrelationId === actual.scanCorrelationId &&
+
+lib/ai-orchestrator/src/context-loader.ts
+388:        projectRevision:
+389:          typeof scanResult?.projectRevision === "string"
+390:            ? scanResult.projectRevision
+402:        sourceProvenance:
+403:          typeof scanResult?.sourceProvenance === "string"
+404:            ? scanResult.sourceProvenance
+406:        ...(typeof scanResult?.scanCorrelationId === "string" && { scanCorrelationId: scanResult.scanCorrelationId }),
+
+lib/ai-orchestrator/src/context-builder.ts
+16:import { buildContextCacheKey, getCachedContext, setCachedContext, hashExecutionPlan } from "./context-cache-manager.js";
+29:export { invalidateContextCache, invalidateContextSlice, hashExecutionPlan, setInvalidationNotifier, startContextInvalidationChannel } from "./context-cache-manager.js";
+111:  const cacheKey = buildContextCacheKey(projectId, options.sections, planHash);
+
+artifacts/api-server/src/routes/ai.test.ts
+134:      workspaceRevision: "revision",
+171:      workspaceRevision: "revision",
+215:      workspaceRevision: "revision",
+284:  // invalidateContextCache is a synchronous cache-bust helper called after
+287:  invalidateContextCache: vi.fn(),
+1347:        workspaceRevision: "revision-abc123",
+1829:      workspaceRevision: "stored-revision",
+
+artifacts/api-server/src/routes/git.ts
+34:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+519:    invalidateContextCache(projectId);
+694:    invalidateContextCache(project.id);
+727:        invalidateContextCache(project.id);
+756:        invalidateContextCache(project.id);
+
+artifacts/api-server/src/routes/workflows.ts
+16:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+81:  invalidateContextCache(project.id);
+131:  invalidateContextCache(before[0].projectId);
+230:  invalidateContextCache(workflow[0].projectId);
+357:  invalidateContextCache(workflow[0].projectId);
+553:  invalidateContextCache(workflow[0].projectId);
+654:  invalidateContextCache(workflow[0].projectId);
+732:  invalidateContextCache(workflow[0].projectId);
+918:  invalidateContextCache(workflow[0].projectId);
+
+artifacts/api-server/src/routes/projects.ts
+30:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+219:  invalidateContextCache(project[0].id);
+257:  invalidateContextCache(projectId);
+325:  invalidateContextCache(projectId);
+415:    invalidateContextCache(projectId);
+419:  invalidateContextCache(projectId);
+
+artifacts/api-server/src/routes/tasks.ts
+24:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+87:  invalidateContextCache(project.id);
+196:  invalidateContextCache(project.id);
+251:  invalidateContextCache(project.id);
+367:    invalidateContextCache(project.id);
+441:  invalidateContextCache(project.id);
+534:  invalidateContextCache(project.id);
+634:  invalidateContextCache(project.id);
+
+lib/ai-orchestrator/src/tools/analysis-tools.ts
+8:  projectRevision: string;
+134:      result.correlation.projectRevision !== correlation.projectRevision ||
+
+artifacts/api-server/src/routes/ai-stream-integration.test.ts
+126:  invalidateContextCache:    vi.fn(),
+977:      workspaceRevision: (await db
+1033:      .set({ updatedAt: new Date(new Date(requestEnvelope.workspaceRevision).getTime() + 60_000) })
+1037:    const resumedCorrelations: Array<{ operationId?: string; projectRevision?: string }> = [];
+1039:      const params = args[1] as { analysisCorrelation?: { operationId: string; projectRevision: string } };
+1064:      projectRevision: requestEnvelope.workspaceRevision,
+4066:    expect(typeof requestEnvelope.workspaceRevision).toBe("string");
+
+artifacts/api-server/src/routes/rules.ts
+21:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+271:  invalidateContextCache(body.projectId);
+
+lib/ai-orchestrator/src/context-cache-manager.ts
+41:export function buildContextCacheKey(
+70:    invalidateContextCache(projectId);
+102:export function invalidateContextCache(projectId: string): void {
+
+lib/ai-orchestrator/src/context-builder.test.ts
+113:  invalidateContextCache,
+173:    invalidateContextCache(PROJECT_ID);
+217:    invalidateContextCache(PROJECT_ID);
+224:    invalidateContextCache(PROJECT_ID);
+231:    invalidateContextCache(PROJECT_ID);
+251:    invalidateContextCache(PROJECT_ID);
+264:    invalidateContextCache(PROJECT_ID);
+272:    invalidateContextCache(PROJECT_ID);
+288:    invalidateContextCache(PROJECT_ID);
+299:    invalidateContextCache(PROJECT_ID);
+336:  it("invalidateContextCache causes the next call to fetch fresh data from DB", async () => {
+341:    invalidateContextCache(PROJECT_ID);
+347:  it("invalidateContextCache is idempotent — calling it twice does not throw", () => {
+349:      invalidateContextCache(PROJECT_ID);
+350:      invalidateContextCache(PROJECT_ID);
+366:    invalidateContextCache(PROJECT_ID);
+377:    invalidateContextCache(PROJECT_B);
+391:  it("calls the registered notifier when invalidateContextCache fires", () => {
+394:    invalidateContextCache(PROJECT_ID);
+401:    expect(() => invalidateContextCache(PROJECT_ID)).not.toThrow();
+410:    expect(() => invalidateContextCache(PROJECT_ID)).not.toThrow();
+422:    invalidateContextCache(PROJECT_ID);
+427:    invalidateContextCache(PROJECT_ID);
+475:    invalidateContextCache(PROJECT_ID);
+491:    invalidateContextCache(PROJECT_ID);
+544:    invalidateContextCache(PROJECT_ID); // cleanup
+
+artifacts/api-server/src/routes/discovery.ts
+22:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+568:  invalidateContextCache(projectId);
+
+artifacts/api-server/src/routes/ai/chat.ts
+31:  invalidateContextCache,
+326:      projectRevision: result.evidence.projectRevision,
+367:        ...(typeof evidence.projectRevision === "string" ? { projectRevision: evidence.projectRevision } : {}),
+489:    workspaceRevision: typeof request.workspaceRevision === "string"
+490:      ? request.workspaceRevision
+650:  if (!liveWalk || liveWalk.revision !== currentManifest.projectRevision) {
+733:  if (liveWalk.revision !== completeManifest.projectRevision) {
+764:  projectRevision: string,
+781:  if (profile.revision !== projectRevision) {
+1911:    projectRevision: string;
+1917:    projectRevision: project.updatedAt.toISOString(),
+2520:    projectRevision: string;
+2526:    projectRevision: project.updatedAt.toISOString(),
+2651:      workspaceRevision: analysisCorrelation.projectRevision,
+2743:      if (storedRequest?.workspaceRevision) {
+2744:        analysisCorrelation.projectRevision = storedRequest.workspaceRevision;
+3402:      && registeredBrowserProfile.revision === analysisCorrelation.projectRevision
+3431:            revision: request.revision ?? analysisCorrelation.projectRevision,
+3443:              revision: request.revision ?? analysisCorrelation.projectRevision,
+3445:                revision: request.revision ?? analysisCorrelation.projectRevision,
+3524:            revision: analysisCorrelation.projectRevision,
+3534:             revision: analysisCorrelation.projectRevision,
+3835:    invalidateContextCache(projectId);
+4280:    projectRevision: typeof storedRequest?.workspaceRevision === "string"
+4281:      ? storedRequest.workspaceRevision
+4315:      revision: typeof storedRequest?.workspaceRevision === "string" ? storedRequest.workspaceRevision : null,
+4455:      revision: safeText(request.workspaceRevision, 200) ?? null,
+5166:      projectRevision: proposal.baseRevision,
+5258:      result.evidence.projectRevision = proposal.baseRevision ?? undefined;
+6186:        validation.evidence.projectRevision = deliveryWorkspace.baseRevision;
+6403:      invalidateContextCache(projectId);
+
+artifacts/api-server/src/routes/ai/tasks.ts
+18:  invalidateContextCache,
+80:      workspaceRevision: ownerProject.updatedAt?.toISOString(),
+281:    invalidateContextCache(task.projectId);
+320:  invalidateContextCache(task.projectId);
+598:        invalidateContextCache(task.projectId);
+644:        invalidateContextCache(task.projectId);
+648:      invalidateContextCache(task.projectId);
+
+artifacts/api-server/src/routes/ai/analysis.ts
+14:  invalidateContextCache,
+41:  projectRevision: string;
+86:    projectRevision: project.updatedAt.toISOString(),
+236:  invalidateContextCache(projectId);
+342:  invalidateContextCache(projectId);
+434:    invalidateContextCache(projectId);
+560:    invalidateContextCache(projectId);
+
+artifacts/api-server/src/routes/ai/workflows.ts
+18:  invalidateContextCache,
+120:    workspaceRevision: workflow.updatedAt.toISOString(),
+143:        revisionManifest: operationRequest.workspaceRevision,
+221:  invalidateContextCache(workflow.projectId);
+
+artifacts/api-server/src/routes/ai/chat-sse.test.ts
+238:    invalidateContextCache:    vi.fn(),
+
+lib/ai-orchestrator/src/__tests__/validation-result.test.ts
+74:        projectRevision: "revision-1",
+83:      projectRevision: "revision-1",
+
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts
+277:        projectRevision: "revision-1",
+305:        projectRevision: "revision-1",
+
+artifacts/api-server/src/lib/ai-execution-state.ts
+145:    workspaceRevision?: string;
+157:  if (params.workspaceRevision && operation.revisionManifest !== params.workspaceRevision) {
+230:  workspaceRevision?: string;
+719:    revisionManifest: params.request.workspaceRevision,
+1028:      workspaceRevision: request?.workspaceRevision,
+
+lib/ai-orchestrator/src/__tests__/analysis-tools.test.ts
+11:  projectRevision: "revision-1",
+60:        projectRevision: "revision-0",
+
+artifacts/api-server/src/lib/job-recovery.test.ts
+31:  invalidateContextCache: vi.fn(),
+
+artifacts/api-server/src/lib/job-reconciliation.test.ts
+28:// invalidateContextCache is called for every reconciled project without
+31:  invalidateContextCache: vi.fn(),
+33:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+259:  it("calls invalidateContextCache for each project whose running scan job was failed", async () => {
+260:    vi.mocked(invalidateContextCache).mockClear();
+271:      // (and invalidateContextCache is called) rather than re-enqueued.
+280:    expect(vi.mocked(invalidateContextCache)).toHaveBeenCalledWith(projectId);
+283:  it("does not call invalidateContextCache when there are no stuck jobs", async () => {
+284:    vi.mocked(invalidateContextCache).mockClear();
+300:    expect(vi.mocked(invalidateContextCache)).not.toHaveBeenCalledWith(projectId);
+334:    vi.mocked(invalidateContextCache).mockClear();
+364:    expect(vi.mocked(invalidateContextCache)).toHaveBeenCalledWith(projectId);
+382:    vi.mocked(invalidateContextCache).mockClear();
+412:    expect(vi.mocked(invalidateContextCache)).toHaveBeenCalledWith(projectId);
+
+artifacts/api-server/src/lib/ai-analysis-tools.ts
+35:    projectRevision?: unknown;
+42:    && typeof value.projectRevision === "string"
+43:    && value.projectRevision.length > 0
+76:      if (project?.updatedAt && project.updatedAt.toISOString() !== correlation.projectRevision) {
+92:        if (project?.updatedAt) correlation.projectRevision = project.updatedAt.toISOString();
+
+artifacts/api-server/src/lib/operation-evidence.test.ts
+19:      request: JSON.stringify({ workspaceRevision: "revision-1", objective: "Ship the change" }),
+
+artifacts/api-server/src/lib/job-reconciliation.ts
+60:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+287:      invalidateContextCache(job.projectId);
+783:        invalidateContextCache(task.projectId);
+830:        invalidateContextCache(task.projectId);
+
+artifacts/api-server/src/lib/task-execution-service.ts
+13:  invalidateContextCache,
+165:  workspaceRevision?: string;
+178:    workspaceRevision: params.workspaceRevision,
+311:        executionId, correlationId, revision: params.workspaceRevision,
+333:          revision: params.workspaceRevision ?? null,
+357:      executionId, correlationId, revision: params.workspaceRevision,
+451:    invalidateContextCache(before.projectId);
+458:      executionId, correlationId, revision: params.workspaceRevision,
+482:        revision: params.workspaceRevision ?? null,
+500:        revision: params.workspaceRevision ?? null,
+505:    invalidateContextCache(before.projectId);
+
+artifacts/api-server/src/lib/scan-runner.ts
+20:import { invalidateContextCache } from "@workspace/ai-orchestrator";
+70:  projectRevision: string;
+72:  sourceProvenance: string;
+73:  scanCorrelationId: string;
+190:      invalidateContextCache(projectId);
+594:      projectRevision: walkResult.revision,
+596:      sourceProvenance: "filesystem-scan",
+597:      scanCorrelationId: correlationId,
+628:    invalidateContextCache(projectId);
+
+artifacts/api-server/src/lib/workflow-phase-execution.ts
+55:    workspaceRevision: params.revision,
+
+artifacts/api-server/src/lib/ai-execution-state.test.ts
+172:      workspaceRevision: "revision-current",
+178:      workspaceRevision: "revision-stale",
+196:      workspaceRevision: "revision-current",
+
+artifacts/api-server/src/lib/operation-evidence.ts
+163:  const revision = text(request.workspaceRevision, 200) ?? text(input.proposal?.baseRevision, 200) ?? text(execution.baseRevision, 200) ?? null;

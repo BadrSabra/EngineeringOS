@@ -29,6 +29,12 @@ describe("walkProject", () => {
     const result = await walkProject(TEST_DIR);
 
     expect(result.files.length).toBeGreaterThan(0);
+    expect(result.revisionManifest.revision).toBe(result.revision);
+    expect(result.revisionManifest.sourceRoot).toBe(TEST_DIR);
+    expect(result.revisionManifest.completeness).toBe("COMPLETE");
+    expect(result.revisionManifest.files.map((file) => file.path)).toEqual(
+      result.files.map((file) => file.path),
+    );
   });
 
   it("detects TypeScript files with correct language", async () => {
@@ -57,6 +63,21 @@ describe("walkProject", () => {
 
     const jsonFiles = result.files.filter((f) => f.path === "package.json");
     expect(jsonFiles.length).toBe(1);
+  });
+
+  it("changes the revision when a file is added or removed", async () => {
+    const before = await walkProject(TEST_DIR);
+    const addedPath = join(TEST_DIR, "src", "revision-marker.ts");
+    await writeFile(addedPath, "export const marker = true;");
+    try {
+      const added = await walkProject(TEST_DIR);
+      expect(added.revision).not.toBe(before.revision);
+      expect(added.revisionManifest.files.some((file) => file.path === "src/revision-marker.ts")).toBe(true);
+    } finally {
+      await rm(addedPath, { force: true });
+    }
+    const removed = await walkProject(TEST_DIR);
+    expect(removed.revision).toBe(before.revision);
   });
 
   it("populates content for small files", async () => {

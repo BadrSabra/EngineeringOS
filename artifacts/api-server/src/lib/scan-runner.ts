@@ -72,6 +72,17 @@ export interface ScanJobResult {
   sourceProvenance: string;
   scanCorrelationId: string;
   scannerVersion: string;
+  repositoryManifest: {
+    revision: string;
+    sourceRoot: string;
+    files: Array<{ path: string; size: number; contentHash: string; oversized: boolean }>;
+    completeness: "COMPLETE" | "PARTIAL";
+    derivedArtifacts: {
+      scanner: "COMPLETE" | "PARTIAL";
+      graph: "COMPLETE" | "PARTIAL";
+      metrics: "COMPLETE" | "PARTIAL";
+    };
+  };
 }
 
 /**
@@ -596,6 +607,14 @@ export async function performScan(projectId: string, signal?: AbortSignal): Prom
       sourceProvenance: "filesystem-scan",
       scanCorrelationId: correlationId,
       scannerVersion: SCANNER_VERSION,
+      repositoryManifest: {
+        ...walkResult.revisionManifest,
+        derivedArtifacts: {
+          scanner: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
+          graph: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
+          metrics: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
+        },
+      },
       _priorQualityScore: project[0].qualityScore ?? null,
     };
   }).then(async (result) => {

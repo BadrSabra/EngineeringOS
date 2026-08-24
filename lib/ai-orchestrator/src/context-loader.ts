@@ -17,6 +17,7 @@ import {
 } from "@workspace/db";
 import { eq, desc, asc } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { RepositoryRevisionManifest } from "./context-manifest.js";
 
 // ─── Queryable ────────────────────────────────────────────────────────────────
 // NodePgDatabase is structurally compatible with both the global db handle and
@@ -405,6 +406,9 @@ export async function loadProjectContext(
             : latestScanJob?.status === "completed" ? "filesystem-scan:legacy" : "project-record",
         ...(typeof scanResult?.scanCorrelationId === "string" && { scanCorrelationId: scanResult.scanCorrelationId }),
         ...(typeof scanResult?.scannerVersion === "string" && { scannerVersion: scanResult.scannerVersion }),
+        ...(scanResult?.repositoryManifest
+          ? { repositoryManifest: scanResult.repositoryManifest as RepositoryRevisionManifest }
+          : {}),
         capturedAt: new Date().toISOString(),
       };
 
