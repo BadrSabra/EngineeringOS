@@ -2509,6 +2509,40 @@ describe("delivery recovery routes", () => {
     expect(JSON.stringify(res.body)).not.toContain("workspaceRoot");
   });
 
+  it("returns the safe not-found contract for deleted recovery links", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const operation = await makeRecoverableProposal(projectId, "blocked", {
+      conflictReason: "Internal diagnostic: recovery stopped at /tmp/private-recovery-root.",
+    });
+    const privateDetails = [
+      operation.workspaceRoot,
+      operation.change.absolutePath,
+      operation.change.newContent,
+      "Internal diagnostic",
+    ];
+
+    await db.delete(aiChangeProposalsTable)
+      .where(eq(aiChangeProposalsTable.id, operation.proposalId));
+
+    const [resume, discard] = await Promise.all([
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/resume-validation`),
+      request(app).post(`/api/ai/delivery/${operation.proposalId}/discard`),
+    ]);
+
+    for (const response of [resume, discard]) {
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({
+        error: "Delivery operation not found",
+        code: "DELIVERY_NOT_FOUND",
+      });
+      const serialized = JSON.stringify(response.body);
+      for (const detail of privateDetails) {
+        if (detail) expect(serialized).not.toContain(detail);
+      }
+    }
+  });
+
   it("enforces project ownership for recovery listing and actions", async () => {
     const projectId = await insertProject();
     projectIds.push(projectId);
