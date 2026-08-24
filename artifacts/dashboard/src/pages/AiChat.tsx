@@ -7429,7 +7429,7 @@ export default function AiChat() {
   const [deliveryRecoveryPending, setDeliveryRecoveryPending] = useState<string | null>(null);
 
   async function recoverDelivery(proposal: RecoverableDelivery, action: 'resume-validation' | 'discard') {
-    if (deliveryRecoveryPending) return;
+    if (deliveryRecoveryPending || proposal.recoveryState !== 'recoverable') return;
     setDeliveryRecoveryPending(proposal.proposalId);
     try {
       const response = await fetch(`/api/ai/delivery/${encodeURIComponent(proposal.proposalId)}/${action}`, {
@@ -8844,8 +8844,13 @@ export default function AiChat() {
                 Recoverable delivery work
               </div>
               <div className="mt-2 space-y-2">
-                {recoverableDeliveries!.operations.map((delivery) => (
-                  <div key={delivery.proposalId} className="rounded-md border border-amber-500/20 bg-background/30 p-2.5 text-[11px]">
+                  {recoverableDeliveries!.operations.map((delivery) => (
+                    <div
+                      key={delivery.proposalId}
+                      className="rounded-md border border-amber-500/20 bg-background/30 p-2.5 text-[11px]"
+                      data-operation-id={delivery.operationId}
+                      data-recovery-state={delivery.recoveryState}
+                    >
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <Badge variant={delivery.recoveryState === 'discarded' ? 'secondary' : delivery.recoveryState === 'missing_workspace' ? 'destructive' : 'outline'} className="text-[10px]">
                         {delivery.recoveryState === 'recoverable'
@@ -8894,7 +8899,7 @@ export default function AiChat() {
                         size="sm"
                         variant="ghost"
                         className="h-7 px-2 text-[11px] text-red-200 hover:text-red-100"
-                        disabled={deliveryRecoveryPending !== null || delivery.recoveryState === 'discarded'}
+                        disabled={deliveryRecoveryPending !== null || delivery.recoveryState !== 'recoverable'}
                         onClick={() => void recoverDelivery(delivery, 'discard')}
                       >
                         <Trash2 className="mr-1 h-3 w-3" />

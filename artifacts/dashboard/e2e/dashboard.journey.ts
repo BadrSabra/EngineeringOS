@@ -161,6 +161,10 @@ async function installApiFixtures(
       recoveredToken: string;
       resumedStreamBody: string;
     };
+    deliveryRecovery?: {
+      operations: Array<Record<string, unknown>>;
+      requests: string[];
+    };
     projects?: Array<Record<string, unknown>>;
     events?: Array<Record<string, unknown>>;
     archiveUpload?: {
@@ -404,6 +408,15 @@ async function installApiFixtures(
             },
           ],
         ),
+      );
+    }
+    if (
+      overrides?.deliveryRecovery &&
+      path === "/api/ai/delivery/recoverable"
+    ) {
+      overrides.deliveryRecovery.requests.push(route.request().url());
+      return route.fulfill(
+        jsonResponse({ operations: overrides.deliveryRecovery.operations }),
       );
     }
     if (path === "/api/events") {
@@ -2725,6 +2738,149 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     expect(
       streamRequests.map((request) => request.executionId).filter(Boolean),
     ).toEqual([recovery.fixture.executionId]);
+  });
+
+  test("projects delivery recovery states safely after reload", async ({
+    page,
+  }) => {
+    const recovery = {
+      requests: [] as string[],
+      operations: [
+        {
+          proposalId: "e2e-recovery-available-proposal",
+          operationId: "e2e-recovery-available-operation",
+          sessionId: "e2e-recovery-available-session",
+          lifecycle: "blocked",
+          status: "pending",
+          createdAt: "2026-01-01T00:03:00.000Z",
+          recoveryState: "recoverable",
+          operatorExplanation:
+            "The delivery stopped because validation needs to be run again.",
+          nextAction:
+            "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.",
+          conflictReason: null,
+          validationEvidence: [{ profile: "workspace-typecheck", status: "failed" }],
+          workspaceAvailable: true,
+          changeCount: 2,
+        },
+        {
+          proposalId: "e2e-recovery-missing-proposal",
+          operationId: "e2e-recovery-missing-operation",
+          sessionId: "e2e-recovery-missing-session",
+          lifecycle: "abandoned",
+          status: "pending",
+          createdAt: "2026-01-01T00:02:00.000Z",
+          recoveryState: "missing_workspace",
+          operatorExplanation:
+            "The saved delivery workspace is no longer available, so recovery cannot continue.",
+          nextAction:
+            "Start a new delivery from the current project rather than retrying this recovery.",
+          conflictReason: "Workspace expired after the runner was recycled.",
+          validationEvidence: null,
+          workspaceAvailable: false,
+          changeCount: 1,
+        },
+        {
+          proposalId: "e2e-recovery-discarded-proposal",
+          operationId: "e2e-recovery-discarded-operation",
+          sessionId: "e2e-recovery-discarded-session",
+          lifecycle: "cancelled",
+          status: "rejected",
+          createdAt: "2026-01-01T00:01:00.000Z",
+          recoveryState: "discarded",
+          operatorExplanation: "This delivery recovery was already discarded.",
+          nextAction: "No action is required.",
+          conflictReason: "Internal diagnostic: should never be rendered",
+          validationEvidence: null,
+          workspaceAvailable: false,
+          changeCount: 3,
+        },
+      ],
+    };
+    await installApiFixtures(page, { deliveryRecovery: recovery });
+    await programmaticSignIn(page);
+    await page.goto(`${DASHBOARD_PATH}ai`);
+
+    const region = page.getByRole("region", {
+      name: "Recoverable delivery operations",
+    });
+    await expect(region).toBeVisible();
+    await expect(region.getByText("Recoverable", { exact: true })).toBeVisible();
+    await expect(
+      region.getByText("Workspace unavailable", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      region.getByText("Already discarded", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      region.getByText(
+        "The saved delivery workspace is no longer available, so recovery cannot continue.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(
+      region.getByText("This delivery recovery was already discarded.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      region.getByText(
+        "Retained reason: Workspace expired after the runner was recycled.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+
+    const available = region.locator(
+      '[data-operation-id="e2e-recovery-available-operation"]',
+    );
+    const missing = region.locator(
+      '[data-operation-id="e2e-recovery-missing-operation"]',
+    );
+    const discarded = region.locator(
+      '[data-operation-id="e2e-recovery-discarded-operation"]',
+    );
+    await expect(available).toHaveAttribute(
+      "data-recovery-state",
+      "recoverable",
+    );
+    await expect(missing).toHaveAttribute(
+      "data-recovery-state",
+      "missing_workspace",
+    );
+    await expect(discarded).toHaveAttribute(
+      "data-recovery-state",
+      "discarded",
+    );
+    await expect(available.getByRole("button", { name: "Resume validation" })).toBeEnabled();
+    await expect(available.getByRole("button", { name: "Discard workspace" })).toBeEnabled();
+    await expect(missing.getByRole("button", { name: "Resume validation" })).toBeDisabled();
+    await expect(missing.getByRole("button", { name: "Discard workspace" })).toBeDisabled();
+    await expect(discarded.getByRole("button", { name: "Resume validation" })).toBeDisabled();
+    await expect(discarded.getByRole("button", { name: "Discard workspace" })).toBeDisabled();
+
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toMatch(
+      /\/home\/runner|\/tmp\/|\/workspace\/|internal diagnostic/i,
+    );
+    await expectNoHorizontalOverflow(page);
+
+    await page.reload();
+    const reloadedRegion = page.getByRole("region", {
+      name: "Recoverable delivery operations",
+    });
+    await expect(reloadedRegion).toBeVisible();
+    await expect(
+      reloadedRegion
+        .locator('[data-operation-id="e2e-recovery-missing-operation"]')
+        .getByRole("button", { name: "Resume validation" }),
+    ).toBeDisabled();
+    await expect(
+      reloadedRegion
+        .locator('[data-operation-id="e2e-recovery-discarded-operation"]')
+        .getByRole("button", { name: "Discard workspace" }),
+    ).toBeDisabled();
+    expect(recovery.requests.length).toBeGreaterThanOrEqual(2);
+    expect(recovery.requests.every((url) => url.includes("projectId=e2e-project"))).toBe(true);
   });
 
   test("keeps the resumed AI session drawer overlaid on a phone viewport", async ({
