@@ -364,7 +364,15 @@ function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: strin
             {task.verificationResult?.passed ? <ShieldCheck className="w-4 h-4 text-emerald-500" /> : <FileCheck2 className="w-4 h-4 text-muted-foreground" />}
             Final report
           </h4>
-          <p className="text-sm font-medium">{taskStatus === 'completed' ? 'Task completed and verified.' : taskStatus === 'cancelled' ? 'Task cancelled before completion.' : 'Task ended without a confirmed successful verification.'}</p>
+           <p className="text-sm font-medium">
+             {taskStatus === 'completed' && task.verificationResult?.passed
+               ? 'Task completed and verified by the server.'
+               : taskStatus === 'completed'
+                 ? 'Task completed, but no passed server verification is recorded.'
+                 : taskStatus === 'cancelled'
+                   ? 'Task cancelled before completion.'
+                   : 'Task ended without a confirmed successful verification.'}
+           </p>
           {task.verificationResult?.steps?.length ? (
             <div className="mt-3 space-y-1">{task.verificationResult.steps.map((step) => (
               <div key={step.name} className="flex items-center gap-2 text-xs">

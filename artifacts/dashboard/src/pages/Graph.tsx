@@ -150,7 +150,7 @@ function nodeColor(type: string) { return TYPE_COLORS[type] ?? DEFAULT_COLOR; }
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Graph() {
-  const { data: projects, isError: projectsError, refetch: refetchProjects } = useListProjects();
+  const { data: projects, isLoading: projectsLoading, isError: projectsError, refetch: refetchProjects } = useListProjects();
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedEntityId, setSelectedEntityId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -162,19 +162,19 @@ export default function Graph() {
 
   const effectiveProjectId = selectedProjectId || (projects?.[0]?.id ?? '');
 
-  const { data: entitiesResponse, isLoading: entitiesLoading, isError: entitiesError, error: entitiesErrorValue, refetch: refetchEntities, isRefetching, dataUpdatedAt } = useListGraphEntities(
+  const { data: entitiesResponse, isLoading: entitiesLoading, isStale: entitiesStale, isError: entitiesError, error: entitiesErrorValue, refetch: refetchEntities, isRefetching, dataUpdatedAt } = useListGraphEntities(
     { projectId: effectiveProjectId },
     { query: { queryKey: getListGraphEntitiesQueryKey({ projectId: effectiveProjectId }), enabled: !!effectiveProjectId, staleTime: 30_000 } },
   );
   const entities = entitiesResponse?.items ?? [];
 
-  const { data: relationshipsResponse, isError: relationshipsError, refetch: refetchRelationships } = useListGraphRelationships(
+  const { data: relationshipsResponse, isLoading: relationshipsLoading, isStale: relationshipsStale, isError: relationshipsError, refetch: refetchRelationships } = useListGraphRelationships(
     { projectId: effectiveProjectId },
     { query: { queryKey: getListGraphRelationshipsQueryKey({ projectId: effectiveProjectId }), enabled: !!effectiveProjectId, staleTime: 30_000 } },
   );
   const relationships = relationshipsResponse?.items ?? [];
 
-  const { data: summary, isError: summaryError, refetch: refetchSummary } = useGetGraphSummary(
+  const { data: summary, isLoading: summaryLoading, isStale: summaryStale, isError: summaryError, refetch: refetchSummary } = useGetGraphSummary(
     effectiveProjectId,
     { query: { queryKey: getGetGraphSummaryQueryKey(effectiveProjectId), enabled: !!effectiveProjectId, staleTime: 60_000 } },
   );
@@ -298,8 +298,18 @@ export default function Graph() {
         </div>
       </div>
 
-      {projectsError ? (
+      {projectsLoading ? (
+        <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground animate-pulse">
+          Loading projects…
+        </div>
+      ) : projectsError ? (
         <RequestError message="Unable to load projects for the graph." onRetry={() => void refetchProjects()} />
+      ) : !projects || projects.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center">
+          <Network className="mx-auto mb-3 h-10 w-10 text-muted-foreground opacity-30" />
+          <p className="text-sm font-medium">No projects are available for graph analysis.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Import a project and run a scan before exploring its dependencies.</p>
+        </div>
       ) : entitiesError || relationshipsError || summaryError ? (
         <RequestError
           message={entitiesErrorValue instanceof Error ? entitiesErrorValue.message : 'Unable to load graph data.'}
@@ -307,6 +317,11 @@ export default function Graph() {
         />
       ) : (
        <div className="grid grid-cols-[220px_1fr_260px] gap-4 flex-1 min-h-0">
+        {(entitiesStale || relationshipsStale || summaryStale) && (
+          <div className="col-span-full rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200" role="status">
+            This graph view is stale and may not reflect the latest completed scan. Refresh before using it for current dependency decisions.
+          </div>
+        )}
         {/* Left sidebar: legend + summary + entity list */}
         <div className="bg-card border border-border rounded-xl p-4 shadow-sm flex flex-col overflow-hidden">
           {/* Type legend */}
@@ -323,7 +338,9 @@ export default function Graph() {
           </div>
 
           {/* Summary stats */}
-          {summary && (
+               {summaryLoading ? (
+                 <div className="border-t border-border pt-3 mb-4 text-xs text-muted-foreground animate-pulse">Loading graph summary…</div>
+               ) : summary && (
             <div className="border-t border-border pt-3 mb-4 space-y-2">
               <h3 className="font-semibold text-xs uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
                 <GitMerge className="w-3.5 h-3.5" /> Graph Stats
@@ -360,8 +377,8 @@ export default function Graph() {
               Entities ({filteredEntities.length})
             </h3>
             <div className="flex-1 overflow-y-auto space-y-0.5 pr-1">
-              {entitiesLoading ? (
-                <div className="text-xs text-muted-foreground animate-pulse">Loading...</div>
+               {entitiesLoading || relationshipsLoading ? (
+                <div className="text-xs text-muted-foreground animate-pulse">Loading graph entities…</div>
               ) : filteredEntities.length === 0 ? (
                 <div className="text-xs text-muted-foreground italic">No entities found.</div>
               ) : (
@@ -390,15 +407,15 @@ export default function Graph() {
 
         {/* Center: SVG graph canvas */}
         <div className="bg-card border border-border rounded-xl shadow-sm relative overflow-hidden">
-          {entitiesLoading ? (
+           {entitiesLoading || relationshipsLoading || summaryLoading ? (
             <div className="absolute inset-0 flex items-center justify-center text-primary animate-pulse gap-2 text-sm">
               <Network className="w-5 h-5 animate-spin" /> Computing layout…
             </div>
           ) : entities.length === 0 ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground text-sm gap-3">
               <Network className="w-10 h-10 opacity-20" />
-              <p>No graph data for this project.</p>
-              <p className="text-xs opacity-70">Run a scan to extract the knowledge graph.</p>
+              <p>No verified graph data for this project.</p>
+              <p className="text-xs opacity-70">Run a scan and refresh after it completes to extract the knowledge graph.</p>
             </div>
           ) : (
             <svg

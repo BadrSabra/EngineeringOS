@@ -71,7 +71,7 @@ export default function ProjectDetail() {
     { query: { enabled: !!projectId, queryKey: getListTasksQueryKey({ projectId }) } },
   );
 
-  const { data: graphSummary } = useGetGraphSummary(projectId, {
+  const { data: graphSummary, isLoading: loadingGraphSummary, isError: graphSummaryError } = useGetGraphSummary(projectId, {
     query: { enabled: !!projectId, queryKey: getGetGraphSummaryQueryKey(projectId), staleTime: 60_000 },
   });
   const { data: browserProfileData, isError: browserProfilesError } = useQuery<BrowserValidationProfile[]>({
@@ -125,6 +125,7 @@ export default function ProjectDetail() {
   }
 
   const metrics = summary.latestMetrics ?? null;
+  const hasCurrentScan = Boolean(project.lastScanAt) && project.status !== 'scanning';
 
   return (
     <div className="space-y-6">
@@ -140,6 +141,23 @@ export default function ProjectDetail() {
           <span className="text-border">/</span>
           <span className="text-foreground">{project.name}</span>
         </div>
+      </div>
+
+      <div
+        className={`rounded-lg border px-3 py-2 text-xs ${
+          project.status === 'scanning'
+            ? 'border-primary/30 bg-primary/5 text-primary'
+            : hasCurrentScan
+              ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-300'
+              : 'border-amber-500/30 bg-amber-500/5 text-amber-200'
+        }`}
+        role="status"
+      >
+        {project.status === 'scanning'
+          ? 'A scan is in progress. Scores and graph data below remain from the last completed scan until the server reports the new result.'
+          : hasCurrentScan
+            ? `Analysis reflects the completed scan from ${new Date(project.lastScanAt!).toLocaleString()}.`
+            : 'No completed scan is recorded for this project. Scores and graph data are not verified for the current source.'}
       </div>
 
       {/* Project header */}
@@ -281,7 +299,15 @@ export default function ProjectDetail() {
       </div>
 
       {/* Knowledge graph summary strip */}
-      {graphSummary && (
+      {loadingGraphSummary ? (
+        <div className="bg-card border border-border rounded-xl p-5 shadow-sm text-sm text-muted-foreground animate-pulse">
+          Loading knowledge graph summary…
+        </div>
+      ) : graphSummaryError ? (
+        <div className="bg-card border border-amber-500/30 rounded-xl p-5 shadow-sm text-sm text-amber-200" role="status">
+          Knowledge graph data is unavailable. Refresh the project before relying on dependency counts.
+        </div>
+      ) : graphSummary ? (
         <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold flex items-center gap-2">
@@ -323,6 +349,10 @@ export default function ProjectDetail() {
             </div>
           )}
         </div>
+      ) : (
+        <div className="bg-card border border-dashed border-border rounded-xl p-5 shadow-sm text-sm text-muted-foreground">
+          No verified knowledge graph is available for this project yet. Run a scan to extract dependencies.
+        </div>
       )}
 
       {/* GitHub integration */}
@@ -336,7 +366,7 @@ export default function ProjectDetail() {
             <ShieldAlert className="w-4 h-4 text-primary" /> Quality Score
           </h2>
           <div className="text-center mb-6">
-            <div
+             <div
               className={`text-6xl font-bold font-mono ${
                 summary.qualityScore >= 80
                   ? 'text-emerald-500'
@@ -345,9 +375,9 @@ export default function ProjectDetail() {
                   : 'text-destructive'
               }`}
             >
-              {summary.qualityScore}
+               {hasCurrentScan ? summary.qualityScore : '—'}
             </div>
-            <div className="text-muted-foreground text-sm mt-1">/ 100</div>
+            <div className="text-muted-foreground text-sm mt-1">{hasCurrentScan ? '/ 100' : 'not verified'}</div>
           </div>
 
           {metrics && (

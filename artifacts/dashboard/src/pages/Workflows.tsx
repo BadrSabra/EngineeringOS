@@ -295,6 +295,8 @@ function ExecutionHistory({
       ? 'text-emerald-500'
       : status === 'failed'
       ? 'text-destructive'
+      : status === 'stopped'
+      ? 'text-amber-500'
       : 'text-muted-foreground';
 
   return (
@@ -307,7 +309,13 @@ function ExecutionHistory({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className={`font-bold uppercase tracking-wider ${statusStyle(exec.status)}`}>
-                {exec.status}
+                {exec.status === 'completed'
+                  ? 'completed · server reported success'
+                  : exec.status === 'failed'
+                    ? 'failed · no successful completion'
+                    : exec.status === 'stopped'
+                      ? 'stopped · not completed'
+                      : exec.status}
               </span>
               {exec.currentPhase && (
                 <span className="text-muted-foreground font-mono truncate">
