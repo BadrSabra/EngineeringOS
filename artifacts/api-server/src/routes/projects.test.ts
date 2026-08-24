@@ -119,7 +119,12 @@ describe("browser validation profiles — ownership and safety", () => {
     const listed = await request(app).get(`/api/projects/${projectId}/browser-validation-profiles`);
     expect(listed.status).toBe(200);
     expect(listed.body).toHaveLength(1);
-    expect(listed.body[0].name).toBe("smoke");
+    expect(listed.body[0]).toMatchObject({
+      name: "smoke",
+      freshnessStatus: "fresh",
+      freshnessReason: null,
+      currentRevision: created.body.revision,
+    });
 
     const updated = await request(app)
       .put(`/api/projects/${projectId}/browser-validation-profiles/smoke`)

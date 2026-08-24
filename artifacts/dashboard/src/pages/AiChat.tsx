@@ -73,6 +73,12 @@ import {
 } from '@/lib/mission-correlation-report';
 
 type Project = { id: string; name: string; language: string };
+type BrowserValidationProfileFreshness = {
+  name: string;
+  freshnessStatus: 'fresh' | 'stale';
+  freshnessReason: 'stale_revision' | null;
+  currentRevision: string;
+};
 type BenchmarkScorecard = {
   suiteVersion?: string;
   generatedAt?: string;
@@ -3635,6 +3641,7 @@ function TaskResultPanel({
   planDecisionPending,
   onPlanBuild,
   planBuildPending,
+  browserProfileFreshness,
 }: {
   result: AiTaskResult | null | undefined;
   projectId?: string;
@@ -3643,9 +3650,27 @@ function TaskResultPanel({
   planDecisionPending?: boolean;
   onPlanBuild?: (messageId: string) => void;
   planBuildPending?: boolean;
+  browserProfileFreshness?: BrowserValidationProfileFreshness | null;
 }) {
   const [reportExpanded, setReportExpanded] = useState(false);
   const [planDetailsExpanded, setPlanDetailsExpanded] = useState(false);
+  const browserProfileName = result?.kind === 'IMPLEMENTATION_PLAN_RESULT'
+    ? result.browserValidationProfile
+    : undefined;
+  const { data: browserProfileData } = useQuery<BrowserValidationProfileFreshness[]>({
+    queryKey: ['browser-validation-profiles', projectId, browserProfileName],
+    enabled: Boolean(projectId && browserProfileName),
+    queryFn: async () => {
+      const response = await fetch(`/api/projects/${encodeURIComponent(projectId!)}/browser-validation-profiles`);
+      if (!response.ok) throw new Error('Browser validation profiles are unavailable.');
+      return response.json();
+    },
+    staleTime: 15_000,
+  });
+  const resolvedBrowserProfileFreshness = browserProfileFreshness
+    ?? (Array.isArray(browserProfileData)
+      ? browserProfileData.find((profile) => profile.name === browserProfileName) ?? null
+      : null);
   if (!result) return null;
 
   switch (result.kind) {
@@ -3902,6 +3927,11 @@ function TaskResultPanel({
           {planDetailsExpanded && typeof result.browserValidationProfile === 'string' && (
             <div className="text-xs text-muted-foreground">
               <span className="font-medium text-foreground/80">Browser validation:</span> {result.browserValidationProfile}
+              {resolvedBrowserProfileFreshness && (
+                <span className={`ml-2 ${resolvedBrowserProfileFreshness.freshnessStatus === 'fresh' ? 'text-emerald-400' : 'text-amber-300'}`}>
+                  · {resolvedBrowserProfileFreshness.freshnessStatus === 'fresh' ? 'fresh for current revision' : 'unavailable: stale revision'}
+                </span>
+              )}
             </div>
           )}
           {result.approvalStatus === 'PENDING_APPROVAL' && approvalBlocked ? (
@@ -3925,13 +3955,21 @@ function TaskResultPanel({
               <Button
                 type="button"
                 size="sm"
-                disabled={planDecisionPending}
+                disabled={planDecisionPending || (
+                  Boolean(result.browserValidationProfile) &&
+                  resolvedBrowserProfileFreshness?.freshnessStatus !== 'fresh'
+                )}
                 onClick={() => onPlanDecision(messageId, 'approve')}
                 className="h-7 px-2 text-[11px]"
               >
                 {planDecisionPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Check className="mr-1 h-3 w-3" />}
                 Approve plan
               </Button>
+              {result.browserValidationProfile && resolvedBrowserProfileFreshness?.freshnessStatus !== 'fresh' && (
+                <span className="basis-full text-[10px] text-amber-300">
+                  Refresh the project and register this browser check again before approving delivery.
+                </span>
+              )}
             </div>
           ) : result.approvalStatus === 'APPROVED' && messageId && onPlanBuild ? (
             <div className="flex flex-wrap items-center gap-2 border-t border-border/40 pt-2">
@@ -3939,13 +3977,21 @@ function TaskResultPanel({
               <Button
                 type="button"
                 size="sm"
-                disabled={planBuildPending}
+                disabled={planBuildPending || (
+                  Boolean(result.browserValidationProfile) &&
+                  resolvedBrowserProfileFreshness?.freshnessStatus !== 'fresh'
+                )}
                 onClick={() => onPlanBuild(messageId)}
                 className="h-7 px-2 text-[11px]"
               >
                 {planBuildPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Play className="mr-1 h-3 w-3" />}
                 Start Build
               </Button>
+              {result.browserValidationProfile && resolvedBrowserProfileFreshness?.freshnessStatus !== 'fresh' && (
+                <span className="basis-full text-[10px] text-amber-300">
+                  Refresh the project and register this browser check again before starting delivery.
+                </span>
+              )}
             </div>
           ) : (
             <div className="text-[10px] text-muted-foreground">
@@ -3972,6 +4018,7 @@ function MessageBubble({
   planDecisionPending,
   onPlanBuild,
   planBuildPending,
+  browserProfileFreshness,
   onRegenerateReport,
   reportRegenerationPending,
   onRetryStructuredTask,
@@ -3984,6 +4031,7 @@ function MessageBubble({
   planDecisionPending?: boolean;
   onPlanBuild?: (messageId: string) => void;
   planBuildPending?: boolean;
+  browserProfileFreshness?: BrowserValidationProfileFreshness | null;
   onRegenerateReport?: (messageId: string) => void;
   reportRegenerationPending?: boolean;
   onRetryStructuredTask?: (task: 'analyze' | 'review', messageId: string) => void;
@@ -4173,6 +4221,7 @@ function MessageBubble({
             planDecisionPending={planDecisionPending}
             onPlanBuild={onPlanBuild}
             planBuildPending={planBuildPending}
+            browserProfileFreshness={browserProfileFreshness}
           />
         )}
         {!isUser && msg.missionCorrelationReportError && (

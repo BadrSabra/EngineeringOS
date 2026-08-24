@@ -525,6 +525,7 @@ function hasSafeImplementationPlanFileScope(plan: ApprovedImplementationPlan): b
 type PlanContextGateFailure = {
   error: string;
   code: "PLAN_CONTEXT_STALE" | "PLAN_CONTEXT_INCOMPLETE" | "PLAN_FILES_CHANGED";
+  reasonCode?: "invalid_profile" | "stale_revision";
 };
 
 /**
@@ -572,6 +573,35 @@ async function validatePlanContextForExecution(
     return {
       error: "The project files changed after inspection. Scan again, rebuild, and explicitly re-approve the plan.",
       code: "PLAN_FILES_CHANGED",
+    };
+  }
+  return null;
+}
+
+async function validateBrowserProfileForDelivery(
+  projectId: string,
+  projectRevision: string,
+  profileName: string | undefined,
+): Promise<PlanContextGateFailure | null> {
+  if (!profileName) return null;
+  const [profile] = await db.select({
+    revision: browserValidationProfilesTable.revision,
+  }).from(browserValidationProfilesTable).where(and(
+    eq(browserValidationProfilesTable.projectId, projectId),
+    eq(browserValidationProfilesTable.name, profileName),
+  )).limit(1);
+  if (!profile) {
+    return {
+      error: "The selected browser validation profile is not registered for this project.",
+      code: "PLAN_CONTEXT_INCOMPLETE",
+      reasonCode: "invalid_profile",
+    };
+  }
+  if (profile.revision !== projectRevision) {
+    return {
+      error: "The selected browser validation profile belongs to an older project revision. Register a fresh browser check before continuing.",
+      code: "PLAN_CONTEXT_STALE",
+      reasonCode: "stale_revision",
     };
   }
   return null;
@@ -2202,6 +2232,12 @@ router.post("/ai/chat/stream", async (req, res) => {
       validRootPath,
     );
     if (contextFailure) return res.status(409).json(contextFailure);
+    const browserProfileFailure = await validateBrowserProfileForDelivery(
+      projectId,
+      project.updatedAt.toISOString(),
+      storedPlan.browserValidationProfile,
+    );
+    if (browserProfileFailure) return res.status(409).json(browserProfileFailure);
 
     approvedImplementationPlan = storedPlan;
     implementationPlanScope = getImplementationPlanScope(storedPlan, validRootPath);
@@ -4576,6 +4612,12 @@ router.post("/ai/chat/plans/:messageId/decision", async (req, res) => {
       rootCheck.validRootPath,
     );
     if (contextFailure) return res.status(409).json(contextFailure);
+    const browserProfileFailure = await validateBrowserProfileForDelivery(
+      project.id,
+      project.updatedAt.toISOString(),
+      current.browserValidationProfile,
+    );
+    if (browserProfileFailure) return res.status(409).json(browserProfileFailure);
   }
     if (body.data.decision === "approve" && !hasSafeImplementationPlanFileScope(current)) {
       return res.status(409).json({

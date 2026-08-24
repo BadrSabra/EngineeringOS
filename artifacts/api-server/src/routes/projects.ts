@@ -59,12 +59,19 @@ const BrowserProfileBody = z.object({
   timeoutMs: z.number().int().min(1).max(PREVIEW_LIMITS.maxValidationMs).default(PREVIEW_LIMITS.maxValidationMs),
 }).strict();
 
-function publicBrowserProfile(profile: typeof browserValidationProfilesTable.$inferSelect) {
+function publicBrowserProfile(
+  profile: typeof browserValidationProfilesTable.$inferSelect,
+  currentRevision: string,
+) {
+  const isFresh = profile.revision === currentRevision;
   return {
     id: profile.id, projectId: profile.projectId, name: profile.name,
     revision: profile.revision, permittedOrigin: profile.permittedOrigin,
     steps: profile.steps, timeoutMs: profile.timeoutMs,
     createdAt: profile.createdAt, updatedAt: profile.updatedAt,
+    currentRevision,
+    freshnessStatus: isFresh ? "fresh" as const : "stale" as const,
+    freshnessReason: isFresh ? null : "stale_revision" as const,
   };
 }
 
@@ -120,7 +127,8 @@ router.get("/projects/:projectId/browser-validation-profiles", requireProjectAcc
   const rows = await db.select().from(browserValidationProfilesTable)
     .where(eq(browserValidationProfilesTable.projectId, req.project!.id))
     .orderBy(desc(browserValidationProfilesTable.updatedAt));
-  return res.json(rows.map(publicBrowserProfile));
+  const currentRevision = req.project!.updatedAt.toISOString();
+  return res.json(rows.map((profile) => publicBrowserProfile(profile, currentRevision)));
 });
 
 router.put("/projects/:projectId/browser-validation-profiles/:name", requireProjectWriteAccess, async (req, res) => {
@@ -158,7 +166,7 @@ router.put("/projects/:projectId/browser-validation-profiles/:name", requireProj
     target: [browserValidationProfilesTable.projectId, browserValidationProfilesTable.name],
     set: { revision: profile.revision, permittedOrigin: profile.permittedOrigin, steps: profile.steps, timeoutMs: profile.timeoutMs, updatedAt: now },
   }).returning();
-  return res.json(publicBrowserProfile(saved));
+  return res.json(publicBrowserProfile(saved, project.updatedAt.toISOString()));
 });
 
 router.delete("/projects/:projectId/browser-validation-profiles/:name", requireProjectWriteAccess, async (req, res) => {
