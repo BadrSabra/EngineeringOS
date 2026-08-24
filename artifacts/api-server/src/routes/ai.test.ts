@@ -2708,9 +2708,9 @@ describe("POST /api/ai/chat/apply-changes", () => {
     expect((ev?.payload as { appliedFiles?: string[] })?.appliedFiles ?? []).toHaveLength(0);
   });
 
-  it("rolls back a persisted change when behavioral verification is unavailable", async () => {
+  it("does not promote a candidate when behavioral verification is unavailable", async () => {
     // Use /tmp as the project rootPath. The registered validation profile is
-    // intentionally unavailable there, so a write must be rolled back.
+    // intentionally unavailable there, so the candidate must not be promoted.
     const id = randomUUID();
     const now = new Date();
     await db.insert(projectsTable).values({
@@ -2751,7 +2751,7 @@ describe("POST /api/ai/chat/apply-changes", () => {
       persistenceVerified: false,
       behavioralVerification: { status: "unavailable" },
     });
-    expect(res.body.results[0].error).toContain("rolled back");
+    expect(res.body.results[0].error).toContain("not promoted");
     await expect(fs.access(absolutePath)).rejects.toThrow();
 
     const events = await db
@@ -2772,7 +2772,7 @@ describe("POST /api/ai/chat/apply-changes", () => {
     expect(proposal?.status).toBe("pending");
   });
 
-  it("fails closed when behavioral rollback cannot be verified", async () => {
+  it("fails closed before promotion when behavioral verification is unavailable", async () => {
     const id = randomUUID();
     const now = new Date();
     await db.insert(projectsTable).values({
@@ -2798,14 +2798,6 @@ describe("POST /api/ai/chat/apply-changes", () => {
       validationProfile: "ai-orchestrator-tests" as const,
     }];
     const proposalId = await insertChangeProposal(id, proposalChanges);
-    const originalUnlink = fs.unlink.bind(fs);
-    const unlinkSpy = vi.spyOn(fs, "unlink").mockImplementation(async (target) => {
-      if (String(target) === absolutePath) {
-        throw new Error("simulated rollback permission failure");
-      }
-      return originalUnlink(target);
-    });
-
     try {
       const res = await request(app)
         .post("/api/ai/chat/apply-changes")
@@ -2815,22 +2807,18 @@ describe("POST /api/ai/chat/apply-changes", () => {
           changes: proposalChanges,
         });
 
-      expect(res.status).toBe(500);
+      expect(res.status).toBe(207);
       expect(res.body).toMatchObject({
-        applyStatus: "ROLLBACK_FAILED",
-        rollbackFailures: [{
-          path: fileName,
-          error: "simulated rollback permission failure",
-        }],
+        applyStatus: "BLOCKED",
+        rollbackFailures: [],
       });
       expect(res.body.results[0]).toMatchObject({
         ok: false,
-        writeStatus: "unknown",
+        writeStatus: "not_written",
         persistenceVerified: false,
       });
-      expect(res.body.results[0].error).toContain("filesystem state is unknown");
-      await expect(fs.readFile(absolutePath, "utf8"))
-        .resolves.toBe(proposalChanges[0].newContent);
+      expect(res.body.results[0].error).toContain("not promoted");
+      await expect(fs.access(absolutePath)).rejects.toThrow();
 
       const [proposal] = await db
         .select({
@@ -2847,29 +2835,24 @@ describe("POST /api/ai/chat/apply-changes", () => {
         .from(eventsTable)
         .where(eq(eventsTable.projectId, id));
       const event = events.find((candidate) => candidate.type === "AiChangesApplied");
-      expect(event?.severity).toBe("error");
+      expect(event?.severity).toBe("warning");
       expect((event?.payload as { applyStatus?: string })?.applyStatus)
-        .toBe("ROLLBACK_FAILED");
+        .toBe("BLOCKED");
 
       const journal = await db
         .select()
         .from(aiApplyJournalTable)
         .where(eq(aiApplyJournalTable.operationId, proposal?.messageId ?? proposalId));
       expect(journal.length).toBeGreaterThanOrEqual(2);
-      expect(journal.at(-1)?.stage).toBe("ROLLBACK_FAILED");
+      expect(journal.at(-1)?.stage).toBe("BLOCKED");
       expect(journal.at(-1)?.payload).toMatchObject({
         appliedFiles: [],
         failedFiles: [fileName],
-        rollbackFailures: [{
-          path: fileName,
-          error: "simulated rollback permission failure",
-        }],
       });
       expect(new Set(journal.map((entry) => entry.attemptId)).size).toBe(1);
       expect(journal.map((entry) => entry.sequence))
         .toEqual([...journal].sort((a, b) => a.sequence - b.sequence).map((entry) => entry.sequence));
     } finally {
-      unlinkSpy.mockRestore();
       await fs.rm(absolutePath, { force: true });
     }
   });

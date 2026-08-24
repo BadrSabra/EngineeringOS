@@ -31,6 +31,8 @@ export type ValidationEvidence = {
   permittedOrigin?: string;
   revision?: string;
   /** Integrity identifiers for delivery validation, when validating a candidate. */
+  operationId?: string;
+  projectRevision?: string;
   candidateHash?: string;
   changeSetHash?: string;
   promotedHash?: string;

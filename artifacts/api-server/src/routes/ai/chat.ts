@@ -5957,6 +5957,98 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       for (const change of writableChanges) {
         results.push({ path: change.path, ok: false, error: batchError });
       }
+    }
+
+    // Keep the candidate in lockstep with the bytes that passed preflight
+    // (including rebased hunk content). Validation must observe these exact
+    // bytes before any live-root file is promoted.
+    const candidateChanges = writableChanges;
+    for (const change of candidateChanges) {
+      const candidatePath = path.resolve(deliveryWorkspace.workspaceRoot, change.path);
+      if (candidatePath !== deliveryWorkspace.workspaceRoot
+        && !candidatePath.startsWith(`${deliveryWorkspace.workspaceRoot}${path.sep}`)) {
+        throw new Error("Delivery candidate path escapes isolated workspace");
+      }
+      await fs.mkdir(path.dirname(candidatePath), { recursive: true });
+      await fs.writeFile(candidatePath, change.newContent, "utf8");
+    }
+    const candidateHash = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+    const effectiveChangeSetHash = hashChangeSet(candidateChanges);
+    await db.update(aiChangeProposalsTable)
+      .set({ changeSetHash: effectiveChangeSetHash })
+      .where(and(
+        eq(aiChangeProposalsTable.id, proposalId),
+        eq(aiChangeProposalsTable.status, "pending"),
+      ));
+    const profiles = new Map<ValidationProfile, string[]>();
+    for (const change of writableChanges) {
+      if (!change.validationProfile) continue;
+      const pathsForProfile = profiles.get(change.validationProfile) ?? [];
+      pathsForProfile.push(change.path);
+      profiles.set(change.validationProfile, pathsForProfile);
+    }
+
+    const verificationByProfile = new Map<ValidationProfile, RepairVerificationResult>();
+    if (profiles.size > 0) {
+      await appendApplyJournal("VALIDATING", {
+        profiles: [...profiles.entries()].map(([profile, paths]) => ({ profile, paths })),
+      });
+    }
+    for (const [profile, profilePaths] of profiles) {
+      const validation = await runRepairValidation(
+        deliveryWorkspace.workspaceRoot,
+        profile,
+        profilePaths,
+      );
+      if ("evidence" in validation) {
+        validation.evidence.operationId = applyCorrelationId;
+        validation.evidence.projectRevision = deliveryWorkspace.baseRevision;
+        validation.evidence.candidateHash = candidateHash;
+        validation.evidence.changeSetHash = effectiveChangeSetHash;
+      }
+      verificationByProfile.set(profile, validation);
+    }
+
+    const candidateHashAfterValidation = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+    const candidateChangedDuringValidation = candidateHashAfterValidation !== candidateHash;
+    const liveRootChangedBeforePromotion = !candidateChangedDuringValidation && (await Promise.all(
+      candidateChanges.map(async (change) => {
+        let current: Buffer | null = null;
+        try {
+          current = await fs.readFile(change.realPath);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+        return (current === null && change.before === null)
+          || (current !== null && change.before !== null && current.equals(change.before));
+      }),
+    )).some((unchanged) => !unchanged);
+    const validationNeedsReview = candidateChangedDuringValidation || liveRootChangedBeforePromotion || [...verificationByProfile.values()].some((validation) =>
+      validation.status === "failed" ||
+      validation.status === "unavailable" ||
+      validation.status === "skipped" ||
+      validation.status === "blocked",
+    );
+    if (validationNeedsReview) {
+      // Behavioral validation is a promotion gate. Keep the candidate for
+      // inspection/recovery, but never write an unproven candidate to the
+      // user's live project.
+      for (const change of candidateChanges) {
+        results.push({
+          path: change.path,
+          ok: false,
+          error: "Behavioral verification did not pass; the candidate was not promoted.",
+        });
+      }
+      await appendApplyJournal("BLOCKED", {
+        reason: candidateChangedDuringValidation
+          ? "candidate_changed_after_validation"
+          : liveRootChangedBeforePromotion
+            ? "live_root_changed_before_promotion"
+            : "behavioral_validation",
+        candidateHash,
+        changeSetHash: effectiveChangeSetHash,
+      });
     } else {
       await appendApplyJournal("WRITING_STARTED", {
         fileCount: writableChanges.length,
@@ -5965,8 +6057,9 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       await appendApplyJournal("PROMOTION_INTENT", {
         operationId: applyCorrelationId,
         candidateWorkspace: deliveryWorkspace.workspaceRoot,
+        candidateHash,
         baseRevision: deliveryWorkspace.baseRevision,
-        changeSetHash: deliveryWorkspace.changeSetHash,
+        changeSetHash: effectiveChangeSetHash,
         files: writableChanges.map((change) => ({
           path: change.path,
           originalContent: change.before?.toString("utf8") ?? null,
@@ -5991,8 +6084,6 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
         });
       } catch (e) {
         writeFailure = e instanceof Error ? e.message : String(e);
-        // Restore every file written in this batch and verify each snapshot.
-        // A failed restore leaves the filesystem state indeterminate.
         rollbackFailures = await restoreApplySnapshots([...attemptedChanges].reverse());
         for (const result of results) {
           if (result.ok) {
@@ -6021,64 +6112,13 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       }
     }
 
-    // Keep the candidate in lockstep with the bytes that passed apply
-    // preflight (including rebased hunk content). The initial workspace was
-    // built from the approved proposal, so overwrite only the accepted files
-    // before hashing and validating it.
-    const candidateChanges = results
-      .filter((result) => result.ok)
-      .map((result) => writableChanges.find((change) => change.path === result.path))
-      .filter((change): change is typeof writableChanges[number] => Boolean(change));
-    for (const change of candidateChanges) {
-      const candidatePath = path.resolve(deliveryWorkspace.workspaceRoot, change.path);
-      if (candidatePath !== deliveryWorkspace.workspaceRoot
-        && !candidatePath.startsWith(`${deliveryWorkspace.workspaceRoot}${path.sep}`)) {
-        throw new Error("Delivery candidate path escapes isolated workspace");
-      }
-      await fs.mkdir(path.dirname(candidatePath), { recursive: true });
-      await fs.writeFile(candidatePath, change.newContent, "utf8");
-    }
-    const candidateHash = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
-    const effectiveChangeSetHash = hashChangeSet(candidateChanges);
-    await db.update(aiChangeProposalsTable)
-      .set({ changeSetHash: effectiveChangeSetHash })
-      .where(and(
-        eq(aiChangeProposalsTable.id, proposalId),
-        eq(aiChangeProposalsTable.status, "pending"),
-      ));
-    const writtenResults = results.filter((result) => result.ok);
-    const profiles = new Map<ValidationProfile, string[]>();
-    for (const change of writableChanges) {
-      if (!writtenResults.some((result) => result.path === change.path)) continue;
-      if (!change.validationProfile) continue;
-      const pathsForProfile = profiles.get(change.validationProfile) ?? [];
-      pathsForProfile.push(change.path);
-      profiles.set(change.validationProfile, pathsForProfile);
-    }
-
-    const verificationByProfile = new Map<ValidationProfile, RepairVerificationResult>();
-    if (profiles.size > 0) {
-      await appendApplyJournal("VALIDATING", {
-        profiles: [...profiles.entries()].map(([profile, paths]) => ({ profile, paths })),
-      });
-    }
-    for (const [profile, profilePaths] of profiles) {
-      const validation = await runRepairValidation(
-        deliveryWorkspace.workspaceRoot,
-        profile,
-        profilePaths,
-      );
-      if ("evidence" in validation) {
-        validation.evidence.candidateHash = candidateHash;
-        validation.evidence.changeSetHash = effectiveChangeSetHash;
-      }
-      verificationByProfile.set(profile, validation);
-    }
-
-    const promotedHash = candidateChanges.length > 0
-      ? await hashDeliveryFiles(resolvedRoot, candidateChanges)
+    const candidateFilesHash = candidateChanges.length > 0
+      ? await hashDeliveryFiles(deliveryWorkspace.workspaceRoot, candidateChanges)
       : effectiveChangeSetHash;
-    if (candidateChanges.length > 0 && promotedHash !== effectiveChangeSetHash) {
+    const promotedHash = writtenChanges.length > 0
+      ? await hashDeliveryFiles(resolvedRoot, writtenChanges)
+      : effectiveChangeSetHash;
+    if (writtenChanges.length > 0 && promotedHash !== candidateFilesHash) {
       for (const result of results) {
         if (result.ok) {
           result.ok = false;
@@ -6126,12 +6166,13 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
         behavioralVerification: result.behavioralVerification ?? verification,
       };
     });
-    const verificationNeedsReview = responseResults.some((result) =>
+    const verificationNeedsReviewAfterPromotion = responseResults.some((result) =>
       result.behavioralVerification.status === "failed" ||
       result.behavioralVerification.status === "unavailable" ||
-      result.behavioralVerification.status === "skipped",
+      result.behavioralVerification.status === "skipped" ||
+      result.behavioralVerification.status === "blocked",
     );
-    if (verificationNeedsReview && responseResults.some((result) => result.ok)) {
+    if (verificationNeedsReviewAfterPromotion && responseResults.some((result) => result.ok)) {
       // Behavioral verification is a correctness gate, not an advisory report.
       // Never leave a persisted AI repair in place when its registered
       // validation did not pass. Keeping the proposal pending allows the user
@@ -6163,7 +6204,7 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
       invalidateContextCache(projectId);
     }
 
-    const allOk = responseResults.every((r) => r.ok) && !verificationNeedsReview;
+    const allOk = responseResults.every((r) => r.ok) && !verificationNeedsReviewAfterPromotion;
     const rollbackFailed = rollbackFailures.length > 0;
     const applyStatus = rollbackFailed
       ? "ROLLBACK_FAILED"
@@ -6232,11 +6273,11 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
         projectId,
         severity: rollbackFailed
           ? "error"
-          : appliedPaths.length > 0 && !verificationNeedsReview
+          : appliedPaths.length > 0 && !verificationNeedsReviewAfterPromotion
             ? (failedPaths.length > 0 ? "warning" : "success")
             : "warning",
         message: appliedPaths.length > 0
-          ? `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}${verificationNeedsReview ? " (behavioral verification needs review)" : ""}`
+          ? `AI applied ${appliedPaths.length} file change${appliedPaths.length !== 1 ? "s" : ""}: ${preview}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}${verificationNeedsReviewAfterPromotion ? " (behavioral verification needs review)" : ""}`
           : rollbackFailed
             ? `AI apply rollback failed; filesystem state is unknown: ${rollbackFailures.map((failure) => failure.path).join(", ")}`
             : `AI apply made no writable changes: ${preview || "none"}${failedPaths.length > 0 ? ` (${failedPaths.length} failed)` : ""}`,
@@ -6262,7 +6303,7 @@ router.post("/ai/chat/apply-changes", async (req, res) => {
           .update(aiChangeProposalsTable)
           .set({
             status: "applied",
-            lifecycle: verificationNeedsReview ? "blocked" : "applied",
+            lifecycle: verificationNeedsReviewAfterPromotion ? "blocked" : "applied",
             consumedAt: new Date(),
             validationEvidence: JSON.stringify(responseResults.map((result) => ({
               path: result.path,
