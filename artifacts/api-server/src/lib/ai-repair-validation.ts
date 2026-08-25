@@ -16,6 +16,7 @@ import {
   type PreviewStep,
   type PreviewValidationContract,
 } from "./browser-preview-verification.js";
+import { config } from "../config.js";
 
 export type RepairVerificationStatus = ValidationStatus;
 export type ValidationFailure = SharedValidationFailure;
@@ -58,16 +59,13 @@ type ValidationProfileDefinition = {
   maxBuffer: number;
 };
 
-const VALIDATION_ATTEMPT_TIMEOUT_MS = 110_000;
-const VALIDATION_PROCESS_TIMEOUT_MS = 90_000;
-
 const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition> = {
   "ai-orchestrator-tests": {
     scenario: "Run the focused AI orchestrator Vitest suite.",
     allowedPath: (file) => file === "lib/ai-orchestrator" || file.startsWith("lib/ai-orchestrator/"),
     command: "pnpm",
     args: ["--filter", "@workspace/ai-orchestrator", "exec", "vitest", "run"],
-    timeoutMs: VALIDATION_PROCESS_TIMEOUT_MS,
+    timeoutMs: config.validationProcessTimeoutMs,
     maxBuffer: 2_000_000,
   },
   "knowledge-engine-tests": {
@@ -75,7 +73,7 @@ const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition
     allowedPath: (file) => file === "lib/knowledge-engine" || file.startsWith("lib/knowledge-engine/"),
     command: "pnpm",
     args: ["--filter", "@workspace/knowledge-engine", "exec", "vitest", "run"],
-    timeoutMs: VALIDATION_PROCESS_TIMEOUT_MS,
+    timeoutMs: config.validationProcessTimeoutMs,
     maxBuffer: 2_000_000,
   },
   "api-ai-tests": {
@@ -85,7 +83,7 @@ const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition
       file.startsWith("artifacts/api-server/src/routes/ai/"),
     command: "pnpm",
     args: ["--filter", "@workspace/api-server", "exec", "vitest", "run", "src/routes/ai.test.ts"],
-    timeoutMs: VALIDATION_PROCESS_TIMEOUT_MS,
+    timeoutMs: config.validationProcessTimeoutMs,
     maxBuffer: 2_000_000,
   },
   "workspace-typecheck": {
@@ -93,7 +91,7 @@ const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition
     allowedPath: (file) => file.length > 0 && !file.startsWith("../"),
     command: "pnpm",
     args: ["run", "typecheck"],
-    timeoutMs: VALIDATION_PROCESS_TIMEOUT_MS,
+    timeoutMs: config.validationProcessTimeoutMs,
     maxBuffer: 2_000_000,
   },
 };
@@ -412,7 +410,7 @@ async function runWithValidationDeadline(
         "Registered validation exceeded its server-owned attempt deadline.",
         "Validation timed out before the candidate could be approved.",
       ));
-    }, VALIDATION_ATTEMPT_TIMEOUT_MS);
+    }, config.validationOverallTimeoutMs);
   });
   try {
     return await Promise.race([operation, deadline]);
@@ -453,7 +451,10 @@ export async function runRepairRuntimeOracle(
       args: [...command.args],
       rootPath: validationWorkspace.rootPath,
       cwd: validationWorkspace.rootPath,
-      timeoutMs: Math.min(command.timeoutMs ?? VALIDATION_PROCESS_TIMEOUT_MS, VALIDATION_PROCESS_TIMEOUT_MS),
+      timeoutMs: Math.min(
+        command.timeoutMs ?? config.validationProcessTimeoutMs,
+        config.validationProcessTimeoutMs,
+      ),
       maxOutputBytes: 1_000_000,
       allowedCommands: new Set(["pnpm"]),
       signal,

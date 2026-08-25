@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseApplicationOrigins } from "./config.js";
+import {
+  parseApplicationOrigins,
+  parseValidationBudget,
+  VALIDATION_OVERALL_TIMEOUT_DEFAULT_MS,
+  VALIDATION_PROCESS_TIMEOUT_DEFAULT_MS,
+} from "./config.js";
 
 describe("APP_ORIGINS", () => {
   it("normalizes and preserves multiple approved dashboard origins", () => {
@@ -40,5 +45,40 @@ describe("APP_ORIGINS", () => {
         true,
       ),
     ).toHaveLength(2);
+  });
+});
+
+describe("validation budgets", () => {
+  it("uses safe defaults when operators do not configure budgets", () => {
+    expect(parseValidationBudget(undefined, {
+      name: "VALIDATION_PROCESS_TIMEOUT_MS",
+      defaultMs: VALIDATION_PROCESS_TIMEOUT_DEFAULT_MS,
+      minMs: 5_000,
+      maxMs: 600_000,
+    })).toBe(VALIDATION_PROCESS_TIMEOUT_DEFAULT_MS);
+    expect(parseValidationBudget("", {
+      name: "VALIDATION_OVERALL_TIMEOUT_MS",
+      defaultMs: VALIDATION_OVERALL_TIMEOUT_DEFAULT_MS,
+      minMs: 10_000,
+      maxMs: 900_000,
+    })).toBe(VALIDATION_OVERALL_TIMEOUT_DEFAULT_MS);
+  });
+
+  it.each(["4999", "600001", "0", "not-a-number"])("rejects unsafe process budget %s", (raw) => {
+    expect(() => parseValidationBudget(raw, {
+      name: "VALIDATION_PROCESS_TIMEOUT_MS",
+      defaultMs: 90_000,
+      minMs: 5_000,
+      maxMs: 600_000,
+    })).toThrow(/VALIDATION_PROCESS_TIMEOUT_MS/);
+  });
+
+  it("accepts a bounded overall budget", () => {
+    expect(parseValidationBudget("180000", {
+      name: "VALIDATION_OVERALL_TIMEOUT_MS",
+      defaultMs: 110_000,
+      minMs: 10_000,
+      maxMs: 900_000,
+    })).toBe(180_000);
   });
 });

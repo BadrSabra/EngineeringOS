@@ -27,7 +27,43 @@ const EnvSchema = z.object({
   APP_ORIGINS: z.string().default(""),
   // Comma-separated Clerk user IDs allowed to change server-wide policy.
   ADMIN_USER_IDS: z.string().default(""),
+  // Validation budgets are intentionally strings here so the shared parser can
+  // provide the same bounded, operator-facing error for every deployment.
+  VALIDATION_PROCESS_TIMEOUT_MS: z.string().optional(),
+  VALIDATION_OVERALL_TIMEOUT_MS: z.string().optional(),
+  // Keep the former terminology as an explicit compatibility alias while
+  // deployments migrate to the clearer overall-budget name.
+  VALIDATION_ATTEMPT_TIMEOUT_MS: z.string().optional(),
 });
+
+export const VALIDATION_PROCESS_TIMEOUT_DEFAULT_MS = 90_000;
+export const VALIDATION_OVERALL_TIMEOUT_DEFAULT_MS = 110_000;
+export const VALIDATION_PROCESS_TIMEOUT_MIN_MS = 5_000;
+export const VALIDATION_PROCESS_TIMEOUT_MAX_MS = 600_000;
+export const VALIDATION_OVERALL_TIMEOUT_MIN_MS = 10_000;
+export const VALIDATION_OVERALL_TIMEOUT_MAX_MS = 900_000;
+
+export function parseValidationBudget(
+  raw: string | undefined,
+  options: {
+    name: string;
+    defaultMs: number;
+    minMs: number;
+    maxMs: number;
+  },
+): number {
+  if (raw === undefined || raw.trim() === "") return options.defaultMs;
+  if (!/^\d+$/.test(raw.trim())) {
+    throw new Error(`${options.name} must be an integer number of milliseconds`);
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < options.minMs || value > options.maxMs) {
+    throw new Error(
+      `${options.name} must be between ${options.minMs}ms and ${options.maxMs}ms`,
+    );
+  }
+  return value;
+}
 
 const ApplicationOriginSchema = z
   .string()
@@ -90,6 +126,27 @@ function loadConfig() {
       .join("\n");
     throw new Error(`Invalid environment configuration:\n${issues}`);
   }
+  const validationProcessTimeoutMs = parseValidationBudget(parsed.data.VALIDATION_PROCESS_TIMEOUT_MS, {
+    name: "VALIDATION_PROCESS_TIMEOUT_MS",
+    defaultMs: VALIDATION_PROCESS_TIMEOUT_DEFAULT_MS,
+    minMs: VALIDATION_PROCESS_TIMEOUT_MIN_MS,
+    maxMs: VALIDATION_PROCESS_TIMEOUT_MAX_MS,
+  });
+  const validationOverallTimeoutMs = parseValidationBudget(
+    parsed.data.VALIDATION_OVERALL_TIMEOUT_MS ?? parsed.data.VALIDATION_ATTEMPT_TIMEOUT_MS,
+    {
+      name: "VALIDATION_OVERALL_TIMEOUT_MS",
+      defaultMs: VALIDATION_OVERALL_TIMEOUT_DEFAULT_MS,
+      minMs: VALIDATION_OVERALL_TIMEOUT_MIN_MS,
+      maxMs: VALIDATION_OVERALL_TIMEOUT_MAX_MS,
+    },
+  );
+  if (validationOverallTimeoutMs < validationProcessTimeoutMs) {
+    throw new Error(
+      "VALIDATION_OVERALL_TIMEOUT_MS must be greater than or equal to VALIDATION_PROCESS_TIMEOUT_MS",
+    );
+  }
+
   return {
     nodeEnv: parsed.data.NODE_ENV,
     isProduction: parsed.data.NODE_ENV === "production",
@@ -99,6 +156,8 @@ function loadConfig() {
       parsed.data.NODE_ENV === "production",
     ),
     adminUserIds: parsed.data.ADMIN_USER_IDS.split(",").map((id) => id.trim()).filter(Boolean),
+    validationProcessTimeoutMs,
+    validationOverallTimeoutMs,
   } as const;
 }
 
