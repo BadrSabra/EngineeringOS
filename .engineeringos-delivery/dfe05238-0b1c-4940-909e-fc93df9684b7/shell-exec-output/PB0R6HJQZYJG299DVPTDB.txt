@@ -1,0 +1,196 @@
+
+> @workspace/dashboard@0.0.0 test /home/runner/workspace/artifacts/dashboard
+> vitest run -- --run src/pages/AiChat.authenticated.test.tsx
+
+
+ RUN  v4.1.10 /home/runner/workspace/artifacts/dashboard
+
+ ❯ src/pages/AiChat.authenticated.test.tsx (76 tests | 74 failed) 431ms
+     × restores a paused execution after refresh and resumes the same execution 39ms
+     × resumes an interrupted execution without appending a second user turn 4ms
+     × recovers a missing resume token before offering the saved execution 4ms
+     × shows a retryable non-resumable state when capability recovery is denied 9ms
+     × keeps a resumed analysis failure incomplete and refreshes its durable state 3ms
+     × hydrates persisted chat data and keeps the audit pointer when the server completed offline 11ms
+     × replays a persisted analysis failure after dashboard reload without showing completion 8ms
+     × clears execution state for a new session and rejects late callbacks 8ms
+     × preserves each project execution pointer when switching away and back 8ms
+     × keeps a previous session execution out of the selected session 15ms
+     × sends a provider key through the generated mutation and reports success/error 8ms
+     × keeps the authenticated mobile chat focused on conversation and protects provider inputs 2ms
+     × shows persisted forensic session statuses and distinguishes incomplete audits from no findings 5ms
+     × applies a server-owned proposal with its project and proposal identity 2ms
+     × renders linked Apply, Commit, and Push evidence and blocks hash mismatches 2ms
+     × offers a safe rebase after an apply conflict and keeps approval required 2ms
+     × rejects the pending proposal through the generated mutation 2ms
+     × renders persisted semantic traces with source-span evidence 2ms
+     × renders the behavior-evidence panel with exact source line spans 17ms
+     × renders the EI-012 telemetry reconciliation block with violations 2ms
+     × uses canonical evidence files when prefetch reads are absent from the persisted trace 2ms
+     × uses legacy scalar evidence counters when persisted file lists are absent 6ms
+     × keeps a proven fixture Finding visible when the final report blocks repair 2ms
+     × shows the same ordered five-file manifest in forensic status and evidence integrity 4ms
+     × replaces the source-reads list with a claim-oriented evidence view 2ms
+     × reveals the exact source lines behind a span-bearing evidence anchor 2ms
+     × degrades to the unlabelled excerpt when the real file is unavailable 3ms
+     × renders a CODE_EXTRACTION_RESULT as a syntax-highlighted code block 2ms
+     × renders a BEHAVIOR_ANSWER_RESULT with confidence and answer text 2ms
+     × renders an Arabic behavioral answer together with its accepted evidence 2ms
+     × renders a FINDING_RESULT with a severity badge and description 2ms
+     × renders a FORENSIC_REPORT_RESULT with the report text 9ms
+     × renders a cancelled forensic SSE completion as incomplete without leaking diagnostics 2ms
+     × keeps cancelled recovery context visible after history reload 4ms
+     × renders a REPAIR_RESULT with a readiness indicator and phases 5ms
+     × renders a WORKSPACE_REVIEW_RESULT with its evidence label 2ms
+     × renders an implementation plan once and keeps its file details collapsed 4ms
+     × does not offer approval for a fallback plan without verified file scope 4ms
+     × collapses internal technical trace prose behind Technical details 3ms
+     × ignores a generic chat turn with no taskResult (falls back to prose) 4ms
+     × commits the complete final SSE message instead of leaving streamed partial text 3ms
+     × does not render a delivery trace for a forensic audit operation 4ms
+     × renders a delivery trace for an implementation plan before delivery events exist 7ms
+     × keeps the live agent activity timeline on the completed assistant message 5ms
+     × shows one execution proof panel as soon as durable work starts 20ms
+     × reconstructs the activity timeline from persisted toolTrace history 8ms
+     × accepts a generated API-shaped mission correlation report in history 5ms
+     × shows regenerated report provenance without exposing internal identifiers 4ms
+     × keeps history when the stored mission report is null 5ms
+     × keeps history when the stored mission report is scalar 4ms
+     × keeps history when the stored mission report is unsupported version 3ms
+     × renders persisted execution proof after reloading a completed assistant message 3ms
+     × rehydrates the plan timeline and scoped approval after an SSE disconnect and reload 3ms
+     × keeps zero-read execution diagnostics compact and collapsed 2ms
+     × renders Repair Radar from persisted validation and repair-state trace entries 12ms
+     × renders a read-only Flight Recorder with category filters 4ms
+     × renders a collapsible, color-coded repair attempt diff 3ms
+     × distinguishes phase-policy rejections in rehydrated execution activity 3ms
+     × filters phase-policy rejections while preserving the active phase and rejected tool 4ms
+     × renders the evidence claim linked to an execution read 3ms
+     × renders failed validation details in the Flight Recorder 2ms
+     × redacts runtime paths while preserving code-block scrolling 3ms
+     × shows per-hunk accept/reject toggles and sends only accepted hunks on apply 9ms
+     × does not leak a fixture-local verdict scope from a failed run into the next stream 2ms
+     × renders the Capability Probe quick action and, on click, sends the canonical probe message 3ms
+     × streams Analyze progress and renders its structured result with the activity timeline 2ms
+     × shows "Why this file?" panel with agent reasoning when a read tool step is expanded 2ms
+     × shows "No reasoning captured" for a cached read_file step in the Why panel 15ms
+     × does not present forensic audit telemetry as a delivery Flight Recorder 2ms
+     × surfaces first concrete contract violation from diagnosticDetails in rejection reason 2ms
+     × falls back to generic rejection sentence when diagnosticDetails has no concrete violation 5ms
+     × surfaces the BLOCKED repair state in Repair Radar 8ms
+     × surfaces the REPAIRING repair state in Repair Radar 1ms
+     × surfaces the READY_FOR_REVIEW repair state in Repair Radar 2ms
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 74 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > restores a paused execution after refresh and resumes the same execution
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > resumes an interrupted execution without appending a second user turn
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > recovers a missing resume token before offering the saved execution
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > shows a retryable non-resumable state when capability recovery is denied
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > keeps a resumed analysis failure incomplete and refreshes its durable state
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > hydrates persisted chat data and keeps the audit pointer when the server completed offline
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > replays a persisted analysis failure after dashboard reload without showing completion
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > clears execution state for a new session and rejects late callbacks
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > preserves each project execution pointer when switching away and back
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > keeps a previous session execution out of the selected session
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > sends a provider key through the generated mutation and reports success/error
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > keeps the authenticated mobile chat focused on conversation and protects provider inputs
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > shows persisted forensic session statuses and distinguishes incomplete audits from no findings
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > applies a server-owned proposal with its project and proposal identity
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders linked Apply, Commit, and Push evidence and blocks hash mismatches
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > offers a safe rebase after an apply conflict and keeps approval required
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > rejects the pending proposal through the generated mutation
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders persisted semantic traces with source-span evidence
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders the behavior-evidence panel with exact source line spans
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders the EI-012 telemetry reconciliation block with violations
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > uses canonical evidence files when prefetch reads are absent from the persisted trace
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > uses legacy scalar evidence counters when persisted file lists are absent
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > keeps a proven fixture Finding visible when the final report blocks repair
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > shows the same ordered five-file manifest in forensic status and evidence integrity
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > replaces the source-reads list with a claim-oriented evidence view
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > reveals the exact source lines behind a span-bearing evidence anchor
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > degrades to the unlabelled excerpt when the real file is unavailable
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders a CODE_EXTRACTION_RESULT as a syntax-highlighted code block
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders a BEHAVIOR_ANSWER_RESULT with confidence and answer text
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders an Arabic behavioral answer together with its accepted evidence
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders a FINDING_RESULT with a severity badge and description
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders a FORENSIC_REPORT_RESULT with the report text
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders a cancelled forensic SSE completion as incomplete without leaking diagnostics
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > keeps cancelled recovery context visible after history reload
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders a REPAIR_RESULT with a readiness indicator and phases
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders a WORKSPACE_REVIEW_RESULT with its evidence label
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders an implementation plan once and keeps its file details collapsed
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > does not offer approval for a fallback plan without verified file scope
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > collapses internal technical trace prose behind Technical details
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > ignores a generic chat turn with no taskResult (falls back to prose)
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > commits the complete final SSE message instead of leaving streamed partial text
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > does not render a delivery trace for a forensic audit operation
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders a delivery trace for an implementation plan before delivery events exist
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > keeps the live agent activity timeline on the completed assistant message
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > shows one execution proof panel as soon as durable work starts
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > reconstructs the activity timeline from persisted toolTrace history
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > accepts a generated API-shaped mission correlation report in history
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > shows regenerated report provenance without exposing internal identifiers
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > keeps history when the stored mission report is null
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > keeps history when the stored mission report is scalar
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > keeps history when the stored mission report is unsupported version
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders persisted execution proof after reloading a completed assistant message
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > rehydrates the plan timeline and scoped approval after an SSE disconnect and reload
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > keeps zero-read execution diagnostics compact and collapsed
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders Repair Radar from persisted validation and repair-state trace entries
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders a read-only Flight Recorder with category filters
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders a collapsible, color-coded repair attempt diff
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > distinguishes phase-policy rejections in rehydrated execution activity
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > filters phase-policy rejections while preserving the active phase and rejected tool
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders the evidence claim linked to an execution read
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders failed validation details in the Flight Recorder
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > redacts runtime paths while preserving code-block scrolling
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > shows per-hunk accept/reject toggles and sends only accepted hunks on apply
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > does not leak a fixture-local verdict scope from a failed run into the next stream
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > renders the Capability Probe quick action and, on click, sends the canonical probe message
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > streams Analyze progress and renders its structured result with the activity timeline
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > shows "Why this file?" panel with agent reasoning when a read tool step is expanded
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > shows "No reasoning captured" for a cached read_file step in the Why panel
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > does not present forensic audit telemetry as a delivery Flight Recorder
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > surfaces first concrete contract violation from diagnosticDetails in rejection reason
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > falls back to generic rejection sentence when diagnosticDetails has no concrete violation
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > surfaces the BLOCKED repair state in Repair Radar
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > surfaces the REPAIRING repair state in Repair Radar
+ FAIL  src/pages/AiChat.authenticated.test.tsx > AiChat authenticated generated mutations > surfaces the READY_FOR_REVIEW repair state in Repair Radar
+Error: [vitest] No "useListAiExecutionHistory" export is defined on the "@workspace/api-client-react" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+vi.mock(import("@workspace/api-client-react"), async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // your mocked methods
+  }
+})
+
+ ❯ AiChat src/pages/AiChat.tsx:7017:7
+    7015|     isLoading: historicalAuditsLoading,
+    7016|     isError: historicalAuditsError,
+    7017|   } = useListAiExecutionHistory(
+       |       ^
+    7018|     { projectId: selectedProjectId, limit: 20 },
+    7019|     {
+ ❯ Object.react-stack-bottom-frame ../../node_modules/.pnpm/react-dom@19.1.0_react@19.1.0/node_modules/react-dom/cjs/react-dom-client.development.js:23863:20
+ ❯ renderWithHooks ../../node_modules/.pnpm/react-dom@19.1.0_react@19.1.0/node_modules/react-dom/cjs/react-dom-client.development.js:5529:22
+ ❯ updateFunctionComponent ../../node_modules/.pnpm/react-dom@19.1.0_react@19.1.0/node_modules/react-dom/cjs/react-dom-client.development.js:8897:19
+ ❯ beginWork ../../node_modules/.pnpm/react-dom@19.1.0_react@19.1.0/node_modules/react-dom/cjs/react-dom-client.development.js:10522:18
+ ❯ runWithFiberInDEV ../../node_modules/.pnpm/react-dom@19.1.0_react@19.1.0/node_modules/react-dom/cjs/react-dom-client.development.js:1522:13
+ ❯ performUnitOfWork ../../node_modules/.pnpm/react-dom@19.1.0_react@19.1.0/node_modules/react-dom/cjs/react-dom-client.development.js:15140:22
+ ❯ workLoopSync ../../node_modules/.pnpm/react-dom@19.1.0_react@19.1.0/node_modules/react-dom/cjs/react-dom-client.development.js:14956:41
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/74]⎯
+
+
+ Test Files  1 failed | 11 passed (12)
+      Tests  74 failed | 55 passed (129)
+   Start at  00:56:56
+   Duration  14.41s (transform 3.63s, setup 2.60s, import 7.60s, tests 5.15s, environment 16.69s)
+
+/home/runner/workspace/artifacts/dashboard:
+ ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/dashboard@0.0.0 test: `vitest run -- --run src/pages/AiChat.authenticated.test.tsx`
+Exit status 1

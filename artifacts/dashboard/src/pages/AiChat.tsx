@@ -25,6 +25,7 @@ import {
   useGetActiveProvider,
   useGetAiMetrics,
   useGetAiExecution,
+  useListAiExecutionHistory,
   useListAiChatSessions,
   useListAiChatMessages,
   useGetAiPendingProposal,
@@ -6923,6 +6924,7 @@ export default function AiChat() {
   const [structuredRetryMessageId, setStructuredRetryMessageId] = useState<string | null>(null);
   const structuredTaskRunRef = useRef<{ task: 'analyze' | 'review'; prompt: string; placeholderId: string } | null>(null);
   const [activeExecution, setActiveExecution] = useState<ActiveExecution | null>(null);
+  const [historicalExecutionId, setHistoricalExecutionId] = useState<string | null>(null);
   const [executionControlPending, setExecutionControlPending] = useState(false);
   const [resumeRecoveryError, setResumeRecoveryError] = useState<string | null>(null);
   const [resumeRecoveryAttempt, setResumeRecoveryAttempt] = useState(0);
@@ -7004,6 +7006,23 @@ export default function AiChat() {
         queryKey: ['ai-execution', activeExecution?.id],
         enabled: Boolean(activeExecution?.id && isLoaded),
         refetchInterval: isSending || isTaskSending ? 5_000 : 15_000,
+      },
+    },
+  );
+
+  const {
+    data: historicalAudits = [],
+    isLoading: historicalAuditsLoading,
+    isError: historicalAuditsError,
+  } = useListAiExecutionHistory(
+    { projectId: selectedProjectId, limit: 20 },
+    {
+      query: {
+        queryKey: ['ai-execution-history', selectedProjectId],
+        enabled: isLoaded && !!selectedProjectId,
+        staleTime: 2_000,
+        refetchInterval: 5_000,
+        refetchOnWindowFocus: true,
       },
     },
   );
@@ -9004,6 +9023,84 @@ export default function AiChat() {
                 </span>
               </button>
             ))}
+            <div className="mt-3 border-t border-border pt-3">
+              <div className="flex items-center justify-between px-2 pb-1.5">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                  Past audits
+                </span>
+                {historicalAuditsLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+              </div>
+              {historicalAuditsError ? (
+                <div className="px-2 py-2 text-[10px] leading-4 text-muted-foreground">
+                  Historical audits are unavailable. Your current sessions are still available.
+                </div>
+              ) : historicalAudits.length === 0 && !historicalAuditsLoading ? (
+                <div className="px-2 py-2 text-[10px] leading-4 text-muted-foreground">
+                  No cancelled or incomplete audits for this project.
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1">
+                  {historicalAudits.map((audit) => {
+                    const selected = audit.id === historicalExecutionId;
+                    const needsNewRun = audit.disposition === 'NEW_RUN_RECOMMENDED';
+                    return (
+                      <button
+                        key={audit.id}
+                        type="button"
+                        data-audit-id={audit.id}
+                        onClick={() => {
+                          streamGenerationRef.current += 1;
+                          cancelStream();
+                          cancelTaskStream();
+                          setHistoricalExecutionId(audit.id);
+                          setAuditPreview(null);
+                          setAuditPreviewError(null);
+                          setActiveExecution({
+                            id: audit.id,
+                            projectId: audit.projectId,
+                            ...(audit.sessionId ? { sessionId: audit.sessionId } : {}),
+                            message: audit.objective,
+                          });
+                          setAgentStage('Historical audit selected — retained proof is available to review.');
+                        }}
+                        className={`w-full rounded px-2 py-2 text-left transition-colors ${
+                          selected
+                            ? 'bg-primary/10 text-primary'
+                            : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                        }`}
+                        aria-label={`Review audit ${audit.objective}`}
+                      >
+                        <span className="flex items-start gap-1.5">
+                          <FileSearch className="mt-0.5 h-3 w-3 shrink-0" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-[11px]">{audit.objective}</span>
+                            <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[9px]">
+                              <span className={`rounded border px-1 py-0.5 ${
+                                audit.status === 'cancelled'
+                                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                                  : 'border-border bg-secondary text-muted-foreground'
+                              }`}>
+                                {audit.status === 'cancelled' ? 'Cancelled' : 'Incomplete'}
+                              </span>
+                              <span className={`rounded border px-1 py-0.5 ${
+                                needsNewRun
+                                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+                                  : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                              }`}>
+                                {needsNewRun ? 'New run recommended' : 'Retain for review'}
+                              </span>
+                              <time dateTime={audit.updatedAt}>
+                                {new Date(audit.updatedAt).toLocaleDateString()}
+                              </time>
+                            </span>
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </ScrollArea>
 
@@ -9189,7 +9286,7 @@ export default function AiChat() {
                    isFixtureLocal={liveFixtureLocal}
                    verdictScope={liveVerdictScope}
                    onCancel={cancelActiveExecution}
-                   onResume={resumeActiveExecution}
+                    onResume={historicalExecutionId ? undefined : resumeActiveExecution}
                    onExport={exportExecutionAudit}
                    onPreview={previewExecutionAudit}
                    onRetryPreview={previewExecutionAudit}
@@ -9390,7 +9487,7 @@ export default function AiChat() {
                     : ''}
                 </div>
               </div>
-              {(activeExecutionStatus?.status === 'paused' ||
+              {!historicalExecutionId && (activeExecutionStatus?.status === 'paused' ||
                 activeExecutionStatus?.status === 'failed' ||
                 !activeExecutionStatus) && (
                 <div className="flex shrink-0 items-center gap-2">

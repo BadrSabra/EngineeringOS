@@ -2952,6 +2952,72 @@ export type GetAiExecution200 = {
   completedAt?: string | null;
 };
 
+export type ListAiExecutionHistoryParams = {
+projectId: string;
+/**
+ * @minimum 1
+ * @maximum 50
+ */
+limit?: number;
+};
+
+export type ListAiExecutionHistory200ItemStatus = typeof ListAiExecutionHistory200ItemStatus[keyof typeof ListAiExecutionHistory200ItemStatus];
+
+
+export const ListAiExecutionHistory200ItemStatus = {
+  paused: 'paused',
+  cancelled: 'cancelled',
+  failed: 'failed',
+} as const;
+
+export type ListAiExecutionHistory200ItemEvidenceVerdict = typeof ListAiExecutionHistory200ItemEvidenceVerdict[keyof typeof ListAiExecutionHistory200ItemEvidenceVerdict];
+
+
+export const ListAiExecutionHistory200ItemEvidenceVerdict = {
+  PROVEN: 'PROVEN',
+  PARTIAL: 'PARTIAL',
+  UNAVAILABLE: 'UNAVAILABLE',
+  BLOCKED: 'BLOCKED',
+  NOT_RECORDED: 'NOT_RECORDED',
+} as const;
+
+export type ListAiExecutionHistory200ItemDisposition = typeof ListAiExecutionHistory200ItemDisposition[keyof typeof ListAiExecutionHistory200ItemDisposition];
+
+
+export const ListAiExecutionHistory200ItemDisposition = {
+  RETAIN_FOR_REVIEW: 'RETAIN_FOR_REVIEW',
+  NEW_RUN_RECOMMENDED: 'NEW_RUN_RECOMMENDED',
+} as const;
+
+export type ListAiExecutionHistory200ItemRecommendedAction = typeof ListAiExecutionHistory200ItemRecommendedAction[keyof typeof ListAiExecutionHistory200ItemRecommendedAction];
+
+
+export const ListAiExecutionHistory200ItemRecommendedAction = {
+  REVIEW_RETAINED_PROOF: 'REVIEW_RETAINED_PROOF',
+  START_NEW_RUN: 'START_NEW_RUN',
+  RESUME_CHECKPOINT: 'RESUME_CHECKPOINT',
+} as const;
+
+export type ListAiExecutionHistory200Item = {
+  id: string;
+  projectId: string;
+  sessionId?: string | null;
+  status: ListAiExecutionHistory200ItemStatus;
+  objective: string;
+  evidenceVerdict: ListAiExecutionHistory200ItemEvidenceVerdict;
+  evidenceReason?: string | null;
+  terminalReason?: string | null;
+  proofRequired: boolean;
+  disposition: ListAiExecutionHistory200ItemDisposition;
+  recommendedAction: ListAiExecutionHistory200ItemRecommendedAction;
+  resumable: boolean;
+  checkpointVersion: number;
+  operationId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
+};
+
 export type ExportAiExecutionAudit200Execution = { [key: string]: unknown };
 
 export type ExportAiExecutionAudit200TimelineItem = { [key: string]: unknown };

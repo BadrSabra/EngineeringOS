@@ -64,6 +64,7 @@ const mocks = vi.hoisted(() => {
     operationEvents: [] as Array<Record<string, unknown>>,
     projects: [{ id: 'project-1', name: 'demo-service', language: 'TypeScript' }],
     sessions: [{ id: 'session-1', title: 'Existing session', updatedAt: '2026-08-13T00:00:00.000Z' }],
+    historicalAudits: [] as Array<Record<string, unknown>>,
     proposalMessages: [{
       id: 'message-1',
       role: 'assistant',
@@ -205,6 +206,12 @@ vi.mock('@workspace/api-client-react', () => {
     useGetAiMetrics: vi.fn(() => ({ data: { metrics: [], behavioralScorecards: [] }, isLoading: false, isError: false, error: null })),
     useGetAiExecution: vi.fn(() => ({
       data: mocks.activeExecutionStatus,
+      isLoading: false,
+      isError: false,
+      error: null,
+    })),
+    useListAiExecutionHistory: vi.fn(() => ({
+      data: mocks.historicalAudits,
       isLoading: false,
       isError: false,
       error: null,

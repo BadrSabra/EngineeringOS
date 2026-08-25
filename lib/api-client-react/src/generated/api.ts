@@ -95,6 +95,8 @@ import type {
   HealthStatus,
   ImportProjectInput,
   ListAiChatSessionsParams,
+  ListAiExecutionHistory200Item,
+  ListAiExecutionHistoryParams,
   ListEvents200,
   ListEventsParams,
   ListGraphEntitiesParams,
@@ -4714,6 +4716,91 @@ export function useGetAiExecution<TData = Awaited<ReturnType<typeof getAiExecuti
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetAiExecutionQueryOptions(executionId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListAiExecutionHistoryUrl = (params: ListAiExecutionHistoryParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/ai/executions/history?${stringifiedParams}` : `/api/ai/executions/history`
+}
+
+/**
+ * Returns a redacted, owner-scoped and project-scoped review list. Raw requests, provider diagnostics, credentials, and unrestricted evidence are excluded.
+ * @summary List recent cancelled and incomplete AI executions
+ */
+export const listAiExecutionHistory = async (params: ListAiExecutionHistoryParams, options?: RequestInit): Promise<ListAiExecutionHistory200Item[]> => {
+
+  return customFetch<ListAiExecutionHistory200Item[]>(getListAiExecutionHistoryUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAiExecutionHistoryQueryKey = (params?: ListAiExecutionHistoryParams,) => {
+    return [
+    `/api/ai/executions/history`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListAiExecutionHistoryQueryOptions = <TData = Awaited<ReturnType<typeof listAiExecutionHistory>>, TError = ErrorType<ApiError>>(params: ListAiExecutionHistoryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiExecutionHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAiExecutionHistoryQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAiExecutionHistory>>> = ({ signal }) => listAiExecutionHistory(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAiExecutionHistory>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAiExecutionHistoryQueryResult = NonNullable<Awaited<ReturnType<typeof listAiExecutionHistory>>>
+export type ListAiExecutionHistoryQueryError = ErrorType<ApiError>
+
+
+/**
+ * @summary List recent cancelled and incomplete AI executions
+ */
+
+export function useListAiExecutionHistory<TData = Awaited<ReturnType<typeof listAiExecutionHistory>>, TError = ErrorType<ApiError>>(
+ params: ListAiExecutionHistoryParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiExecutionHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAiExecutionHistoryQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

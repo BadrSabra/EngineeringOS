@@ -2862,6 +2862,42 @@ export const GetAiExecutionResponse = zod.object({
 
 
 /**
+ * Returns a redacted, owner-scoped and project-scoped review list. Raw requests, provider diagnostics, credentials, and unrestricted evidence are excluded.
+ * @summary List recent cancelled and incomplete AI executions
+ */
+export const listAiExecutionHistoryQueryLimitDefault = 20;
+export const listAiExecutionHistoryQueryLimitMax = 50;
+
+
+
+export const ListAiExecutionHistoryQueryParams = zod.object({
+  "projectId": zod.coerce.string(),
+  "limit": zod.coerce.number().min(1).max(listAiExecutionHistoryQueryLimitMax).default(listAiExecutionHistoryQueryLimitDefault)
+})
+
+export const ListAiExecutionHistoryResponseItem = zod.object({
+  "id": zod.string(),
+  "projectId": zod.string(),
+  "sessionId": zod.string().nullish(),
+  "status": zod.enum(['paused', 'cancelled', 'failed']),
+  "objective": zod.string(),
+  "evidenceVerdict": zod.enum(['PROVEN', 'PARTIAL', 'UNAVAILABLE', 'BLOCKED', 'NOT_RECORDED']),
+  "evidenceReason": zod.string().nullish(),
+  "terminalReason": zod.string().nullish(),
+  "proofRequired": zod.boolean(),
+  "disposition": zod.enum(['RETAIN_FOR_REVIEW', 'NEW_RUN_RECOMMENDED']),
+  "recommendedAction": zod.enum(['REVIEW_RETAINED_PROOF', 'START_NEW_RUN', 'RESUME_CHECKPOINT']),
+  "resumable": zod.boolean(),
+  "checkpointVersion": zod.number(),
+  "operationId": zod.string().nullish(),
+  "createdAt": zod.coerce.date(),
+  "updatedAt": zod.coerce.date(),
+  "completedAt": zod.coerce.date().nullish()
+})
+export const ListAiExecutionHistoryResponse = zod.array(ListAiExecutionHistoryResponseItem)
+
+
+/**
  * Returns the selected execution's portable timeline, terminal state, revision, proof verdict, validation checkpoints, and affected files. The same response can be previewed in the dashboard or downloaded. Provider secrets, raw model output, and private runtime paths are excluded.
  * @summary Preview or download a redacted durable AI execution audit
  */

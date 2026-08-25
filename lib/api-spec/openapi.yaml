@@ -1566,6 +1566,59 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ApiError"
+  /api/ai/executions/history:
+    get:
+      operationId: listAiExecutionHistory
+      summary: List recent cancelled and incomplete AI executions
+      description: Returns a redacted, owner-scoped and project-scoped review list. Raw requests, provider diagnostics, credentials, and unrestricted evidence are excluded.
+      tags: [AI]
+      parameters:
+        - name: projectId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        "200":
+          description: Historical execution review summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [id, projectId, status, objective, evidenceVerdict, proofRequired, disposition, recommendedAction, resumable, checkpointVersion, createdAt, updatedAt]
+                  properties:
+                    id: { type: string }
+                    projectId: { type: string }
+                    sessionId: { type: string, nullable: true }
+                    status: { type: string, enum: [paused, cancelled, failed] }
+                    objective: { type: string }
+                    evidenceVerdict: { type: string, enum: [PROVEN, PARTIAL, UNAVAILABLE, BLOCKED, NOT_RECORDED] }
+                    evidenceReason: { type: string, nullable: true }
+                    terminalReason: { type: string, nullable: true }
+                    proofRequired: { type: boolean }
+                    disposition: { type: string, enum: [RETAIN_FOR_REVIEW, NEW_RUN_RECOMMENDED] }
+                    recommendedAction: { type: string, enum: [REVIEW_RETAINED_PROOF, START_NEW_RUN, RESUME_CHECKPOINT] }
+                    resumable: { type: boolean }
+                    checkpointVersion: { type: integer }
+                    operationId: { type: string, nullable: true }
+                    createdAt: { type: string, format: date-time }
+                    updatedAt: { type: string, format: date-time }
+                    completedAt: { type: string, format: date-time, nullable: true }
+        "400":
+          description: Project is required
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+        "404":
+          description: Project not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
   /api/ai/executions/{executionId}/audit-export:
     get:
       operationId: exportAiExecutionAudit

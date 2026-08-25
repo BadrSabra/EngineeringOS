@@ -1328,6 +1328,59 @@ describe("POST /api/ai/chat", () => {
   });
 });
 
+describe("GET /api/ai/executions/history", () => {
+  it("returns only the selected owner's project's redacted incomplete executions", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const created = await createAiExecution({
+      userId: "test-user",
+      projectId,
+      idempotencyKey: randomUUID(),
+      request: {
+        projectId,
+        message: "Review the service for a regression",
+        modelMessage: "Review the service for a regression",
+        validationTargetPaths: ["src/service.ts"],
+      },
+    });
+    await db.update(aiExecutionsTable).set({
+      status: "cancelled",
+      checkpointVersion: 3,
+      checkpoint: JSON.stringify({
+        stage: "cancelled",
+        sequence: 3,
+        evidenceVerdict: "NOT_RECORDED",
+        evidenceReason: "Cancellation stopped the audit before complete coverage.",
+        detail: "provider=secret should not cross the boundary",
+        streamedPreview: "raw model output should not cross the boundary",
+        updatedAt: new Date().toISOString(),
+      }),
+      error: "internal provider diagnostic",
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(aiExecutionsTable.id, created.execution.id));
+
+    const response = await request(app)
+      .get("/api/ai/executions/history")
+      .query({ projectId });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toHaveLength(1);
+    expect(response.body[0]).toMatchObject({
+      id: created.execution.id,
+      projectId,
+      status: "cancelled",
+      evidenceVerdict: "NOT_RECORDED",
+      disposition: "NEW_RUN_RECOMMENDED",
+      recommendedAction: "START_NEW_RUN",
+      checkpointVersion: 3,
+    });
+    expect(JSON.stringify(response.body)).not.toContain("provider=secret");
+    expect(JSON.stringify(response.body)).not.toContain("raw model output");
+    expect(JSON.stringify(response.body)).not.toContain("internal provider diagnostic");
+  });
+});
+
 describe("GET /api/ai/executions/:executionId/audit-export", () => {
   it("exports owner-scoped terminal evidence while excluding sensitive execution data", async () => {
     const projectId = await insertProject();

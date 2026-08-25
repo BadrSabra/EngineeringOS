@@ -4283,6 +4283,84 @@ router.post("/ai/chat/stream", async (req, res) => {
 
 // ── Durable AI execution control plane ────────────────────────────────────────
 
+router.get("/ai/executions/history", async (req, res) => {
+  const project = await loadProjectByIdForUser(
+    typeof req.query.projectId === "string" ? req.query.projectId : undefined,
+    req.userId,
+    res,
+  );
+  if (!project) return;
+
+  const parsedLimit = Number(req.query.limit);
+  const limit = Number.isInteger(parsedLimit) ? Math.min(50, Math.max(1, parsedLimit)) : 20;
+  const executions = await db
+    .select()
+    .from(aiExecutionsTable)
+    .where(and(
+      eq(aiExecutionsTable.projectId, project.id),
+      eq(aiExecutionsTable.userId, req.userId),
+      inArray(aiExecutionsTable.status, ["paused", "cancelled", "failed"]),
+    ))
+    .orderBy(desc(aiExecutionsTable.updatedAt))
+    .limit(limit);
+
+  const safeText = (value: unknown, fallback: string, max = 240): string => {
+    if (typeof value !== "string" || !value.trim()) return fallback;
+    return redactUserFacingText(value).slice(0, max);
+  };
+  return res.json(executions.map((execution) => {
+    const request = parseExecutionRequest(execution.request);
+    const checkpoint = parseAiExecutionCheckpoint(execution.checkpoint);
+    const checkpointRecord = checkpoint && typeof checkpoint === "object"
+      ? checkpoint as Record<string, unknown>
+      : {};
+    const hasPendingProposal = Boolean(execution.proposalId);
+    const evidenceVerdict = derivePersistedEvidenceVerdict({
+      executionStatus: execution.status,
+      checkpoint: checkpointRecord,
+      hasPendingProposal,
+    });
+    const resumable = execution.status === "paused" || execution.status === "failed";
+    const disposition = evidenceVerdict === "PROVEN"
+      ? "RETAIN_FOR_REVIEW"
+      : "NEW_RUN_RECOMMENDED";
+    return {
+      id: execution.id,
+      projectId: execution.projectId,
+      sessionId: execution.sessionId,
+      status: execution.status,
+      objective: safeText(
+        typeof request?.objective === "string"
+          ? request.objective
+          : request?.message,
+        "AI audit execution",
+        500,
+      ),
+      evidenceVerdict,
+      evidenceReason: typeof checkpointRecord.evidenceReason === "string"
+        ? safeText(checkpointRecord.evidenceReason, "", 500)
+        : null,
+      terminalReason: execution.status === "cancelled"
+        ? "Audit was cancelled before completion."
+        : execution.status === "failed"
+          ? "Execution stopped before a complete result was recorded."
+          : "Execution is paused at a durable checkpoint.",
+      proofRequired: checkpointRecord.proofRequired === true
+        || Boolean(execution.linkedTaskId || execution.buildPlanMessageId || execution.proposalId),
+      disposition,
+      recommendedAction: disposition === "RETAIN_FOR_REVIEW"
+        ? "REVIEW_RETAINED_PROOF"
+        : resumable ? "RESUME_CHECKPOINT" : "START_NEW_RUN",
+      resumable,
+      checkpointVersion: execution.checkpointVersion,
+      operationId: execution.operationId,
+      createdAt: execution.createdAt,
+      updatedAt: execution.updatedAt,
+      completedAt: execution.completedAt,
+    };
+  }));
+});
+
 router.get("/ai/executions/:executionId", async (req, res) => {
   const execution = await getAiExecutionForUser(req.params.executionId, req.userId);
   if (!execution) return res.status(404).json({ error: "AI execution not found" });
@@ -4370,7 +4448,11 @@ router.get("/ai/executions/:executionId", async (req, res) => {
     finalMessageId: execution.finalMessageId,
     proposalId: execution.proposalId,
     operationId,
-    error: execution.error,
+    // Provider and worker errors are retained for server diagnostics only.
+    // Historical/operator views receive a safe terminal description instead.
+    error: execution.error
+      ? "Execution stopped before a complete result was recorded."
+      : null,
     createdAt: execution.createdAt,
     updatedAt: execution.updatedAt,
     startedAt: execution.startedAt,

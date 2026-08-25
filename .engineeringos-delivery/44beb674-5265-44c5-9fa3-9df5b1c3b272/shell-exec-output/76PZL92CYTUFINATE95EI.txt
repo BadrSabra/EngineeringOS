@@ -1,0 +1,371 @@
+# Task #105: Review cancelled audits across sessions
+
+# Review cancelled audits across sessions
+
+## What & Why
+Let operators find and compare older cancelled or incomplete audits without relying on the browser's current execution pointer. This provides a durable review surface for retained proof and clearly distinguishes audits that are safe to retain from those that need a new run.
+
+## Done looks like
+- The dashboard lists recent cancelled and incomplete audits for the selected project.
+- Operators can open an older audit and inspect its retained proof and disposition.
+- The interface states whether a new run is recommended and exposes only safe recovery actions.
+- The list refreshes when another session creates, cancels, or resolves an audit.
+- Cross-project and cross-user audit data remains inaccessible.
+
+## Out of scope
+- Changing cancellation persistence or server-restart recovery behavior.
+- Rebuilding the audit execution engine.
+- Exposing raw provider errors, credentials, or unrestricted evidence.
+
+## Steps
+1. **Define the historical audit contract** — Reuse the existing execution status and recovery APIs to return an owner-scoped, project-scoped list of cancelled and incomplete audits with safe disposition metadata.
+2. **Add the review list** — Build the dashboard surface for recent cancelled and incomplete audits, including loading, empty, unavailable, and permission-safe states.
+3. **Connect historical detail** — Allow an operator to open a selected audit, inspect retained proof, understand its terminal status, and see whether a new run is recommended.
+4. **Handle cross-session refresh** — Update the list when another session changes an audit while preventing stale results from replacing newer state.
+5. **Add API and browser coverage** — Verify authorization, redaction, project isolation, cancelled and incomplete outcomes, historical selection, refresh behavior, and safe recovery actions.
+
+## Relevant files
+- `artifacts/dashboard/src/pages/AiChat.tsx`
+- `artifacts/dashboard/src`
+- `artifacts/api-server/src/routes/ai/chat.ts`
+- `artifacts/api-server/src/lib/ai-execution-state.ts`
+
+
+--- package ---
+{
+  "name": "@workspace/dashboard",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node ./scripts/ensure-port-free.mjs && vite --config vite.config.ts --host 0.0.0.0",
+    "smoke:restart": "node ./scripts/smoke-restart.mjs",
+    "test:e2e": "playwright test --config=e2e/playwright.config.ts",
+    "test:clerk-handoff": "vitest run src/lib/clerk-handoff.test.ts",
+    "build": "vite build --config vite.config.ts",
+    "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@hookform/resolvers": "^3.10.0",
+    "@radix-ui/react-accordion": "^1.2.4",
+    "@radix-ui/react-alert-dialog": "^1.1.7",
+    "@radix-ui/react-aspect-ratio": "^1.1.3",
+    "@radix-ui/react-avatar": "^1.1.4",
+    "@radix-ui/react-checkbox": "^1.1.5",
+    "@radix-ui/react-collapsible": "^1.1.4",
+    "@radix-ui/react-context-menu": "^2.2.7",
+    "@radix-ui/react-dialog": "^1.1.7",
+    "@radix-ui/react-dropdown-menu": "^2.1.7",
+    "@radix-ui/react-hover-card": "^1.1.7",
+    "@radix-ui/react-label": "^2.1.3",
+    "@radix-ui/react-menubar": "^1.1.7",
+    "@radix-ui/react-navigation-menu": "^1.2.6",
+    "@radix-ui/react-popover": "^1.1.7",
+    "@radix-ui/react-progress": "^1.1.3",
+    "@radix-ui/react-radio-group": "^1.2.4",
+    "@radix-ui/react-scroll-area": "^1.2.4",
+    "@radix-ui/react-select": "^2.1.7",
+    "@radix-ui/react-separator": "^1.1.3",
+    "@radix-ui/react-slider": "^1.2.4",
+    "@radix-ui/react-slot": "^1.2.0",
+    "@radix-ui/react-switch": "^1.1.4",
+    "@radix-ui/react-tabs": "^1.1.4",
+    "@radix-ui/react-toast": "^1.2.7",
+    "@radix-ui/react-toggle": "^1.1.3",
+    "@radix-ui/react-toggle-group": "^1.1.3",
+    "@radix-ui/react-tooltip": "^1.2.0",
+    "@replit/vite-plugin-cartographer": "catalog:",
+    "@replit/vite-plugin-dev-banner": "catalog:",
+    "@replit/vite-plugin-runtime-error-modal": "catalog:",
+    "@tailwindcss/typography": "^0.5.15",
+    "@tailwindcss/vite": "catalog:",
+    "@tanstack/react-query": "catalog:",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "@vitest/coverage-v8": "^4.1.10",
+    "@workspace/api-client-react": "workspace:*",
+    "@workspace/ai-orchestrator": "workspace:*",
+    "class-variance-authority": "catalog:",
+    "clsx": "catalog:",
+    "cmdk": "^1.1.1",
+    "date-fns": "^3.6.0",
+    "embla-carousel-react": "^8.6.0",
+    "framer-motion": "catalog:",
+    "input-otp": "^1.4.2",
+    "jsdom": "^29.1.1",
+    "lucide-react": "catalog:",
+    "next-themes": "^0.4.6",
+    "react": "catalog:",
+    "react-day-picker": "^9.11.1",
+    "react-dom": "catalog:",
+    "react-hook-form": "^7.55.0",
+    "react-icons": "^5.4.0",
+    "react-resizable-panels": "^2.1.7",
+    "recharts": "^2.15.2",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "catalog:",
+    "tailwindcss": "catalog:",
+    "tw-animate-css": "^1.4.0",
+    "vaul": "^1.1.2",
+    "vite": "catalog:",
+    "vitest": "^4.1.10",
+    "wouter": "^3.3.5",
+    "zod": "catalog:"
+  },
+  "dependencies": {
+    "@clerk/react": "^6.12.2",
+    "@clerk/themes": "^2.4.57",
+    "react-markdown": "^10.1.0"
+  }
+}
+
+--- routes/hooks matches ---
+artifacts/api-server/src/lib/ai-execution-state.ts:3:import { db, aiExecutionsTable } from "@workspace/db";
+artifacts/api-server/src/lib/ai-execution-state.ts:17: * lifecycle status. `ai_executions.status` answers "is a worker alive?", while
+artifacts/api-server/src/lib/ai-execution-state.ts:33:  "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:85:  planned: ["inspecting", "blocked", "cancelled"],
+artifacts/api-server/src/lib/ai-execution-state.ts:86:  inspecting: ["mutating", "validating", "blocked", "cancelled", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:87:  mutating: ["validating", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:88:  validating: ["succeeded", "diagnosing", "promoting", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:89:  diagnosing: ["repairing", "blocked", "cancelled", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:90:  repairing: ["validating", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:91:  promoting: ["delivering", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:92:  delivering: ["succeeded", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:95:  cancelled: [],
+artifacts/api-server/src/lib/ai-execution-state.ts:158:    reasons.push("workspace revision does not match the execution request");
+artifacts/api-server/src/lib/ai-execution-state.ts:168:  if (nodes.some((node) => node.status !== "passed")) reasons.push("not all execution nodes passed");
+artifacts/api-server/src/lib/ai-execution-state.ts:180:    if (outOfScope) reasons.push(`execution node is outside approved target scope: ${outOfScope}`);
+artifacts/api-server/src/lib/ai-execution-state.ts:263:    | "cancelled";
+artifacts/api-server/src/lib/ai-execution-state.ts:287:  "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:573:  if (stage === "cancelled" || stage === "client_disconnected") return "cancelled";
+artifacts/api-server/src/lib/ai-execution-state.ts:595:      if (target === "failed" || target === "cancelled") {
+artifacts/api-server/src/lib/ai-execution-state.ts:614: * execution state.
+artifacts/api-server/src/lib/ai-execution-state.ts:672:    "The previous worker stopped unexpectedly. Continue the same execution from the checkpoint below.",
+artifacts/api-server/src/lib/ai-execution-state.ts:692:}): Promise<{ execution: AiExecution; resumeToken?: string; created: boolean }> {
+artifacts/api-server/src/lib/ai-execution-state.ts:695:    .from(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:697:      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:698:      eq(aiExecutionsTable.idempotencyKey, params.idempotencyKey),
+artifacts/api-server/src/lib/ai-execution-state.ts:707:    return { execution: row, created: false };
+artifacts/api-server/src/lib/ai-execution-state.ts:712:  const executionId = randomUUID();
+artifacts/api-server/src/lib/ai-execution-state.ts:713:  const operationId = params.request.operationId ?? params.buildPlanMessageId ?? executionId;
+artifacts/api-server/src/lib/ai-execution-state.ts:723:  const [execution] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts:724:    .insert(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:726:      id: executionId,
+artifacts/api-server/src/lib/ai-execution-state.ts:749:      target: [aiExecutionsTable.userId, aiExecutionsTable.idempotencyKey],
+artifacts/api-server/src/lib/ai-execution-state.ts:753:  if (execution) return { execution, resumeToken, created: true };
+artifacts/api-server/src/lib/ai-execution-state.ts:757:  // resumable execution identity. Keep the request binding check here as well:
+artifacts/api-server/src/lib/ai-execution-state.ts:761:    .from(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:763:      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:764:      eq(aiExecutionsTable.idempotencyKey, params.idempotencyKey),
+artifacts/api-server/src/lib/ai-execution-state.ts:767:  if (!racedExecution) throw new Error("Failed to create AI execution");
+artifacts/api-server/src/lib/ai-execution-state.ts:772:  return { execution: racedExecution, created: false };
+artifacts/api-server/src/lib/ai-execution-state.ts:776:  executionId: string,
+artifacts/api-server/src/lib/ai-execution-state.ts:779:  const [execution] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts:781:    .from(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:783:      eq(aiExecutionsTable.id, executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:784:      eq(aiExecutionsTable.userId, userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:787:  return execution;
+artifacts/api-server/src/lib/ai-execution-state.ts:791:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:793:}): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
+artifacts/api-server/src/lib/ai-execution-state.ts:795:  const [execution] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts:796:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:802:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:803:      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:804:      inArray(aiExecutionsTable.status, ["paused", "failed"]),
+artifacts/api-server/src/lib/ai-execution-state.ts:807:  return execution ? { execution, resumeToken } : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:820:  execution: AiExecution;
+artifacts/api-server/src/lib/ai-execution-state.ts:825:function recoveryCheckpoint(execution: AiExecution): AiExecutionCheckpoint | undefined {
+artifacts/api-server/src/lib/ai-execution-state.ts:826:  return parseAiExecutionCheckpoint(execution.checkpoint);
+artifacts/api-server/src/lib/ai-execution-state.ts:830:  execution: AiExecution,
+artifacts/api-server/src/lib/ai-execution-state.ts:832:    cancelled: boolean;
+artifacts/api-server/src/lib/ai-execution-state.ts:840:  const previous = parseAiExecutionCheckpoint(execution.checkpoint);
+artifacts/api-server/src/lib/ai-execution-state.ts:846:    stage: params.cancelled ? "cancelled" : "failed",
+artifacts/api-server/src/lib/ai-execution-state.ts:850:          operation: params.cancelled
+artifacts/api-server/src/lib/ai-execution-state.ts:851:            ? { ...operation, state: "cancelled", updatedAt: now }
+artifacts/api-server/src/lib/ai-execution-state.ts:871: * endpoint. Only a paused execution whose server-owned operation is uncertain
+artifacts/api-server/src/lib/ai-execution-state.ts:873: * retained for both outcomes; no new execution or user turn is created.
+artifacts/api-server/src/lib/ai-execution-state.ts:876:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:881:  const current = await getAiExecutionForUser(params.executionId, params.userId);
+artifacts/api-server/src/lib/ai-execution-state.ts:887:    return { execution: current, outcome: "stale" };
+artifacts/api-server/src/lib/ai-execution-state.ts:892:  if (priorRecovery?.action === "abandon" || current.status === "cancelled") {
+artifacts/api-server/src/lib/ai-execution-state.ts:893:    return { execution: current, outcome: "already_abandoned" };
+artifacts/api-server/src/lib/ai-execution-state.ts:896:    return { execution: current, outcome: "resume_accepted" };
+artifacts/api-server/src/lib/ai-execution-state.ts:899:    return { execution: current, outcome: "already_running" };
+artifacts/api-server/src/lib/ai-execution-state.ts:902:    return { execution: current, outcome: "not_eligible" };
+artifacts/api-server/src/lib/ai-execution-state.ts:911:    const [updated] = await db.update(aiExecutionsTable).set({
+artifacts/api-server/src/lib/ai-execution-state.ts:916:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:917:      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:918:      eq(aiExecutionsTable.status, "paused"),
+artifacts/api-server/src/lib/ai-execution-state.ts:921:      ? { execution: updated, outcome: "resume_accepted", resumeToken }
+artifacts/api-server/src/lib/ai-execution-state.ts:922:      : { execution: current, outcome: "not_eligible" };
+artifacts/api-server/src/lib/ai-execution-state.ts:928:    stage: "cancelled" as const,
+artifacts/api-server/src/lib/ai-execution-state.ts:933:  const [updated] = await db.update(aiExecutionsTable).set({
+artifacts/api-server/src/lib/ai-execution-state.ts:934:    status: "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:936:    checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:942:    eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:943:    eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:944:    eq(aiExecutionsTable.status, "paused"),
+artifacts/api-server/src/lib/ai-execution-state.ts:947:    ? { execution: updated, outcome: "abandoned" }
+artifacts/api-server/src/lib/ai-execution-state.ts:948:    : { execution: current, outcome: "not_eligible" };
+artifacts/api-server/src/lib/ai-execution-state.ts:952:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:959:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:971:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:972:      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:973:      inArray(aiExecutionsTable.status, ["queued", "paused", "failed"]),
+artifacts/api-server/src/lib/ai-execution-state.ts:974:      ...(tokenHash ? [eq(aiExecutionsTable.resumeTokenHash, tokenHash)] : []),
+artifacts/api-server/src/lib/ai-execution-state.ts:981:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:996:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1005:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1006:      eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1007:      eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1009:      lt(aiExecutionsTable.checkpointVersion, params.checkpoint.sequence),
+artifacts/api-server/src/lib/ai-execution-state.ts:1011:    .returning({ id: aiExecutionsTable.id });
+artifacts/api-server/src/lib/ai-execution-state.ts:1016:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:1020:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1027:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1028:      eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1029:      eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1031:    .returning({ id: aiExecutionsTable.id });
+artifacts/api-server/src/lib/ai-execution-state.ts:1036:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:1049:      request: aiExecutionsTable.request,
+artifacts/api-server/src/lib/ai-execution-state.ts:1050:      checkpoint: aiExecutionsTable.checkpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts:1052:    .from(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1054:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1055:      eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1056:      eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1078:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1087:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1111:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1112:      eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1113:      eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1115:    .returning({ id: aiExecutionsTable.id });
+artifacts/api-server/src/lib/ai-execution-state.ts:1120:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:1123:  cancelled?: boolean;
+artifacts/api-server/src/lib/ai-execution-state.ts:1129:  const status = params.cancelled ? "cancelled" : "failed";
+artifacts/api-server/src/lib/ai-execution-state.ts:1132:    .from(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1134:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1135:      eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1137:        aiExecutionsTable.status,
+artifacts/api-server/src/lib/ai-execution-state.ts:1138:        params.cancelled ? ["running", "cancelling"] : ["running"],
+artifacts/api-server/src/lib/ai-execution-state.ts:1143:    ? mergeTerminalCheckpoint(current, { ...params, cancelled: params.cancelled ?? false })
+artifacts/api-server/src/lib/ai-execution-state.ts:1146:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1154:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1158:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1159:      eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1160:      params.cancelled ? inArray(aiExecutionsTable.status, ["running", "cancelling"]) : eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1162:    .returning({ id: aiExecutionsTable.id });
+artifacts/api-server/src/lib/ai-execution-state.ts:1167:  // its ordinary failure path must still settle `cancelling` as cancelled and
+artifacts/api-server/src/lib/ai-execution-state.ts:1169:  if (!params.cancelled) {
+artifacts/api-server/src/lib/ai-execution-state.ts:1171:      ? mergeTerminalCheckpoint(current, { ...params, cancelled: true })
+artifacts/api-server/src/lib/ai-execution-state.ts:1173:    const [cancelled] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts:1174:      .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1176:        status: "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:1182:        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1186:        eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1187:        eq(aiExecutionsTable.workerId, params.workerId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1188:        eq(aiExecutionsTable.status, "cancelling"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1190:      .returning({ id: aiExecutionsTable.id });
+artifacts/api-server/src/lib/ai-execution-state.ts:1191:    return Boolean(cancelled);
+artifacts/api-server/src/lib/ai-execution-state.ts:1197:  executionId: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:1201:  const current = await getAiExecutionForUser(params.executionId, params.userId);
+artifacts/api-server/src/lib/ai-execution-state.ts:1203:  const cancelledCheckpoint = JSON.stringify(mergeTerminalCheckpoint(current, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1204:    cancelled: true,
+artifacts/api-server/src/lib/ai-execution-state.ts:1205:    error: "Execution cancelled before a worker started.",
+artifacts/api-server/src/lib/ai-execution-state.ts:1208:  // Queued and paused executions have no active worker to observe the
+artifacts/api-server/src/lib/ai-execution-state.ts:1211:  const [cancelledBeforeStart] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts:1212:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1214:      status: "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:1217:      checkpoint: cancelledCheckpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts:1218:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1224:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1225:      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1226:      inArray(aiExecutionsTable.status, ["queued", "paused"]),
+artifacts/api-server/src/lib/ai-execution-state.ts:1229:  if (cancelledBeforeStart) return cancelledBeforeStart;
+artifacts/api-server/src/lib/ai-execution-state.ts:1232:    .update(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1239:      eq(aiExecutionsTable.id, params.executionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1240:      eq(aiExecutionsTable.userId, params.userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1241:      eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1244:  if (updated) activeControllers.get(updated.id)?.abort(new Error("AI execution cancellation requested"));
+artifacts/api-server/src/lib/ai-execution-state.ts:1248:export function registerAiExecutionController(executionId: string, controller: AbortController): void {
+artifacts/api-server/src/lib/ai-execution-state.ts:1249:  activeControllers.set(executionId, controller);
+artifacts/api-server/src/lib/ai-execution-state.ts:1252:export function unregisterAiExecutionController(executionId: string, controller: AbortController): void {
+artifacts/api-server/src/lib/ai-execution-state.ts:1253:  if (activeControllers.get(executionId) === controller) activeControllers.delete(executionId);
+artifacts/api-server/src/lib/ai-execution-state.ts:1258:  const running = await db.select().from(aiExecutionsTable).where(
+artifacts/api-server/src/lib/ai-execution-state.ts:1259:    inArray(aiExecutionsTable.status, ["running", "cancelling"]),
+artifacts/api-server/src/lib/ai-execution-state.ts:1262:  for (const execution of running) {
+artifacts/api-server/src/lib/ai-execution-state.ts:1263:    const checkpoint = parseAiExecutionCheckpoint(execution.checkpoint);
+artifacts/api-server/src/lib/ai-execution-state.ts:1264:    if (execution.status === "cancelling") {
+artifacts/api-server/src/lib/ai-execution-state.ts:1265:      const terminalCheckpoint = mergeTerminalCheckpoint(execution, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1266:        cancelled: true,
+artifacts/api-server/src/lib/ai-execution-state.ts:1269:      const [updated] = await db.update(aiExecutionsTable).set({
+artifacts/api-server/src/lib/ai-execution-state.ts:1270:        status: "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:1271:        error: "Execution cancelled by the user.",
+artifacts/api-server/src/lib/ai-execution-state.ts:1278:        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1280:        eq(aiExecutionsTable.id, execution.id),
+artifacts/api-server/src/lib/ai-execution-state.ts:1281:        eq(aiExecutionsTable.status, "cancelling"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1282:      )).returning({ id: aiExecutionsTable.id });
+artifacts/api-server/src/lib/ai-execution-state.ts:1303:    const [updated] = await db.update(aiExecutionsTable).set({
+artifacts/api-server/src/lib/ai-execution-state.ts:1311:    }).where(and(eq(aiExecutionsTable.id, execution.id), eq(aiExecutionsTable.status, "running"))).returning({ id: aiExecutionsTable.id });
+artifacts/api-server/src/lib/ai-execution-state.ts:1320:    .from(aiExecutionsTable)
+artifacts/api-server/src/lib/ai-execution-state.ts:1322:      eq(aiExecutionsTable.userId, userId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1323:      eq(aiExecutionsTable.sessionId, sessionId),
+artifacts/api-server/src/lib/ai-execution-state.ts:1324:      inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+artifacts/api-server/src/routes/ai/chat.ts:6: * GET  /api/ai/chat/sessions
+artifacts/api-server/src/routes/ai/chat.ts:20:  aiExecutionsTable,
+artifacts/api-server/src/routes/ai/chat.ts:132:} from "../../lib/ai-execution-state.js";
+artifacts/api-server/src/routes/ai/chat.ts:165:  executionStatus?: string;
+artifacts/api-server/src/routes/ai/chat.ts:194:  if (params.executionStatus === "failed") return "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts:399:  execution?: {
+artifacts/api-server/src/routes/ai/chat.ts:433:  const request = parseJsonRecord(params.execution?.request);
+artifacts/api-server/src/routes/ai/chat.ts:434:  const operationId = params.execution?.operationId
+artifacts/api-server/src/routes/ai/chat.ts:436:    ?? params.execution?.id
+artifacts/api-server/src/routes/ai/chat.ts:439:    !params.execution
+artifacts/api-server/src/routes/ai/chat.ts:447:  const checkpoint = parseJsonRecord(params.execution?.checkpoint);
+artifacts/api-server/src/routes/ai/chat.ts:448:  const terminalState = params.execution?.status === "cancelled"
+artifacts/api-server/src/routes/ai/chat.ts:450:    || traces.some((entry) => entry && typeof entry === "object" && (entry as { stopReason?: unknown }).stopReason === "cancelled")
+artifacts/api-server/src/routes/ai/chat.ts:452:    : params.execution?.status === "failed" || target.outcome === "FAILED"
+artifacts/api-server/src/routes/ai/chat.ts:464:    executionCheckpoints: params.execution
+artifacts/api-server/src/routes/ai/chat.ts:465:      ? Math.min(1, Math.max(0, params.execution.checkpointVersion > 0 || Object.keys(checkpoint).length > 0 ? 1 : 0))
+artifacts/api-server/src/routes/ai/chat.ts:473:    execution: Boolean(params.execution),
+artifacts/api-server/src/routes/ai/chat.ts:476:    checkpoints: counts.executionCheckpoints > 0,
+artifacts/api-server/src/routes/ai/chat.ts:631:      error: "The project scan is incomplete. Complete a fresh scan before approving or starting Build Mode.",
+artifacts/api-server/src/routes/ai/chat.ts:702:      filesystemManifest: unavailable("The project scan is incomplete; complete a fresh scan before creating a plan."),
+artifacts/api-server/src/routes/ai/chat.ts:703:      filesystemSources: unavailableSources("The project scan is incomplete; source excerpts are not planning evidence."),
+artifacts/api-server/src/routes/ai/chat.ts:730:      filesystemManifest: unavailable("The live source walk is incomplete; planning requires a complete snapshot."),
+artifacts/api-server/src/routes/ai/chat.ts:731:      filesystemSources: unavailableSources("The live source walk is incomplete."),
+artifacts/api-server/src/routes/ai/chat.ts:752:        filesystemManifest.reason ?? "The bounded filesystem inventory is incomplete.",
+artifacts/api-server/src/routes/ai/chat.ts:793:  const incompleteCode = traceSteps.some(
+artifacts/api-server/src/routes/ai/chat.ts:798:  if (!incompleteCode) return false;
+artifacts/api-server/src/routes/ai/chat.ts:810:    : "Execution stopped before the first source read, so the result is incomplete and not proven. Retry with a clear target file or objective.";
+artifacts/api-server/src/routes/ai/chat.ts:841:  executionId?: string;
+artifacts/api-server/src/routes/ai/chat.ts:851:    // Resuming that execution must only add the next assistant outcome, not
+artifacts/api-server/src/routes/ai/chat.ts:853:    const existingUserTurn = params.executionId
+artifacts/api-server/src/routes/ai/chat.ts:859:            eq(aiChatMessagesTable.executionId, params.executionId),
+artifacts/api-server/src/routes/ai/chat.ts:871:        executionId: params.executionId ?? null,
+artifacts/api-server/src/routes/ai/chat.ts:884:      executionId: params.executionId ?? null,
+artifacts/api-server/src/routes/ai/chat.ts:1270:  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+artifacts/api-server/src/routes/ai/chat.ts:1378:  resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
+artifacts/api-server/src/routes/ai/chat.ts:1383: * Keep execution observability separate from the assistant report. The trace
+artifacts/api-server/src/routes/ai/chat.ts:1462:      case "execution_guard":
+artifacts/api-server/src/routes/ai/chat.ts:1720:  executionPlan: ActiveTaskExecutionPlan | null;
+artifacts/api-server/src/routes/ai/chat.ts:1722:  if (args.persisted && (args.resumed || args.executionPlan)) {
+artifacts/api-server/src/routes/ai/chat.ts:1724:    const existingPlan = touched.executionPlan;
+artifacts/api-server/src/routes/ai/chat.ts:1731:        executionPlan: args.executionPlan ?? progressedPlan ?? touched.executionPlan,
+artifacts/api-server/src/routes/ai/chat.ts:1735:  const shouldPersistExecutionPlan = Boolean(args.executionPlan);
+artifacts/api-server/src/routes/ai/chat.ts:1754:          executionPlan: args.executionPlan,
+artifacts/api-server/src/routes/ai/chat.ts:1815:  // Keep execution handoff fail-closed in the streaming route too. This check
+artifacts/api-server/src/routes/ai/chat.ts:1819:      error: "execution_session_required",
+artifacts/api-server/src/routes/ai/chat.ts:1820:      message: "Repair Plan execution requires the original audit session.",
+artifacts/api-server/src/routes/ai/chat.ts:1838:    // Prevent cross-project session leakage: reject sessions that belong to a
+artifacts/api-server/src/routes/ai/chat.ts:1928:  // while execution handoffs can still recover an older repair plan from this
+artifacts/api-server/src/routes/ai/chat.ts:1943:    qualityProfile: turnIntent.executionTaskType,
+artifacts/api-server/src/routes/ai/chat.ts:1983:      qualityProfile: turnIntent.executionTaskType,

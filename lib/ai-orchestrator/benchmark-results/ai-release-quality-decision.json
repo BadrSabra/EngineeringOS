@@ -1,21 +1,22 @@
 {
   "kind": "ai-release-quality-decision",
   "version": 1,
-  "generatedAt": "2026-08-25T00:28:27.913Z",
+  "generatedAt": "2026-08-25T01:16:33.142Z",
   "status": "blocked",
   "liveProviderChecks": "disabled",
   "previewChecks": "disabled",
   "summary": {
     "totalCases": 10,
-    "passedCases": 7,
-    "failedCases": 2,
+    "passedCases": 6,
+    "failedCases": 3,
     "skippedCases": 1,
-    "blockingFailures": 2,
+    "blockingFailures": 3,
     "informationalFailures": 0
   },
   "blockers": [
     "AI_CONTRACT_AND_JSON_FAILED_1",
-    "AI_SSE_AND_REDACTION_FAILED_1"
+    "AI_SSE_AND_REDACTION_FAILED_1",
+    "AI_OPERATIONAL_SAFETY_FAILED_1"
   ],
   "checks": [
     {
@@ -28,7 +29,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 32805
+      "durationMs": 36740
     },
     {
       "id": "dashboard-typecheck",
@@ -40,7 +41,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 7301
+      "durationMs": 7979
     },
     {
       "id": "openapi-client-parity",
@@ -53,7 +54,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 6914
+      "durationMs": 8239
     },
     {
       "id": "truth-flow-parity",
@@ -65,7 +66,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1825
+      "durationMs": 1918
     },
     {
       "id": "ai-contract-and-json",
@@ -81,7 +82,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_CONTRACT_AND_JSON_FAILED_1",
-      "durationMs": 22174
+      "durationMs": 49386
     },
     {
       "id": "ai-sse-and-redaction",
@@ -97,7 +98,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_SSE_AND_REDACTION_FAILED_1",
-      "durationMs": 21246
+      "durationMs": 27094
     },
     {
       "id": "ai-operational-safety",
@@ -112,8 +113,9 @@
         "Terminal"
       ],
       "enabled": true,
-      "status": "passed",
-      "durationMs": 203421
+      "status": "failed",
+      "failureCode": "AI_OPERATIONAL_SAFETY_FAILED_1",
+      "durationMs": 254314
     },
     {
       "id": "ai-deterministic-benchmark",
@@ -128,7 +130,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1563
+      "durationMs": 773
     },
     {
       "id": "benchmark-baseline-regression",
@@ -142,7 +144,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 518
+      "durationMs": 359
     },
     {
       "id": "dashboard-preview-contract",
