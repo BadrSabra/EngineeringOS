@@ -1,0 +1,91 @@
+lib/api-client-react/src/use-ai-chat-stream.test.ts:633:  it('routes named repair states independently from validation results', async () => {
+lib/api-client-react/src/generated/api.schemas.ts:110: * Canonical registered-validation result shared by the validator, repair loop, API trace/SSE, and dashboard. Evidence metadata identifies the bounded validation artifact that can be inspected again.
+lib/ai-orchestrator/src/tools/execution-tools.ts:10:import { runBoundedCommand, EXECUTION_LIMITS, type BoundedCommandResult } from "../execution-kernel.js";
+lib/ai-orchestrator/src/tools/execution-tools.ts:60:}) => runBoundedCommand({
+lib/ai-orchestrator/src/tools/execution-tools.ts:237:    : status === "timed_out" ? "COMMAND_TIMED_OUT"
+lib/ai-orchestrator/src/tools/execution-tools.ts:246:    : result.status === "timed_out"
+lib/ai-orchestrator/src/tool-execution-engine.ts:119:): "passed" | "failed" | "timed_out" | "cancelled" | "spawn_error" | undefined {
+lib/ai-orchestrator/src/tool-execution-engine.ts:122:    return status === "passed" || status === "failed" || status === "timed_out" ||
+lib/ai-orchestrator/src/tool-execution-engine.ts:1399:      commandStatus?: "passed" | "failed" | "timed_out" | "cancelled" | "spawn_error";
+lib/ai-orchestrator/src/tool-execution-engine.ts:3081:            "Stop repairing and return BLOCKED; no further validation will run in this handoff.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:3994:          if (executionMode === "repair_plan" && validationFingerprint) {
+lib/ai-orchestrator/src/tool-execution-engine.ts:4003:        } else if (executionMode === "repair_plan" && validation.status === "passed") {
+lib/ai-orchestrator/src/quality/execution-phases.ts:60:  repair_recovery: ["read_file", "read_file_range", "replace_text", "write_file", "run_validation"],
+lib/ai-orchestrator/src/quality/execution-phases.ts:91:    state.phase === "repair_recovery" && nextPhase === "validation";
+lib/ai-orchestrator/src/quality/execution-phases.ts:107:  if (nextPhase === "repair_recovery" && validationEvidence === "passed") {
+artifacts/dashboard/e2e/dashboard.journey.ts:19:const DEFAULT_LIVE_TIMEOUT_MS = 120_000;
+lib/api-zod/src/generated/types/validationResult.ts:13: * Canonical registered-validation result shared by the validator, repair loop, API trace/SSE, and dashboard. Evidence metadata identifies the bounded validation artifact that can be inspected again.
+lib/ai-orchestrator/src/index.ts:144:export { EXECUTION_LIMITS, runBoundedCommand } from "./execution-kernel.js";
+lib/ai-orchestrator/src/forensic-output-guard.ts:1130:  const [verdictBody, directEvidence, findingBody, repairBody, validationBody] = bodies;
+lib/ai-orchestrator/src/forensic-output-guard.ts:1190:    ? `Phase 1 (F-01): ${oneLine(repairBody)} — File(s): \`${file}\` — Validation profile: ${registeredProfile} — PROPOSED: files are not applied and behavioral validation is pending.`
+artifacts/api-server/src/routes/ai.test.ts:30:import * as repairValidation from "../lib/ai-repair-validation.js";
+lib/ai-orchestrator/src/execution-kernel.ts:22:export type BoundedCommandStatus = "passed" | "failed" | "timed_out" | "cancelled" | "spawn_error";
+lib/ai-orchestrator/src/execution-kernel.ts:141:export async function runBoundedCommand(spec: BoundedCommandSpec): Promise<BoundedCommandResult> {
+lib/ai-orchestrator/src/execution-kernel.ts:232:        status: cancelled ? "cancelled" : timedOut ? "timed_out" : exitCode === 0 ? "passed" : "failed",
+lib/ai-orchestrator/src/execution-kernel.test.ts:5:import { EXECUTION_LIMITS, runBoundedCommand } from "./execution-kernel.js";
+lib/ai-orchestrator/src/execution-kernel.test.ts:22:    const result = await runBoundedCommand({
+lib/ai-orchestrator/src/execution-kernel.test.ts:38:    const result = await runBoundedCommand({
+lib/ai-orchestrator/src/execution-kernel.test.ts:56:    await expect(runBoundedCommand({
+lib/ai-orchestrator/src/execution-kernel.test.ts:73:    await expect(runBoundedCommand({
+lib/ai-orchestrator/src/execution-kernel.test.ts:88:    await expect(runBoundedCommand({
+lib/ai-orchestrator/src/execution-kernel.test.ts:101:    const result = await runBoundedCommand({
+lib/ai-orchestrator/src/execution-kernel.test.ts:110:    expect(["timed_out", "failed"]).toContain(result.status);
+lib/ai-orchestrator/src/execution-kernel.test.ts:121:    const resultPromise = runBoundedCommand({
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:102:    120_000,
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:66:    prompt: "Audit the AI chat route for a grounded finding about provider failures and include evidence, repair plan, and validation.",
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts:72:      requiredFields: ["finding", "evidence", "repair plan", "validation"],
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts:183:    repairAttempts: validation?.attempt ?? 0,
+artifacts/api-server/src/routes/ai/chat.ts:109:} from "../../lib/ai-repair-validation.js";
+artifacts/api-server/src/routes/ai/chat.ts:6048:        error: "Approved repair changes must include a registered validation profile",
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:15: * High-signal targeted matrix for deterministic repair-loop validation.
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:356:    prompt: "Attempt the scoped repair, but report BLOCKED with the real failure after three unsuccessful validations; never claim success.",
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts:444:    prompt: "Cancel the in-flight repair, preserve the running checkpoint, and reject any late success as validation proof.",
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:345:    "artifacts/api-server/src/lib/ai-repair-validation.ts",
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts:346:    "artifacts/api-server/src/lib/ai-repair-validation.test.ts",
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:42:  { name: "validation-and-repair", categories: ["test-failure-repair", "typecheck-failure-repair"], action: "Reduce failed or repeated validation attempts with server-owned repair evidence." },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:275:vi.mock("../lib/ai-repair-validation.js", async (importOriginal) => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:647:          timeout: 120_000,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:758:    120_000,
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:24:import type { RepairVerificationResult } from "../lib/ai-repair-validation.js";
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:160:vi.mock("../lib/ai-repair-validation.js", async (importOriginal) => {
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:161:  const actual = await importOriginal<typeof import("../lib/ai-repair-validation.js")>();
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:317:      detail: "The bounded repair passes validation.",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:328:        response: "The approved repair passed validation and is ready for review.",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:456:        detail: "The bounded repair now passes validation.",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:489:          "Implementation task: repair the approved change after validation failure.",
+artifacts/api-server/src/lib/operational-readiness-gate.ts:62:  nodes: "Resume or repair the failed validation nodes within their existing retry budget.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:1138:        "Never emit a Repair Plan without a matching Finding ID; every repair step must remediate the same proven behavior and include a validation scenario. " +
+lib/ai-orchestrator/src/agents/chat-agent.ts:6799:              "Treat the previous report's positive claims as untrusted candidates, then independently check them against the verified source excerpts. If the cited fragment is exact and all Finding fields can be grounded, emit FINDING_PROVEN with a complete Finding, linked repairPlan, and validationChecklist.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:6815:           ? '{"verdict":"NO_FINDING","findings":[],"repairPlan":[],"validationChecklist":["Checked the quoted implementation fragment against the requested behavior."],"noFindingBasis":"<name one inspected implementation file and quote an exact source fragment; explain why it does not prove the requested defect>"}'
+lib/ai-orchestrator/src/agents/chat-agent.ts:6816:           : '{"verdict":"NO_FINDING","findings":[],"repairPlan":[],"validationChecklist":[]}',
+lib/ai-orchestrator/src/agents/chat-agent.ts:6822:          'Or, when a defect is directly proven: {"verdict":"FINDING_PROVEN","findings":[{"id":"F-01","title":"...","files":["path/to/read-file.ts"],"evidence":"`exact source fragment`","whyItMatters":"...","rootCause":"...","fix":"..."}],"repairPlan":[{"findingId":"F-01","files":["path/to/read-file.ts"],"steps":["Replace the unsafe behavior in the cited file."],"validationProfile":"ai-orchestrator-tests"}],"validationChecklist":["Run the focused regression test that proves the cited behavior is corrected."]}',
+lib/ai-orchestrator/src/agents/chat-agent.ts:6823:        "Use an empty findings array when no Finding is directly proven. Use an empty repairPlan only when no Finding is accepted. Every proven Finding must have exactly one linked phase with concrete project-relative files, an actionable source change, and a registered validationProfile.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:6825:        "Never invent Finding IDs, citations, failures, test results, scores, or repair phases. A repair phase is valid only when its findingId exists in findings, names a registered validationProfile, and the checklist describes the behavior-specific regression it must verify.",
+lib/ai-orchestrator/src/agents/chat-agent.ts:8270:          timeoutMs: 120_000,
+artifacts/api-server/src/lib/job-concurrency.test.ts:116:      startedAt: new Date(Date.now() - 120_000),
+artifacts/api-server/src/lib/discovery-adapters.ts:214:      await execFileAsync("git", cloneArgs, { timeout: 120_000 });
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts:1948:  it("caps an oversized repair budget at three validation attempts", async () => {
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:17:import { EXECUTION_LIMITS, runBoundedCommand } from "../execution-kernel.js";
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:49:          ? pass("repair validation passed after recovery")
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:163:    const result = await runBoundedCommand({
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:172:    expect(["timed_out", "failed"]).toContain(result.status);
+lib/ai-orchestrator/src/__tests__/golden-repair-matrix.test.ts:182:    const resultPromise = runBoundedCommand({
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:9:} from "./ai-repair-validation.js";
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:11:describe("AI repair validation registry", () => {
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:22:    expect(profile.timeoutMs).toBeLessThanOrEqual(120_000);
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:77:  }, 120_000);
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:113:  }, 120_000);
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:149:  }, 120_000);
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:96:    command: "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-repair-loop-e2e.test.ts src/lib/ai-repair-validation.test.ts src/lib/job-concurrency.test.ts",
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts:28:} from "./ai-repair-validation.js";
+artifacts/api-server/src/lib/browser-preview-verification.ts:208:    throw new Error("Preview validation timeout exceeds its resource limit.");
+artifacts/api-server/src/lib/browser-preview-verification.ts:265:    const lifetimeMs = input.lifetimeMs ?? 120_000;
+artifacts/api-server/src/lib/browser-preview-verification.ts:418:      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Preview validation timed out.")), timeoutMs)),
+artifacts/api-server/src/lib/ai-repair-validation.ts:6:  runBoundedCommand,
+artifacts/api-server/src/lib/ai-repair-validation.ts:67:    timeoutMs: 120_000,
+artifacts/api-server/src/lib/ai-repair-validation.ts:75:    timeoutMs: 120_000,
+artifacts/api-server/src/lib/ai-repair-validation.ts:85:    timeoutMs: 120_000,
+artifacts/api-server/src/lib/ai-repair-validation.ts:311:    const execution = await runBoundedCommand({
+artifacts/api-server/src/lib/ai-repair-validation.ts:339:          execution.status === "timed_out"
+artifacts/api-server/src/lib/ai-repair-validation.ts:405:    const execution = await runBoundedCommand({
+artifacts/api-server/src/lib/ai-repair-validation.ts:410:      timeoutMs: Math.min(command.timeoutMs ?? 120_000, 120_000),

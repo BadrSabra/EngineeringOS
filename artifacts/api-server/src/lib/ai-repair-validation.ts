@@ -58,13 +58,16 @@ type ValidationProfileDefinition = {
   maxBuffer: number;
 };
 
+const VALIDATION_ATTEMPT_TIMEOUT_MS = 110_000;
+const VALIDATION_PROCESS_TIMEOUT_MS = 90_000;
+
 const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition> = {
   "ai-orchestrator-tests": {
     scenario: "Run the focused AI orchestrator Vitest suite.",
     allowedPath: (file) => file === "lib/ai-orchestrator" || file.startsWith("lib/ai-orchestrator/"),
     command: "pnpm",
     args: ["--filter", "@workspace/ai-orchestrator", "exec", "vitest", "run"],
-    timeoutMs: 120_000,
+    timeoutMs: VALIDATION_PROCESS_TIMEOUT_MS,
     maxBuffer: 2_000_000,
   },
   "knowledge-engine-tests": {
@@ -72,7 +75,7 @@ const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition
     allowedPath: (file) => file === "lib/knowledge-engine" || file.startsWith("lib/knowledge-engine/"),
     command: "pnpm",
     args: ["--filter", "@workspace/knowledge-engine", "exec", "vitest", "run"],
-    timeoutMs: 120_000,
+    timeoutMs: VALIDATION_PROCESS_TIMEOUT_MS,
     maxBuffer: 2_000_000,
   },
   "api-ai-tests": {
@@ -82,7 +85,7 @@ const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition
       file.startsWith("artifacts/api-server/src/routes/ai/"),
     command: "pnpm",
     args: ["--filter", "@workspace/api-server", "exec", "vitest", "run", "src/routes/ai.test.ts"],
-    timeoutMs: 120_000,
+    timeoutMs: VALIDATION_PROCESS_TIMEOUT_MS,
     maxBuffer: 2_000_000,
   },
   "workspace-typecheck": {
@@ -90,7 +93,7 @@ const PROFILE_DEFINITIONS: Record<ValidationProfile, ValidationProfileDefinition
     allowedPath: (file) => file.length > 0 && !file.startsWith("../"),
     command: "pnpm",
     args: ["run", "typecheck"],
-    timeoutMs: 180_000,
+    timeoutMs: VALIDATION_PROCESS_TIMEOUT_MS,
     maxBuffer: 2_000_000,
   },
 };
@@ -104,6 +107,8 @@ const VALIDATION_COPY_OMIT = new Set([
   ".cache",
   ".agents",
   ".local",
+  ".engineeringos-delivery",
+  ".engineeringos-projects",
   "docs",
   "coverage",
 ]);
@@ -330,14 +335,14 @@ async function runRepairValidationCore(
     };
     if (execution.status !== "passed") {
       return {
-        status: "failed",
+        status: execution.status === "timed_out" ? "blocked" : "failed",
         profile,
         scenario: definition.scenario,
         ...executionEvidence,
         failedTests: executionEvidence.failedTests.map(toValidationFailure),
         detail:
           execution.status === "timed_out"
-            ? "Registered validation timed out."
+            ? "Validation timed out before the candidate could be approved."
             : boundedDetail(output) || `Registered validation failed with status ${execution.status}.`,
       };
     }
@@ -377,6 +382,47 @@ async function runRepairValidationCore(
   }
 }
 
+async function runWithValidationDeadline(
+  rootPath: string,
+  profile: ValidationProfile,
+  relativePaths: string[],
+  signal: AbortSignal | undefined,
+  pendingChanges: readonly PendingValidationChange[],
+): Promise<ValidationDraft> {
+  const controller = new AbortController();
+  const abortFromCaller = (): void => controller.abort();
+  if (signal?.aborted) controller.abort();
+  else signal?.addEventListener("abort", abortFromCaller, { once: true });
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const operation = runRepairValidationCore(
+    rootPath,
+    profile,
+    relativePaths,
+    controller.signal,
+    pendingChanges,
+  );
+  const deadline = new Promise<ValidationDraft>((resolve) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      resolve(emptyValidationDraft(
+        profile,
+        "blocked",
+        "Registered validation exceeded its server-owned attempt deadline.",
+        "Validation timed out before the candidate could be approved.",
+      ));
+    }, VALIDATION_ATTEMPT_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([operation, deadline]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    signal?.removeEventListener("abort", abortFromCaller);
+    if (timedOut) void operation.catch(() => undefined);
+  }
+}
+
 export async function runRepairValidation(
   rootPath: string,
   profile: ValidationProfile,
@@ -384,7 +430,7 @@ export async function runRepairValidation(
   signal?: AbortSignal,
   pendingChanges: readonly PendingValidationChange[] = [],
 ): Promise<ValidationResult> {
-  const result = await runRepairValidationCore(rootPath, profile, relativePaths, signal, pendingChanges);
+  const result = await runWithValidationDeadline(rootPath, profile, relativePaths, signal, pendingChanges);
   return attachValidationEvidence(result);
 }
 
@@ -407,7 +453,7 @@ export async function runRepairRuntimeOracle(
       args: [...command.args],
       rootPath: validationWorkspace.rootPath,
       cwd: validationWorkspace.rootPath,
-      timeoutMs: Math.min(command.timeoutMs ?? 120_000, 120_000),
+      timeoutMs: Math.min(command.timeoutMs ?? VALIDATION_PROCESS_TIMEOUT_MS, VALIDATION_PROCESS_TIMEOUT_MS),
       maxOutputBytes: 1_000_000,
       allowedCommands: new Set(["pnpm"]),
       signal,

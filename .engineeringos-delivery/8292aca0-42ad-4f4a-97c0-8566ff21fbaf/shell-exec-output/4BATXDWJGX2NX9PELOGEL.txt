@@ -1,0 +1,320 @@
+artifacts/api-server/src/routes/ai.test.ts:134:      workspaceRevision: "revision",
+artifacts/api-server/src/routes/ai.test.ts:171:      workspaceRevision: "revision",
+artifacts/api-server/src/routes/ai.test.ts:215:      workspaceRevision: "revision",
+artifacts/api-server/src/routes/ai.test.ts:372:  // every candidate provider. Must be in the mock or all routes that trigger
+artifacts/api-server/src/routes/ai.test.ts:476:  lifecycle: "abandoned" | "blocked" | "conflicted" = "blocked",
+artifacts/api-server/src/routes/ai.test.ts:501:      baseRevision: "base-revision",
+artifacts/api-server/src/routes/ai.test.ts:511:    baseRevision: "base-revision",
+artifacts/api-server/src/routes/ai.test.ts:830:      revision: 0,
+artifacts/api-server/src/routes/ai.test.ts:889:        behavioralVerification: { status: "unavailable" },
+artifacts/api-server/src/routes/ai.test.ts:893:      expect(second.body.results[0].behavioralVerification.status).toBe("unavailable");
+artifacts/api-server/src/routes/ai.test.ts:1491:        workspaceRevision: "revision-abc123",
+artifacts/api-server/src/routes/ai.test.ts:1573:        revision: "revision-abc123",
+artifacts/api-server/src/routes/ai.test.ts:1973:      workspaceRevision: "stored-revision",
+artifacts/api-server/src/routes/ai.test.ts:2203:    // Not the workspace file's content — the request is refused as unavailable.
+artifacts/api-server/src/routes/ai.test.ts:2205:    expect(res.body.reason).toBe("project_root_unavailable");
+artifacts/api-server/src/routes/ai.test.ts:2612:    const operation = await makeRecoverableProposal(projectId, "blocked", {
+artifacts/api-server/src/routes/ai.test.ts:2642:        .send({ projectId, revision: 0 }),
+artifacts/api-server/src/routes/ai.test.ts:2706:    const discarded = await makeRecoverableProposal(projectId, "blocked");
+artifacts/api-server/src/routes/ai.test.ts:2733:    const operation = await makeRecoverableProposal(projectId, "blocked", {
+artifacts/api-server/src/routes/ai.test.ts:2782:    expect(proposal?.lifecycle).toBe("blocked");
+artifacts/api-server/src/routes/ai.test.ts:2806:    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
+artifacts/api-server/src/routes/ai.test.ts:2844:    const operation = await makeRecoverableProposal(projectId, "blocked");
+artifacts/api-server/src/routes/ai.test.ts:2901:      newContent: "// blocked",
+artifacts/api-server/src/routes/ai.test.ts:2929:  it("does not promote a candidate when behavioral verification is unavailable", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2931:    // intentionally unavailable there, so the candidate must not be promoted.
+artifacts/api-server/src/routes/ai.test.ts:2970:      behavioralVerification: { status: "unavailable" },
+artifacts/api-server/src/routes/ai.test.ts:2993:  it("fails closed before promotion when behavioral verification is unavailable", async () => {
+artifacts/api-server/src/routes/ai.test.ts:3055:      const event = events.find((candidate) => candidate.type === "AiChangesApplied");
+artifacts/api-server/src/routes/ai.test.ts:3437:    // doesn't cause "unavailable" → rollback in the apply route.
+artifacts/api-server/src/routes/ai.test.ts:3438:    // runRepairValidation returns ValidationResult — supply every required field.
+artifacts/api-server/src/routes/ai.test.ts:3439:    const validationSpy = vi.spyOn(repairValidation, "runRepairValidation")
+artifacts/api-server/src/routes/ai.test.ts:3765:      const blockedApply = await request(app)
+artifacts/api-server/src/routes/ai.test.ts:3772:      expect(blockedApply.status).toBe(409);
+artifacts/api-server/src/routes/ai.test.ts:3773:      expect(blockedApply.body).toMatchObject({
+artifacts/api-server/src/routes/ai.test.ts:3776:        revision: 1,
+artifacts/api-server/src/routes/ai.test.ts:3781:        .send({ projectId: id, revision: blockedApply.body.revision });
+artifacts/api-server/src/routes/ai.test.ts:3786:        revision: 1,
+artifacts/api-server/src/routes/ai.test.ts:3791:          revision: aiChangeProposalsTable.revision,
+artifacts/api-server/src/routes/ai.test.ts:3795:      expect(approvedProposal).toEqual({ approvalRequired: false, revision: 1 });
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:7:  runRepairValidation,
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:11:describe("AI repair validation registry", () => {
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:45:  it("returns unavailable scope errors instead of executing an unrelated suite", () => {
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:53:  it("returns unavailable when the registered command cannot run from the project root", async () => {
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:54:    const result = await runRepairValidation("/tmp", "ai-orchestrator-tests", [
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:57:    expect(result.status).toBe("unavailable");
+artifacts/api-server/src/lib/ai-repair-validation.test.ts:66:    const result = await runRepairValidation(
+artifacts/api-server/src/routes/ai/chat.ts:66:  toPublicValidationResult,
+artifacts/api-server/src/routes/ai/chat.ts:82:  ValidationResult,
+artifacts/api-server/src/routes/ai/chat.ts:83:  PublicValidationResult,
+artifacts/api-server/src/routes/ai/chat.ts:103:  runRepairValidation,
+artifacts/api-server/src/routes/ai/chat.ts:184:  const validation = latestValidation?.validation as ValidationResult | undefined;
+artifacts/api-server/src/routes/ai/chat.ts:192:  if (validationStatus === "unavailable") return "UNAVAILABLE";
+artifacts/api-server/src/routes/ai/chat.ts:193:  if (validationStatus === "failed" || validationStatus === "blocked") return "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts:291:  unavailable: boolean;
+artifacts/api-server/src/routes/ai/chat.ts:293:  if (value === null || value === undefined) return { report: value, unavailable: false };
+artifacts/api-server/src/routes/ai/chat.ts:295:  if (parsed === undefined) return { unavailable: true };
+artifacts/api-server/src/routes/ai/chat.ts:298:    ? { report: projectMissionCorrelationReportForExport(result.data), unavailable: false }
+artifacts/api-server/src/routes/ai/chat.ts:299:    : { unavailable: true };
+artifacts/api-server/src/routes/ai/chat.ts:318:  result: ValidationResult,
+artifacts/api-server/src/routes/ai/chat.ts:319:  overrides: Partial<Pick<ValidationResult, "status" | "detail" | "reasonCode">> = {},
+artifacts/api-server/src/routes/ai/chat.ts:320:): PublicValidationResult {
+artifacts/api-server/src/routes/ai/chat.ts:321:  return toPublicValidationResult({
+artifacts/api-server/src/routes/ai/chat.ts:328:      candidateHash: result.evidence.candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:335:function parsePublicValidationReceipts(value: unknown): PublicValidationResult[] {
+artifacts/api-server/src/routes/ai/chat.ts:339:    const candidate = entry as Record<string, unknown>;
+artifacts/api-server/src/routes/ai/chat.ts:343:      typeof candidate.profile !== "string"
+artifacts/api-server/src/routes/ai/chat.ts:344:      || typeof candidate.status !== "string"
+artifacts/api-server/src/routes/ai/chat.ts:345:      || typeof candidate.scenario !== "string"
+artifacts/api-server/src/routes/ai/chat.ts:346:      || !("evidence" in candidate)
+artifacts/api-server/src/routes/ai/chat.ts:347:      || !candidate.evidence
+artifacts/api-server/src/routes/ai/chat.ts:348:      || typeof candidate.evidence !== "object"
+artifacts/api-server/src/routes/ai/chat.ts:350:    const evidence = candidate.evidence as Record<string, unknown>;
+artifacts/api-server/src/routes/ai/chat.ts:357:      profile: candidate.profile,
+artifacts/api-server/src/routes/ai/chat.ts:358:      status: candidate.status as PublicValidationResult["status"],
+artifacts/api-server/src/routes/ai/chat.ts:359:      scenario: candidate.scenario,
+artifacts/api-server/src/routes/ai/chat.ts:360:      exitCode: typeof candidate.exitCode === "number" || candidate.exitCode === null
+artifacts/api-server/src/routes/ai/chat.ts:361:        ? candidate.exitCode
+artifacts/api-server/src/routes/ai/chat.ts:369:        ...(typeof evidence.candidateHash === "string" ? { candidateHash: evidence.candidateHash } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:373:      ...(typeof candidate.reasonCode === "string" ? { reasonCode: candidate.reasonCode as PublicValidationResult["reasonCode"] } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:374:      ...(typeof candidate.detail === "string" ? { detail: redactUserFacingText(candidate.detail).slice(0, 240) } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:382: * an unavailable historical report must never change the conversation.
+artifacts/api-server/src/routes/ai/chat.ts:562:  const candidate = path.isAbsolute(raw) ? path.relative(rootPath, raw) : raw;
+artifacts/api-server/src/routes/ai/chat.ts:563:  return path.posix.normalize(candidate).replace(/^(\.\/)+/, "");
+artifacts/api-server/src/routes/ai/chat.ts:601:  reasonCode?: "invalid_profile" | "stale_revision";
+artifacts/api-server/src/routes/ai/chat.ts:651:  if (!liveWalk || liveWalk.revision !== currentManifest.projectRevision) {
+artifacts/api-server/src/routes/ai/chat.ts:661: * Planning must inspect the same source revision represented by the context
+artifacts/api-server/src/routes/ai/chat.ts:663: * but it is not itself a source revision; the scanner walk is the immutable
+artifacts/api-server/src/routes/ai/chat.ts:664: * revision contract shared with scan, approval, mutation, and delivery.
+artifacts/api-server/src/routes/ai/chat.ts:666: * A mismatch is represented as an unavailable planning inventory so the
+artifacts/api-server/src/routes/ai/chat.ts:667: * planner's existing guarded fallback produces an explicitly blocked plan.
+artifacts/api-server/src/routes/ai/chat.ts:675:  const unavailable = (reason: string) => ({
+artifacts/api-server/src/routes/ai/chat.ts:684:  const unavailableSources = (reason: string) => ({
+artifacts/api-server/src/routes/ai/chat.ts:695:      filesystemManifest: unavailable("The project root is unavailable; planning is blocked until it is restored."),
+artifacts/api-server/src/routes/ai/chat.ts:696:      filesystemSources: unavailableSources("The project root is unavailable; no source snapshot can be verified."),
+artifacts/api-server/src/routes/ai/chat.ts:702:      filesystemManifest: unavailable("The project scan is incomplete; complete a fresh scan before creating a plan."),
+artifacts/api-server/src/routes/ai/chat.ts:703:      filesystemSources: unavailableSources("The project scan is incomplete; source excerpts are not planning evidence."),
+artifacts/api-server/src/routes/ai/chat.ts:714:      filesystemManifest: unavailable(`The project root is unavailable: ${rootResult.reason}.`),
+artifacts/api-server/src/routes/ai/chat.ts:715:      filesystemSources: unavailableSources("The project root could not be canonically established."),
+artifacts/api-server/src/routes/ai/chat.ts:723:      filesystemManifest: unavailable("The project source tree could not be read; planning is blocked."),
+artifacts/api-server/src/routes/ai/chat.ts:724:      filesystemSources: unavailableSources("The project source tree could not be read."),
+artifacts/api-server/src/routes/ai/chat.ts:730:      filesystemManifest: unavailable("The live source walk is incomplete; planning requires a complete snapshot."),
+artifacts/api-server/src/routes/ai/chat.ts:731:      filesystemSources: unavailableSources("The live source walk is incomplete."),
+artifacts/api-server/src/routes/ai/chat.ts:734:  if (liveWalk.revision !== completeManifest.projectRevision) {
+artifacts/api-server/src/routes/ai/chat.ts:737:      filesystemManifest: unavailable(
+artifacts/api-server/src/routes/ai/chat.ts:740:      filesystemSources: unavailableSources(
+artifacts/api-server/src/routes/ai/chat.ts:741:        "The source tree revision is stale relative to the context snapshot.",
+artifacts/api-server/src/routes/ai/chat.ts:751:      filesystemSources: unavailableSources(
+artifacts/api-server/src/routes/ai/chat.ts:770:    revision: browserValidationProfilesTable.revision,
+artifacts/api-server/src/routes/ai/chat.ts:782:  if (profile.revision !== projectRevision) {
+artifacts/api-server/src/routes/ai/chat.ts:784:      error: "The selected browser validation profile belongs to an older project revision. Register a fresh browser check before continuing.",
+artifacts/api-server/src/routes/ai/chat.ts:786:      reasonCode: "stale_revision",
+artifacts/api-server/src/routes/ai/chat.ts:1109:    const phase = repairPlan.find((candidate) => candidate.files.includes(change.path));
+artifacts/api-server/src/routes/ai/chat.ts:1228:function makeSyntheticValidationResult(
+artifacts/api-server/src/routes/ai/chat.ts:1230:  status: ValidationResult["status"],
+artifacts/api-server/src/routes/ai/chat.ts:1233:): ValidationResult {
+artifacts/api-server/src/routes/ai/chat.ts:1362:  validation?: import("@workspace/ai-orchestrator").PublicValidationResult;
+artifacts/api-server/src/routes/ai/chat.ts:1364:  validationStatus?: ValidationResult["status"];
+artifacts/api-server/src/routes/ai/chat.ts:1373:  validationFailedTestDetails?: ValidationResult["failedTests"];
+artifacts/api-server/src/routes/ai/chat.ts:1378:  resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
+artifacts/api-server/src/routes/ai/chat.ts:1438:        const publicValidation = redactUserFacingValue(toPublicValidationResult(step.result));
+artifacts/api-server/src/routes/ai/chat.ts:1621:          ...(steps.some((candidate) => candidate.kind === "forensic_recovery_start")
+artifacts/api-server/src/routes/ai/chat.ts:1625:            .filter((candidate): candidate is Extract<AgentStep, { kind: "model_call" | "recovery_model_call" }> =>
+artifacts/api-server/src/routes/ai/chat.ts:1626:              candidate.kind === "model_call" || candidate.kind === "recovery_model_call",
+artifacts/api-server/src/routes/ai/chat.ts:1628:            .map((candidate) => candidate.model)
+artifacts/api-server/src/routes/ai/chat.ts:1649:      ? { ...step, result: redactUserFacingValue(toPublicValidationResult(step.result)) }
+artifacts/api-server/src/routes/ai/chat.ts:1676: * a usable audit candidate without logging the audit itself.
+artifacts/api-server/src/routes/ai/chat.ts:2360:        error: "The project root is unavailable for Build Mode",
+artifacts/api-server/src/routes/ai/chat.ts:2420:        logger.warn({ projectId, code: contextFailure.code }, "Build handoff context blocked");
+artifacts/api-server/src/routes/ai/chat.ts:2445:      }, "Build handoff plan blocked");
+artifacts/api-server/src/routes/ai/chat.ts:2743:      // The original request owns the analysis revision. A reconnect must not
+artifacts/api-server/src/routes/ai/chat.ts:2744:      // silently move the same operation onto a newer workspace revision.
+artifacts/api-server/src/routes/ai/chat.ts:2846:      revisionManifest: executionRequest.workspaceRevision,
+artifacts/api-server/src/routes/ai/chat.ts:3157:        } else if (step.result.status === "unavailable") {
+artifacts/api-server/src/routes/ai/chat.ts:3160:        } else if (step.result.status === "failed" || step.result.status === "blocked") {
+artifacts/api-server/src/routes/ai/chat.ts:3206:        const publicValidation = redactUserFacingValue(toPublicValidationResult(step.result));
+artifacts/api-server/src/routes/ai/chat.ts:3210:          // Compatibility projection for clients that predate ValidationResult.
+artifacts/api-server/src/routes/ai/chat.ts:3229:        // `done` step. Keep the summary live so recovery candidates are not
+artifacts/api-server/src/routes/ai/chat.ts:3334:          ...(traceSteps.some((candidate) => candidate.kind === "forensic_recovery_start")
+artifacts/api-server/src/routes/ai/chat.ts:3338:            .filter((candidate): candidate is Extract<AgentStep, { kind: "model_call" | "recovery_model_call" }> =>
+artifacts/api-server/src/routes/ai/chat.ts:3339:              candidate.kind === "model_call" || candidate.kind === "recovery_model_call",
+artifacts/api-server/src/routes/ai/chat.ts:3341:            .map((candidate) => candidate.model)
+artifacts/api-server/src/routes/ai/chat.ts:3421:                status: "unavailable" as const,
+artifacts/api-server/src/routes/ai/chat.ts:3425:            return runRepairValidation(
+artifacts/api-server/src/routes/ai/chat.ts:3441:    // A profile is valid only for the exact project revision it was registered
+artifacts/api-server/src/routes/ai/chat.ts:3444:      && registeredBrowserProfile.revision === analysisCorrelation.projectRevision
+artifacts/api-server/src/routes/ai/chat.ts:3450:      ? async (request: { profile: string; rootPath: string; pendingChanges?: readonly PendingValidationChange[]; operationId?: string; revision?: string; signal?: AbortSignal }) => {
+artifacts/api-server/src/routes/ai/chat.ts:3453:              profile: request.profile, status: "unavailable" as const,
+artifacts/api-server/src/routes/ai/chat.ts:3454:              scenario: "Registered browser validation profile is unavailable.",
+artifacts/api-server/src/routes/ai/chat.ts:3460:                artifactRef: "browser-preview:profile-unavailable",
+artifacts/api-server/src/routes/ai/chat.ts:3466:                  ? "stale_revision"
+artifacts/api-server/src/routes/ai/chat.ts:3473:            revision: request.revision ?? analysisCorrelation.projectRevision,
+artifacts/api-server/src/routes/ai/chat.ts:3485:              revision: request.revision ?? analysisCorrelation.projectRevision,
+artifacts/api-server/src/routes/ai/chat.ts:3487:                revision: request.revision ?? analysisCorrelation.projectRevision,
+artifacts/api-server/src/routes/ai/chat.ts:3498:              profile: "browser-preview", status: "unavailable" as const,
+artifacts/api-server/src/routes/ai/chat.ts:3507:              detail: "Preview browser validation was unavailable.",
+artifacts/api-server/src/routes/ai/chat.ts:3509:                ? "stale_revision"
+artifacts/api-server/src/routes/ai/chat.ts:3566:            revision: analysisCorrelation.projectRevision,
+artifacts/api-server/src/routes/ai/chat.ts:3576:             revision: analysisCorrelation.projectRevision,
+artifacts/api-server/src/routes/ai/chat.ts:3601:      // failure, even when the agent returned a blocked-looking response.
+artifacts/api-server/src/routes/ai/chat.ts:3613:            (step.resultKind === "failed" || step.resultKind === "unavailable" || step.resultKind === "cancelled"),
+artifacts/api-server/src/routes/ai/chat.ts:3622:            : "The required analysis did not complete; the operation is blocked.";
+artifacts/api-server/src/routes/ai/chat.ts:3804:                 `AI model temporarily unavailable${err.providerModel ? ` (${err.providerModel})` : ""} — all fallbacks also unavailable.`,
+artifacts/api-server/src/routes/ai/chat.ts:4098:      } else if (finalValidation.status === "unavailable") {
+artifacts/api-server/src/routes/ai/chat.ts:4101:      } else if (finalValidation.status === "failed" || finalValidation.status === "blocked") {
+artifacts/api-server/src/routes/ai/chat.ts:4159:          error: "Execution blocked: required objective, scope, revision, or acceptance evidence was not proven.",
+artifacts/api-server/src/routes/ai/chat.ts:4168:          message: "Execution is incomplete: required acceptance evidence is missing, stale, or not bound to this revision.",
+artifacts/api-server/src/routes/ai/chat.ts:4372:    checkpoint = { stage: "unknown", detail: "Checkpoint is unavailable." };
+artifacts/api-server/src/routes/ai/chat.ts:4464:      revision: typeof storedRequest?.workspaceRevision === "string" ? storedRequest.workspaceRevision : null,
+artifacts/api-server/src/routes/ai/chat.ts:4590:          || validation.reasonCode === "stale_revision"
+artifacts/api-server/src/routes/ai/chat.ts:4608:      revision: safeText(request.workspaceRevision, 200) ?? null,
+artifacts/api-server/src/routes/ai/chat.ts:4635:    revision: z.string().min(1).max(2_000).optional(),
+artifacts/api-server/src/routes/ai/chat.ts:4645:    return res.status(409).json({ error: "This recovery request targets a stale workspace revision.", code: "EXECUTION_STALE" });
+artifacts/api-server/src/routes/ai/chat.ts:4810:    return res.status(409).json({ error: "This historical run has no unavailable report to regenerate.", code: "REPORT_REGENERATION_NOT_ELIGIBLE" });
+artifacts/api-server/src/routes/ai/chat.ts:4812:  if (!parseMissionCorrelationReportForHistory(target.missionCorrelationReport).unavailable) {
+artifacts/api-server/src/routes/ai/chat.ts:4946:      ...(historicalReport.unavailable
+artifacts/api-server/src/routes/ai/chat.ts:5012:  // Older pending plans predate the revision manifest. Keep their review
+artifacts/api-server/src/routes/ai/chat.ts:5019:        error: "The project root is unavailable. Restore the project root and complete a fresh scan before approving this plan.",
+artifacts/api-server/src/routes/ai/chat.ts:5140:    return res.status(200).json({ available: false, reason: "project_root_unavailable" });
+artifacts/api-server/src/routes/ai/chat.ts:5150:    return res.status(200).json({ available: false, reason: "project_root_unavailable" });
+artifacts/api-server/src/routes/ai/chat.ts:5247:      revision: proposal.status === "pending" ? proposal.revision : null,
+artifacts/api-server/src/routes/ai/chat.ts:5287:      inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted", "cancelled"]),
+artifacts/api-server/src/routes/ai/chat.ts:5358:  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)
+artifacts/api-server/src/routes/ai/chat.ts:5390:  const candidateHash = await hashDeliveryWorkspace(workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:5402:    const result = await runRepairValidation(
+artifacts/api-server/src/routes/ai/chat.ts:5412:      result.evidence.candidateHash = candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:5421:    lifecycle: passed ? "validated" : "blocked",
+artifacts/api-server/src/routes/ai/chat.ts:5427:    inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted"]),
+artifacts/api-server/src/routes/ai/chat.ts:5437:    lifecycle: passed ? "validated" : "blocked",
+artifacts/api-server/src/routes/ai/chat.ts:5451:  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)) {
+artifacts/api-server/src/routes/ai/chat.ts:5452:    return res.status(409).json({ error: "Only abandoned or blocked delivery work can be discarded.", code: "DELIVERY_NOT_DISCARDABLE" });
+artifacts/api-server/src/routes/ai/chat.ts:5524:      error: "project_root_unavailable",
+artifacts/api-server/src/routes/ai/chat.ts:5526:      message: "The project working directory is unavailable; restore or rescan the project before rebasing changes.",
+artifacts/api-server/src/routes/ai/chat.ts:5710:      const nextRevision = proposal.revision + 1;
+artifacts/api-server/src/routes/ai/chat.ts:5715:          revision: nextRevision,
+artifacts/api-server/src/routes/ai/chat.ts:5745:      revision: proposal.revision + 1,
+artifacts/api-server/src/routes/ai/chat.ts:5762:// Rebased proposals remain pending but are explicitly blocked from apply until
+artifacts/api-server/src/routes/ai/chat.ts:5763:// the user approves the new revision. The compare-and-set prevents an approval
+artifacts/api-server/src/routes/ai/chat.ts:5768:    revision: z.number().int().min(0),
+artifacts/api-server/src/routes/ai/chat.ts:5777:  const { projectId, revision } = body.data;
+artifacts/api-server/src/routes/ai/chat.ts:5803:      revision: proposal.revision,
+artifacts/api-server/src/routes/ai/chat.ts:5816:        eq(aiChangeProposalsTable.revision, revision),
+artifacts/api-server/src/routes/ai/chat.ts:5830:        revision,
+artifacts/api-server/src/routes/ai/chat.ts:5847:    revision,
+artifacts/api-server/src/routes/ai/chat.ts:5940:  // unavailable; filesystem readiness is checked immediately afterward.
+artifacts/api-server/src/routes/ai/chat.ts:5968:      error: "project_root_unavailable",
+artifacts/api-server/src/routes/ai/chat.ts:5970:      message: "The project working directory is unavailable; restore or rescan the project before applying changes.",
+artifacts/api-server/src/routes/ai/chat.ts:6021:        revision: proposal.revision,
+artifacts/api-server/src/routes/ai/chat.ts:6081:    // revision, path, and validation gates below pass.
+artifacts/api-server/src/routes/ai/chat.ts:6256:              behavioralVerification: makeSyntheticValidationResult(
+artifacts/api-server/src/routes/ai/chat.ts:6258:                "unavailable",
+artifacts/api-server/src/routes/ai/chat.ts:6288:      // valid-looking sibling change to slip through beside a blocked write.
+artifacts/api-server/src/routes/ai/chat.ts:6296:    // Keep the candidate in lockstep with the bytes that passed preflight
+artifacts/api-server/src/routes/ai/chat.ts:6299:    const candidateChanges = writableChanges;
+artifacts/api-server/src/routes/ai/chat.ts:6300:    for (const change of candidateChanges) {
+artifacts/api-server/src/routes/ai/chat.ts:6301:      const candidatePath = path.resolve(deliveryWorkspace.workspaceRoot, change.path);
+artifacts/api-server/src/routes/ai/chat.ts:6302:      if (candidatePath !== deliveryWorkspace.workspaceRoot
+artifacts/api-server/src/routes/ai/chat.ts:6303:        && !candidatePath.startsWith(`${deliveryWorkspace.workspaceRoot}${path.sep}`)) {
+artifacts/api-server/src/routes/ai/chat.ts:6304:        throw new Error("Delivery candidate path escapes isolated workspace");
+artifacts/api-server/src/routes/ai/chat.ts:6306:      await fs.mkdir(path.dirname(candidatePath), { recursive: true });
+artifacts/api-server/src/routes/ai/chat.ts:6307:      await fs.writeFile(candidatePath, change.newContent, "utf8");
+artifacts/api-server/src/routes/ai/chat.ts:6309:    const candidateHash = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:6310:    const effectiveChangeSetHash = hashChangeSet(candidateChanges);
+artifacts/api-server/src/routes/ai/chat.ts:6332:      const validation = await runRepairValidation(
+artifacts/api-server/src/routes/ai/chat.ts:6340:        validation.evidence.candidateHash = candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:6346:    const candidateHashAfterValidation = await hashDeliveryWorkspace(deliveryWorkspace.workspaceRoot);
+artifacts/api-server/src/routes/ai/chat.ts:6347:    const candidateChangedDuringValidation = candidateHashAfterValidation !== candidateHash;
+artifacts/api-server/src/routes/ai/chat.ts:6348:    const liveRootChangedBeforePromotion = !candidateChangedDuringValidation && (await Promise.all(
+artifacts/api-server/src/routes/ai/chat.ts:6349:      candidateChanges.map(async (change) => {
+artifacts/api-server/src/routes/ai/chat.ts:6360:    const validationNeedsReview = candidateChangedDuringValidation || liveRootChangedBeforePromotion || [...verificationByProfile.values()].some((validation) =>
+artifacts/api-server/src/routes/ai/chat.ts:6362:      validation.status === "unavailable" ||
+artifacts/api-server/src/routes/ai/chat.ts:6364:      validation.status === "blocked",
+artifacts/api-server/src/routes/ai/chat.ts:6367:      // Behavioral validation is a promotion gate. Keep the candidate for
+artifacts/api-server/src/routes/ai/chat.ts:6368:      // inspection/recovery, but never write an unproven candidate to the
+artifacts/api-server/src/routes/ai/chat.ts:6370:      for (const change of candidateChanges) {
+artifacts/api-server/src/routes/ai/chat.ts:6374:          error: "Behavioral verification did not pass; the candidate was not promoted.",
+artifacts/api-server/src/routes/ai/chat.ts:6378:        reason: candidateChangedDuringValidation
+artifacts/api-server/src/routes/ai/chat.ts:6379:          ? "candidate_changed_after_validation"
+artifacts/api-server/src/routes/ai/chat.ts:6383:        candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6393:        candidateWorkspace: deliveryWorkspace.workspaceRoot,
+artifacts/api-server/src/routes/ai/chat.ts:6394:        candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6449:    const candidateFilesHash = candidateChanges.length > 0
+artifacts/api-server/src/routes/ai/chat.ts:6450:      ? await hashDeliveryFiles(deliveryWorkspace.workspaceRoot, candidateChanges)
+artifacts/api-server/src/routes/ai/chat.ts:6455:    if (writtenChanges.length > 0 && promotedHash !== candidateFilesHash) {
+artifacts/api-server/src/routes/ai/chat.ts:6461:          result.error = "Promoted bytes do not match the validated candidate.";
+artifacts/api-server/src/routes/ai/chat.ts:6466:        reason: "promoted_candidate_hash_mismatch",
+artifacts/api-server/src/routes/ai/chat.ts:6467:        candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6476:        && promotedHash === candidateFilesHash
+artifacts/api-server/src/routes/ai/chat.ts:6484:      const stale = candidateChangedDuringValidation || liveRootChangedBeforePromotion;
+artifacts/api-server/src/routes/ai/chat.ts:6487:            status: "blocked",
+artifacts/api-server/src/routes/ai/chat.ts:6488:            detail: candidateChangedDuringValidation
+artifacts/api-server/src/routes/ai/chat.ts:6489:              ? "The immutable candidate changed during validation and was not promoted."
+artifacts/api-server/src/routes/ai/chat.ts:6490:              : "The project changed before promotion and the validated candidate was not promoted.",
+artifacts/api-server/src/routes/ai/chat.ts:6499:            ...makeSyntheticValidationResult(
+artifacts/api-server/src/routes/ai/chat.ts:6501:              "unavailable",
+artifacts/api-server/src/routes/ai/chat.ts:6507:            ...makeSyntheticValidationResult(
+artifacts/api-server/src/routes/ai/chat.ts:6523:      result.behavioralVerification.status === "unavailable" ||
+artifacts/api-server/src/routes/ai/chat.ts:6525:      result.behavioralVerification.status === "blocked",
+artifacts/api-server/src/routes/ai/chat.ts:6590:          candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6611:          candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6644:          candidateHash,
+artifacts/api-server/src/routes/ai/chat.ts:6658:            lifecycle: verificationNeedsReviewAfterPromotion ? "blocked" : "applied",
+artifacts/api-server/src/routes/ai/chat.ts:6670:            lifecycle: rollbackFailed || failedPaths.length > 0 ? "conflicted" : "blocked",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:164:    runRepairValidation: vi.fn(async (...args: unknown[]) => {
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:175:      return actual.runRepairValidation(...(
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:176:        args as Parameters<typeof actual.runRepairValidation>
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:574:        reason: "Apply the bounded repair candidate.",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:609:        ["blocked", "BLOCKED", 2],
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:623:  it("blocks an unavailable validator without a proposal, apply path, or source mutation", async () => {
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:628:    const pendingContent = `${originalContent}\n// validator-unavailable fixture must never apply\n`;
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:638:      status: "unavailable",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:644:      stderr: "validator unavailable in the isolated environment",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:647:      detail: "The registered validator is unavailable in the isolated environment.",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:649:        evidenceId: "unavailable-validator-evidence",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:651:        artifactRef: "validation-result:unavailable-validator-evidence",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:659:        reason: "Prepare the bounded repair candidate before verification.",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:662:      harness.finalResponse("BLOCKED: the registered validator is unavailable; no repair can be approved."),
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:675:          "Done looks like: unavailable validation is BLOCKED and never becomes an approval proposal.",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:691:      status: "unavailable",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:696:      detail: "The registered validator is unavailable in the isolated environment.",
+lib/scanner/src/python-extractor.ts:55: * Rejects if the interpreter is unavailable, the subprocess fails, or its
+lib/scanner/src/python-ast-script.ts:9:    export const PYTHON_AST_SCRIPT = "\"\"\"\nBatched Python AST extractor used by the scanner's graph-extractor.\n\nReads a JSON array of {\"path\": str, \"content\": str} objects from stdin,\nparses each with the stdlib `ast` module (real structural parsing — no\nregex heuristics), and writes a JSON array of results to stdout:\n\n  [{\"path\": str, \"entities\": [...], \"imports\": [...], \"error\"?: str}, ...]\n\nentities: {\"type\": \"function\"|\"class\", \"name\": str, \"className\"?: str}\n  - Module-level function/class defs, plus methods nested directly under a\n    module-level (or class-nested, e.g. a `Meta` inner class) class\n    (recorded as \"ClassName.method\").\n  - Names starting with \"_\" are skipped (private-by-convention, mirroring\n    the TS/JS extractor's private-member skip).\n  - Deliberately scope-aware: only module-level and class-nested defs are\n    collected. A class or function defined *inside a function body* (a\n    local helper) is implementation detail, not part of the module's\n    externally-visible surface, so it is not walked into or reported —\n    mirroring how the TS/JS extractor only looks at top-level exports.\n\nimports: {\"module\": str|null, \"level\": int, \"names\": [str]}\n  - `import a.b` -> {\"module\": \"a.b\", \"level\": 0, \"names\": []}\n  - `from a.b import c` -> {\"module\": \"a.b\", \"level\": 0, \"names\": [\"c\"]}\n  - `from . import c` -> {\"module\": null, \"level\": 1, \"names\": [\"c\"]}\n  - `from ..pkg import c` -> {\"module\": \"pkg\", \"level\": 2, \"names\": [\"c\"]}\n  `names` matters because `from . import utils` and `from pkg import utils`\n  commonly refer to a *submodule* named `utils`, not an attribute — the\n  Node side tries both the module path itself and module+each name as\n  candidate file paths. Resolution against actual project file paths\n  happens on the Node side, which knows the full set of scanned paths;\n  this script only reports the raw import shape.\n\nA syntax error (or any other per-file exception) is captured on that\nfile's result as \"error\" rather than aborting the whole batch, so one\nmalformed file never loses coverage for the rest of the scan.\n\"\"\"\n\nimport ast\nimport json\nimport sys\n\n\ndef collect_class_entities(class_node, entities):\n    \"\"\"Record a ClassDef (unless private-by-convention) plus its directly\n    nested method/class defs.\n\n    Recurses into nested `ClassDef`s within the class body (e.g. a Django-\n    style inner `Meta` class) so those are captured too, but deliberately\n    does NOT descend into method bodies — a class or function defined\n    inside a method is local implementation detail, not part of the\n    module's surface. If the class itself is private-by-convention, its\n    methods are skipped too rather than surfacing as orphaned\n    `_PrivateClass.method` entities for an otherwise-excluded class.\n    \"\"\"\n    is_private = class_node.name.startswith(\"_\")\n    if not is_private:\n        entities.append({\"type\": \"class\", \"name\": class_node.name})\n    for item in class_node.body:\n        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):\n            if not is_private and not item.name.startswith(\"_\"):\n                entities.append({\n                    \"type\": \"function\",\n                    \"name\": \"{}.{}\".format(class_node.name, item.name),\n                    \"className\": class_node.name,\n                })\n        elif isinstance(item, ast.ClassDef) and not is_private:\n            collect_class_entities(item, entities)\n\n\ndef parse_file(path, content):\n    entities = []\n    imports = []\n\n    try:\n        tree = ast.parse(content, filename=path)\n    except SyntaxError as exc:\n        return {\"path\": path, \"entities\": entities, \"imports\": imports, \"error\": str(exc)}\n\n    for node in tree.body:\n        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith(\"_\"):\n            entities.append({\"type\": \"function\", \"name\": node.name})\n        elif isinstance(node, ast.ClassDef):\n            collect_class_entities(node, entities)\n        elif isinstance(node, ast.Import):\n            for alias in node.names:\n                imports.append({\"module\": alias.name, \"level\": 0, \"names\": []})\n        elif isinstance(node, ast.ImportFrom):\n            imports.append({\n                \"module\": node.module,\n                \"level\": node.level or 0,\n                \"names\": [alias.name for alias in node.names],\n            })\n\n    return {\"path\": path, \"entities\": entities, \"imports\": imports}\n\n\ndef main():\n    raw = sys.stdin.read()\n    try:\n        files = json.loads(raw)\n    except json.JSONDecodeError as exc:\n        sys.stderr.write(\"invalid input: {}\\n\".format(exc))\n        sys.exit(1)\n\n    results = []\n    for f in files:\n        path = f.get(\"path\", \"?\")\n        try:\n            results.append(parse_file(path, f.get(\"content\", \"\")))\n        except Exception as exc:  # never let one bad file kill the batch\n            results.append({\"path\": path, \"entities\": [], \"imports\": [], \"error\": str(exc)})\n\n    sys.stdout.write(json.dumps(results))\n\n\nif __name__ == \"__main__\":\n    main()\n";
+lib/scanner/src/graph-extractor.ts:220:    const candidates = pkgDir
+lib/scanner/src/graph-extractor.ts:223:    for (const base of candidates) {
+lib/scanner/src/graph-extractor.ts:270:    const candidate = resolvedBase + ext;
+lib/scanner/src/graph-extractor.ts:271:    if (knownPaths.has(candidate)) return candidate;
+lib/scanner/src/graph-extractor.ts:274:    const candidate = resolvedBase + "/index" + ext;
+lib/scanner/src/graph-extractor.ts:275:    if (knownPaths.has(candidate)) return candidate;
+lib/scanner/src/graph-extractor.ts:321:  const candidates: string[] = [];
+lib/scanner/src/graph-extractor.ts:322:  if (modulePath) candidates.push(modulePath);
+lib/scanner/src/graph-extractor.ts:327:  // (or bare package dir, for `from . import x`) as its own candidate file.
+lib/scanner/src/graph-extractor.ts:330:    candidates.push(base ? `${base}/${name}` : name);
+lib/scanner/src/graph-extractor.ts:333:  return candidates;
+lib/scanner/src/graph-extractor.ts:937:// as a degraded fallback for when the interpreter is unavailable, the
+lib/scanner/src/graph-extractor.ts:963:  // fallback (AST subprocess was unavailable or this file had a syntax error).
+lib/scanner/src/graph-extractor.ts:1025:    for (const candidate of pythonImportCandidates(imp, file.path)) {
+lib/scanner/src/graph-extractor.ts:1026:      const targetName = matchPythonImportToEntity(candidate, knownPaths);
+lib/scanner/src/graph-extractor.ts:1046: * unparseable file) whenever the subprocess is unavailable or errors out.
+lib/scanner/src/graph-extractor.ts:1053:    // Interpreter unavailable, subprocess crashed, or output was
+lib/scanner/src/python-ast-script.py:30:  candidate file paths. Resolution against actual project file paths
+lib/scanner/src/file-walker.ts:95:  revision: string;
+lib/scanner/src/file-walker.ts:126:  revision: string;
+lib/scanner/src/file-walker.ts:128:  revisionManifest: RevisionManifest;
+lib/scanner/src/file-walker.ts:263:  const revisionHash = createHash("sha256");
+lib/scanner/src/file-walker.ts:275:    revisionHash.update(file.path);
+lib/scanner/src/file-walker.ts:276:    revisionHash.update("\0");
+lib/scanner/src/file-walker.ts:277:    revisionHash.update(String(file.size));
+lib/scanner/src/file-walker.ts:278:    revisionHash.update("\0");
+lib/scanner/src/file-walker.ts:279:    revisionHash.update(file.oversized ? "oversized" : file.content);
+lib/scanner/src/file-walker.ts:280:    revisionHash.update("\n");
+lib/scanner/src/file-walker.ts:283:  const revision = revisionHash.digest("hex");
+lib/scanner/src/file-walker.ts:295:    revision,
+lib/scanner/src/file-walker.ts:296:    revisionManifest: {
+lib/scanner/src/file-walker.ts:297:      revision,
+lib/db/src/schema/ai_executions.ts:62:  baseRevision: text("base_revision"),
+lib/db/src/schema/ai_change_proposals.ts:19:  "blocked",
+lib/db/src/schema/ai_change_proposals.ts:43:  revision: integer("revision").notNull().default(0),
+lib/db/src/schema/ai_change_proposals.ts:50:  /** Git/tree revision from which this change set was produced. */
+lib/db/src/schema/ai_change_proposals.ts:51:  baseRevision: text("base_revision"),
+lib/scanner/src/__tests__/file-walker.test.ts:32:    expect(result.revisionManifest.revision).toBe(result.revision);
+lib/scanner/src/__tests__/file-walker.test.ts:33:    expect(result.revisionManifest.sourceRoot).toBe(TEST_DIR);

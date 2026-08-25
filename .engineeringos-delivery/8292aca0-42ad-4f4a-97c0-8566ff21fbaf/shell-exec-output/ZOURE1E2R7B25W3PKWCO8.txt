@@ -1,0 +1,259 @@
+# Task #13: Stop validation runs from hanging before code delivery
+
+# Stop validation runs from hanging before code delivery
+
+## What & Why
+Two isolated repair-validation scenarios currently reach the 120-second test timeout, leaving operators unsure whether a candidate is still running or blocked. This prevents a trustworthy apply/promotion path.
+
+## Done looks like
+- Every server-owned validation attempt has finite process and overall deadlines.
+- Timeout outcomes persist as explicit blocked/unavailable receipts with safe diagnostics.
+- The isolated validation scenarios complete without harness timeouts.
+- Candidate, revision, and evidence binding remain enforced.
+
+## Relevant files
+- artifacts/api-server/src/lib/ai-repair-validation.ts
+- artifacts/api-server/src/routes/ai/chat.ts
+- artifacts/api-server/src/lib/delivery-workspace.ts
+
+--- matches ---
+artifacts/api-server/src/lib/delivery-workspace.ts:7:  | "committed" | "cancelled" | "abandoned" | "blocked";
+artifacts/api-server/src/lib/delivery-workspace.ts:74:  ".engineeringos-delivery",
+artifacts/api-server/src/lib/delivery-workspace.ts:76:const MARKER = ".engineeringos-delivery-workspace";
+artifacts/api-server/src/lib/delivery-workspace.ts:88: * platforms and proves validation observed the exact bytes in the workspace.
+artifacts/api-server/src/lib/delivery-workspace.ts:126:export function deliveryWorkspacePath(operationId: string): string {
+artifacts/api-server/src/lib/delivery-workspace.ts:127:  if (!/^[0-9a-f-]{36}$/i.test(operationId)) throw new Error("Invalid delivery operation identity");
+artifacts/api-server/src/lib/delivery-workspace.ts:137:  const workspaceRoot = deliveryWorkspacePath(input.operationId);
+artifacts/api-server/src/lib/delivery-workspace.ts:140:    // A retry of the same operation may be recovering a failed validation.
+artifacts/api-server/src/lib/delivery-workspace.ts:155:      ? path.join("/tmp", `engineeringos-delivery-${input.operationId}`)
+artifacts/api-server/src/lib/delivery-workspace.ts:166:        if (source.includes(".engineeringos-delivery")) return false;
+artifacts/api-server/src/lib/delivery-workspace.ts:167:        // The managed delivery directory may live inside the project root
+artifacts/api-server/src/lib/delivery-workspace.ts:169:        // it while cloning a new delivery workspace; it can contain active
+artifacts/api-server/src/lib/delivery-workspace.ts:183:          ".engineeringos-delivery",
+artifacts/api-server/src/lib/delivery-workspace.ts:189:          && !normalized.includes("/.engineeringos-delivery/");
+artifacts/api-server/src/lib/delivery-workspace.ts:221:  if (candidate !== deliveryWorkspacePath(operationId)) return false;
+artifacts/api-server/src/lib/delivery-workspace.ts:231:/** Verify that a persisted delivery workspace is still the exact server-owned workspace. */
+artifacts/api-server/src/lib/delivery-workspace.ts:232:export async function deliveryWorkspaceExists(workspaceRoot: string | null, operationId: string): Promise<boolean> {
+artifacts/api-server/src/lib/delivery-workspace.ts:235:  if (candidate !== deliveryWorkspacePath(operationId)) return false;
+artifacts/api-server/src/lib/delivery-workspace.ts:249:    proposed: ["isolated", "cancelled", "abandoned", "blocked"],
+artifacts/api-server/src/lib/delivery-workspace.ts:250:    isolated: ["validated", "conflicted", "cancelled", "abandoned", "blocked"],
+artifacts/api-server/src/lib/delivery-workspace.ts:251:    validated: ["applied", "conflicted", "cancelled", "abandoned", "blocked"],
+artifacts/api-server/src/lib/delivery-workspace.ts:252:    applied: ["committed", "conflicted", "cancelled", "blocked"],
+artifacts/api-server/src/lib/delivery-workspace.ts:253:    conflicted: ["isolated", "cancelled", "abandoned", "blocked"],
+artifacts/api-server/src/lib/delivery-workspace.ts:257:    blocked: [],
+artifacts/api-server/src/types/express.d.ts:11: * them yet, so that session-scoped invalidation or org/team-scoped access
+artifacts/api-server/src/lib/ai-repair-validation.ts:24: * New validation results returned by runRepairValidation are always canonical.
+artifacts/api-server/src/lib/ai-repair-validation.ts:49:  timeoutMs?: number;
+artifacts/api-server/src/lib/ai-repair-validation.ts:57:  timeoutMs: number;
+artifacts/api-server/src/lib/ai-repair-validation.ts:67:    timeoutMs: 120_000,
+artifacts/api-server/src/lib/ai-repair-validation.ts:75:    timeoutMs: 120_000,
+artifacts/api-server/src/lib/ai-repair-validation.ts:85:    timeoutMs: 120_000,
+artifacts/api-server/src/lib/ai-repair-validation.ts:93:    timeoutMs: 180_000,
+artifacts/api-server/src/lib/ai-repair-validation.ts:126:  const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "engineeringos-validation-"));
+artifacts/api-server/src/lib/ai-repair-validation.ts:163:        throw new Error(`Pending validation path escapes the project root: ${change.path}`);
+artifacts/api-server/src/lib/ai-repair-validation.ts:205:    name: match?.[1]?.trim() || "validation failure",
+artifacts/api-server/src/lib/ai-repair-validation.ts:239:      artifactRef: `validation-result:${evidenceId}`,
+artifacts/api-server/src/lib/ai-repair-validation.ts:263:  if (!definition) return `Validation profile "${profile}" is unavailable.`;
+artifacts/api-server/src/lib/ai-repair-validation.ts:282:      "unavailable",
+artifacts/api-server/src/lib/ai-repair-validation.ts:283:      "Registered validation profile is unavailable.",
+artifacts/api-server/src/lib/ai-repair-validation.ts:284:      `Validation profile "${profile}" is unavailable.`,
+artifacts/api-server/src/lib/ai-repair-validation.ts:290:    return emptyValidationDraft(profile, "unavailable", definition.scenario, scopeError);
+artifacts/api-server/src/lib/ai-repair-validation.ts:293:  let validationWorkspace: { rootPath: string; cleanup: () => Promise<void> } | undefined;
+artifacts/api-server/src/lib/ai-repair-validation.ts:295:    validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges);
+artifacts/api-server/src/lib/ai-repair-validation.ts:296:    await fs.access(path.resolve(validationWorkspace.rootPath, "package.json"));
+artifacts/api-server/src/lib/ai-repair-validation.ts:298:    await validationWorkspace?.cleanup();
+artifacts/api-server/src/lib/ai-repair-validation.ts:301:      "unavailable",
+artifacts/api-server/src/lib/ai-repair-validation.ts:304:        ? "The pending changes could not be materialized into an isolated validation workspace."
+artifacts/api-server/src/lib/ai-repair-validation.ts:305:        : "The project root does not contain a package.json for the registered validation.",
+artifacts/api-server/src/lib/ai-repair-validation.ts:310:    const validationRootPath = validationWorkspace.rootPath;
+artifacts/api-server/src/lib/ai-repair-validation.ts:314:      rootPath: validationRootPath,
+artifacts/api-server/src/lib/ai-repair-validation.ts:315:      cwd: validationRootPath,
+artifacts/api-server/src/lib/ai-repair-validation.ts:316:      timeoutMs: definition.timeoutMs,
+artifacts/api-server/src/lib/ai-repair-validation.ts:340:            ? "Registered validation timed out."
+artifacts/api-server/src/lib/ai-repair-validation.ts:341:            : boundedDetail(output) || `Registered validation failed with status ${execution.status}.`,
+artifacts/api-server/src/lib/ai-repair-validation.ts:350:      detail: output.slice(-2_000) || "Registered validation completed successfully.",
+artifacts/api-server/src/lib/ai-repair-validation.ts:361:      ? "Registered validation timed out."
+artifacts/api-server/src/lib/ai-repair-validation.ts:362:        : boundedDetail(output) || executionError.message || "Registered validation failed.";
+artifacts/api-server/src/lib/ai-repair-validation.ts:376:    await validationWorkspace.cleanup();
+artifacts/api-server/src/lib/ai-repair-validation.ts:402:  let validationWorkspace: { rootPath: string; cleanup: () => Promise<void> } | undefined;
+artifacts/api-server/src/lib/ai-repair-validation.ts:404:    validationWorkspace = await createValidationWorkspace(rootPath, pendingChanges);
+artifacts/api-server/src/lib/ai-repair-validation.ts:408:      rootPath: validationWorkspace.rootPath,
+artifacts/api-server/src/lib/ai-repair-validation.ts:409:      cwd: validationWorkspace.rootPath,
+artifacts/api-server/src/lib/ai-repair-validation.ts:410:      timeoutMs: Math.min(command.timeoutMs ?? 120_000, 120_000),
+artifacts/api-server/src/lib/ai-repair-validation.ts:431:    await validationWorkspace?.cleanup();
+artifacts/api-server/src/lib/ai-repair-validation.ts:436: * Optional UI validation gate. It deliberately returns the same canonical
+artifacts/api-server/src/lib/ai-repair-validation.ts:437: * ValidationResult shape as command validation, so callers must explicitly
+artifacts/api-server/src/lib/ai-repair-validation.ts:438: * include it in their approval requirements; an unavailable/failed Preview
+artifacts/api-server/src/index.ts:19:  setInvalidationNotifier,
+artifacts/api-server/src/index.ts:20:  startContextInvalidationChannel,
+artifacts/api-server/src/index.ts:89:// ── PR-D3: Cross-process AI context cache invalidation ────────────────────────
+artifacts/api-server/src/index.ts:93:setInvalidationNotifier((projectId: string) => {
+artifacts/api-server/src/index.ts:99:        "ctx-cache: pg_notify failed — degrading to TTL-only invalidation",
+artifacts/api-server/src/index.ts:106:const { stop: stopCacheChannel } = startContextInvalidationChannel(pool);
+artifacts/api-server/src/index.ts:157:  logger.warn({ err }, "AI provider startup validation failed — continuing without AI validation");
+artifacts/api-server/src/index.ts:171:// are never rewritten — scans of such projects fail with root_unavailable
+artifacts/api-server/src/index.ts:175:// Remove raw validation commands, output, failed-test details, and changed
+artifacts/api-server/src/app.ts:85:      error: "CSRF validation failed",
+artifacts/api-server/src/app.ts:97:// it's just being served from the client's own cache validation. All of our
+artifacts/api-server/src/app.ts:206:// Centralized error handler — maps Zod validation errors to 400, everything else to 500.
+artifacts/api-server/src/lib/ai-route-helpers.ts:391:    /** Server-owned validation callback; never derived from model arguments. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:392:    validationRunner?: ValidationRunner;
+artifacts/api-server/src/lib/ai-route-helpers.ts:404:    validationTargetPaths?: string[];
+artifacts/api-server/src/lib/ai-route-helpers.ts:466:        validationRunner: baseParams.validationRunner,
+artifacts/api-server/src/lib/ai-route-helpers.ts:476:        validationTargetPaths: baseParams.validationTargetPaths,
+artifacts/api-server/src/lib/ai-route-helpers.ts:636:          ? `All OpenRouter free-tier models are currently unavailable — the model may have been discontinued. Try a different provider (Groq, DeepSeek, or Gemini) by saving another API key.`
+artifacts/api-server/src/lib/ai-route-helpers.ts:657:        error: `${providerLabel} model is temporarily unavailable.`,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:32: * response timeout consequently observes the same terminal operation.
+artifacts/api-server/src/lib/workflow-phase-execution.ts:57:    validationTargetPaths: [],
+artifacts/api-server/src/lib/workflow-phase-execution.ts:95:    status: declaredSteps.length > 0 ? "queued" as const : "blocked" as const,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:97:    validationAttempts: 0,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:99:    validationProfile: "api-ai-tests" as const,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:160:      validationAttempts: 1,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:188:    if (!["succeeded", "failed", "cancelled", "blocked", "uncertain"].includes(operation.state)) {
+artifacts/api-server/src/lib/task-execution-service.ts:182:    validationTargetPaths: Array.isArray(before.relatedFiles) ? before.relatedFiles : [],
+artifacts/api-server/src/routes/git.ts:16:import { execFile, spawn } from "node:child_process";
+artifacts/api-server/src/routes/git.ts:44:const execFileAsync = promisify(execFile);
+artifacts/api-server/src/routes/git.ts:55:  opts?: { timeout?: number; env?: NodeJS.ProcessEnv },
+artifacts/api-server/src/routes/git.ts:57:  const { stdout, stderr } = await execFileAsync("git", ["-C", cwd, ...args], {
+artifacts/api-server/src/routes/git.ts:58:    timeout: opts?.timeout ?? GIT_TIMEOUT_MS,
+artifacts/api-server/src/routes/git.ts:397:      // edited an applied file after validation, or another actor may have
+artifacts/api-server/src/routes/git.ts:433:          error: "Scoped AI commit blocked by unrelated staged changes",
+artifacts/api-server/src/routes/git.ts:456:          error: "Scoped AI commit blocked by unrelated working-tree changes",
+artifacts/api-server/src/routes/git.ts:590:          error: "AI push requires the same committed delivery operation",
+artifacts/api-server/src/routes/git.ts:648:        { timeout: 60_000 },
+artifacts/api-server/src/routes/git.ts:775:        error: "GitHub integration authentication failed or is unavailable. Reconnect GitHub and retry.",
+artifacts/api-server/src/routes/git.ts:799:  const tar = spawn("tar", ["-czf", "-", "-C", project.rootPath, "."], {
+artifacts/api-server/src/routes/git.ts:811:    console.error("[export] spawn error:", err);
+artifacts/api-server/src/lib/task-execution-service.test.ts:41:  it("represents blocked results without storing model payloads", () => {
+artifacts/api-server/src/routes/git.test.ts:7:import { execFile } from "node:child_process";
+artifacts/api-server/src/routes/git.test.ts:23:const execFileAsync = promisify(execFile);
+artifacts/api-server/src/routes/git.test.ts:29:  return execFileAsync("git", ["-C", rootPath, ...args], { maxBuffer: 1_000_000 });
+artifacts/api-server/src/routes/git.test.ts:80:      validationProfile: "workspace-typecheck",
+artifacts/api-server/src/routes/git.test.ts:186:    const actualGitPath = (await execFileAsync("sh", ["-c", "command -v git"])).stdout.trim();
+artifacts/api-server/src/routes/git.test.ts:191:const { spawnSync } = require("node:child_process");
+artifacts/api-server/src/routes/git.test.ts:197:const result = spawnSync(${JSON.stringify(actualGitPath)}, args, {
+artifacts/api-server/src/routes/git.test.ts:291:      const { stdout: remoteFiles } = await execFileAsync("git", [
+artifacts/api-server/src/lib/task-execution-retention.test.ts:52:  it("fails closed and keeps the next startup retryable when the database is unavailable", async () => {
+artifacts/api-server/src/lib/startup-migrations.ts:70:      "Failed to generate/persist encryption key — credential storage will be unavailable until AI_CREDENTIALS_ENCRYPTION_KEY is set manually");
+artifacts/api-server/src/lib/startup-migrations.ts:84: * fails explicitly with `root_unavailable` (see scan-runner.ts /
+artifacts/api-server/src/lib/startup-migrations.ts:116:      `${dead.length} project(s) point at dead temporary clone roots — scans will fail with root_unavailable until they are re-imported via discovery`,
+artifacts/api-server/src/lib/startup-migrations.ts:136: * - Chat tool traces older than 90 days retain only public validation status,
+artifacts/api-server/src/lib/startup-migrations.ts:139: *   stage, sequence, proof verdict, and validation metadata, but not the
+artifacts/api-server/src/lib/startup-migrations.ts:178: * Remove validation payloads written before the public validation contract was
+artifacts/api-server/src/lib/startup-migrations.ts:187:  const isValidation = record.kind === "validation";
+artifacts/api-server/src/lib/startup-migrations.ts:188:  const nestedValidation = record.validation;
+artifacts/api-server/src/lib/startup-migrations.ts:202:      result.validation = publicValidation;
+artifacts/api-server/src/lib/startup-migrations.ts:207:        ["validationProfile", "profile"],
+artifacts/api-server/src/lib/startup-migrations.ts:209:        ["validationScenario", "scenario"],
+artifacts/api-server/src/lib/startup-migrations.ts:211:        ["validationStatus", "status"],
+artifacts/api-server/src/lib/startup-migrations.ts:213:        ["validationExitCode", "exitCode"],
+artifacts/api-server/src/lib/startup-migrations.ts:222:        result.validation = publicValidation;
+artifacts/api-server/src/lib/startup-migrations.ts:249:        Boolean(item && typeof item === "object" && !Array.isArray(item) && (item as HistoricalJsonRecord).kind === "validation"),
+artifacts/api-server/src/lib/startup-migrations.ts:252:  if (scrubbed && typeof scrubbed === "object" && (scrubbed as HistoricalJsonRecord).kind === "validation") {
+artifacts/api-server/src/lib/startup-migrations.ts:259: * Compact an old terminal checkpoint without losing the proof/validation
+artifacts/api-server/src/lib/startup-migrations.ts:271:  const validationMetadata = retainHistoricalValidationMetadata(record.recentSteps);
+artifacts/api-server/src/lib/startup-migrations.ts:272:  if (Array.isArray(validationMetadata) && validationMetadata.length > 0) {
+artifacts/api-server/src/lib/startup-migrations.ts:273:    retained.recentSteps = validationMetadata;
+artifacts/api-server/src/lib/startup-migrations.ts:296: * validation output was excluded from durable chat history. It is intentionally
+artifacts/api-server/src/lib/startup-migrations.ts:331:      "Failed to scrub historical validation details — will retry on the next startup");
+artifacts/api-server/src/lib/startup-migrations.test.ts:89:  it("keeps proof and exit metadata while removing legacy validation diagnostics", () => {
+artifacts/api-server/src/lib/startup-migrations.test.ts:91:      kind: "validation",
+artifacts/api-server/src/lib/startup-migrations.test.ts:95:      validation: {
+artifacts/api-server/src/lib/startup-migrations.test.ts:106:          evidenceId: "validation-result:1",
+artifacts/api-server/src/lib/startup-migrations.test.ts:108:          artifactRef: "validation-result:1",
+artifacts/api-server/src/lib/startup-migrations.test.ts:114:      kind: "validation",
+artifacts/api-server/src/lib/startup-migrations.test.ts:118:      validation: {
+artifacts/api-server/src/lib/startup-migrations.test.ts:124:          evidenceId: "validation-result:1",
+artifacts/api-server/src/lib/startup-migrations.test.ts:126:          artifactRef: "validation-result:1",
+artifacts/api-server/src/lib/startup-migrations.test.ts:134:      kind: "validation",
+artifacts/api-server/src/lib/startup-migrations.test.ts:135:      validationStatus: "passed",
+artifacts/api-server/src/lib/startup-migrations.test.ts:136:      validationProfile: "api-ai-tests",
+artifacts/api-server/src/lib/startup-migrations.test.ts:137:      validationScenario: "focused tests",
+artifacts/api-server/src/lib/startup-migrations.test.ts:138:      validationExitCode: 0,
+artifacts/api-server/src/lib/startup-migrations.test.ts:139:      validationCommand: "pnpm test",
+artifacts/api-server/src/lib/startup-migrations.test.ts:140:      validationFailedTests: ["secret test output"],
+artifacts/api-server/src/lib/startup-migrations.test.ts:141:      validationAffectedFiles: ["src/private.ts"],
+artifacts/api-server/src/lib/startup-migrations.test.ts:142:      validationDetail: "raw command output",
+artifacts/api-server/src/lib/startup-migrations.test.ts:146:      kind: "validation",
+artifacts/api-server/src/lib/startup-migrations.test.ts:147:      validation: {
+artifacts/api-server/src/lib/startup-migrations.test.ts:156:  it("recursively scrubs validation steps without changing unrelated trace entries", () => {
+artifacts/api-server/src/lib/startup-migrations.test.ts:159:      { kind: "validation", status: "passed", exitCode: 0, command: "pnpm test", stdout: "raw" },
+artifacts/api-server/src/lib/startup-migrations.test.ts:164:      { kind: "validation", validation: { status: "passed", exitCode: 0 } },
+artifacts/api-server/src/lib/startup-migrations.test.ts:208:        kind: "validation",
+artifacts/api-server/src/lib/startup-migrations.test.ts:210:        validation: {
+artifacts/api-server/src/lib/startup-migrations.test.ts:213:          evidence: { evidenceId: "validation-result:old", artifactRef: "validation-result:old" },
+artifacts/api-server/src/lib/startup-migrations.test.ts:220:      kind: "validation",
+artifacts/api-server/src/lib/startup-migrations.test.ts:222:      validation: {
+artifacts/api-server/src/lib/startup-migrations.test.ts:225:        evidence: { evidenceId: "validation-result:old", artifactRef: "validation-result:old" },
+artifacts/api-server/src/lib/startup-migrations.test.ts:241:        { kind: "validation", status: "failed", exitCode: 2, stdout: "private output" },
+artifacts/api-server/src/lib/startup-migrations.test.ts:252:      recentSteps: [{ kind: "validation", validation: { status: "failed", exitCode: 2 } }],
+artifacts/api-server/src/routes/discovery.ts:30:import { validateRootPath, verifyProjectRoot } from "../lib/path-validation.js";
+artifacts/api-server/src/routes/discovery.ts:400:    const status = rootResult.reason === "root_unavailable" ? 409 : rootResult.status;
+artifacts/api-server/src/lib/scan-runner.ts:43: * The scan fails explicitly with a `root_unavailable` outcome; the
+artifacts/api-server/src/lib/scan-runner.ts:47:  readonly outcome = "root_unavailable" as const;
+artifacts/api-server/src/lib/scan-runner.ts:53:    super(`root_unavailable (${reason}): ${detail}`);
+artifacts/api-server/src/lib/scan-runner.ts:262:  // fails closed (root_unavailable / root_unsafe) and must be re-imported
+artifacts/api-server/src/routes/discovery.test.ts:19:import { execFile, spawn } from "node:child_process";
+artifacts/api-server/src/routes/discovery.test.ts:23:import { EOS_GIT_TEMP_PREFIX } from "../lib/path-validation.js";
+artifacts/api-server/src/routes/discovery.test.ts:25:const execFileAsync = promisify(execFile);
+artifacts/api-server/src/routes/discovery.test.ts:188:// ─── POST /projects/discover — path validation ────────────────────────────────
+artifacts/api-server/src/routes/discovery.test.ts:190:describe("POST /projects/discover — path validation and session creation", () => {
+artifacts/api-server/src/routes/discovery.test.ts:292:    // Path passes validation; discovery will fail in the background (path doesn't exist)
+artifacts/api-server/src/routes/discovery.test.ts:461:  it("returns 409 root_unavailable when the session root is a dead temporary git clone", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:468:    expect(res.body.reason).toBe("root_unavailable");
+artifacts/api-server/src/routes/discovery.test.ts:906:    await execFileAsync("git", ["init", "-q", worktree]);
+artifacts/api-server/src/routes/discovery.test.ts:907:    await execFileAsync("git", ["-C", worktree, "config", "user.email", "test@example.com"]);
+artifacts/api-server/src/routes/discovery.test.ts:908:    await execFileAsync("git", ["-C", worktree, "config", "user.name", "EngineeringOS Test"]);
+artifacts/api-server/src/routes/discovery.test.ts:911:    await execFileAsync("git", ["-C", worktree, "add", "."]);
+artifacts/api-server/src/routes/discovery.test.ts:912:    await execFileAsync("git", ["-C", worktree, "commit", "-q", "-m", "fixture"]);
+artifacts/api-server/src/routes/discovery.test.ts:913:    await execFileAsync("git", ["clone", "--bare", "-q", worktree, bareRepo]);
+artifacts/api-server/src/routes/discovery.test.ts:914:    await execFileAsync("git", ["--git-dir", bareRepo, "update-server-info"]);
+artifacts/api-server/src/routes/discovery.test.ts:921:      const child = spawn("git", ["http-backend"], {
+artifacts/api-server/src/routes/discovery.test.ts:982:    const deadline = Date.now() + 30_000;
+artifacts/api-server/src/routes/discovery.test.ts:983:    while (Date.now() < deadline) {
+artifacts/api-server/src/routes/ai/workflows.ts:122:    validationTargetPaths: [],
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:384:      throw new Error(`BENCHMARK_FREE_ONLY rejected non-free or unavailable models: ${selection.rejectedModels.join(", ")}`);
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:533:## Autonomous delivery acceptance
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:535:This bounded, redacted summary measures verified delivery separately from the
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:539:- Safely blocked rate: ${acceptance?.metrics.safeBlockRate ?? 0}
+artifacts/api-server/src/lib/rootpath-validator.ts:14: *   4. An unavailable project root never falls back to the shared workspace.
+artifacts/api-server/src/lib/project-root.ts:3:import { validateRootPath, verifyProjectRoot, EOS_GIT_TEMP_PREFIX } from "./path-validation.js";
+artifacts/api-server/src/lib/project-root.ts:21:  | "root_unavailable"
+artifacts/api-server/src/lib/project-root.ts:52: *  4. Applies the path-safety policy (depth, blocked system paths,
+artifacts/api-server/src/lib/project-root.ts:57: * explicit "root_unavailable" reason so callers can tell the user to re-run
+artifacts/api-server/src/lib/project-root.ts:87:        reason: "root_unavailable",
+artifacts/api-server/src/lib/project-root.ts:151:  // 5. Safety policy on the canonical path (depth, blocked system paths,
+artifacts/api-server/src/lib/project-root.ts:185:        reason: "root_unavailable",
+artifacts/api-server/src/lib/project-root.ts:195:      reason: "root_unavailable",
+artifacts/api-server/src/lib/project-root.ts:197:        "The project directory became unavailable while it was being established. " +
+artifacts/api-server/src/routes/ai/providers.ts:75:  const validation = await validateProviderKey(provider, trimmed);
+artifacts/api-server/src/routes/ai/providers.ts:76:  if (!validation.valid) {
+artifacts/api-server/src/routes/ai/providers.ts:80:      detail: validation.reason,
+artifacts/api-server/src/routes/ai/providers.ts:90:    return res.status(500).json({ error: "Key storage unavailable — encryption not configured" });
+artifacts/api-server/src/lib/project-root.test.ts:59:  it("rejects a dead eos-git temp clone with root_unavailable and 409", async () => {
+artifacts/api-server/src/lib/project-root.test.ts:63:      expect(res.reason).toBe("root_unavailable");
+artifacts/api-server/src/lib/project-root.test.ts:103:  it("rejects blocked system paths with root_unsafe", async () => {
+artifacts/api-server/src/lib/project-root.test.ts:112:    const { validateRootPath } = await import("./path-validation.js");
+artifacts/api-server/src/lib/project-error.test.ts:53:    expect(result.message).toMatch(/unavailable/i);
+artifacts/api-server/src/lib/path-validation.ts:33: * the same name. Generic validation rejects it. The only valid exception is
+artifacts/api-server/src/lib/path-validation.ts:105:  // Rule 2 — system roots and all descendants are blocked. Exact-match-only
+artifacts/api-server/src/lib/path-validation.ts:110:  const blockedPrefix = isApprovedWorkspace
+artifacts/api-server/src/lib/path-validation.ts:115:  if (blockedPrefix) {
+artifacts/api-server/src/lib/path-validation.ts:117:      `Path "${normalized}" resolves under the system directory "${blockedPrefix}" and cannot be scanned. ` +
+artifacts/api-server/src/lib/path-validation.test.ts:2: * Unit tests for path-validation.ts
+artifacts/api-server/src/lib/path-validation.test.ts:15:import { validateRootPath, verifyProjectRoot, EOS_GIT_TEMP_PREFIX } from "./path-validation.js";
+artifacts/api-server/src/lib/path-validation.test.ts:61:  it("rejects a three-segment path under the blocked /home system root on every host", async () => {
+artifacts/api-server/src/lib/path-validation.test.ts:147:    // mechanism: a path that resolves (via realpath) to a blocked destination.
+artifacts/api-server/src/lib/path-validation.test.ts:176:  it("rejects a symlink pointing into the blocked temporary filesystem", async () => {
+artifacts/api-server/src/lib/operational-readiness-gate.ts:47:  status: "proven" | "incomplete" | "blocked" | "failed";
+artifacts/api-server/src/lib/operational-readiness-gate.ts:62:  nodes: "Resume or repair the failed validation nodes within their existing retry budget.",
+artifacts/api-server/src/lib/operational-readiness-gate.ts:99:  checks.push(check("required-validation-nodes", nodesPassed,
+artifacts/api-server/src/lib/operational-readiness-gate.ts:133:        : "blocked";
+artifacts/api-server/src/lib/operational-readiness-gate.test.ts:7:  evidenceCompleteness: "complete", evidenceRefs: ["validation:1"],
+artifacts/api-server/src/lib/operational-readiness-gate.test.ts:8:  terminalVerdict: "PROVEN", requiredNodes: [{ id: "validate", status: "passed", evidenceRefs: ["validation:1"] }],
+artifacts/api-server/src/lib/operational-readiness-gate.test.ts:21:    expect(evaluateOperationalReadiness(base({ terminalVerdict: "PARTIAL" })).status).toBe("blocked");
+artifacts/api-server/src/lib/operational-readiness-gate.test.ts:29:    expect(mismatch.status).toBe("blocked");
+artifacts/api-server/src/lib/operational-readiness-gate.test.ts:36:    expect(campaign.status).toBe("blocked");
+artifacts/api-server/src/lib/operational-counters.ts:13: *                                 were both unavailable.
+artifacts/api-server/src/lib/operation-evidence.ts:27:  | "blocked"
+artifacts/api-server/src/lib/operation-evidence.ts:39:  kind: "process" | "provider" | "validation" | "promotion" | "commit" | "push";

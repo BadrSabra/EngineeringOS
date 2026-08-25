@@ -1,0 +1,418 @@
+
+ RUN  v4.1.10 /home/runner/workspace/artifacts/api-server
+
+
+ ❯ src/lib/ai-repair-validation.test.ts [queued]
+
+ Test Files 0 passed (1)
+      Tests 0 passed (0)
+   Start at 12:36:38
+   Duration 101ms
+
+ ❯ src/lib/ai-repair-validation.test.ts [queued]
+
+ Test Files 0 passed (1)
+      Tests 0 passed (0)
+   Start at 12:36:38
+   Duration 915ms
+
+ ❯ src/lib/ai-repair-validation.test.ts [queued]
+
+ Test Files 0 passed (1)
+      Tests 0 passed (0)
+   Start at 12:36:38
+   Duration 1.98s
+
+ ❯ src/lib/ai-repair-validation.test.ts [queued]
+
+ Test Files 0 passed (1)
+      Tests 0 passed (0)
+   Start at 12:36:38
+   Duration 2.93s
+
+ ❯ src/lib/ai-repair-validation.test.ts 0/8
+
+ Test Files 0 passed (1)
+      Tests 0 passed (8)
+   Start at 12:36:38
+   Duration 3.33s
+
+ ❯ src/lib/ai-repair-validation.test.ts 1/8
+
+ Test Files 0 passed (1)
+      Tests 1 passed (8)
+   Start at 12:36:38
+   Duration 3.43s
+ ✓ src/lib/ai-repair-validation.test.ts > AI repair validation registry > exposes only a registered bounded profile 3ms
+ ✓ src/lib/ai-repair-validation.test.ts > AI repair validation registry > accepts a changed file inside the selected profile scope 0ms
+ ✓ src/lib/ai-repair-validation.test.ts > AI repair validation registry > registers the workspace typecheck for implementation-plan changes 1ms
+ ✓ src/lib/ai-repair-validation.test.ts > AI repair validation registry > returns unavailable scope errors instead of executing an unrelated suite 0ms
+ ✓ src/lib/ai-repair-validation.test.ts > AI repair validation registry > returns unavailable when the registered command cannot run from the project root 4ms
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 442ms
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 3.93s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 1.45s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 4.94s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 2.45s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 5.94s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 3.45s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 6.94s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 4.46s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 7.94s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 5.47s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 8.95s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 6.47s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 9.95s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 7.47s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 10.96s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 8.47s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 11.96s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 9.48s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 12.97s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 10.48s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 13.97s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 11.49s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 14.97s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 12.49s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 15.97s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 13.49s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 16.97s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 14.49s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 17.98s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 15.49s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 18.98s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 16.50s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 19.98s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 17.50s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 20.99s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 18.51s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 22.00s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 19.51s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 23.00s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 20.52s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 24.00s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 21.52s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 25.00s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 22.52s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 26.00s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 23.52s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 27.01s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 24.53s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 28.01s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 25.43s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 28.91s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 26.43s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 29.92s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 27.43s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 30.92s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 28.44s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 31.93s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 29.44s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 32.93s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 30.44s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 33.93s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 31.45s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 34.93s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 32.46s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 35.94s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 33.46s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 36.95s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 34.47s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 37.95s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 35.47s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 38.95s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 36.47s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 39.96s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 37.47s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 40.96s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 38.48s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 41.97s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 39.48s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 42.97s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 40.48s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 43.97s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 41.49s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 44.97s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 42.49s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 45.98s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 43.49s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 46.98s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 44.50s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 47.98s
+
+ ❯ src/lib/ai-repair-validation.test.ts 5/8
+   └── runs validation against pending content in an isolated workspace 45.50s
+
+ Test Files 0 passed (1)
+      Tests 5 passed (8)
+   Start at 12:36:38
+   Duration 48.99s

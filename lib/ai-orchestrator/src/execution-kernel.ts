@@ -174,6 +174,7 @@ export async function runBoundedCommand(spec: BoundedCommandSpec): Promise<Bound
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    let escalation: ReturnType<typeof setTimeout> | undefined;
     const killChild = (signal: NodeJS.Signals): void => {
       try {
         if (child.pid) process.kill(-child.pid, signal);
@@ -182,9 +183,14 @@ export async function runBoundedCommand(spec: BoundedCommandSpec): Promise<Bound
         child.kill(signal);
       }
     };
+    const requestStop = (timedOutRequest: boolean): void => {
+      if (timedOutRequest) timedOut = true;
+      killChild("SIGTERM");
+      if (!escalation) escalation = setTimeout(() => killChild("SIGKILL"), 2_000);
+    };
     const onAbort = (): void => {
       cancelled = true;
-      killChild("SIGTERM");
+      requestStop(false);
     };
     if (spec.signal?.aborted) {
       onAbort();
@@ -192,12 +198,12 @@ export async function runBoundedCommand(spec: BoundedCommandSpec): Promise<Bound
       spec.signal?.addEventListener("abort", onAbort, { once: true });
     }
 
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      killChild("SIGTERM");
-    }, spec.timeoutMs);
+    // A process can ignore SIGTERM or leave descendants alive. Do not wait
+    // forever for close: the command boundary owns the whole process group.
+    const deadline = setTimeout(() => requestStop(true), spec.timeoutMs);
     const cleanup = (): void => {
-      clearTimeout(timeout);
+      clearTimeout(deadline);
+      if (escalation) clearTimeout(escalation);
       spec.signal?.removeEventListener("abort", onAbort);
     };
 
