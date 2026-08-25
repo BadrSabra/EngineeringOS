@@ -108,7 +108,6 @@ function redactProviderContext(context: ProviderErrorContext): ProviderErrorCont
     catalogLoaded: context.catalogLoaded,
     catalogUsable: context.catalogUsable,
     catalogStatus: context.catalogStatus,
-    catalogError: context.catalogError ? redactProviderErrorText(context.catalogError) : context.catalogError,
   };
 }
 
@@ -161,6 +160,9 @@ export class GroqClientError extends Error {
       providerModel:   this.providerModel,
       retryAfterMs:    this.retryAfterMs,
       providerAttemptedModels: this.providerAttemptedModels,
+      catalogLoaded: this.catalogLoaded,
+      catalogUsable: this.catalogUsable,
+      catalogStatus: this.catalogStatus,
     });
   }
 }

@@ -3744,6 +3744,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         const base: Record<string, unknown> = {
           type: "error",
           code: err.code,
+          provider,
           correlationId: randomUUID(),
           availabilityState:
             err.code === "AUTH_ERROR" ? "authentication_failed" :
@@ -3845,7 +3846,15 @@ router.post("/ai/chat/stream", async (req, res) => {
             });
             break;
           default:
-            sse({ ...base, message: redactUserFacingText(`AI provider error: ${err.message.slice(0, 200)}`), retryable: false });
+            // Never echo provider-owned text on the stream. It may contain
+            // request diagnostics, paths, or credentials even after the
+            // provider-specific branches above have been handled.
+            sse({
+              ...base,
+              message: "The AI provider could not complete the request.",
+              retryable: false,
+              suggestedFix: "Check the provider configuration and retry, or configure another provider.",
+            });
         }
       } else {
         logger.error({ err }, "chat stream: unexpected non-GroqClientError");
