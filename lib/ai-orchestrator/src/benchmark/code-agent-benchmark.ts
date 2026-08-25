@@ -948,6 +948,9 @@ export function buildCodeAgentBenchmarkScorecard(args: {
   const missingCandidateHash = candidateHashes.filter(
     (candidateHash) => !candidateHash?.trim(),
   ).length;
+  const malformedCandidateHash = candidateHashes.filter(
+    (candidateHash) => Boolean(candidateHash?.trim()) && !/^[a-f0-9]{64}$/.test(candidateHash!),
+  ).length;
   const mismatchedCandidateHash = expectedCandidateHash !== undefined &&
     candidateHashes.some((candidateHash) => candidateHash !== expectedCandidateHash);
   const rolloutBlockers = [
@@ -966,6 +969,9 @@ export function buildCodeAgentBenchmarkScorecard(args: {
       : []),
     ...(missingCandidateHash > 0
       ? [`candidate hash missing for ${missingCandidateHash} observed case${missingCandidateHash === 1 ? "" : "s"}`]
+      : []),
+    ...(malformedCandidateHash > 0
+      ? [`candidate hash malformed for ${malformedCandidateHash} observed case${malformedCandidateHash === 1 ? "" : "s"}`]
       : []),
     ...(mismatchedCandidateHash ? ["candidate hash mismatch across benchmark observations"] : []),
   ];

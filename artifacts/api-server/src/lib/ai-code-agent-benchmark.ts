@@ -27,6 +27,7 @@ import {
   runRepairValidation,
 } from "./ai-repair-validation.js";
 import { evaluateCodeAgentBenchmarkContract } from "@workspace/ai-orchestrator";
+import { hashDeliveryWorkspace } from "./delivery-workspace.js";
 
 export type ApiCodeAgentBenchmarkOptions = {
   rootPath: string;
@@ -45,8 +46,6 @@ export type ApiCodeAgentBenchmarkOptions = {
   onCaseComplete?: CodeAgentBenchmarkCaseComplete;
   signal?: AbortSignal;
   generatedAt?: string;
-  /** Hash of the immutable candidate workspace used for every benchmark case. */
-  candidateHash?: string;
 };
 
 /**
@@ -65,6 +64,7 @@ export async function runApiCodeAgentBenchmark(
   if (fixtureErrors.length > 0) {
     throw new Error(`Invalid Code Agent benchmark fixture contract: ${fixtureErrors.join("; ")}`);
   }
+  const candidateHash = await hashDeliveryWorkspace(opts.rootPath);
   const validationRunner = async (
     profile: string,
     targetPaths: string[],
@@ -95,7 +95,7 @@ export async function runApiCodeAgentBenchmark(
     provider: opts.provider,
     apiKey: opts.apiKey,
     model: opts.model,
-    candidateHash: opts.candidateHash,
+    candidateHash,
     validationRunner,
     includeTestSources: true,
     validationProfileForCase: (testCase) => getCodeAgentBenchmarkFixture(testCase).validationProfile,
@@ -123,7 +123,7 @@ export async function runApiCodeAgentBenchmark(
       await getCodeAgentBenchmarkFixture(testCase).prepare?.(opts.rootPath);
     },
     oracleForCase: async ({ rootPath, testCase, telemetry, pendingChanges }) =>
-      evaluateBenchmarkCaseOracle(rootPath, testCase, telemetry, pendingChanges),
+      evaluateBenchmarkCaseOracle(rootPath, testCase, telemetry, pendingChanges, undefined, candidateHash),
   });
 
   return runCodeAgentBenchmark({
@@ -168,8 +168,6 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
   initialResults?: import("@workspace/ai-orchestrator").BenchmarkAirlockObservation[];
   signal?: AbortSignal;
   generatedAt?: string;
-  /** Hash of the immutable candidate workspace used for every benchmark case. */
-  candidateHash?: string;
   runId: string;
   onObservation?: (
     observation: BenchmarkAirlockObservation,
@@ -184,6 +182,7 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
   if (fixtureErrors.length > 0) {
     throw new Error(`Invalid Code Agent benchmark fixture contract: ${fixtureErrors.join("; ")}`);
   }
+  const candidateHash = await hashDeliveryWorkspace(opts.rootPath);
   const validationRunner = async (
     profile: string,
     targetPaths: string[],
@@ -221,7 +220,7 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
       provider: provider.provider,
       apiKey: provider.apiKey,
       model: provider.model,
-      candidateHash: opts.candidateHash,
+      candidateHash,
       providerHealth: health,
       freeOnly: opts.mode === "free-only",
       validationRunner,
@@ -252,7 +251,7 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
         await getCodeAgentBenchmarkFixture(testCase).prepare?.(opts.rootPath);
       },
     oracleForCase: async ({ rootPath, testCase, telemetry, pendingChanges, signal }) =>
-      evaluateBenchmarkCaseOracle(rootPath, testCase, telemetry, pendingChanges, signal),
+      evaluateBenchmarkCaseOracle(rootPath, testCase, telemetry, pendingChanges, signal, candidateHash),
     });
     return {
       provider: provider.provider,
@@ -287,7 +286,19 @@ async function evaluateBenchmarkCaseOracle(
   telemetry: import("@workspace/ai-orchestrator").CodeAgentExecutionTelemetry,
   pendingChanges: readonly { path: string; newContent: string }[],
   signal?: AbortSignal,
+  expectedCandidateHash?: string,
 ): Promise<CodeAgentBenchmarkFixtureOracleResult> {
+  if (
+    !expectedCandidateHash ||
+    !/^[a-f0-9]{64}$/.test(expectedCandidateHash) ||
+    telemetry.candidateHash !== expectedCandidateHash
+  ) {
+    return {
+      status: "failed",
+      code: "CANDIDATE_HASH_MISMATCH",
+      behavioralOracleStatus: "not-run",
+    };
+  }
   const fixture = getCodeAgentBenchmarkFixture(testCase);
   const hasBehavioralOracle = Boolean(fixture.behavioralOracle || fixture.runtimeOracle);
   const contract = await evaluateCodeAgentBenchmarkContract({

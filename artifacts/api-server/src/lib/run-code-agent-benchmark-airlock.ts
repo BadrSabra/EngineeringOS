@@ -29,6 +29,7 @@ import {
   buildBenchmarkParityReport,
   benchmarkParityReportToMarkdown,
 } from "@workspace/ai-orchestrator";
+import { hashDeliveryWorkspace } from "./delivery-workspace.js";
 import {
   defaultApiBenchmarkAllowedPaths,
   defaultApiBenchmarkHistory,
@@ -424,6 +425,12 @@ function mergeObservations(
   return [...byCase.values()];
 }
 try {
+  const candidateHash = await hashDeliveryWorkspace(isolated.rootPath);
+  if (initialResults.some((entry) => entry.observation.candidateHash !== candidateHash)) {
+    throw new Error(
+      "CANDIDATE_HASH_MISMATCH: persisted benchmark observations do not match the server-owned isolated candidate workspace hash.",
+    );
+  }
   const run = await runApiCodeAgentBenchmarkAirlock({
     rootPath: isolated.rootPath,
     projectContext: {
@@ -452,7 +459,6 @@ try {
     promptForCase: defaultApiBenchmarkPrompt,
     historyForCase: defaultApiBenchmarkHistory,
     caseTimeoutMs: Number.parseInt(process.env.BENCHMARK_CASE_TIMEOUT_MS ?? "90000", 10),
-    candidateHash: process.env.BENCHMARK_CANDIDATE_HASH?.trim() || undefined,
     signal: campaignController.signal,
     onProviderHealth: async (health) => {
       providerHealth = health;

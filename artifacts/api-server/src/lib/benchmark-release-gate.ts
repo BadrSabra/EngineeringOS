@@ -109,6 +109,18 @@ export function evaluateBenchmarkReleaseGate(args: {
   if (cleanWitnessRun.scorecard.rolloutAllowed !== true) {
     addBlocker(blockers, "clean witness rollout gate is not open");
   }
+  const targetedCandidateHash = targetedRun.scorecard.candidateHash;
+  const cleanCandidateHash = cleanWitnessRun.scorecard.candidateHash;
+  if (!targetedCandidateHash || !cleanCandidateHash) {
+    addBlocker(blockers, "release benchmark artifacts are missing a server-owned candidate hash");
+  } else if (
+    !/^[a-f0-9]{64}$/.test(targetedCandidateHash) ||
+    !/^[a-f0-9]{64}$/.test(cleanCandidateHash)
+  ) {
+    addBlocker(blockers, "release benchmark artifacts contain a malformed candidate hash");
+  } else if (targetedCandidateHash !== cleanCandidateHash) {
+    addBlocker(blockers, "targeted and clean-witness benchmarks use different candidate hashes");
+  }
 
   if (
     baseline.rolloutAllowed !== true ||

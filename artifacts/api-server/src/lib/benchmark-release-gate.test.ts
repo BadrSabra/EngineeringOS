@@ -13,6 +13,7 @@ function scorecard(overrides: Partial<CodeAgentBenchmarkScorecard> = {}): CodeAg
     suiteVersion: "flight-deck-v2",
     generatedAt: "2026-08-19T00:00:00.000Z",
     cases: [],
+    candidateHash: "a".repeat(64),
     missingCaseIds: [],
     metrics: {
       totalCases: 34,
@@ -139,5 +140,30 @@ describe("benchmark release gate", () => {
       "targeted benchmark still contains F/U or unsafe outcomes; fix regressions first",
       "clean witness did not start after the successful targeted benchmark",
     ]));
+  });
+
+  it("blocks release when targeted and clean-witness hashes differ", () => {
+    const decision = evaluateBenchmarkReleaseGate({
+      targetedRun: run({
+        runId: "targeted-run",
+        completedAt: "2026-08-19T01:20:00.000Z",
+        targetCaseCount: 4,
+        diagnosticOnly: true,
+        targeted: true,
+        partial: true,
+        baselineEligibility: "not-eligible",
+        targetProfile: "repair-loop",
+        scorecard: scorecard({ rolloutAllowed: false }),
+      }),
+      cleanWitnessRun: run({
+        scorecard: scorecard({ candidateHash: "b".repeat(64) }),
+      }),
+      baseline: baseline(),
+    });
+
+    expect(decision.status).toBe("blocked");
+    expect(decision.blockers).toContain(
+      "targeted and clean-witness benchmarks use different candidate hashes",
+    );
   });
 });

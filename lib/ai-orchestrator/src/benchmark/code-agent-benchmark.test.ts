@@ -27,7 +27,7 @@ function observation(
 ): CodeAgentBenchmarkObservation {
   return {
     caseId,
-    candidateHash: "candidate-hash",
+    candidateHash: "a".repeat(64),
     grade: "A",
     correct: true,
     completedFirstAttempt: true,
@@ -257,19 +257,20 @@ describe("Code Agent benchmark manifest", () => {
 
   it("binds rollout proof to one exact candidate hash without changing grades", () => {
     const testCase = getCodeAgentBenchmarkCases()[0]!;
+    const candidateHash = "a".repeat(64);
     const matching = buildCodeAgentBenchmarkScorecard({
       cases: [testCase],
-      results: [observation(testCase.id, { candidateHash: "candidate-a" })],
+      results: [observation(testCase.id, { candidateHash })],
     });
     expect(matching.rolloutAllowed).toBe(true);
     expect(matching.cases[0]?.grade).toBe("A");
-    expect(matching.candidateHash).toBe("candidate-a");
+    expect(matching.candidateHash).toBe(candidateHash);
 
     const stale = buildCodeAgentBenchmarkScorecard({
       cases: [testCase, getCodeAgentBenchmarkCases()[1]!],
       results: [
-        observation(testCase.id, { candidateHash: "candidate-a" }),
-        observation("single-file-002", { candidateHash: "candidate-b" }),
+        observation(testCase.id, { candidateHash }),
+        observation("single-file-002", { candidateHash: "b".repeat(64) }),
       ],
     });
     expect(stale.rolloutAllowed).toBe(false);
@@ -283,6 +284,14 @@ describe("Code Agent benchmark manifest", () => {
     expect(missing.rolloutAllowed).toBe(false);
     expect(missing.rolloutBlockers).toContain("candidate hash missing for 1 observed case");
     expect(missing.cases[0]?.grade).toBe("A");
+
+    const malformed = buildCodeAgentBenchmarkScorecard({
+      cases: [testCase],
+      results: [observation(testCase.id, { candidateHash: "caller-supplied-stale-hash" })],
+    });
+    expect(malformed.rolloutAllowed).toBe(false);
+    expect(malformed.rolloutBlockers).toContain("candidate hash malformed for 1 observed case");
+    expect(malformed.cases[0]?.grade).toBe("A");
   });
 
   it("does not treat skipped validation as proof for a review-ready terminal", () => {
@@ -457,7 +466,7 @@ describe("Code Agent benchmark manifest", () => {
         conflict: false,
         typecheckPassed: testCase.expected.validation === "tests" ? null : true,
         testsPassed: testCase.expected.validation === "typecheck" ? null : true,
-         candidateHash: "candidate-hash",
+         candidateHash: "a".repeat(64),
       }),
     });
 
@@ -489,7 +498,7 @@ describe("Code Agent benchmark manifest", () => {
           conflict: false,
           typecheckPassed: null,
           testsPassed: null,
-         candidateHash: "candidate-hash",
+         candidateHash: "a".repeat(64),
         };
       },
       onCaseComplete: async (_result, results) => {
@@ -519,7 +528,7 @@ describe("Code Agent benchmark manifest", () => {
         conflict: false,
         typecheckPassed: testCase.expected.validation === "tests" ? null : true,
         testsPassed: testCase.expected.validation === "typecheck" ? null : true,
-         candidateHash: "candidate-hash",
+         candidateHash: "a".repeat(64),
       }),
       onTelemetryComplete: async (testCase, telemetry) => {
         replayEntries.push({ caseId: testCase.id, telemetry });
