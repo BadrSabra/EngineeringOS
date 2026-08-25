@@ -48,6 +48,9 @@ responses:
 
 ```sh
 DASHBOARD_E2E_LIVE_PROVIDER=1 \
+DASHBOARD_E2E_LIVE_CAMPAIGN=1 \
+DASHBOARD_E2E_LIVE_SCENARIO=delivery-success \
+DASHBOARD_E2E_LIVE_DISPOSABLE=1 \
 DASHBOARD_E2E_LIVE_PROJECT_ID=<disposable-project-id> \
 DASHBOARD_E2E_LIVE_REPORT_PATH=test-results/dashboard-journey/live-mission-correlation.json \
 RUN_CONTROLLED_RELEASE_VALIDATION=1 \
@@ -78,6 +81,14 @@ The live objective is an explicit, bounded forensic review of
 evidence item and one validation checkpoint. A successful `COMPLETED` report
 is rejected if either proof surface is empty; provider-unavailable, blocked,
 cancelled, failed, and otherwise incomplete outcomes remain non-success.
+For the disposable campaign, run the same command once per scenario:
+`provider-outage`, `malformed-output`, and `delivery-success`. The first
+records OpenRouter rate-limit/provider-exhaustion as a current non-success
+operation; the second records malformed live output as non-success; the third
+requires candidate-bound evidence before apply, commit, or push can count as
+delivery proof. Reports include operation ID, project revision, and candidate
+identity/revision, and explicitly label any retained result. A failed current
+operation cannot reuse an older or cached analysis as a fresh success.
 The release log also prints a redacted one-line result with the terminal,
 outcome class, accepted evidence count, and validation checkpoint count. It
 does not print prompts, source contents, provider credentials, or model

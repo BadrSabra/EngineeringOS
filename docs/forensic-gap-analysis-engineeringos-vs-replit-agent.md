@@ -16,7 +16,7 @@ The defensible verdict is:
 * **Partial:** repository intelligence, planning, repair, cancellation, restart recovery, memory/history, workflow orchestration, and Git delivery as an autonomous loop.
 * **Unsafe:** validation target versus delivery workspace, non-Replit root policy, and several information/TOCTOU edges. Promotion and task cancellation have hardening in source, but retain residual recovery/test gaps.
 * **Missing:** a continuously resumable server-owned plan→apply-in-isolation→validate→repair→delivery loop with a single authoritative operation state.
-* **Cannot Verify From Current Source:** production parity, live-provider reliability, real deployment behavior, and successful end-to-end delivery under external credentials.
+* **Cannot Verify From Current Source:** production parity, live-provider reliability, real deployment behavior, and successful end-to-end delivery under external credentials. An opt-in campaign harness records the evidence needed to measure these behaviors; running it is still external observation, not source proof.
 
 Historical documents are not treated as current evidence. In particular, `docs/ai-orchestrator-gap-analysis.md` predates deferred writes, advisory locks, delivery journals, and current retention/evidence work; `docs/RUNTIME_EXECUTION_MATRIX.md` is an inventory, not an execution proof.
 
@@ -323,7 +323,7 @@ for a candidate-bound receipt.
 |---|---|---|
 | Core execution integrity | **BLOCKED** | Strong boundaries and evidence gates exist, but candidate validation targets the live root and the full server-owned loop is absent |
 | Operator recovery | **PARTIAL** | Durable state, journals, reconciliation, owner scoping, and safe recovery projections exist; restart/cancel/token edge coverage is not complete |
-| Live provider behavior | **NOT VERIFIED** | Deterministic fixtures and bounded fallback are available; no retained live campaign is required or claimed |
+| Live provider behavior | **NOT VERIFIED** | Deterministic fixtures and bounded fallback are available; the opt-in harness records outage, malformed-output, and delivery evidence without making live credentials a release prerequisite |
 | Deployment behavior | **NOT VERIFIED** | Deployment is intentionally opt-in and is not an ordinary-release prerequisite |
 | Repository freshness | **INCOMPLETE** | Scanner/context freshness and revisioned completeness are not one authoritative operation input |
 | Graph-limit presentation | **NOT VERIFIED** | This gate does not recreate deferred graph-limit presentation coverage |
@@ -349,6 +349,31 @@ The cancelled/proposed follow-up work is not counted as merged acceptance
 evidence. Existing source-level redaction and recovery behavior may be
 reported as implementation evidence, but it does not close the corresponding
 operator acceptance item until its independently scoped coverage is accepted.
+
+### Opt-in live-provider campaign boundary
+
+The release journey has an explicitly opt-in, disposable campaign mode. It is
+never enabled by the provider-free default and requires
+`DASHBOARD_E2E_LIVE_PROVIDER=1`, `DASHBOARD_E2E_LIVE_CAMPAIGN=1`,
+`DASHBOARD_E2E_LIVE_DISPOSABLE=1`, and a project supplied through
+`DASHBOARD_E2E_LIVE_PROJECT_ID`. Each run selects one bounded scenario with
+`DASHBOARD_E2E_LIVE_SCENARIO`:
+
+* `provider-outage` records OpenRouter rate-limit/provider-exhaustion as a
+  failed, blocked, or incomplete current operation;
+* `malformed-output` records malformed provider output as non-success;
+* `delivery-success` requires candidate-bound evidence before apply, commit,
+  or push delivery proof can count.
+
+Every campaign report retains the current operation ID, project revision,
+candidate identity/revision, terminal status, and redacted evidence surfaces.
+A retained result is labeled with the operation and revision that produced it.
+The dashboard must not treat an older execution or cached analysis as the
+answer for a failed current operation; the current operation remains visibly
+non-success. The report validator rejects missing candidate correlation and
+rejects a delivery-success terminal without a candidate-bound validation hash.
+Campaign artifacts are disposable measurements and do not change the
+aggregate readiness verdict.
 
 ### Reproducible deterministic gate
 

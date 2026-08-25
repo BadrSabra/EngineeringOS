@@ -481,3 +481,35 @@ test("strict live validation accepts completed evidence-backed missions", () => 
   assert.equal(report.agreement.evidence, true);
   assert.equal(report.agreement.validation, true);
 });
+
+test("strict live validation requires a matching candidate revision", () => {
+  const capture = representativeCapture("COMPLETED");
+  assert.throws(
+    () => buildMissionCorrelationReport(capture, {
+      requireEvidence: true,
+      requireCandidateCorrelation: true,
+    }),
+    /candidateIdentity/,
+  );
+  assert.throws(
+    () => buildMissionCorrelationReport({
+      ...capture,
+      candidateIdentity: "candidate-1",
+      candidateRevision: "different-revision",
+    }, {
+      requireEvidence: true,
+      requireCandidateCorrelation: true,
+    }),
+    /candidateRevision/,
+  );
+  const report = buildMissionCorrelationReport({
+    ...capture,
+    candidateIdentity: "candidate-1",
+    candidateRevision: "abc1234",
+  }, {
+    requireEvidence: true,
+    requireCandidateCorrelation: true,
+  });
+  assert.equal(report.candidateIdentity, "candidate-1");
+  assert.equal(report.candidateRevision, "abc1234");
+});

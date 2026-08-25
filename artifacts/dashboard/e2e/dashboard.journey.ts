@@ -29,6 +29,38 @@ const DEFAULT_LIVE_PROMPT =
   "Perform a bounded forensic audit of this disposable project using read-only tools. " +
   "Produce at least one accepted evidence item and one validation checkpoint, and do not " +
   "report COMPLETED unless both are present. Report only verified evidence.";
+const LIVE_CAMPAIGN_SCENARIOS = new Set([
+  "provider-outage",
+  "malformed-output",
+  "delivery-success",
+]);
+
+function liveCampaignScenario(): string | undefined {
+  const scenario = process.env.DASHBOARD_E2E_LIVE_SCENARIO?.trim();
+  if (process.env.DASHBOARD_E2E_LIVE_CAMPAIGN === "1" && !scenario) {
+    throw new Error(
+      "Live campaign requires DASHBOARD_E2E_LIVE_SCENARIO=provider-outage, malformed-output, or delivery-success.",
+    );
+  }
+  if (scenario && !LIVE_CAMPAIGN_SCENARIOS.has(scenario)) {
+    throw new Error(`Unsupported live campaign scenario: ${scenario}.`);
+  }
+  return scenario;
+}
+
+function livePrompt(): string {
+  const scenario = liveCampaignScenario();
+  if (scenario === "provider-outage") {
+    return "Run a bounded forensic audit and report the OpenRouter rate-limit/provider-exhaustion outage as a failed or incomplete operation. Do not use prior analysis as a current answer; include the current operation and revision.";
+  }
+  if (scenario === "malformed-output") {
+    return "Run a bounded forensic audit and treat malformed provider output as failed or incomplete. Do not claim success, apply, commit, or push without candidate-bound evidence.";
+  }
+  if (scenario === "delivery-success") {
+    return "Run the bounded delivery proof campaign on this disposable project. Exercise apply, commit, and push only when each current operation, project revision, candidate identity, and candidate-bound evidence match. Report every terminal receipt.";
+  }
+  return process.env.DASHBOARD_E2E_LIVE_PROMPT ?? DEFAULT_LIVE_PROMPT;
+}
 
 function liveTimeoutMs(): number {
   const configured = Number(process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS);
@@ -1436,6 +1468,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         "Live-provider journey requires DASHBOARD_E2E_LIVE_DISPOSABLE=1 and a disposable project.",
       );
     }
+    const campaignScenario = liveCampaignScenario();
     const projectId = process.env.DASHBOARD_E2E_LIVE_PROJECT_ID;
     if (!projectId)
       throw new Error(
@@ -1448,7 +1481,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       timeout: liveTimeoutMs(),
       body: {
         projectId,
-        message: process.env.DASHBOARD_E2E_LIVE_PROMPT ?? DEFAULT_LIVE_PROMPT,
+         message: livePrompt(),
         idempotencyKey: `dashboard-live-${Date.now()}`,
       },
     });
@@ -1512,6 +1545,28 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const validation = recentSteps.filter(
       (step) => step?.kind === "validation",
     );
+    const projectRevision =
+      typeof execution.projectRevision === "string"
+        ? execution.projectRevision
+        : undefined;
+    const candidateHash = validation
+      .map((step) => step?.validation?.candidateHash ?? step?.candidateHash)
+      .find((value): value is string => typeof value === "string" && value.length > 0);
+    const candidateIdentity =
+      typeof execution.candidateIdentity === "string"
+        ? execution.candidateIdentity
+        : candidateHash
+          ? `candidate:${candidateHash}`
+          : `read-only:${projectRevision ?? "unknown"}`;
+    if (!projectRevision) {
+      throw new Error("Live-provider mission is missing its project revision.");
+    }
+    if (
+      process.env.DASHBOARD_E2E_LIVE_CAMPAIGN === "1" &&
+      (!candidateIdentity || !projectRevision)
+    ) {
+      throw new Error("Live campaign requires operation, revision, and candidate correlation.");
+    }
     const evidenceCount = recentSteps.reduce(
       (count, step) => count + (Number(step?.acceptedEvidenceCount) || 0),
       0,
@@ -1526,6 +1581,29 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       "COMMITTED",
       "PUSHED",
     ]);
+    if (
+      campaignScenario === "delivery-success" &&
+      successStates.has(terminalState) &&
+      !candidateHash
+    ) {
+      throw new Error(
+        "Delivery-success campaign cannot pass without a candidate-bound validation hash.",
+      );
+    }
+    const deliveryStages = {
+      applied: events.some((event) => event?.type === "AiChangesApplied"),
+      committed: events.some((event) => event?.type === "GitCommitCreated"),
+      pushed: events.some((event) => event?.type === "GitPushed"),
+    };
+    if (
+      campaignScenario === "delivery-success" &&
+      successStates.has(terminalState) &&
+      !Object.values(deliveryStages).every(Boolean)
+    ) {
+      throw new Error(
+        "Delivery-success campaign cannot pass without operation-correlated apply, commit, and push evidence.",
+      );
+    }
     if (
       successStates.has(terminalState) &&
       (evidenceCount < 1 || validation.length < 1)
@@ -1542,6 +1620,25 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       workspaceRevision:
         gitLog.commits?.[0]?.shortHash ??
         gitLog.commits?.[0]?.hash?.slice(0, 12),
+      projectRevision,
+      candidateIdentity,
+      candidateRevision: projectRevision,
+      campaignScenario,
+      deliveryStages,
+      currentOperation: {
+        operationId: execution.operationId,
+        revision: projectRevision,
+        status: execution.status,
+        terminalState,
+      },
+      retainedResult:
+        terminalState === "FAILED" || terminalState === "BLOCKED" || terminalState === "INCOMPLETE"
+          ? {
+              operationId: execution.operationId,
+              revision: projectRevision,
+              label: "retained result from the current failed or incomplete operation",
+            }
+          : undefined,
       terminalState,
       execution: {
         id: execution.id,

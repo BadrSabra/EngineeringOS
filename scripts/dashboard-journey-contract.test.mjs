@@ -538,6 +538,29 @@ test("live recovery requires an evidence-backed success", () => {
   );
 });
 
+test("live campaign covers provider failures and candidate-bound delivery", () => {
+  assert.match(
+    journeySource,
+    /provider-outage[\s\S]*malformed-output[\s\S]*delivery-success/,
+    "The live campaign must define outage, malformed-output, and delivery-success scenarios.",
+  );
+  assert.match(
+    journeySource,
+    /OpenRouter rate-limit\/provider-exhaustion/,
+    "The outage scenario must identify OpenRouter exhaustion.",
+  );
+  assert.match(
+    journeySource,
+    /AiChangesApplied[\s\S]*GitCommitCreated[\s\S]*GitPushed/,
+    "Delivery success must observe apply, commit, and push events.",
+  );
+  assert.match(
+    runnerSource,
+    /MISSION_CORRELATION_REQUIRE_CANDIDATE:\s*"1"/,
+    "Live reports must require candidate correlation.",
+  );
+});
+
 test("release output reports redacted proof counts and non-success status", () => {
   assert.match(
     runnerSource,

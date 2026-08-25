@@ -104,6 +104,8 @@ export function buildMissionCorrelationReport(input, options = {}) {
   const checkpoints = Array.isArray(input.checkpoints) ? input.checkpoints : [];
   const proposals = Array.isArray(input.proposals) ? input.proposals : [];
   const validation = Array.isArray(input.validation) ? input.validation : [];
+  const candidateIdentity = text(input.candidateIdentity);
+  const candidateRevision = text(input.candidateRevision);
   const dashboard = input.dashboard ?? {};
   const missionExecution = (dashboard.executions ?? []).find(
     (candidate) => candidate?.id === execution.id,
@@ -151,6 +153,21 @@ export function buildMissionCorrelationReport(input, options = {}) {
       `validation=${validation.length}.`,
     );
   }
+  if (options.requireCandidateCorrelation === true) {
+    if (!candidateIdentity) {
+      throw new Error("Correlation report is missing candidateIdentity.");
+    }
+    if (!candidateRevision) {
+      throw new Error("Correlation report is missing candidateRevision.");
+    }
+    same(candidateRevision, workspaceRevision, "candidateRevision");
+    if (success && validation.some((step) =>
+      step?.projectRevision !== undefined &&
+      step.projectRevision !== workspaceRevision
+    )) {
+      throw new Error("Correlation report contains validation from another project revision.");
+    }
+  }
   return {
     kind: "mission-correlation-report",
     version: SUPPORTED_MISSION_CORRELATION_REPORT_VERSION,
@@ -159,6 +176,8 @@ export function buildMissionCorrelationReport(input, options = {}) {
     projectId,
     sessionId,
     workspaceRevision,
+    ...(candidateIdentity ? { candidateIdentity } : {}),
+    ...(candidateRevision ? { candidateRevision } : {}),
     terminalState,
     outcomeClass: success ? "success" : "non-success",
     counts: {
@@ -192,6 +211,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       JSON.stringify(
         buildMissionCorrelationReport(input, {
           requireEvidence: process.env.MISSION_CORRELATION_REQUIRE_EVIDENCE === "1",
+            requireCandidateCorrelation: process.env.MISSION_CORRELATION_REQUIRE_CANDIDATE === "1",
         }),
         null,
         2,

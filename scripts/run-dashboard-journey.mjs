@@ -790,7 +790,8 @@ function runLiveCorrelationReportCheck() {
       {
         env: {
           ...process.env,
-          MISSION_CORRELATION_REQUIRE_EVIDENCE: "1",
+           MISSION_CORRELATION_REQUIRE_EVIDENCE: "1",
+          MISSION_CORRELATION_REQUIRE_CANDIDATE: "1",
         },
         stdio: ["ignore", "pipe", "inherit"],
       },
@@ -911,7 +912,10 @@ try {
       );
     });
     if (result !== 0) process.exitCode = result;
-    if (result === 0 && process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1") {
+    if (
+      result === 0 &&
+      process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1"
+    ) {
       await runLiveCorrelationReportCheck();
     }
   }
