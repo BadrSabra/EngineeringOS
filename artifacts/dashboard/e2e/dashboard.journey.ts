@@ -246,6 +246,9 @@ async function installApiFixtures(
       failFirstStream?: boolean;
       failStreamAttempts?: number;
     };
+    recoveryTasks?: Array<Record<string, unknown>>;
+    recoveryWorkflows?: Array<Record<string, unknown>>;
+    recoveryWorkflowExecutions?: Record<string, Array<Record<string, unknown>>>;
   },
 ) {
   await page.route("**/api/**", async (route) => {
@@ -385,6 +388,46 @@ async function installApiFixtures(
 
     if (path === "/api/dashboard")
       return route.fulfill(jsonResponse(dashboardFixture));
+    if (path === "/api/tasks") {
+      return route.fulfill(
+        jsonResponse(
+          overrides?.recoveryTasks ??
+            (overrides?.liveTask
+              ? [
+                  {
+                    id: overrides.liveTask.id,
+                    projectId: overrides.liveTask.projectId,
+                    title: overrides.liveTask.title,
+                    description: "A task used to verify live dashboard updates.",
+                    status: "running",
+                    priority: "p1",
+                    relatedFiles: [],
+                    retryCount: 0,
+                    maxRetries: 2,
+                    createdAt: "2026-01-01T00:00:00.000Z",
+                    updatedAt: "2026-01-01T00:00:01.000Z",
+                  },
+                ]
+              : []),
+        ),
+      );
+    }
+    if (path === "/api/workflows") {
+      return route.fulfill(
+        jsonResponse(overrides?.recoveryWorkflows ?? []),
+      );
+    }
+    const workflowExecutionsMatch = path.match(
+      /^\/api\/workflows\/([^/]+)\/executions$/,
+    );
+    if (workflowExecutionsMatch) {
+      return route.fulfill(
+        jsonResponse(
+          overrides?.recoveryWorkflowExecutions?.[workflowExecutionsMatch[1]] ??
+            [],
+        ),
+      );
+    }
     if (
       overrides?.auditExport &&
       path === `/api/ai/executions/${EXECUTION_ID}/audit-export`
@@ -1807,6 +1850,154 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText("PROVEN", { exact: true }).first(),
     ).toBeVisible();
+  });
+
+  test("opens failed task and workflow details with redacted recovery guidance", async ({
+    page,
+  }) => {
+    const rawDiagnostic = "provider diagnostic: upstream returned raw response";
+    const rawCredential = "sk-e2e-browser-credential-secret";
+    const supportReferences = {
+      authentication_failed: "support-task-auth-32",
+      quota_exhausted: "support-task-quota-32",
+      provider_outage: "support-workflow-outage-32",
+    };
+    const recoveryTasks = [
+      {
+        id: "e2e-auth-failed-task",
+        projectId: "e2e-project",
+        title: "Recover authentication failure",
+        description: "The provider authentication test task failed.",
+        status: "failed",
+        priority: "p1",
+        relatedFiles: ["src/provider.ts"],
+        retryCount: 1,
+        maxRetries: 2,
+        agentResponse: JSON.stringify({
+          kind: "AI_TASK_EXECUTION_RECEIPT",
+          terminalStatus: "FAILED",
+          availabilityState: "authentication_failed",
+          correlationId: supportReferences.authentication_failed,
+          operatorAction: "Replace the provider API key with a valid key, then retry.",
+          provider: "openrouter",
+          model: "secret-model-name",
+          terminalReason: rawDiagnostic,
+          operationId: rawCredential,
+        }),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:01:00.000Z",
+      },
+      {
+        id: "e2e-quota-failed-task",
+        projectId: "e2e-project",
+        title: "Recover quota exhaustion",
+        description: "The provider quota test task failed.",
+        status: "failed",
+        priority: "p1",
+        retryCount: 0,
+        maxRetries: 2,
+        agentResponse: JSON.stringify({
+          kind: "AI_TASK_EXECUTION_RECEIPT",
+          terminalStatus: "FAILED",
+          availabilityState: "quota_exhausted",
+          correlationId: supportReferences.quota_exhausted,
+          provider: "openrouter",
+          model: "secret-model-name",
+          terminalReason: rawDiagnostic,
+          operationId: rawCredential,
+        }),
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:01:00.000Z",
+      },
+    ];
+    const workflowId = "e2e-outage-workflow";
+    await installApiFixtures(page, {
+      recoveryTasks,
+      recoveryWorkflows: [
+        {
+          id: workflowId,
+          projectId: "e2e-project",
+          name: "Recover provider outage",
+          description: "A pipeline used to verify outage recovery guidance.",
+          status: "failed",
+          phases: [
+            { name: "build", steps: ["compile"] },
+            { name: "test", steps: ["verify"] },
+          ],
+          currentPhase: "test",
+          executionCount: 1,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:01:00.000Z",
+        },
+      ],
+      recoveryWorkflowExecutions: {
+        [workflowId]: [
+          {
+            id: "e2e-outage-execution",
+            workflowId,
+            status: "failed",
+            currentPhase: "test",
+            completedPhases: ["build"],
+            startedAt: "2026-01-01T00:00:00.000Z",
+            errorMessage: rawDiagnostic,
+            recovery: {
+              availabilityState: "provider_outage",
+              correlationId: supportReferences.provider_outage,
+              operatorAction:
+                "Retry in a moment; configure another provider if the issue persists.",
+              diagnostic: rawCredential,
+            },
+          },
+        ],
+      },
+    });
+    await programmaticSignIn(page);
+
+    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+    await expect(
+      page.getByLabel("Expand task Recover authentication failure"),
+    ).toBeVisible();
+    await page
+      .getByLabel("Expand task Recover authentication failure")
+      .click();
+    const taskDetails = page.locator("#task-details-e2e-auth-failed-task");
+    await expect(taskDetails).toContainText("Provider authentication failed");
+    await expect(taskDetails).toContainText(
+      "Replace the provider API key with a valid key, then retry.",
+    );
+    await expect(taskDetails).toContainText(
+      `Support reference: ${supportReferences.authentication_failed}`,
+    );
+    await page.getByLabel("Expand task Recover quota exhaustion").click();
+    await expect(page.getByText("Provider quota is exhausted")).toBeVisible();
+    await expect(
+      page.getByText(`Support reference: ${supportReferences.quota_exhausted}`),
+    ).toBeVisible();
+
+    await openNavigation(page, "Workflows", `${DASHBOARD_PATH}workflows`);
+    await expect(page.getByText("Recover provider outage")).toBeVisible();
+    await page.getByRole("button", { name: "Execution history" }).click();
+    const execution = page
+      .getByText("failed · no successful completion")
+      .locator("..")
+      .locator("..");
+    await expect(execution).toContainText(
+      "The provider is temporarily unavailable",
+    );
+    await expect(execution).toContainText(
+      "Retry in a moment; configure another provider if the issue persists.",
+    );
+    await expect(execution).toContainText(
+      `Support reference: ${supportReferences.provider_outage}`,
+    );
+
+    const visibleText = await page.locator("body").innerText();
+    expect(visibleText).not.toContain(rawDiagnostic);
+    expect(visibleText).not.toContain(rawCredential);
+    expect(visibleText).not.toMatch(
+      /secret-model-name|\/home\/runner|\/tmp\//i,
+    );
+    await expectNoHorizontalOverflow(page);
   });
 
   test("converges two browser sessions across reload, reconnect, stale results, and API restart", async ({
