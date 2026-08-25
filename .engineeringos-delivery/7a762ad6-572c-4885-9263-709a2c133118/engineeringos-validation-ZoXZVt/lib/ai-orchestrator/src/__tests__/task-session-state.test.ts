@@ -1,0 +1,462 @@
+import { describe, expect, it } from "vitest";
+import { classifyRequest } from "../prompts/profile-classifier.js";
+import {
+  buildActiveTaskExecutionPlan,
+  buildActiveTaskState,
+  buildImplementationExecutionNodes,
+  buildExecutionNodes,
+  advanceImplementationPlan,
+  isImplementationPlanContinuation,
+  getRunnableExecutionNodes,
+  isTaskContinuationRequest,
+  mergeActiveTaskEvidence,
+  parseActiveTaskState,
+  resumeActiveTaskClassification,
+  serializeActiveTaskState,
+  transitionExecutionNode,
+} from "../task-session-state.js";
+
+describe("active task session state", () => {
+  const auditClassification = classifyRequest("ابحث عن الفجوات في طبقة الذكاء الاصطناعي");
+
+  it("round-trips a validated resumable task state", () => {
+    const state = buildActiveTaskState({
+      classification: auditClassification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+      now: new Date("2026-08-16T12:00:00.000Z"),
+    });
+
+    expect(state?.taskType).toBe("FULL_FORENSIC_AUDIT");
+    expect(state?.evidence.readFiles).toEqual([]);
+    expect(parseActiveTaskState(serializeActiveTaskState(state))).toEqual(state);
+  });
+
+  it("resumes the persisted contract for short Arabic and English continuations", () => {
+    const state = buildActiveTaskState({
+      classification: auditClassification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+      now: new Date("2026-08-16T12:00:00.000Z"),
+    });
+
+    expect(isTaskContinuationRequest("أكمل")).toBe(true);
+    expect(isTaskContinuationRequest("Continue")).toBe(true);
+    expect(isTaskContinuationRequest("أكمل التحقيق")).toBe(true);
+    expect(isTaskContinuationRequest("Continue the investigation")).toBe(true);
+    expect(isTaskContinuationRequest("أعد توليد التقرير")).toBe(true);
+    expect(isTaskContinuationRequest("Regenerate the report")).toBe(true);
+
+    const resumed = resumeActiveTaskClassification(
+      "أكمل التحقيق",
+      classifyRequest("أكمل التحقيق"),
+      state,
+    );
+
+    expect(resumed.resumed).toBe(true);
+    expect(resumed.classification.taskType).toBe("FULL_FORENSIC_AUDIT");
+    expect(resumed.classification.outputContract).toBe("FORENSIC_REPORT");
+    expect(resumed.classification.analysisMode).toBe("FORENSIC");
+  });
+
+  it("retains the project binding in the persisted scope", () => {
+    const state = buildActiveTaskState({
+      classification: auditClassification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+    });
+
+    expect(parseActiveTaskState(serializeActiveTaskState(state))?.scope.projectId).toBe("project-1");
+  });
+
+  it("does not override an explicit new request", () => {
+    const state = buildActiveTaskState({
+      classification: auditClassification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+    });
+
+    const result = resumeActiveTaskClassification(
+      "ما الذي يحدث عند انتهاء المهلة؟",
+      classifyRequest("ما الذي يحدث عند انتهاء المهلة؟"),
+      state,
+    );
+
+    expect(result.resumed).toBe(false);
+    expect(result.classification.taskType).toBe("BEHAVIOR_QUERY");
+  });
+
+  it("keeps only unique normalized file paths in the evidence ledger", () => {
+    const state = buildActiveTaskState({
+      classification: auditClassification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+    });
+
+    const updated = mergeActiveTaskEvidence(state!, [
+      "./src/a.ts",
+      "src/a.ts",
+      "src/b.ts",
+    ]);
+
+    expect(updated.evidence.readFiles).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(parseActiveTaskState(serializeActiveTaskState(updated))?.evidence.readFiles).toEqual([
+      "src/a.ts",
+      "src/b.ts",
+    ]);
+  });
+
+  it("stores executable phases, claims, and boundaries as a resumable plan", () => {
+    const state = buildActiveTaskState({
+      classification: auditClassification,
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      linkedTaskId: undefined,
+    });
+    const plan = buildActiveTaskExecutionPlan({
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      repairPlan: [{
+        findingId: "F-1",
+        files: ["src/unsafe.ts"],
+        steps: ["Replace the unsafe evaluation path."],
+        validationProfile: "ai-orchestrator-tests",
+        verdictScope: "PRODUCTION",
+        scopedFindingStatus: "PRODUCTION_PROVEN",
+      }],
+      objective: {
+        objectiveType: "PRODUCTION_REACHABILITY",
+        requiredClaims: [{ claimId: "unsafe-path", text: "The unsafe path is reachable in production." }],
+        requiredEvidenceEdges: [],
+      },
+      evidence: [{
+        source: "src/unsafe.ts",
+        sourceSpan: { startLine: 12, endLine: 16 },
+        supportsClaim: true,
+        evidenceClass: "FINDING_PROVEN",
+      }],
+    });
+
+    expect(plan).toMatchObject({
+      readiness: "READY",
+      phases: [{ findingId: "F-1", files: ["src/unsafe.ts"] }],
+      nodes: [{
+        id: "phase:F-1:1",
+        status: "queued",
+        allowedFiles: ["src/unsafe.ts"],
+        dependencies: [],
+        attempts: 0,
+      }],
+      boundaries: {
+        projectId: "project-1",
+        allowedWriteFiles: ["src/unsafe.ts"],
+        sourceRoots: ["src"],
+        verdictScopes: ["PRODUCTION"],
+      },
+    });
+    expect(plan?.claims).toEqual(expect.arrayContaining([
+      expect.objectContaining({ claimId: "objective:unsafe-path", text: "The unsafe path is reachable in production." }),
+      expect.objectContaining({ claimId: "finding:F-1", findingId: "F-1", status: "PROVEN" }),
+    ]));
+
+    const withPlan = { ...state!, executionPlan: plan };
+    expect(parseActiveTaskState(serializeActiveTaskState(withPlan))?.executionPlan).toEqual(plan);
+  });
+
+  it("schedules independent nodes together but blocks overlapping write scopes", () => {
+    const phases = [
+      {
+        findingId: "F-1",
+        files: ["src/a.ts"],
+        steps: ["Update A"],
+        validationProfile: "ai-orchestrator-tests" as const,
+      },
+      {
+        findingId: "F-2",
+        files: ["src/b.ts"],
+        steps: ["Update B"],
+        validationProfile: "ai-orchestrator-tests" as const,
+      },
+      {
+        findingId: "F-3",
+        files: ["src/a.ts", "src/c.ts"],
+        steps: ["Update A and C"],
+        validationProfile: "ai-orchestrator-tests" as const,
+      },
+    ];
+    const nodes = buildExecutionNodes(phases);
+
+    expect(getRunnableExecutionNodes(nodes).map((node) => node.id)).toEqual([
+      "phase:F-1:1",
+      "phase:F-2:2",
+    ]);
+    expect(nodes.map((node) => node.dependencies)).toEqual([
+      [],
+      [],
+      ["phase:F-1:1"],
+    ]);
+  });
+
+  it("projects approved implementation steps into scoped execution nodes", () => {
+    const nodes = buildImplementationExecutionNodes({
+      kind: "IMPLEMENTATION_PLAN_RESULT",
+      objective: "Ship the activity timeline",
+      summary: "Create the timeline UI and API.",
+      assumptions: [],
+      steps: [
+        {
+          id: "api",
+          title: "Add timeline API",
+          description: "Create the endpoint.",
+          action: "modify",
+          files: ["server/timeline.ts"],
+          dependsOn: [],
+          validation: ["Run the API tests"],
+        },
+        {
+          id: "ui",
+          title: "Add timeline UI",
+          description: "Create the dashboard view.",
+          action: "modify",
+          files: ["client/timeline.tsx"],
+          dependsOn: ["api"],
+          validation: ["Run the dashboard checks"],
+        },
+        {
+          id: "inspect",
+          title: "Inspect existing routes",
+          description: "Review the current route structure.",
+          action: "inspect",
+          files: ["server/routes.ts"],
+          dependsOn: [],
+          validation: [],
+        },
+      ],
+      validationCommands: ["pnpm test"],
+      risks: [],
+      approvalStatus: "APPROVED",
+      writeAccess: "APPROVED_FOR_BUILD",
+    });
+
+    expect(nodes).toEqual([
+      expect.objectContaining({
+        id: "step:api",
+        allowedFiles: ["server/timeline.ts"],
+        dependencies: [],
+        validationProfile: "workspace-typecheck",
+        attempts: 0,
+      }),
+      expect.objectContaining({
+        id: "step:ui",
+        allowedFiles: ["client/timeline.tsx"],
+        dependencies: ["step:api"],
+      }),
+    ]);
+    expect(nodes).toHaveLength(2);
+  });
+
+  it("stores implementation-plan nodes without treating pending approval as ready", () => {
+    const plan = buildActiveTaskExecutionPlan({
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      implementationPlan: {
+        kind: "IMPLEMENTATION_PLAN_RESULT",
+        objective: "Ship the activity timeline",
+        summary: "Create the timeline UI.",
+        assumptions: [],
+        steps: [{
+          id: "ui",
+          title: "Add timeline UI",
+          description: "Create the view.",
+          action: "modify",
+          files: ["client/timeline.tsx"],
+          dependsOn: [],
+          validation: [],
+        }],
+        validationCommands: [],
+        risks: [],
+        approvalStatus: "PENDING_APPROVAL",
+        writeAccess: "NOT_AUTHORIZED",
+      },
+    });
+
+    expect(plan).toMatchObject({
+      readiness: "NOT_PROVEN",
+      nodes: [{ id: "step:ui", allowedFiles: ["client/timeline.tsx"] }],
+      currentStepIndex: 0,
+      planningAttempts: 1,
+      planFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+  });
+
+  it("resumes a stored implementation plan and advances only after its inspect read", () => {
+    const implementationPlan = {
+      kind: "IMPLEMENTATION_PLAN_RESULT" as const,
+      objective: "Prepare the activity timeline",
+      summary: "Inspect first, then make the approved change.",
+      assumptions: [],
+      steps: [
+        {
+          id: "inspect",
+          title: "Inspect the timeline route",
+          description: "Read the current route.",
+          action: "inspect" as const,
+          files: ["server/routes.ts"],
+          dependsOn: [],
+          validation: [],
+        },
+        {
+          id: "modify",
+          title: "Update the timeline route",
+          description: "Apply the approved change.",
+          action: "modify" as const,
+          files: ["server/routes.ts"],
+          dependsOn: ["inspect"],
+          validation: [],
+        },
+      ],
+      validationCommands: [],
+      risks: [],
+      approvalStatus: "PENDING_APPROVAL" as const,
+      writeAccess: "NOT_AUTHORIZED" as const,
+    };
+    const executionPlan = buildActiveTaskExecutionPlan({
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      implementationPlan,
+    })!;
+    const state = {
+      ...buildActiveTaskState({
+        classification: auditClassification,
+        projectId: "project-1",
+        rootPath: "/workspace/project-1",
+        linkedTaskId: undefined,
+      })!,
+      executionPlan,
+    };
+
+    expect(isImplementationPlanContinuation("تابع", state)).toBe(true);
+    expect(isImplementationPlanContinuation("new request", state)).toBe(false);
+    expect(advanceImplementationPlan(executionPlan, ["unrelated.ts"]).currentStepIndex).toBe(0);
+    const advanced = advanceImplementationPlan(executionPlan, ["./server/routes.ts"]);
+    expect(advanced.currentStepIndex).toBe(1);
+    expect(advanced.stepFingerprint).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("blocks an approved plan that has no executable write nodes", () => {
+    const plan = buildActiveTaskExecutionPlan({
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      implementationPlan: {
+        kind: "IMPLEMENTATION_PLAN_RESULT",
+        objective: "Review the existing routes",
+        summary: "Inspect the route structure without changing files.",
+        assumptions: [],
+        steps: [{
+          id: "inspect",
+          title: "Inspect existing routes",
+          description: "Review the current route structure.",
+          action: "inspect",
+          files: ["server/routes.ts"],
+          dependsOn: [],
+          validation: [],
+        }],
+        validationCommands: [],
+        risks: [],
+        approvalStatus: "APPROVED",
+        writeAccess: "APPROVED_FOR_BUILD",
+      },
+    });
+
+    expect(plan).toMatchObject({
+      readiness: "BLOCKED",
+      boundaries: { allowedWriteFiles: [] },
+      nodes: [],
+    });
+  });
+
+  it("blocks unsupported build actions and excludes read-only files from write scope", () => {
+    const plan = buildActiveTaskExecutionPlan({
+      projectId: "project-1",
+      rootPath: "/workspace/project-1",
+      implementationPlan: {
+        kind: "IMPLEMENTATION_PLAN_RESULT",
+        objective: "Update the route safely",
+        summary: "Modify the route and validate the surrounding behavior.",
+        assumptions: [],
+        steps: [
+          {
+            id: "modify",
+            title: "Modify the route",
+            description: "Update the approved route implementation.",
+            action: "modify",
+            files: ["server/routes.ts"],
+            dependsOn: [],
+            validation: [],
+          },
+          {
+            id: "inspect",
+            title: "Inspect dependencies",
+            description: "Review related files without changing them.",
+            action: "inspect",
+            files: ["server/dependencies.ts"],
+            dependsOn: [],
+            validation: [],
+          },
+          {
+            id: "test",
+            title: "Run route tests",
+            description: "Validate the route behavior.",
+            action: "test",
+            files: ["server/routes.test.ts"],
+            dependsOn: ["modify"],
+            validation: ["Run the route tests"],
+          },
+          {
+            id: "delete",
+            title: "Delete an obsolete file",
+            description: "Remove an obsolete implementation.",
+            action: "delete",
+            files: ["server/obsolete.ts"],
+            dependsOn: ["modify"],
+            validation: [],
+          },
+        ],
+        validationCommands: [],
+        risks: [],
+        approvalStatus: "APPROVED",
+        writeAccess: "APPROVED_FOR_BUILD",
+      },
+    });
+
+    expect(plan).toMatchObject({
+      readiness: "BLOCKED",
+      boundaries: { allowedWriteFiles: ["server/routes.ts"] },
+      nodes: [{ id: "step:modify", allowedFiles: ["server/routes.ts"] }],
+    });
+  });
+
+  it("tracks attempts and rejects invalid or exhausted node transitions", () => {
+    const [node] = buildExecutionNodes([{
+      findingId: "F-1",
+      files: ["src/a.ts"],
+      steps: ["Update A"],
+      validationProfile: "ai-orchestrator-tests" as const,
+    }]);
+
+    const running = transitionExecutionNode([node], node.id, "running");
+    expect(running[0]).toMatchObject({ status: "running", attempts: 1 });
+    const failed = transitionExecutionNode(running, node.id, "failed");
+    const retry = transitionExecutionNode(failed, node.id, "queued");
+    expect(retry[0]).toMatchObject({ status: "queued", attempts: 1 });
+
+    expect(() => transitionExecutionNode([node], node.id, "passed")).toThrow(/Invalid/);
+    const exhausted = { ...node, status: "queued" as const, attempts: 3 };
+    expect(() => transitionExecutionNode([exhausted], node.id, "running")).toThrow(/exhausted/);
+  });
+});

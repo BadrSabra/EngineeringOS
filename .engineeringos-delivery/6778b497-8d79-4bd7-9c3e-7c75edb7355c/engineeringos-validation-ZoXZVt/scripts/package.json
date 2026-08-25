@@ -1,0 +1,27 @@
+{
+  "name": "@workspace/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "hello": "tsx ./src/hello.ts",
+    "parse-check-spec": "tsx ./parse-check-spec.ts",
+    "validate-github-workflows": "node ./validate-github-workflows.mjs",
+    "check-codegen-drift": "tsx ./check-codegen-drift.ts",
+    "patch-generated-zod": "tsx ./patch-generated-zod.ts",
+    "test": "tsx --test ./*.test.ts ./*.test.mjs",
+    "generate-truth-flow": "tsx ./generate-truth-flow.ts",
+    "validate-truth-flow": "tsx ./validate-truth-flow.ts",
+    "validate-benchmark-baseline": "tsx ./validate-benchmark-baseline.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@workspace/api-zod": "workspace:*",
+    "js-yaml": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "catalog:",
+    "tsx": "catalog:"
+  }
+}

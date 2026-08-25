@@ -1,0 +1,128 @@
+{
+  "kind": "code-agent-benchmark-airlock",
+  "version": 1,
+  "mode": "live",
+  "suiteVersion": "flight-deck-v1",
+  "runId": "task-176-canary",
+  "startedAt": "2026-08-18T20:37:56.029Z",
+  "completedAt": "2026-08-18T20:37:56.029Z",
+  "targetCaseCount": 1,
+  "providerOrder": [
+    "openrouter"
+  ],
+  "providerHealth": [
+    {
+      "provider": "openrouter",
+      "status": "unavailable",
+      "providerUnavailable": true,
+      "toolCalling": false,
+      "structuredArguments": false,
+      "latencyMs": 363,
+      "model": null,
+      "failureCode": "QUOTA",
+      "failureReason": "Provider probe failed with QUOTA."
+    }
+  ],
+  "observations": [
+    {
+      "caseId": "typecheck-failure-001",
+      "provider": null,
+      "model": null,
+      "providerAttempts": 0,
+      "observation": {
+        "caseId": "typecheck-failure-001",
+        "grade": "U",
+        "correct": false,
+        "completedFirstAttempt": false,
+        "repairedWithinThreeAttempts": false,
+        "usefulButIncomplete": false,
+        "safelyBlocked": false,
+        "falseSuccess": false,
+        "scopeEscape": false,
+        "conflict": false,
+        "typecheckPassed": null,
+        "testsPassed": null,
+        "filesRead": 0,
+        "toolCalls": 0,
+        "repairAttempts": 0,
+        "rejectedChanges": 0,
+        "providerUnavailable": true
+      }
+    }
+  ],
+  "scorecard": {
+    "kind": "code-agent-benchmark",
+    "version": 1,
+    "suiteVersion": "flight-deck-v1",
+    "generatedAt": "2026-08-18T20:37:54.131Z",
+    "cases": [
+      {
+        "caseId": "typecheck-failure-001",
+        "grade": "U",
+        "correct": false,
+        "completedFirstAttempt": false,
+        "repairedWithinThreeAttempts": false,
+        "usefulButIncomplete": false,
+        "safelyBlocked": false,
+        "falseSuccess": false,
+        "scopeEscape": false,
+        "conflict": false,
+        "typecheckPassed": null,
+        "testsPassed": null,
+        "filesRead": 0,
+        "toolCalls": 0,
+        "repairAttempts": 0,
+        "rejectedChanges": 0,
+        "providerUnavailable": true
+      }
+    ],
+    "missingCaseIds": [],
+    "metrics": {
+      "totalCases": 1,
+      "observedCases": 1,
+      "complete": true,
+      "firstAttemptRate": 0,
+      "repairedWithinThreeRate": 0,
+      "correctCompletionRate": 0,
+      "usefulIncompleteRate": 0,
+      "safelyBlockedRate": 0,
+      "falseSuccessRate": 0,
+      "scopeEscapeRate": 0,
+      "conflictRate": 0,
+      "typecheckSuccessRate": null,
+      "testSuccessRate": null,
+      "averageFilesRead": 0,
+      "averageToolCalls": 0,
+      "averageRepairAttempts": 0,
+      "averageRejectedChanges": 0,
+      "averageLatencyMs": null,
+      "gradeCounts": {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0,
+        "F": 0,
+        "U": 1
+      },
+      "providerUnavailableCount": 1
+    },
+    "rolloutAllowed": false,
+    "rolloutBlockers": [
+      "provider unavailable for 1 observed case",
+      "benchmark baseline unavailable"
+    ],
+    "baselineComparison": {
+      "status": "missing",
+      "blockers": [
+        "benchmark baseline unavailable"
+      ]
+    }
+  },
+  "shard": {
+    "index": 0,
+    "count": 1,
+    "caseIds": [
+      "typecheck-failure-001"
+    ]
+  }
+}

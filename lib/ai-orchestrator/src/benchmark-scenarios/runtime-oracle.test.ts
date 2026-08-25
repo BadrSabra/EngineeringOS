@@ -5,3 +5,4 @@ const value = "broken";
 describe("runtime oracle", () => {
   it("proves the pending behavior", () => expect(value).toBe("fixed"));
 });
+

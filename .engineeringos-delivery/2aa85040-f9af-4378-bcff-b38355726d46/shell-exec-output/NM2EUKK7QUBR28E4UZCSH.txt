@@ -1,0 +1,420 @@
+artifacts/api-server/src/lib/ai-repair-validation.ts:20:export type RepairVerificationStatus = ValidationStatus;
+artifacts/api-server/src/lib/ai-repair-validation.ts:21:export type ValidationFailure = SharedValidationFailure;
+artifacts/api-server/src/lib/ai-repair-validation.ts:26:export type RepairVerificationResult =
+artifacts/api-server/src/lib/ai-repair-validation.ts:41:export type PendingValidationChange = {
+artifacts/api-server/src/lib/ai-repair-validation.ts:46:export type RuntimeOracleCommand = {
+artifacts/api-server/src/lib/ai-repair-validation.ts:113:export async function createValidationWorkspace(
+artifacts/api-server/src/lib/ai-repair-validation.ts:254:export function getRepairValidationProfile(profile: ValidationProfile): ValidationProfileDefinition {
+artifacts/api-server/src/lib/ai-repair-validation.ts:258:export function validateRepairValidationScope(
+artifacts/api-server/src/lib/ai-repair-validation.ts:380:export async function runRepairValidation(
+artifacts/api-server/src/lib/ai-repair-validation.ts:396:export async function runRepairRuntimeOracle(
+artifacts/api-server/src/lib/ai-repair-validation.ts:441:export async function runRepairPreviewValidation(input: {
+artifacts/api-server/src/routes/ai/workflows.ts:271:export default router;
+artifacts/api-server/src/routes/ai/chat.ts:17:  aiChatSessionsTable,
+artifacts/api-server/src/routes/ai/chat.ts:18:  aiChatMessagesTable,
+artifacts/api-server/src/routes/ai/chat.ts:19:  aiChangeProposalsTable,
+artifacts/api-server/src/routes/ai/chat.ts:20:  aiExecutionsTable,
+artifacts/api-server/src/routes/ai/chat.ts:21:  aiApplyJournalTable,
+artifacts/api-server/src/routes/ai/chat.ts:61:  rebasePatchHunks,
+artifacts/api-server/src/routes/ai/chat.ts:122:  recoverAiExecutionResumeToken,
+artifacts/api-server/src/routes/ai/chat.ts:148:  deliveryWorkspaceExists,
+artifacts/api-server/src/routes/ai/chat.ts:314: * recovery boundaries. Keep this projection explicit so persisted historical
+artifacts/api-server/src/routes/ai/chat.ts:448:  const terminalState = params.execution?.status === "cancelled"
+artifacts/api-server/src/routes/ai/chat.ts:450:    || traces.some((entry) => entry && typeof entry === "object" && (entry as { stopReason?: unknown }).stopReason === "cancelled")
+artifacts/api-server/src/routes/ai/chat.ts:500:export class MissionCorrelationReportValidationError extends Error {
+artifacts/api-server/src/routes/ai/chat.ts:514:export function serializeMissionCorrelationReport(value: unknown): string | null {
+artifacts/api-server/src/routes/ai/chat.ts:526: * audit exports. Keep the optional generatedAt field after schema parsing
+artifacts/api-server/src/routes/ai/chat.ts:530:export function projectMissionCorrelationReportForExport(
+artifacts/api-server/src/routes/ai/chat.ts:855:          .select({ id: aiChatMessagesTable.id })
+artifacts/api-server/src/routes/ai/chat.ts:856:          .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:858:            eq(aiChatMessagesTable.sessionId, params.sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:859:            eq(aiChatMessagesTable.executionId, params.executionId),
+artifacts/api-server/src/routes/ai/chat.ts:860:            eq(aiChatMessagesTable.role, "user"),
+artifacts/api-server/src/routes/ai/chat.ts:865:      await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:876:    await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:891:    await tx.update(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:893:      .where(eq(aiChatSessionsTable.id, params.sessionId));
+artifacts/api-server/src/routes/ai/chat.ts:956:      failures.push({ path: change.path, error: message });
+artifacts/api-server/src/routes/ai/chat.ts:1160:export function canCreateProposal(
+artifacts/api-server/src/routes/ai/chat.ts:1270:  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+artifacts/api-server/src/routes/ai/chat.ts:1277:  recoveryStarted?: boolean;
+artifacts/api-server/src/routes/ai/chat.ts:1307:  phase?: "localization" | "evidence" | "patch_proposal" | "validation" | "repair_recovery" | "report";
+artifacts/api-server/src/routes/ai/chat.ts:1354:  recoveryAttempt?: number;
+artifacts/api-server/src/routes/ai/chat.ts:1355:  recoveryFailureKind?: string;
+artifacts/api-server/src/routes/ai/chat.ts:1378:  resultKind?: "ok" | "failed" | "unavailable" | "cancelled";
+artifacts/api-server/src/routes/ai/chat.ts:1468:      case "forensic_recovery_start":
+artifacts/api-server/src/routes/ai/chat.ts:1523:          recoveryAttempt: step.trace.recoveryAttempt,
+artifacts/api-server/src/routes/ai/chat.ts:1524:          recoveryFailureKind: step.trace.recoveryFailureKind,
+artifacts/api-server/src/routes/ai/chat.ts:1566:      case "recovery_model_call":
+artifacts/api-server/src/routes/ai/chat.ts:1621:          ...(steps.some((candidate) => candidate.kind === "forensic_recovery_start")
+artifacts/api-server/src/routes/ai/chat.ts:1622:            ? { recoveryStarted: true }
+artifacts/api-server/src/routes/ai/chat.ts:1625:            .filter((candidate): candidate is Extract<AgentStep, { kind: "model_call" | "recovery_model_call" }> =>
+artifacts/api-server/src/routes/ai/chat.ts:1626:              candidate.kind === "model_call" || candidate.kind === "recovery_model_call",
+artifacts/api-server/src/routes/ai/chat.ts:1643: * public-safe shape there so a reconnect cannot recover the raw command,
+artifacts/api-server/src/routes/ai/chat.ts:1816:  // happens before provider resolution and before SSE headers are committed.
+artifacts/api-server/src/routes/ai/chat.ts:1831:  let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
+artifacts/api-server/src/routes/ai/chat.ts:1835:      .from(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:1836:      .where(eq(aiChatSessionsTable.id, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:1928:  // while execution handoffs can still recover an older repair plan from this
+artifacts/api-server/src/routes/ai/chat.ts:1935:          .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:1936:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+artifacts/api-server/src/routes/ai/chat.ts:1937:          .orderBy(desc(aiChatMessagesTable.createdAt))
+artifacts/api-server/src/routes/ai/chat.ts:2026:        (step) => traceSteps.push(step),
+artifacts/api-server/src/routes/ai/chat.ts:2121:          .select({ id: aiChatSessionsTable.id })
+artifacts/api-server/src/routes/ai/chat.ts:2122:          .from(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:2123:          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+artifacts/api-server/src/routes/ai/chat.ts:2128:          .insert(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:2153:      await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:2163:        .insert(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:2184:        await tx.insert(aiChangeProposalsTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:2205:        .update(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:2207:          activeTaskState: sql`CASE WHEN ${aiChatSessionsTable.updatedAt} <= ${msgNow} THEN ${activeTaskState} ELSE ${aiChatSessionsTable.activeTaskState} END`,
+artifacts/api-server/src/routes/ai/chat.ts:2208:          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+artifacts/api-server/src/routes/ai/chat.ts:2210:        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+artifacts/api-server/src/routes/ai/chat.ts:2318:  // happens before provider resolution and before SSE headers are committed.
+artifacts/api-server/src/routes/ai/chat.ts:2367:        message: aiChatMessagesTable,
+artifacts/api-server/src/routes/ai/chat.ts:2368:        session: aiChatSessionsTable,
+artifacts/api-server/src/routes/ai/chat.ts:2370:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:2372:        aiChatSessionsTable,
+artifacts/api-server/src/routes/ai/chat.ts:2373:        eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+artifacts/api-server/src/routes/ai/chat.ts:2375:      .where(eq(aiChatMessagesTable.id, effectiveBuildPlanMessageId))
+artifacts/api-server/src/routes/ai/chat.ts:2467:      "Use the existing read and deferred-write flow. Prepare pending changes only; do not claim that files were applied, committed, or published.",
+artifacts/api-server/src/routes/ai/chat.ts:2473:  let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
+artifacts/api-server/src/routes/ai/chat.ts:2477:      .from(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:2478:      .where(eq(aiChatSessionsTable.id, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:2609:    // messages are still committed together after the model returns.
+artifacts/api-server/src/routes/ai/chat.ts:2612:        .insert(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:2723:      if (["cancelled", "completed", "cancelling"].includes(aiExecution.status)) {
+artifacts/api-server/src/routes/ai/chat.ts:2827:        cancelled: false,
+artifacts/api-server/src/routes/ai/chat.ts:2952:      recoveryOutcome: (() => {
+artifacts/api-server/src/routes/ai/chat.ts:2953:        const recovery = (streamCheckpoint as (typeof streamCheckpoint & {
+artifacts/api-server/src/routes/ai/chat.ts:2954:          recovery?: unknown;
+artifacts/api-server/src/routes/ai/chat.ts:2955:        }) | undefined)?.recovery;
+artifacts/api-server/src/routes/ai/chat.ts:2956:        if (!recovery || typeof recovery !== "object") return null;
+artifacts/api-server/src/routes/ai/chat.ts:2957:        const outcome = (recovery as Record<string, unknown>).outcome;
+artifacts/api-server/src/routes/ai/chat.ts:2958:        return ["recovery_required", "resume_accepted", "abandoned", "already_abandoned"].includes(String(outcome))
+artifacts/api-server/src/routes/ai/chat.ts:2988:          .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:2989:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+artifacts/api-server/src/routes/ai/chat.ts:2990:          .orderBy(desc(aiChatMessagesTable.createdAt))
+artifacts/api-server/src/routes/ai/chat.ts:3059:          stopReason: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+artifacts/api-server/src/routes/ai/chat.ts:3066:          recoveryStarted?: boolean;
+artifacts/api-server/src/routes/ai/chat.ts:3111:      traceSteps.push(step);
+artifacts/api-server/src/routes/ai/chat.ts:3228:        // Forensic contract recovery runs after the tool-loop emits its
+artifacts/api-server/src/routes/ai/chat.ts:3229:        // `done` step. Keep the summary live so recovery candidates are not
+artifacts/api-server/src/routes/ai/chat.ts:3293:          recoveryAttempt: step.trace.recoveryAttempt,
+artifacts/api-server/src/routes/ai/chat.ts:3294:          recoveryFailureKind: step.trace.recoveryFailureKind,
+artifacts/api-server/src/routes/ai/chat.ts:3307:      } else if (step.kind === "forensic_recovery_start") {
+artifacts/api-server/src/routes/ai/chat.ts:3308:        if (executionSummary) executionSummary.recoveryStarted = true;
+artifacts/api-server/src/routes/ai/chat.ts:3334:          ...(traceSteps.some((candidate) => candidate.kind === "forensic_recovery_start")
+artifacts/api-server/src/routes/ai/chat.ts:3335:            ? { recoveryStarted: true }
+artifacts/api-server/src/routes/ai/chat.ts:3338:            .filter((candidate): candidate is Extract<AgentStep, { kind: "model_call" | "recovery_model_call" }> =>
+artifacts/api-server/src/routes/ai/chat.ts:3339:              candidate.kind === "model_call" || candidate.kind === "recovery_model_call",
+artifacts/api-server/src/routes/ai/chat.ts:3350:        // Forensic recovery/provider details are server diagnostics, not user
+artifacts/api-server/src/routes/ai/chat.ts:3357:          diagnosticCodes.push(step.code);
+artifacts/api-server/src/routes/ai/chat.ts:3362:              executionDiagnosticDetails.push(detail);
+artifacts/api-server/src/routes/ai/chat.ts:3367:          executionSummary.diagnosticCodes.push(step.code);
+artifacts/api-server/src/routes/ai/chat.ts:3613:            (step.resultKind === "failed" || step.resultKind === "unavailable" || step.resultKind === "cancelled"),
+artifacts/api-server/src/routes/ai/chat.ts:3623:        const interrupted = failedToolResult?.kind === "tool_result" && failedToolResult.resultKind === "cancelled";
+artifacts/api-server/src/routes/ai/chat.ts:3652:            cancelled: interrupted,
+artifacts/api-server/src/routes/ai/chat.ts:3957:          .select({ id: aiChatSessionsTable.id })
+artifacts/api-server/src/routes/ai/chat.ts:3958:          .from(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:3959:          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+artifacts/api-server/src/routes/ai/chat.ts:3964:          .insert(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:3993:        await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:4005:        .insert(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4028:        await tx.insert(aiChangeProposalsTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:4038:          .update(aiExecutionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:4040:          .where(eq(aiExecutionsTable.id, aiExecutionId));
+artifacts/api-server/src/routes/ai/chat.ts:4058:        .update(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:4067:            WHEN ${aiChatSessionsTable.activeTaskState} IS NULL THEN ${activeTaskState}
+artifacts/api-server/src/routes/ai/chat.ts:4069:              NULLIF(${aiChatSessionsTable.activeTaskState}::jsonb->>'lastProgressAt', '')::timestamptz,
+artifacts/api-server/src/routes/ai/chat.ts:4070:              ${aiChatSessionsTable.updatedAt}
+artifacts/api-server/src/routes/ai/chat.ts:4072:            ELSE ${aiChatSessionsTable.activeTaskState}
+artifacts/api-server/src/routes/ai/chat.ts:4074:          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+artifacts/api-server/src/routes/ai/chat.ts:4076:        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+artifacts/api-server/src/routes/ai/chat.ts:4136:        cancelled: false,
+artifacts/api-server/src/routes/ai/chat.ts:4160:          cancelled: false,
+artifacts/api-server/src/routes/ai/chat.ts:4266:          ? "Execution cancelled by the user."
+artifacts/api-server/src/routes/ai/chat.ts:4268:        cancelled: executionAbortController?.signal.aborted,
+artifacts/api-server/src/routes/ai/chat.ts:4298:    .from(aiExecutionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:4300:      eq(aiExecutionsTable.projectId, project.id),
+artifacts/api-server/src/routes/ai/chat.ts:4301:      eq(aiExecutionsTable.userId, req.userId),
+artifacts/api-server/src/routes/ai/chat.ts:4302:      inArray(aiExecutionsTable.status, ["paused", "cancelled", "failed"]),
+artifacts/api-server/src/routes/ai/chat.ts:4304:    .orderBy(desc(aiExecutionsTable.updatedAt))
+artifacts/api-server/src/routes/ai/chat.ts:4343:      terminalReason: execution.status === "cancelled"
+artifacts/api-server/src/routes/ai/chat.ts:4344:        ? "Audit was cancelled before completion."
+artifacts/api-server/src/routes/ai/chat.ts:4382:      .select({ messageId: aiChangeProposalsTable.messageId })
+artifacts/api-server/src/routes/ai/chat.ts:4383:      .from(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai/chat.ts:4384:      .where(eq(aiChangeProposalsTable.id, execution.proposalId))
+artifacts/api-server/src/routes/ai/chat.ts:4411:  const recoveryRecord = checkpointRecord.recovery && typeof checkpointRecord.recovery === "object"
+artifacts/api-server/src/routes/ai/chat.ts:4412:    ? checkpointRecord.recovery as Record<string, unknown>
+artifacts/api-server/src/routes/ai/chat.ts:4461:    recovery: {
+artifacts/api-server/src/routes/ai/chat.ts:4466:      outcome: typeof recoveryRecord?.outcome === "string" ? recoveryRecord.outcome : null,
+artifacts/api-server/src/routes/ai/chat.ts:4481:router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:4598:    exportedAt: new Date().toISOString(),
+artifacts/api-server/src/routes/ai/chat.ts:4632:router.post("/ai/executions/:executionId/recovery", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:4638:  const recovered = await requestAiExecutionRecovery({
+artifacts/api-server/src/routes/ai/chat.ts:4643:  if (!recovered) return res.status(404).json({ error: "AI execution not found" });
+artifacts/api-server/src/routes/ai/chat.ts:4644:  if (recovered.outcome === "stale") {
+artifacts/api-server/src/routes/ai/chat.ts:4645:    return res.status(409).json({ error: "This recovery request targets a stale workspace revision.", code: "EXECUTION_STALE" });
+artifacts/api-server/src/routes/ai/chat.ts:4647:  if (recovered.outcome === "not_eligible") {
+artifacts/api-server/src/routes/ai/chat.ts:4648:    return res.status(409).json({ error: "This execution is not eligible for operator recovery.", code: "EXECUTION_NOT_RECOVERABLE" });
+artifacts/api-server/src/routes/ai/chat.ts:4651:    executionId: recovered.execution.id,
+artifacts/api-server/src/routes/ai/chat.ts:4652:    operationId: recovered.execution.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:4653:    status: recovered.execution.status,
+artifacts/api-server/src/routes/ai/chat.ts:4654:    outcome: recovered.outcome,
+artifacts/api-server/src/routes/ai/chat.ts:4655:    ...(recovered.resumeToken ? { resumeToken: recovered.resumeToken } : {}),
+artifacts/api-server/src/routes/ai/chat.ts:4660:  const recovered = await recoverAiExecutionResumeToken({
+artifacts/api-server/src/routes/ai/chat.ts:4664:  if (recovered) {
+artifacts/api-server/src/routes/ai/chat.ts:4666:      executionId: recovered.execution.id,
+artifacts/api-server/src/routes/ai/chat.ts:4667:      resumeToken: recovered.resumeToken,
+artifacts/api-server/src/routes/ai/chat.ts:4680:router.post("/ai/executions/:executionId/cancel", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:4697:    cancelRequestedAt: execution.cancelRequestedAt,
+artifacts/api-server/src/routes/ai/chat.ts:4713:    .from(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:4714:    .where(eq(aiChatSessionsTable.projectId, project.id))
+artifacts/api-server/src/routes/ai/chat.ts:4715:    .orderBy(desc(aiChatSessionsTable.updatedAt))
+artifacts/api-server/src/routes/ai/chat.ts:4722:      id: aiChatMessagesTable.id,
+artifacts/api-server/src/routes/ai/chat.ts:4723:      sessionId: aiChatMessagesTable.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:4724:      role: aiChatMessagesTable.role,
+artifacts/api-server/src/routes/ai/chat.ts:4725:      content: aiChatMessagesTable.content,
+artifacts/api-server/src/routes/ai/chat.ts:4726:      toolTrace: aiChatMessagesTable.toolTrace,
+artifacts/api-server/src/routes/ai/chat.ts:4727:      createdAt: aiChatMessagesTable.createdAt,
+artifacts/api-server/src/routes/ai/chat.ts:4729:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4730:    .where(inArray(aiChatMessagesTable.sessionId, sessions.map((session) => session.id)))
+artifacts/api-server/src/routes/ai/chat.ts:4731:    .orderBy(desc(aiChatMessagesTable.createdAt), desc(aiChatMessagesTable.id));
+artifacts/api-server/src/routes/ai/chat.ts:4746:    const cancelled = traceEntries.some(
+artifacts/api-server/src/routes/ai/chat.ts:4748:        (entry as { stopReason?: unknown }).stopReason === "cancelled"
+artifacts/api-server/src/routes/ai/chat.ts:4755:    if (cancelled) return { ...session, forensicStatus: "INCOMPLETE" as const };
+artifacts/api-server/src/routes/ai/chat.ts:4779:    return res.status(400).json({ error: "This report recovery action does not accept a request body.", code: "REPORT_REGENERATION_BODY_NOT_ALLOWED" });
+artifacts/api-server/src/routes/ai/chat.ts:4784:    .from(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:4785:    .where(eq(aiChatSessionsTable.id, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:4794:      id: aiChatMessagesTable.id,
+artifacts/api-server/src/routes/ai/chat.ts:4795:      role: aiChatMessagesTable.role,
+artifacts/api-server/src/routes/ai/chat.ts:4796:      missionCorrelationReport: aiChatMessagesTable.missionCorrelationReport,
+artifacts/api-server/src/routes/ai/chat.ts:4797:      executionId: aiChatMessagesTable.executionId,
+artifacts/api-server/src/routes/ai/chat.ts:4799:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4801:      eq(aiChatMessagesTable.id, messageId),
+artifacts/api-server/src/routes/ai/chat.ts:4802:      eq(aiChatMessagesTable.sessionId, sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:4818:      id: aiChatMessagesTable.id,
+artifacts/api-server/src/routes/ai/chat.ts:4819:      role: aiChatMessagesTable.role,
+artifacts/api-server/src/routes/ai/chat.ts:4820:      sources: aiChatMessagesTable.sources,
+artifacts/api-server/src/routes/ai/chat.ts:4821:      toolTrace: aiChatMessagesTable.toolTrace,
+artifacts/api-server/src/routes/ai/chat.ts:4822:      behaviorEvidence: aiChatMessagesTable.behaviorEvidence,
+artifacts/api-server/src/routes/ai/chat.ts:4823:      taskResult: aiChatMessagesTable.taskResult,
+artifacts/api-server/src/routes/ai/chat.ts:4824:      outcome: aiChatMessagesTable.outcome,
+artifacts/api-server/src/routes/ai/chat.ts:4825:      errorCode: aiChatMessagesTable.errorCode,
+artifacts/api-server/src/routes/ai/chat.ts:4827:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4828:    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:4829:    .orderBy(aiChatMessagesTable.createdAt)
+artifacts/api-server/src/routes/ai/chat.ts:4834:        id: aiExecutionsTable.id,
+artifacts/api-server/src/routes/ai/chat.ts:4835:        operationId: aiExecutionsTable.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:4836:        request: aiExecutionsTable.request,
+artifacts/api-server/src/routes/ai/chat.ts:4837:        checkpoint: aiExecutionsTable.checkpoint,
+artifacts/api-server/src/routes/ai/chat.ts:4838:        checkpointVersion: aiExecutionsTable.checkpointVersion,
+artifacts/api-server/src/routes/ai/chat.ts:4839:        status: aiExecutionsTable.status,
+artifacts/api-server/src/routes/ai/chat.ts:4841:      .from(aiExecutionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:4843:        eq(aiExecutionsTable.id, target.executionId),
+artifacts/api-server/src/routes/ai/chat.ts:4844:        eq(aiExecutionsTable.sessionId, sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:4845:        eq(aiExecutionsTable.projectId, session.projectId),
+artifacts/api-server/src/routes/ai/chat.ts:4850:    .select({ id: aiChangeProposalsTable.id })
+artifacts/api-server/src/routes/ai/chat.ts:4851:    .from(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai/chat.ts:4852:    .where(eq(aiChangeProposalsTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:4884:    .update(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4887:      eq(aiChatMessagesTable.id, messageId),
+artifacts/api-server/src/routes/ai/chat.ts:4888:      eq(aiChatMessagesTable.sessionId, sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:4890:    .returning({ id: aiChatMessagesTable.id, missionCorrelationReport: aiChatMessagesTable.missionCorrelationReport });
+artifacts/api-server/src/routes/ai/chat.ts:4905:    .from(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:4906:    .where(eq(aiChatSessionsTable.id, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:4918:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4919:    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:4920:    .orderBy(aiChatMessagesTable.createdAt);
+artifacts/api-server/src/routes/ai/chat.ts:4959:// does not apply changes, run commands, commit, or publish.
+artifacts/api-server/src/routes/ai/chat.ts:4973:      message: aiChatMessagesTable,
+artifacts/api-server/src/routes/ai/chat.ts:4974:      session: aiChatSessionsTable,
+artifacts/api-server/src/routes/ai/chat.ts:4976:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4978:      aiChatSessionsTable,
+artifacts/api-server/src/routes/ai/chat.ts:4979:      eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+artifacts/api-server/src/routes/ai/chat.ts:4981:    .where(eq(aiChatMessagesTable.id, req.params.messageId))
+artifacts/api-server/src/routes/ai/chat.ts:5060:    .update(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:5063:      eq(aiChatMessagesTable.id, row.message.id),
+artifacts/api-server/src/routes/ai/chat.ts:5064:      eq(aiChatMessagesTable.taskResult, originalTaskResult),
+artifacts/api-server/src/routes/ai/chat.ts:5066:    .returning({ id: aiChatMessagesTable.id });
+artifacts/api-server/src/routes/ai/chat.ts:5088:    .update(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:5090:    .where(eq(aiChatSessionsTable.id, row.session.id));
+artifacts/api-server/src/routes/ai/chat.ts:5203:    .from(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:5204:    .where(eq(aiChatSessionsTable.id, req.params.sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:5212:    .from(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai/chat.ts:5214:      eq(aiChangeProposalsTable.sessionId, req.params.sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:5216:    .orderBy(desc(aiChangeProposalsTable.createdAt))
+artifacts/api-server/src/routes/ai/chat.ts:5222:      id: aiExecutionsTable.id,
+artifacts/api-server/src/routes/ai/chat.ts:5223:      operationId: aiExecutionsTable.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:5224:      buildPlanMessageId: aiExecutionsTable.buildPlanMessageId,
+artifacts/api-server/src/routes/ai/chat.ts:5226:    .from(aiExecutionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:5228:      eq(aiExecutionsTable.proposalId, proposal.id),
+artifacts/api-server/src/routes/ai/chat.ts:5229:      eq(aiExecutionsTable.projectId, session.projectId),
+artifacts/api-server/src/routes/ai/chat.ts:5231:    .orderBy(desc(aiExecutionsTable.updatedAt))
+artifacts/api-server/src/routes/ai/chat.ts:5256:            conflictReason: proposal.conflictReason
+artifacts/api-server/src/routes/ai/chat.ts:5257:              ? redactUserFacingText(proposal.conflictReason).slice(0, 500)
+artifacts/api-server/src/routes/ai/chat.ts:5272:// Delivery recovery intentionally exposes only relative file names and bounded
+artifacts/api-server/src/routes/ai/chat.ts:5274:router.get("/ai/delivery/recoverable", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5284:    .from(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai/chat.ts:5286:      eq(aiChangeProposalsTable.projectId, project.id),
+artifacts/api-server/src/routes/ai/chat.ts:5287:      inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted", "cancelled"]),
+artifacts/api-server/src/routes/ai/chat.ts:5289:    .orderBy(desc(aiChangeProposalsTable.createdAt))
+artifacts/api-server/src/routes/ai/chat.ts:5295:      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+artifacts/api-server/src/routes/ai/chat.ts:5297:    const recoveryState = proposal.lifecycle === "cancelled" || proposal.status === "rejected"
+artifacts/api-server/src/routes/ai/chat.ts:5300:        ? "recoverable"
+artifacts/api-server/src/routes/ai/chat.ts:5302:    const operatorExplanation = recoveryState === "discarded"
+artifacts/api-server/src/routes/ai/chat.ts:5303:      ? "This delivery recovery was already discarded."
+artifacts/api-server/src/routes/ai/chat.ts:5304:      : recoveryState === "missing_workspace"
+artifacts/api-server/src/routes/ai/chat.ts:5305:        ? "The saved delivery workspace is no longer available, so recovery cannot continue."
+artifacts/api-server/src/routes/ai/chat.ts:5306:        : proposal.lifecycle === "conflicted"
+artifacts/api-server/src/routes/ai/chat.ts:5311:    const nextAction = recoveryState === "discarded"
+artifacts/api-server/src/routes/ai/chat.ts:5313:      : recoveryState === "missing_workspace"
+artifacts/api-server/src/routes/ai/chat.ts:5314:        ? "Start a new delivery from the current project rather than retrying this recovery."
+artifacts/api-server/src/routes/ai/chat.ts:5315:        : "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.";
+artifacts/api-server/src/routes/ai/chat.ts:5325:      conflictReason: proposal.conflictReason
+artifacts/api-server/src/routes/ai/chat.ts:5326:        ? redactUserFacingText(proposal.conflictReason).slice(0, 500)
+artifacts/api-server/src/routes/ai/chat.ts:5328:      recoveryState,
+artifacts/api-server/src/routes/ai/chat.ts:5349:  const [proposal] = await db.select().from(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai/chat.ts:5350:    .where(eq(aiChangeProposalsTable.id, req.params.proposalId)).limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:5358:  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)
+artifacts/api-server/src/routes/ai/chat.ts:5361:    || !(await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId))) {
+artifacts/api-server/src/routes/ai/chat.ts:5362:    const discarded = proposal.lifecycle === "cancelled" || proposal.status === "rejected";
+artifacts/api-server/src/routes/ai/chat.ts:5365:      && await deliveryWorkspaceExists(proposal.workspaceRoot, proposal.operationId),
+artifacts/api-server/src/routes/ai/chat.ts:5369:        ? "This delivery recovery was already discarded."
+artifacts/api-server/src/routes/ai/chat.ts:5370:        : "The saved delivery workspace is no longer available, so recovery cannot continue.",
+artifacts/api-server/src/routes/ai/chat.ts:5373:      recoveryState: discarded ? "discarded" : workspaceAvailable ? "recoverable" : "missing_workspace",
+artifacts/api-server/src/routes/ai/chat.ts:5376:        : "Start a new delivery from the current project rather than retrying this recovery.",
+artifacts/api-server/src/routes/ai/chat.ts:5396:    group.push(change);
+artifacts/api-server/src/routes/ai/chat.ts:5415:    results.push(publicValidationReceipt(result));
+artifacts/api-server/src/routes/ai/chat.ts:5420:  const [updated] = await db.update(aiChangeProposalsTable).set({
+artifacts/api-server/src/routes/ai/chat.ts:5423:    conflictReason: passed ? null : "Validation recovery did not pass all registered profiles.",
+artifacts/api-server/src/routes/ai/chat.ts:5425:    eq(aiChangeProposalsTable.id, proposal.id),
+artifacts/api-server/src/routes/ai/chat.ts:5426:    eq(aiChangeProposalsTable.status, "pending"),
+artifacts/api-server/src/routes/ai/chat.ts:5427:    inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted"]),
+artifacts/api-server/src/routes/ai/chat.ts:5428:  )).returning({ id: aiChangeProposalsTable.id });
+artifacts/api-server/src/routes/ai/chat.ts:5430:    const [current] = await db.select({ lifecycle: aiChangeProposalsTable.lifecycle })
+artifacts/api-server/src/routes/ai/chat.ts:5431:      .from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposal.id)).limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:5443:  const [proposal] = await db.select().from(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai/chat.ts:5444:    .where(eq(aiChangeProposalsTable.id, req.params.proposalId)).limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:5448:  if (proposal.lifecycle === "cancelled" || proposal.status === "rejected") {
+artifacts/api-server/src/routes/ai/chat.ts:5449:    return res.json({ proposalId: proposal.id, lifecycle: "cancelled", idempotent: true });
+artifacts/api-server/src/routes/ai/chat.ts:5451:  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)) {
+artifacts/api-server/src/routes/ai/chat.ts:5454:  const [updated] = await db.update(aiChangeProposalsTable).set({
+artifacts/api-server/src/routes/ai/chat.ts:5456:    lifecycle: "cancelled",
+artifacts/api-server/src/routes/ai/chat.ts:5458:  }).where(and(eq(aiChangeProposalsTable.id, proposal.id), eq(aiChangeProposalsTable.status, "pending"))).returning({ id: aiChangeProposalsTable.id });
+artifacts/api-server/src/routes/ai/chat.ts:5462:  return res.json({ proposalId: proposal.id, lifecycle: "cancelled", discarded: Boolean(updated) });
+artifacts/api-server/src/routes/ai/chat.ts:5465:// ── POST /api/ai/chat/rebase-changes ──────────────────────────────────────────
+artifacts/api-server/src/routes/ai/chat.ts:5468:// deterministic, reviewable rebase onto the current workspace and updates the
+artifacts/api-server/src/routes/ai/chat.ts:5470:router.post("/ai/chat/rebase-changes", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5512:      error: issue?.message ?? "Invalid rebase request",
+artifacts/api-server/src/routes/ai/chat.ts:5535:      hint: "Another apply or rebase operation is already in progress for this project.",
+artifacts/api-server/src/routes/ai/chat.ts:5542:      .from(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai/chat.ts:5544:        eq(aiChangeProposalsTable.id, proposalId),
+artifacts/api-server/src/routes/ai/chat.ts:5545:        eq(aiChangeProposalsTable.projectId, projectId),
+artifacts/api-server/src/routes/ai/chat.ts:5571:    const rebasedChanges: ServerPendingChange[] = [];
+artifacts/api-server/src/routes/ai/chat.ts:5572:    const conflicts: Array<{
+artifacts/api-server/src/routes/ai/chat.ts:5577:      conflict?: {
+artifacts/api-server/src/routes/ai/chat.ts:5591:        conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5595:          error: "Sensitive files cannot be rebased through the AI approval flow.",
+artifacts/api-server/src/routes/ai/chat.ts:5600:        conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5611:        conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5625:          conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5634:          conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5638:            error: "Duplicate file path in rebase request.",
+artifacts/api-server/src/routes/ai/chat.ts:5651:        const rebased = rebasePatchHunks(currentContent, change.hunks);
+artifacts/api-server/src/routes/ai/chat.ts:5652:        if (!rebased.ok) {
+artifacts/api-server/src/routes/ai/chat.ts:5653:          conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5656:            code: rebased.kind === "unsupported" ? "PATCH_REBASE_UNAVAILABLE" : "PATCH_REBASE_CONFLICT",
+artifacts/api-server/src/routes/ai/chat.ts:5657:            error: rebased.reason,
+artifacts/api-server/src/routes/ai/chat.ts:5658:            conflict: rebased.kind === "hunk_mismatch"
+artifacts/api-server/src/routes/ai/chat.ts:5661:                  ...(rebased.hunkIndex === undefined ? {} : { hunkIndex: rebased.hunkIndex }),
+artifacts/api-server/src/routes/ai/chat.ts:5672:        rebasedChanges.push({
+artifacts/api-server/src/routes/ai/chat.ts:5677:          newContent: rebased.content,
+artifacts/api-server/src/routes/ai/chat.ts:5678:          hunks: buildPatchHunks(currentContent, rebased.content, change.reason, {
+artifacts/api-server/src/routes/ai/chat.ts:5684:        conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5693:    if (conflicts.length > 0 || rebasedChanges.length !== approvedChanges.length) {
+artifacts/api-server/src/routes/ai/chat.ts:5695:        error: "Patch could not be safely rebased. No proposal data was changed.",
+artifacts/api-server/src/routes/ai/chat.ts:5698:          ...conflicts,
+artifacts/api-server/src/routes/ai/chat.ts:5699:          ...rebasedChanges.map((change) => ({
+artifacts/api-server/src/routes/ai/chat.ts:5703:            error: "Batch rebase aborted because another file conflicted.",
+artifacts/api-server/src/routes/ai/chat.ts:5712:        .update(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai/chat.ts:5714:          changes: serializeServerPendingChanges(rebasedChanges),
+artifacts/api-server/src/routes/ai/chat.ts:5719:          eq(aiChangeProposalsTable.id, proposalId),
+artifacts/api-server/src/routes/ai/chat.ts:5720:          eq(aiChangeProposalsTable.projectId, projectId),
+artifacts/api-server/src/routes/ai/chat.ts:5721:          eq(aiChangeProposalsTable.status, "pending"),
+artifacts/api-server/src/routes/ai/chat.ts:5723:        .returning({ id: aiChangeProposalsTable.id });
+artifacts/api-server/src/routes/ai/chat.ts:5724:      if (!updated[0]) throw new Error("Change proposal was consumed during rebase");
+artifacts/api-server/src/routes/ai/chat.ts:5730:        message: `AI patch rebased for ${rebasedChanges.length} file${rebasedChanges.length === 1 ? "" : "s"}; user review is required again.`,
+artifacts/api-server/src/routes/ai/chat.ts:5734:          rebasedFiles: rebasedChanges.map((change) => change.path),
+artifacts/api-server/src/routes/ai/chat.ts:5742:      changes: rebasedChanges,
+artifacts/api-server/src/routes/ai/chat.ts:5743:      rebasedFiles: rebasedChanges.map((change) => change.path),
+artifacts/api-server/src/routes/ai/chat.ts:5748:    if (error instanceof Error && error.message === "Change proposal was consumed during rebase") {
+artifacts/api-server/src/routes/ai/chat.ts:5764:// from racing with another rebase of the same proposal.
+artifacts/api-server/src/routes/ai/chat.ts:5783:    .from(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai/chat.ts:5785:      eq(aiChangeProposalsTable.id, req.params.proposalId),
+artifacts/api-server/src/routes/ai/chat.ts:5786:      eq(aiChangeProposalsTable.projectId, projectId),
+artifacts/api-server/src/routes/ai/chat.ts:5809:      .update(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai/chat.ts:5812:        eq(aiChangeProposalsTable.id, proposal.id),
+artifacts/api-server/src/routes/ai/chat.ts:5813:        eq(aiChangeProposalsTable.projectId, projectId),
+artifacts/api-server/src/routes/ai/chat.ts:5814:        eq(aiChangeProposalsTable.status, "pending"),
+artifacts/api-server/src/routes/ai/chat.ts:5815:        eq(aiChangeProposalsTable.approvalRequired, true),
+artifacts/api-server/src/routes/ai/chat.ts:5816:        eq(aiChangeProposalsTable.revision, revision),
+artifacts/api-server/src/routes/ai/chat.ts:5818:      .returning({ id: aiChangeProposalsTable.id });
+artifacts/api-server/src/routes/ai/chat.ts:5826:      message: "AI rebased patch approved for apply",
+artifacts/api-server/src/routes/ai/chat.ts:5854:    .from(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai/chat.ts:5855:    .where(eq(aiChangeProposalsTable.id, req.params.proposalId))
+artifacts/api-server/src/routes/ai/chat.ts:5866:    .update(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai/chat.ts:5869:      lifecycle: "cancelled",
+artifacts/api-server/src/routes/ai/chat.ts:5873:      eq(aiChangeProposalsTable.id, proposal.id),
+artifacts/api-server/src/routes/ai/chat.ts:5874:      eq(aiChangeProposalsTable.status, "pending"),
+artifacts/api-server/src/routes/ai/chat.ts:5942:    .select({ status: aiChangeProposalsTable.status, changes: aiChangeProposalsTable.changes })
+artifacts/api-server/src/routes/ai/chat.ts:5943:    .from(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai/chat.ts:5945:      eq(aiChangeProposalsTable.id, proposalId),
+artifacts/api-server/src/routes/ai/chat.ts:5946:      eq(aiChangeProposalsTable.projectId, projectId),
+artifacts/api-server/src/routes/ai/chat.ts:5990:      conflict?: {
+artifacts/api-server/src/routes/ai/chat.ts:6004:      .from(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai/chat.ts:6006:        eq(aiChangeProposalsTable.id, proposalId),
+artifacts/api-server/src/routes/ai/chat.ts:6007:        eq(aiChangeProposalsTable.projectId, projectId),
+artifacts/api-server/src/routes/ai/chat.ts:6018:        error: "The rebased patch must be reviewed and approved again before apply",
+artifacts/api-server/src/routes/ai/chat.ts:6055:        id: aiExecutionsTable.id,
+artifacts/api-server/src/routes/ai/chat.ts:6056:        operationId: aiExecutionsTable.operationId,
+artifacts/api-server/src/routes/ai/chat.ts:6057:        buildPlanMessageId: aiExecutionsTable.buildPlanMessageId,
+artifacts/api-server/src/routes/ai/chat.ts:6059:      .from(aiExecutionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:6061:        eq(aiExecutionsTable.proposalId, proposal.id),
+artifacts/api-server/src/routes/ai/chat.ts:6062:        eq(aiExecutionsTable.projectId, projectId),
+artifacts/api-server/src/routes/ai/chat.ts:6064:      .orderBy(desc(aiExecutionsTable.updatedAt))
+artifacts/api-server/src/routes/ai/chat.ts:6080:    // recovery/proof artifact; the durable root is only written after all
+artifacts/api-server/src/routes/ai/chat.ts:6082:    const deliveryWorkspace = await createDeliveryWorkspace({
+artifacts/api-server/src/routes/ai/chat.ts:6088:    await db.update(aiChangeProposalsTable)
+artifacts/api-server/src/routes/ai/chat.ts:6091:        workspaceRoot: deliveryWorkspace.workspaceRoot,
+artifacts/api-server/src/routes/ai/chat.ts:6092:        baseRevision: deliveryWorkspace.baseRevision,
+artifacts/api-server/src/routes/ai/chat.ts:6093:        changeSetHash: deliveryWorkspace.changeSetHash,
+artifacts/api-server/src/routes/ai/chat.ts:6095:        conflictReason: null,
+artifacts/api-server/src/routes/ai/chat.ts:6098:        eq(aiChangeProposalsTable.id, proposalId),
+artifacts/api-server/src/routes/ai/chat.ts:6099:        eq(aiChangeProposalsTable.status, "pending"),
+artifacts/api-server/src/routes/ai/chat.ts:6107:      await db.insert(aiApplyJournalTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:6148:        results.push({
+artifacts/api-server/src/routes/ai/chat.ts:6158:        results.push({ path: change.path, ok: false, error: "Path is outside the project root" });
+artifacts/api-server/src/routes/ai/chat.ts:6169:          results.push({ path: change.path, ok: false, error: "Path is outside the project root" });
+artifacts/api-server/src/routes/ai/chat.ts:6174:          results.push({ path: change.path, ok: false, error: "Duplicate file path in apply request" });
+artifacts/api-server/src/routes/ai/chat.ts:6189:            results.push({
+artifacts/api-server/src/routes/ai/chat.ts:6193:              error: "Patch conflict: the file changed after the patch was generated. Read it again and create a fresh patch.",
+artifacts/api-server/src/routes/ai/chat.ts:6194:              conflict: {
+artifacts/api-server/src/routes/ai/chat.ts:6207:            results.push({
+artifacts/api-server/src/routes/ai/chat.ts:6215:        // When hunks are present, rebase them against the current file content
+artifacts/api-server/src/routes/ai/chat.ts:6221:          const rebaseResult = rebasePatchHunks(currentContent, change.hunks);
+artifacts/api-server/src/routes/ai/chat.ts:6222:          if (!rebaseResult.ok) {
+artifacts/api-server/src/routes/ai/chat.ts:6223:            results.push({
+artifacts/api-server/src/routes/ai/chat.ts:6227:              error: `Patch conflict: ${rebaseResult.reason}`,
+artifacts/api-server/src/routes/ai/chat.ts:6228:              conflict: {
+artifacts/api-server/src/routes/ai/chat.ts:6230:                ...(rebaseResult.hunkIndex !== undefined
+artifacts/api-server/src/routes/ai/chat.ts:6231:                  ? { hunkIndex: rebaseResult.hunkIndex }
+artifacts/api-server/src/routes/ai/chat.ts:6237:          resolvedContent = rebaseResult.content;
+artifacts/api-server/src/routes/ai/chat.ts:6245:          results.push({ path: change.path, ok: false, error: guard.error });
+artifacts/api-server/src/routes/ai/chat.ts:6252:            results.push({
+artifacts/api-server/src/routes/ai/chat.ts:6267:        writableChanges.push({
+artifacts/api-server/src/routes/ai/chat.ts:6275:        results.push({ path: change.path, ok: false, error: e instanceof Error ? e.message : String(e) });
+artifacts/api-server/src/routes/ai/chat.ts:6292:        results.push({ path: change.path, ok: false, error: batchError });
+artifacts/api-server/src/routes/ai/chat.ts:6297:    // (including rebased hunk content). Validation must observe these exact

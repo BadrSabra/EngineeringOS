@@ -1,0 +1,634 @@
+/**
+ * Integration test: buildProjectContext → AgentContextSchema
+ *
+ * Gap closure: every agent's system prompt is built from the object returned by
+ * buildProjectContext(). If the builder produces a field that violates
+ * AgentContextSchema (empty string, missing key, extra key), every downstream
+ * agent silently receives corrupt context. These tests prove the builder output
+ * always satisfies the schema contract, including edge-case DB states.
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// ── vi.hoisted: initialise shared state before vi.mock hoisting ───────────────
+// vi.mock factories are hoisted to the very top of the file by vitest.
+// Module-level `const` are NOT initialised yet at that point (temporal dead
+// zone). vi.hoisted() runs its callback before hoisting and returns values that
+// ARE safe to reference inside a vi.mock factory.
+const { _tableData, _tableHits, _mockDb } = vi.hoisted(() => {
+  const _tableData = new Map<object, unknown[]>();
+  const _tableHits = new Map<object, number>();
+
+  function makeChain(rows: unknown[]): Record<string, unknown> {
+    const c: Record<string, unknown> = {};
+    // .where() and .orderBy() return the same chain (chainable, args ignored).
+    c.where   = () => c;
+    c.orderBy = () => c;
+    // .limit() is the terminal call — resolves the Promise with the row array.
+    c.limit   = () => Promise.resolve(rows);
+    return c;
+  }
+
+  // Explicit interface avoids the "implicitly has type 'any'" circular-ref error
+  // that TypeScript emits when `typeof _mockDb` is referenced inside the object
+  // literal that defines `_mockDb` itself.
+  interface MockDb {
+    select: () => { from: (table: object) => Record<string, unknown> };
+    transaction: (
+      callback: (tx: MockDb) => Promise<unknown>,
+      _opts?: unknown,
+    ) => Promise<unknown>;
+  }
+
+  const _mockDb: MockDb = {
+    // select() accepts optional field projections but we ignore them — the mock
+    // always returns the full pre-configured row arrays.
+    select: () => ({
+      from: (table: object) => {
+        _tableHits.set(table, (_tableHits.get(table) ?? 0) + 1);
+        return makeChain(_tableData.get(table) ?? []);
+      },
+    }),
+    // PR-04: buildProjectContext now wraps all queries in db.transaction().
+    // The mock runs the callback synchronously with a tx that has the same
+    // select chain so all existing tests continue to work unchanged.
+    transaction: async (
+      callback: (tx: MockDb) => Promise<unknown>,
+      _opts?: unknown,
+    ) => callback(_mockDb),
+  };
+
+  return { _tableData, _tableHits, _mockDb };
+});
+
+// ── Drizzle helper mock ───────────────────────────────────────────────────────
+// eq/desc/asc results are passed to .where()/.orderBy() in the mock chain,
+// which discards them. vi.fn() keeps them from throwing when called with
+// undefined column references from our token-based table mocks.
+vi.mock("drizzle-orm", () => ({
+  eq:   vi.fn(() => Symbol("eq")),
+  desc: vi.fn((c: unknown) => c),
+  asc:  vi.fn((c: unknown) => c),
+  and:  vi.fn(() => Symbol("and")),
+}));
+
+// ── DB mock ───────────────────────────────────────────────────────────────────
+// buildProjectContext runs 8 parallel drizzle queries via the fluent chain:
+//   db.select(fields?).from(TABLE).where(cond).orderBy(ord).limit(n) → rows[]
+//
+// Each table export is a unique plain-object token. .from(TOKEN) intercepts
+// the token and returns the pre-configured rows from _tableData. Tests
+// overwrite entries in _tableData to simulate edge-case DB states.
+vi.mock("@workspace/db", () => ({
+  db: _mockDb,
+  // Unique object references serve as table tokens — context-builder and test
+  // both import these, so they share the same Map keys in _tableData.
+  projectsTable:            { _t: "projects" },
+  tasksTable:               { _t: "tasks" },
+  metricsTable:             { _t: "metrics" },
+  graphEntitiesTable:       { _t: "graphEntities" },
+  graphRelationshipsTable:  { _t: "graphRelationships" },
+  eventsTable:              { _t: "events" },
+  workflowsTable:           { _t: "workflows" },
+  scanJobsTable:            { _t: "scanJobs" },
+  // Extra drizzle exports used by context-builder (not query-related)
+  eq:   vi.fn(),
+  desc: vi.fn((c: unknown) => c),
+  asc:  vi.fn((c: unknown) => c),
+  and:  vi.fn(),
+}));
+
+// Imports come AFTER vi.mock declarations (vitest hoists vi.mock calls).
+import {
+  projectsTable,
+  tasksTable,
+  metricsTable,
+  graphEntitiesTable,
+  graphRelationshipsTable,
+  eventsTable,
+  workflowsTable,
+  scanJobsTable,
+} from "@workspace/db";
+import {
+  buildProjectContext,
+  invalidateContextCache,
+  setInvalidationNotifier,
+  startContextInvalidationChannel,
+} from "./context-builder.js";
+import { AgentContextSchema } from "./schemas/context.schema.js";
+
+// ── Fixtures ──────────────────────────────────────────────────────────────────
+
+const PROJECT_ID = "proj-ctx-test-001";
+
+function makeProject(overrides?: Partial<Record<string, unknown>>) {
+  return {
+    id: PROJECT_ID,
+    name: "TestProject",
+    language: "TypeScript",
+    framework: "Express",
+    status: "active",
+    qualityScore: 80,
+    rootPath: "/workspace/test",
+    description: "A test project for context-builder validation",
+    lastScanAt: new Date("2026-07-18"),
+    gitRemoteUrl: null,
+    gitDefaultBranch: null,
+    ...overrides,
+  };
+}
+
+function makeMetric(overrides?: Partial<Record<string, unknown>>) {
+  return {
+    id: "metric-001",
+    projectId: PROJECT_ID,
+    timestamp: new Date("2026-07-18"),
+    overallScore: 80,
+    architectureScore: 75,
+    securityScore: 85,
+    performanceScore: 78,
+    reliabilityScore: 82,
+    maintainabilityScore: 79,
+    technicalDebt: 12,
+    buildStatus: "passing",
+    testsTotal: 100,
+    testsPassed: 98,
+    testsFailed: 2,
+    testsCoverage: 87,
+    linesOfCode: 5000,
+    complexity: 3.2,
+    dependencies: 42,
+    ...overrides,
+  };
+}
+
+function makeScanJob(status = "completed") {
+  return { status, error: null, finishedAt: new Date("2026-07-18") };
+}
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+describe("buildProjectContext → AgentContextSchema", () => {
+  beforeEach(() => {
+    // Reset context cache so each test triggers a fresh builder run.
+    invalidateContextCache(PROJECT_ID);
+    // Reset DB data to a minimal valid state for each test.
+    _tableData.clear();
+    _tableHits.clear();
+    _tableData.set(projectsTable as object, [makeProject()]);
+    _tableData.set(tasksTable as object, []);
+    _tableData.set(metricsTable as object, [makeMetric()]);
+    _tableData.set(graphEntitiesTable as object, []);
+    _tableData.set(graphRelationshipsTable as object, []);
+    _tableData.set(eventsTable as object, []);
+    _tableData.set(workflowsTable as object, []);
+    _tableData.set(scanJobsTable as object, [makeScanJob()]);
+  });
+
+  it("output satisfies AgentContextSchema (core gap assertion)", async () => {
+    const ctx = await buildProjectContext(PROJECT_ID);
+    // AgentContextSchema.parse() throws a ZodError if any field is empty,
+    // missing, or carries an unexpected key — this is the contract every agent
+    // depends on at runtime.
+    expect(() => AgentContextSchema.parse(ctx)).not.toThrow();
+  });
+
+  it("all string fields are non-empty (schema min(1) contract)", async () => {
+    const ctx = await buildProjectContext(PROJECT_ID);
+    const parsed = AgentContextSchema.safeParse(ctx);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    for (const [key, value] of Object.entries(parsed.data)) {
+      // metricsVerified is a boolean — skip the string-length check for it.
+      if (typeof value === "boolean") continue;
+      expect(
+        (value as string).length,
+        `AgentContext field "${key}" must satisfy min(1)`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it("metricsVerified is a boolean", async () => {
+    const ctx = await buildProjectContext(PROJECT_ID);
+    expect(typeof ctx.metricsVerified).toBe("boolean");
+  });
+
+  it("metricsVerified is true when scan completed successfully", async () => {
+    _tableData.set(scanJobsTable as object, [makeScanJob("completed")]);
+    invalidateContextCache(PROJECT_ID);
+    const ctx = await buildProjectContext(PROJECT_ID);
+    expect(ctx.metricsVerified).toBe(true);
+  });
+
+  it("metricsVerified is false when scan never ran", async () => {
+    _tableData.set(scanJobsTable as object, []);
+    invalidateContextCache(PROJECT_ID);
+    const ctx = await buildProjectContext(PROJECT_ID);
+    expect(ctx.metricsVerified).toBe(false);
+  });
+
+  it("metricsVerified is false when scan failed", async () => {
+    _tableData.set(scanJobsTable as object, [makeScanJob("failed")]);
+    invalidateContextCache(PROJECT_ID);
+    const ctx = await buildProjectContext(PROJECT_ID);
+    expect(ctx.metricsVerified).toBe(false);
+  });
+
+  it("no extra keys leak through (schema .strict() contract)", async () => {
+    const ctx = await buildProjectContext(PROJECT_ID);
+    const result = AgentContextSchema.strict().safeParse(ctx);
+    expect(result.success).toBe(true);
+  });
+
+  it("gracefully handles empty tasks, metrics, events, and workflows", async () => {
+    _tableData.set(tasksTable as object, []);
+    _tableData.set(metricsTable as object, []);   // no metrics row
+    _tableData.set(graphEntitiesTable as object, []);
+    _tableData.set(graphRelationshipsTable as object, []);
+    _tableData.set(eventsTable as object, []);
+    _tableData.set(workflowsTable as object, []);
+    _tableData.set(scanJobsTable as object, []); // no scan job
+
+    invalidateContextCache(PROJECT_ID);
+    const ctx = await buildProjectContext(PROJECT_ID);
+    expect(() => AgentContextSchema.parse(ctx)).not.toThrow();
+  });
+
+  it("includes scan-reliability label in the project field", async () => {
+    const ctx = await buildProjectContext(PROJECT_ID);
+    // With a completed scan job the builder marks the context as "completed".
+    expect(ctx.project).toContain("completed");
+  });
+
+  it("marks metrics as unverified when scan never ran", async () => {
+    _tableData.set(scanJobsTable as object, []); // no scan job at all
+    invalidateContextCache(PROJECT_ID);
+    const ctx = await buildProjectContext(PROJECT_ID);
+    // The builder appends "⚠ unverified" when there is no completed scan.
+    expect(ctx.project).toContain("unverified");
+  });
+
+  it("throws when the project row is absent", async () => {
+    _tableData.set(projectsTable as object, []); // project not found
+    invalidateContextCache(PROJECT_ID);
+    await expect(buildProjectContext(PROJECT_ID)).rejects.toThrow(PROJECT_ID);
+  });
+
+  it("includes relationship topology when graph edges exist", async () => {
+    _tableData.set(graphEntitiesTable as object, [
+      { id: "e1", name: "AuthService", type: "service",    filePath: "auth.ts",  confidence: 0.95 },
+      { id: "e2", name: "UserRepo",    type: "repository", filePath: "user.ts",  confidence: 0.90 },
+    ]);
+    _tableData.set(graphRelationshipsTable as object, [
+      {
+        id: "r1", sourceId: "e1", targetId: "e2",
+        relation: "depends_on", relationType: "dependency",
+        confidence: 0.88, isHeuristic: false,
+      },
+    ]);
+    invalidateContextCache(PROJECT_ID);
+    const ctx = await buildProjectContext(PROJECT_ID);
+    expect(ctx.graphSummary).toMatch(/AuthService|UserRepo/);
+    expect(() => AgentContextSchema.parse(ctx)).not.toThrow();
+  });
+
+  it("graphSummary includes a provenance header when entities exist", async () => {
+    _tableData.set(graphEntitiesTable as object, [
+      { id: "e1", name: "AuthService", type: "service", confidence: 0.95, sourceType: "typescript-ast", path: "auth.ts" },
+      { id: "e2", name: "UserRepo", type: "repository", confidence: 0.4, sourceType: "regex-fallback", path: "user.ts" },
+    ]);
+    invalidateContextCache(PROJECT_ID);
+    const ctx = await buildProjectContext(PROJECT_ID);
+    expect(ctx.graphSummary).toMatch(/Provenance:/);
+    expect(ctx.graphSummary).toMatch(/Confidence:/);
+  });
+  it("skips unloaded sections and only queries the requested context slices", async () => {
+    const ctx = await buildProjectContext(PROJECT_ID, { sections: ["metrics"] });
+
+    expect(ctx.latestMetrics).toContain("Overall:");
+    expect(ctx.recentTasks).toMatch(/not loaded/i);
+    expect(ctx.recentEvents).toMatch(/not loaded/i);
+    expect(ctx.workflows).toMatch(/not loaded/i);
+    expect(ctx.graphSummary).toMatch(/not loaded/i);
+
+    expect(_tableHits.get(projectsTable as object)).toBe(1);
+    expect(_tableHits.get(metricsTable as object)).toBe(1);
+    expect(_tableHits.get(scanJobsTable as object)).toBe(1);
+    expect(_tableHits.get(tasksTable as object) ?? 0).toBe(0);
+    expect(_tableHits.get(graphEntitiesTable as object) ?? 0).toBe(0);
+    expect(_tableHits.get(graphRelationshipsTable as object) ?? 0).toBe(0);
+    expect(_tableHits.get(eventsTable as object) ?? 0).toBe(0);
+    expect(_tableHits.get(workflowsTable as object) ?? 0).toBe(0);
+  });
+
+
+  // PR-03: cache invalidation correctness
+  it("serves cached data on repeated calls within the TTL", async () => {
+    // First call — populates cache.
+    const first = await buildProjectContext(PROJECT_ID);
+    // Mutate the DB mock to return a different project name.
+    _tableData.set(projectsTable as object, [makeProject({ name: "MutatedProject" })]);
+    // Second call — must return the cached (first) result, NOT the mutated one.
+    const second = await buildProjectContext(PROJECT_ID);
+    expect(second.project).toBe(first.project);
+    expect(second.project).not.toContain("MutatedProject");
+  });
+
+  it("invalidateContextCache causes the next call to fetch fresh data from DB", async () => {
+    // Populate the cache with the initial project name.
+    await buildProjectContext(PROJECT_ID);
+    // Mutate the DB mock THEN bust the cache.
+    _tableData.set(projectsTable as object, [makeProject({ name: "PostScanProject" })]);
+    invalidateContextCache(PROJECT_ID);
+    // Next call must hit the DB and return the updated name — not the stale cache.
+    const fresh = await buildProjectContext(PROJECT_ID);
+    expect(fresh.project).toContain("PostScanProject");
+  });
+
+  it("invalidateContextCache is idempotent — calling it twice does not throw", () => {
+    expect(() => {
+      invalidateContextCache(PROJECT_ID);
+      invalidateContextCache(PROJECT_ID);
+    }).not.toThrow();
+  });
+
+  it("invalidating project A does not affect cached context for project B", async () => {
+    const PROJECT_B = "proj-ctx-test-002";
+    // Seed tables for both projects — the mock uses the same tables but we
+    // only need one consistent project row since _tableData is global.
+    _tableData.set(projectsTable as object, [makeProject()]);
+    const ctxA = await buildProjectContext(PROJECT_ID);
+    // buildProjectContext for B will use the same mock rows (same table data),
+    // but it gets its own cache entry keyed by PROJECT_B.
+    const ctxB1 = await buildProjectContext(PROJECT_B);
+
+    // Mutate DB and invalidate only A.
+    _tableData.set(projectsTable as object, [makeProject({ name: "UpdatedProject" })]);
+    invalidateContextCache(PROJECT_ID);
+
+    // A must fetch fresh data.
+    const freshA = await buildProjectContext(PROJECT_ID);
+    expect(freshA.project).toContain("UpdatedProject");
+
+    // B must still serve the cached pre-mutation snapshot.
+    const cachedB = await buildProjectContext(PROJECT_B);
+    expect(cachedB.project).toBe(ctxB1.project);
+
+    // Cleanup B's cache entry so other tests are not polluted.
+    invalidateContextCache(PROJECT_B);
+
+    void ctxA; // suppress unused warning
+  });
+});
+
+// ── setInvalidationNotifier ───────────────────────────────────────────────────
+
+describe("setInvalidationNotifier — cross-process hook", () => {
+  afterEach(() => {
+    // Reset to a no-op so the notifier does not bleed into other test suites.
+    setInvalidationNotifier(() => {});
+  });
+
+  it("calls the registered notifier when invalidateContextCache fires", () => {
+    const notifier = vi.fn();
+    setInvalidationNotifier(notifier);
+    invalidateContextCache(PROJECT_ID);
+    expect(notifier).toHaveBeenCalledOnce();
+    expect(notifier).toHaveBeenCalledWith(PROJECT_ID);
+  });
+
+  it("does not throw when the notifier throws — errors are swallowed", () => {
+    setInvalidationNotifier(() => { throw new Error("pg_notify failed"); });
+    expect(() => invalidateContextCache(PROJECT_ID)).not.toThrow();
+  });
+
+  it("still evicts the local cache entry even when the notifier throws", async () => {
+    // Populate the cache first.
+    await buildProjectContext(PROJECT_ID);
+
+    setInvalidationNotifier(() => { throw new Error("pg_notify failed"); });
+    // Even with a broken notifier, invalidation must clear the local entry.
+    expect(() => invalidateContextCache(PROJECT_ID)).not.toThrow();
+
+    // After the failed-notifier invalidation, the next build must hit the DB.
+    _tableData.set(projectsTable as object, [makeProject({ name: "PostFailedNotify" })]);
+    const fresh = await buildProjectContext(PROJECT_ID);
+    expect(fresh.project).toContain("PostFailedNotify");
+  });
+
+  it("replacing the notifier changes which function is called", () => {
+    const first  = vi.fn();
+    const second = vi.fn();
+    setInvalidationNotifier(first);
+    invalidateContextCache(PROJECT_ID);
+    expect(first).toHaveBeenCalledOnce();
+    expect(second).not.toHaveBeenCalled();
+
+    setInvalidationNotifier(second);
+    invalidateContextCache(PROJECT_ID);
+    expect(second).toHaveBeenCalledOnce();
+    // first should still only have been called once total.
+    expect(first).toHaveBeenCalledOnce();
+  });
+});
+
+// ── startContextInvalidationChannel ──────────────────────────────────────────
+
+describe("startContextInvalidationChannel — LISTEN channel", () => {
+  /** Build a mock pool/client that lets us fire simulated PG notifications. */
+  function makeMockPool() {
+    let notificationListener:
+      | ((msg: { channel: string; payload?: string }) => void)
+      | null = null;
+
+    const mockClient = {
+      query: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
+        if (event === "notification") {
+          notificationListener = listener as (msg: { channel: string; payload?: string }) => void;
+        }
+        return mockClient;
+      }),
+      release:             vi.fn(),
+      removeAllListeners:  vi.fn().mockReturnThis(),
+    };
+
+    const mockPool = {
+      connect: vi.fn().mockResolvedValue(mockClient),
+    };
+
+    /** Fire a simulated pg NOTIFY from another process. */
+    function fireNotify(payload: string) {
+      notificationListener?.({ channel: "ctx_invalid", payload });
+    }
+
+    return { mockPool, mockClient, fireNotify };
+  }
+
+  // Drain the microtask queue so the async connect() settles.
+  function flushPromises() {
+    return new Promise<void>((r) => setTimeout(r, 0));
+  }
+
+  beforeEach(() => {
+    // Ensure each test starts with a clean cache so stale entries from a
+    // previous test do not affect cache-eviction assertions.
+    invalidateContextCache(PROJECT_ID);
+    // Reset _tableData to a minimal valid state for this describe block.
+    _tableData.set(projectsTable as object, [makeProject()]);
+    _tableData.set(tasksTable as object, []);
+    _tableData.set(metricsTable as object, [makeMetric()]);
+    _tableData.set(graphEntitiesTable as object, []);
+    _tableData.set(graphRelationshipsTable as object, []);
+    _tableData.set(eventsTable as object, []);
+    _tableData.set(workflowsTable as object, []);
+    _tableData.set(scanJobsTable as object, [makeScanJob()]);
+  });
+
+  afterEach(() => {
+    // Ensure the notifier is reset between sub-tests.
+    setInvalidationNotifier(() => {});
+    // Evict cache so this describe block does not pollute other suites.
+    invalidateContextCache(PROJECT_ID);
+  });
+
+  it("issues LISTEN ctx_invalid on connect", async () => {
+    const { mockPool, mockClient } = makeMockPool();
+    const channel = startContextInvalidationChannel(mockPool);
+    await flushPromises();
+
+    expect(mockPool.connect).toHaveBeenCalledOnce();
+    expect(mockClient.query).toHaveBeenCalledWith("LISTEN ctx_invalid");
+
+    channel.stop();
+  });
+
+  it("evicts the local cache entry when a NOTIFY payload arrives", async () => {
+    // Seed the cache.
+    await buildProjectContext(PROJECT_ID);
+
+    const { mockPool, fireNotify } = makeMockPool();
+    const channel = startContextInvalidationChannel(mockPool);
+    await flushPromises();
+
+    // Mutate the DB mock, then simulate a remote process firing NOTIFY.
+    _tableData.set(projectsTable as object, [makeProject({ name: "CrossProcessUpdate" })]);
+    fireNotify(PROJECT_ID);
+
+    // Cache entry was evicted — next build must hit DB and reflect the mutation.
+    const fresh = await buildProjectContext(PROJECT_ID);
+    expect(fresh.project).toContain("CrossProcessUpdate");
+
+    channel.stop();
+  });
+
+  it("ignores notifications on a different channel", async () => {
+    // Seed the cache.
+    const first = await buildProjectContext(PROJECT_ID);
+
+    const { mockPool, mockClient } = makeMockPool();
+    const channel = startContextInvalidationChannel(mockPool);
+    await flushPromises();
+
+    // Retrieve the registered listener and fire it with a different channel.
+    const onCall = vi.mocked(mockClient.on).mock.calls.find(([e]) => e === "notification");
+    const listener = onCall?.[1] as ((msg: { channel: string; payload?: string }) => void) | undefined;
+    listener?.({ channel: "other_channel", payload: PROJECT_ID });
+
+    // Cache must still be intact — no eviction should have happened.
+    _tableData.set(projectsTable as object, [makeProject({ name: "ShouldNotAppear" })]);
+    const second = await buildProjectContext(PROJECT_ID);
+    expect(second.project).toBe(first.project);
+    expect(second.project).not.toContain("ShouldNotAppear");
+
+    channel.stop();
+    invalidateContextCache(PROJECT_ID); // cleanup
+  });
+
+  it("stop() releases the dedicated client", async () => {
+    const { mockPool, mockClient } = makeMockPool();
+    const channel = startContextInvalidationChannel(mockPool);
+    await flushPromises();
+
+    channel.stop();
+
+    expect(mockClient.removeAllListeners).toHaveBeenCalledOnce();
+    expect(mockClient.release).toHaveBeenCalledOnce();
+  });
+
+  it("schedules a reconnect when the connection errors", async () => {
+    const { mockPool, mockClient } = makeMockPool();
+    // Start channel with REAL timers so the initial async connect() resolves.
+    const channel = startContextInvalidationChannel(mockPool);
+    await flushPromises();
+
+    expect(mockPool.connect).toHaveBeenCalledTimes(1);
+
+    // Switch to fake timers AFTER the initial connection is established.
+    vi.useFakeTimers();
+
+    // Simulate the error event on the client — this triggers releaseClient()
+    // and schedules a 5-second reconnect using the now-fake setTimeout.
+    const errorCall = vi.mocked(mockClient.on).mock.calls.find(([e]) => e === "error");
+    const errorListener = errorCall?.[1] as ((err: Error) => void) | undefined;
+    errorListener?.(new Error("connection reset"));
+
+    // Advance fake time past the 5 s reconnect delay. advanceTimersByTimeAsync
+    // flushes micro-tasks (including the async connect() body) so the second
+    // pool.connect() call resolves before we assert.
+    await vi.advanceTimersByTimeAsync(6_000);
+
+    // connect() should have been called a second time by the reconnect.
+    expect(mockPool.connect).toHaveBeenCalledTimes(2);
+
+    channel.stop();
+    vi.useRealTimers();
+  });
+
+  it("error + end double-fire causes exactly ONE reconnect, not two", async () => {
+    const { mockPool, mockClient } = makeMockPool();
+    const channel = startContextInvalidationChannel(mockPool);
+    await flushPromises();
+
+    vi.useFakeTimers();
+
+    // Retrieve both the error and end listeners.
+    const errorCall = vi.mocked(mockClient.on).mock.calls.find(([e]) => e === "error");
+    const endCall   = vi.mocked(mockClient.on).mock.calls.find(([e]) => e === "end");
+    const errorListener = errorCall?.[1] as ((err: Error) => void) | undefined;
+    const endListener   = endCall?.[1]   as (() => void) | undefined;
+
+    // Fire both in quick succession — simulates pg client emitting error then end.
+    errorListener?.(new Error("connection reset"));
+    endListener?.();
+
+    // Advance time — only ONE reconnect should have been queued.
+    await vi.advanceTimersByTimeAsync(6_000);
+
+    // pool.connect has been called once at startup + once for the single reconnect.
+    expect(mockPool.connect).toHaveBeenCalledTimes(2);
+
+    channel.stop();
+    vi.useRealTimers();
+  });
+
+  it("failed LISTEN releases the acquired client — no pool connection leak", async () => {
+    // The mock client will fail on the LISTEN query.
+    const leakyClient = {
+      query: vi.fn().mockRejectedValue(new Error("permission denied for LISTEN")),
+      on: vi.fn().mockReturnThis(),
+      release: vi.fn(),
+      removeAllListeners: vi.fn().mockReturnThis(),
+    };
+    const pool = { connect: vi.fn().mockResolvedValue(leakyClient) };
+
+    const channel = startContextInvalidationChannel(pool);
+    await flushPromises();
+
+    // connect() must have acquired the client…
+    expect(pool.connect).toHaveBeenCalledOnce();
+    // …and released it before scheduling the reconnect, so the pool is clean.
+    expect(leakyClient.release).toHaveBeenCalledOnce();
+
+    channel.stop();
+  });
+});
