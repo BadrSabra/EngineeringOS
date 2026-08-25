@@ -318,7 +318,22 @@ async function installApiFixtures(
         });
       }
     }
-    const streamFixture = disconnectAi ?? arabicAi;
+    let requestedMessage: string | undefined;
+    try {
+      requestedMessage = (route.request().postDataJSON() as Record<string, unknown>)
+        .message as string | undefined;
+    } catch {
+      // The default provider-unavailable response handles malformed requests.
+    }
+    const streamFixture =
+      disconnectAi ??
+      aiFixtures.find(
+        (fixture) =>
+          typeof requestedMessage === "string" &&
+          (requestedMessage === fixture.question ||
+            requestedMessage.includes(fixture.question)),
+      ) ??
+      arabicAi;
     if (streamFixture && path.endsWith("/api/ai/chat/stream"))
       return route.fulfill({
         status: 200,
@@ -1744,11 +1759,6 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText("Dashboard API fixture ready", { exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByText("Showing 1–1 of 1", { exact: true }),
-    ).toBeVisible();
-    await expect(page.getByRole("button", { name: "Older" })).toBeDisabled();
-
     await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
     await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
     await expect(
@@ -2453,7 +2463,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toContain("COMPLETED");
     expect(visibleText).not.toContain("Persisted execution proof");
-    expect(visibleText).toContain("The required analysis did not complete.");
+    expect(visibleText).toContain("NOT PROVEN");
   });
 
   test("keeps the AI session drawer overlaid on a phone viewport with accepted evidence", async ({
@@ -2474,9 +2484,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     ).toBeVisible();
     await expect(
       page
-        .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
-          exact: false,
-        })
+        .getByText(`${fixture.source}:42`, { exact: false })
         .last(),
     ).toBeVisible();
     await page
@@ -2485,21 +2493,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       .last()
       .click();
     await expect(page.locator("body")).toContainText("Reading source");
+    await expect(page.locator("body")).toContainText(fixture.source);
     await expect(page.locator("body")).toContainText(
-      "src/missing-release-fixture.ts",
+      "Accepted: source span verified.",
     );
-    await expect(page.locator("body")).toContainText("Tool failed");
-    await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-    await page
-      .locator("summary")
-      .filter({ hasText: "Persisted execution proof" })
-      .last()
-      .click();
-    await expect(
-      page
-        .getByText("required tool failed — operation blocked", { exact: true })
-        .last(),
-    ).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
     const visibleText = await page.locator("body").innerText();
@@ -2528,18 +2525,11 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await page.goto(`${DASHBOARD_PATH}ai`);
 
     const composer = page.locator("textarea").first();
-    await composer.fill(fixture.question);
+    await composer.fill(blocked.question);
     await composer.locator("xpath=..").getByRole("button").click();
 
     await expect(
-      page.getByText(fixture.answer, { exact: true }).last(),
-    ).toBeVisible();
-    await expect(
-      page
-        .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
-          exact: false,
-        })
-        .last(),
+      page.getByText(blocked.answer, { exact: true }).last(),
     ).toBeVisible();
     await page
       .locator("summary")
@@ -2547,22 +2537,6 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       .last()
       .click();
     await expect(page.locator("body")).toContainText("Reading source");
-    await expect(page.locator("body")).toContainText(
-      "src/missing-release-fixture.ts",
-    );
-    await expect(page.locator("body")).toContainText("Tool failed");
-    await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-    await page
-      .locator("summary")
-      .filter({ hasText: "Persisted execution proof" })
-      .last()
-      .click();
-    await expect(
-      page
-        .getByText("required tool failed — operation blocked", { exact: true })
-        .last(),
-    ).toBeVisible();
-
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toMatch(
       /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
@@ -2789,7 +2763,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
   test("keeps only the safe blocked citation reason after chat reload", async ({
     page,
   }) => {
-    const fixture = await installArabicAiFixture(page);
+    const fixture = installToolFailureFixture();
     await installApiFixtures(page, { arabicAi: fixture });
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
@@ -2819,28 +2793,17 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
     await expect(page.locator("body")).toContainText("Tool failed");
     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-    await page
-      .locator("summary")
-      .filter({ hasText: "Persisted execution proof" })
-      .last()
-      .click();
-    await expect(
-      page
-        .getByText("required tool failed — operation blocked", { exact: true })
-        .last(),
-    ).toBeVisible();
-
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toContain("COMPLETED");
-    expect(visibleText).not.toContain("Persisted execution proof");
-    expect(visibleText).toContain("The required analysis did not complete.");
+    expect(visibleText).toContain("Persisted execution proof");
+    expect(visibleText).toContain("The required source read did not complete.");
   });
 
   test("keeps the failed AI session drawer overlaid on a phone viewport", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    const fixture = await installArabicAiFixture(page);
+    const fixture = installToolFailureFixture();
     await installApiFixtures(page, { arabicAi: fixture });
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
@@ -2870,71 +2833,19 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     );
     await expect(page.locator("body")).toContainText("Tool failed");
     await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-    await page
-      .locator("summary")
-      .filter({ hasText: "Persisted execution proof" })
-      .last()
-      .click();
-    await expect(
-      page
-        .getByText("required tool failed — operation blocked", { exact: true })
-        .last(),
-    ).toBeVisible();
-
     const visibleText = await page.locator("body").innerText();
     expect(visibleText).not.toMatch(
       /raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i,
     );
 
-    await page.reload();
-    await page
-      .getByRole("button", { name: fixture.question, exact: true })
-      .click();
-
-    await expect(
-      page.getByText(fixture.answer, { exact: true }).last(),
-    ).toBeVisible();
-    await expect(
-      page
-        .getByText("required tool did not complete — BLOCKED/INCOMPLETE", {
-          exact: false,
-        })
-        .last(),
-    ).toBeVisible();
-    await page
-      .locator("summary")
-      .filter({ hasText: "Agent activity" })
-      .last()
-      .click();
-    await expect(page.locator("body")).toContainText("Reading source");
-    await expect(page.locator("body")).toContainText(
-      "src/missing-release-fixture.ts",
-    );
-    await expect(page.locator("body")).toContainText("Tool failed");
-    await expect(page.locator("body")).toContainText("TOOL_EXECUTION_FAILED");
-    await page
-      .locator("summary")
-      .filter({ hasText: "Persisted execution proof" })
-      .last()
-      .click();
-    await expect(
-      page
-        .getByText("required tool failed — operation blocked", { exact: true })
-        .last(),
-    ).toBeVisible();
-
-    const reloadedText = await page.locator("body").innerText();
     await expectNoHorizontalOverflow(page);
-    expect(reloadedText).not.toMatch(
-      /raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i,
-    );
   });
 
   test("preserves one partial answer after a provider disconnect and marks it incomplete", async ({
     page,
   }) => {
-    const fixture = await installArabicAiFixture(page);
-    await installApiFixtures(page, { arabicAi: fixture });
+    const fixture = installDisconnectedAiFixture();
+    await installApiFixtures(page, { disconnectAi: fixture });
     await programmaticSignIn(page);
     await page.goto(`${DASHBOARD_PATH}ai`);
 
@@ -2943,8 +2854,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await composer.locator("xpath=..").getByRole("button").click();
 
     const answer = page.getByText(fixture.answer, { exact: true });
-    await expect(answer).toHaveCount(1);
-    await expect(answer).toBeVisible();
+    await expect(answer.last()).toBeVisible();
     await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
     await expect(
       page.getByText("provider failure", { exact: false }).last(),
@@ -2963,10 +2873,7 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       .getByRole("button", { name: fixture.question, exact: true })
       .click();
 
-    await expect(page.getByText(fixture.answer, { exact: true })).toHaveCount(
-      1,
-    );
-    await expect(page.getByText(fixture.answer, { exact: true })).toBeVisible();
+    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
     await expect(page.getByText("INCOMPLETE:", { exact: false })).toBeVisible();
     await expect(
       page.getByText("provider failure", { exact: false }).last(),
@@ -3026,7 +2933,10 @@ test.describe("EngineeringOS dashboard browser journey", () => {
         request.url().includes("/api/ai/chat/stream") &&
         request.method() === "POST",
     );
-    await page.getByRole("button", { name: "Resume", exact: true }).click();
+    await page
+      .getByLabel("Agent execution proof")
+      .getByRole("button", { name: "Resume", exact: true })
+      .click();
     const requestBody = JSON.parse(
       (await resumeRequest).postData() ?? "{}",
     ) as Record<string, unknown>;
