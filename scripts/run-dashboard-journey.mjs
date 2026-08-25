@@ -778,7 +778,7 @@ function runConcurrentChatContractChecks() {
 }
 
 function runLiveCorrelationReportCheck() {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolveReport, reject) => {
     const reportPath = resolve(
       workspaceRoot,
       process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
@@ -816,7 +816,7 @@ function runLiveCorrelationReportCheck() {
         try {
           const report = parseMissionCorrelationReportOutput(output);
           console.log(formatMissionCorrelationSummary(report));
-          resolve(report);
+           resolveReport(report);
         } catch (error) {
           reject(
             new Error(
