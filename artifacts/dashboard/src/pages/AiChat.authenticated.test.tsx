@@ -416,13 +416,14 @@ describe('AiChat authenticated generated mutations', () => {
       errorCode: 'PROVIDER_OUTAGE',
       errorMessage: unsafeDiagnostic,
     };
+    mocks.serverProposal = { proposalId: 'failed-chat-recovery', changes: [] };
 
     const firstRender = renderAiChat();
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     const assertSafeRecovery = () => {
       expect(screen.getByText(/temporarily unavailable/i)).toBeInTheDocument();
-      expect(screen.getByText(/try again in a moment/i)).toBeInTheDocument();
+      expect(screen.getByText(/Retry in a moment/i)).toBeInTheDocument();
       expect(screen.getByText('Support reference: support-chat-outage-34')).toBeInTheDocument();
       const visibleText = document.body.textContent ?? '';
       expect(visibleText).not.toMatch(/secret-model-name|\/home\/runner|sk-live-provider-secret/i);
@@ -670,6 +671,7 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     expect(await screen.findByText('Execution failed')).toBeInTheDocument();
+    console.log('persisted failure message:', screen.getByText('Execution failed').parentElement?.parentElement?.textContent);
     expect(screen.getByText(/The AI provider could not complete this request/i)).toBeInTheDocument();
     expect(screen.queryByText(/query_knowledge_graph was unavailable/)).not.toBeInTheDocument();
     expect(screen.queryByText('Persisted execution proof')).not.toBeInTheDocument();
