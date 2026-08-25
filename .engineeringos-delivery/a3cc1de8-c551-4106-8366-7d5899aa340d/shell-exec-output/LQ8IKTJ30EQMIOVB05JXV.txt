@@ -1,0 +1,240 @@
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:383:          provider: 'openrouter',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:780:    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['active-provider'] });
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:20:  "openrouter") as ProviderId;
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:22:  openrouter: "OPENROUTER_API_KEY",
+artifacts/api-server/src/routes/ai/workflows.ts:28:  requireProvider,
+artifacts/api-server/src/routes/ai/workflows.ts:80:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/tasks.ts:27:  requireProvider,
+artifacts/api-server/src/routes/ai/tasks.ts:59:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/providers.ts:5: *   GET/PUT/DELETE /api/ai/providers/:provider/key
+artifacts/api-server/src/routes/ai/providers.ts:10: *   GET/PUT/DELETE /api/ai/openrouter-key
+artifacts/api-server/src/routes/ai/providers.ts:12: *   GET /api/ai/active-provider
+artifacts/api-server/src/routes/ai/providers.ts:128:router.get("/ai/providers/:provider/key", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:138:router.put("/ai/providers/:provider/key", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:148:router.delete("/ai/providers/:provider/key", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:160:/** GET /api/ai/active-provider — which provider will be used for this user */
+artifacts/api-server/src/routes/ai/providers.ts:161:router.get("/ai/active-provider", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:221:router.get("/ai/openrouter-key",    (req, res) => handleGetKey(req, res, "openrouter"));
+artifacts/api-server/src/routes/ai/providers.ts:222:router.put("/ai/openrouter-key",    (req, res) => handlePutKey(req, res, "openrouter"));
+artifacts/api-server/src/routes/ai/providers.ts:223:router.delete("/ai/openrouter-key", (req, res) => handleDeleteKey(req, res, "openrouter"));
+lib/api-client-react/src/generated/api.ts:7052:export const saveGroqKey = async (saveGroqKeyInput: SaveGroqKeyInput, options?: RequestInit): Promise<GroqKeyStatus> => {
+lib/api-client-react/src/generated/api.ts:7059:    body: JSON.stringify(saveGroqKeyInput)
+lib/api-client-react/src/generated/api.ts:7068:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveGroqKey>>, TError,{data: BodyType<SaveGroqKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:7069:): UseMutationOptions<Awaited<ReturnType<typeof saveGroqKey>>, TError,{data: BodyType<SaveGroqKeyInput>}, TContext> => {
+lib/api-client-react/src/generated/api.ts:7071:const mutationKey = ['saveGroqKey'];
+lib/api-client-react/src/generated/api.ts:7081:      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveGroqKey>>, {data: BodyType<SaveGroqKeyInput>}> = (props) => {
+lib/api-client-react/src/generated/api.ts:7084:          return  saveGroqKey(data,requestOptions)
+lib/api-client-react/src/generated/api.ts:7094:    export type SaveGroqKeyMutationResult = NonNullable<Awaited<ReturnType<typeof saveGroqKey>>>
+lib/api-client-react/src/generated/api.ts:7102:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveGroqKey>>, TError,{data: BodyType<SaveGroqKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:7104:        Awaited<ReturnType<typeof saveGroqKey>>,
+lib/api-client-react/src/generated/api.ts:7271:export const saveDeepSeekKey = async (saveDeepSeekKeyInput: SaveDeepSeekKeyInput, options?: RequestInit): Promise<DeepSeekKeyStatus> => {
+lib/api-client-react/src/generated/api.ts:7278:    body: JSON.stringify(saveDeepSeekKeyInput)
+lib/api-client-react/src/generated/api.ts:7287:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveDeepSeekKey>>, TError,{data: BodyType<SaveDeepSeekKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:7288:): UseMutationOptions<Awaited<ReturnType<typeof saveDeepSeekKey>>, TError,{data: BodyType<SaveDeepSeekKeyInput>}, TContext> => {
+lib/api-client-react/src/generated/api.ts:7290:const mutationKey = ['saveDeepSeekKey'];
+lib/api-client-react/src/generated/api.ts:7300:      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveDeepSeekKey>>, {data: BodyType<SaveDeepSeekKeyInput>}> = (props) => {
+lib/api-client-react/src/generated/api.ts:7303:          return  saveDeepSeekKey(data,requestOptions)
+lib/api-client-react/src/generated/api.ts:7313:    export type SaveDeepSeekKeyMutationResult = NonNullable<Awaited<ReturnType<typeof saveDeepSeekKey>>>
+lib/api-client-react/src/generated/api.ts:7321:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveDeepSeekKey>>, TError,{data: BodyType<SaveDeepSeekKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:7323:        Awaited<ReturnType<typeof saveDeepSeekKey>>,
+lib/api-client-react/src/generated/api.ts:7407:  return `/api/ai/openrouter-key`
+lib/api-client-react/src/generated/api.ts:7411: * @summary Get OpenRouter API key configuration status (alias for /providers/openrouter/key)
+lib/api-client-react/src/generated/api.ts:7430:    `/api/ai/openrouter-key`
+lib/api-client-react/src/generated/api.ts:7458: * @summary Get OpenRouter API key configuration status (alias for /providers/openrouter/key)
+lib/api-client-react/src/generated/api.ts:7484:  return `/api/ai/openrouter-key`
+lib/api-client-react/src/generated/api.ts:7490:export const saveOpenRouterKey = async (saveOpenRouterKeyInput: SaveOpenRouterKeyInput, options?: RequestInit): Promise<OpenRouterKeyStatus> => {
+lib/api-client-react/src/generated/api.ts:7497:    body: JSON.stringify(saveOpenRouterKeyInput)
+lib/api-client-react/src/generated/api.ts:7506:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveOpenRouterKey>>, TError,{data: BodyType<SaveOpenRouterKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:7507:): UseMutationOptions<Awaited<ReturnType<typeof saveOpenRouterKey>>, TError,{data: BodyType<SaveOpenRouterKeyInput>}, TContext> => {
+lib/api-client-react/src/generated/api.ts:7509:const mutationKey = ['saveOpenRouterKey'];
+lib/api-client-react/src/generated/api.ts:7519:      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveOpenRouterKey>>, {data: BodyType<SaveOpenRouterKeyInput>}> = (props) => {
+lib/api-client-react/src/generated/api.ts:7522:          return  saveOpenRouterKey(data,requestOptions)
+lib/api-client-react/src/generated/api.ts:7532:    export type SaveOpenRouterKeyMutationResult = NonNullable<Awaited<ReturnType<typeof saveOpenRouterKey>>>
+lib/api-client-react/src/generated/api.ts:7540:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveOpenRouterKey>>, TError,{data: BodyType<SaveOpenRouterKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:7542:        Awaited<ReturnType<typeof saveOpenRouterKey>>,
+lib/api-client-react/src/generated/api.ts:7555:  return `/api/ai/openrouter-key`
+lib/api-client-react/src/generated/api.ts:7709:export const saveGeminiKey = async (saveGeminiKeyInput: SaveGeminiKeyInput, options?: RequestInit): Promise<GeminiKeyStatus> => {
+lib/api-client-react/src/generated/api.ts:7716:    body: JSON.stringify(saveGeminiKeyInput)
+lib/api-client-react/src/generated/api.ts:7725:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveGeminiKey>>, TError,{data: BodyType<SaveGeminiKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:7726:): UseMutationOptions<Awaited<ReturnType<typeof saveGeminiKey>>, TError,{data: BodyType<SaveGeminiKeyInput>}, TContext> => {
+lib/api-client-react/src/generated/api.ts:7728:const mutationKey = ['saveGeminiKey'];
+lib/api-client-react/src/generated/api.ts:7738:      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveGeminiKey>>, {data: BodyType<SaveGeminiKeyInput>}> = (props) => {
+lib/api-client-react/src/generated/api.ts:7741:          return  saveGeminiKey(data,requestOptions)
+lib/api-client-react/src/generated/api.ts:7751:    export type SaveGeminiKeyMutationResult = NonNullable<Awaited<ReturnType<typeof saveGeminiKey>>>
+lib/api-client-react/src/generated/api.ts:7759:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveGeminiKey>>, TError,{data: BodyType<SaveGeminiKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:7761:        Awaited<ReturnType<typeof saveGeminiKey>>,
+lib/api-client-react/src/generated/api.ts:7840:export const getGetProviderKeyStatusUrl = (provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini',) => {
+lib/api-client-react/src/generated/api.ts:7851:export const getProviderKeyStatus = async (provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini', options?: RequestInit): Promise<ProviderKeyStatus> => {
+lib/api-client-react/src/generated/api.ts:7866:export const getGetProviderKeyStatusQueryKey = (provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini',) => {
+lib/api-client-react/src/generated/api.ts:7873:export const getGetProviderKeyStatusQueryOptions = <TData = Awaited<ReturnType<typeof getProviderKeyStatus>>, TError = ErrorType<void>>(provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini', options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProviderKeyStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:7900: provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini', options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProviderKeyStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:7917:export const getSaveProviderKeyUrl = (provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini',) => {
+lib/api-client-react/src/generated/api.ts:7928:export const saveProviderKey = async (provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini',
+lib/api-client-react/src/generated/api.ts:7929:    saveGroqKeyInput: SaveGroqKeyInput, options?: RequestInit): Promise<ProviderKeyStatus> => {
+lib/api-client-react/src/generated/api.ts:7936:    body: JSON.stringify(saveGroqKeyInput)
+lib/api-client-react/src/generated/api.ts:7945:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini';data: BodyType<SaveGroqKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:7946:): UseMutationOptions<Awaited<ReturnType<typeof saveProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini';data: BodyType<SaveGroqKeyInput>}, TContext> => {
+lib/api-client-react/src/generated/api.ts:7948:const mutationKey = ['saveProviderKey'];
+lib/api-client-react/src/generated/api.ts:7958:      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveProviderKey>>, {provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini';data: BodyType<SaveGroqKeyInput>}> = (props) => {
+lib/api-client-react/src/generated/api.ts:7961:          return  saveProviderKey(provider,data,requestOptions)
+lib/api-client-react/src/generated/api.ts:7971:    export type SaveProviderKeyMutationResult = NonNullable<Awaited<ReturnType<typeof saveProviderKey>>>
+lib/api-client-react/src/generated/api.ts:7979:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini';data: BodyType<SaveGroqKeyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:7981:        Awaited<ReturnType<typeof saveProviderKey>>,
+lib/api-client-react/src/generated/api.ts:7983:        {provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini';data: BodyType<SaveGroqKeyInput>},
+lib/api-client-react/src/generated/api.ts:7989:export const getDeleteProviderKeyUrl = (provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini',) => {
+lib/api-client-react/src/generated/api.ts:8000:export const deleteProviderKey = async (provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini', options?: RequestInit): Promise<DeleteProviderKey200> => {
+lib/api-client-react/src/generated/api.ts:8016:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini'}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:8017:): UseMutationOptions<Awaited<ReturnType<typeof deleteProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini'}, TContext> => {
+lib/api-client-react/src/generated/api.ts:8029:      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteProviderKey>>, {provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini'}> = (props) => {
+lib/api-client-react/src/generated/api.ts:8050:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProviderKey>>, TError,{provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini'}, TContext>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:8054:        {provider: 'groq' | 'deepseek' | 'openrouter' | 'gemini'},
+lib/api-client-react/src/generated/api.ts:8142:  return `/api/ai/active-provider`
+lib/api-client-react/src/generated/api.ts:8165:    `/api/ai/active-provider`
+artifacts/api-server/src/routes/ai/index.ts:5: *   providers  — deepseek/groq key management, active-provider
+lib/ai-orchestrator/src/tool-execution-engine.ts:1195:   *   openrouter → 2 048  (free-tier output caps)
+lib/api-client-react/src/generated/api.schemas.ts:671:  openrouter: 'openrouter',
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:97:vi.mock("../../../../lib/ai-orchestrator/src/strategies/openrouter.strategy.js", async (importOriginal) => {
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:99:  return { ...actual, openrouterStrategy: harness.strategy };
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:122:vi.mock("../../../../lib/ai-orchestrator/src/openrouter/model-resolver.js", async (importOriginal) => {
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:153:    requireProvider: vi.fn(async () => ({
+artifacts/api-server/src/routes/ai/chat.ts:137:  requireProvider,
+artifacts/api-server/src/routes/ai/chat.ts:1941:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/chat.ts:2538:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/chat.ts:3789:              suggestedFix: "Check your OpenRouter API key and model availability on openrouter.ai/models.",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:4: * Wraps `openrouterCompleteWithFallback` and `openrouterCompleteStream` from
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:20:  openrouterCompleteWithFallback,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:21:  openrouterCompleteStream,
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:24:import { refreshDynamicCatalog } from "../openrouter/dynamic-catalog.js";
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:29:} from "../openrouter/circuit-breaker.js";
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:37:export const openrouterStrategy: ProviderStrategy = {
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:38:  providerId: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:52:    if (isCircuitOpen("openrouter")) {
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:55:          scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:57:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:70:        scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:72:        provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:85:      const result = await openrouterCompleteWithFallback(messages, { ...opts, apiKey: opts.apiKey });
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:87:      recordCircuitSuccess("openrouter");
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:90:          scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:92:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:101:      recordCircuitFailure("openrouter");
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:108:          scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:110:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:132:    if (isCircuitOpen("openrouter")) {
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:135:          scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:137:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:150:        scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:152:        provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:161:      yield* openrouterCompleteStream(messages, { ...opts, apiKey: opts.apiKey });
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:162:      recordCircuitSuccess("openrouter");
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:165:          scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:167:          provider: "openrouter",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:172:      recordCircuitFailure("openrouter");
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:175:          scope: "openrouter-strategy",
+lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:177:          provider: "openrouter",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:268:    requireProvider:        vi.fn(),
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:309:import { chatWithFallback, requireProvider, requestLooksToolBound } from "../../lib/ai-route-helpers.js";
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:533:  vi.mocked(requireProvider).mockReset();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:542:  vi.mocked(requireProvider).mockResolvedValue({ provider: "openai" as never, apiKey: "test-key" });
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:795:    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:840:    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:897:    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:943:    expect(requireProvider).toHaveBeenCalledWith(
+artifacts/api-server/src/routes/ai/benchmark.ts:48:  provider: "openrouter";
+artifacts/api-server/src/routes/ai/benchmark.ts:412:        if (!isRecord(raw) || raw.provider !== "openrouter") return [];
+artifacts/api-server/src/routes/ai/benchmark.ts:428:          provider: "openrouter",
+lib/ai-orchestrator/src/startup-validator.ts:7: *   2. Dynamic OpenRouter catalog refresh (if OPENROUTER_API_KEY is present).
+lib/ai-orchestrator/src/startup-validator.ts:15:import { FREE_MODELS } from "./openrouter/model-catalog.js";
+lib/ai-orchestrator/src/startup-validator.ts:19:} from "./openrouter/dynamic-catalog.js";
+lib/ai-orchestrator/src/startup-validator.ts:31:  openrouter: "OPENROUTER_API_KEY",
+lib/ai-orchestrator/src/startup-validator.ts:102:  const openrouterKey = process.env["OPENROUTER_API_KEY"];
+lib/ai-orchestrator/src/startup-validator.ts:103:  if (openrouterKey) {
+lib/ai-orchestrator/src/startup-validator.ts:105:      await refreshDynamicCatalog(openrouterKey);
+artifacts/api-server/src/routes/ai/benchmark.test.ts:35:      provider: "openrouter",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:116:        provider: "openrouter",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:142:      provider: "openrouter",
+artifacts/api-server/src/routes/ai/analysis.ts:23:  requireProvider,
+artifacts/api-server/src/routes/ai/analysis.ts:183:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/analysis.ts:299:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/analysis.ts:374:  const providerResolved = await requireProvider(req.userId, res, { qualityProfile: "analysis" });
+artifacts/api-server/src/routes/ai/analysis.ts:500:  const providerResolved = await requireProvider(req.userId, res, { qualityProfile: "code_review" });
+artifacts/api-server/src/routes/ai.test.ts:268:    openrouter: { providerId: "openrouter", label: "OpenRouter", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "openrouter.ai/keys", statusUrl: "openrouter.ai", defaultModels: { fast: "google/gemma-4-31b-it:free", powerful: "nvidia/nemotron-3-ultra-550b-a55b:free" } },
+artifacts/api-server/src/routes/ai.test.ts:270:  PROVIDER_PRIORITY: ["openrouter", "gemini", "deepseek", "groq"],
+artifacts/api-server/src/routes/ai.test.ts:276:      openrouter: { providerId: "openrouter", label: "OpenRouter" },
+artifacts/api-server/src/routes/ai.test.ts:585:let _savedGroqKeyFileLevel: string | undefined;
+artifacts/api-server/src/routes/ai.test.ts:587:  _savedGroqKeyFileLevel = process.env.GROQ_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:591:  if (_savedGroqKeyFileLevel !== undefined) {
+artifacts/api-server/src/routes/ai.test.ts:592:    process.env.GROQ_API_KEY = _savedGroqKeyFileLevel;
+artifacts/api-server/src/routes/ai.test.ts:3774:  let savedGroqKey: string | undefined;
+artifacts/api-server/src/routes/ai.test.ts:3776:    savedGroqKey = process.env.GROQ_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:3780:    if (savedGroqKey !== undefined) {
+artifacts/api-server/src/routes/ai.test.ts:3781:      process.env.GROQ_API_KEY = savedGroqKey;
+artifacts/api-server/src/routes/ai.test.ts:4065:      "OPENROUTER_API_KEY",
+artifacts/api-server/src/routes/ai.test.ts:4069:    const savedKeys = Object.fromEntries(
+artifacts/api-server/src/routes/ai.test.ts:4092:        const value = savedKeys[key];
+artifacts/api-server/src/routes/ai.test.ts:4153:    const savedOpenRouter = process.env.OPENROUTER_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:4158:    delete process.env.OPENROUTER_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:4170:      if (savedOpenRouter !== undefined) process.env.OPENROUTER_API_KEY = savedOpenRouter;
+artifacts/api-server/src/routes/ai.test.ts:4171:      else delete process.env.OPENROUTER_API_KEY;
+artifacts/api-server/src/lib/task-execution-service.test.ts:22:      provider: "openrouter",
+artifacts/api-server/src/lib/task-execution-service.test.ts:33:    expect(receipt.provider).toBe("openrouter");
+lib/ai-orchestrator/src/provider-strategy.ts:14:import type { ModelCapability } from "./openrouter/model-catalog.js";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:12: *   • ../lib/ai-route-helpers.js is mocked to control requireProvider and
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:43:import { chatWithFallback, requireProvider } from "../lib/ai-route-helpers.js";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:73:const liveRecoveryProvider = process.env.LIVE_RECOVERY_PROVIDER ?? "openrouter";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:75:  openrouter: "OPENROUTER_API_KEY",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:103:    openrouter: { providerId: "openrouter", label: "OpenRouter", supportsStreaming: true, supportsTools: true,  supportsJsonMode: true, consoleUrl: "openrouter.ai/keys",     statusUrl: "openrouter.ai",                  defaultModels: { fast: "google/gemma-4-31b-it:free", powerful: "nvidia/nemotron-3-ultra-550b-a55b:free" } },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:105:  PROVIDER_PRIORITY: ["openrouter", "gemini", "deepseek", "groq"],
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:111:      openrouter: { providerId: "openrouter", label: "OpenRouter" },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:176:// chatWithFallback and requireProvider are the two route-layer functions that
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:195:  requireProvider: vi.fn(async () => ({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:244:        provider: "openrouter",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:268:const defaultRequireProvider = vi.mocked(requireProvider).getMockImplementation();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:383:  vi.mocked(requireProvider).mockReset();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:384:  vi.mocked(requireProvider).mockImplementation(defaultRequireProvider!);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3047:    vi.mocked(requireProvider).mockClear();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3113:    expect(vi.mocked(requireProvider).mock.calls.slice(-3).map((call) => call[2])).toEqual([
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3396:        provider: "openrouter",
+lib/ai-orchestrator/src/provider-registry.ts:20:import { openrouterStrategy } from "./strategies/openrouter.strategy.js";
+lib/ai-orchestrator/src/provider-registry.ts:22:import { FREE_MODELS } from "./openrouter/model-catalog.js";
+lib/ai-orchestrator/src/provider-registry.ts:33:export type ProviderId = "groq" | "deepseek" | "openrouter" | "gemini";
+lib/ai-orchestrator/src/provider-registry.ts:53: * Fallback priority order: openrouter → gemini → deepseek → groq.
+lib/ai-orchestrator/src/provider-registry.ts:61:export const PROVIDER_PRIORITY: ProviderId[] = ["openrouter", "gemini", "deepseek", "groq"];
+lib/ai-orchestrator/src/provider-registry.ts:64:  openrouter: {
+lib/ai-orchestrator/src/provider-registry.ts:65:    providerId: "openrouter",
+lib/ai-orchestrator/src/provider-registry.ts:67:    consoleUrl: "openrouter.ai/keys",
+lib/ai-orchestrator/src/provider-registry.ts:68:    statusUrl: "openrouter.ai",
+lib/ai-orchestrator/src/provider-registry.ts:234:  ["openrouter", openrouterStrategy],
+artifacts/api-server/src/routes/ai-route-parity.test.ts:147:      "GET /api/ai/active-provider",
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:42:  openrouter: "OPENROUTER_API_KEY",
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:239:const provider = (process.env.BENCHMARK_PROVIDER ?? "openrouter") as ProviderId;
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:42:  openrouter: "OPENROUTER_API_KEY",
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:348:const configuredProviders = (process.env.BENCHMARK_PROVIDERS ?? (freeOnly ? "openrouter" : "openrouter,gemini,deepseek,groq"))
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:354:if (freeOnly && configuredProviders.some((provider) => provider !== "openrouter")) {
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:355:  throw new Error("BENCHMARK_FREE_ONLY requires BENCHMARK_PROVIDERS=openrouter.");
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:360:  await refreshDynamicCatalog(process.env.OPENROUTER_API_KEY);
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:375:  if (freeOnly && provider === "openrouter") {
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:20: *   openrouterCompleteWithFallback() in openai-compatible-client.ts consumes
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:73:  provider: "openrouter";
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:143:  // Return an empty pool instead; the caller (openrouterCompleteWithFallback or
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:215:    provider: "openrouter",
+lib/ai-orchestrator/src/openrouter/model-resolver.ts:232: * Used by openrouterCompleteWithFallback to determine what to try next when
+artifacts/api-server/src/lib/catalog-refresh-scheduler.ts:16: *   1. OPENROUTER_API_KEY environment variable (server-wide key)
+artifacts/api-server/src/lib/catalog-refresh-scheduler.ts:45:  const envKey = process.env.OPENROUTER_API_KEY;
+artifacts/api-server/src/lib/catalog-refresh-scheduler.ts:54:      .where(eq(aiProviderCredentialsTable.provider, "openrouter"))
+lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts:17:const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:64:    providerOrder: ["openrouter"],
+artifacts/api-server/src/lib/ai-route-helpers.ts:161: *   2. Server-wide env fallback: OPENROUTER_API_KEY / DEEPSEEK_API_KEY / GROQ_API_KEY.
+artifacts/api-server/src/lib/ai-route-helpers.ts:193:    openrouter: process.env.OPENROUTER_API_KEY,
+artifacts/api-server/src/lib/ai-route-helpers.ts:209:  return resolveProviderKey(userId, "openrouter");
+artifacts/api-server/src/lib/ai-route-helpers.ts:217: * Iterates PROVIDER_PRIORITY ([openrouter, gemini, deepseek, groq]) and returns
+artifacts/api-server/src/lib/ai-route-helpers.ts:516:export async function requireProvider(
+artifacts/api-server/src/lib/ai-route-helpers.ts:524:      ? "Save a tool-capable API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, or groq). Gemini is available for text-only requests."
+artifacts/api-server/src/lib/ai-route-helpers.ts:525:      : "Save an API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, groq, or gemini).";
+artifacts/api-server/src/lib/ai-route-helpers.ts:547:      hint: "Save a Groq API key via PUT /api/ai/providers/groq/key or ask your administrator to set GROQ_API_KEY on the server. OpenRouter and DeepSeek are also supported via OPENROUTER_API_KEY and DEEPSEEK_API_KEY.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:631:      const isOpenRouter = providerId === "openrouter";
+artifacts/api-server/src/lib/ai-route-helpers.ts:643:      const isOpenRouter = providerId === "openrouter";
+artifacts/api-server/src/__tests__/catalog-refresh-scheduler.test.ts:78:  const originalEnv = process.env.OPENROUTER_API_KEY;
+artifacts/api-server/src/__tests__/catalog-refresh-scheduler.test.ts:81:    process.env.OPENROUTER_API_KEY = originalEnv;
+artifacts/api-server/src/__tests__/catalog-refresh-scheduler.test.ts:86:    process.env.OPENROUTER_API_KEY = "sk-or-test-key-12345";
+artifacts/api-server/src/__tests__/catalog-refresh-scheduler.test.ts:94:    delete process.env.OPENROUTER_API_KEY;

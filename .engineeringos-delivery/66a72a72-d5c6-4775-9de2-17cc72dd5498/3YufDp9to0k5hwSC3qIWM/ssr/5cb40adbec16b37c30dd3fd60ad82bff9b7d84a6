@@ -1,0 +1,54 @@
+__vite_ssr_exportName__("ruleSeverityEnum", () => { try { return ruleSeverityEnum } catch {} });
+__vite_ssr_exportName__("rulesTable", () => { try { return rulesTable } catch {} });
+const __vite_ssr_import_0__ = await __vite_ssr_import__("/@fs/home/runner/workspace/node_modules/.pnpm/drizzle-orm@0.45.2_@types+pg@8.20.0_pg@8.22.0/node_modules/drizzle-orm/pg-core/index.js", {"importedNames":["pgTable","text","timestamp","integer","boolean","jsonb","pgEnum","index"]});
+const __vite_ssr_import_1__ = await __vite_ssr_import__("/@fs/home/runner/workspace/lib/db/src/schema/projects.ts", {"importedNames":["projectsTable"]});
+"use strict";
+
+
+const ruleSeverityEnum = (0,__vite_ssr_import_0__.pgEnum)("rule_severity", [
+  "critical",
+  "high",
+  "medium",
+  "low",
+  "info"
+]);
+const rulesTable = (0,__vite_ssr_import_0__.pgTable)("rules", {
+  id: (0,__vite_ssr_import_0__.text)("id").primaryKey(),
+  projectId: (0,__vite_ssr_import_0__.text)("project_id").references(() => __vite_ssr_import_1__.projectsTable.id, { onDelete: "set null" }),
+  code: (0,__vite_ssr_import_0__.text)("code").notNull().unique(),
+  title: (0,__vite_ssr_import_0__.text)("title").notNull(),
+  description: (0,__vite_ssr_import_0__.text)("description"),
+  severity: ruleSeverityEnum("severity").notNull().default("medium"),
+  pattern: (0,__vite_ssr_import_0__.text)("pattern"),
+  fixDescription: (0,__vite_ssr_import_0__.text)("fix_description"),
+  verifySteps: (0,__vite_ssr_import_0__.jsonb)("verify_steps").$type().default([]),
+  enabled: (0,__vite_ssr_import_0__.boolean)("enabled").notNull().default(true),
+  hitCount: (0,__vite_ssr_import_0__.integer)("hit_count").notNull().default(0),
+  createdAt: (0,__vite_ssr_import_0__.timestamp)("created_at").notNull().defaultNow(),
+  updatedAt: (0,__vite_ssr_import_0__.timestamp)("updated_at").notNull().defaultNow()
+}, (t) => [
+  (0,__vite_ssr_import_0__.index)("idx_rules_project_id").on(t.projectId),
+  // Covers: WHERE project_id = ? ORDER BY hit_count DESC  (no severity filter)
+  (0,__vite_ssr_import_0__.index)("idx_rules_project_id_hit_count").on(t.projectId, t.hitCount),
+  /**
+   * DB-18: Covers the filtered list query in rules.ts:
+   *   WHERE project_id = ? AND severity = ? ORDER BY hit_count DESC
+   * The three-column composite lets PostgreSQL index-scan the (project, severity)
+   * prefix and then return rows already ordered by hit_count — no post-sort needed.
+   *
+   * Note: global rules (project_id IS NULL) also use this query shape when a
+   * severity filter is provided. PostgreSQL IS-NULL predicates can use btree
+   * indexes, so this index covers that path too (NULL is a first-class btree value).
+   */
+  (0,__vite_ssr_import_0__.index)("idx_rules_project_id_severity_hit_count").on(
+    t.projectId,
+    t.severity,
+    t.hitCount
+  ),
+  (0,__vite_ssr_import_0__.index)("idx_rules_severity").on(t.severity),
+  (0,__vite_ssr_import_0__.index)("idx_rules_enabled").on(t.enabled)
+]);
+//# sourceMappingSource=vite-generated
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJtYXBwaW5ncyI6IkFBQUEsQ0FBQTs7QUFBQTtBQVVBOzs7O0FBRU8sTUFBTSxzQkFBbUIsOEJBQU8saUJBQWlCO0FBQUEsRUFDdEQ7QUFBQSxFQUNBO0FBQUEsRUFDQTtBQUFBLEVBQ0E7QUFBQSxFQUNBO0FBQ0YsQ0FBQztBQUVNLE1BQU0sZ0JBQWEsK0JBQVEsU0FBUztBQUFBLEVBQ3pDLE9BQUksNEJBQUssSUFBSSxFQUFFLFdBQVc7QUFBQSxFQUMxQixjQUFXLDRCQUFLLFlBQVksRUFBRSxXQUFXLE1BQU0sb0NBQWMsSUFBSSxFQUFFLFVBQVUsV0FBVyxDQUFDO0FBQUEsRUFDekYsU0FBTSw0QkFBSyxNQUFNLEVBQUUsUUFBUSxFQUFFLE9BQU87QUFBQSxFQUNwQyxVQUFPLDRCQUFLLE9BQU8sRUFBRSxRQUFRO0FBQUEsRUFDN0IsZ0JBQWEsNEJBQUssYUFBYTtBQUFBLEVBQy9CLFVBQVUsaUJBQWlCLFVBQVUsRUFBRSxRQUFRLEVBQUUsUUFBUSxRQUFRO0FBQUEsRUFDakUsWUFBUyw0QkFBSyxTQUFTO0FBQUEsRUFDdkIsbUJBQWdCLDRCQUFLLGlCQUFpQjtBQUFBLEVBQ3RDLGdCQUFhLDZCQUFNLGNBQWMsRUFBRSxNQUFnQixFQUFFLFFBQVEsQ0FBQyxDQUFDO0FBQUEsRUFDL0QsWUFBUywrQkFBUSxTQUFTLEVBQUUsUUFBUSxFQUFFLFFBQVEsSUFBSTtBQUFBLEVBQ2xELGFBQVUsK0JBQVEsV0FBVyxFQUFFLFFBQVEsRUFBRSxRQUFRLENBQUM7QUFBQSxFQUNsRCxjQUFXLGlDQUFVLFlBQVksRUFBRSxRQUFRLEVBQUUsV0FBVztBQUFBLEVBQ3hELGNBQVcsaUNBQVUsWUFBWSxFQUFFLFFBQVEsRUFBRSxXQUFXO0FBQzFELEdBQUcsQ0FBQyxNQUFNO0FBQUEsS0FDUiw2QkFBTSxzQkFBc0IsRUFBRSxHQUFHLEVBQUUsU0FBUztBQUFBO0FBQUEsS0FFNUMsNkJBQU0sZ0NBQWdDLEVBQUUsR0FBRyxFQUFFLFdBQVcsRUFBRSxRQUFRO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQTtBQUFBO0FBQUE7QUFBQSxLQVdsRSw2QkFBTSx5Q0FBeUMsRUFBRTtBQUFBLElBQy9DLEVBQUU7QUFBQSxJQUNGLEVBQUU7QUFBQSxJQUNGLEVBQUU7QUFBQSxFQUNKO0FBQUEsS0FDQSw2QkFBTSxvQkFBb0IsRUFBRSxHQUFHLEVBQUUsUUFBUTtBQUFBLEtBQ3pDLDZCQUFNLG1CQUFtQixFQUFFLEdBQUcsRUFBRSxPQUFPO0FBQ3pDLENBQUMiLCJuYW1lcyI6W10sImlnbm9yZUxpc3QiOltdLCJzb3VyY2VzIjpbInJ1bGVzLnRzIl0sInNvdXJjZXNDb250ZW50IjpbImltcG9ydCB7XG4gIHBnVGFibGUsXG4gIHRleHQsXG4gIHRpbWVzdGFtcCxcbiAgaW50ZWdlcixcbiAgYm9vbGVhbixcbiAganNvbmIsXG4gIHBnRW51bSxcbiAgaW5kZXgsXG59IGZyb20gXCJkcml6emxlLW9ybS9wZy1jb3JlXCI7XG5pbXBvcnQgeyBwcm9qZWN0c1RhYmxlIH0gZnJvbSBcIi4vcHJvamVjdHMuanNcIjtcblxuZXhwb3J0IGNvbnN0IHJ1bGVTZXZlcml0eUVudW0gPSBwZ0VudW0oXCJydWxlX3NldmVyaXR5XCIsIFtcbiAgXCJjcml0aWNhbFwiLFxuICBcImhpZ2hcIixcbiAgXCJtZWRpdW1cIixcbiAgXCJsb3dcIixcbiAgXCJpbmZvXCIsXG5dKTtcblxuZXhwb3J0IGNvbnN0IHJ1bGVzVGFibGUgPSBwZ1RhYmxlKFwicnVsZXNcIiwge1xuICBpZDogdGV4dChcImlkXCIpLnByaW1hcnlLZXkoKSxcbiAgcHJvamVjdElkOiB0ZXh0KFwicHJvamVjdF9pZFwiKS5yZWZlcmVuY2VzKCgpID0+IHByb2plY3RzVGFibGUuaWQsIHsgb25EZWxldGU6IFwic2V0IG51bGxcIiB9KSxcbiAgY29kZTogdGV4dChcImNvZGVcIikubm90TnVsbCgpLnVuaXF1ZSgpLFxuICB0aXRsZTogdGV4dChcInRpdGxlXCIpLm5vdE51bGwoKSxcbiAgZGVzY3JpcHRpb246IHRleHQoXCJkZXNjcmlwdGlvblwiKSxcbiAgc2V2ZXJpdHk6IHJ1bGVTZXZlcml0eUVudW0oXCJzZXZlcml0eVwiKS5ub3ROdWxsKCkuZGVmYXVsdChcIm1lZGl1bVwiKSxcbiAgcGF0dGVybjogdGV4dChcInBhdHRlcm5cIiksXG4gIGZpeERlc2NyaXB0aW9uOiB0ZXh0KFwiZml4X2Rlc2NyaXB0aW9uXCIpLFxuICB2ZXJpZnlTdGVwczoganNvbmIoXCJ2ZXJpZnlfc3RlcHNcIikuJHR5cGU8c3RyaW5nW10+KCkuZGVmYXVsdChbXSksXG4gIGVuYWJsZWQ6IGJvb2xlYW4oXCJlbmFibGVkXCIpLm5vdE51bGwoKS5kZWZhdWx0KHRydWUpLFxuICBoaXRDb3VudDogaW50ZWdlcihcImhpdF9jb3VudFwiKS5ub3ROdWxsKCkuZGVmYXVsdCgwKSxcbiAgY3JlYXRlZEF0OiB0aW1lc3RhbXAoXCJjcmVhdGVkX2F0XCIpLm5vdE51bGwoKS5kZWZhdWx0Tm93KCksXG4gIHVwZGF0ZWRBdDogdGltZXN0YW1wKFwidXBkYXRlZF9hdFwiKS5ub3ROdWxsKCkuZGVmYXVsdE5vdygpLFxufSwgKHQpID0+IFtcbiAgaW5kZXgoXCJpZHhfcnVsZXNfcHJvamVjdF9pZFwiKS5vbih0LnByb2plY3RJZCksXG4gIC8vIENvdmVyczogV0hFUkUgcHJvamVjdF9pZCA9ID8gT1JERVIgQlkgaGl0X2NvdW50IERFU0MgIChubyBzZXZlcml0eSBmaWx0ZXIpXG4gIGluZGV4KFwiaWR4X3J1bGVzX3Byb2plY3RfaWRfaGl0X2NvdW50XCIpLm9uKHQucHJvamVjdElkLCB0LmhpdENvdW50KSxcbiAgLyoqXG4gICAqIERCLTE4OiBDb3ZlcnMgdGhlIGZpbHRlcmVkIGxpc3QgcXVlcnkgaW4gcnVsZXMudHM6XG4gICAqICAgV0hFUkUgcHJvamVjdF9pZCA9ID8gQU5EIHNldmVyaXR5ID0gPyBPUkRFUiBCWSBoaXRfY291bnQgREVTQ1xuICAgKiBUaGUgdGhyZWUtY29sdW1uIGNvbXBvc2l0ZSBsZXRzIFBvc3RncmVTUUwgaW5kZXgtc2NhbiB0aGUgKHByb2plY3QsIHNldmVyaXR5KVxuICAgKiBwcmVmaXggYW5kIHRoZW4gcmV0dXJuIHJvd3MgYWxyZWFkeSBvcmRlcmVkIGJ5IGhpdF9jb3VudCDigJQgbm8gcG9zdC1zb3J0IG5lZWRlZC5cbiAgICpcbiAgICogTm90ZTogZ2xvYmFsIHJ1bGVzIChwcm9qZWN0X2lkIElTIE5VTEwpIGFsc28gdXNlIHRoaXMgcXVlcnkgc2hhcGUgd2hlbiBhXG4gICAqIHNldmVyaXR5IGZpbHRlciBpcyBwcm92aWRlZC4gUG9zdGdyZVNRTCBJUy1OVUxMIHByZWRpY2F0ZXMgY2FuIHVzZSBidHJlZVxuICAgKiBpbmRleGVzLCBzbyB0aGlzIGluZGV4IGNvdmVycyB0aGF0IHBhdGggdG9vIChOVUxMIGlzIGEgZmlyc3QtY2xhc3MgYnRyZWUgdmFsdWUpLlxuICAgKi9cbiAgaW5kZXgoXCJpZHhfcnVsZXNfcHJvamVjdF9pZF9zZXZlcml0eV9oaXRfY291bnRcIikub24oXG4gICAgdC5wcm9qZWN0SWQsXG4gICAgdC5zZXZlcml0eSxcbiAgICB0LmhpdENvdW50LFxuICApLFxuICBpbmRleChcImlkeF9ydWxlc19zZXZlcml0eVwiKS5vbih0LnNldmVyaXR5KSxcbiAgaW5kZXgoXCJpZHhfcnVsZXNfZW5hYmxlZFwiKS5vbih0LmVuYWJsZWQpLFxuXSk7XG5cbmV4cG9ydCB0eXBlIEluc2VydFJ1bGUgPSB0eXBlb2YgcnVsZXNUYWJsZS4kaW5mZXJJbnNlcnQ7XG5leHBvcnQgdHlwZSBSdWxlID0gdHlwZW9mIHJ1bGVzVGFibGUuJGluZmVyU2VsZWN0O1xuIl0sImZpbGUiOiIvQGZzL2hvbWUvcnVubmVyL3dvcmtzcGFjZS9saWIvZGIvc3JjL3NjaGVtYS9ydWxlcy50cyJ9
+
+//# vitestCache=W3siZmlsZSI6IjEiLCJpZCI6IjEiLCJ1cmwiOiIyIiwiaW1wb3J0ZWRVcmxzIjoiMyIsIm1hcHBpbmdzIjpmYWxzZX0sIi9ob21lL3J1bm5lci93b3Jrc3BhY2UvbGliL2RiL3NyYy9zY2hlbWEvcnVsZXMudHMiLCIvQGZzL2hvbWUvcnVubmVyL3dvcmtzcGFjZS9saWIvZGIvc3JjL3NjaGVtYS9ydWxlcy50cyIsW11d

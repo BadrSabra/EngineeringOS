@@ -1,0 +1,220 @@
+artifacts/api-server/src/routes/discovery.ts:135:    notes: "Public repos work out of the box. For private repos provide credentials.",
+artifacts/api-server/src/routes/ai/providers.ts:2: * AI provider key management routes.
+artifacts/api-server/src/routes/ai/providers.ts:5: *   GET/PUT/DELETE /api/ai/providers/:provider/key
+artifacts/api-server/src/routes/ai/providers.ts:19:import { encryptApiKey } from "../../lib/credentials-crypto.js";
+artifacts/api-server/src/routes/ai/providers.ts:128:router.get("/ai/providers/:provider/key", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:138:router.put("/ai/providers/:provider/key", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:148:router.delete("/ai/providers/:provider/key", async (req, res) => {
+artifacts/api-server/src/routes/ai/index.ts:5: *   providers  — deepseek/groq key management, active-provider
+artifacts/api-server/src/routes/ai/chat.ts:3742:          Object.entries(providerCtx).filter(([key]) => key !== "providerMessage"),
+artifacts/api-server/src/routes/ai/chat.ts:3777:              message: "AI provider key is invalid or unauthorized.",
+artifacts/api-server/src/routes/ai/chat.ts:3779:              suggestedFix: "Delete your current provider key and save a valid one in Settings.",
+artifacts/api-server/src/routes/ai/chat.ts:6151:          error: "File type is classified as sensitive (secrets, credentials, or executable scripts) — apply manually.",
+artifacts/api-server/src/routes/health.test.ts:28:    // this test confirms it never returns 401 regardless of missing credentials.
+artifacts/dashboard/src/pages/MissionControl.tsx:717:        credentials: 'include',
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:542:  vi.mocked(requireProvider).mockResolvedValue({ provider: "openai" as never, apiKey: "test-key" });
+artifacts/api-server/src/routes/git.ts:7: * GitHub token is stored in ai_provider_credentials with provider = 'github',
+artifacts/api-server/src/routes/git.ts:32:import { encryptApiKey, decryptApiKey } from "../lib/credentials-crypto.js";
+artifacts/api-server/src/routes/git.ts:644:      if (!token) return res.status(428).json({ error: "GitHub authentication is not configured." });
+artifacts/api-server/src/routes/git.test.ts:21:import { encryptApiKey } from "../lib/credentials-crypto.js";
+artifacts/api-server/src/routes/ai/analysis.ts:163:        ? "Check the configured provider key or choose another provider."
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:22:  openrouter: "OPENROUTER_API_KEY",
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:23:  gemini: "GEMINI_API_KEY",
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:203:      message: 'Authentication failed — this repository requires credentials. Go back and add your Personal Access Token.',
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:209:      message: 'Repository not found. Verify the URL is correct. If it\'s a private repository, go back and add your credentials.',
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:429:        sourceConfig.credentials = { username: gitUsername.trim() || 'oauth2', token: gitToken.trim() };
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:648:                {useCredentials ? 'Hide credentials' : 'Private repo? Add credentials'}
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:783:                      ← Go back and add credentials
+artifacts/api-server/src/index.ts:153:// PR-006: validate AI providers before accepting traffic — checks key presence
+artifacts/api-server/src/config.ts:26:  // Clerk credentials. The API host itself is always allowed as well.
+artifacts/api-server/src/config.ts:47:      ctx.addIssue({ code: "custom", message: "must not contain credentials" });
+lib/db/src/schema/index.ts:18:export * from "./ai_provider_credentials.js";
+artifacts/api-server/src/app.ts:150:// Never reflect an arbitrary Origin while also enabling credentials. The
+artifacts/api-server/src/app.ts:155:    credentials: true,
+artifacts/api-server/src/app.ts:183:// credentials. The requireAuth middleware below already injects a synthetic
+lib/db/src/schema/discovery.ts:44:  credentials?: { username: string; token: string };
+artifacts/api-server/src/__tests__/catalog-refresh-scheduler.test.ts:27:vi.mock("../lib/credentials-crypto.js", () => ({
+artifacts/api-server/src/__tests__/catalog-refresh-scheduler.test.ts:49:import { decryptApiKey } from "../lib/credentials-crypto.js";
+artifacts/api-server/src/__tests__/catalog-refresh-scheduler.test.ts:78:  const originalEnv = process.env.OPENROUTER_API_KEY;
+artifacts/api-server/src/__tests__/catalog-refresh-scheduler.test.ts:81:    process.env.OPENROUTER_API_KEY = originalEnv;
+artifacts/api-server/src/__tests__/catalog-refresh-scheduler.test.ts:86:    process.env.OPENROUTER_API_KEY = "sk-or-test-key-12345";
+artifacts/api-server/src/__tests__/catalog-refresh-scheduler.test.ts:94:    delete process.env.OPENROUTER_API_KEY;
+artifacts/api-server/src/__tests__/catalog-refresh-scheduler.test.ts:102:    delete process.env.OPENROUTER_API_KEY;
+artifacts/api-server/src/__tests__/catalog-refresh-scheduler.test.ts:109:    delete process.env.OPENROUTER_API_KEY;
+artifacts/api-server/src/__tests__/catalog-refresh-scheduler.test.ts:117:    process.env.OPENROUTER_API_KEY = "short";
+lib/db/src/schema/ai_provider_credentials.ts:4: * Stores per-user AI provider API keys, encrypted at rest.
+lib/db/src/schema/ai_provider_credentials.ts:8:  "ai_provider_credentials",
+artifacts/api-server/src/middlewares/clerkProxyMiddleware.ts:9: * (Google, GitHub, etc.), change app branding, or configure OAuth credentials,
+lib/api-zod/src/generated/types/gitPushResult.ts:13:  /** Combined stdout/stderr from git push, with any embedded credentials redacted */
+lib/api-zod/src/generated/types/gitOperationResult.ts:11:  /** Combined stdout/stderr from git, with any embedded credentials redacted */
+lib/api-zod/src/generated/types/discoverySourceConfigCredentials.ts:10: * Repository credentials for private repos (GIT_REPOSITORY)
+lib/api-zod/src/generated/types/discoverySourceConfig.ts:20:  /** Repository credentials for private repos (GIT_REPOSITORY) */
+lib/api-zod/src/generated/types/discoverySourceConfig.ts:21:  credentials?: DiscoverySourceConfigCredentials;
+lib/api-zod/src/generated/types/activeProviderStatus.ts:16:  /** True if at least one provider key is available (personal or server-wide) */
+lib/api-zod/src/generated/api.ts:2286:  "credentials": zod.object({
+lib/api-zod/src/generated/api.ts:2289:}).optional().describe('Repository credentials for private repos (GIT_REPOSITORY)'),
+lib/api-zod/src/generated/api.ts:2865: * Returns a redacted, owner-scoped and project-scoped review list. Raw requests, provider diagnostics, credentials, and unrestricted evidence are excluded.
+lib/api-zod/src/generated/api.ts:4323: * @summary Get OpenRouter API key configuration status (alias for /providers/openrouter/key)
+lib/api-zod/src/generated/api.ts:4359: * @summary Get Gemini API key configuration status (alias for /providers/gemini/key)
+lib/api-zod/src/generated/api.ts:4470:  "configured": zod.boolean().describe('True if at least one provider key is available (personal or server-wide)')
+lib/api-zod/src/generated/api.ts:4594:  "output": zod.string().describe('Combined stdout\/stderr from git, with any embedded credentials redacted'),
+lib/api-zod/src/generated/api.ts:4616:  "output": zod.string().describe('Combined stdout\/stderr from git push, with any embedded credentials redacted'),
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:42:  openrouter: "OPENROUTER_API_KEY",
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:43:  groq: "GROQ_API_KEY",
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:44:  deepseek: "DEEPSEEK_API_KEY",
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:45:  gemini: "GEMINI_API_KEY",
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:42:  openrouter: "OPENROUTER_API_KEY",
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:43:  gemini: "GEMINI_API_KEY",
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:44:  deepseek: "DEEPSEEK_API_KEY",
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:45:  groq: "GROQ_API_KEY",
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:360:  await refreshDynamicCatalog(process.env.OPENROUTER_API_KEY);
+artifacts/api-server/src/lib/discovery-adapters.ts:29: * Redacts any embedded `user:password@` credentials from a URL string.
+artifacts/api-server/src/lib/discovery-adapters.ts:35:  return text.replace(/https?:\/\/[^@\s"']+@/g, "https://[credentials-redacted]@");
+artifacts/api-server/src/lib/discovery-adapters.ts:46:  credentials?: { username: string; token: string };
+artifacts/api-server/src/lib/discovery-adapters.ts:183:    // Inject credentials into the URL for private repos.
+artifacts/api-server/src/lib/discovery-adapters.ts:185:    if (config.credentials?.token) {
+artifacts/api-server/src/lib/discovery-adapters.ts:188:        parsed.username = config.credentials.username ?? "oauth2";
+artifacts/api-server/src/lib/discovery-adapters.ts:189:        parsed.password = config.credentials.token;
+artifacts/api-server/src/lib/discovery-adapters.ts:193:        // credentials, then fall through to the raw URL and let git surface the error.
+artifacts/api-server/src/lib/discovery-adapters.ts:226:      // Redact any embedded credentials before surfacing the message.
+artifacts/api-server/src/lib/discovery-adapters.test.ts:205:        { url: "https://%", credentials: { username: "alice", token: "secret" } },
+artifacts/api-server/src/lib/catalog-refresh-scheduler.ts:16: *   1. OPENROUTER_API_KEY environment variable (server-wide key)
+artifacts/api-server/src/lib/catalog-refresh-scheduler.ts:33:import { decryptApiKey } from "./credentials-crypto.js";
+artifacts/api-server/src/lib/catalog-refresh-scheduler.ts:45:  const envKey = process.env.OPENROUTER_API_KEY;
+artifacts/api-server/src/lib/ai-route-helpers.ts:36:import { decryptApiKey } from "./credentials-crypto.js";
+artifacts/api-server/src/lib/ai-route-helpers.ts:90:      skipped.push({ provider, reason: "no_api_key" });
+artifacts/api-server/src/lib/ai-route-helpers.ts:111:    available.push({ provider, apiKey: key });
+artifacts/api-server/src/lib/ai-route-helpers.ts:154:// ── Per-provider key resolution ───────────────────────────────────────────────
+artifacts/api-server/src/lib/ai-route-helpers.ts:161: *   2. Server-wide env fallback: OPENROUTER_API_KEY / DEEPSEEK_API_KEY / GROQ_API_KEY.
+artifacts/api-server/src/lib/ai-route-helpers.ts:162: *   3. undefined — caller MUST return 428 to the client.
+artifacts/api-server/src/lib/ai-route-helpers.ts:193:    openrouter: process.env.OPENROUTER_API_KEY,
+artifacts/api-server/src/lib/ai-route-helpers.ts:194:    gemini: process.env.GEMINI_API_KEY,
+artifacts/api-server/src/lib/ai-route-helpers.ts:195:    deepseek: process.env.DEEPSEEK_API_KEY,
+artifacts/api-server/src/lib/ai-route-helpers.ts:196:    groq: process.env.GROQ_API_KEY,
+artifacts/api-server/src/lib/ai-route-helpers.ts:218: * the first provider whose key is available. This is the single place that
+artifacts/api-server/src/lib/ai-route-helpers.ts:513: * Rejects the request with 428 if no provider key can be resolved.
+artifacts/api-server/src/lib/ai-route-helpers.ts:524:      ? "Save a tool-capable API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, or groq). Gemini is available for text-only requests."
+artifacts/api-server/src/lib/ai-route-helpers.ts:525:      : "Save an API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, groq, or gemini).";
+artifacts/api-server/src/lib/ai-route-helpers.ts:526:    res.status(428).json({
+artifacts/api-server/src/lib/ai-route-helpers.ts:536: * Rejects the request with 428 if no Groq API key can be resolved.
+artifacts/api-server/src/lib/ai-route-helpers.ts:545:    res.status(428).json({
+artifacts/api-server/src/lib/ai-route-helpers.ts:547:      hint: "Save a Groq API key via PUT /api/ai/providers/groq/key or ask your administrator to set GROQ_API_KEY on the server. OpenRouter and DeepSeek are also supported via OPENROUTER_API_KEY and DEEPSEEK_API_KEY.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:608:        error: `${providerLabel} API key is invalid or unauthorized.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:636:          ? `All OpenRouter free-tier models are currently unavailable — the model may have been discontinued. Try a different provider (Groq, DeepSeek, or Gemini) by saving another API key.`
+artifacts/api-server/src/lib/ai-route-helpers.ts:637:          : `The configured model slug is no longer accepted by ${providerLabel}. Re-save the provider key or try again after the model catalog refreshes.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:648:          ? `The selected OpenRouter model is only available on paid plans. Add a small credit balance at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`
+artifacts/api-server/src/lib/ai-route-helpers.ts:658:        hint: `The model is temporarily offline or being retired. Try again in a moment, or save a fallback provider key (Groq, DeepSeek, or Gemini) for automatic retry.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:667:        hint: `Replenish your ${providerLabel} credits at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:675:        hint: `Check your ${providerLabel} API key or try again.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:689:        hint: `Re-save your ${providerLabel} API key.`,
+artifacts/api-server/src/lib/ai-release-quality-gate.ts:180:    // keeps prompts, model output, source snippets, and credentials out of
+artifacts/api-server/src/routes/ai.test.ts:267:    gemini: { providerId: "gemini", label: "Gemini", supportsStreaming: true, supportsTools: false, supportsJsonMode: true, consoleUrl: "aistudio.google.com/apikey", statusUrl: "status.cloud.google.com", defaultModels: { fast: "gemini-2.0-flash", powerful: "gemini-2.0-flash" } },
+artifacts/api-server/src/routes/ai.test.ts:268:    openrouter: { providerId: "openrouter", label: "OpenRouter", supportsStreaming: true, supportsTools: true, supportsJsonMode: true, consoleUrl: "openrouter.ai/keys", statusUrl: "openrouter.ai", defaultModels: { fast: "google/gemma-4-31b-it:free", powerful: "nvidia/nemotron-3-ultra-550b-a55b:free" } },
+artifacts/api-server/src/routes/ai.test.ts:583:// used.  Individual tests that want to verify the 428 path remove the key
+artifacts/api-server/src/routes/ai.test.ts:587:  _savedGroqKeyFileLevel = process.env.GROQ_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:588:  process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+artifacts/api-server/src/routes/ai.test.ts:592:    process.env.GROQ_API_KEY = _savedGroqKeyFileLevel;
+artifacts/api-server/src/routes/ai.test.ts:594:    delete process.env.GROQ_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:655:    expect(res.headers["access-control-allow-credentials"]).toBe("true");
+artifacts/api-server/src/routes/ai.test.ts:1420:          streamedPreview: "MODEL_PREVIEW_SHOULD_NOT_EXPORT provider=groq api_key=sk-live-do-not-export",
+artifacts/api-server/src/routes/ai.test.ts:3773:  // the 428-without-key test explicitly deletes it and restores it in finally.
+artifacts/api-server/src/routes/ai.test.ts:3776:    savedGroqKey = process.env.GROQ_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:3777:    process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+artifacts/api-server/src/routes/ai.test.ts:3781:      process.env.GROQ_API_KEY = savedGroqKey;
+artifacts/api-server/src/routes/ai.test.ts:3783:      delete process.env.GROQ_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:4058:  it("returns 428 and leaves task in original status when no AI provider is configured", async () => {
+artifacts/api-server/src/routes/ai.test.ts:4064:      "GROQ_API_KEY",
+artifacts/api-server/src/routes/ai.test.ts:4065:      "OPENROUTER_API_KEY",
+artifacts/api-server/src/routes/ai.test.ts:4066:      "DEEPSEEK_API_KEY",
+artifacts/api-server/src/routes/ai.test.ts:4067:      "GEMINI_API_KEY",
+artifacts/api-server/src/routes/ai.test.ts:4070:      providerKeys.map((key) => [key, process.env[key]]),
+artifacts/api-server/src/routes/ai.test.ts:4072:    for (const key of providerKeys) delete process.env[key];
+artifacts/api-server/src/routes/ai.test.ts:4080:      // No key → 428 Precondition Required
+artifacts/api-server/src/routes/ai.test.ts:4081:      expect(res.status).toBe(428);
+artifacts/api-server/src/routes/ai.test.ts:4152:    const savedGroq = process.env.GROQ_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:4153:    const savedOpenRouter = process.env.OPENROUTER_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:4154:    const savedDeepSeek = process.env.DEEPSEEK_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:4155:    const savedGemini = process.env.GEMINI_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:4157:    delete process.env.GROQ_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:4158:    delete process.env.OPENROUTER_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:4159:    delete process.env.DEEPSEEK_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:4160:    process.env.GEMINI_API_KEY = "test-gemini-key";
+artifacts/api-server/src/routes/ai.test.ts:4167:      if (savedGroq !== undefined) process.env.GROQ_API_KEY = savedGroq;
+artifacts/api-server/src/routes/ai.test.ts:4168:      else delete process.env.GROQ_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:4170:      if (savedOpenRouter !== undefined) process.env.OPENROUTER_API_KEY = savedOpenRouter;
+artifacts/api-server/src/routes/ai.test.ts:4171:      else delete process.env.OPENROUTER_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:4173:      if (savedDeepSeek !== undefined) process.env.DEEPSEEK_API_KEY = savedDeepSeek;
+artifacts/api-server/src/routes/ai.test.ts:4174:      else delete process.env.DEEPSEEK_API_KEY;
+artifacts/api-server/src/routes/ai.test.ts:4176:      if (savedGemini !== undefined) process.env.GEMINI_API_KEY = savedGemini;
+artifacts/api-server/src/routes/ai.test.ts:4177:      else delete process.env.GEMINI_API_KEY;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:42:import { encryptApiKey } from "../lib/credentials-crypto.js";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:75:  openrouter: "OPENROUTER_API_KEY",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:76:  gemini: "GEMINI_API_KEY",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:77:  deepseek: "DEEPSEEK_API_KEY",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:78:  groq: "GROQ_API_KEY",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:102:    gemini:     { providerId: "gemini",     label: "Gemini",     supportsStreaming: true, supportsTools: false, supportsJsonMode: true, consoleUrl: "aistudio.google.com/apikey", statusUrl: "status.cloud.google.com",    defaultModels: { fast: "gemini-2.0-flash",          powerful: "gemini-2.0-flash"         } },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:103:    openrouter: { providerId: "openrouter", label: "OpenRouter", supportsStreaming: true, supportsTools: true,  supportsJsonMode: true, consoleUrl: "openrouter.ai/keys",     statusUrl: "openrouter.ai",                  defaultModels: { fast: "google/gemma-4-31b-it:free", powerful: "nvidia/nemotron-3-ultra-550b-a55b:free" } },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:262:  resolveProvider:          vi.fn(async () => ({ provider: "groq", apiKey: "test-dummy-key" })),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:263:  collectAvailableProviders: vi.fn(async () => [{ provider: "groq", apiKey: "test-dummy-key" }]),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:372:  process.env.GROQ_API_KEY = "test-dummy-key-for-stream-tests";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:375:  delete process.env.GROQ_API_KEY;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:438:describe("AI provider key persistence", () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:453:    const fixtureKey = "fixture-provider-key-before";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:472:        .put(`/api/ai/providers/${provider}/key`)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:473:        .send({ apiKey: "updated-provider-key-9876" });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:481:      const credentials = await db
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:491:      expect(credentials).toHaveLength(1);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:492:      expect(credentials[0]).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:652:        // live provider key, never a fixture credential or a higher-priority
+lib/api-spec/openapi.yaml:1573:      description: Returns a redacted, owner-scoped and project-scoped review list. Raw requests, provider diagnostics, credentials, and unrestricted evidence are excluded.
+lib/api-spec/openapi.yaml:2148:        "428":
+lib/api-spec/openapi.yaml:2731:      summary: Get OpenRouter API key configuration status (alias for /providers/openrouter/key)
+lib/api-spec/openapi.yaml:2788:      summary: Get Gemini API key configuration status (alias for /providers/gemini/key)
+lib/api-spec/openapi.yaml:2842:  /api/ai/providers/{provider}/key:
+lib/api-spec/openapi.yaml:2884:          description: Unknown provider or invalid key
+lib/api-spec/openapi.yaml:3173:        "428":
+lib/api-spec/openapi.yaml:4044:          description: True if at least one provider key is available (personal or server-wide)
+lib/api-spec/openapi.yaml:4213:          description: Combined stdout/stderr from git, with any embedded credentials redacted
+lib/api-spec/openapi.yaml:4248:          description: Combined stdout/stderr from git push, with any embedded credentials redacted
+lib/api-spec/openapi.yaml:6374:        credentials:
+lib/api-spec/openapi.yaml:6376:          description: Repository credentials for private repos (GIT_REPOSITORY)
+artifacts/dashboard/src/pages/AiChat.tsx:584:        return (err.errorMessage || err.hint || 'AI provider configuration is invalid. Re-save your API key.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:585:      case 428: return err.errorMessage || err.hint || 'No AI key configured — save an OpenRouter, DeepSeek, or Groq API key first.';
+artifacts/dashboard/src/pages/AiChat.tsx:586:      case 502: return (err.errorMessage || err.hint || 'AI provider returned an error. Check your API key or try again.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:6246:      const response = await fetch('/api/ai/benchmark/scorecard', { credentials: 'include' });
+artifacts/dashboard/src/pages/AiChat.tsx:7039:      credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:7195:      credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:7311:      case 'CONFIGURATION': return { title: 'Analysis needs provider configuration', reason: 'The configured AI provider could not run this task. Check its key or choose another provider.' };
+artifacts/dashboard/src/pages/AiChat.tsx:7638:        credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:7654:        credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:7721:        { method: 'POST', credentials: 'include' },
+artifacts/dashboard/src/pages/AiChat.tsx:8685:        credentials: 'include',
+artifacts/dashboard/src/pages/AiChat.tsx:8719:          credentials: 'include',
+lib/api-client-react/src/use-ai-chat-stream.ts:1004:      // Handle non-SSE error responses (e.g. 400/401/428/429 before the stream starts)
+lib/api-client-react/src/use-ai-chat-stream.ts:1131:            : res.status === 401 || res.status === 402 || res.status === 422 || res.status === 428
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:515:        expect.objectContaining({ method: 'POST', credentials: 'include' }),
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:765:  it('sends a provider key through the generated mutation and reports success/error', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:783:    mocks.mutationOptions.saveDeepSeek?.onError?.(new Error('provider rejected key'));
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:786:      description: 'provider rejected key',
+lib/ai-orchestrator/src/tools/file-tools.ts:593:          `classified as sensitive (secrets, credentials, or executable scripts). ` +
+lib/ai-orchestrator/src/tools/file-tools.ts:675:          `classified as sensitive (secrets, credentials, or executable scripts).`
+lib/ai-orchestrator/src/startup-validator.ts:7: *   2. Dynamic OpenRouter catalog refresh (if OPENROUTER_API_KEY is present).
+lib/ai-orchestrator/src/startup-validator.ts:29:/** Environment variable names for each provider's API key. */
+lib/ai-orchestrator/src/startup-validator.ts:31:  openrouter: "OPENROUTER_API_KEY",
+lib/ai-orchestrator/src/startup-validator.ts:32:  gemini:     "GEMINI_API_KEY",
+lib/ai-orchestrator/src/startup-validator.ts:33:  deepseek:   "DEEPSEEK_API_KEY",
+lib/ai-orchestrator/src/startup-validator.ts:34:  groq:       "GROQ_API_KEY",
+lib/ai-orchestrator/src/startup-validator.ts:102:  const openrouterKey = process.env["OPENROUTER_API_KEY"];
+lib/ai-orchestrator/src/startup-validator.ts:119:          "No AI provider API keys are configured. " +
+lib/ai-orchestrator/src/startup-validator.ts:120:          "AI features will return 428 until at least one provider key is saved via the dashboard.",
+lib/api-client-react/src/generated/api.schemas.ts:682:  /** True if at least one provider key is available (personal or server-wide) */
+lib/api-client-react/src/generated/api.schemas.ts:775:  /** Combined stdout/stderr from git, with any embedded credentials redacted */
+lib/api-client-react/src/generated/api.schemas.ts:796:  /** Combined stdout/stderr from git push, with any embedded credentials redacted */
+lib/api-client-react/src/generated/api.schemas.ts:2463: * Repository credentials for private repos (GIT_REPOSITORY)
+lib/api-client-react/src/generated/api.schemas.ts:2480:  /** Repository credentials for private repos (GIT_REPOSITORY) */
+lib/api-client-react/src/generated/api.schemas.ts:2481:  credentials?: DiscoverySourceConfigCredentials;
+lib/api-client-react/src/generated/api.ts:4747: * Returns a redacted, owner-scoped and project-scoped review list. Raw requests, provider diagnostics, credentials, and unrestricted evidence are excluded.
+lib/api-client-react/src/generated/api.ts:7411: * @summary Get OpenRouter API key configuration status (alias for /providers/openrouter/key)
+lib/api-client-react/src/generated/api.ts:7458: * @summary Get OpenRouter API key configuration status (alias for /providers/openrouter/key)
+lib/api-client-react/src/generated/api.ts:7630: * @summary Get Gemini API key configuration status (alias for /providers/gemini/key)
+lib/api-client-react/src/generated/api.ts:7677: * @summary Get Gemini API key configuration status (alias for /providers/gemini/key)

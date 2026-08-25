@@ -1,0 +1,606 @@
+            result={msg.taskResult}
+            projectId={projectId}
+            messageId={msg.id}
+            onPlanDecision={onPlanDecision}
+            planDecisionPending={planDecisionPending}
+            onPlanBuild={onPlanBuild}
+            planBuildPending={planBuildPending}
+            browserProfileFreshness={browserProfileFreshness}
+          />
+        )}
+        {!isUser && msg.missionCorrelationReportError && (
+          <div className="mt-2 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+            <span className="min-w-0 flex-1">The historical mission report is unavailable, but this conversation is preserved.</span>
+            {onRegenerateReport && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 shrink-0 px-2 text-[11px]"
+                onClick={() => onRegenerateReport(msg.id)}
+                disabled={reportRegenerationPending}
+              >
+                {reportRegenerationPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RotateCcw className="mr-1 h-3 w-3" />}
+                {reportRegenerationPending ? 'Regenerating…' : 'Regenerate report'}
+              </Button>
+            )}
+          </div>
+        )}
+        {reportGeneratedAt && (
+          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Clock3 className="h-3 w-3" aria-hidden="true" />
+            <span>Report regenerated at </span>
+            <time dateTime={reportGeneratedAt}>
+              {new Date(reportGeneratedAt).toLocaleString()}
+            </time>
+          </div>
+        )}
+        {isForensicFallback
+          ? <ForensicFallbackBanner
+              evidenceOnly={isEvidenceOnlyFallback}
+              noFinding={isNoFindingFallback}
+            />
+          : incompleteBeforeEvidence
+            ? null
+           : <ExecutionSummaryBanner summary={executionSummary} operatorTraceId={`operator-trace-${msg.id}`} />}
+        {isEngineeringExecution && repairRadar && <RepairRadar trace={toolTrace} />}
+        {!isUser && !failedTurn && (isForensicRun || isEngineeringExecution) && (
+          <PersistedExecutionProof
+            summary={executionSummary}
+            trace={toolTrace}
+            evidence={forensicEvidence}
+            finalVerdict={finalVerdict}
+            behaviorEvidenceCount={parseBehaviorEvidence(msg.behaviorEvidence).length}
+            traceId={`operator-trace-${msg.id}`}
+          />
+        )}
+        <CompletedActivityTimeline
+          events={activityEvents}
+          defaultOpen={false}
+        />
+        <SemanticTraceCard
+          productionTrace={productionTrace}
+          crossFileTraces={crossFileTraces}
+        />
+        {forensicEvidence && (
+          <ForensicEvidenceCard
+            evidence={forensicEvidence}
+            // Task #43: keep the forensic card expanded by default whenever the
+            // audit is fixture-local, so the FIXTURE-LOCAL / NOT PROVEN
+            // separation is never hidden behind a collapsed card.
+            defaultExpanded={isForensicFallback || forensicEvidence.forensicStatus?.auditScope === 'FIXTURE_LOCAL'}
+            finalVerdict={finalVerdict}
+            // NI-35: ship the claim-bound behavioral evidence so the card can
+            // render "these lines prove this behavior" instead of just the
+            // raw list of files that were read.
+            claimEvidence={parseBehaviorEvidence(msg.behaviorEvidence)}
+          />
+        )}
+        {isEngineeringExecution && <FlightRecorder trace={toolTrace} />}
+      </div>
+    </div>
+  );
+}
+
+function DeepSeekKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [keyInput, setKeyInput] = useState('');
+  const [showInput, setShowInput] = useState(false);
+
+  const { data: status, isLoading } = useGetDeepSeekKeyStatus<DeepSeekKeyStatus>({
+    query: {
+      queryKey: ['deepseek-key-status'],
+    },
+  });
+
+  const saveMutation = useSaveDeepSeekKey({
+    mutation: {
+      onSuccess: (data) => {
+        void qc.setQueryData(['deepseek-key-status'], data);
+        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+        setKeyInput('');
+        setShowInput(false);
+        toast({ title: 'DeepSeek key saved', description: `Ends in ···${data.last4}` });
+      },
+      onError: (err) => {
+        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+      },
+    },
+  });
+
+  const deleteMutation = useDeleteDeepSeekKey({
+    mutation: {
+      onSuccess: () => {
+        void qc.setQueryData(['deepseek-key-status'], { configured: false, last4: null, updatedAt: null });
+        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+        toast({ title: 'DeepSeek key removed' });
+      },
+      onError: (err) => {
+        toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+      },
+    },
+  });
+
+  function handleSave() {
+    const trimmed = keyInput.trim();
+    if (trimmed.length < 10) {
+      toast({ title: 'Key too short', description: 'Enter a valid DeepSeek API key.', variant: 'destructive' });
+      return;
+    }
+    saveMutation.mutate({ data: { apiKey: trimmed } });
+  }
+
+  return (
+    <div className="mx-2 mb-2 rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+      <div className="flex items-center gap-1.5 mb-2">
+        <Key className="w-3 h-3 text-muted-foreground" />
+        <span className="font-mono text-muted-foreground uppercase tracking-wider">DeepSeek API Key</span>
+        <span className="ml-auto text-[10px] text-muted-foreground">Optional</span>
+      </div>
+
+      {isLoading ? (
+        <p className="text-muted-foreground">Loading…</p>
+      ) : status?.configured ? (
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-green-500">
+            <Check className="w-3 h-3" />
+            <span>···{status.last4}</span>
+          </div>
+          <div className="flex gap-1">
+            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs" onClick={() => setShowInput((v) => !v)}>
+              Change
+            </Button>
+            <Button
+              size="sm" variant="ghost"
+              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive"
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-muted-foreground mb-2">
+          Get a free API key at <span className="font-mono">platform.deepseek.com</span> to use DeepSeek as your AI provider.
+        </p>
+      )}
+
+      <ProviderRuntimeBadge metric={runtimeMetric} />
+
+      {(showInput || !status?.configured) && (
+        <div className="flex gap-1 mt-2">
+          <Input
+            type="password"
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            placeholder="sk-…"
+            className="h-7 text-xs font-mono bg-background border-border flex-1"
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
+            autoComplete="new-password"
+          />
+          <Button
+            size="sm" className="h-7 px-2 text-xs"
+            onClick={handleSave}
+            disabled={saveMutation.isPending || !keyInput.trim()}
+          >
+            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GroqKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [keyInput, setKeyInput] = useState('');
+  const [showInput, setShowInput] = useState(false);
+
+  const { data: status, isLoading } = useGetGroqKeyStatus<GroqKeyStatus>({
+    query: {
+      queryKey: ['groq-key-status'],
+    },
+  });
+
+  const saveMutation = useSaveGroqKey({
+    mutation: {
+      onSuccess: (data) => {
+        void qc.setQueryData(['groq-key-status'], data);
+        setKeyInput('');
+        setShowInput(false);
+        toast({ title: 'Groq key saved', description: `Ends in ···${data.last4}` });
+      },
+      onError: (err) => {
+        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+      },
+    },
+  });
+
+  const deleteMutation = useDeleteGroqKey({
+    mutation: {
+      onSuccess: () => {
+        void qc.setQueryData(['groq-key-status'], { configured: false, last4: null, updatedAt: null });
+        toast({ title: 'Groq key removed', description: 'Falling back to server default.' });
+      },
+      onError: (err) => {
+        toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+      },
+    },
+  });
+
+  function handleSave() {
+    const trimmed = keyInput.trim();
+    if (trimmed.length < 10) {
+      toast({ title: 'Key too short', description: 'Enter a valid Groq API key.', variant: 'destructive' });
+      return;
+    }
+    saveMutation.mutate({ data: { apiKey: trimmed } });
+  }
+
+  return (
+    <div className="mx-2 mb-2 rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+      <div className="flex items-center gap-1.5 mb-2">
+        <Key className="w-3 h-3 text-muted-foreground" />
+        <span className="font-mono text-muted-foreground uppercase tracking-wider">Groq API Key</span>
+      </div>
+
+      {isLoading ? (
+        <p className="text-muted-foreground">Loading…</p>
+      ) : status?.configured ? (
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-green-500">
+            <Check className="w-3 h-3" />
+            <span>···{status.last4}</span>
+          </div>
+          <div className="flex gap-1">
+            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs" onClick={() => setShowInput((v) => !v)}>
+              Change
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive"
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-muted-foreground mb-2">No personal key saved — the server's key will be used if one is configured.</p>
+      )}
+
+      <ProviderRuntimeBadge metric={runtimeMetric} />
+
+      {(showInput || !status?.configured) && (
+        <div className="flex gap-1 mt-2">
+          <Input
+            type="password"
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            placeholder="gsk_…"
+            className="h-7 text-xs font-mono bg-background border-border flex-1"
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
+            autoComplete="new-password"
+          />
+          <Button
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={handleSave}
+            disabled={saveMutation.isPending || !keyInput.trim()}
+          >
+            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GeminiKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [keyInput, setKeyInput] = useState('');
+  const [showInput, setShowInput] = useState(false);
+
+  const { data: status, isLoading } = useGetProviderKeyStatus<GeminiKeyStatus>('gemini', {
+    query: {
+      queryKey: ['gemini-key-status'],
+    },
+  });
+
+  const saveMutation = useSaveGeminiKey({
+    mutation: {
+      onSuccess: (data) => {
+        void qc.setQueryData(['gemini-key-status'], data);
+        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+        setKeyInput('');
+        setShowInput(false);
+        toast({ title: 'Gemini key saved', description: `Ends in ···${data.last4}` });
+      },
+      onError: (err) => {
+        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+      },
+    },
+  });
+
+  const deleteMutation = useDeleteGeminiKey({
+    mutation: {
+      onSuccess: () => {
+        void qc.setQueryData(['gemini-key-status'], { configured: false, last4: null, updatedAt: null });
+        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+        toast({ title: 'Gemini key removed' });
+      },
+      onError: (err) => {
+        toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+      },
+    },
+  });
+
+  function handleSave() {
+    const trimmed = keyInput.trim();
+    if (trimmed.length < 10) {
+      toast({ title: 'Key too short', description: 'Enter a valid Gemini API key.', variant: 'destructive' });
+      return;
+    }
+    saveMutation.mutate({ data: { apiKey: trimmed } });
+  }
+
+  return (
+    <div className="mx-2 mb-2 rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+      <div className="flex items-center gap-1.5 mb-2">
+        <Key className="w-3 h-3 text-muted-foreground" />
+        <span className="font-mono text-muted-foreground uppercase tracking-wider">Gemini API Key</span>
+        <span className="ml-auto text-[10px] text-muted-foreground">Free · Priority</span>
+      </div>
+
+      {isLoading ? (
+        <p className="text-muted-foreground">Loading…</p>
+      ) : status?.configured ? (
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-green-500">
+            <Check className="w-3 h-3" />
+            <span>···{status.last4}</span>
+          </div>
+          <div className="flex gap-1">
+            <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs" onClick={() => setShowInput((v) => !v)}>
+              Change
+            </Button>
+            <Button
+              size="sm" variant="ghost"
+              className="h-5 px-1.5 text-xs text-destructive hover:text-destructive"
+              onClick={() => deleteMutation.mutate()}
+              disabled={deleteMutation.isPending}
+            >
+              <Trash2 className="w-3 h-3" />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p className="text-muted-foreground mb-2">
+          Free key at <span className="font-mono">aistudio.google.com/apikey</span> — 1,500 req/day, 1M tokens/day.
+        </p>
+      )}
+
+      <ProviderRuntimeBadge metric={runtimeMetric} />
+
+      {(showInput || !status?.configured) && (
+        <div className="flex gap-1 mt-2">
+          <Input
+            type="password"
+            value={keyInput}
+            onChange={(e) => setKeyInput(e.target.value)}
+            placeholder="AIza…"
+            className="h-7 text-xs font-mono bg-background border-border flex-1"
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSave(); }}
+            autoComplete="new-password"
+          />
+          <Button
+            size="sm"
+            className="h-7 text-xs px-2"
+            onClick={handleSave}
+            disabled={saveMutation.isPending}
+          >
+            Save
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [keyInput, setKeyInput] = useState('');
+  const [showInput, setShowInput] = useState(false);
+
+  const { data: status, isLoading } = useGetOpenRouterKeyStatus<OpenRouterKeyStatus>({
+    query: {
+      queryKey: ['openrouter-key-status'],
+    },
+  });
+
+  const saveMutation = useSaveOpenRouterKey({
+    mutation: {
+      onSuccess: (data) => {
+        void qc.setQueryData(['openrouter-key-status'], data);
+        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+        setKeyInput('');
+        setShowInput(false);
+        toast({ title: 'OpenRouter key saved', description: `Ends in ···${data.last4}` });
+      },
+      onError: (err) => {
+        toast({ title: 'Failed to save key', description: describeAiError(err), variant: 'destructive' });
+      },
+    },
+  });
+
+  const deleteMutation = useDeleteOpenRouterKey({
+    mutation: {
+      onSuccess: () => {
+        void qc.setQueryData(['openrouter-key-status'], { configured: false, last4: null, updatedAt: null });
+        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+        toast({ title: 'OpenRouter key removed' });
+      },
+      onError: (err) => {
+        toast({ title: 'Failed to remove key', description: describeAiError(err), variant: 'destructive' });
+      },
+    },
+  });
+
+  function handleSave() {
+    const trimmed = keyInput.trim();
+    if (trimmed.length < 10) {
+      toast({ title: 'Key too short', description: 'Enter a valid OpenRouter API key.', variant: 'destructive' });
+      return;
+    }
+    saveMutation.mutate({ data: { apiKey: trimmed } });
+  }
+
+  return (
+    <div className="mx-2 mb-2 rounded-lg border border-border bg-secondary/50 p-3 text-xs">
+      <div className="flex items-center gap-1.5 mb-2">
+        <Key className="w-3 h-3 text-muted-foreground" />
+        <span className="font-mono text-muted-foreground uppercase tracking-wider">OpenRouter API Key</span>
+        <span className="ml-auto text-[10px] text-muted-foreground">Priority</span>
+      </div>
+
+      {isLoading ? (
+        <p className="text-muted-foreground">Loading…</p>
+      ) : status?.configured ? (
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-green-500">
+            <Check className="w-3 h-3" />
+            <span>···{status.last4}</span>
+          </div>
+          <div className="flex gap-1">
+
+--- auth/app routes ---
+artifacts/api-server/src/routes/index.ts:1:import { Router, type IRouter } from "express";
+artifacts/api-server/src/routes/index.ts:2:import discoveryRouter from "./discovery.js";
+artifacts/api-server/src/routes/index.ts:3:import projectsRouter from "./projects.js";
+artifacts/api-server/src/routes/index.ts:4:import tasksRouter from "./tasks.js";
+artifacts/api-server/src/routes/index.ts:5:import rulesRouter from "./rules.js";
+artifacts/api-server/src/routes/index.ts:6:import workflowsRouter from "./workflows.js";
+artifacts/api-server/src/routes/index.ts:7:import eventsRouter from "./events.js";
+artifacts/api-server/src/routes/index.ts:8:import metricsRouter from "./metrics.js";
+artifacts/api-server/src/routes/index.ts:9:import graphRouter from "./graph.js";
+artifacts/api-server/src/routes/index.ts:10:import pluginsRouter from "./plugins.js";
+artifacts/api-server/src/routes/index.ts:11:import dashboardRouter from "./dashboard.js";
+artifacts/api-server/src/routes/index.ts:12:import aiRouter from "./ai.js";
+artifacts/api-server/src/routes/index.ts:13:import gitRouter from "./git.js";
+artifacts/api-server/src/routes/index.ts:14:import uploadRouter from "./upload.js";
+artifacts/api-server/src/routes/index.ts:16:const router: IRouter = Router();
+artifacts/api-server/src/routes/index.ts:18:// Discovery must come before projectsRouter so /projects/discover/:id
+artifacts/api-server/src/routes/index.ts:20:router.use(discoveryRouter);
+artifacts/api-server/src/routes/index.ts:21:router.use(projectsRouter);
+artifacts/api-server/src/routes/index.ts:22:router.use(tasksRouter);
+artifacts/api-server/src/routes/index.ts:23:router.use(rulesRouter);
+artifacts/api-server/src/routes/index.ts:24:router.use(workflowsRouter);
+artifacts/api-server/src/routes/index.ts:25:router.use(eventsRouter);
+artifacts/api-server/src/routes/index.ts:26:router.use(metricsRouter);
+artifacts/api-server/src/routes/index.ts:27:router.use(graphRouter);
+artifacts/api-server/src/routes/index.ts:28:router.use(pluginsRouter);
+artifacts/api-server/src/routes/index.ts:29:router.use(dashboardRouter);
+artifacts/api-server/src/routes/index.ts:30:router.use(aiRouter);
+artifacts/api-server/src/routes/index.ts:31:router.use(gitRouter);
+artifacts/api-server/src/routes/index.ts:32:router.use(uploadRouter);
+artifacts/api-server/src/routes/ai/index.ts:2: * AI route hub — composes all AI subrouters into a single Express Router.
+artifacts/api-server/src/routes/ai/index.ts:5: *   providers  — deepseek/groq key management, active-provider
+artifacts/api-server/src/routes/ai/index.ts:11:import { Router } from "express";
+artifacts/api-server/src/routes/ai/index.ts:12:import providersRouter from "./providers.js";
+artifacts/api-server/src/routes/ai/index.ts:13:import chatRouter from "./chat.js";
+artifacts/api-server/src/routes/ai/index.ts:14:import analysisRouter from "./analysis.js";
+artifacts/api-server/src/routes/ai/index.ts:15:import workflowsRouter from "./workflows.js";
+artifacts/api-server/src/routes/ai/index.ts:16:import tasksRouter from "./tasks.js";
+artifacts/api-server/src/routes/ai/index.ts:17:import benchmarkRouter from "./benchmark.js";
+artifacts/api-server/src/routes/ai/index.ts:21:const router = Router();
+artifacts/api-server/src/routes/ai/index.ts:23:router.use(providersRouter);
+artifacts/api-server/src/routes/ai/index.ts:24:router.use(chatRouter);
+artifacts/api-server/src/routes/ai/index.ts:25:router.use(analysisRouter);
+artifacts/api-server/src/routes/ai/index.ts:26:router.use(workflowsRouter);
+artifacts/api-server/src/routes/ai/index.ts:27:router.use(tasksRouter);
+artifacts/api-server/src/routes/ai/index.ts:28:router.use(benchmarkRouter);
+artifacts/dashboard/src/pages/AiChat.tsx:19:  useAiChatStream,
+artifacts/dashboard/src/pages/AiChat.tsx:24:  useGetOpenRouterKeyStatus,
+artifacts/dashboard/src/pages/AiChat.tsx:29:  useListAiChatSessions,
+artifacts/dashboard/src/pages/AiChat.tsx:30:  useListAiChatMessages,
+artifacts/dashboard/src/pages/AiChat.tsx:33:  useGetAiChatFileContent,
+artifacts/dashboard/src/pages/AiChat.tsx:34:  getGetAiChatFileContentQueryKey,
+artifacts/dashboard/src/pages/AiChat.tsx:41:  useSaveOpenRouterKey,
+artifacts/dashboard/src/pages/AiChat.tsx:42:  useDeleteOpenRouterKey,
+artifacts/dashboard/src/pages/AiChat.tsx:382:type OpenRouterKeyStatus = ProviderKeyStatus;
+artifacts/dashboard/src/pages/AiChat.tsx:524:/** STORY-04: human-readable label for an OpenRouter model ID. */
+artifacts/dashboard/src/pages/AiChat.tsx:561:      // Include raw provider message (truncated) for OpenRouter debugging.
+artifacts/dashboard/src/pages/AiChat.tsx:582:          return (err.errorMessage || err.hint || 'The selected AI model is unavailable — try again or switch providers.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:585:      case 428: return err.errorMessage || err.hint || 'No AI key configured — save an OpenRouter, DeepSeek, or Groq API key first.';
+artifacts/dashboard/src/pages/AiChat.tsx:3563:  const { data, isPending, isError } = useGetAiChatFileContent(
+artifacts/dashboard/src/pages/AiChat.tsx:3572:        queryKey: getGetAiChatFileContentQueryKey({
+artifacts/dashboard/src/pages/AiChat.tsx:4715:function OpenRouterKeyCard({ runtimeMetric }: { runtimeMetric?: ProviderRuntimeMetric }) {
+artifacts/dashboard/src/pages/AiChat.tsx:4721:  const { data: status, isLoading } = useGetOpenRouterKeyStatus<OpenRouterKeyStatus>({
+artifacts/dashboard/src/pages/AiChat.tsx:4727:  const saveMutation = useSaveOpenRouterKey({
+artifacts/dashboard/src/pages/AiChat.tsx:4734:        toast({ title: 'OpenRouter key saved', description: `Ends in ···${data.last4}` });
+artifacts/dashboard/src/pages/AiChat.tsx:4742:  const deleteMutation = useDeleteOpenRouterKey({
+artifacts/dashboard/src/pages/AiChat.tsx:4747:        toast({ title: 'OpenRouter key removed' });
+artifacts/dashboard/src/pages/AiChat.tsx:4758:      toast({ title: 'Key too short', description: 'Enter a valid OpenRouter API key.', variant: 'destructive' });
+artifacts/dashboard/src/pages/AiChat.tsx:4768:        <span className="font-mono text-muted-foreground uppercase tracking-wider">OpenRouter API Key</span>
+artifacts/dashboard/src/pages/AiChat.tsx:6840:export default function AiChat() {
+artifacts/dashboard/src/pages/AiChat.tsx:6887:  const { send: streamSend, cancel: cancelStream, isPending: isSending } = useAiChatStream();
+artifacts/dashboard/src/pages/AiChat.tsx:7591:  } = useListAiChatSessions<Session[]>(
+artifacts/dashboard/src/pages/AiChat.tsx:7601:  const { data: serverMessages = [], isFetched: messagesFetched } = useListAiChatMessages<ChatMessage[]>(
+artifacts/dashboard/src/pages/AiChat.tsx:9107:        {/* Provider key cards — bottom of sidebar (priority order: OpenRouter → Gemini → DeepSeek → Groq) */}
+artifacts/dashboard/src/pages/AiChat.tsx:9109:          <OpenRouterKeyCard runtimeMetric={metricsMap.get('openrouter')} />
+artifacts/dashboard/src/pages/AiChat.tsx:9139:                    ? `${fmtModelId(lastResolvedModel.id)} · OpenRouter`
+artifacts/dashboard/src/pages/AiChat.tsx:9140:                    : 'OpenRouter')
+artifacts/dashboard/src/App.tsx:7:import { Route, Switch, useLocation, Router as WouterRouter, Redirect } from 'wouter';
+artifacts/dashboard/src/App.tsx:18:import AiChat from '@/pages/AiChat';
+artifacts/dashboard/src/App.tsx:22:import SignInPage from '@/pages/SignIn';
+artifacts/dashboard/src/App.tsx:73:function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+artifacts/dashboard/src/App.tsx:96:function Router() {
+artifacts/dashboard/src/App.tsx:99:      <Route path="/" component={HomeRedirect} />
+artifacts/dashboard/src/App.tsx:100:      <Route path="/sign-in/*?" component={SignInPage} />
+artifacts/dashboard/src/App.tsx:101:      <Route path="/sign-up/*?" component={SignUpPage} />
+artifacts/dashboard/src/App.tsx:102:      <Route path="/projects">
+artifacts/dashboard/src/App.tsx:103:        <ProtectedRoute component={Projects} />
+artifacts/dashboard/src/App.tsx:104:      </Route>
+artifacts/dashboard/src/App.tsx:105:      <Route path="/projects/:id">
+artifacts/dashboard/src/App.tsx:106:        <ProtectedRoute component={ProjectDetail} />
+artifacts/dashboard/src/App.tsx:107:      </Route>
+artifacts/dashboard/src/App.tsx:108:      <Route path="/tasks">
+artifacts/dashboard/src/App.tsx:109:        <ProtectedRoute component={Tasks} />
+artifacts/dashboard/src/App.tsx:110:      </Route>
+artifacts/dashboard/src/App.tsx:111:      <Route path="/rules">
+artifacts/dashboard/src/App.tsx:112:        <ProtectedRoute component={Rules} />
+artifacts/dashboard/src/App.tsx:113:      </Route>
+artifacts/dashboard/src/App.tsx:114:      <Route path="/workflows">
+artifacts/dashboard/src/App.tsx:115:        <ProtectedRoute component={Workflows} />
+artifacts/dashboard/src/App.tsx:116:      </Route>
+artifacts/dashboard/src/App.tsx:117:      <Route path="/events">
+artifacts/dashboard/src/App.tsx:118:        <ProtectedRoute component={Events} />
+artifacts/dashboard/src/App.tsx:119:      </Route>
+artifacts/dashboard/src/App.tsx:120:      <Route path="/metrics">
+artifacts/dashboard/src/App.tsx:121:        <ProtectedRoute component={Metrics} />
+artifacts/dashboard/src/App.tsx:122:      </Route>
+artifacts/dashboard/src/App.tsx:123:      <Route path="/graph">
+artifacts/dashboard/src/App.tsx:124:        <ProtectedRoute component={Graph} />
+artifacts/dashboard/src/App.tsx:125:      </Route>
+artifacts/dashboard/src/App.tsx:126:      <Route path="/ai">
+artifacts/dashboard/src/App.tsx:127:        <ProtectedRoute component={AiChat} />
+artifacts/dashboard/src/App.tsx:128:      </Route>
+artifacts/dashboard/src/App.tsx:129:      <Route path="/flight-deck">
+artifacts/dashboard/src/App.tsx:130:        <ProtectedRoute component={FlightDeck} />
+artifacts/dashboard/src/App.tsx:131:      </Route>
+artifacts/dashboard/src/App.tsx:132:      <Route path="/mission-control">
+artifacts/dashboard/src/App.tsx:133:        <ProtectedRoute component={MissionControl} />
+artifacts/dashboard/src/App.tsx:134:      </Route>
+artifacts/dashboard/src/App.tsx:135:      <Route component={NotFound} />
+artifacts/dashboard/src/App.tsx:161:function ClerkProviderWithRoutes() {
+artifacts/dashboard/src/App.tsx:190:      <Router />
+artifacts/dashboard/src/App.tsx:199:        <WouterRouter base={basePath}>
+artifacts/dashboard/src/App.tsx:200:          <ClerkProviderWithRoutes />
+artifacts/dashboard/src/App.tsx:201:        </WouterRouter>
