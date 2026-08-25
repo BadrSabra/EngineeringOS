@@ -1,0 +1,160 @@
+artifacts/dashboard/src/pages/AiChat.tsx:1264:      !/(?:^|\/)(?:benchmark-results|generated|dist|build|coverage)(?:\/|$)/i.test(source),
+artifacts/dashboard/src/pages/AiChat.tsx:1267:      /(?:^|\/)(?:package\.json|tsconfig[^/]*\.json|vitest\.config\.[cm]?[jt]s)$/i.test(source),
+artifacts/dashboard/src/pages/AiChat.tsx:1270:      /(?:^|\/)(?:benchmark-results|generated|dist|build|coverage)(?:\/|$)/i.test(source),
+artifacts/dashboard/src/pages/AiChat.tsx:1475:      return /(?:^|\/)(?:benchmark-results|generated|dist|build|coverage)(?:\/|$)/i.test(source);
+artifacts/dashboard/src/pages/AiChat.tsx:1478:      return /(?:^|\/)(?:package\.json|tsconfig[^/]*\.json|vitest\.config\.[cm]?[jt]s)$/i.test(source);
+artifacts/dashboard/src/pages/AiChat.tsx:1481:      /\.(?:ts|tsx|js|jsx|mjs|cjs|py|go|rs|java|kt|rb|sql|sh)$/i.test(source) &&
+artifacts/dashboard/src/pages/AiChat.tsx:1482:      !/(?:^|\/)(?:benchmark-results|generated|dist|build|coverage)(?:\/|$)/i.test(source)
+artifacts/dashboard/src/pages/AiChat.tsx:3087:            const newLines = change.newContent.split('\n').length;
+artifacts/dashboard/src/pages/AiChat.tsx:3088:            const oldLines = change.originalContent ? change.originalContent.split('\n').length : 0;
+artifacts/dashboard/src/pages/AiChat.tsx:5226:    /synthes|model response|report|diagnostic|recover/i.test(stage ?? '');
+artifacts/dashboard/src/pages/AiChat.tsx:5653:  const lines = diff.split('\n');
+artifacts/dashboard/src/pages/AiChat.tsx:7035:  async function fetchExecutionAudit(): Promise<{ audit: AuditPreview; filename: string }> {
+artifacts/dashboard/src/pages/AiChat.tsx:7055:  async function previewExecutionAudit() {
+artifacts/dashboard/src/pages/AiChat.tsx:7060:      const { audit } = await fetchExecutionAudit();
+artifacts/dashboard/src/pages/AiChat.tsx:7074:  async function exportExecutionAudit() {
+artifacts/dashboard/src/pages/AiChat.tsx:7078:      const { audit, filename } = await fetchExecutionAudit();
+artifacts/dashboard/src/pages/AiChat.tsx:7997:  const commitMutation = useGitCommit({
+artifacts/api-server/src/routes/ai/analysis.ts:131:  emit({ type: "task_started", task, projectId });
+artifacts/api-server/src/routes/ai/analysis.ts:156:  emit({
+artifacts/api-server/src/routes/ai/analysis.ts:389:    emit({ type: "stage", stage: "building-context" });
+artifacts/api-server/src/routes/ai/analysis.ts:394:    emit({ type: "stage", stage: "calling-model" });
+artifacts/api-server/src/routes/ai/analysis.ts:403:        onProgress: (message) => emit({
+artifacts/api-server/src/routes/ai/analysis.ts:419:      emit({
+artifacts/api-server/src/routes/ai/analysis.ts:432:    emit({ type: "stage", stage: "persisting-result" });
+artifacts/api-server/src/routes/ai/analysis.ts:455:    emit({ type: "stage", stage: "completed" });
+artifacts/api-server/src/routes/ai/analysis.ts:457:    emit({
+artifacts/api-server/src/routes/ai/analysis.ts:515:    emit({ type: "stage", stage: "building-context" });
+artifacts/api-server/src/routes/ai/analysis.ts:520:    emit({ type: "stage", stage: "calling-model" });
+artifacts/api-server/src/routes/ai/analysis.ts:529:        onProgress: (message) => emit({
+artifacts/api-server/src/routes/ai/analysis.ts:545:      emit({
+artifacts/api-server/src/routes/ai/analysis.ts:558:    emit({ type: "stage", stage: "persisting-result" });
+artifacts/api-server/src/routes/ai/analysis.ts:581:    emit({ type: "stage", stage: "completed" });
+artifacts/api-server/src/routes/ai/analysis.ts:583:    emit({
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:89:describe("circuit-breaker", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:92:  it("starts closed with zero failures", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:99:  it("stays closed below the threshold", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:105:  it("opens at the threshold (5 consecutive failures)", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:111:  it("closes immediately on success", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:125:  it("resets consecutive-failure counter on success", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:131:  it("provides cooldownRemainingMs when open", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:139:  it("isolates circuits per provider", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:148:describe("model-resolver — empty catalog fallback", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:149:  it("returns at least one model even with requireTools filter", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:154:  it("returns ordered chain with powerful tier first when requested", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:162:  it("buildFallbackChainFromId always includes the initial model first", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:169:  it("buildFallbackChainFromId with unknown model returns singleton", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:174:  it("resolveFallbackChain with no capability match degrades gracefully", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:183:describe("dynamic catalog — runtime model refresh", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:187:  it("getDynamicModelIds returns null before first fetch", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:191:  it("resolveFallbackChain falls back to static list when catalog not loaded", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:202:  it("keeps the static compatibility path when the first refresh fails", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:215:  it("keeps only free live IDs and preserves the last catalog on an empty refresh", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:249:  it("uses a loaded live catalog as a hard boundary for stale candidates", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:266:  it("re-resolves a pinned model when the request refresh replaces its snapshot", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:322:describe("error classification", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:345:  it("404 → MODEL_NOT_FOUND", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:353:  it("preserves actual model and termination metadata from a successful response", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:392:  it("accepts top-level output_text when message is absent", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:420:  it("retries the same model without JSON mode when OpenRouter rejects it", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:462:  it("402 → PLAN_RESTRICTED", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:470:  it("401 → AUTH_ERROR", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:478:  it("429 without billing keywords → RATE_LIMITED", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:486:  it("429 with billing body → QUOTA", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:494:  it("410 → MODEL_UNAVAILABLE", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:502:  it("422 → MODEL_UNAVAILABLE", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:510:  it("maps every terminal and recoverable failure to a safe disposition", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:539:describe("openrouterCompleteStream — bounded retry and disconnect safety", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:548:  it("retries a transient failure before the first chunk within one bounded retry", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:571:  it("advances to the next capability-compatible free model when unavailable", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:602:  it("terminalizes a disconnect after the first chunk without retrying or duplicating text", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:635:describe("openrouterCompleteWithFallback — model removed (PR-02)", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:643:  it("advances to next model on 404 and succeeds", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:673:  it("advances to next model on 402 (PLAN_RESTRICTED) and succeeds", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:703:  it("uses full resolver chain when no model specified", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:734:  it("rejects an unknown or paid model before any provider request", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:759:  it("does not try a paid or alternate model after authentication failure", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:784:  it("advances after an empty response without treating it as success", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:815:describe("provider-metrics — health tracking", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:821:  it("recordSuccess resets consecutiveFailures", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:833:  it("computes successRate correctly", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:847:  it("lastFailureAt is set on failure", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:857:describe("integration (INT-001) — static catalog used before runtime catalog loads", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:867:  it("should use static catalog before runtime catalog is loaded", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:909:describe("integration (INT-002) — downgrade to fast tier when powerful free models unavailable", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:919:  it("should downgrade to fast tier when powerful free models are unavailable", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:960:describe("integration (INT-003 / INT-007) — empty chain fails fast without issuing OpenRouter requests", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:970:  it("should fail over cleanly when no free model remains", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1009:  it("should not issue OpenRouter requests when the resolved chain is empty", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1050:  it("INT-007 — single fetch on first-model success", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1073:  it("INT-007 — fetch count equals chain length when every model fails before final success", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1106:describe("integration (INT-004) — agentComplete resolves models from quality hints instead of stale model IDs", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1116:  it("should resolve models from quality hints instead of stale model ids", async () => {
+artifacts/api-server/src/routes/ai/workflows.ts:62:    .limit(1);
+artifacts/api-server/src/routes/ai/workflows.ts:78:    .limit(1);
+artifacts/api-server/src/routes/ai/workflows.ts:243:    recordAudit({
+artifacts/dashboard/src/pages/FlightDeck.tsx:276:  const commitMutation = useGitCommit({
+artifacts/api-server/src/routes/ai/tasks.ts:47:    .limit(1);
+artifacts/api-server/src/routes/ai/tasks.ts:87:      .limit(1);
+artifacts/api-server/src/routes/ai/tasks.ts:90:      (error instanceof Error && /state changed|concurrent|claim/i.test(error.message))
+artifacts/api-server/src/routes/ai/tasks.ts:112:      .limit(1);
+artifacts/api-server/src/routes/ai/tasks.ts:271:    await recordAudit({
+artifacts/api-server/src/routes/ai/tasks.ts:378:  await recordAudit({
+artifacts/api-server/src/routes/ai/tasks.ts:408:        .limit(1);
+artifacts/api-server/src/routes/ai/tasks.ts:588:        await recordAudit({
+artifacts/api-server/src/routes/ai/tasks.ts:635:        await recordAudit({
+artifacts/api-server/src/routes/ai/tasks.ts:713:      await recordAudit({
+artifacts/api-server/src/routes/ai/chat.ts:460:  ).length + params.events.filter((event) => /validation/i.test(event.type)).length;
+artifacts/api-server/src/routes/ai/chat.ts:774:  )).limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:808:  return /[\u0600-\u06FF]/.test(message)
+artifacts/api-server/src/routes/ai/chat.ts:862:          .limit(1)
+artifacts/api-server/src/routes/ai/chat.ts:1685:    return Boolean(structuredPlan?.length) || marker.test(row.content);
+artifacts/api-server/src/routes/ai/chat.ts:1837:      .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:1858:        .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:1938:          .limit(historyLimit)
+artifacts/api-server/src/routes/ai/chat.ts:2140:              const isGreeting = /^(مرحبا|مرحبً?ا|أهلاً?|سلام|هلا|hi|hello|hey|greetings|سلاماً?|صباح الخير|مساء الخير|good (morning|afternoon|evening))[\s!.،,]*$/i.test(trimmed);
+artifacts/api-server/src/routes/ai/chat.ts:2376:      .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:2479:      .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:2583:        .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:2619:            const isGreeting = /^(مرحبا|مرحبً?ا|أهلاً?|سلام|هلا|hi|hello|hey|greetings|سلاماً?|صباح الخير|مساء الخير|good (morning|afternoon|evening))[\s!.،,]*$/i.test(trimmed);
+artifacts/api-server/src/routes/ai/chat.ts:2991:          .limit(historyLimit)
+artifacts/api-server/src/routes/ai/chat.ts:3439:        )).limit(1))[0]
+artifacts/api-server/src/routes/ai/chat.ts:3508:              reasonCode: (error instanceof Error && /stale/i.test(error.message)
+artifacts/api-server/src/routes/ai/chat.ts:3510:                : error instanceof Error && /limit|timeout|steps|selector|screenshot/i.test(error.message)
+artifacts/api-server/src/routes/ai/chat.ts:3884:      const hasArabic = /[\u0600-\u06FF]/.test(message);
+artifacts/api-server/src/routes/ai/chat.ts:3885:      const thaiBidiRange = /[\u0E00-\u0E7F]/.test(result.response);
+artifacts/api-server/src/routes/ai/chat.ts:3976:              const isGreeting = /^(مرحبا|مرحبً?ا|أهلاً?|سلام|هلا|hi|hello|hey|greetings|سلاماً?|صباح الخير|مساء الخير|good (morning|afternoon|evening))[\s!.،,]*$/i.test(trimmed);
+artifacts/api-server/src/routes/ai/chat.ts:4305:    .limit(limit);
+artifacts/api-server/src/routes/ai/chat.ts:4385:      .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:4501:      || /(?:^|\/)(?:home|tmp|private|runtime)(?:\/|$)/i.test(value)) return undefined;
+artifacts/api-server/src/routes/ai/chat.ts:4716:    .limit(20);
+artifacts/api-server/src/routes/ai/chat.ts:4754:    ) || /\bANALYSIS_INCOMPLETE\b/i.test(latest.content);
+artifacts/api-server/src/routes/ai/chat.ts:4760:    if (/\bNO FINDING\b/i.test(finalJudgment)) {
+artifacts/api-server/src/routes/ai/chat.ts:4763:    if (/\bFINDING PROVEN\b/i.test(finalJudgment)) {
+artifacts/api-server/src/routes/ai/chat.ts:4766:    if (/\bNOT PROVEN\b/i.test(finalJudgment)) {
+artifacts/api-server/src/routes/ai/chat.ts:4786:    .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:4804:    .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:4830:    .limit(REPORT_REGENERATION_MAX_MESSAGES);
+artifacts/api-server/src/routes/ai/chat.ts:4847:      .limit(1)
+artifacts/api-server/src/routes/ai/chat.ts:4853:    .limit(REPORT_REGENERATION_MAX_EVENTS);
+artifacts/api-server/src/routes/ai/chat.ts:4862:    .limit(REPORT_REGENERATION_MAX_EVENTS);
+artifacts/api-server/src/routes/ai/chat.ts:4907:    .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:4982:    .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:5122:  if (path.isAbsolute(relPath) || relPath.split(/[\\/]/).includes("..")) {
+artifacts/api-server/src/routes/ai/chat.ts:5177:  const allLines = rawFile.split(/\r?\n/);
+artifacts/api-server/src/routes/ai/chat.ts:5178:  // A file typically ends with a trailing newline, which split() turns into a
+artifacts/api-server/src/routes/ai/chat.ts:5205:    .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:5217:    .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:5232:    .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:5290:    .limit(20);
+artifacts/api-server/src/routes/ai/chat.ts:5350:    .where(eq(aiChangeProposalsTable.id, req.params.proposalId)).limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:5431:      .from(aiChangeProposalsTable).where(eq(aiChangeProposalsTable.id, proposal.id)).limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:5444:    .where(eq(aiChangeProposalsTable.id, req.params.proposalId)).limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:5547:      .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:5590:      if (BLOCKED_WRITE_EXTENSIONS.test(change.path) || BLOCKED_WRITE_EXTENSIONS.test(change.absolutePath)) {
+artifacts/api-server/src/routes/ai/chat.ts:5788:    .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:5856:    .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:5948:    .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:6009:      .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:6065:      .limit(1);
+artifacts/api-server/src/routes/ai/chat.ts:6147:      if (BLOCKED_WRITE_EXTENSIONS.test(change.path) || BLOCKED_WRITE_EXTENSIONS.test(change.absolutePath)) {

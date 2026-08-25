@@ -1,0 +1,258 @@
+artifacts/api-server/src/lib/ai-execution-state.ts:8:export const AI_EXECUTION_LEASE_MS = 5 * 60 * 1000;
+artifacts/api-server/src/lib/ai-execution-state.ts:9:export const AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT = 12_000;
+artifacts/api-server/src/lib/ai-execution-state.ts:10:export const AI_EXECUTION_TRACE_LIMIT = 80;
+artifacts/api-server/src/lib/ai-execution-state.ts:11:export const AI_EXECUTION_NODE_LIMIT = 24;
+artifacts/api-server/src/lib/ai-execution-state.ts:12:export const AI_EXECUTION_NODE_FILES_LIMIT = 48;
+artifacts/api-server/src/lib/ai-execution-state.ts:22:export const AUTONOMOUS_OPERATION_STATES = [
+artifacts/api-server/src/lib/ai-execution-state.ts:33:  "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:37:export type AutonomousOperationState = (typeof AUTONOMOUS_OPERATION_STATES)[number];
+artifacts/api-server/src/lib/ai-execution-state.ts:85:  planned: ["inspecting", "blocked", "cancelled"],
+artifacts/api-server/src/lib/ai-execution-state.ts:86:  inspecting: ["mutating", "validating", "blocked", "cancelled", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:87:  mutating: ["validating", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:88:  validating: ["succeeded", "diagnosing", "promoting", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:89:  diagnosing: ["repairing", "blocked", "cancelled", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:90:  repairing: ["validating", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:91:  promoting: ["delivering", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:92:  delivering: ["succeeded", "blocked", "cancelled", "uncertain", "failed"],
+artifacts/api-server/src/lib/ai-execution-state.ts:95:  cancelled: [],
+artifacts/api-server/src/lib/ai-execution-state.ts:100:export function transitionAutonomousOperation(
+artifacts/api-server/src/lib/ai-execution-state.ts:136: * The terminal success contract for autonomous work. This is deliberately
+artifacts/api-server/src/lib/ai-execution-state.ts:138: * lease is not evidence that the requested bytes or behavior were accepted.
+artifacts/api-server/src/lib/ai-execution-state.ts:140:export function validateAutonomousOperationCompletion(
+artifacts/api-server/src/lib/ai-execution-state.ts:194:export function assertAutonomousOperationIdentity(
+artifacts/api-server/src/lib/ai-execution-state.ts:263:    | "cancelled";
+artifacts/api-server/src/lib/ai-execution-state.ts:287:  "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:290:export function hashResumeToken(token: string): string {
+artifacts/api-server/src/lib/ai-execution-state.ts:294:export function createResumeToken(): string {
+artifacts/api-server/src/lib/ai-execution-state.ts:298:export function createAutonomousOperationContract(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:343:export function parseExecutionRequest(raw: string): AiExecutionRequestEnvelope | undefined {
+artifacts/api-server/src/lib/ai-execution-state.ts:363:export function parseAiExecutionCheckpoint(raw: string): AiExecutionCheckpoint | undefined {
+artifacts/api-server/src/lib/ai-execution-state.ts:573:  if (stage === "cancelled" || stage === "client_disconnected") return "cancelled";
+artifacts/api-server/src/lib/ai-execution-state.ts:583:  // A stage-only writer may resume directly at tool_loop after a process
+artifacts/api-server/src/lib/ai-execution-state.ts:595:      if (target === "failed" || target === "cancelled") {
+artifacts/api-server/src/lib/ai-execution-state.ts:610: * Reconcile checkpointed node progress with the server-owned plan that will be
+artifacts/api-server/src/lib/ai-execution-state.ts:611: * resumed. The checkpoint may advance status and attempts, but it must never
+artifacts/api-server/src/lib/ai-execution-state.ts:616:export function reconcileExecutionNodeCheckpoint(
+artifacts/api-server/src/lib/ai-execution-state.ts:618:  checkpointNodes: AiExecutionCheckpoint["nodeStates"] | undefined,
+artifacts/api-server/src/lib/ai-execution-state.ts:620:  if (!checkpointNodes || checkpointNodes.length === 0) return [...planNodes];
+artifacts/api-server/src/lib/ai-execution-state.ts:621:  if (planNodes.length !== checkpointNodes.length) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:623:  const checkpointById = new Map(checkpointNodes.map((node) => [node.id, node]));
+artifacts/api-server/src/lib/ai-execution-state.ts:624:  if (checkpointById.size !== planNodes.length) return undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:627:    const checkpointNode = checkpointById.get(planNode.id);
+artifacts/api-server/src/lib/ai-execution-state.ts:629:      !checkpointNode
+artifacts/api-server/src/lib/ai-execution-state.ts:630:      || !sameStringArray(planNode.allowedFiles, checkpointNode.allowedFiles)
+artifacts/api-server/src/lib/ai-execution-state.ts:631:      || !sameStringArray(planNode.dependencies, checkpointNode.dependencies)
+artifacts/api-server/src/lib/ai-execution-state.ts:632:      || planNode.validationProfile !== checkpointNode.validationProfile
+artifacts/api-server/src/lib/ai-execution-state.ts:633:      || checkpointNode.attempts < planNode.attempts
+artifacts/api-server/src/lib/ai-execution-state.ts:634:      || checkpointNode.validationAttempts < planNode.validationAttempts
+artifacts/api-server/src/lib/ai-execution-state.ts:637:          planNode.lastFailure.status !== checkpointNode.lastFailure?.status
+artifacts/api-server/src/lib/ai-execution-state.ts:638:          || planNode.lastFailure.attempt > (checkpointNode.lastFailure?.attempt ?? 0)
+artifacts/api-server/src/lib/ai-execution-state.ts:640:      || (planNode.status === "passed" && checkpointNode.status !== "passed")
+artifacts/api-server/src/lib/ai-execution-state.ts:641:      || (planNode.status === "blocked" && checkpointNode.status !== "blocked")
+artifacts/api-server/src/lib/ai-execution-state.ts:642:      || (checkpointNode.status === "running" && checkpointNode.attempts < 1)
+artifacts/api-server/src/lib/ai-execution-state.ts:649:    const checkpointNode = checkpointById.get(planNode.id)!;
+artifacts/api-server/src/lib/ai-execution-state.ts:652:      status: checkpointNode.status,
+artifacts/api-server/src/lib/ai-execution-state.ts:653:      attempts: checkpointNode.attempts,
+artifacts/api-server/src/lib/ai-execution-state.ts:654:      validationAttempts: checkpointNode.validationAttempts,
+artifacts/api-server/src/lib/ai-execution-state.ts:655:      ...(checkpointNode.lastFailure ? { lastFailure: checkpointNode.lastFailure } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:661: * Turns the last durable checkpoint into server-owned continuation context.
+artifacts/api-server/src/lib/ai-execution-state.ts:663: * the bounded checkpoint and can continue from the last observed stage instead
+artifacts/api-server/src/lib/ai-execution-state.ts:666:export function buildAiExecutionResumeContext(
+artifacts/api-server/src/lib/ai-execution-state.ts:667:  checkpoint: AiExecutionCheckpoint | undefined,
+artifacts/api-server/src/lib/ai-execution-state.ts:669:  if (!checkpoint || checkpoint.stage === "queued") return "";
+artifacts/api-server/src/lib/ai-execution-state.ts:672:    "The previous worker stopped unexpectedly. Continue the same execution from the checkpoint below.",
+artifacts/api-server/src/lib/ai-execution-state.ts:675:    formatUntrustedContent(JSON.stringify(checkpoint), {
+artifacts/api-server/src/lib/ai-execution-state.ts:676:      source: "checkpoint",
+artifacts/api-server/src/lib/ai-execution-state.ts:677:      revision: checkpoint.updatedAt,
+artifacts/api-server/src/lib/ai-execution-state.ts:682:export async function createAiExecution(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:685:  idempotencyKey: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:692:}): Promise<{ execution: AiExecution; resumeToken?: string; created: boolean }> {
+artifacts/api-server/src/lib/ai-execution-state.ts:698:      eq(aiExecutionsTable.idempotencyKey, params.idempotencyKey),
+artifacts/api-server/src/lib/ai-execution-state.ts:705:      throw new Error("Execution idempotency key is bound to a different request");
+artifacts/api-server/src/lib/ai-execution-state.ts:710:  const resumeToken = createResumeToken();
+artifacts/api-server/src/lib/ai-execution-state.ts:733:      idempotencyKey: params.idempotencyKey,
+artifacts/api-server/src/lib/ai-execution-state.ts:736:      resumeTokenHash: hashResumeToken(resumeToken),
+artifacts/api-server/src/lib/ai-execution-state.ts:738:      checkpoint: JSON.stringify({
+artifacts/api-server/src/lib/ai-execution-state.ts:749:      target: [aiExecutionsTable.userId, aiExecutionsTable.idempotencyKey],
+artifacts/api-server/src/lib/ai-execution-state.ts:753:  if (execution) return { execution, resumeToken, created: true };
+artifacts/api-server/src/lib/ai-execution-state.ts:764:      eq(aiExecutionsTable.idempotencyKey, params.idempotencyKey),
+artifacts/api-server/src/lib/ai-execution-state.ts:770:    throw new Error("Execution idempotency key is bound to a different request");
+artifacts/api-server/src/lib/ai-execution-state.ts:775:export async function getAiExecutionForUser(
+artifacts/api-server/src/lib/ai-execution-state.ts:790:export async function recoverAiExecutionResumeToken(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:793:}): Promise<{ execution: AiExecution; resumeToken: string } | undefined> {
+artifacts/api-server/src/lib/ai-execution-state.ts:794:  const resumeToken = createResumeToken();
+artifacts/api-server/src/lib/ai-execution-state.ts:798:      resumeTokenHash: hashResumeToken(resumeToken),
+artifacts/api-server/src/lib/ai-execution-state.ts:807:  return execution ? { execution, resumeToken } : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:810:export type AiExecutionRecoveryAction = "resume" | "abandon";
+artifacts/api-server/src/lib/ai-execution-state.ts:812:  | "resume_accepted"
+artifacts/api-server/src/lib/ai-execution-state.ts:822:  resumeToken?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:825:function recoveryCheckpoint(execution: AiExecution): AiExecutionCheckpoint | undefined {
+artifacts/api-server/src/lib/ai-execution-state.ts:826:  return parseAiExecutionCheckpoint(execution.checkpoint);
+artifacts/api-server/src/lib/ai-execution-state.ts:832:    cancelled: boolean;
+artifacts/api-server/src/lib/ai-execution-state.ts:840:  const previous = parseAiExecutionCheckpoint(execution.checkpoint);
+artifacts/api-server/src/lib/ai-execution-state.ts:846:    stage: params.cancelled ? "cancelled" : "failed",
+artifacts/api-server/src/lib/ai-execution-state.ts:850:          operation: params.cancelled
+artifacts/api-server/src/lib/ai-execution-state.ts:851:            ? { ...operation, state: "cancelled", updatedAt: now }
+artifacts/api-server/src/lib/ai-execution-state.ts:870: * Operator recovery is deliberately narrower than the legacy capability
+artifacts/api-server/src/lib/ai-execution-state.ts:872: * can be resumed or abandoned. The checkpoint and operation identity are
+artifacts/api-server/src/lib/ai-execution-state.ts:875:export async function requestAiExecutionRecovery(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:883:  const checkpoint = recoveryCheckpoint(current);
+artifacts/api-server/src/lib/ai-execution-state.ts:884:  const operation = checkpoint?.operation;
+artifacts/api-server/src/lib/ai-execution-state.ts:889:  const priorRecovery = checkpoint && typeof checkpoint === "object"
+artifacts/api-server/src/lib/ai-execution-state.ts:890:    ? (checkpoint as AiExecutionCheckpoint & { recovery?: { action?: string } }).recovery
+artifacts/api-server/src/lib/ai-execution-state.ts:892:  if (priorRecovery?.action === "abandon" || current.status === "cancelled") {
+artifacts/api-server/src/lib/ai-execution-state.ts:895:  if (params.action === "resume" && priorRecovery?.action === "resume") {
+artifacts/api-server/src/lib/ai-execution-state.ts:896:    return { execution: current, outcome: "resume_accepted" };
+artifacts/api-server/src/lib/ai-execution-state.ts:898:  if (params.action === "resume" && current.status === "running") {
+artifacts/api-server/src/lib/ai-execution-state.ts:905:  if (params.action === "resume") {
+artifacts/api-server/src/lib/ai-execution-state.ts:906:    const resumeToken = createResumeToken();
+artifacts/api-server/src/lib/ai-execution-state.ts:908:      ...checkpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts:909:      recovery: { action: "resume", outcome: "resume_accepted", updatedAt: new Date().toISOString() },
+artifacts/api-server/src/lib/ai-execution-state.ts:912:      resumeTokenHash: hashResumeToken(resumeToken),
+artifacts/api-server/src/lib/ai-execution-state.ts:913:      checkpoint: JSON.stringify(nextCheckpoint),
+artifacts/api-server/src/lib/ai-execution-state.ts:921:      ? { execution: updated, outcome: "resume_accepted", resumeToken }
+artifacts/api-server/src/lib/ai-execution-state.ts:927:    ...checkpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts:928:    stage: "cancelled" as const,
+artifacts/api-server/src/lib/ai-execution-state.ts:930:    recovery: { action: "abandon", outcome: "abandoned", updatedAt: now.toISOString() },
+artifacts/api-server/src/lib/ai-execution-state.ts:934:    status: "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:935:    checkpoint: JSON.stringify(nextCheckpoint),
+artifacts/api-server/src/lib/ai-execution-state.ts:936:    checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:939:    leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:951:export async function claimAiExecution(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:955:  resumeToken?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:957:  const tokenHash = params.resumeToken ? hashResumeToken(params.resumeToken) : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:963:      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+artifacts/api-server/src/lib/ai-execution-state.ts:968:      cancelRequestedAt: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:974:      ...(tokenHash ? [eq(aiExecutionsTable.resumeTokenHash, tokenHash)] : []),
+artifacts/api-server/src/lib/ai-execution-state.ts:980:export async function checkpointAiExecution(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:983:  checkpoint: AiExecutionCheckpoint;
+artifacts/api-server/src/lib/ai-execution-state.ts:985:  // Keep this update atomic: the worker lease and checkpoint version are the
+artifacts/api-server/src/lib/ai-execution-state.ts:987:  // server-validated contract in the checkpoint; legacy stage-only writers
+artifacts/api-server/src/lib/ai-execution-state.ts:989:  const durableOperation = params.checkpoint.operation
+artifacts/api-server/src/lib/ai-execution-state.ts:990:    ? advanceOperationForCheckpoint(params.checkpoint.operation, params.checkpoint.stage)
+artifacts/api-server/src/lib/ai-execution-state.ts:993:    ? { ...params.checkpoint, operation: durableOperation }
+artifacts/api-server/src/lib/ai-execution-state.ts:994:    : params.checkpoint;
+artifacts/api-server/src/lib/ai-execution-state.ts:998:      checkpoint: JSON.stringify(durableCheckpoint),
+artifacts/api-server/src/lib/ai-execution-state.ts:999:      checkpointVersion: durableCheckpoint.sequence,
+artifacts/api-server/src/lib/ai-execution-state.ts:1002:      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+artifacts/api-server/src/lib/ai-execution-state.ts:1008:      // A stale worker must not overwrite a newer durable checkpoint.
+artifacts/api-server/src/lib/ai-execution-state.ts:1009:      lt(aiExecutionsTable.checkpointVersion, params.checkpoint.sequence),
+artifacts/api-server/src/lib/ai-execution-state.ts:1015:export async function heartbeatAiExecution(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:1023:      leaseUntil: new Date(Date.now() + AI_EXECUTION_LEASE_MS),
+artifacts/api-server/src/lib/ai-execution-state.ts:1035:export async function completeAiExecution(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:1050:      checkpoint: aiExecutionsTable.checkpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts:1060:  const checkpoint = current ? parseAiExecutionCheckpoint(current.checkpoint) : undefined;
+artifacts/api-server/src/lib/ai-execution-state.ts:1062:  const operation = params.operation ?? checkpoint?.operation;
+artifacts/api-server/src/lib/ai-execution-state.ts:1085:      leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1087:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1088:      checkpoint: JSON.stringify({
+artifacts/api-server/src/lib/ai-execution-state.ts:1119:export async function failAiExecution(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:1123:  cancelled?: boolean;
+artifacts/api-server/src/lib/ai-execution-state.ts:1129:  const status = params.cancelled ? "cancelled" : "failed";
+artifacts/api-server/src/lib/ai-execution-state.ts:1138:        params.cancelled ? ["running", "cancelling"] : ["running"],
+artifacts/api-server/src/lib/ai-execution-state.ts:1142:  const terminalCheckpoint = current
+artifacts/api-server/src/lib/ai-execution-state.ts:1143:    ? mergeTerminalCheckpoint(current, { ...params, cancelled: params.cancelled ?? false })
+artifacts/api-server/src/lib/ai-execution-state.ts:1152:      leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1154:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1155:      ...(terminalCheckpoint ? { checkpoint: JSON.stringify(terminalCheckpoint) } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:1160:      params.cancelled ? inArray(aiExecutionsTable.status, ["running", "cancelling"]) : eq(aiExecutionsTable.status, "running"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1165:  // Cancellation is an authoritative terminal fence. If the worker learned
+artifacts/api-server/src/lib/ai-execution-state.ts:1166:  // about cancellation through the database (rather than its local signal),
+artifacts/api-server/src/lib/ai-execution-state.ts:1167:  // its ordinary failure path must still settle `cancelling` as cancelled and
+artifacts/api-server/src/lib/ai-execution-state.ts:1168:  // must never publish a failed outcome after the cancellation won.
+artifacts/api-server/src/lib/ai-execution-state.ts:1169:  if (!params.cancelled) {
+artifacts/api-server/src/lib/ai-execution-state.ts:1170:    const cancellationCheckpoint = current
+artifacts/api-server/src/lib/ai-execution-state.ts:1171:      ? mergeTerminalCheckpoint(current, { ...params, cancelled: true })
+artifacts/api-server/src/lib/ai-execution-state.ts:1173:    const [cancelled] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts:1176:        status: "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:1180:        leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1182:        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1183:        ...(cancellationCheckpoint ? { checkpoint: JSON.stringify(cancellationCheckpoint) } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:1188:        eq(aiExecutionsTable.status, "cancelling"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1191:    return Boolean(cancelled);
+artifacts/api-server/src/lib/ai-execution-state.ts:1196:export async function requestAiExecutionCancel(params: {
+artifacts/api-server/src/lib/ai-execution-state.ts:1203:  const cancelledCheckpoint = JSON.stringify(mergeTerminalCheckpoint(current, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1204:    cancelled: true,
+artifacts/api-server/src/lib/ai-execution-state.ts:1205:    error: "Execution cancelled before a worker started.",
+artifacts/api-server/src/lib/ai-execution-state.ts:1209:  // cancellation signal. Transition them directly to a terminal state so
+artifacts/api-server/src/lib/ai-execution-state.ts:1210:  // they cannot remain permanently stuck in `cancelling`.
+artifacts/api-server/src/lib/ai-execution-state.ts:1211:  const [cancelledBeforeStart] = await db
+artifacts/api-server/src/lib/ai-execution-state.ts:1214:      status: "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:1215:      cancelRequestedAt: now,
+artifacts/api-server/src/lib/ai-execution-state.ts:1217:      checkpoint: cancelledCheckpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts:1218:      checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1220:      leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1229:  if (cancelledBeforeStart) return cancelledBeforeStart;
+artifacts/api-server/src/lib/ai-execution-state.ts:1234:      status: "cancelling",
+artifacts/api-server/src/lib/ai-execution-state.ts:1235:      cancelRequestedAt: now,
+artifacts/api-server/src/lib/ai-execution-state.ts:1244:  if (updated) activeControllers.get(updated.id)?.abort(new Error("AI execution cancellation requested"));
+artifacts/api-server/src/lib/ai-execution-state.ts:1248:export function registerAiExecutionController(executionId: string, controller: AbortController): void {
+artifacts/api-server/src/lib/ai-execution-state.ts:1252:export function unregisterAiExecutionController(executionId: string, controller: AbortController): void {
+artifacts/api-server/src/lib/ai-execution-state.ts:1256:export async function reconcileAiExecutions(): Promise<number> {
+artifacts/api-server/src/lib/ai-execution-state.ts:1259:    inArray(aiExecutionsTable.status, ["running", "cancelling"]),
+artifacts/api-server/src/lib/ai-execution-state.ts:1263:    const checkpoint = parseAiExecutionCheckpoint(execution.checkpoint);
+artifacts/api-server/src/lib/ai-execution-state.ts:1264:    if (execution.status === "cancelling") {
+artifacts/api-server/src/lib/ai-execution-state.ts:1265:      const terminalCheckpoint = mergeTerminalCheckpoint(execution, {
+artifacts/api-server/src/lib/ai-execution-state.ts:1266:        cancelled: true,
+artifacts/api-server/src/lib/ai-execution-state.ts:1267:        error: "Execution cancellation was finalized after the server restarted.",
+artifacts/api-server/src/lib/ai-execution-state.ts:1270:        status: "cancelled",
+artifacts/api-server/src/lib/ai-execution-state.ts:1271:        error: "Execution cancelled by the user.",
+artifacts/api-server/src/lib/ai-execution-state.ts:1274:        leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1277:        checkpoint: JSON.stringify(terminalCheckpoint),
+artifacts/api-server/src/lib/ai-execution-state.ts:1278:        checkpointVersion: sql`${aiExecutionsTable.checkpointVersion} + 1`,
+artifacts/api-server/src/lib/ai-execution-state.ts:1281:        eq(aiExecutionsTable.status, "cancelling"),
+artifacts/api-server/src/lib/ai-execution-state.ts:1286:    const operation = checkpoint?.operation;
+artifacts/api-server/src/lib/ai-execution-state.ts:1290:    const nextCheckpoint = checkpoint
+artifacts/api-server/src/lib/ai-execution-state.ts:1292:          ...checkpoint,
+artifacts/api-server/src/lib/ai-execution-state.ts:1294:          recovery: {
+artifacts/api-server/src/lib/ai-execution-state.ts:1297:            outcome: "recovery_required",
+artifacts/api-server/src/lib/ai-execution-state.ts:1305:      error: "Execution interrupted; operator recovery is required.",
+artifacts/api-server/src/lib/ai-execution-state.ts:1307:      leaseUntil: null,
+artifacts/api-server/src/lib/ai-execution-state.ts:1310:      ...(nextCheckpoint ? { checkpoint: JSON.stringify(nextCheckpoint) } : {}),
+artifacts/api-server/src/lib/ai-execution-state.ts:1317:export async function listRecoverableAiExecutions(userId: string, sessionId: string): Promise<AiExecution[]> {
+artifacts/api-server/src/lib/ai-execution-state.ts:1324:      inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+artifacts/api-server/src/lib/delivery-workspace.ts:7:  | "committed" | "cancelled" | "abandoned" | "blocked";
+artifacts/api-server/src/lib/delivery-workspace.ts:10:export async function atomicallyPromoteFile(
+artifacts/api-server/src/lib/delivery-workspace.ts:32:export async function recoverPromotion(params: {
+artifacts/api-server/src/lib/delivery-workspace.ts:78:export function hashChangeSet(changes: readonly { path: string; newContent: string }[]): string {
+artifacts/api-server/src/lib/delivery-workspace.ts:90:export async function hashDeliveryWorkspace(workspaceRoot: string): Promise<string> {
+artifacts/api-server/src/lib/delivery-workspace.ts:112:export async function hashDeliveryFiles(
+artifacts/api-server/src/lib/delivery-workspace.ts:126:export function deliveryWorkspacePath(operationId: string): string {
+artifacts/api-server/src/lib/delivery-workspace.ts:131:export async function createDeliveryWorkspace(input: {
+artifacts/api-server/src/lib/delivery-workspace.ts:140:    // A retry of the same operation may be recovering a failed validation.
+artifacts/api-server/src/lib/delivery-workspace.ts:219:export async function discardDeliveryWorkspace(workspaceRoot: string, operationId: string): Promise<boolean> {
+artifacts/api-server/src/lib/delivery-workspace.ts:232:export async function deliveryWorkspaceExists(workspaceRoot: string | null, operationId: string): Promise<boolean> {
+artifacts/api-server/src/lib/delivery-workspace.ts:243:export function transitionDeliveryLifecycle(
+artifacts/api-server/src/lib/delivery-workspace.ts:249:    proposed: ["isolated", "cancelled", "abandoned", "blocked"],
+artifacts/api-server/src/lib/delivery-workspace.ts:250:    isolated: ["validated", "conflicted", "cancelled", "abandoned", "blocked"],
+artifacts/api-server/src/lib/delivery-workspace.ts:251:    validated: ["applied", "conflicted", "cancelled", "abandoned", "blocked"],
+artifacts/api-server/src/lib/delivery-workspace.ts:252:    applied: ["committed", "conflicted", "cancelled", "blocked"],
+artifacts/api-server/src/lib/delivery-workspace.ts:253:    conflicted: ["isolated", "cancelled", "abandoned", "blocked"],
+artifacts/api-server/src/lib/delivery-workspace.ts:255:    cancelled: [],
+artifacts/api-server/src/lib/ai-repair-validation.ts:113:export async function createValidationWorkspace(
+artifacts/api-server/src/lib/ai-repair-validation.ts:254:export function getRepairValidationProfile(profile: ValidationProfile): ValidationProfileDefinition {
+artifacts/api-server/src/lib/ai-repair-validation.ts:258:export function validateRepairValidationScope(
+artifacts/api-server/src/lib/ai-repair-validation.ts:380:export async function runRepairValidation(
+artifacts/api-server/src/lib/ai-repair-validation.ts:396:export async function runRepairRuntimeOracle(
+artifacts/api-server/src/lib/ai-repair-validation.ts:441:export async function runRepairPreviewValidation(input: {
+artifacts/api-server/src/lib/operation-evidence.ts:14:export const OPERATION_EVIDENCE_LIMITS = {
+artifacts/api-server/src/lib/operation-evidence.ts:29:  | "cancelled"
+artifacts/api-server/src/lib/operation-evidence.ts:34:  source: "execution" | "checkpoint" | "event" | "audit" | "task-log" | "journal" | "proposal" | "revision";
+artifacts/api-server/src/lib/operation-evidence.ts:40:  status: "started" | "passed" | "failed" | "blocked" | "cancelled" | "unknown";
+artifacts/api-server/src/lib/operation-evidence.ts:53:  terminalState: string;
+artifacts/api-server/src/lib/operation-evidence.ts:62:    checkpoints: number;
+artifacts/api-server/src/lib/operation-evidence.ts:75:  execution: Pick<AiExecution, "id" | "projectId" | "operationId" | "correlationId" | "status" | "attempt" | "checkpoint" | "checkpointVersion" | "request" | "baseRevision" | "error" | "createdAt" | "startedAt" | "completedAt">;
+artifacts/api-server/src/lib/operation-evidence.ts:95:  if (normalized.includes("cancel")) return "cancelled";
+artifacts/api-server/src/lib/operation-evidence.ts:107:  if (/promot|apply|rollback|recovery|delivery/.test(normalized)) return "promotion";
+artifacts/api-server/src/lib/operation-evidence.ts:118:export function buildOperationEvidenceProjection(input: EvidenceInput): OperationEvidenceProjection {
+artifacts/api-server/src/lib/operation-evidence.ts:120:  const checkpoint = record(parseJson(execution.checkpoint));
+artifacts/api-server/src/lib/operation-evidence.ts:167:  if (execution.checkpointVersion <= 0 || Object.keys(checkpoint).length === 0) {
+artifacts/api-server/src/lib/operation-evidence.ts:168:    addGap(gaps, { kind: "missing", source: "checkpoint", detail: "No durable checkpoint was retained." });
+artifacts/api-server/src/lib/operation-evidence.ts:182:  const terminalState = execution.status.toUpperCase();
+artifacts/api-server/src/lib/operation-evidence.ts:184:  if (execution.status === "cancelled" || execution.status === "cancelling") completeness = "cancelled";
+artifacts/api-server/src/lib/operation-evidence.ts:198:    terminalState,
+artifacts/api-server/src/lib/operation-evidence.ts:207:      checkpoints: execution.checkpointVersion > 0 ? 1 : 0,
+artifacts/api-server/src/lib/operation-evidence.ts:217:  const operation = checkpoint.operation as { nodes?: Array<{
+artifacts/api-server/src/lib/operation-evidence.ts:235:    terminalVerdict: typeof checkpoint.evidenceVerdict === "string" ? checkpoint.evidenceVerdict : null,
+artifacts/api-server/src/lib/operation-evidence.ts:244:export async function loadOperationEvidence(execution: AiExecution): Promise<OperationEvidenceProjection> {
+artifacts/api-server/src/lib/operation-evidence.ts:282:export function redactOperationEvidence(value: OperationEvidenceProjection): OperationEvidenceProjection {

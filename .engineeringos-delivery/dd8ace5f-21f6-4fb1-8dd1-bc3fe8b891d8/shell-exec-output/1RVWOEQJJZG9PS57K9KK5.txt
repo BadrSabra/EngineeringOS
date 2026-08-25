@@ -1,0 +1,320 @@
+artifacts/api-server/src/routes/ai/tasks.ts:2: * AI task execution routes + auto-trigger scheduler.
+artifacts/api-server/src/routes/ai/tasks.ts:4: * POST /api/ai/tasks/:taskId/execute
+artifacts/api-server/src/routes/ai/tasks.ts:5: * export scheduleAiTaskExecution
+artifacts/api-server/src/routes/ai/tasks.ts:11:  tasksTable,
+artifacts/api-server/src/routes/ai/tasks.ts:12:  taskLogsTable,
+artifacts/api-server/src/routes/ai/tasks.ts:32:import { executeTaskLifecycle } from "../../lib/task-execution-service.js";
+artifacts/api-server/src/routes/ai/tasks.ts:38:// ── POST /api/ai/tasks/:taskId/execute ───────────────────────────────────────
+artifacts/api-server/src/routes/ai/tasks.ts:40:router.post("/ai/tasks/:taskId/execute", async (req, res) => {
+artifacts/api-server/src/routes/ai/tasks.ts:41:  const { taskId } = req.params;
+artifacts/api-server/src/routes/ai/tasks.ts:43:  const [task] = await db
+artifacts/api-server/src/routes/ai/tasks.ts:45:    .from(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:46:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai/tasks.ts:48:  if (!task) return res.status(404).json({ error: "Task not found" });
+artifacts/api-server/src/routes/ai/tasks.ts:50:  const ownerProject = await loadProjectByIdForUser(task.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/tasks.ts:53:  if (!["pending", "queued", "verifying"].includes(task.status)) {
+artifacts/api-server/src/routes/ai/tasks.ts:56:      .json({ error: `Cannot AI-execute task with status "${task.status}"` });
+artifacts/api-server/src/routes/ai/tasks.ts:60:    qualityProfile: "task_execution",
+artifacts/api-server/src/routes/ai/tasks.ts:65:  const rlExecute = await checkProjectRateLimitDb(task.projectId);
+artifacts/api-server/src/routes/ai/tasks.ts:75:      taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:79:      expectedStatuses: [task.status as "pending" | "queued" | "verifying"],
+artifacts/api-server/src/routes/ai/tasks.ts:84:      .select({ status: tasksTable.status })
+artifacts/api-server/src/routes/ai/tasks.ts:85:      .from(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:86:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai/tasks.ts:89:      currentTask?.status !== task.status ||
+artifacts/api-server/src/routes/ai/tasks.ts:93:        error: "task_state_changed_concurrently",
+artifacts/api-server/src/routes/ai/tasks.ts:95:        hint: "The task changed while this execution was finishing; refresh the task before retrying.",
+artifacts/api-server/src/routes/ai/tasks.ts:100:  if (lifecycle.status === "conflict") {
+artifacts/api-server/src/routes/ai/tasks.ts:102:      error: "task_state_changed_concurrently",
+artifacts/api-server/src/routes/ai/tasks.ts:104:      hint: "The task changed while this execution was starting; refresh the task and retry if needed.",
+artifacts/api-server/src/routes/ai/tasks.ts:109:      .select({ status: tasksTable.status })
+artifacts/api-server/src/routes/ai/tasks.ts:110:      .from(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:111:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai/tasks.ts:113:    if (currentTask?.status !== task.status) {
+artifacts/api-server/src/routes/ai/tasks.ts:115:        error: "task_state_changed_concurrently",
+artifacts/api-server/src/routes/ai/tasks.ts:117:        hint: "The task changed while this execution was finishing; refresh the task before retrying.",
+artifacts/api-server/src/routes/ai/tasks.ts:125:        hint: "The AI model returned an unexpected response — try executing the task again.",
+artifacts/api-server/src/routes/ai/tasks.ts:129:      projectId: task.projectId,
+artifacts/api-server/src/routes/ai/tasks.ts:130:      operation: "task-execution",
+artifacts/api-server/src/routes/ai/tasks.ts:136:        hint: "Try executing the task again or refresh the project graph and metrics.",
+artifacts/api-server/src/routes/ai/tasks.ts:140:      error: lifecycle.errorCode ?? "task_execution_failed",
+artifacts/api-server/src/routes/ai/tasks.ts:141:      reason: "The AI task could not be completed. Try again in a moment.",
+artifacts/api-server/src/routes/ai/tasks.ts:144:  return res.status(202).json(lifecycle.task);
+artifacts/api-server/src/routes/ai/tasks.ts:150:    .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:154:        eq(tasksTable.id, taskId),
+artifacts/api-server/src/routes/ai/tasks.ts:155:        eq(tasksTable.status, task.status),
+artifacts/api-server/src/routes/ai/tasks.ts:161:  await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/ai/tasks.ts:163:    taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:172:    projectContext = await buildProjectContext(task.projectId, {
+artifacts/api-server/src/routes/ai/tasks.ts:173:      sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+artifacts/api-server/src/routes/ai/tasks.ts:176:    logger.error({ err, taskId, correlationId }, "AI execution failed while building project context");
+artifacts/api-server/src/routes/ai/tasks.ts:178:      .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:179:      .set({ status: task.status, updatedAt: new Date() })
+artifacts/api-server/src/routes/ai/tasks.ts:180:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:183:      logger.warn({ taskId, correlationId }, "AI execution failed, but task state changed concurrently — rollback skipped");
+artifacts/api-server/src/routes/ai/tasks.ts:185:    await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/ai/tasks.ts:187:      taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:193:    if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution", provider })) return;
+artifacts/api-server/src/routes/ai/tasks.ts:196:      hint: "Try executing the task again or refresh the project graph and metrics.",
+artifacts/api-server/src/routes/ai/tasks.ts:200:  await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/ai/tasks.ts:202:    taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:211:      await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/ai/tasks.ts:213:        taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:229:        taskTitle: task.title,
+artifacts/api-server/src/routes/ai/tasks.ts:230:        taskDescription: task.description,
+artifacts/api-server/src/routes/ai/tasks.ts:231:        taskPrompt: task.prompt,
+artifacts/api-server/src/routes/ai/tasks.ts:232:        taskPriority: task.priority,
+artifacts/api-server/src/routes/ai/tasks.ts:233:        relatedFiles: (task.relatedFiles as string[]) ?? [],
+artifacts/api-server/src/routes/ai/tasks.ts:237:      { qualityProfile: "task_execution" },
+artifacts/api-server/src/routes/ai/tasks.ts:240:    logger.error({ err, taskId, correlationId }, "AI execution failed while running agent");
+artifacts/api-server/src/routes/ai/tasks.ts:243:      .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:244:      .set({ status: task.status, updatedAt: new Date() })
+artifacts/api-server/src/routes/ai/tasks.ts:245:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:248:      logger.warn({ taskId, correlationId }, "AI execution failed, but task state changed concurrently — rollback skipped");
+artifacts/api-server/src/routes/ai/tasks.ts:251:    await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/ai/tasks.ts:253:      taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:263:      projectId: task.projectId,
+artifacts/api-server/src/routes/ai/tasks.ts:264:      taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:266:      message: `AI execution of "${task.title}" failed`,
+artifacts/api-server/src/routes/ai/tasks.ts:268:      payload: { status: task.status },
+artifacts/api-server/src/routes/ai/tasks.ts:272:      entityType: "task",
+artifacts/api-server/src/routes/ai/tasks.ts:273:      entityId: taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:275:      projectId: task.projectId,
+artifacts/api-server/src/routes/ai/tasks.ts:277:      stateAfter: { status: task.status },
+artifacts/api-server/src/routes/ai/tasks.ts:281:    invalidateContextCache(task.projectId);
+artifacts/api-server/src/routes/ai/tasks.ts:283:    if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution", provider: effectiveProvider })) return;
+artifacts/api-server/src/routes/ai/tasks.ts:285:      error: "task_execution_failed",
+artifacts/api-server/src/routes/ai/tasks.ts:286:      reason: "The AI task could not be completed. Try again in a moment.",
+artifacts/api-server/src/routes/ai/tasks.ts:293:      .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:294:      .set({ status: task.status, updatedAt: new Date() })
+artifacts/api-server/src/routes/ai/tasks.ts:295:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:298:      logger.warn({ taskId, correlationId }, "AI parse failure occurred, but task state changed concurrently — rollback skipped");
+artifacts/api-server/src/routes/ai/tasks.ts:300:    await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/ai/tasks.ts:302:      taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:309:      { err: agentResult._parseError, taskId, correlationId },
+artifacts/api-server/src/routes/ai/tasks.ts:315:      hint: "The AI model returned an unexpected response — try executing the task again.",
+artifacts/api-server/src/routes/ai/tasks.ts:320:  invalidateContextCache(task.projectId);
+artifacts/api-server/src/routes/ai/tasks.ts:325:  let updated: typeof tasksTable.$inferSelect;
+artifacts/api-server/src/routes/ai/tasks.ts:329:        .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:343:        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:349:      await tx.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/ai/tasks.ts:351:        taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:361:        projectId: task.projectId,
+artifacts/api-server/src/routes/ai/tasks.ts:362:        taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:364:        message: `AI executed "${task.title}" → ${finalStatus} (${agentResult.confidence} confidence)`,
+artifacts/api-server/src/routes/ai/tasks.ts:372:      logger.warn({ taskId, finalStatus }, "task execution finalization skipped due to concurrent state change");
+artifacts/api-server/src/routes/ai/tasks.ts:373:      return res.status(409).json({ error: "task_state_changed_concurrently" });
+artifacts/api-server/src/routes/ai/tasks.ts:379:    entityType: "task",
+artifacts/api-server/src/routes/ai/tasks.ts:380:    entityId: taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:382:    projectId: task.projectId,
+artifacts/api-server/src/routes/ai/tasks.ts:383:    stateBefore: { status: task.status },
+artifacts/api-server/src/routes/ai/tasks.ts:394: * Schedules an AI task execution job for a task that just entered `verifying`
+artifacts/api-server/src/routes/ai/tasks.ts:398:export function scheduleAiTaskExecution(taskId: string, userId: string): void {
+artifacts/api-server/src/routes/ai/tasks.ts:399:  // PR-D1: use enqueueWithId so concurrent calls for the same task (e.g.
+artifacts/api-server/src/routes/ai/tasks.ts:401:  // two closures and execute the AI agent twice for the same task ID.
+artifacts/api-server/src/routes/ai/tasks.ts:402:  heavyJobQueue.enqueueWithId(taskId, async () => {
+artifacts/api-server/src/routes/ai/tasks.ts:404:      const [task] = await db
+artifacts/api-server/src/routes/ai/tasks.ts:406:        .from(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:407:        .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai/tasks.ts:410:      if (!task || task.status !== "verifying" || !task.prompt) {
+artifacts/api-server/src/routes/ai/tasks.ts:412:          { taskId, status: task?.status ?? "gone", hasPrompt: !!task?.prompt },
+artifacts/api-server/src/routes/ai/tasks.ts:413:          "AI auto-trigger: task no longer eligible — skipping",
+artifacts/api-server/src/routes/ai/tasks.ts:419:        qualityProfile: "task_execution",
+artifacts/api-server/src/routes/ai/tasks.ts:422:        logger.warn({ taskId }, "AI auto-trigger: no AI provider configured — task stays in verifying");
+artifacts/api-server/src/routes/ai/tasks.ts:426:          projectId: task.projectId,
+artifacts/api-server/src/routes/ai/tasks.ts:427:          taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:429:          message: `AI auto-trigger skipped for "${task.title}": no AI provider configured`,
+artifacts/api-server/src/routes/ai/tasks.ts:436:      const rl = await checkProjectRateLimitDb(task.projectId);
+artifacts/api-server/src/routes/ai/tasks.ts:439:          { taskId, retryAfterSec: rl.retryAfterSec },
+artifacts/api-server/src/routes/ai/tasks.ts:440:          "AI auto-trigger: rate limited — task stays in verifying",
+artifacts/api-server/src/routes/ai/tasks.ts:446:        taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:452:      if (lifecycle.status === "conflict") {
+artifacts/api-server/src/routes/ai/tasks.ts:453:        logger.info({ taskId, reason: lifecycle.errorCode }, "AI auto-trigger: lifecycle claim skipped");
+artifacts/api-server/src/routes/ai/tasks.ts:457:        logger.warn({ taskId, executionId: lifecycle.executionId, code: lifecycle.errorCode }, "AI auto-trigger: lifecycle failed");
+artifacts/api-server/src/routes/ai/tasks.ts:464:      // Claim the task first — write the event only after the claim succeeds to
+artifacts/api-server/src/routes/ai/tasks.ts:467:        .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:469:        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "verifying")))
+artifacts/api-server/src/routes/ai/tasks.ts:472:        logger.info({ taskId }, "AI auto-trigger: concurrent state change won the claim — skipping");
+artifacts/api-server/src/routes/ai/tasks.ts:479:        projectId: task.projectId,
+artifacts/api-server/src/routes/ai/tasks.ts:480:        taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:482:        message: `AI auto-execution triggered for "${task.title}"`,
+artifacts/api-server/src/routes/ai/tasks.ts:487:      await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/ai/tasks.ts:489:        taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:497:        projectContext = await buildProjectContext(task.projectId, {
+artifacts/api-server/src/routes/ai/tasks.ts:498:          sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+artifacts/api-server/src/routes/ai/tasks.ts:501:        logger.error({ err: execErr, taskId, correlationId }, "AI auto-execution failed while building context");
+artifacts/api-server/src/routes/ai/tasks.ts:503:          .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:505:          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:508:          logger.warn({ taskId, correlationId }, "AI auto-execution failed, but task state changed concurrently — rollback skipped");
+artifacts/api-server/src/routes/ai/tasks.ts:510:        await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/ai/tasks.ts:512:          taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:520:      await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/ai/tasks.ts:522:        taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:530:          await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/ai/tasks.ts:532:            taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:547:            taskTitle: task.title,
+artifacts/api-server/src/routes/ai/tasks.ts:548:            taskDescription: task.description,
+artifacts/api-server/src/routes/ai/tasks.ts:549:            taskPrompt: task.prompt,
+artifacts/api-server/src/routes/ai/tasks.ts:550:            taskPriority: task.priority,
+artifacts/api-server/src/routes/ai/tasks.ts:551:            relatedFiles: (task.relatedFiles as string[]) ?? [],
+artifacts/api-server/src/routes/ai/tasks.ts:555:          { qualityProfile: "task_execution" },
+artifacts/api-server/src/routes/ai/tasks.ts:558:        logger.error({ err: execErr, taskId, correlationId }, "AI auto-execution failed");
+artifacts/api-server/src/routes/ai/tasks.ts:561:          .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:563:          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:566:          logger.warn({ taskId, correlationId }, "AI auto-execution failed, but task state changed concurrently — rollback skipped");
+artifacts/api-server/src/routes/ai/tasks.ts:569:        await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/ai/tasks.ts:571:          taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:580:          projectId: task.projectId,
+artifacts/api-server/src/routes/ai/tasks.ts:581:          taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:583:          message: `AI auto-execution of "${task.title}" failed`,
+artifacts/api-server/src/routes/ai/tasks.ts:589:          entityType: "task",
+artifacts/api-server/src/routes/ai/tasks.ts:590:          entityId: taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:592:          projectId: task.projectId,
+artifacts/api-server/src/routes/ai/tasks.ts:598:        invalidateContextCache(task.projectId);
+artifacts/api-server/src/routes/ai/tasks.ts:605:          .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:607:          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:610:          logger.warn({ taskId, correlationId }, "AI auto-execution parse failure occurred, but task state changed concurrently — rollback skipped");
+artifacts/api-server/src/routes/ai/tasks.ts:613:        await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/ai/tasks.ts:615:          taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:622:          { err: agentResult._parseError, taskId, correlationId },
+artifacts/api-server/src/routes/ai/tasks.ts:628:          projectId: task.projectId,
+artifacts/api-server/src/routes/ai/tasks.ts:629:          taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:631:          message: `AI auto-execution of "${task.title}" failed`,
+artifacts/api-server/src/routes/ai/tasks.ts:636:          entityType: "task",
+artifacts/api-server/src/routes/ai/tasks.ts:637:          entityId: taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:639:          projectId: task.projectId,
+artifacts/api-server/src/routes/ai/tasks.ts:644:        invalidateContextCache(task.projectId);
+artifacts/api-server/src/routes/ai/tasks.ts:648:      invalidateContextCache(task.projectId);
+artifacts/api-server/src/routes/ai/tasks.ts:653:        .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:667:        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:671:        logger.warn({ taskId, correlationId }, "AI auto-execution finished but task state changed concurrently — skipping final write");
+artifacts/api-server/src/routes/ai/tasks.ts:672:        await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/ai/tasks.ts:674:          taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:676:          message: "AI auto-execution finished but the task changed concurrently; final result was not persisted",
+artifacts/api-server/src/routes/ai/tasks.ts:683:          projectId: task.projectId,
+artifacts/api-server/src/routes/ai/tasks.ts:684:          taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:686:          message: `AI auto-execution finished for "${task.title}" but the task state changed concurrently`,
+artifacts/api-server/src/routes/ai/tasks.ts:693:      await db.insert(taskLogsTable).values({
+artifacts/api-server/src/routes/ai/tasks.ts:695:        taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:705:        projectId: task.projectId,
+artifacts/api-server/src/routes/ai/tasks.ts:706:        taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:708:        message: `AI auto-executed "${task.title}" → ${autoFinalStatus} (${agentResult.confidence} confidence)`,
+artifacts/api-server/src/routes/ai/tasks.ts:714:        entityType: "task",
+artifacts/api-server/src/routes/ai/tasks.ts:715:        entityId: taskId,
+artifacts/api-server/src/routes/ai/tasks.ts:717:        projectId: task.projectId,
+artifacts/api-server/src/routes/ai/tasks.ts:723:      logger.error({ err, taskId }, "AI auto-trigger: unhandled error in auto-execution job");
+artifacts/api-server/src/routes/ai/tasks.ts:728:export default router;
+artifacts/api-server/src/routes/ai/workflows.ts:2: * AI workflow orchestration routes.
+artifacts/api-server/src/routes/ai/workflows.ts:4: * POST /api/ai/workflows/:workflowId/orchestrate
+artifacts/api-server/src/routes/ai/workflows.ts:11:  workflowsTable,
+artifacts/api-server/src/routes/ai/workflows.ts:12:  workflowExecutionsTable,
+artifacts/api-server/src/routes/ai/workflows.ts:45:// ── POST /api/ai/workflows/:workflowId/orchestrate ───────────────────────────
+artifacts/api-server/src/routes/ai/workflows.ts:47:router.post("/ai/workflows/:workflowId/orchestrate", async (req, res) => {
+artifacts/api-server/src/routes/ai/workflows.ts:48:  const { workflowId } = req.params;
+artifacts/api-server/src/routes/ai/workflows.ts:58:  const [workflow] = await db
+artifacts/api-server/src/routes/ai/workflows.ts:60:    .from(workflowsTable)
+artifacts/api-server/src/routes/ai/workflows.ts:61:    .where(eq(workflowsTable.id, workflowId))
+artifacts/api-server/src/routes/ai/workflows.ts:63:  if (!workflow) return res.status(404).json({ error: "Workflow not found" });
+artifacts/api-server/src/routes/ai/workflows.ts:65:  const ownerProject = await loadProjectByIdForUser(workflow.projectId, req.userId, res);
+artifacts/api-server/src/routes/ai/workflows.ts:70:    .from(workflowExecutionsTable)
+artifacts/api-server/src/routes/ai/workflows.ts:73:        eq(workflowExecutionsTable.workflowId, workflowId),
+artifacts/api-server/src/routes/ai/workflows.ts:74:        eq(workflowExecutionsTable.status, "running"),
+artifacts/api-server/src/routes/ai/workflows.ts:77:    .orderBy(desc(workflowExecutionsTable.startedAt))
+artifacts/api-server/src/routes/ai/workflows.ts:81:    qualityProfile: "workflow",
+artifacts/api-server/src/routes/ai/workflows.ts:86:  const projectContext = await buildProjectContext(workflow.projectId, {
+artifacts/api-server/src/routes/ai/workflows.ts:87:    sections: ["tasks", "metrics", "events", "workflows"],
+artifacts/api-server/src/routes/ai/workflows.ts:90:  const phasesResult = parseWorkflowPhases(workflow.phases ?? []);
+artifacts/api-server/src/routes/ai/workflows.ts:92:    return res.status(422).json({ error: `Invalid workflow phases: ${phasesResult.error}` });
+artifacts/api-server/src/routes/ai/workflows.ts:95:  const currentPhase = execution?.currentPhase ?? workflow.currentPhase;
+artifacts/api-server/src/routes/ai/workflows.ts:98:  const rlOrch = await checkProjectRateLimitDb(workflow.projectId);
+artifacts/api-server/src/routes/ai/workflows.ts:105:  const orchLock = await tryAdvisoryLock(LockNamespace.ORCHESTRATION, workflowId);
+artifacts/api-server/src/routes/ai/workflows.ts:108:      error: "An orchestration decision is already in progress for this workflow. Retry in a moment.",
+artifacts/api-server/src/routes/ai/workflows.ts:113:  // workflow execution as the idempotency boundary so retries/restarts resume
+artifacts/api-server/src/routes/ai/workflows.ts:114:  // one server-owned operation instead of creating a parallel workflow log.
+artifacts/api-server/src/routes/ai/workflows.ts:115:  const workflowExecutionKey = execution?.id ?? `workflow:${workflowId}:${workflow.updatedAt.toISOString()}`;
+artifacts/api-server/src/routes/ai/workflows.ts:117:    projectId: workflow.projectId,
+artifacts/api-server/src/routes/ai/workflows.ts:118:    message: `AI orchestration for workflow "${workflow.name}"`,
+artifacts/api-server/src/routes/ai/workflows.ts:119:    modelMessage: "Choose the next workflow phase from the server-provided phase list.",
+artifacts/api-server/src/routes/ai/workflows.ts:120:    workspaceRevision: workflow.updatedAt.toISOString(),
+artifacts/api-server/src/routes/ai/workflows.ts:121:    objective: `Orchestrate workflow "${workflow.name}" from phase "${currentPhase ?? "none"}"`,
+artifacts/api-server/src/routes/ai/workflows.ts:122:    validationTargetPaths: [],
+artifacts/api-server/src/routes/ai/workflows.ts:131:      projectId: workflow.projectId,
+artifacts/api-server/src/routes/ai/workflows.ts:133:      idempotencyKey: workflowExecutionKey,
+artifacts/api-server/src/routes/ai/workflows.ts:148:      workerId = `workflow-orchestrator:${randomUUID()}`;
+artifacts/api-server/src/routes/ai/workflows.ts:171:    logger.error({ err, workflowId }, "workflow operation ledger initialization failed");
+artifacts/api-server/src/routes/ai/workflows.ts:178:      workflowName: workflow.name,
+artifacts/api-server/src/routes/ai/workflows.ts:196:    if (handleOrchestratorError(err, res, { projectId: workflow.projectId, operation: "workflow-orchestration", provider })) return;
+artifacts/api-server/src/routes/ai/workflows.ts:219:  logger.info({ workflowId, decision }, "AI workflow orchestration decision");
+artifacts/api-server/src/routes/ai/workflows.ts:221:  invalidateContextCache(workflow.projectId);
+artifacts/api-server/src/routes/ai/workflows.ts:223:  const evidenceRef = `workflow:${workflowId}:execution:${execution?.id ?? "unstarted"}:decision`;
+artifacts/api-server/src/routes/ai/workflows.ts:235:      evidenceReason: "The workflow decision and phase context were retained in the durable operation ledger.",
+artifacts/api-server/src/routes/ai/workflows.ts:244:      entityType: "workflow",
+artifacts/api-server/src/routes/ai/workflows.ts:245:      entityId: workflowId,
+artifacts/api-server/src/routes/ai/workflows.ts:247:      projectId: workflow.projectId,
+artifacts/api-server/src/routes/ai/workflows.ts:255:      projectId: workflow.projectId,
+artifacts/api-server/src/routes/ai/workflows.ts:256:      workflowId,
+artifacts/api-server/src/routes/ai/workflows.ts:258:      message: `AI orchestrator decision for "${workflow.name}": ${safeDecision.action} — ${safeDecision.reasoning.slice(0, 100)}`,
+artifacts/api-server/src/routes/ai/workflows.ts:271:export default router;
+artifacts/api-server/src/routes/ai/chat.ts:5: * POST /api/ai/chat/stream
+artifacts/api-server/src/routes/ai/chat.ts:8: * POST /api/ai/chat/apply-changes
+artifacts/api-server/src/routes/ai/chat.ts:24:  tasksTable,
+artifacts/api-server/src/routes/ai/chat.ts:53:  resumeActiveTaskClassification,
+artifacts/api-server/src/routes/ai/chat.ts:109:} from "../../lib/ai-repair-validation.js";
+artifacts/api-server/src/routes/ai/chat.ts:143:import { createProjectAnalysisToolRunner } from "../../lib/ai-analysis-tools.js";
+artifacts/api-server/src/routes/ai/chat.ts:182:      && (step as Record<string, unknown>).kind === "validation"
+artifacts/api-server/src/routes/ai/chat.ts:184:  const validation = latestValidation?.validation as ValidationResult | undefined;
+artifacts/api-server/src/routes/ai/chat.ts:185:  const validationStatus = validation?.status;
+artifacts/api-server/src/routes/ai/chat.ts:187:  if (validationStatus === "passed") {
+artifacts/api-server/src/routes/ai/chat.ts:188:    return isProvenValidation(validation)
+artifacts/api-server/src/routes/ai/chat.ts:192:  if (validationStatus === "unavailable") return "UNAVAILABLE";
+artifacts/api-server/src/routes/ai/chat.ts:193:  if (validationStatus === "failed" || validationStatus === "blocked") return "BLOCKED";
+artifacts/api-server/src/routes/ai/chat.ts:201:// This guard sits at the storage + SSE boundary so nothing reaches the DB or
+artifacts/api-server/src/routes/ai/chat.ts:313: * Validation receipts are the only proof shape allowed to cross the apply and
+artifacts/api-server/src/routes/ai/chat.ts:314: * recovery boundaries. Keep this projection explicit so persisted historical
+artifacts/api-server/src/routes/ai/chat.ts:395:    taskResult: string | null;
+artifacts/api-server/src/routes/ai/chat.ts:421:    const taskResult = message.taskResult ? parseStoredJson(message.taskResult) : undefined;
+artifacts/api-server/src/routes/ai/chat.ts:422:    const taskEvidence = taskResult && typeof taskResult === "object" && !Array.isArray(taskResult)
+artifacts/api-server/src/routes/ai/chat.ts:423:      ? (taskResult as { evidence?: unknown }).evidence
+artifacts/api-server/src/routes/ai/chat.ts:427:      + (Array.isArray(taskEvidence) ? Math.min(taskEvidence.length, 20) : 0);
+artifacts/api-server/src/routes/ai/chat.ts:448:  const terminalState = params.execution?.status === "cancelled"
+artifacts/api-server/src/routes/ai/chat.ts:450:    || traces.some((entry) => entry && typeof entry === "object" && (entry as { stopReason?: unknown }).stopReason === "cancelled")
+artifacts/api-server/src/routes/ai/chat.ts:455:  const validationCount = traces.filter((entry) =>
+artifacts/api-server/src/routes/ai/chat.ts:457:      (entry as { kind?: unknown }).kind === "validation"
+artifacts/api-server/src/routes/ai/chat.ts:458:      || (entry as { phase?: unknown }).phase === "validation"
+artifacts/api-server/src/routes/ai/chat.ts:460:  ).length + params.events.filter((event) => /validation/i.test(event.type)).length;
+artifacts/api-server/src/routes/ai/chat.ts:469:    validation: validationCount,
+artifacts/api-server/src/routes/ai/chat.ts:480:    validation: counts.validation >= 0,
+artifacts/api-server/src/routes/ai/chat.ts:500:export class MissionCorrelationReportValidationError extends Error {
+artifacts/api-server/src/routes/ai/chat.ts:514:export function serializeMissionCorrelationReport(value: unknown): string | null {
+artifacts/api-server/src/routes/ai/chat.ts:526: * audit exports. Keep the optional generatedAt field after schema parsing
+artifacts/api-server/src/routes/ai/chat.ts:527: * (Zod coerces it to Date in typed consumers), while applying the normal
+artifacts/api-server/src/routes/ai/chat.ts:530:export function projectMissionCorrelationReportForExport(
+artifacts/api-server/src/routes/ai/chat.ts:574:  plan: ApprovedImplementationPlan,
+artifacts/api-server/src/routes/ai/chat.ts:578:    plan.steps
+artifacts/api-server/src/routes/ai/chat.ts:585:function hasSafeImplementationPlanFileScope(plan: ApprovedImplementationPlan): boolean {
+artifacts/api-server/src/routes/ai/chat.ts:586:  return plan.steps.some((step) =>
+artifacts/api-server/src/routes/ai/chat.ts:605: * Re-validate the exact context used to create a plan immediately before an
+artifacts/api-server/src/routes/ai/chat.ts:607: * and dashboard reloads must not turn an old plan into write authorization.
+artifacts/api-server/src/routes/ai/chat.ts:610:  plan: ApprovedImplementationPlan,
+artifacts/api-server/src/routes/ai/chat.ts:614:  if (!plan.contextManifest) {
+artifacts/api-server/src/routes/ai/chat.ts:616:      error: "This plan has no verified project context. Complete a fresh scan and rebuild the plan before continuing.",
+artifacts/api-server/src/routes/ai/chat.ts:625:      error: "No verified project context is available. Complete a fresh scan and rebuild the plan before continuing.",
+artifacts/api-server/src/routes/ai/chat.ts:635:  if (!contextManifestMatches(plan.contextManifest, currentManifest)) {
+artifacts/api-server/src/routes/ai/chat.ts:637:      error: "This plan was created from stale project context. Complete a fresh scan, rebuild, and explicitly re-approve it.",
+artifacts/api-server/src/routes/ai/chat.ts:645:  // accessibility leaves a symlink replacement window in which a plan could
+artifacts/api-server/src/routes/ai/chat.ts:646:  // be approved against a different directory.
+artifacts/api-server/src/routes/ai/chat.ts:653:      error: "The project files changed after inspection. Scan again, rebuild, and explicitly re-approve the plan.",
+artifacts/api-server/src/routes/ai/chat.ts:666: * A mismatch is represented as an unavailable planning inventory so the
+artifacts/api-server/src/routes/ai/chat.ts:667: * planner's existing guarded fallback produces an explicitly blocked plan.
+artifacts/api-server/src/routes/ai/chat.ts:668: * This avoids asking a provider to plan from a stale or partial snapshot.
+artifacts/api-server/src/routes/ai/chat.ts:695:      filesystemManifest: unavailable("The project root is unavailable; planning is blocked until it is restored."),
+artifacts/api-server/src/routes/ai/chat.ts:702:      filesystemManifest: unavailable("The project scan is incomplete; complete a fresh scan before creating a plan."),
+artifacts/api-server/src/routes/ai/chat.ts:703:      filesystemSources: unavailableSources("The project scan is incomplete; source excerpts are not planning evidence."),
+artifacts/api-server/src/routes/ai/chat.ts:707:  // use the exact manifest that authorized this planning attempt.
+artifacts/api-server/src/routes/ai/chat.ts:723:      filesystemManifest: unavailable("The project source tree could not be read; planning is blocked."),
+artifacts/api-server/src/routes/ai/chat.ts:730:      filesystemManifest: unavailable("The live source walk is incomplete; planning requires a complete snapshot."),
+artifacts/api-server/src/routes/ai/chat.ts:738:        "The source tree changed after the last scan; complete a fresh scan before creating a plan.",
+artifacts/api-server/src/routes/ai/chat.ts:777:      error: "The selected browser validation profile is not registered for this project.",
+artifacts/api-server/src/routes/ai/chat.ts:784:      error: "The selected browser validation profile belongs to an older project revision. Register a fresh browser check before continuing.",
+artifacts/api-server/src/routes/ai/chat.ts:831:  validationProfile?: ValidationProfile;
+artifacts/api-server/src/routes/ai/chat.ts:911:  | "PREFLIGHT_PASSED"

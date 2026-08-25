@@ -1,0 +1,180 @@
+3:import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+145:  | 'proposed' | 'isolated' | 'validated' | 'applied' | 'conflicted'
+156:  conflictReason?: string | null;
+160:  validationEvidence?: PublicValidationResult[] | null;
+184:  const isBlocked = lifecycle === 'blocked' || lifecycle === 'conflicted';
+202:    <div className={`border-y px-4 py-3 ${statusClass}`} aria-label="Candidate validation proof">
+205:        <span className="text-xs font-semibold">Candidate validation receipt</span>
+228:        <p className="mt-2 border-t border-current/10 pt-2 text-[10px]">No public validation receipt is available for this candidate.</p>
+252:        action: 'Use a smaller approved check or update the profile before rerunning validation.',
+257:        action: 'Refresh the project and create a new approved validation run before retrying.',
+340:      validationCommands: string[];
+415:      kind: 'finding' | 'source' | 'validation';
+423:  validationProfile?: 'ai-orchestrator-tests' | 'knowledge-engine-tests' | 'api-ai-tests' | 'workspace-typecheck';
+426:    kind: 'finding' | 'source' | 'validation';
+434:  validationProfile: NonNullable<PendingChange['validationProfile']>;
+438:  return Boolean(change.validationProfile);
+441:function validationProfileLabel(profile: PendingChange['validationProfile']): string {
+452:      return 'No registered validation';
+461:  conflict?: {
+652:  approvalRequired?: boolean;
+717:  phase?: 'localization' | 'evidence' | 'patch_proposal' | 'validation' | 'repair_recovery' | 'report';
+757:  validation?: PublicValidationResult;
+759:  validationStatus?: PublicValidationResult['status'];
+761:  validationProfile?: string;
+762:  validationScenario?: string;
+763:  validationCommand?: string;
+764:  validationExitCode?: number | null;
+765:  validationFailedTests?: string[];
+766:  validationAffectedFiles?: string[];
+767:  validationFailedTestDetails?: never;
+768:  validationChangedFiles?: string[];
+769:  validationAttempt?: number;
+770:  validationMaxAttempts?: number;
+771:  validationDetail?: string;
+1561:    return 'Recovery returned a structured envelope, but its Finding evidence or phase linkage failed validation. The candidate was rejected and the next bounded candidate was tried.';
+2743:  const validationEntries = trace.filter((entry) => entry.kind === 'validation');
+2747:  if (validationEntries.length === 0 && repairStateEntries.length === 0) return null;
+2756:  const attempts = validationEntries.map((entry, index) => {
+2757:    const validationIndex = trace.indexOf(entry);
+2759:      .filter(({ index: patchIndex }) => patchIndex > previousValidationIndex && patchIndex < validationIndex)
+2765:        expectedValidation: patch.args?.validationProfile ?? patch.args?.profile,
+2767:    previousValidationIndex = validationIndex;
+2768:    const status = entry.validation?.status ?? entry.validationStatus ?? 'unavailable';
+2769:    const detail = entry.validation?.detail ?? entry.validationDetail;
+2773:      validation: entry.validation,
+2777:        : typeof entry.validationAttempt === 'number' ? entry.validationAttempt : null,
+2779:      profile: entry.validation?.profile ?? entry.validationProfile,
+2780:      permittedOrigin: entry.validation?.evidence?.permittedOrigin,
+2781:      revision: entry.validation?.evidence?.revision,
+2786:          ? 'The previous patch passed its registered validation.'
+2792:          ? 'The validation failure remains unresolved; another bounded repair or manual review is required.'
+2793:          : 'The execution did not produce enough validation evidence to clear delivery.',
+2863:          {radar.attempts.length} validation{radar.attempts.length === 1 ? '' : 's'}
+2943:            <div className="text-muted-foreground">No validation result was persisted for this repair state.</div>
+2976:  validationEvidence,
+2985:  approvalRequired,
+2990:  validationEvidence?: PublicValidationResult[] | null;
+2999:  approvalRequired: boolean;
+3004:  const hasPatchConflict = changes.some((change) => Boolean(verificationResults[change.path]?.conflict));
+3064:             {lifecycle === 'conflicted'
+3070:                   : approvalRequired ? 'Review and approve this rebased diff' : 'Waiting for your approval'}
+3075:          evidence={validationEvidence}
+3111:                    {change.validationProfile && (
+3113:                        Test: {validationProfileLabel(change.validationProfile)}
+3153:                    {verificationResults[change.path]?.conflict && (
+3155:                        Patch conflict: {verificationResults[change.path].conflict?.kind === 'hunk_mismatch'
+3156:                          ? `hunk ${((verificationResults[change.path].conflict?.hunkIndex ?? 0) + 1)} no longer matches`
+3229:                                  {evidence.kind === 'validation' ? 'Test' : 'Evidence'}: {evidence.label}
+3273:            {approvalRequired ? 'Approve & apply' : 'Apply'}{' '}
+3744:    queryKey: ['browser-validation-profiles', projectId, browserProfileName],
+3747:      const response = await fetch(`/api/projects/${encodeURIComponent(projectId!)}/browser-validation-profiles`);
+3748:      if (!response.ok) throw new Error('Browser validation profiles are unavailable.');
+3915:      const validationCommands = Array.isArray(result.validationCommands)
+3916:        ? result.validationCommands.filter((item): item is string => typeof item === 'string')
+3918:      const hasPlanDetails = assumptions.length > 0 || validationCommands.length > 0 ||
+3923:            (Array.isArray(step.validation) && step.validation.length > 0);
+3960:              const validation = Array.isArray(step.validation)
+3961:                ? step.validation.filter((item): item is string => typeof item === 'string')
+3977:                      {validation.length > 0 && (
+3978:                        <div className="text-[10px] leading-relaxed text-muted-foreground">Validate: {validation.join('; ')}</div>
+3997:              Files, validation, and assumptions
+4005:          {planDetailsExpanded && validationCommands.length > 0 && (
+4007:              <span className="font-medium text-foreground/80">Validation commands:</span> {validationCommands.join(' · ')}
+4012:              <span className="font-medium text-foreground/80">Browser validation:</span> {result.browserValidationProfile}
+4194:    || toolTrace.some((entry) => entry.kind === 'validation' || entry.kind === 'repair_state')
+4908:  kind: 'stage' | 'plan' | 'tool' | 'model' | 'iteration' | 'synthesis' | 'validation' | 'repair_state' | 'diagnostic' | 'phase_rejection' | 'guard';
+4950:      const approval = entry.approvalRequired
+5050:    if (entry.kind === 'validation') {
+5051:      const status = entry.validation?.status ?? entry.validationStatus ?? 'unavailable';
+5054:        kind: 'validation',
+5061:          entry.validation?.profile ?? entry.validationProfile,
+5062:          (entry.attempt ?? entry.validationAttempt) != null
+5063:            ? `attempt ${entry.attempt ?? entry.validationAttempt}/${entry.maxAttempts ?? entry.validationMaxAttempts ?? '?'}`
+5065:          (entry.validation?.exitCode ?? entry.validationExitCode) != null
+5066:            ? `exit ${entry.validation?.exitCode ?? entry.validationExitCode}`
+5068:          entry.validation?.detail ?? entry.validationDetail,
+5443:type FlightRecorderFilter = 'all' | 'tools' | 'validation' | 'repair' | 'guards' | 'phase_rejections';
+5446:  if (entry.kind === 'validation') return 'validation';
+5464:    run_validation: 'Run registered validation',
+5479:  if (entry.kind === 'validation') {
+5480:    const status = entry.validation?.status ?? entry.validationStatus;
+5518:  if (entry.kind === 'validation') {
+5520:      entry.validation?.profile ?? entry.validationProfile,
+5521:      (entry.attempt ?? entry.validationAttempt) != null
+5522:        ? `attempt ${entry.attempt ?? entry.validationAttempt}/${entry.maxAttempts ?? entry.validationMaxAttempts ?? '?'}`
+5524:      entry.validation?.detail ?? entry.validationDetail,
+5592:  return entry.kind === 'validation';
+5596:  const validation = entry.validation;
+5597:  const status = validation?.status ?? entry.validationStatus ?? 'unavailable';
+5598:  const blockExplanation = browserValidationBlockExplanation(validation?.reasonCode);
+5612:        {(validation?.exitCode ?? entry.validationExitCode) != null && (
+5615:            <span>{validation?.exitCode ?? entry.validationExitCode}</span>
+5620:        <div className="mt-2 rounded border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 text-amber-100" role="note" aria-label="Safe browser validation guidance">
+5711:        entry.args?.validationProfile ? `Expected validation: ${entry.args.validationProfile}` : undefined,
+5714:  const validation = entry.kind === 'validation' ? entry.validation : undefined;
+5715:  const validationStatus = validation?.status ?? entry.validationStatus;
+5719:  if (!reason && !linkedEvidence && patchContext.length === 0 && !validationStatus && !detail) return null;
+5741:      {validationStatus && (
+5742:        <div className={`mt-1 ${validationStatus === 'passed' ? 'text-emerald-200' : validationStatus === 'failed' ? 'text-red-200' : 'text-amber-200'}`}>
+5743:          Validation outcome: {validationStatus}
+5818:              <option value="validation">Validation ({counts.validation ?? 0})</option>
+5911:                    entry.kind === 'tool_result' || (entry.validation?.status ?? entry.validationStatus) === 'passed'
+5913:                      : (entry.validation?.status ?? entry.validationStatus) === 'failed' || entry.repairState === 'BLOCKED'
+5968:                              aria-label={expandedValidationIndex === index ? 'Hide validation details' : 'Show validation details'}
+5969:                              title="Show validation result details"
+5974:                              {expandedValidationIndex === index ? 'Hide validation' : 'Show validation'}
+6103:      typeof value.validationProfile === 'string' &&
+6324:  pendingChanges,
+6350:  pendingChanges: PendingChange[];
+6390:          : pendingChanges.length > 0
+6429:      : pendingChanges.length > 0
+6430:        ? `${pendingChanges.length} change${pendingChanges.length === 1 ? '' : 's'} awaiting approval`
+6446:  const riskLabel = pendingChanges.some((change) => change.risk === 'high')
+6448:    : pendingChanges.some((change) => change.risk === 'medium')
+6450:      : pendingChanges.length > 0
+6743:              : pendingChanges.length > 0 || status.startsWith('ready-')
+6749:              : pendingChanges.length > 0
+6864:  const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
+6871:  const [validationEvidence, setValidationEvidence] = useState<PublicValidationResult[]>([]);
+7501:    if (pendingChanges.length > 0) {
+7502:      const payload: StoredPending = { changes: pendingChanges, savedAt: Date.now() };
+7512:  }, [pendingChanges, pendingKey, verificationKey, verificationResults]);
+7615:    approvalRequired: boolean;
+7621:    conflictReason?: string | null;
+7622:    validationEvidence?: PublicValidationResult[] | null;
+7648:  async function recoverDelivery(proposal: RecoverableDelivery, action: 'resume-validation' | 'discard') {
+7690:      if (action === 'resume-validation') {
+7696:            ? 'The retained operation workspace passed its registered validation checks.'
+7779:    setProposalRequiresApproval(serverProposal.approvalRequired === true);
+7782:    setValidationEvidence(serverProposal.validationEvidence ?? []);
+7877:          conflict: result.conflict ?? undefined,
+7902:        setValidationEvidence(data.validationEvidence ?? []);
+7971:        setProposalRequiresApproval(data.approvalRequired === true);
+8352:            detail: event.approvalRequired
+8360:           const status = event.validation.status;
+8370:            kind: 'validation',
+8377:               event.validation.profile,
+8380:               event.validation.exitCode != null ? `exit ${event.validation.exitCode}` : undefined,
+8381:               event.validation.evidence.screenshotAvailable ? 'screenshot captured' : undefined,
+8382:               event.validation.evidence.consoleErrorCount
+8383:                 ? `${event.validation.evidence.consoleErrorCount} console error${event.validation.evidence.consoleErrorCount === 1 ? '' : 's'}`
+8385:               event.validation.detail,
+8521:             kind: 'validation',
+8596:          setPendingChanges(data.pendingChanges ?? []);
+8660:  function resumeActiveExecution() {
+8678:  async function cancelActiveExecution() {
+8870:    pendingChanges.length > 0 ||
+9193:                    {delivery.conflictReason && delivery.recoveryState !== 'discarded' && (
+9194:                      <div className="mt-1 break-words text-red-200">Retained reason: {delivery.conflictReason}</div>
+9196:                    {delivery.validationEvidence && delivery.validationEvidence.length > 0 && (
+9198:                        evidence={delivery.validationEvidence}
+9206:                      const blockedCheck = delivery.validationEvidence?.find((check) => check.reasonCode);
+9209:                        <div className="mt-1 rounded border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 text-amber-100" role="note" aria-label="Safe browser validation guidance">
+9223:                        onClick={() => void recoverDelivery(delivery, 'resume-validation')}
+9226:                        Resume validation
+9282:                   pendingChanges={pendingChanges}
+9417:              {pendingChanges.length > 0 && (
+9419:                  changes={pendingChanges}
+9421:                  validationEvidence={validationEvidence}
+9430:                  approvalRequired={proposalRequiresApproval}

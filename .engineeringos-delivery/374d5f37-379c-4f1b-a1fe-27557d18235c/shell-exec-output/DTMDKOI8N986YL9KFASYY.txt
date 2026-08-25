@@ -1,0 +1,400 @@
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Activity,
+  AlertTriangle,
+  ArrowUpRight,
+  CheckCircle2,
+  CircleDashed,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  Cpu,
+  Download,
+  ExternalLink,
+  FileUp,
+  Gauge,
+  GitBranch,
+  History,
+  Layers3,
+  RefreshCw,
+  ShieldCheck,
+  Search,
+  TerminalSquare,
+  Wrench,
+  XCircle,
+  Zap,
+} from 'lucide-react';
+import { Link } from 'wouter';
+import { useGetAiMissionControl } from '@workspace/api-client-react';
+import type { AiMissionControl } from '@workspace/api-client-react';
+
+type JsonRecord = Record<string, unknown>;
+
+type MissionExecution = {
+  id: string;
+  state?: unknown;
+  objective?: unknown;
+  provider?: unknown;
+  model?: unknown;
+  attempts?: unknown;
+  validationFailures?: unknown;
+  evidence?: unknown;
+  timestamps?: unknown;
+  checkpointVersion?: unknown;
+  eventCount?: unknown;
+  recentEvents?: unknown;
+  recovery?: unknown;
+  recoverySummary?: unknown;
+  failureCategory?: unknown;
+  recoveryAction?: unknown;
+  evidenceStatus?: unknown;
+  operationId?: unknown;
+  revision?: unknown;
+  evidenceProjection?: unknown;
+  phase?: unknown;
+};
+
+type MetricEntry = {
+  key: string;
+  label: string;
+  value: string;
+  numericValue?: number;
+};
+
+type HistorySnapshot = {
+  executions: MissionExecution[];
+  benchmark: JsonRecord;
+};
+
+const COMPLETE_STATES = new Set(['READY_FOR_REVIEW', 'COMPLETED', 'COMMITTED', 'PUSHED', 'APPLIED']);
+
+function asRecord(value: unknown): JsonRecord | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as JsonRecord
+    : null;
+}
+
+function asExecutions(value: unknown): MissionExecution[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is MissionExecution => {
+    const record = asRecord(item);
+    return Boolean(record && typeof record.id === 'string');
+  });
+}
+
+function validateHistorySnapshot(value: unknown): { snapshot?: HistorySnapshot; error?: string } {
+  const root = asRecord(value);
+  if (!root) return { error: 'The file must contain a JSON object.' };
+  if (!Array.isArray(root.executions) || root.executions.length === 0) {
+    return { error: 'The JSON must contain a non-empty executions array.' };
+  }
+  const invalidExecutionIndex = root.executions.findIndex((execution) => {
+    const record = asRecord(execution);
+    return !record || typeof record.id !== 'string' || !record.id.trim();
+  });
+  if (invalidExecutionIndex >= 0) {
+    return { error: `Execution ${invalidExecutionIndex + 1} must be an object with a non-empty string id.` };
+  }
+  const benchmark = asRecord(root.benchmark);
+  if (!benchmark) return { error: 'The JSON must contain a benchmark object.' };
+  const scorecard = asRecord(benchmark.scorecard);
+  const baseline = asRecord(benchmark.baseline);
+  if (!scorecard || !asRecord(scorecard.metrics)) {
+    return { error: 'Benchmark scorecard.metrics must be a nested object.' };
+  }
+  if (!baseline || !asRecord(baseline.metrics)) {
+    return { error: 'Benchmark baseline.metrics must be a nested object.' };
+  }
+  return { snapshot: { executions: asExecutions(root.executions), benchmark } };
+}
+
+function textValue(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return undefined;
+}
+
+function numberValue(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value);
+  }
+  return undefined;
+}
+
+function formatKey(key: string): string {
+  return key
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined) return 'Not recorded';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  if (typeof value === 'string') return value || 'Not recorded';
+  if (Array.isArray(value)) return value.length ? `${value.length} recorded` : 'None recorded';
+  const object = asRecord(value);
+  if (object) {
+    const preferred = textValue(object.summary, object.message, object.description, object.value, object.verdict);
+    if (preferred) return preferred;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return 'Structured evidence';
+    }
+  }
+  return String(value);
+}
+
+function formatDate(value: unknown): string | undefined {
+  const raw = textValue(value);
+  if (!raw) return undefined;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? raw : date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function ProviderRecoverySummary({ value }: { value: unknown }) {
+  const summary = asRecord(value);
+  if (!summary) return null;
+  const model = textValue(summary.model) ?? 'Model not recorded';
+  const category = textValue(summary.failureCategory) ?? 'Not categorized';
+  const action = textValue(summary.recoveryAction) ?? 'No recovery action';
+  const evidence = textValue(summary.evidenceStatus) ?? 'Not recorded';
+  const attempts = numberValue(summary.attemptCount);
+  return (
+    <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
+      <div className="flex items-center gap-2">
+        <ShieldCheck className="h-4 w-4 text-amber-200" />
+        <span className="text-sm font-semibold">Provider recovery</span>
+        <span className="ml-auto rounded-full border border-amber-500/35 px-1.5 py-0.5 text-[10px] uppercase text-amber-200">
+          {evidence}
+        </span>
+      </div>
+      <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+        <div><div className="text-muted-foreground">Provider / model</div><div className="mt-0.5 font-medium">{textValue(summary.provider) ?? 'Provider not recorded'} · {model}</div></div>
+        <div><div className="text-muted-foreground">Failure category</div><div className="mt-0.5 font-medium">{category}</div></div>
+        <div><div className="text-muted-foreground">Recovery action</div><div className="mt-0.5 font-medium">{action}</div></div>
+        <div><div className="text-muted-foreground">Attempts</div><div className="mt-0.5 font-medium">{attempts ?? 'Not recorded'}</div></div>
+      </div>
+    </div>
+  );
+}
+
+function ComparisonRunColumn({
+  label,
+  execution,
+}: {
+  label: string;
+  execution: MissionExecution | undefined;
+}) {
+  if (!execution) {
+    return (
+      <div className="rounded-lg border border-dashed border-border/70 bg-background/20 p-5 text-center text-xs text-muted-foreground">
+        No run selected.
+      </div>
+    );
+  }
+
+  const evidence = asRecord(execution.evidence);
+  const evidenceStatus = textValue(asRecord(execution.evidenceProjection)?.completeness)
+    ?? recoveryDetail(execution, 'evidenceStatus')
+    ?? textValue(evidence?.verdict);
+  const failureCategory = recoveryDetail(execution, 'failureCategory');
+  const recoveryAction = recoveryDetail(execution, 'recoveryAction');
+  const events = Array.isArray(execution.recentEvents) ? execution.recentEvents : [];
+  const eventCount = numberValue(execution.eventCount) ?? events.length;
+  const evidenceRowsForRun = evidenceRows(execution.evidence);
+  const details = [
+    ['State', stateText(execution.state)],
+    ['Provider / model', `${textValue(execution.provider) ?? 'Not recorded'} / ${textValue(execution.model) ?? 'Not recorded'}`],
+    ['Attempts', formatValue(execution.attempts ?? 0)],
+    ['Validation failures', formatValue(execution.validationFailures ?? 0)],
+import { useState } from 'react';
+import { Activity, AlertTriangle, ArrowLeft, CheckCircle2, Clock3, ExternalLink, GitBranch, Circle, GitCommit, Loader2, RefreshCw, ShieldCheck, Upload } from 'lucide-react';
+import { Link } from 'wouter';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  useGetAiExecution,
+  useGetGitStatus,
+  useGetGitLog,
+  useGitCommit,
+  useGitPush,
+} from '@workspace/api-client-react';
+import type { OperationEvidenceProjection } from '@workspace/api-client-react';
+
+type FlightNode = {
+  id: string;
+  title: string;
+  status: string;
+  allowedFiles: string[];
+  dependencies: string[];
+  validationProfile: string;
+  attempts: number;
+};
+
+const PHASES = [
+  { label: 'Mission', states: ['BUILDING'] },
+  { label: 'Plan', states: ['BUILDING'] },
+  { label: 'Explore', states: ['BUILDING'] },
+  { label: 'Build', states: ['BUILDING', 'REPAIRING'] },
+  { label: 'Validate', states: ['VALIDATING'] },
+  { label: 'Repair', states: ['REPAIRING'] },
+  { label: 'Review', states: ['READY_FOR_REVIEW'] },
+  { label: 'Apply', states: ['APPLIED'] },
+  { label: 'Commit', states: ['COMMITTED'] },
+  { label: 'Push', states: ['PUSHED'] },
+] as const;
+
+function readExecutionId(): string {
+  return new URLSearchParams(window.location.search).get('executionId') ?? '';
+}
+
+function readQueryParam(name: string): string {
+  return new URLSearchParams(window.location.search).get(name) ?? '';
+}
+
+function stateLabel(state: string | undefined): string {
+  return (state ?? 'BUILDING').replace(/_/g, ' ');
+}
+
+function stateClasses(state: string | undefined): string {
+  if (state === 'BLOCKED') return 'border-red-500/40 bg-red-500/10 text-red-200';
+  if (state === 'CANCELLED') return 'border-amber-500/40 bg-amber-500/10 text-amber-200';
+  if (state === 'READY_FOR_REVIEW' || state === 'APPLIED' || state === 'COMMITTED' || state === 'PUSHED' || state === 'COMPLETED') {
+    return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200';
+  }
+  return 'border-primary/40 bg-primary/10 text-primary';
+}
+
+function evidenceClasses(verdict: string): string {
+  if (verdict === 'PROVEN') return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200';
+  if (verdict === 'PARTIAL') return 'border-amber-500/40 bg-amber-500/10 text-amber-200';
+  if (verdict === 'BLOCKED' || verdict === 'UNAVAILABLE') return 'border-red-500/40 bg-red-500/10 text-red-200';
+  return 'border-border/60 bg-background/30 text-muted-foreground';
+}
+
+function checkpointNodes(checkpoint: Record<string, unknown> | undefined): FlightNode[] {
+  if (!checkpoint || !Array.isArray(checkpoint.nodeStates)) return [];
+  return checkpoint.nodeStates.filter((node): node is FlightNode => {
+    if (!node || typeof node !== 'object') return false;
+    const value = node as Partial<FlightNode>;
+    return typeof value.id === 'string'
+      && typeof value.title === 'string'
+      && typeof value.status === 'string'
+      && Array.isArray(value.allowedFiles)
+      && Array.isArray(value.dependencies)
+      && typeof value.validationProfile === 'string'
+      && typeof value.attempts === 'number';
+  });
+}
+
+function formatElapsed(startedAt?: string | null, completedAt?: string | null, now = Date.now()): string {
+  if (!startedAt) return 'Not started';
+  const start = new Date(startedAt).getTime();
+  const end = completedAt ? new Date(completedAt).getTime() : now;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 'Unavailable';
+  const seconds = Math.max(0, Math.floor((end - start) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
+}
+
+function objectiveLabel(objective: Record<string, unknown> | null | undefined): string {
+  if (!objective) return 'No declared objective was retained.';
+  const value = objective.objective ?? objective.description ?? objective.objectiveType;
+  return typeof value === 'string' && value.trim()
+    ? value
+    : 'Declared engineering objective';
+}
+
+function evidenceCompletenessLabel(completeness: OperationEvidenceProjection['completeness']): string {
+  return completeness === 'retained-with-gaps'
+    ? 'Retained with gaps'
+    : completeness.replaceAll('-', ' ');
+}
+
+function evidenceStageLabel(kind: string): string {
+  switch (kind) {
+    case 'provider': return 'Provider';
+    case 'validation': return 'Validation';
+    case 'promotion': return 'Promotion / delivery';
+    case 'commit': return 'Commit';
+    case 'push': return 'Delivery';
+    default: return 'Execution';
+  }
+}
+
+function evidenceOutcomeLabel(status: string): string {
+  switch (status) {
+    case 'passed': return 'Verified';
+    case 'failed': return 'Blocked';
+    case 'blocked': return 'Blocked';
+    case 'cancelled': return 'Incomplete';
+    case 'unknown': return 'Uncertain';
+    default: return 'In progress';
+  }
+}
+
+function evidenceOutcomeClasses(status: string): string {
+  if (status === 'passed') return 'border-emerald-500/30 bg-emerald-500/5 text-emerald-200';
+  if (status === 'failed' || status === 'blocked') return 'border-red-500/30 bg-red-500/5 text-red-200';
+  if (status === 'cancelled') return 'border-amber-500/30 bg-amber-500/5 text-amber-200';
+  return 'border-border/60 bg-background/20 text-muted-foreground';
+}
+
+function safeEvidenceAction(completeness: OperationEvidenceProjection['completeness']): string {
+  if (completeness === 'blocked' || completeness === 'failed') {
+    return 'Review the blocked receipt, then rerun the approved validation before applying or delivering.';
+  }
+  if (completeness === 'cancelled' || completeness === 'partial' || completeness === 'retained-with-gaps') {
+    return 'Do not rely on this result as verified; reconnect or start a new run to rebuild the missing proof.';
+  }
+  if (completeness === 'uncertain') {
+    return 'Refresh the project and reconcile the operation against the current revision before retrying.';
+  }
+  return 'No operator action is required; continue only through the matching server-owned stage.';
+}
+
+type DisplayReceipt = {
+  kind: string;
+  status: string;
+  attempt: number;
+  timestamp: string;
+  detail?: string;
+};
+
+function displayReceipts(evidence: OperationEvidenceProjection): DisplayReceipt[] {
+  return evidence.receipts.flatMap((raw) => {
+    if (!raw || typeof raw !== 'object') return [];
+    const value = raw as Record<string, unknown>;
+    if (typeof value.kind !== 'string' || typeof value.status !== 'string' || typeof value.timestamp !== 'string') return [];
+    return [{
+      kind: value.kind,
+      status: value.status,
+      attempt: typeof value.attempt === 'number' ? value.attempt : 0,
+      timestamp: value.timestamp,
+      ...(typeof value.detail === 'string' ? { detail: value.detail } : {}),
+    }];
+  });
+}
+
+function DeliveryProofTimeline({
+  evidence,
+  executionVerdict,
+}: {
+  evidence?: OperationEvidenceProjection;
+  executionVerdict?: string;
+}) {
+  if (!evidence) {
+    return (
+      <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-100">
+        Delivery proof is not available yet. Do not treat this execution as a verified delivery.
+      </div>
