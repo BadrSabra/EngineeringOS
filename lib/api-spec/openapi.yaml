@@ -1498,7 +1498,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [id, status, flightState, evidenceVerdict, proofRequired, checkpoint, checkpointVersion, resumable]
+                required: [id, status, flightState, evidenceVerdict, proofRequired, checkpoint, checkpointVersion, resumable, operationEvidence]
                 properties:
                   id: { type: string, description: UUID of the AI execution }
                   projectId: { type: string }
@@ -1554,6 +1554,8 @@ paths:
                       phase: { type: string, nullable: true }
                       outcome: { type: string, nullable: true }
                     additionalProperties: false
+                  operationEvidence:
+                    $ref: "#/components/schemas/OperationEvidenceProjection"
                   createdAt: { type: string, format: date-time }
                   updatedAt: { type: string, format: date-time }
                   startedAt: { type: string, format: date-time, nullable: true }

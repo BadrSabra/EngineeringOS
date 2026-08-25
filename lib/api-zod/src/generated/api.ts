@@ -2824,6 +2824,35 @@ export const GetAiExecutionResponse = zod.object({
   "phase": zod.string().nullable(),
   "outcome": zod.string().nullable()
 }).optional(),
+  "operationEvidence": zod.object({
+  "version": zod.literal(1),
+  "redacted": zod.literal(true),
+  "operationId": zod.string(),
+  "projectId": zod.string(),
+  "revision": zod.string().nullable(),
+  "terminalState": zod.string(),
+  "completeness": zod.enum(['complete', 'partial', 'retained-with-gaps', 'blocked', 'failed', 'cancelled', 'uncertain']),
+  "verified": zod.literal(false),
+  "hashes": zod.object({
+  "changeSet": zod.string().nullable(),
+  "committed": zod.string().nullable()
+}),
+  "counts": zod.object({
+  "executions": zod.number(),
+  "checkpoints": zod.number(),
+  "events": zod.number(),
+  "audit": zod.number(),
+  "taskLogs": zod.number(),
+  "journal": zod.number(),
+  "receipts": zod.number()
+}),
+  "receipts": zod.array(zod.record(zod.string(), zod.unknown())),
+  "gaps": zod.array(zod.object({
+  "kind": zod.enum(['missing', 'expired', 'inaccessible', 'mismatch', 'unrecorded']),
+  "source": zod.enum(['execution', 'checkpoint', 'event', 'audit', 'task-log', 'journal', 'proposal', 'revision']),
+  "detail": zod.string()
+}))
+}),
   "createdAt": zod.coerce.date().optional(),
   "updatedAt": zod.coerce.date().optional(),
   "startedAt": zod.coerce.date().nullish(),

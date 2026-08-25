@@ -115,4 +115,65 @@ describe('Flight Deck mission control', () => {
     expect(screen.getByText('Non-delivery run')).toBeInTheDocument();
     expect(screen.queryByText('Mission → Push')).toBeNull();
   });
+
+  it('renders the correlated redacted proof chain and delivered-byte hashes', () => {
+    mocks.execution = {
+      ...baseExecution('COMMITTED', 'passed'),
+      status: 'completed',
+      flightState: 'COMMITTED',
+      evidenceVerdict: 'PROVEN',
+      operationEvidence: {
+        version: 1,
+        redacted: true,
+        operationId: 'operation-1',
+        projectId: 'project-1',
+        revision: 'revision-7',
+        terminalState: 'COMPLETED',
+        completeness: 'complete',
+        verified: false,
+        hashes: { changeSet: 'candidate-hash', committed: 'delivered-hash' },
+        counts: { executions: 1, checkpoints: 1, events: 4, audit: 0, taskLogs: 0, journal: 2, receipts: 3 },
+        receipts: [
+          { kind: 'process', status: 'passed', attempt: 1, timestamp: '2026-08-18T05:00:00.000Z', detail: 'Execution started' },
+          { kind: 'validation', status: 'passed', attempt: 1, timestamp: '2026-08-18T05:00:30.000Z', detail: 'Approved validation passed' },
+          { kind: 'push', status: 'passed', attempt: 1, timestamp: '2026-08-18T05:01:00.000Z', detail: 'Matching delivery recorded' },
+        ],
+        gaps: [],
+      },
+    };
+    renderDeck();
+
+    expect(screen.getByRole('region', { name: 'Delivery proof chain' })).toBeInTheDocument();
+    expect(screen.getByText('candidate-hash')).toBeInTheDocument();
+    expect(screen.getByText('delivered-hash')).toBeInTheDocument();
+    expect(screen.getByText('Validation')).toBeInTheDocument();
+    expect(screen.getAllByText('Verified').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Next safe action/)).toBeNull();
+  });
+
+  it('does not present retained gaps as a verified delivery and gives a safe action', () => {
+    mocks.execution = {
+      ...baseExecution('BLOCKED', 'blocked'),
+      operationEvidence: {
+        version: 1,
+        redacted: true,
+        operationId: 'operation-1',
+        projectId: 'project-1',
+        revision: 'revision-6',
+        terminalState: 'FAILED',
+        completeness: 'retained-with-gaps',
+        verified: false,
+        hashes: { changeSet: null, committed: null },
+        counts: { executions: 1, checkpoints: 1, events: 0, audit: 0, taskLogs: 0, journal: 0, receipts: 1 },
+        receipts: [{ kind: 'promotion', status: 'unknown', attempt: 1, timestamp: '2026-08-18T05:01:00.000Z', detail: 'Promotion outcome was not recorded' }],
+        gaps: [{ kind: 'missing', source: 'event', detail: 'No correlated operational events were retained.' }],
+      },
+    };
+    renderDeck();
+
+    expect(screen.getByText('Retained with gaps')).toBeInTheDocument();
+    expect(screen.getByText('No correlated operational events were retained.')).toBeInTheDocument();
+    expect(screen.getByText(/Do not rely on this result as verified/)).toBeInTheDocument();
+    expect(screen.queryByText('Verified chain')).toBeNull();
+  });
 });

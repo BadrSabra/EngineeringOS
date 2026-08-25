@@ -4333,6 +4333,7 @@ router.get("/ai/executions/:executionId", async (req, res) => {
   const recoveryRecord = checkpointRecord.recovery && typeof checkpointRecord.recovery === "object"
     ? checkpointRecord.recovery as Record<string, unknown>
     : undefined;
+  const operationEvidence = await loadOperationEvidence(execution);
 
   return res.json({
     id: execution.id,
@@ -4382,6 +4383,10 @@ router.get("/ai/executions/:executionId", async (req, res) => {
       phase: typeof operationRecord?.state === "string" ? operationRecord.state : null,
       outcome: typeof recoveryRecord?.outcome === "string" ? recoveryRecord.outcome : null,
     },
+    // Keep the operator proof chain on the same owner-scoped status response
+    // used after reload/reconnect. This is already a redacted projection; raw
+    // provider, model, and workspace diagnostics never cross this boundary.
+    operationEvidence: redactOperationEvidence(operationEvidence),
   });
 });
 

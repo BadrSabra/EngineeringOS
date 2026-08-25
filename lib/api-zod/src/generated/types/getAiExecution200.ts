@@ -11,6 +11,7 @@ import type { GetAiExecution200FlightState } from './getAiExecution200FlightStat
 import type { GetAiExecution200Objective } from './getAiExecution200Objective';
 import type { GetAiExecution200Recovery } from './getAiExecution200Recovery';
 import type { GetAiExecution200Status } from './getAiExecution200Status';
+import type { OperationEvidenceProjection } from './operationEvidenceProjection';
 
 export type GetAiExecution200 = {
   /** UUID of the AI execution */
@@ -46,6 +47,7 @@ export type GetAiExecution200 = {
   error?: string | null;
   resumable: boolean;
   recovery?: GetAiExecution200Recovery;
+  operationEvidence: OperationEvidenceProjection;
   createdAt?: Date;
   updatedAt?: Date;
   startedAt?: Date | null;

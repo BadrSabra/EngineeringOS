@@ -2943,6 +2943,7 @@ export type GetAiExecution200 = {
   error?: string | null;
   resumable: boolean;
   recovery?: GetAiExecution200Recovery;
+  operationEvidence: OperationEvidenceProjection;
   createdAt?: string;
   updatedAt?: string;
   startedAt?: string | null;

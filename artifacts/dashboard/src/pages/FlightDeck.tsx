@@ -9,6 +9,7 @@ import {
   useGitCommit,
   useGitPush,
 } from '@workspace/api-client-react';
+import type { OperationEvidenceProjection } from '@workspace/api-client-react';
 
 type FlightNode = {
   id: string;
@@ -92,6 +93,151 @@ function objectiveLabel(objective: Record<string, unknown> | null | undefined): 
   return typeof value === 'string' && value.trim()
     ? value
     : 'Declared engineering objective';
+}
+
+function evidenceCompletenessLabel(completeness: OperationEvidenceProjection['completeness']): string {
+  return completeness === 'retained-with-gaps'
+    ? 'Retained with gaps'
+    : completeness.replaceAll('-', ' ');
+}
+
+function evidenceStageLabel(kind: string): string {
+  switch (kind) {
+    case 'provider': return 'Provider';
+    case 'validation': return 'Validation';
+    case 'promotion': return 'Promotion / delivery';
+    case 'commit': return 'Commit';
+    case 'push': return 'Delivery';
+    default: return 'Execution';
+  }
+}
+
+function evidenceOutcomeLabel(status: string): string {
+  switch (status) {
+    case 'passed': return 'Verified';
+    case 'failed': return 'Blocked';
+    case 'blocked': return 'Blocked';
+    case 'cancelled': return 'Incomplete';
+    case 'unknown': return 'Uncertain';
+    default: return 'In progress';
+  }
+}
+
+function evidenceOutcomeClasses(status: string): string {
+  if (status === 'passed') return 'border-emerald-500/30 bg-emerald-500/5 text-emerald-200';
+  if (status === 'failed' || status === 'blocked') return 'border-red-500/30 bg-red-500/5 text-red-200';
+  if (status === 'cancelled') return 'border-amber-500/30 bg-amber-500/5 text-amber-200';
+  return 'border-border/60 bg-background/20 text-muted-foreground';
+}
+
+function safeEvidenceAction(completeness: OperationEvidenceProjection['completeness']): string {
+  if (completeness === 'blocked' || completeness === 'failed') {
+    return 'Review the blocked receipt, then rerun the approved validation before applying or delivering.';
+  }
+  if (completeness === 'cancelled' || completeness === 'partial' || completeness === 'retained-with-gaps') {
+    return 'Do not rely on this result as verified; reconnect or start a new run to rebuild the missing proof.';
+  }
+  if (completeness === 'uncertain') {
+    return 'Refresh the project and reconcile the operation against the current revision before retrying.';
+  }
+  return 'No operator action is required; continue only through the matching server-owned stage.';
+}
+
+type DisplayReceipt = {
+  kind: string;
+  status: string;
+  attempt: number;
+  timestamp: string;
+  detail?: string;
+};
+
+function displayReceipts(evidence: OperationEvidenceProjection): DisplayReceipt[] {
+  return evidence.receipts.flatMap((raw) => {
+    if (!raw || typeof raw !== 'object') return [];
+    const value = raw as Record<string, unknown>;
+    if (typeof value.kind !== 'string' || typeof value.status !== 'string' || typeof value.timestamp !== 'string') return [];
+    return [{
+      kind: value.kind,
+      status: value.status,
+      attempt: typeof value.attempt === 'number' ? value.attempt : 0,
+      timestamp: value.timestamp,
+      ...(typeof value.detail === 'string' ? { detail: value.detail } : {}),
+    }];
+  });
+}
+
+function DeliveryProofTimeline({
+  evidence,
+  executionVerdict,
+}: {
+  evidence?: OperationEvidenceProjection;
+  executionVerdict?: string;
+}) {
+  if (!evidence) {
+    return (
+      <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-100">
+        Delivery proof is not available yet. Do not treat this execution as a verified delivery.
+      </div>
+    );
+  }
+  const receipts = displayReceipts(evidence);
+  const gaps = evidence.gaps ?? [];
+  // Operation evidence is intentionally a redacted record, not a delivery
+  // attestation. Individual passed receipts are shown as verified, while the
+  // chain itself stays conservative until the execution verdict certifies it.
+  const isVerified = evidence.completeness === 'complete' && executionVerdict === 'PROVEN';
+  return (
+    <section className="rounded-xl border border-border bg-card" aria-label="Delivery proof chain">
+      <div className="border-b border-border px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-semibold">Delivery proof chain</h2>
+            <p className="text-xs text-muted-foreground">Candidate, validation, promotion, and delivered-byte receipts for this operation</p>
+          </div>
+          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${evidenceOutcomeClasses(isVerified ? 'passed' : evidence.completeness === 'blocked' || evidence.completeness === 'failed' ? 'blocked' : 'unknown')}`}>
+            {isVerified ? 'Verified chain' : evidenceCompletenessLabel(evidence.completeness)}
+          </span>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
+          <span>Operation <code className="text-foreground">{evidence.operationId}</code></span>
+          <span>Revision <code className="text-foreground">{evidence.revision ?? 'not recorded'}</code></span>
+          {evidence.hashes.changeSet && <span>Candidate <code className="text-foreground">{evidence.hashes.changeSet}</code></span>}
+          {evidence.hashes.committed && <span>Delivered bytes <code className="text-foreground">{evidence.hashes.committed}</code></span>}
+        </div>
+      </div>
+      <div className="divide-y divide-border/50">
+        {receipts.length === 0 ? (
+          <div className="p-4 text-xs text-muted-foreground">No redacted receipts were retained.</div>
+        ) : receipts.map((receipt, index) => (
+          <div key={`${receipt.kind}-${receipt.timestamp}-${index}`} className="flex items-start gap-3 px-4 py-3">
+            <div className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-primary" />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-foreground">{evidenceStageLabel(receipt.kind)}</span>
+                <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${evidenceOutcomeClasses(receipt.status)}`}>{evidenceOutcomeLabel(receipt.status)}</span>
+                <span className="text-[10px] text-muted-foreground">attempt {receipt.attempt}</span>
+              </div>
+              {receipt.detail && <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{receipt.detail}</p>}
+              <time className="mt-1 block text-[10px] text-muted-foreground">{new Date(receipt.timestamp).toLocaleString()}</time>
+            </div>
+          </div>
+        ))}
+      </div>
+      {gaps.length > 0 && (
+        <div className="border-t border-amber-500/20 bg-amber-500/5 px-4 py-3">
+          <div className="text-xs font-semibold text-amber-200">Proof gaps</div>
+          <ul className="mt-1 list-disc space-y-1 pl-4 text-[11px] text-amber-100/80">
+            {gaps.map((gap, index) => <li key={`${gap.source}-${gap.kind}-${index}`}>{gap.detail}</li>)}
+          </ul>
+        </div>
+      )}
+      {!isVerified && (
+        <div className="border-t border-border/50 px-4 py-3 text-[11px] text-muted-foreground">
+          <span className="font-semibold text-amber-200">Next safe action: </span>{safeEvidenceAction(evidence.completeness)}
+        </div>
+      )}
+    </section>
+  );
 }
 
 export default function FlightDeck() {
@@ -431,6 +577,10 @@ export default function FlightDeck() {
           </div>
         </section>
       </div>
+      <DeliveryProofTimeline
+        evidence={execution.operationEvidence}
+        executionVerdict={execution.evidenceVerdict}
+      />
     </div>
   );
 }
