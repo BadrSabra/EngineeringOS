@@ -28,7 +28,7 @@ import { recordBehavioralModelCall } from "./behavioral-scorecard.js";
 const OR_EMERGENCY_FALLBACK =
   FREE_MODELS.find((m) => m.quality === "fast")?.id ??
   FREE_MODELS[0]?.id ??
-  "inclusionai/ling-3.0-flash:free";
+  "liquid/lfm-2.5-2.6b:free";
 
 export type ProviderId = "groq" | "deepseek" | "openrouter" | "gemini";
 

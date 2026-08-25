@@ -48,47 +48,47 @@ export type OpenRouterFreeModel = {
  * pre-filters this list to only models currently priced at $0 so the chain
  * stays short and reliable after the first request.
  *
- * Last refreshed: 2026-08-03 — verified against GET /api/v1/models (pricing=0).
+ * Last refreshed: 2026-08-25 — verified against GET /api/v1/models (pricing=0).
  */
 export const FREE_MODELS: readonly OpenRouterFreeModel[] = [
   // ── Fast tier — smaller / lighter models, listed first for cold-start requests
   //    (before the dynamic catalog has loaded). Smaller models are more likely
   //    to remain free longer; larger ones occasionally flip to paid.
   {
-    id: "inclusionai/ling-3.0-flash:free",
-    label: "Ling 3.0 Flash",
+    id: "liquid/lfm-2.5-2.6b:free",
+    label: "LFM 2.5 2.6B",
     capabilities: ["chat", "coding", "tool_calling", "json"],
-    context: 262_144,
+    context: 65_536,
     supportsTools: true,
     supportsJson: true,
     free: true,
     quality: "fast",
   },
   {
-    id: "nvidia/nemotron-nano-9b-v2:free",
-    label: "Nemotron Nano 9B v2",
+    id: "nvidia/nemotron-3.5-lightning:free",
+    label: "Nemotron 3.5 Lightning",
     capabilities: ["chat", "coding", "tool_calling", "json"],
-    context: 128_000,
+    context: 1_000_000,
     supportsTools: true,
     supportsJson: true,
     free: true,
     quality: "fast",
   },
   {
-    id: "nvidia/nemotron-nano-12b-v2-vl:free",
-    label: "Nemotron Nano 12B v2 VL",
+    id: "dots-studio/dots-3-note-preview:free",
+    label: "Dots3 Note Preview",
     capabilities: ["chat", "coding", "tool_calling", "json"],
-    context: 128_000,
+    context: 512_000,
     supportsTools: true,
     supportsJson: true,
     free: true,
     quality: "fast",
   },
   {
-    id: "openai/gpt-oss-20b:free",
-    label: "GPT OSS 20B",
+    id: "thinkingmachines/inkling-small:free",
+    label: "Inkling Small",
     capabilities: ["chat", "coding", "tool_calling", "json"],
-    context: 131_072,
+    context: 1_048_576,
     supportsTools: true,
     supportsJson: true,
     free: true,
@@ -105,10 +105,10 @@ export const FREE_MODELS: readonly OpenRouterFreeModel[] = [
     quality: "fast",
   },
   {
-    id: "google/gemma-4-26b-a4b-it:free",
-    label: "Gemma 4 26B",
+    id: "thinkingmachines/inkling:free",
+    label: "Inkling",
     capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
-    context: 262_144,
+    context: 1_048_576,
     supportsTools: true,
     supportsJson: true,
     free: true,
@@ -138,6 +138,26 @@ export const FREE_MODELS: readonly OpenRouterFreeModel[] = [
     quality: "powerful",
   },
   {
+    id: "z-ai/glm-5.2:free",
+    label: "GLM 5.2",
+    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
+    context: 256_000,
+    supportsTools: true,
+    supportsJson: true,
+    free: true,
+    quality: "powerful",
+  },
+  {
+    id: "google/gemma-4-26b-a4b-it:free",
+    label: "Gemma 4 26B",
+    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
+    context: 262_144,
+    supportsTools: true,
+    supportsJson: true,
+    free: true,
+    quality: "powerful",
+  },
+  {
     id: "google/gemma-4-31b-it:free",
     label: "Gemma 4 31B",
     capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
@@ -151,16 +171,6 @@ export const FREE_MODELS: readonly OpenRouterFreeModel[] = [
     id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
     label: "Nemotron 3 Nano Omni Reasoning",
     capabilities: ["chat", "reasoning", "coding", "tool_calling", "json", "long_context"],
-    context: 256_000,
-    supportsTools: true,
-    supportsJson: true,
-    free: true,
-    quality: "powerful",
-  },
-  {
-    id: "nvidia/nemotron-3-nano-30b-a3b:free",
-    label: "Nemotron 3 Nano 30B",
-    capabilities: ["chat", "coding", "tool_calling", "json", "long_context"],
     context: 256_000,
     supportsTools: true,
     supportsJson: true,
