@@ -46,6 +46,8 @@ export type ApiCodeAgentBenchmarkOptions = {
   onCaseComplete?: CodeAgentBenchmarkCaseComplete;
   signal?: AbortSignal;
   generatedAt?: string;
+  /** Captured by the server campaign runner; never accepted from benchmark fixtures or providers. */
+  sourceRevision?: string;
 };
 
 /**
@@ -89,7 +91,7 @@ export async function runApiCodeAgentBenchmark(
     );
   };
 
-  const executeCase = createChatCodeAgentBenchmarkExecutor({
+  const executeCaseBase = createChatCodeAgentBenchmarkExecutor({
     rootPath: opts.rootPath,
     projectContext: opts.projectContext,
     provider: opts.provider,
@@ -124,6 +126,10 @@ export async function runApiCodeAgentBenchmark(
     },
     oracleForCase: async ({ rootPath, testCase, telemetry, pendingChanges }) =>
       evaluateBenchmarkCaseOracle(rootPath, testCase, telemetry, pendingChanges, undefined, candidateHash),
+  });
+  const executeCase = async (testCase: CodeAgentBenchmarkCase) => ({
+    ...(await executeCaseBase(testCase)),
+    ...(opts.sourceRevision ? { sourceRevision: opts.sourceRevision } : {}),
   });
 
   return runCodeAgentBenchmark({
@@ -168,6 +174,8 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
   initialResults?: import("@workspace/ai-orchestrator").BenchmarkAirlockObservation[];
   signal?: AbortSignal;
   generatedAt?: string;
+  /** Captured by the server campaign runner; never accepted from benchmark fixtures or providers. */
+  sourceRevision?: string;
   runId: string;
   onObservation?: (
     observation: BenchmarkAirlockObservation,
@@ -214,7 +222,7 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
       model: provider.model,
       signal: opts.signal,
     });
-    const executeCase = createChatCodeAgentBenchmarkExecutor({
+    const executeCaseBase = createChatCodeAgentBenchmarkExecutor({
       rootPath: opts.rootPath,
       projectContext: opts.projectContext,
       provider: provider.provider,
@@ -253,6 +261,10 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
     oracleForCase: async ({ rootPath, testCase, telemetry, pendingChanges, signal }) =>
       evaluateBenchmarkCaseOracle(rootPath, testCase, telemetry, pendingChanges, signal, candidateHash),
     });
+    const executeCase = async (testCase: CodeAgentBenchmarkCase) => ({
+      ...(await executeCaseBase(testCase)),
+      ...(opts.sourceRevision ? { sourceRevision: opts.sourceRevision } : {}),
+    });
     return {
       provider: provider.provider,
       model: provider.model ?? health.model,
@@ -274,6 +286,7 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
     initialResults: opts.initialResults,
     runId: opts.runId,
     generatedAt: opts.generatedAt,
+    sourceRevision: opts.sourceRevision,
     onObservation: opts.onObservation,
     onHealth: opts.onProviderHealth,
     signal: opts.signal,

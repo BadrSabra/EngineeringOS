@@ -110,6 +110,8 @@ export type CodeAgentBenchmarkObservation = {
   caseId: string;
   /** Hash of the candidate bytes used for this case's oracle/validation run. */
   candidateHash?: string;
+  /** Server-observed source revision that produced the candidate. */
+  sourceRevision?: string;
   grade: CodeAgentBenchmarkGrade;
   correct: boolean;
   completedFirstAttempt: boolean;
@@ -142,6 +144,8 @@ export type CodeAgentBenchmarkObservation = {
 export type CodeAgentExecutionTelemetry = {
   /** Hash of the candidate bytes used for this case's oracle/validation run. */
   candidateHash?: string;
+  /** Server-observed source revision that produced the candidate. */
+  sourceRevision?: string;
   actualTerminal: CodeAgentExpectedTerminal;
   validationStatus: "passed" | "failed" | "unavailable" | "not-run";
   changedPaths: string[];
@@ -255,6 +259,8 @@ export type CodeAgentBenchmarkScorecard = {
   cases: CodeAgentBenchmarkObservation[];
   /** Candidate hash shared by every retained observation, when consistent. */
   candidateHash?: string;
+  /** Source revision shared by every retained observation, when consistent. */
+  sourceRevision?: string;
   missingCaseIds: string[];
   metrics: CodeAgentBenchmarkMetrics;
   rolloutAllowed: boolean;
@@ -728,6 +734,7 @@ export function observationFromCodeAgentExecution(
   return {
     caseId: testCase.id,
     ...(telemetry.candidateHash ? { candidateHash: telemetry.candidateHash } : {}),
+    ...(telemetry.sourceRevision ? { sourceRevision: telemetry.sourceRevision } : {}),
     grade,
     correct,
     completedFirstAttempt,
@@ -942,6 +949,7 @@ export function buildCodeAgentBenchmarkScorecard(args: {
   ).length;
   const complete = observedCases === totalCases;
   const candidateHashes = results.map((result) => result.candidateHash);
+  const sourceRevisions = results.map((result) => result.sourceRevision);
   const expectedCandidateHash = candidateHashes.find(
     (candidateHash): candidateHash is string => Boolean(candidateHash?.trim()),
   );
@@ -953,6 +961,17 @@ export function buildCodeAgentBenchmarkScorecard(args: {
   ).length;
   const mismatchedCandidateHash = expectedCandidateHash !== undefined &&
     candidateHashes.some((candidateHash) => candidateHash !== expectedCandidateHash);
+  const expectedSourceRevision = sourceRevisions.find(
+    (sourceRevision): sourceRevision is string => Boolean(sourceRevision?.trim()),
+  );
+  const missingSourceRevision = sourceRevisions.filter(
+    (sourceRevision) => !sourceRevision?.trim(),
+  ).length;
+  const malformedSourceRevision = sourceRevisions.filter(
+    (sourceRevision) => Boolean(sourceRevision?.trim()) && !/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(sourceRevision!),
+  ).length;
+  const mismatchedSourceRevision = expectedSourceRevision !== undefined &&
+    sourceRevisions.some((sourceRevision) => sourceRevision !== expectedSourceRevision);
   const rolloutBlockers = [
     ...(!complete ? [`benchmark incomplete: ${totalCases - observedCases} cases missing`] : []),
     ...(providerUnavailableCount > 0
@@ -974,6 +993,13 @@ export function buildCodeAgentBenchmarkScorecard(args: {
       ? [`candidate hash malformed for ${malformedCandidateHash} observed case${malformedCandidateHash === 1 ? "" : "s"}`]
       : []),
     ...(mismatchedCandidateHash ? ["candidate hash mismatch across benchmark observations"] : []),
+    ...(missingSourceRevision > 0
+      ? [`source revision missing for ${missingSourceRevision} observed case${missingSourceRevision === 1 ? "" : "s"}`]
+      : []),
+    ...(malformedSourceRevision > 0
+      ? [`source revision malformed for ${malformedSourceRevision} observed case${malformedSourceRevision === 1 ? "" : "s"}`]
+      : []),
+    ...(mismatchedSourceRevision ? ["source revision mismatch across benchmark observations"] : []),
   ];
 
   const metrics: CodeAgentBenchmarkMetrics = {
@@ -1008,6 +1034,7 @@ export function buildCodeAgentBenchmarkScorecard(args: {
     generatedAt: args.generatedAt ?? new Date().toISOString(),
     cases: results,
     ...(expectedCandidateHash ? { candidateHash: expectedCandidateHash } : {}),
+    ...(expectedSourceRevision ? { sourceRevision: expectedSourceRevision } : {}),
     missingCaseIds: cases.map((testCase) => testCase.id).filter((id) => !seenIds.has(id)),
     metrics,
     rolloutAllowed: rolloutBlockers.length === 0,
@@ -1157,6 +1184,8 @@ export function codeAgentBenchmarkScorecardToMarkdown(
     "",
     `Suite: ${scorecard.suiteVersion}`,
     `Generated: ${scorecard.generatedAt}`,
+    `Candidate hash: ${scorecard.candidateHash ?? "missing"}`,
+    `Source revision: ${scorecard.sourceRevision ?? "missing"}`,
     `Rollout allowed: ${scorecard.rolloutAllowed ? "yes" : "no"}`,
     `Baseline gate: ${scorecard.baselineComparison?.status ?? "not-configured"}`,
     "",

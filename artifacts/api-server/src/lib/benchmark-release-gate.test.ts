@@ -14,6 +14,7 @@ function scorecard(overrides: Partial<CodeAgentBenchmarkScorecard> = {}): CodeAg
     generatedAt: "2026-08-19T00:00:00.000Z",
     cases: [],
     candidateHash: "a".repeat(64),
+    sourceRevision: "672a2447a0604e4f562796dab969b5d136582277",
     missingCaseIds: [],
     metrics: {
       totalCases: 34,
@@ -58,6 +59,7 @@ function run(overrides: Partial<BenchmarkAirlockRun> = {}): BenchmarkAirlockRun 
     partial: false,
     baselineEligibility: "quality-gates-required",
     suiteVersion: "flight-deck-v2",
+    sourceRevision: "672a2447a0604e4f562796dab969b5d136582277",
     runId: "clean-witness-run",
     startedAt: "2026-08-19T02:00:00.000Z",
     completedAt: "2026-08-19T02:10:00.000Z",
@@ -165,5 +167,46 @@ describe("benchmark release gate", () => {
     expect(decision.blockers).toContain(
       "targeted and clean-witness benchmarks use different candidate hashes",
     );
+  });
+
+  it("blocks missing, malformed, stale, and mismatched source revisions", () => {
+    const base = {
+      targetedRun: run({
+        runId: "targeted-run",
+        completedAt: "2026-08-19T01:20:00.000Z",
+        targetCaseCount: 4,
+        diagnosticOnly: true,
+        targeted: true,
+        partial: true,
+        baselineEligibility: "not-eligible",
+        targetProfile: "repair-loop",
+      }),
+      cleanWitnessRun: run(),
+      baseline: baseline(),
+    };
+    const missing = evaluateBenchmarkReleaseGate({
+      ...base,
+      targetedRun: run({ ...base.targetedRun, sourceRevision: undefined, scorecard: scorecard({ sourceRevision: undefined }) }),
+    });
+    expect(missing.blockers).toContain("targeted benchmark artifact is missing a server-owned source revision");
+
+    const malformed = evaluateBenchmarkReleaseGate({
+      ...base,
+      targetedRun: run({ ...base.targetedRun, sourceRevision: "not-a-revision" }),
+    });
+    expect(malformed.blockers).toContain("targeted benchmark artifact contains a malformed source revision");
+
+    const stale = evaluateBenchmarkReleaseGate({
+      ...base,
+      targetedRun: run({ ...base.targetedRun, sourceRevision: "a".repeat(40) }),
+    });
+    expect(stale.blockers).toContain("targeted benchmark artifact contains a stale source revision");
+
+    const mismatched = evaluateBenchmarkReleaseGate({
+      ...base,
+      cleanWitnessRun: run({ sourceRevision: "b".repeat(64) }),
+    });
+    expect(mismatched.blockers).toContain("clean-witness benchmark artifact contains a stale source revision");
+    expect(mismatched.blockers).toContain("targeted and clean-witness benchmarks use different source revisions");
   });
 });

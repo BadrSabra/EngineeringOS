@@ -2,6 +2,8 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   applyCodeAgentBenchmarkBaselineGate,
   buildCodeAgentBenchmarkScorecard,
@@ -47,6 +49,20 @@ const PROVIDER_KEY_ENV: Record<ProviderId, string> = {
 };
 const COPY_OMIT = new Set([".git", "node_modules", "attached_assets", ".cache", ".agents", ".local", "docs", "coverage", "dist"]);
 const sourceRoot = path.resolve(process.env.BENCHMARK_SOURCE_ROOT ?? path.resolve(process.cwd(), "../.."));
+const execFileAsync = promisify(execFile);
+const APPROVED_SOURCE_REVISION = "672a2447a0604e4f562796dab969b5d136582277";
+async function resolveSourceRevision(root: string): Promise<string> {
+  const { stdout } = await execFileAsync("git", ["-C", root, "rev-parse", "main"], { maxBuffer: 4096 });
+  const revision = stdout.trim();
+  if (!/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(revision)) {
+    throw new Error("SOURCE_REVISION_INVALID: server-observed main revision is malformed.");
+  }
+  if (revision !== APPROVED_SOURCE_REVISION) {
+    throw new Error("SOURCE_REVISION_STALE: server-observed main revision is not the approved benchmark source.");
+  }
+  return revision;
+}
+const sourceRevision = await resolveSourceRevision(sourceRoot);
 const allCases = getCodeAgentBenchmarkCases();
 const benchmarkTargetPaths = [
   ...new Set(allCases.flatMap((testCase) => defaultApiBenchmarkTargetPaths(testCase))),
@@ -212,6 +228,7 @@ function boundedObservation(value: unknown, knownIds: Set<string>): BenchmarkAir
     observation: {
       caseId: value.caseId,
       ...(typeof raw.candidateHash === "string" ? { candidateHash: raw.candidateHash.slice(0, 200) } : {}),
+      ...(typeof raw.sourceRevision === "string" ? { sourceRevision: raw.sourceRevision.slice(0, 80) } : {}),
       grade: raw.grade as CodeAgentBenchmarkObservation["grade"],
       correct: raw.correct as boolean,
       completedFirstAttempt: raw.completedFirstAttempt as boolean,
@@ -431,6 +448,11 @@ try {
       "CANDIDATE_HASH_MISMATCH: persisted benchmark observations do not match the server-owned isolated candidate workspace hash.",
     );
   }
+  if (initialResults.some((entry) => entry.observation.sourceRevision !== sourceRevision)) {
+    throw new Error(
+      "SOURCE_REVISION_MISMATCH: persisted benchmark observations do not match the server-owned campaign source revision.",
+    );
+  }
   const run = await runApiCodeAgentBenchmarkAirlock({
     rootPath: isolated.rootPath,
     projectContext: {
@@ -454,6 +476,7 @@ try {
     initialResults,
     runId,
     generatedAt,
+    sourceRevision,
     targetPathsForCase: defaultApiBenchmarkTargetPaths,
     allowedPathsForCase: defaultApiBenchmarkAllowedPaths,
     promptForCase: defaultApiBenchmarkPrompt,
@@ -470,6 +493,7 @@ try {
         kind: "code-agent-benchmark-airlock-progress",
         version: 2,
         suiteVersion: CODE_AGENT_BENCHMARK_VERSION,
+        sourceRevision,
         runId,
         providerHealth,
         campaignMode,

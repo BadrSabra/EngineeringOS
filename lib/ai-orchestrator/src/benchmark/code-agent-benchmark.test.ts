@@ -28,6 +28,7 @@ function observation(
   return {
     caseId,
     candidateHash: "a".repeat(64),
+    sourceRevision: "672a2447a0604e4f562796dab969b5d136582277",
     grade: "A",
     correct: true,
     completedFirstAttempt: true,
@@ -467,6 +468,7 @@ describe("Code Agent benchmark manifest", () => {
         typecheckPassed: testCase.expected.validation === "tests" ? null : true,
         testsPassed: testCase.expected.validation === "typecheck" ? null : true,
          candidateHash: "a".repeat(64),
+        sourceRevision: "672a2447a0604e4f562796dab969b5d136582277",
       }),
     });
 
@@ -499,6 +501,7 @@ describe("Code Agent benchmark manifest", () => {
           typecheckPassed: null,
           testsPassed: null,
          candidateHash: "a".repeat(64),
+          sourceRevision: "672a2447a0604e4f562796dab969b5d136582277",
         };
       },
       onCaseComplete: async (_result, results) => {
@@ -529,6 +532,7 @@ describe("Code Agent benchmark manifest", () => {
         typecheckPassed: testCase.expected.validation === "tests" ? null : true,
         testsPassed: testCase.expected.validation === "typecheck" ? null : true,
          candidateHash: "a".repeat(64),
+        sourceRevision: "672a2447a0604e4f562796dab969b5d136582277",
       }),
       onTelemetryComplete: async (testCase, telemetry) => {
         replayEntries.push({ caseId: testCase.id, telemetry });

@@ -57,6 +57,8 @@ export type BenchmarkAirlockRun = {
   baselineEligibility: "not-eligible" | "quality-gates-required";
   targetProfile?: CodeAgentBenchmarkTargetProfile;
   suiteVersion: string;
+  /** Server-observed source revision captured at campaign start. */
+  sourceRevision?: string;
   runId: string;
   startedAt: string;
   completedAt: string;
@@ -156,6 +158,7 @@ export async function runCodeAgentBenchmarkAirlock(args: {
   runId: string;
   startedAt?: string;
   generatedAt?: string;
+  sourceRevision?: string;
   signal?: AbortSignal;
   onObservation?: (
     observation: BenchmarkAirlockObservation,
@@ -415,6 +418,7 @@ export async function runCodeAgentBenchmarkAirlock(args: {
     baselineEligibility,
     ...(args.targetProfile ? { targetProfile: args.targetProfile } : {}),
     suiteVersion: scorecard.suiteVersion,
+    ...(args.sourceRevision ? { sourceRevision: args.sourceRevision } : {}),
     runId: args.runId,
     startedAt,
     completedAt,

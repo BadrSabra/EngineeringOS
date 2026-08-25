@@ -9,6 +9,7 @@ import {
 } from "@workspace/ai-orchestrator";
 
 export const BENCHMARK_RELEASE_GATE_VERSION = 1;
+export const APPROVED_BENCHMARK_SOURCE_REVISION = "672a2447a0604e4f562796dab969b5d136582277";
 
 export type BenchmarkReleaseGateDecision = {
   kind: "code-agent-benchmark-release-decision";
@@ -18,6 +19,7 @@ export type BenchmarkReleaseGateDecision = {
   cleanWitnessRunId: string;
   baselineId: string;
   suiteVersion: typeof CODE_AGENT_BENCHMARK_VERSION;
+  sourceRevision: string;
   blockers: string[];
   sequence: [
     "change",
@@ -68,6 +70,26 @@ export function evaluateBenchmarkReleaseGate(args: {
 }): BenchmarkReleaseGateDecision {
   const blockers: string[] = [];
   const { targetedRun, cleanWitnessRun, baseline } = args;
+  const revisions = [
+    ["targeted benchmark", targetedRun.sourceRevision],
+    ["clean-witness benchmark", cleanWitnessRun.sourceRevision],
+  ] as const;
+  for (const [artifact, revision] of revisions) {
+    if (!revision) addBlocker(blockers, `${artifact} artifact is missing a server-owned source revision`);
+    else if (!/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(revision)) addBlocker(blockers, `${artifact} artifact contains a malformed source revision`);
+    else if (revision !== APPROVED_BENCHMARK_SOURCE_REVISION) addBlocker(blockers, `${artifact} artifact contains a stale source revision`);
+  }
+  if (
+    targetedRun.sourceRevision &&
+    targetedRun.scorecard.sourceRevision !== targetedRun.sourceRevision
+  ) addBlocker(blockers, "targeted benchmark source revision does not match its scorecard");
+  if (
+    cleanWitnessRun.sourceRevision &&
+    cleanWitnessRun.scorecard.sourceRevision !== cleanWitnessRun.sourceRevision
+  ) addBlocker(blockers, "clean-witness benchmark source revision does not match its scorecard");
+  if (revisions.every(([, revision]) => revision) && revisions[0][1] !== revisions[1][1]) {
+    addBlocker(blockers, "targeted and clean-witness benchmarks use different source revisions");
+  }
 
   if (
     targetedRun.suiteVersion !== CODE_AGENT_BENCHMARK_VERSION ||
@@ -142,6 +164,7 @@ export function evaluateBenchmarkReleaseGate(args: {
     cleanWitnessRunId: cleanWitnessRun.runId,
     baselineId: baseline.baselineId,
     suiteVersion: CODE_AGENT_BENCHMARK_VERSION,
+    sourceRevision: revisions[0][1] ?? "",
     blockers,
     sequence: [
       "change",
