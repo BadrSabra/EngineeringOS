@@ -1,0 +1,25 @@
+{
+  "contractSources": [
+    "lib/api-spec/openapi.yaml",
+    "lib/api-zod/src/generated",
+    "lib/api-client-react/src/generated",
+    "lib/api-client-react/src/use-ai-chat-stream.ts",
+    "scripts/validate-dashboard-client-contract.mjs"
+  ],
+  "dashboardConsumers": {
+    "artifacts/dashboard/src/components/GitPanel.tsx": "trigger",
+    "artifacts/dashboard/src/pages/AiChat.tsx": "trigger",
+    "artifacts/dashboard/src/pages/Dashboard.tsx": "trigger",
+    "artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx": "trigger",
+    "artifacts/dashboard/src/pages/Events.tsx": "trigger",
+    "artifacts/dashboard/src/pages/FlightDeck.tsx": "trigger",
+    "artifacts/dashboard/src/pages/Graph.tsx": "trigger",
+    "artifacts/dashboard/src/pages/Metrics.tsx": "trigger",
+    "artifacts/dashboard/src/pages/MissionControl.tsx": "trigger",
+    "artifacts/dashboard/src/pages/ProjectDetail.tsx": "trigger",
+    "artifacts/dashboard/src/pages/Projects.tsx": "trigger",
+    "artifacts/dashboard/src/pages/Rules.tsx": "trigger",
+    "artifacts/dashboard/src/pages/Tasks.tsx": "trigger",
+    "artifacts/dashboard/src/pages/Workflows.tsx": "trigger"
+  }
+}

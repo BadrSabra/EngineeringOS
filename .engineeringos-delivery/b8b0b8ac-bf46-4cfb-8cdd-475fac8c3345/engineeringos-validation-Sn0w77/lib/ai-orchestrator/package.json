@@ -1,0 +1,33 @@
+{
+  "name": "@workspace/ai-orchestrator",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./capability-probe": "./src/prompts/capability-probe.ts"
+  },
+  "scripts": {
+    "test": "pnpm run test:benchmark-scenarios && vitest run",
+    "test:benchmark-scenarios": "vitest run src/benchmark-scenarios",
+    "test:runtime-oracle": "vitest run src/benchmark-scenarios/runtime-oracle.test.ts --testNamePattern='validates the fixture before running behavior assertions'",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "benchmark:deterministic": "tsx src/benchmark/run-forensic-benchmark.ts",
+    "benchmark:manifest": "tsx src/benchmark/run-code-agent-benchmark.ts",
+    "benchmark:code-agent:deterministic": "tsx src/benchmark/run-code-agent-benchmark-deterministic.ts"
+  },
+  "dependencies": {
+    "@workspace/db": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "groq-sdk": "^0.9.0",
+    "typescript": "~5.9.3",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "^4.1.10",
+    "vitest": "^4.1.10"
+  }
+}

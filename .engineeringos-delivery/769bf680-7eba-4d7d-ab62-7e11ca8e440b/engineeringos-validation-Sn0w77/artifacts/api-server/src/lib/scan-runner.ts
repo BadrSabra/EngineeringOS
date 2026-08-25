@@ -1,0 +1,678 @@
+/**
+ * The actual heavy work of a project scan: file walk, rule matching, graph
+ * extraction, and metrics computation. Extracted out of the route handler so
+ * it can run out-of-band (see routes/projects.ts) instead of blocking the
+ * HTTP response for however long a full project scan takes.
+ */
+import { db } from "@workspace/db";
+import {
+  projectsTable,
+  tasksTable,
+  eventsTable,
+  metricsTable,
+  rulesTable,
+  graphEntitiesTable,
+  graphRelationshipsTable,
+} from "@workspace/db";
+import { eq, and, or, isNull, inArray } from "drizzle-orm";
+import { randomUUID } from "crypto";
+import { walkProject, matchRules, extractGraph, computeMetrics, SCANNER_VERSION, type RuleInput } from "@workspace/scanner";
+import { invalidateContextCache } from "@workspace/ai-orchestrator";
+import { recordAudit } from "./audit.js";
+import {
+  dispatchOnScanComplete,
+  type ExtractedEntity,
+  type RuleViolationSummary,
+} from "./plugin-runtime.js";
+import { logger } from "./logger.js";
+import { establishProjectRoot, type EstablishRootFailureReason } from "./project-root.js";
+import { tryAdvisoryLock, LockNamespace } from "./advisory-lock.js";
+import { provenanceFromEntity, provenanceFromRelationship, manualProvenance } from "./graph-provenance.js";
+import {
+  claimScanJob,
+  heartbeatScanJob,
+  completeScanJob,
+  failScanJob,
+  SCAN_LEASE_MS,
+  SCAN_HEARTBEAT_INTERVAL_MS,
+} from "./job-lease.js";
+
+/**
+ * Thrown by performScan when the persisted project root cannot be
+ * re-established (missing, not a directory, unreadable, or unsafe).
+ * The scan fails explicitly with a `root_unavailable` outcome; the
+ * persisted root_path is never rebound to another directory.
+ */
+export class ScanRootUnavailableError extends Error {
+  readonly outcome = "root_unavailable" as const;
+  constructor(
+    readonly rootPath: string,
+    readonly reason: EstablishRootFailureReason,
+    detail: string,
+  ) {
+    super(`root_unavailable (${reason}): ${detail}`);
+    this.name = "ScanRootUnavailableError";
+  }
+}
+
+export interface ScanJobResult {
+  projectId: string;
+  scannedAt: string;
+  rootPath: string;
+  rootExists: boolean;
+  filesFound: number;
+  sourceFiles: number;
+  issuesDetected: number;
+  tasksCreated: number;
+  entitiesExtracted: number;
+  relationshipsExtracted: number;
+  summary: string;
+  projectRevision: string;
+  scanCompleteness: "COMPLETE" | "PARTIAL";
+  sourceProvenance: string;
+  scanCorrelationId: string;
+  scannerVersion: string;
+  repositoryManifest: {
+    revision: string;
+    sourceRoot: string;
+    files: Array<{ path: string; size: number; contentHash: string; oversized: boolean }>;
+    completeness: "COMPLETE" | "PARTIAL";
+    derivedArtifacts: {
+      scanner: "COMPLETE" | "PARTIAL";
+      graph: "COMPLETE" | "PARTIAL";
+      metrics: "COMPLETE" | "PARTIAL";
+    };
+  };
+}
+
+/**
+ * Run a full scan for `projectId` and update the given `jobId`'s row with
+ * the outcome. Never throws — failures are recorded on the job row and the
+ * project status is always restored, so a bug here can't wedge a project in
+ * "scanning" forever or crash the process that enqueued it.
+ */
+export async function runScanJob(jobId: string, projectId: string): Promise<void> {
+  // SR-002: Acquire a PostgreSQL advisory lock keyed on projectId, not jobId.
+  // The project is the real resource being mutated — locking on jobId allowed
+  // two different jobs targeting the same project to run concurrently and
+  // produce conflicting graph/metrics writes. Locking on projectId ensures
+  // only one scan of a given project runs at a time across all instances.
+  let lock;
+  try {
+    lock = await tryAdvisoryLock(LockNamespace.SCAN_JOB, projectId);
+  } catch (lockErr) {
+    // Pool connection failure — fail open rather than silently dropping the job.
+    logger.error({ lockErr, jobId, projectId }, "scan-runner: advisory lock acquisition failed; proceeding without lock");
+    lock = null;
+  }
+
+  if (lock && !lock.acquired) {
+    logger.warn(
+      { jobId, projectId },
+      "scan-runner: advisory lock busy — another scan is already running for this project; leaving job queued",
+    );
+    // Leave the durable row queued. This can happen when two API instances
+    // dispatch the same persisted row before either one has completed its
+    // atomic claim. The winning worker will claim and finish it; a different
+    // queued scan will be retried after the project lock is released.
+    return;
+  }
+
+  // PR-01 (Durable Jobs): claim the job with a workerId + initial lease
+  // before starting any work. If the claim returns false, the job is no
+  // longer in "queued" state — either another worker already claimed it or
+  // reconciliation moved it to a terminal state. Bail out without touching
+  // the project row.
+  const workerId = randomUUID();
+  const claimed = await claimScanJob(jobId, workerId, SCAN_LEASE_MS);
+  if (!claimed) {
+    logger.warn(
+      { jobId, projectId },
+      "scan-runner: could not claim job — not in queued state; skipping",
+    );
+    if (lock?.acquired) {
+      await lock.release().catch((releaseErr) => {
+        logger.warn({ releaseErr, jobId }, "scan-runner: failed to release advisory lock after claim miss");
+      });
+    }
+    return;
+  }
+
+  // Heartbeat loop: extends lease_until every SCAN_HEARTBEAT_INTERVAL_MS so
+  // job-reconciliation does not reclaim this job while the scan is in
+  // progress. Cleared in the finally block as a safety net.
+  let heartbeatInterval: NodeJS.Timeout | undefined = setInterval(() => {
+    heartbeatScanJob(jobId, workerId, SCAN_LEASE_MS).catch((hbErr) => {
+      logger.warn({ hbErr, jobId }, "scan-runner: heartbeat failed");
+    });
+  }, SCAN_HEARTBEAT_INTERVAL_MS);
+
+  try {
+    const result = await performScan(projectId);
+    clearInterval(heartbeatInterval);
+    heartbeatInterval = undefined;
+    const finishedAt = new Date();
+    const completed = await completeScanJob(
+      jobId,
+      workerId,
+      result as unknown as Record<string, unknown>,
+      finishedAt,
+    );
+    if (!completed) {
+      logger.warn({ jobId, workerId }, "scan completion ignored because the worker no longer owns the job");
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error({ err, projectId, jobId }, "scan job failed");
+    try {
+      if (heartbeatInterval !== undefined) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = undefined;
+      }
+      const failedAt = new Date();
+      const failed = await failScanJob(jobId, workerId, message, failedAt);
+      if (!failed) {
+        logger.warn({ jobId, workerId }, "scan failure ignored because the worker no longer owns the job");
+        return;
+      }
+      // Guard with `status = "scanning"` so a newer job that has already
+      // taken ownership of this project is not clobbered by this failure path.
+      await db
+        .update(projectsTable)
+        .set({ status: "active", updatedAt: failedAt })
+        .where(and(eq(projectsTable.id, projectId), eq(projectsTable.status, "scanning")));
+
+      // D-02: emit a ProjectScanFailed event so the AI context's recentEvents
+      // reflects the failure.  Previously only the scan_jobs row was updated;
+      // the event log was silent, leaving the AI unaware that a scan attempt
+      // had been made and failed.
+      await db.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "ProjectScanFailed",
+        projectId,
+        severity: "error",
+        message: `Scan failed: ${message.slice(0, 200)}`,
+        correlationId: jobId,
+      });
+
+      // Bust the context cache so the next AI request sees "failed" scan
+      // state rather than the stale "running"/"queued" snapshot that was
+      // cached while the scan was in progress.
+      invalidateContextCache(projectId);
+    } catch (cleanupErr) {
+      // Even the failure-path writes are wrapped: if the DB is unreachable
+      // there is nothing more we can safely do in-process, but we must
+      // still not throw out of a fire-and-forget call.
+      logger.error({ cleanupErr, projectId, jobId }, "failed to record scan job failure");
+    }
+  } finally {
+    // Safety net: ensure heartbeat is cleared even if an unexpected path
+    // skips the explicit clearInterval calls above.
+    if (heartbeatInterval !== undefined) clearInterval(heartbeatInterval);
+    // PR-3: Always release the advisory lock so other instances (or a
+    // subsequent reconciliation run) can pick up the job if needed.
+    if (lock?.acquired) {
+      await lock.release().catch((releaseErr) => {
+        logger.warn({ releaseErr, jobId }, "scan-runner: failed to release advisory lock");
+      });
+    }
+  }
+}
+
+export async function performScan(projectId: string, signal?: AbortSignal): Promise<ScanJobResult> {
+  const checkCancelled = (): void => {
+    if (signal?.aborted) throw new Error("scan refresh cancelled");
+  };
+  checkCancelled();
+  // One UUID per scan operation — written to audit_logs, events, and metrics
+  // so a single `WHERE correlation_id = ?` retrieves the complete trace for
+  // this scan without relying on projectId + timestamp proximity.
+  const correlationId = randomUUID();
+
+  const [project, projectRules] = await Promise.all([
+    db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
+    db
+      .select()
+      .from(rulesTable)
+      .where(
+        and(
+          eq(rulesTable.enabled, true),
+          or(isNull(rulesTable.projectId), eq(rulesTable.projectId, projectId)),
+        ),
+      ),
+  ]);
+  if (!project[0]) throw new Error(`Project ${projectId} not found`);
+
+  // ── 0. Re-establish the persisted project root before any walk ──────────
+  // The persisted root_path is only trustworthy at the moment it is walked.
+  // A managed durable root can be deleted, a user directory can disappear,
+  // and a legacy /tmp/eos-git-* clone is gone after discovery cleanup. The
+  // scan must go through the same canonical boundary as project creation:
+  // establishProjectRoot resolves symlinks, enforces the safety policy, and
+  // fails with a structured reason instead of walking anything else.
+  //
+  // Critically, a dead root is NEVER rebound to another directory (the old
+  // behaviour silently swapped in /home/runner/workspace, which walked
+  // unrelated code and published its findings to the wrong project). The
+  // persisted root_path is left untouched so the user can re-import.
+  //
+  // No allowManagedTempRoot here: the scan runner cannot verify discovery
+  // provenance from the projects row alone, and anyone can create a
+  // /tmp/eos-git-* directory. A legacy temp root — dead OR alive — therefore
+  // fails closed (root_unavailable / root_unsafe) and must be re-imported
+  // through discovery, which materializes to a durable workspace root.
+  const rootResult = await establishProjectRoot(project[0].rootPath);
+  if (!rootResult.ok) {
+    throw new ScanRootUnavailableError(project[0].rootPath, rootResult.reason, rootResult.error);
+  }
+  const effectiveRootPath = rootResult.canonicalPath;
+
+  const now = new Date();
+
+  // ── 1. Walk the project directory ──────────────────────────────────────
+  const walkResult = await walkProject(effectiveRootPath);
+  checkCancelled();
+  const { files } = walkResult;
+
+  // ── 2. Match scoped rules against scanned files ─────────────────────────
+  const ruleInputs: RuleInput[] = projectRules.map((r) => ({
+    id: r.id,
+    code: r.code,
+    pattern: r.pattern,
+    severity: r.severity,
+    enabled: r.enabled ?? true,
+  }));
+  const ruleResults = matchRules(ruleInputs, files);
+
+  // ── 3. Compute quality metrics ──────────────────────────────────────────
+  const metrics = computeMetrics(files, ruleResults);
+
+  // ── 4. Extract knowledge graph (outside transaction) ─────────────────────
+  // SR-003: extractGraph is pure CPU work with no DB dependency. Running it
+  // inside the transaction held a connection (and its associated locks) for
+  // the full duration of the AST parse + graph build — often seconds — even
+  // though no DB writes were happening. Moving it here shortens the critical
+  // section to inserts/updates only, reducing lock contention and connection
+  // pool pressure.
+  const graph = await extractGraph(files);
+  checkCancelled();
+  const capturedEntities: ExtractedEntity[] = graph.entities.map((e) => ({
+    type: e.type,
+    name: e.name,
+    path: e.path,
+    isDocumented: e.isDocumented,
+  }));
+
+  // ── 5-9. Persist everything derived from this scan atomically ───────────
+  // Tasks, rule hit counts, graph entities/relationships, the metrics row,
+  // the project status/score update, the audit record, and the scan event
+  // are all effects of the *same* scan. If any one of them fails partway
+  // through (e.g. graph insert throws), we must not leave the others
+  // committed — that would create tasks with no corresponding metrics row,
+  // or a "completed" scan event for a scan that actually failed. Wrapping
+  // the whole block in one transaction makes the scan atomic: either all of
+  // it lands, or none of it does, and the outer catch in runScanJob marks
+  // the job failed with a clean, fully-rolled-back DB state.
+
+  checkCancelled();
+  return await db.transaction(async (tx) => {
+    checkCancelled();
+    const existingRuleTasks = await tx
+      .select({ ruleId: tasksTable.ruleId })
+      .from(tasksTable)
+      .where(eq(tasksTable.projectId, projectId));
+    const existingRuleTaskIds = new Set(existingRuleTasks.map((t) => t.ruleId).filter(Boolean));
+
+    const newTaskIds: string[] = [];
+    for (const result of ruleResults) {
+      if (!result.matched) continue;
+      if (existingRuleTaskIds.has(result.ruleId)) continue;
+
+      const rule = projectRules.find((r) => r.id === result.ruleId);
+      if (!rule) continue;
+
+      const taskId = randomUUID();
+      const topFiles = result.matches.slice(0, 5).map((m) => m.file);
+
+      await tx.insert(tasksTable).values({
+        id: taskId,
+        projectId,
+        ruleId: rule.id,
+        title: `Fix: ${rule.title}`,
+        description:
+          rule.fixDescription ??
+          `${result.matchCount} occurrence(s) detected. Top file: ${topFiles[0] ?? "unknown"}`,
+        status: "pending",
+        priority:
+          rule.severity === "critical"
+            ? "p0"
+            : rule.severity === "high"
+              ? "p1"
+              : rule.severity === "medium"
+                ? "p2"
+                : "p3",
+        relatedFiles: topFiles,
+        createdAt: now,
+        updatedAt: now,
+        correlationId,
+      });
+      newTaskIds.push(taskId);
+
+      await tx
+        .update(rulesTable)
+        .set({ hitCount: (rule.hitCount ?? 0) + result.matchCount, updatedAt: now })
+        .where(eq(rulesTable.id, rule.id));
+    }
+
+    // ── 5. Persist knowledge graph ────────────────────────────────────────
+    // `graph` was extracted outside the transaction (SR-003); here we only
+    // do the DB work: dedup against existing entities and insert new rows.
+    const existingEntities = await tx
+      .select({
+        name: graphEntitiesTable.name,
+        type: graphEntitiesTable.type,
+        id: graphEntitiesTable.id,
+        path: graphEntitiesTable.path,
+      })
+      .from(graphEntitiesTable)
+      .where(eq(graphEntitiesTable.projectId, projectId));
+
+  // Primary key: type::path::name — prevents cross-file name collisions.
+  // Secondary key: type::name → [ids] — for relationship resolution.
+  // Multiple entities can share a name across files; we record all IDs and
+  // pick the first stable entry so relationships don't shift on re-scan.
+  const entityKeyToId = new Map<string, string>(); // type::path::name → id
+  const entityNameToIds = new Map<string, string[]>(); // type::name → [id, …]
+
+  function addToNameIndex(type: string, name: string, id: string): void {
+    const key = `${type}::${name}`;
+    const existing = entityNameToIds.get(key);
+    if (existing) {
+      existing.push(id);
+    } else {
+      entityNameToIds.set(key, [id]);
+    }
+  }
+
+  for (const e of existingEntities) {
+    const pk = `${e.type}::${e.path ?? e.name}::${e.name}`;
+    entityKeyToId.set(pk, e.id);
+    addToNameIndex(e.type, e.name, e.id);
+  }
+
+  // GAP-1 fix: identify stale entities (in DB but absent from current scan output).
+  const currentScanKeys = new Set(
+    graph.entities.map((e) => `${e.type}::${e.path ?? e.name}::${e.name}`),
+  );
+  const staleEntityIds = existingEntities
+    .filter((e) => !currentScanKeys.has(`${e.type}::${e.path ?? e.name}::${e.name}`))
+    .map((e) => e.id);
+
+  // Remove stale entries from in-memory maps so relationship resolution never
+  // produces edges pointing at entity IDs that are about to be deleted.
+  for (const e of existingEntities) {
+    const pk = `${e.type}::${e.path ?? e.name}::${e.name}`;
+    if (!currentScanKeys.has(pk)) {
+      entityKeyToId.delete(pk);
+      const nameKey = `${e.type}::${e.name}`;
+      const ids = entityNameToIds.get(nameKey);
+      if (ids) {
+        const filtered = ids.filter((id) => id !== e.id);
+        if (filtered.length > 0) {
+          entityNameToIds.set(nameKey, filtered);
+        } else {
+          entityNameToIds.delete(nameKey);
+        }
+      }
+    }
+  }
+
+  // Delete ALL existing relationships for this project before re-inserting.
+  // Relationships are fully recomputed each scan; clearing them prevents
+  // both duplicates on re-scan and stale edges from renamed/deleted nodes.
+  await tx.delete(graphRelationshipsTable).where(
+    eq(graphRelationshipsTable.projectId, projectId),
+  );
+
+  // Delete stale entities (those no longer present in source code).
+  if (staleEntityIds.length > 0) {
+    await tx.delete(graphEntitiesTable).where(
+      inArray(graphEntitiesTable.id, staleEntityIds),
+    );
+    logger.info(
+      { projectId, staleCount: staleEntityIds.length },
+      "scan-runner: pruned stale graph entities",
+    );
+  }
+
+  const entitiesToInsert = graph.entities.filter(
+    (e) => !entityKeyToId.has(`${e.type}::${e.path ?? e.name}::${e.name}`),
+  );
+
+  if (entitiesToInsert.length > 0) {
+    const entityRows = entitiesToInsert.map((e) => ({
+      id: randomUUID(),
+      projectId,
+      type: e.type,
+      name: e.name,
+      path: e.path,
+      metadata: e.metadata ?? {},
+      // ── Knowledge Graph 2.0 semantic fields ────────────────────────────
+      kind: e.kind,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sourceType: e.sourceType as any,
+      isDocumented: e.isDocumented,
+      semanticTags: e.semanticTags,
+      description: e.description,
+      confidence: e.confidence,
+      domain: e.domain,
+      lifecycle: e.lifecycle,
+      // ── Provenance (mergeResult() guarantees this is present) ──────────
+      // GAP-2/GAP-3 fix: stamp every entity with the scan session and extractor version.
+      provenance: e.provenance
+        ? provenanceFromEntity(e.provenance, now, { scanSessionId: correlationId, extractorVersion: SCANNER_VERSION })
+        : manualProvenance(e.sourceType ?? "typescript-ast", "ts-compiler-api", now, undefined, { scanSessionId: correlationId, extractorVersion: SCANNER_VERSION }),
+      createdAt: now,
+    }));
+    await tx.insert(graphEntitiesTable).values(entityRows);
+    for (const row of entityRows) {
+      entityKeyToId.set(`${row.type}::${row.path ?? row.name}::${row.name}`, row.id);
+      addToNameIndex(row.type, row.name, row.id);
+    }
+  }
+
+  // Resolve a relationship endpoint to a DB entity ID.
+  // If multiple entities share the same name (cross-file collision),
+  // return the first stable entry rather than an arbitrary one.
+  const findEntityId = (name: string): string | undefined => {
+    for (const type of ["file", "function", "class", "module"] as const) {
+      const ids = entityNameToIds.get(`${type}::${name}`);
+      if (ids && ids.length > 0) return ids[0];
+    }
+    return undefined;
+  };
+
+  const relRows = graph.relationships
+    .map((rel) => {
+      const sourceId = findEntityId(rel.sourceName);
+      const targetId = findEntityId(rel.targetName);
+      if (!sourceId || !targetId) return null;
+      const evArr = rel.evidence ?? [];
+      return {
+        id: randomUUID(),
+        sourceId,
+        targetId,
+        projectId, // denormalised for efficient project-level queries (KG 2.0)
+        relation: rel.relation,
+        // ── Knowledge Graph 2.0 semantic fields ─────────────────────────
+        relationType: rel.relationType,
+        relationSubtype: rel.relationSubtype,
+        weight: rel.confidence, // weight mirrors confidence by default
+        confidence: rel.confidence,
+        isHeuristic: rel.isHeuristic ?? false,
+        isRuntimeObserved: rel.isRuntimeObserved ?? false,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        evidenceJson: evArr as any,
+        evidenceCount: evArr.length,
+        evidenceSummary:
+          evArr.length > 0
+            ? `${evArr.length} evidence item${evArr.length === 1 ? "" : "s"}`
+            : null,
+        semanticTags: rel.semanticTags,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        sourceType: rel.sourceType as any,
+        // ── Provenance (mergeResult() guarantees this is present) ────────
+        // GAP-2/GAP-3 fix: stamp every relationship with the scan session and extractor version.
+        provenance: rel.provenance
+          ? provenanceFromRelationship(rel.provenance, now, { scanSessionId: correlationId, extractorVersion: SCANNER_VERSION })
+          : manualProvenance(rel.sourceType ?? "typescript-ast", "ts-compiler-api", now, undefined, { scanSessionId: correlationId, extractorVersion: SCANNER_VERSION }),
+        metadata: {},
+        createdAt: now,
+      };
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null);
+
+  if (relRows.length > 0) {
+    await tx.insert(graphRelationshipsTable).values(relRows);
+  }
+
+    // ── 6. Insert metrics record ──────────────────────────────────────────
+    await tx.insert(metricsTable).values({
+      id: randomUUID(),
+      projectId,
+      timestamp: now,
+      overallScore: metrics.overallScore,
+      architectureScore: metrics.architectureScore,
+      securityScore: metrics.securityScore,
+      maintainabilityScore: metrics.maintainabilityScore,
+      reliabilityScore: metrics.reliabilityScore,
+      performanceScore: metrics.performanceScore,
+      structuralTestEstimate: metrics.structuralTestEstimate,
+      technicalDebt: metrics.technicalDebt,
+      lintIssues: metrics.lintIssues,
+      avgFileSizeKb: metrics.avgFileSizeKb,
+      codeToTestRatio: metrics.codeToTestRatio,
+      correlationId,
+    });
+
+    // ── 7. Update project quality score and restore status ─────────────────
+    // Guard with `status = "scanning"` so a concurrent newer job that owns
+    // the project is not overwritten if, somehow, two jobs run in overlap.
+    await tx
+      .update(projectsTable)
+      .set({
+        status: "active",
+        qualityScore: metrics.overallScore,
+        lastScanAt: now,
+        updatedAt: now,
+      })
+      .where(and(eq(projectsTable.id, projectId), eq(projectsTable.status, "scanning")));
+
+    // ── 8. Emit scan event ───────────────────────────────────────────────
+    const issuesDetected = ruleResults.reduce((s, r) => s + r.matchCount, 0);
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "ProjectScanned",
+      projectId,
+      severity: "success",
+      message: `Scan complete: ${walkResult.totalFiles} files, ${issuesDetected} issues detected`,
+      payload: {
+        filesFound: walkResult.totalFiles,
+        sourceFiles: walkResult.sourceFiles,
+        issuesDetected,
+        tasksCreated: newTaskIds.length,
+        rootExists: walkResult.rootExists,
+        entitiesExtracted: entitiesToInsert.length,
+        relationshipsExtracted: relRows.length,
+        qualityScore: metrics.overallScore,
+      },
+      correlationId,
+    });
+
+    checkCancelled();
+    return {
+      projectId,
+      scannedAt: now.toISOString(),
+      rootPath: walkResult.rootPath,
+      rootExists: walkResult.rootExists,
+      filesFound: walkResult.totalFiles,
+      sourceFiles: walkResult.sourceFiles,
+      issuesDetected,
+      tasksCreated: newTaskIds.length,
+      entitiesExtracted: entitiesToInsert.length,
+      relationshipsExtracted: relRows.length,
+      summary: `Scanned ${walkResult.totalFiles} files. Found ${issuesDetected} issues. Created ${newTaskIds.length} tasks. Quality score: ${metrics.overallScore}/100.`,
+      projectRevision: walkResult.revision,
+      scanCompleteness: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
+      sourceProvenance: "filesystem-scan",
+      scanCorrelationId: correlationId,
+      scannerVersion: SCANNER_VERSION,
+      repositoryManifest: {
+        ...walkResult.revisionManifest,
+        derivedArtifacts: {
+          scanner: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
+          graph: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
+          metrics: walkResult.truncated ? "PARTIAL" as const : "COMPLETE" as const,
+        },
+      },
+      _priorQualityScore: project[0].qualityScore ?? null,
+    };
+  }).then(async (result) => {
+    // Audit is intentionally recorded *after* the transaction commits and
+    // outside it (see audit.ts) — it reflects a state change that has
+    // already durably happened, and an audit-table outage must not roll
+    // back an otherwise-successful scan.
+    const { _priorQualityScore, ...scanResult } = result;
+    await recordAudit({
+      entityType: "project",
+      entityId: projectId,
+      action: "scanned",
+      projectId,
+      stateBefore: { qualityScore: _priorQualityScore },
+      stateAfter: { qualityScore: metrics.overallScore },
+      changedFields: {
+        filesFound: scanResult.filesFound,
+        tasksCreated: scanResult.tasksCreated,
+        entitiesExtracted: scanResult.entitiesExtracted,
+        relationshipsExtracted: scanResult.relationshipsExtracted,
+      },
+      correlationId,
+    });
+
+    // Bust the context cache so the very next AI chat turn reflects the
+    // completed scan (new metrics, graph entities, scan status = "completed")
+    // rather than the pre-scan or mid-scan snapshot that was cached while the
+    // job was in progress.  Placed after recordAudit so it only fires when
+    // the full transaction has durably committed.
+    invalidateContextCache(projectId);
+
+    // Dispatch plugin hooks outside the transaction — same best-effort
+    // semantics as recordAudit: a plugin failure must not roll back a
+    // successful scan. Errors are logged but swallowed here.
+    await dispatchOnScanComplete({
+      projectId,
+      language: project[0].language,
+      framework: project[0].framework ?? null,
+      filesFound: scanResult.filesFound,
+      sourceFiles: scanResult.sourceFiles,
+      issuesDetected: scanResult.issuesDetected,
+      tasksCreated: scanResult.tasksCreated,
+      entitiesExtracted: scanResult.entitiesExtracted,
+      relationshipsExtracted: scanResult.relationshipsExtracted,
+      ruleViolations: ruleResults
+        .filter((r) => r.matched)
+        .map((r): RuleViolationSummary => {
+          const rule = projectRules.find((pr) => pr.id === r.ruleId);
+          return {
+            ruleId: r.ruleId,
+            code: rule?.code ?? r.ruleId,
+            severity: rule?.severity ?? "medium",
+            matchCount: r.matchCount,
+          };
+        }),
+      entities: capturedEntities,
+    });
+
+    return scanResult;
+  });
+}

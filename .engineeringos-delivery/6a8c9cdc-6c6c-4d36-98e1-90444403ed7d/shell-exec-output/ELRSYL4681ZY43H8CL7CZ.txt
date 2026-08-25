@@ -1,0 +1,246 @@
+8:import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+386:async function insertProject(): Promise<string> {
+586:beforeAll(() => {
+2005:  async function insertProjectWithFile(contents: string[]): Promise<string> {
+3775:  beforeAll(() => {
+    hunks?: Array<{
+      startLine: number;
+      endLine: number;
+      expectedText: string;
+      replacementText: string;
+      reason: string;
+    }>;
+    reason?: string;
+    validationProfile?: "ai-orchestrator-tests" | "knowledge-engine-tests" | "api-ai-tests" | "workspace-typecheck";
+  }>,
+): Promise<string> {
+  const sessionId = randomUUID();
+  const messageId = randomUUID();
+  const proposalId = randomUUID();
+  const now = new Date();
+  await db.insert(aiChatSessionsTable).values({
+    id: sessionId,
+    projectId,
+    title: "Test repair proposal",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiChatMessagesTable).values({
+    id: messageId,
+    sessionId,
+    role: "assistant",
+    content: "Test repair proposal",
+    createdAt: now,
+  });
+  await db.insert(aiChangeProposalsTable).values({
+    id: proposalId,
+    projectId,
+    sessionId,
+    messageId,
+    changes: JSON.stringify(changes.map((change) => ({
+      path: change.path,
+      absolutePath: change.absolutePath,
+      newContent: change.newContent,
+      originalContent: change.originalContent ?? null,
+      ...(change.baseHash ? { baseHash: change.baseHash } : {}),
+      ...(change.hunks ? { hunks: change.hunks } : {}),
+      reason: change.reason ?? "Test proposal",
+      ...(change.validationProfile ? { validationProfile: change.validationProfile } : {}),
+    }))),
+    status: "pending",
+    createdAt: now,
+  });
+  return proposalId;
+}
+
+async function makeRecoverableProposal(
+  projectId: string,
+  lifecycle: "abandoned" | "blocked" | "conflicted" = "blocked",
+  options: { withWorkspace?: boolean; conflictReason?: string } = {},
+): Promise<{ proposalId: string; operationId: string; workspaceRoot: string | null; change: {
+  path: string;
+  absolutePath: string;
+  newContent: string;
+  validationProfile: "api-ai-tests";
+} }> {
+  const operationId = randomUUID();
+  const fileName = `recovery-${operationId.slice(0, 8)}.ts`;
+  const change = {
+    path: fileName,
+    absolutePath: `/tmp/${fileName}`,
+    newContent: "export const recovered = true;\n",
+    validationProfile: "api-ai-tests" as const,
+  };
+  const proposalId = await insertChangeProposal(projectId, [change]);
+  let workspaceRoot: string | null = null;
+  if (options.withWorkspace !== false) {
+    const sourceRoot = `/tmp/recovery-source-${operationId}`;
+    await fs.mkdir(sourceRoot, { recursive: true });
+    await fs.writeFile(`${sourceRoot}/package.json`, "{}\n", "utf8");
+    const workspace = await createDeliveryWorkspace({
+      rootPath: sourceRoot,
+      operationId,
+      baseRevision: "base-revision",
+      changes: [change],
+    });
+    workspaceRoot = workspace.workspaceRoot;
+    deliveryWorkspaceRoots.push(workspaceRoot);
+    await fs.rm(sourceRoot, { recursive: true, force: true });
+  }
+  await db.update(aiChangeProposalsTable).set({
+    operationId,
+    workspaceRoot,
+    baseRevision: "base-revision",
+    changeSetHash: "change-set-hash",
+    lifecycle,
+    conflictReason: options.conflictReason ?? "Validation was interrupted before delivery completed.",
+  }).where(eq(aiChangeProposalsTable.id, proposalId));
+  return { proposalId, operationId, workspaceRoot, change };
+}
+
+async function insertTask(projectId: string, status = "pending"): Promise<string> {
+  const id = randomUUID();
+  const now = new Date();
+  await db.insert(tasksTable).values({
+    id,
+    projectId,
+    title: `AI task ${id.slice(0, 6)}`,
+    description: "A task for AI to execute",
+    status: status as "pending",
+    priority: "p2",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
+}
+
+async function insertWorkflow(projectId: string): Promise<string> {
+  const id = randomUUID();
+  const now = new Date();
+  await db.insert(workflowsTable).values({
+    id,
+    projectId,
+    name: `AI Workflow ${id.slice(0, 6)}`,
+    status: "running",
+    phases: [{ name: "Phase 1", steps: ["step-a"] }, { name: "Phase 2", steps: ["step-b"] }],
+    currentPhase: "Phase 1",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
+}
+
+async function insertImplementationPlan(projectId: string): Promise<string> {
+  const sessionId = randomUUID();
+  const messageId = randomUUID();
+  const now = new Date();
+  await db.insert(aiChatSessionsTable).values({
+    id: sessionId,
+    projectId,
+    title: "Implementation plan",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(aiChatMessagesTable).values({
+    id: messageId,
+    sessionId,
+    role: "assistant",
+    content: "Implementation plan",
+    taskResult: JSON.stringify({
+      kind: "IMPLEMENTATION_PLAN_RESULT",
+      objective: "Add a safe feature",
+      summary: "Inspect, implement, and validate the requested feature.",
+      assumptions: [],
+      steps: [{
+        id: "step-1",
+        title: "Inspect the target",
+        description: "Confirm the current implementation before editing.",
+        action: "inspect",
+        files: ["src/feature.ts"],
+        dependsOn: [],
+        validation: ["Run the focused test"],
+      }],
+      validationCommands: ["pnpm test"],
+      risks: [],
+      approvalStatus: "PENDING_APPROVAL",
+      writeAccess: "NOT_AUTHORIZED",
+    }),
+    createdAt: now,
+  });
+  return messageId;
+}
+
+const projectIds: string[] = [];
+const workflowIds: string[] = [];
+const deliveryWorkspaceRoots: string[] = [];
+
+// All AI routes require a Groq API key. Set a dummy env key for the entire
+// test file — every AI orchestrator call is mocked so the real key is never
+// used.  Individual tests that want to verify the 428 path remove the key
+// themselves and restore it in a finally block.
+let _savedGroqKeyFileLevel: string | undefined;
+beforeAll(() => {
+  _savedGroqKeyFileLevel = process.env.GROQ_API_KEY;
+  process.env.GROQ_API_KEY = "test-dummy-key-for-mocked-tests";
+});
+afterAll(() => {
+  if (_savedGroqKeyFileLevel !== undefined) {
+    process.env.GROQ_API_KEY = _savedGroqKeyFileLevel;
+  } else {
+    delete process.env.GROQ_API_KEY;
+  }
+});
+
+afterEach(async () => {
+  vi.restoreAllMocks();
+  for (const workspaceRoot of deliveryWorkspaceRoots.splice(0)) {
+    await fs.rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+  for (const pid of projectIds.splice(0)) {
+    await db.delete(auditLogsTable).where(eq(auditLogsTable.projectId, pid)).catch(() => undefined);
+    await db.delete(taskLogsTable).where(eq(taskLogsTable.taskId, pid)).catch(() => undefined); // may not match, that's fine
+    await db.delete(aiApplyJournalTable).where(eq(aiApplyJournalTable.projectId, pid)).catch(() => undefined);
+    await db.delete(eventsTable).where(eq(eventsTable.projectId, pid)).catch(() => undefined);
+    await db.delete(aiChatMessagesTable)
+      .where(
+        eq(
+          aiChatMessagesTable.sessionId,
+          db
+            .select({ id: aiChatSessionsTable.id })
+            .from(aiChatSessionsTable)
+            .where(eq(aiChatSessionsTable.projectId, pid))
+            .limit(1) as unknown as string,
+        ),
+      )
+      .catch(() => undefined);
+    // Clean sessions for this project
+    const sessions = await db
+      .select({ id: aiChatSessionsTable.id })
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.projectId, pid));
+    for (const s of sessions) {
+      await db
+        .delete(aiChatMessagesTable)
+        .where(eq(aiChatMessagesTable.sessionId, s.id))
+        .catch(() => undefined);
+    }
+    await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, pid)).catch(() => undefined);
+    await db.delete(tasksTable).where(eq(tasksTable.projectId, pid)).catch(() => undefined);
+    for (const wid of workflowIds.splice(0)) {
+      await db.delete(workflowsTable).where(eq(workflowsTable.id, wid)).catch(() => undefined);
+    }
+    await db.delete(projectsTable).where(eq(projectsTable.id, pid)).catch(() => undefined);
+  }
+  // Also clear any lingering workflow ids
+  for (const wid of workflowIds.splice(0)) {
+    await db.delete(workflowsTable).where(eq(workflowsTable.id, wid)).catch(() => undefined);
+  }
+});
+
+// ─── POST /api/ai/chat ────────────────────────────────────────────────────────
+
+describe("POST /api/ai/chat", () => {
+  it("allows same-origin mutations to reach normal request validation", async () => {
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .set("Origin", "http://127.0.0.1")

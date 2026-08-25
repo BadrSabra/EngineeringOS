@@ -1,0 +1,262 @@
+  isCircuitOpen: vi.fn().mockReturnValue(false),
+  // PR-05/PR-11: metrics recording helpers called from chat.ts after each
+  // provider attempt.  Must be stubs so the recording calls are no-ops in tests.
+  recordRequest:        vi.fn(),
+  recordFailure:        vi.fn(),
+  recordSuccess:        vi.fn(),
+  recordFallbackSuccess: vi.fn(),
+  recordInvalidModel:   vi.fn(),
+  recordLatency:        vi.fn(),
+  // Used by collectAvailableProviders to sort providers by quality profile.
+  sortProviderIdsByQuality: vi.fn((ids: string[]) => ids),
+  // classifyRequest is called by the chat route to determine prompt profile.
+  classifyRequest: vi.fn(() => ({ category: "code", contextDepth: "full", historyDepth: 4, maxTokens: 4096, temperature: 0.2, qualityProfile: "code_review" })),
+  isImmediateExecutionRequest: vi.fn((message: string) =>
+    /^(?:نفذ|نفذها|طبق|طبقها|اصلح|اصلحها|ابدأ|ابدا|إبدأ|start|proceed|go\s+ahead|do\s+it|implement|apply|fix|patch|edit|modify|run|execute)(?:\s|$)/i.test(
+      message.trim(),
+    ),
+  ),
+  // enrichContextWithMemories and writeSessionMemories are called by the chat route.
+  enrichContextWithMemories: vi.fn(async (ctx: string) => ctx),
+  writeSessionMemories: vi.fn(async () => undefined),
+  };
+});
+
+// ─── Fixtures ─────────────────────────────────────────────────────────────────
+
+async function insertProject(): Promise<string> {
+  const id = randomUUID();
+  const now = new Date();
+  await db.insert(projectsTable).values({
+    id,
+    ownerId: "test-user",
+    name: `ai-test-${id.slice(0, 8)}`,
+    rootPath: `/tmp/ai-test-${id}`,
+    language: "typescript",
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
+}
+
+async function insertChangeProposal(
+  projectId: string,
+  changes: Array<{
+    path: string;
+    absolutePath: string;
+    newContent: string;
+    originalContent?: string | null;
+    baseHash?: string;
+    hunks?: Array<{
+      startLine: number;
+      endLine: number;
+      expectedText: string;
+      replacementText: string;
+      reason: string;
+    }>;
+    reason?: string;
+    validationProfile?: "ai-orchestrator-tests" | "knowledge-engine-tests" | "api-ai-tests" | "workspace-typecheck";
+  }>,
+): Promise<string> {
+  const sessionId = randomUUID();
+  const messageId = randomUUID();
+  const proposalId = randomUUID();
+  const now = new Date();
+  await db.insert(aiChatSessionsTable).values({
+    id: sessionId,
+    projectId,
+    title: "Test repair proposal",
+    createdAt: now,
+    updatedAt: now,
+    try {
+      return decryptApiKey(row.encryptedApiKey);
+    } catch (err) {
+      const label = PROVIDER_REGISTRY[provider]?.label ?? provider;
+      logger.error(
+        { err, ownerId: userId, provider },
+        `Failed to decrypt stored ${label} API key — falling back to env`,
+      );
+    }
+  }
+
+  // Server-wide env fallback — supported for all providers via dedicated env vars.
+  const ENV_FALLBACK: Record<ProviderId, string | undefined> = {
+    openrouter: process.env.OPENROUTER_API_KEY,
+    gemini: process.env.GEMINI_API_KEY,
+    deepseek: process.env.DEEPSEEK_API_KEY,
+    groq: process.env.GROQ_API_KEY,
+  };
+  return ENV_FALLBACK[provider] || undefined;
+}
+
+// Backward-compat named wrappers (used by parity tests and older callers).
+export async function resolveGroqApiKey(userId: string): Promise<string | undefined> {
+  return resolveProviderKey(userId, "groq");
+}
+export async function resolveDeepSeekApiKey(userId: string): Promise<string | undefined> {
+  return resolveProviderKey(userId, "deepseek");
+}
+export async function resolveOpenRouterApiKey(userId: string): Promise<string | undefined> {
+  return resolveProviderKey(userId, "openrouter");
+}
+
+// ── Provider resolution (priority-ordered) ────────────────────────────────────
+
+/**
+ * Resolve which AI provider to use for a request.
+ *
+ * Iterates PROVIDER_PRIORITY ([openrouter, gemini, deepseek, groq]) and returns
+ * the first provider whose key is available. This is the single place that
+ * controls which provider wins — edit PROVIDER_PRIORITY in provider-registry.ts
+ * to reorder.
+ */
+export async function resolveProvider(
+  userId: string,
+  options?: ProviderSelectionOptions,
+): Promise<{ provider: ProviderId; apiKey: string } | undefined> {
+  const available = await collectAvailableProviders(userId, options);
+  const selected = available[0];
+  logger.info(
+    {
+      scope: "provider-selection",
+      action: "resolve_provider",
+      selected: selected?.provider ?? null,
+      requireTools: !!options?.requireTools,
+      qualityProfile: options?.qualityProfile ?? null,
+    },
+    selected ? `resolved primary provider: ${selected.provider}` : "no provider available",
+  );
+  return selected;
+}
+
+/**
+ * Resolve a fallback AI provider when the primary is experiencing errors.
+ * Skips the current provider and returns the next available one in PROVIDER_PRIORITY order.
+ */
+export async function resolveFallbackProvider(
+  userId: string,
+  currentProvider: ProviderId,
+  options?: ProviderSelectionOptions,
+): Promise<{ provider: ProviderId; apiKey: string } | undefined> {
+  const available = (await collectAvailableProviders(userId, options)).filter((candidate) => candidate.provider !== currentProvider);
+  const selected = available[0];
+  logger.info(
+    {
+      scope: "provider-selection",
+      action: "resolve_fallback_provider",
+      skipping: currentProvider,
+      selected: selected?.provider ?? null,
+      requireTools: !!options?.requireTools,
+      qualityProfile: options?.qualityProfile ?? null,
+    },
+    selected ? `resolved fallback provider: ${selected.provider}` : "no fallback provider available",
+  );
+  return selected;
+}
+
+const TOOL_REQUEST_PATTERNS = [
+  /\b(analy[sz]e|inspect|review|debug|test|run|scan|read|list|search|find|open|show|trace|explain|compare|fix|patch|implement|modify|change)\b/i,
+  // Arabic: \b does not match non-ASCII word boundaries; use bare alternation
+  // so prefixed forms like بتحليل and وافحص are matched correctly.
+  /فحص|تحليل|راجع|اعرض|افتح|شغّل|شغل|نفّذ|نفذ|اختبر|ابحث|استخرج|قارن|صلّح|عدّل|غيّر/i,
+import { z } from "zod";
+
+/**
+ * Centralized, validated environment configuration.
+ *
+ * This is the ONLY place in the api-server that should read `process.env`
+ * directly. Every other module imports `config` from here instead. This
+ * gives us two things a scattered `process.env.X` never can:
+ *   1. Fail-fast at startup with a clear message if a required var is
+ *      missing or malformed, instead of failing lazily deep in a request.
+ *   2. A single, typed source of truth for what the server's runtime
+ *      configuration surface actually is.
+ */
+// PORT is intentionally NOT part of this base schema: it's only meaningful
+// to the process that actually binds a listener (src/index.ts), and
+// requiring it here would force every module that imports `config` — the
+// app, the logger, tests that only exercise the Express app via supertest —
+// to have PORT set even though they never open a socket. See `getPort()`
+// below for the lazy, listener-only check.
+const EnvSchema = z.object({
+  NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  LOG_LEVEL: z
+    .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
+    .default("info"),
+  // Comma-separated browser origins that are allowed to call the API with
+  // Clerk credentials. The API host itself is always allowed as well.
+  APP_ORIGINS: z.string().default(""),
+  // Comma-separated Clerk user IDs allowed to change server-wide policy.
+  ADMIN_USER_IDS: z.string().default(""),
+});
+
+const ApplicationOriginSchema = z
+  .string()
+  .url()
+  .superRefine((value, ctx) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      ctx.addIssue({ code: "custom", message: "must be a valid URL" });
+      return;
+    }
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      ctx.addIssue({ code: "custom", message: "must use http or https" });
+    }
+    if (parsed.username || parsed.password) {
+      ctx.addIssue({ code: "custom", message: "must not contain credentials" });
+    }
+    if (parsed.pathname !== "/" || parsed.search || parsed.hash) {
+      ctx.addIssue({ code: "custom", message: "must be a bare origin without a path, query, or hash" });
+    }
+  });
+
+/**
+ * Parse the comma-separated browser origin allowlist. Keeping this separate
+ * from loadConfig makes the production deployment contract easy to validate
+ * without booting Express.
+ */
+export function parseApplicationOrigins(raw: string, isProduction: boolean): string[] {
+  const entries = raw.split(",").map((origin) => origin.trim());
+  if (isProduction && (entries.length === 0 || entries.every((origin) => !origin))) {
+    throw new Error("APP_ORIGINS must contain at least one approved dashboard origin in production");
+  }
+
+  const origins: string[] = [];
+  for (const entry of entries.filter(Boolean)) {
+    const result = ApplicationOriginSchema.safeParse(entry);
+    if (!result.success) {
+      const details = result.error.issues.map((issue) => issue.message).join(", ");
+      throw new Error(`Invalid APP_ORIGINS entry "${entry}": ${details}`);
+    }
+    const normalized = new URL(entry).origin;
+    if (origins.includes(normalized)) {
+      throw new Error(`Duplicate APP_ORIGINS entry "${entry}"`);
+    }
+    origins.push(normalized);
+  }
+  return origins;
+}
+
+function expandApplicationOriginVariables(raw: string): string {
+  return raw.replace(/\$([A-Z][A-Z0-9_]*)/g, (_, name: string) => process.env[name] ?? "");
+}
+
+function loadConfig() {
+  const parsed = EnvSchema.safeParse(process.env);
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((issue) => `  - ${issue.path.join(".")}: ${issue.message}`)
+      .join("\n");
+    throw new Error(`Invalid environment configuration:\n${issues}`);
+  }
+  return {
+    nodeEnv: parsed.data.NODE_ENV,
+    isProduction: parsed.data.NODE_ENV === "production",
+    logLevel: parsed.data.LOG_LEVEL,
+    applicationOrigins: parseApplicationOrigins(
+      expandApplicationOriginVariables(parsed.data.APP_ORIGINS),
+      parsed.data.NODE_ENV === "production",
+    ),

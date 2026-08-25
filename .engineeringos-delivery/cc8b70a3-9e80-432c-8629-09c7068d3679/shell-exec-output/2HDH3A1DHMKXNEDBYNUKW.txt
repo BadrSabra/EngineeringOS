@@ -1,0 +1,238 @@
+    summary: "Analysis complete",
+    overallAssessment: "The codebase is in good overall health",
+    insights: [{
+      category: "security",
+      severity: "high",
+      title: "Mock insight",
+      description: "desc",
+      recommendation: "fix it",
+    }],
+    topPriority: "Address security vulnerabilities",
+    estimatedImpact: "High — reduces attack surface significantly",
+  })),
+  // Gap-4 fix: reviewCode mock updated to match CodeReviewResultSchema.
+  // Removed stale fields: criticalIssues, highIssues, mediumIssues, lowIssues.
+  // Added correct fields: refactoringOpportunities, securityConcerns.
+  reviewCode: vi.fn(async () => ({
+    verdict: "approved",
+    overallScore: 85,
+    summary: "Looks good",
+    issues: [],
+    strengths: ["Clean code"],
+    refactoringOpportunities: [],
+    securityConcerns: [],
+  })),
+  // Gap-4 fix: orchestrateWorkflow mock updated to match WorkflowDecisionSchema.
+  // action "advance" requires nextPhase (enforced by AdvanceDecisionSchema.strict()).
+  // Removed stale fields: confidence, suggestedNextPhase, blockers.
+  orchestrateWorkflow: vi.fn(async () => ({
+    action: "advance",
+    reasoning: "All conditions met",
+    nextPhase: "Phase 2",
+  })),
+  // Gap-4 fix: executeTask mock updated to match TaskRecommendationSchema.
+  // Removed stale fields: agentResponse, filesModified.
+  // Added missing field: result (required by TaskRecommendationSchema.min(1)).
+  executeTask: vi.fn(async () => ({
+    summary: "Task completed by AI",
+    confidence: "high",
+    steps: ["Analyzed the codebase", "Applied fix"],
+    result: "Task analyzed and fix applied successfully",
+    needsHumanReview: false,
+  })),
+  parseWorkflowPhases: vi.fn((raw: unknown) => {
+    // Minimal real implementation for tests: parse array of phase-like objects.
+    if (!Array.isArray(raw)) return { ok: false, error: "phases must be an array" };
+    return { ok: true, phases: raw };
+  }),
+  // GroqClientError must be a real class so handleOrchestratorError can use
+  // `instanceof` checks. Without it vitest throws "No GroqClientError export".
+  GroqClientError: class GroqClientError extends Error {
+    readonly code: string;
+    constructor(code: string, message: string) {
+      super(message);
+      this.name = "GroqClientError";
+      this.code = code;
+    }
+  },
+  // PR-07: circuit breaker — collectAvailableProviders calls isCircuitOpen for
+  // every candidate provider. Must be in the mock or all routes that trigger
+  // provider selection throw "No isCircuitOpen export defined on the mock".
+  isCircuitOpen: vi.fn().mockReturnValue(false),
+  // PR-05/PR-11: metrics recording helpers called from chat.ts after each
+  // provider attempt.  Must be stubs so the recording calls are no-ops in tests.
+  recordRequest:        vi.fn(),
+  recordFailure:        vi.fn(),
+  recordSuccess:        vi.fn(),
+  recordFallbackSuccess: vi.fn(),
+  recordInvalidModel:   vi.fn(),
+  recordLatency:        vi.fn(),
+  // Used by collectAvailableProviders to sort providers by quality profile.
+  sortProviderIdsByQuality: vi.fn((ids: string[]) => ids),
+  // classifyRequest is called by the chat route to determine prompt profile.
+  classifyRequest: vi.fn(() => ({ category: "code", contextDepth: "full", historyDepth: 4, maxTokens: 4096, temperature: 0.2, qualityProfile: "code_review" })),
+  isImmediateExecutionRequest: vi.fn((message: string) =>
+    /^(?:نفذ|نفذها|طبق|طبقها|اصلح|اصلحها|ابدأ|ابدا|إبدأ|start|proceed|go\s+ahead|do\s+it|implement|apply|fix|patch|edit|modify|run|execute)(?:\s|$)/i.test(
+      message.trim(),
+    ),
+  ),
+  // enrichContextWithMemories and writeSessionMemories are called by the chat route.
+  enrichContextWithMemories: vi.fn(async (ctx: string) => ctx),
+  writeSessionMemories: vi.fn(async () => undefined),
+  };
+});
+
+// ─── Fixtures ─────────────────────────────────────────────────────────────────
+
+async function insertProject(): Promise<string> {
+  const id = randomUUID();
+  const now = new Date();
+  await db.insert(projectsTable).values({
+    id,
+    ownerId: "test-user",
+    name: `ai-test-${id.slice(0, 8)}`,
+    rootPath: `/tmp/ai-test-${id}`,
+    language: "typescript",
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
+}
+
+async function insertChangeProposal(
+  projectId: string,
+  changes: Array<{
+    path: string;
+    absolutePath: string;
+    newContent: string;
+    originalContent?: string | null;
+    baseHash?: string;
+    hunks?: Array<{
+      .where(eq(workflowExecutionsTable.workflowId, workflowId));
+
+    const suggestion = await request(app).post(`/api/ai/workflows/${workflowId}/orchestrate`).send({});
+    expect(suggestion.status).toBe(200);
+    expect(suggestion.body).toMatchObject({
+      action: "advance",
+      nextPhase: "Phase 2",
+    });
+
+    const afterSuggestion = await db.select().from(workflowsTable).where(eq(workflowsTable.id, workflowId));
+    const afterSuggestionExecution = await db
+      .select()
+      .from(workflowExecutionsTable)
+      .where(eq(workflowExecutionsTable.workflowId, workflowId));
+    expect(afterSuggestion[0].currentPhase).toBe(before[0].currentPhase);
+    expect(afterSuggestion[0].status).toBe(before[0].status);
+    expect(afterSuggestionExecution[0].currentPhase).toBe(beforeExecution[0].currentPhase);
+    expect(afterSuggestionExecution[0].completedPhases).toEqual(beforeExecution[0].completedPhases);
+
+    const advanced = await request(app).post(`/api/workflows/${workflowId}/advance`);
+    expect(advanced.status).toBe(200);
+    expect(advanced.body.currentPhase).toBe("build");
+    expect(advanced.body.completedPhases).toEqual(["plan"]);
+
+    const persisted = await db.select().from(workflowsTable).where(eq(workflowsTable.id, workflowId));
+    expect(persisted[0].currentPhase).toBe("build");
+    expect(persisted[0].status).toBe("running");
+  });
+
+  it("maps provider timeout to a safe response and keeps raw diagnostics out of activity", async () => {
+    const { GroqClientError, orchestrateWorkflow: mockOrchestrate } = await import("@workspace/ai-orchestrator");
+    vi.mocked(mockOrchestrate).mockRejectedValueOnce(
+      new GroqClientError("TIMEOUT", "provider request req-secret failed at /srv/provider/workflow.ts"),
+    );
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const workflowId = await insertWorkflow(projectId);
+    workflowIds.push(workflowId);
+
+    const res = await request(app).post(`/api/ai/workflows/${workflowId}/orchestrate`).send({});
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe("TIMEOUT");
+    expect(res.body.error).not.toContain("req-secret");
+    expect(res.body.error).not.toContain("/srv/");
+
+    const events = await db.select().from(eventsTable).where(eq(eventsTable.projectId, projectId));
+    const failure = events.find((event) => event.type === "AiOrchestratorError");
+    // Error activity is intentionally best-effort and is written after the
+    // response path; when present it must contain only the stable error code.
+    const activityText = failure?.message ?? "";
+    expect(activityText).not.toContain("req-secret");
+    expect(activityText).not.toContain("/srv/");
+  });
+});
+
+// ─── POST /api/ai/tasks/:taskId/execute ──────────────────────────────────────
+
+// ─── POST /api/ai/chat/apply-changes ─────────────────────────────────────────
+
+describe("POST /api/ai/chat/plans/:messageId/decision", () => {
+  it("persists approval and stages the plan for Build Mode without applying files", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const messageId = await insertImplementationPlan(projectId);
+
+    const res = await request(app)
+    expect(persistedUserFacing).not.toContain("/srv/app/");
+  });
+
+  it("returns 500 and restores task status when buildProjectContext fails", async () => {
+    const { buildProjectContext } = await import("@workspace/ai-orchestrator");
+    vi.mocked(buildProjectContext).mockRejectedValueOnce(new Error("context build failed"));
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "pending");
+
+    const res = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe("Failed to build project context");
+
+    const [task] = await db
+      .select()
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId))
+      .limit(1);
+    expect(task?.status).toBe("pending");
+
+    const logs = await db.select().from(taskLogsTable).where(eq(taskLogsTable.taskId, taskId));
+    expect(logs.some((l) =>
+      l.level === "error" &&
+      l.message === "AI execution failed while building project context",
+    )).toBe(true);
+    expect(JSON.stringify(logs)).not.toContain("context build failed");
+  });
+
+  it("keeps raw provider diagnostics out of manual task JSON and persisted records", async () => {
+    const { executeTask: mockExecuteTask, GroqClientError } = await import("@workspace/ai-orchestrator");
+    const rawMessage = "provider request req-raw-task-123 failed at /srv/app/task.ts";
+    vi.mocked(mockExecuteTask).mockRejectedValue(
+      new GroqClientError("SERVER_ERROR", rawMessage),
+    );
+
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const taskId = await insertTask(projectId, "pending");
+
+    const res = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+    expect(res.status).toBe(502);
+    const responseJson = JSON.stringify(res.body);
+    expect(responseJson).not.toContain(rawMessage);
+    expect(responseJson).not.toContain("req-raw-task-123");
+    expect(responseJson).not.toContain("/srv/app/");
+
+    const [event] = await db
+      .select()
+      .from(eventsTable)
+      .where(eq(eventsTable.projectId, projectId));
+    const persisted = JSON.stringify(event);
+    expect(persisted).not.toContain(rawMessage);
+    expect(persisted).not.toContain("req-raw-task-123");
+    expect(persisted).not.toContain("/srv/app/");
+  });
+
+  it("keeps raw provider diagnostics out of automatic task records", async () => {
+    const { executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
+    const rawMessage = "automatic provider request req-raw-auto-456 failed at /var/task/worker.ts";

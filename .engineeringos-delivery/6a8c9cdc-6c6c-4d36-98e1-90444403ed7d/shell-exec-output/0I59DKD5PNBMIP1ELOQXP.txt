@@ -1,0 +1,223 @@
+    }
+    await db.delete(aiChatSessionsTable).where(eq(aiChatSessionsTable.projectId, pid)).catch(() => undefined);
+    await db.delete(tasksTable).where(eq(tasksTable.projectId, pid)).catch(() => undefined);
+    for (const wid of workflowIds.splice(0)) {
+      await db.delete(workflowsTable).where(eq(workflowsTable.id, wid)).catch(() => undefined);
+    }
+    await db.delete(projectsTable).where(eq(projectsTable.id, pid)).catch(() => undefined);
+  }
+  // Also clear any lingering workflow ids
+  for (const wid of workflowIds.splice(0)) {
+    await db.delete(workflowsTable).where(eq(workflowsTable.id, wid)).catch(() => undefined);
+  }
+});
+
+// ─── POST /api/ai/chat ────────────────────────────────────────────────────────
+
+describe("POST /api/ai/chat", () => {
+  it("allows same-origin mutations to reach normal request validation", async () => {
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .set("Origin", "http://127.0.0.1")
+      .send({ message: "hello" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/projectId/i);
+    expect(res.headers["access-control-allow-origin"]).toBe("http://127.0.0.1");
+    expect(res.headers["access-control-allow-credentials"]).toBe("true");
+  });
+
+  it("rejects hostile origins before an authenticated mutation runs", async () => {
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .set("Origin", "https://attacker.example")
+      .send({ message: "steal the account" });
+    expect(res.status).toBe(403);
+    expect(res.body).toEqual({
+      error: "Cross-origin state-changing requests are not allowed",
+      code: "cross_origin_request",
+    });
+    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
+  });
+
+  it("returns 400 when projectId is missing", async () => {
+    const res = await request(app).post("/api/ai/chat").send({ message: "hello" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/projectId/i);
+  });
+
+  it("returns 400 when message is missing", async () => {
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId: randomUUID() });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/message/i);
+  });
+
+  it("returns 400 when message is blank", async () => {
+    const res = await request(app)
+      .post("/api/ai/chat")
+      .send({ projectId: randomUUID(), message: "   " });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when proposalId is missing", async () => {
+    const res = await request(app)
+      .post("/api/ai/chat/apply-changes")
+      .send({
+        projectId: randomUUID(),
+        changes: [{
+          path: "a.ts",
+          absolutePath: "/tmp/a.ts",
+          newContent: "",
+          originalContent: null,
+          reason: "Test proposal",
+          validationProfile: "api-ai-tests",
+        }],
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("proposalId");
+  });
+
+  it("restores the pending proposal for its session", async () => {
+    const projectId = await insertProject();
+    projectIds.push(projectId);
+    const changes = [{
+      path: "src/restore.ts",
+      absolutePath: `/tmp/${randomUUID()}/src/restore.ts`,
+4: * POST /api/ai/chat
+5: * POST /api/ai/chat/stream
+6: * GET  /api/ai/chat/sessions
+7: * GET  /api/ai/chat/:sessionId/messages
+8: * POST /api/ai/chat/apply-changes
+1771:      path: "artifacts/api-server/src/routes/ai/chat.ts",
+1777:      path: "lib/ai-orchestrator/src/agents/chat-agent.ts",
+1781:    source: "artifacts/api-server/src/routes/ai/chat.ts",
+1787:// ── POST /api/ai/chat ────────────────────────────────────────────────────────
+1789:router.post("/ai/chat", async (req, res) => {
+2015:          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat"),
+2258:// ── POST /api/ai/chat/stream ─────────────────────────────────────────────────
+2260:router.post("/ai/chat/stream", async (req, res) => {
+3559:          productionTraceLinks: runtimeChatTraceLinks("POST /api/ai/chat/stream"),
+4632:router.post("/ai/executions/:executionId/recovery", async (req, res) => {
+4659:router.post("/ai/executions/:executionId/resume-capability", async (req, res) => {
+4680:router.post("/ai/executions/:executionId/cancel", async (req, res) => {
+4701:// ── GET /api/ai/chat/sessions ────────────────────────────────────────────────
+4703:router.get("/ai/chat/sessions", async (req, res) => {
+4773:// ── POST /api/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate
+4777:router.post("/ai/chat/:sessionId/messages/:messageId/mission-correlation-report/regenerate", async (req, res) => {
+4898:// ── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────
+4900:router.get("/ai/chat/:sessionId/messages", async (req, res) => {
+4954:// ── POST /api/ai/chat/plans/:messageId/decision ──────────────────────────────
+4960:router.post("/ai/chat/plans/:messageId/decision", async (req, res) => {
+5099:// ── GET /api/ai/chat/file-content ─────────────────────────────────────────────
+5108:router.get("/ai/chat/file-content", async (req, res) => {
+5200:router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
+5348:router.post("/ai/delivery/:proposalId/resume-validation", async (req, res) => {
+5442:router.post("/ai/delivery/:proposalId/discard", async (req, res) => {
+5465:// ── POST /api/ai/chat/rebase-changes ──────────────────────────────────────────
+5470:router.post("/ai/chat/rebase-changes", async (req, res) => {
+5760:// ── POST /api/ai/chat/proposals/:proposalId/approve ──────────────────────────
+5765:router.post("/ai/chat/proposals/:proposalId/approve", async (req, res) => {
+5851:router.delete("/ai/chat/proposals/:proposalId", async (req, res) => {
+5882:// ── POST /api/ai/chat/apply-changes ─────────────────────────────────────────
+5884:router.post("/ai/chat/apply-changes", async (req, res) => {
+2385:      return res.status(409).json({
+2393:      return res.status(400).json({ error: "The selected message is not an implementation plan", code: "PLAN_INVALID" });
+2396:      return res.status(409).json({
+2405:      return res.status(409).json({
+2421:        return res.status(409).json(contextFailure);
+2429:    if (browserProfileFailure) return res.status(409).json(browserProfileFailure);
+2446:      return res.status(409).json({
+2481:      return res.status(403).json({ error: "Session does not belong to this project" });
+2484:      return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+2549:    return res.status(409).json({
+3496:          } catch (error) {
+3722:    } catch (err) {
+3725:      if (err instanceof GroqClientError) {
+3823:        logger.error({ err }, "chat stream: unexpected non-GroqClientError");
+3837:        errorCode: err instanceof GroqClientError ? err.code : "UNKNOWN",
+3940:    } catch (error) {
+4366:  if (!execution) return res.status(404).json({ error: "AI execution not found" });
+4483:  if (!execution) return res.status(404).json({ error: "AI execution not found" });
+4637:  if (!parsed.success) return res.status(400).json({ error: "Recovery action must be resume or abandon." });
+4643:  if (!recovered) return res.status(404).json({ error: "AI execution not found" });
+4645:    return res.status(409).json({ error: "This recovery request targets a stale workspace revision.", code: "EXECUTION_STALE" });
+4648:    return res.status(409).json({ error: "This execution is not eligible for operator recovery.", code: "EXECUTION_NOT_RECOVERABLE" });
+4672:  if (!current) return res.status(404).json({ error: "AI execution not found" });
+4673:  return res.status(409).json({
+4687:    if (!current) return res.status(404).json({ error: "AI execution not found" });
+4688:    return res.status(409).json({
+4779:    return res.status(400).json({ error: "This report recovery action does not accept a request body.", code: "REPORT_REGENERATION_BODY_NOT_ALLOWED" });
+4788:  if (!session) return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+4805:  if (!target) return res.status(404).json({ error: "Chat message not found", code: "MESSAGE_NOT_FOUND" });
+4807:    return res.status(409).json({ error: "Only assistant run reports can be regenerated.", code: "REPORT_REGENERATION_NOT_ELIGIBLE" });
+4810:    return res.status(409).json({ error: "This historical run has no unavailable report to regenerate.", code: "REPORT_REGENERATION_NOT_ELIGIBLE" });
+4813:    return res.status(409).json({ error: "This historical mission report is already available.", code: "REPORT_ALREADY_AVAILABLE" });
+4877:    return res.status(409).json({
+4891:  if (!updated) return res.status(404).json({ error: "Chat message not found", code: "MESSAGE_NOT_FOUND" });
+4909:  if (!session) return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+4965:    return res.status(400).json({
+4985:    return res.status(404).json({ error: "Implementation plan not found", code: "PLAN_NOT_FOUND" });
+4993:    return res.status(400).json({
+5000:    return res.status(400).json({
+5006:    return res.status(409).json({
+5018:      return res.status(409).json({
+5028:    if (contextFailure) return res.status(409).json(contextFailure);
+5034:    if (browserProfileFailure) return res.status(409).json(browserProfileFailure);
+5037:      return res.status(409).json({
+5054:    return res.status(500).json({ error: "Could not persist the plan decision", code: "PLAN_DECISION_SCHEMA_FAILED" });
+5069:    return res.status(409).json({
+5118:    return res.status(400).json({ error: "path is required", code: "FILE_PATH_REQUIRED" });
+5123:    return res.status(400).json({ error: "path must be a project-relative file path", code: "FILE_PATH_INVALID" });
+5140:    return res.status(200).json({ available: false, reason: "project_root_unavailable" });
+5150:    return res.status(200).json({ available: false, reason: "project_root_unavailable" });
+5155:    return res.status(200).json({ available: false, reason: "outside_project_root" });
+5164:    return res.status(200).json({ available: false, reason: "file_not_found" });
+5167:    return res.status(200).json({ available: false, reason: "outside_project_root" });
+5174:    return res.status(200).json({ available: false, reason: "file_unreadable" });
+5186:  return res.status(200).json({
+5206:  if (!session) return res.status(404).json({ error: "Chat session not found" });
+5268:    return res.status(500).json({ error: "Stored change proposal is invalid" });
+5351:  if (!proposal) return res.status(404).json({ error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" });
+5367:    return res.status(409).json({
+5386:    return res.status(409).json({ error: "Stored delivery changes are invalid.", code: "DELIVERY_INVALID" });
+5445:  if (!proposal) return res.status(404).json({ error: "Delivery operation not found", code: "DELIVERY_NOT_FOUND" });
+5452:    return res.status(409).json({ error: "Only abandoned or blocked delivery work can be discarded.", code: "DELIVERY_NOT_DISCARDABLE" });
+5511:    return res.status(400).json({
+5523:    return res.status(409).json({
+5532:    return res.status(409).json({
+5549:      return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+5552:      return res.status(409).json({
+5562:      return res.status(500).json({ error: "Stored change proposal is invalid", code: "PROPOSAL_INVALID" });
+5565:      return res.status(409).json({
+5647:        } catch (error) {
+5683:      } catch (error) {
+5694:      return res.status(409).json({
+5740:    return res.status(200).json({
+5747:  } catch (error) {
+5749:      return res.status(409).json({
+5771:    return res.status(400).json({
+5790:    return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+5793:    return res.status(409).json({
+5799:    return res.status(409).json({
+5838:    return res.status(409).json({
+5844:  return res.status(200).json({
+5858:    return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+5863:    return res.status(409).json({ error: "Change proposal has already been consumed", code: "PROPOSAL_ALREADY_CONSUMED" });
+5879:  return res.status(204).send();
+5933:    return res.status(400).json({ error });
+5956:        return res.status(409).json({
+5967:    return res.status(409).json({
+5977:    return res.status(409).json({
+6011:      return res.status(404).json({ error: "Change proposal not found", code: "PROPOSAL_NOT_FOUND" });
+6014:      return res.status(409).json({ error: "Change proposal has already been consumed", code: "PROPOSAL_ALREADY_CONSUMED" });
+6017:      return res.status(409).json({
+6031:      return res.status(500).json({ error: "Stored change proposal is invalid", code: "PROPOSAL_INVALID" });
+6041:      return res.status(409).json({
+6047:      return res.status(409).json({
+6071:      return res.status(409).json({
+6182:        } catch (readError) {
+6274:      } catch (e) {
+6353:        } catch (error) {
+6419:      } catch (e) {
+6688:    return res.status(rollbackFailed ? 500 : allOk ? 200 : 207).json({

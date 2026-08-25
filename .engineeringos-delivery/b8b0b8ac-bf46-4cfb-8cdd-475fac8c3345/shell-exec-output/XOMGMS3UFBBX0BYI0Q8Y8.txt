@@ -1,0 +1,327 @@
+        ? { rootPathFallback: { used: true, original: rootOriginalPath } }
+        : undefined,
+    });
+  } finally {
+    await applyProbe.release();
+  }
+});
+
+// ── POST /api/ai/chat/stream ─────────────────────────────────────────────────
+
+router.post("/ai/chat/stream", async (req, res) => {
+  const ChatBodySchema = z.object({
+    projectId:    z.string({ required_error: "projectId is required" }).min(1, "projectId is required"),
+    message:      z.string({ required_error: "message is required" }).trim().min(1, "message is required"),
+    sessionId:    z.string().uuid("sessionId must be a valid UUID").optional(),
+    // AI-TASK-002: optional task linkage — switches agent into task-aware mode
+    linkedTaskId: z.string().uuid("linkedTaskId must be a valid UUID").optional(),
+    /**
+     * Build handoff from a previously approved implementation plan. The
+     * server validates this message before model execution and enforces its
+     * declared file scope before creating a change proposal.
+     */
+    buildPlanMessageId: z.string().uuid("buildPlanMessageId must be a valid UUID").optional(),
+    /** Durable execution identity used to reconnect or explicitly resume a run. */
+    executionId: z.string().uuid("executionId must be a valid UUID").optional(),
+    /** Opaque token returned with execution_started; never accepted from model content. */
+    resumeToken: z.string().min(32).max(128).optional(),
+    /** Client retry key; repeated requests reuse the same durable execution. */
+    idempotencyKey: z.string().min(8).max(128).optional(),
+    // AI-OBJ-005: optional validated Objective Completion contract; when present
+    // the chat() call runs the Objective Completion Gate on the real entry point
+    // and refuses finalization while any required claim/edge is unproven.
+    objective:    ObjectiveContractSchema.optional(),
+  });
+  const chatBody = ChatBodySchema.safeParse(req.body);
+  if (!chatBody.success) {
+    const issue = chatBody.error.issues[0];
+    const raw   = issue?.message ?? "Invalid request body";
+    const field = String(issue?.path[0] ?? "");
+    const error = raw === "Required" && field ? `${field} is required` : raw;
+    return res.status(400).json({ error });
+  }
+  const {
+    projectId,
+    message,
+    sessionId,
+    linkedTaskId,
+    objective,
+    buildPlanMessageId,
+    executionId,
+    resumeToken,
+    idempotencyKey,
+  } = chatBody.data;
+  const rawTurnClassification = classifyRequest(message);
+  const rawTurnIntent = resolveTurnIntent(message, {
+    classification: rawTurnClassification,
+  });
+  const isolatedConversationTurn =
+    rawTurnIntent.kind === "CHAT" && !isTaskContinuationRequest(message);
+  const effectiveExecutionId = isolatedConversationTurn ? undefined : executionId;
+  const effectiveResumeToken = isolatedConversationTurn ? undefined : resumeToken;
+
+  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+  if (!project) return;
+
+  const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
+
+  // Keep execution handoff fail-closed in the streaming route too. This check
+  // happens before provider resolution and before SSE headers are committed.
+  if (!sessionId && isImmediateExecutionRequest(message)) {
+    return res.status(409).json({
+      error: "execution_session_required",
+      message: "Repair Plan execution requires the original audit session.",
+    });
+  }
+  if (effectiveExecutionId && !sessionId) {
+    return res.status(400).json({
+      error: "executionId requires the original chat session",
+      code: "EXECUTION_SESSION_REQUIRED",
+    });
+  }
+
+  const rlChat = await checkProjectRateLimitDb(projectId);
+  if (!rlChat.allowed) {
+    return res.status(429).json({
+      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlChat.retryAfterSec}s.`,
+    });
+  }
+
+  const { validRootPath, fallbackUsed: rootFallbackUsed, originalPath: rootOriginalPath } =
+    await resolveRootPath(project.rootPath, projectId);
+
+  let approvedImplementationPlan: ApprovedImplementationPlan | undefined;
+  let approvedImplementationExecutionPlan: ActiveTaskExecutionPlan | undefined;
+  let implementationPlanScope: Set<string> | undefined;
+  let modelMessage = message;
+  // Decide this from the validated user text before any Build handoff
+  // augmentation. A greeting must never inherit Build Mode state, even when
+  // the client retries with stale buildPlanMessageId metadata.
+  const greetingTurnForExecution = isolatedConversationTurn;
+  const effectiveBuildPlanMessageId = isolatedConversationTurn ? undefined : buildPlanMessageId;
+  if (effectiveBuildPlanMessageId) {
+    if (!sessionId) {
+      return res.status(400).json({
+        error: "Build handoff requires the original chat session",
+        code: "BUILD_SESSION_REQUIRED",
+      });
+    }
+    if (!validRootPath) {
+      return res.status(409).json({
+        error: "The project root is unavailable for Build Mode",
+        code: "BUILD_ROOT_UNAVAILABLE",
+      });
+    }
+
+    const [planRow] = await db
+      .select({
+        message: aiChatMessagesTable,
+        session: aiChatSessionsTable,
+      })
+      .from(aiChatMessagesTable)
+      .innerJoin(
+        aiChatSessionsTable,
+        eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+      )
+      .where(eq(aiChatMessagesTable.id, effectiveBuildPlanMessageId))
+      .limit(1);
+
+    if (!planRow) {
+      return res.status(404).json({ error: "Implementation plan not found", code: "PLAN_NOT_FOUND" });
+    }
+    if (planRow.session.projectId !== projectId) {
+      return res.status(403).json({ error: "Implementation plan does not belong to this project" });
+    }
+    if (planRow.session.id !== sessionId) {
+      return res.status(409).json({
+        error: "Build Mode must use the session that produced the approved plan",
+        code: "BUILD_SESSION_MISMATCH",
+      });
+    }
+
+    const storedPlan = parseTaskResult(planRow.message.taskResult);
+    if (!storedPlan || storedPlan.kind !== "IMPLEMENTATION_PLAN_RESULT") {
+      return res.status(400).json({ error: "The selected message is not an implementation plan", code: "PLAN_INVALID" });
+    }
+    if (storedPlan.approvalStatus !== "APPROVED" || storedPlan.writeAccess !== "APPROVED_FOR_BUILD") {
+      return res.status(409).json({
+        error: "Approve the implementation plan before starting Build Mode",
+        code: "PLAN_APPROVAL_REQUIRED",
+        approvalStatus: storedPlan.approvalStatus,
+      });
+    }
+    approvedImplementationPlan = storedPlan;
+    implementationPlanScope = getImplementationPlanScope(storedPlan, validRootPath);
+    if (implementationPlanScope.size === 0) {
+      return res.status(409).json({
+        error: "This implementation plan has no safe file scope and cannot enter Build Mode",
+        code: "PLAN_FILE_SCOPE_REQUIRED",
+      });
+    }
+    // Plans created before the context-manifest contract remain valid when
+    // their approved file scope is present; newer plans are checked against
+    // the immutable scan context before execution.
+    if (storedPlan.contextManifest) {
+      const contextFailure = await validatePlanContextForExecution(
+        storedPlan,
+        projectId,
+        validRootPath,
+      );
+      if (contextFailure) {
+        logger.warn({ projectId, code: contextFailure.code }, "Build handoff context blocked");
+            type: "error",
+            code: "IMPLEMENTATION_PLAN_SCOPE_BLOCKED",
+            message: "Build Mode proposed changes outside the approved implementation plan. No proposal was created.",
+            files: [...new Set(outOfScopeFiles)].slice(0, 12),
+          });
+          res.end();
+          return;
+        }
+      }
+      if (approvedImplementationPlan && effectiveBuildPlanMessageId) {
+        await db.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "AiBuildCompleted",
+          projectId,
+          severity: "success",
+          message: "Build Mode completed and produced a scoped proposal",
+          correlationId: effectiveBuildPlanMessageId,
+          payload: {
+            messageId: effectiveBuildPlanMessageId,
+            proposedChanges: result.pendingChanges?.length ?? 0,
+          },
+        });
+      }
+      // PR-05/PR-011: record successful call latency and health.
+      const callLatency = Date.now() - chatStartMs;
+      const effectiveProvider = chatOut.effectiveProvider ?? provider;
+      recordLatency(effectiveProvider, callLatency);
+      recordSuccess(effectiveProvider);
+      // effectiveProvider differs from `provider` when fallback occurred
+      if (chatOut.effectiveProvider && chatOut.effectiveProvider !== provider) {
+        recordFallbackSuccess(provider);
+      }
+    } catch (err) {
+      // PR-011: record failure metrics before emitting the SSE error.
+      recordFailure(provider);
+      if (err instanceof GroqClientError) {
+        if (err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE") {
+          recordInvalidModel(provider);
+        }
+        logger.error(
+          { code: err.code, message: err.message, provider,
+            providerStatus: err.providerStatus, providerModel: err.providerModel },
+          "chat stream: all providers failed",
+        );
+
+        // PR-009: structured error with provider context so the dashboard can
+        // show actionable diagnostics (model name, HTTP status, suggestedFix).
+        const providerCtx = err.toProviderContext() ?? {};
+        // Provider messages can contain request IDs, file paths, or upstream
+        // diagnostics. They remain in the structured server log above, not on
+        // the user-facing stream.
+        const publicProviderCtx = Object.fromEntries(
+          Object.entries(providerCtx).filter(([key]) => key !== "providerMessage"),
+        );
+        const base: Record<string, unknown> = {
+          type: "error",
+          code: err.code,
+          // PR-007: surface provider context on the wire.
+          ...(Object.keys(publicProviderCtx).length > 0
+            ? { providerContext: redactUserFacingValue(publicProviderCtx) }
+            : {}),
+        };
+
+        switch (err.code) {
+          case "RATE_LIMITED":
+            // SSE headers were flushed before provider execution starts, so
+            // the retry hint must travel in the error event rather than via
+            // HTTP Retry-After.
+            sse({
+              ...base,
+              message: `Rate limit reached on all configured AI providers — retry after ${Math.max(1, Math.ceil((err.retryAfterMs ?? 30_000) / 1000))} seconds.`,
+              retryAfterMs: err.retryAfterMs,
+              retryable: true,
+              suggestedFix: "Retry after the indicated delay or configure another provider.",
+            });
+            break;
+          case "QUOTA":
+            sse({
+              ...base,
+              message: "AI provider billing quota or credits are exhausted.",
+              retryable: false,
+              suggestedFix: "Check your OpenRouter/provider account balance and top up credits.",
+            });
+            break;
+          case "AUTH_ERROR":
+            sse({
+              ...base,
+              message: "AI provider key is invalid or unauthorized.",
+              retryable: false,
+              suggestedFix: "Delete your current provider key and save a valid one in Settings.",
+            });
+            break;
+          case "MODEL_NOT_FOUND":
+            sse({
+              ...base,
+               message: redactUserFacingText(
+                 `All AI model fallbacks exhausted${err.providerModel ? ` (last tried: ${err.providerModel})` : ""} — no model was available.`,
+               ),
+              retryable: false,
+              suggestedFix: "Check your OpenRouter API key and model availability on openrouter.ai/models.",
+            });
+            break;
+          case "PLAN_RESTRICTED":
+            sse({
+              ...base,
+              message: "The selected AI model requires a paid plan or credit balance — all free-tier fallbacks failed.",
+              retryable: false,
+              suggestedFix: "Add credit balance to your OpenRouter account, or save a Groq/Gemini API key as a free fallback.",
+            });
+            break;
+          case "MODEL_UNAVAILABLE":
+            sse({
+              ...base,
+               message: redactUserFacingText(
+                 `AI model temporarily unavailable${err.providerModel ? ` (${err.providerModel})` : ""} — all fallbacks also unavailable.`,
+               ),
+              retryable: true,
+              suggestedFix: "Try again in a few minutes; the model may be back online.",
+            });
+            break;
+          case "TIMEOUT":
+          case "NETWORK_ERROR":
+            sse({
+              ...base,
+              message: "AI provider is temporarily unreachable — try again in a moment.",
+              retryable: true,
+              suggestedFix: "Check your network connection and retry.",
+            });
+            break;
+          default:
+            sse({ ...base, message: redactUserFacingText(`AI provider error: ${err.message.slice(0, 200)}`), retryable: false });
+        }
+      } else {
+        logger.error({ err }, "chat stream: unexpected non-GroqClientError");
+        sse({
+          type: "error",
+          code: "unknown",
+          message: redactUserFacingText(err instanceof Error ? err.message : String(err)),
+        });
+      }
+      await persistFailedChatTurn({
+        sessionId: sessionIdToUse,
+        projectId,
+        message,
+        turnIntent: streamTurnIntent.kind,
+        executionId: aiExecution?.id,
+        outcome: executionAbortController?.signal.aborted ? "INTERRUPTED" : "FAILED",
+        errorCode: err instanceof GroqClientError ? err.code : "UNKNOWN",
+        errorMessage: err instanceof Error ? err.message : String(err),
+        createdAt: now,
+        assistantAt: msgNow,
+        toolTrace: traceSteps,
+      }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure"));
+      res.end();
+      return;
+    }

@@ -1,0 +1,300 @@
+artifacts/api-server/src/services/task-service.ts:4: * Contains the verification logic that determines task completion status.
+artifacts/api-server/src/services/task-service.ts:56: * `verificationResult` and uses to set the final task status.
+artifacts/api-server/src/scripts/seed-provenance.ts:54:  status: string;
+artifacts/api-server/src/scripts/seed-provenance.ts:111:        status: rec.status,
+artifacts/api-server/src/scripts/seed-provenance.ts:200:        status: "active",
+lib/scanner/src/metrics-calc.ts:61:  if (c.includes("err") || c.includes("null") || c.includes("retry") || c.includes("timeout")) {
+artifacts/api-server/src/routes/events.ts:29:    return res.status(400).json({ error: "limit must be an integer between 1 and 200" });
+artifacts/api-server/src/routes/events.ts:32:    return res.status(400).json({ error: "page must be at least 1" });
+artifacts/api-server/src/routes/events.test.ts:22:    status: "active",
+artifacts/api-server/src/routes/events.test.ts:65:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/events.test.ts:79:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/events.test.ts:88:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/events.test.ts:99:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/events.test.ts:116:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/events.test.ts:133:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/events.test.ts:149:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/events.test.ts:168:    expect(firstPage.status).toBe(200);
+artifacts/api-server/src/routes/events.test.ts:169:    expect(secondPage.status).toBe(200);
+artifacts/api-server/src/routes/events.test.ts:185:    expect(res.status).toBe(400);
+artifacts/api-server/src/routes/events.test.ts:218:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/events.test.ts:232:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/events.test.ts:244:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/events.test.ts:267:      status: "active",
+artifacts/api-server/src/routes/events.test.ts:274:    expect(res.status).toBe(403);
+artifacts/api-server/src/routes/events.test.ts:288:      status: "active",
+artifacts/api-server/src/routes/events.test.ts:298:    expect(res.status).toBe(200);
+lib/api-zod/src/truth-flow-matrix.schema.ts:56:  status: TruthFlowNodeStatusSchema,
+lib/api-zod/src/truth-flow-matrix.schema.ts:118:    status: "partial",
+lib/api-zod/src/truth-flow-matrix.schema.ts:130:    status: "partial",
+lib/api-zod/src/truth-flow-matrix.schema.ts:141:    status: "partial",
+lib/api-zod/src/truth-flow-matrix.schema.ts:152:    status: "partial",
+lib/api-zod/src/truth-flow-matrix.schema.ts:165:    status: "partial",
+lib/api-zod/src/truth-flow-matrix.schema.ts:177:    status: "partial",
+lib/api-zod/src/truth-flow-matrix.schema.ts:188:    status: "partial",
+lib/api-zod/src/truth-flow-matrix.schema.ts:199:    status: "complete",
+lib/api-zod/src/truth-flow-matrix.schema.ts:210:    status: "partial",
+lib/api-zod/src/truth-flow-matrix.schema.ts:221:    status: "complete",
+lib/api-zod/src/truth-flow-matrix.schema.ts:231:    status: "partial",
+lib/api-zod/src/truth-flow-matrix.schema.ts:233:    nextAction: "Restrict AI to verified truth context and add stale-data guardrails.",
+lib/api-zod/src/truth-flow-matrix.schema.ts:241:    status: "missing",
+lib/api-zod/src/truth-flow-matrix.schema.ts:280:    if (actual.status !== expected.status) {
+lib/api-zod/src/truth-flow-matrix.schema.ts:284:        message: `Status mismatch for node "${expected.node}": expected ${expected.status}, got ${actual.status}`,
+lib/api-zod/src/truth-flow-matrix.schema.ts:322:  type: "missing" | "unexpected" | "status-mismatch" | "confidence-mismatch" | "repo-path-mismatch" | "duplicate-node" | "duplicate-path";
+lib/api-zod/src/truth-flow-matrix.schema.ts:402:    if (actual.status !== expected.status) {
+lib/api-zod/src/truth-flow-matrix.schema.ts:405:        type: "status-mismatch",
+lib/api-zod/src/truth-flow-matrix.schema.ts:406:        message: `Status mismatch for node "${expected.node}": expected ${expected.status}, got ${actual.status}`,
+artifacts/api-server/src/routes/workflows.ts:41:    return res.status(400).json({ error: "projectId is required" });
+artifacts/api-server/src/routes/workflows.ts:83:  return res.status(201).json(workflow[0]);
+artifacts/api-server/src/routes/workflows.ts:94:  if (!workflow[0]) return res.status(404).json({ error: "Workflow not found" });
+artifacts/api-server/src/routes/workflows.ts:109:  if (!before[0]) return res.status(404).json({ error: "Workflow not found" });
+artifacts/api-server/src/routes/workflows.ts:133:  return res.status(204).send();
+artifacts/api-server/src/routes/workflows.ts:144:  if (!workflow[0]) return res.status(404).json({ error: "Workflow not found" });
+artifacts/api-server/src/routes/workflows.ts:160:  // (status guard) so a double-click / concurrent start request can't
+artifacts/api-server/src/routes/workflows.ts:170:          status: "running",
+artifacts/api-server/src/routes/workflows.ts:176:        .where(and(eq(workflowsTable.id, workflowId), eq(workflowsTable.status, workflow[0].status)))
+artifacts/api-server/src/routes/workflows.ts:180:          workflow[0].status === "running"
+artifacts/api-server/src/routes/workflows.ts:191:          status: "running",
+artifacts/api-server/src/routes/workflows.ts:214:      return res.status(409).json({ error: err.message });
+artifacts/api-server/src/routes/workflows.ts:224:    stateBefore: { status: workflow[0].status },
+artifacts/api-server/src/routes/workflows.ts:225:    stateAfter: { status: "running", currentPhase: firstPhase },
+artifacts/api-server/src/routes/workflows.ts:248:  return res.status(202).json({
+artifacts/api-server/src/routes/workflows.ts:252:      phaseExecutionStatus: phaseExecution.status,
+artifacts/api-server/src/routes/workflows.ts:265:  if (!workflow[0]) return res.status(404).json({ error: "Workflow not found" });
+artifacts/api-server/src/routes/workflows.ts:273:  // Same rationale as start: the workflow status flip, its running
+artifacts/api-server/src/routes/workflows.ts:283:        .set({ status: "stopped", updatedAt: now })
+artifacts/api-server/src/routes/workflows.ts:284:        .where(and(eq(workflowsTable.id, workflowId), eq(workflowsTable.status, workflow[0].status)))
+artifacts/api-server/src/routes/workflows.ts:296:            eq(workflowExecutionsTable.status, "running"),
+artifacts/api-server/src/routes/workflows.ts:306:          .set({ status: "stopped", completedAt: now })
+artifacts/api-server/src/routes/workflows.ts:319:            status: "stopped",
+artifacts/api-server/src/routes/workflows.ts:341:      return res.status(409).json({ error: err.message });
+artifacts/api-server/src/routes/workflows.ts:351:    stateBefore: { status: workflow[0].status },
+artifacts/api-server/src/routes/workflows.ts:352:    stateAfter: { status: "stopped" },
+artifacts/api-server/src/routes/workflows.ts:369:  if (!workflow[0]) return res.status(404).json({ error: "Workflow not found" });
+artifacts/api-server/src/routes/workflows.ts:386:// there was no way to actually move through a workflow's phase list, retry a
+artifacts/api-server/src/routes/workflows.ts:398:        eq(workflowExecutionsTable.status, "running"),
+artifacts/api-server/src/routes/workflows.ts:411:  if (!workflow[0]) return res.status(404).json({ error: "Workflow not found" });
+artifacts/api-server/src/routes/workflows.ts:418:    return res.status(409).json({ error: "Workflow has no running execution to advance" });
+artifacts/api-server/src/routes/workflows.ts:425:    return res.status(409).json({ error: "A workflow transition is already in progress" });
+artifacts/api-server/src/routes/workflows.ts:441:      return res.status(400).json({
+artifacts/api-server/src/routes/workflows.ts:448:    return res.status(409).json({
+artifacts/api-server/src/routes/workflows.ts:460:    return res.status(409).json({
+artifacts/api-server/src/routes/workflows.ts:466:    return res.status(409).json({
+artifacts/api-server/src/routes/workflows.ts:489:          status: isLastPhase ? "completed" : "running",
+artifacts/api-server/src/routes/workflows.ts:497:            eq(workflowExecutionsTable.status, "running"),
+artifacts/api-server/src/routes/workflows.ts:512:          status: isLastPhase ? "completed" : "running",
+artifacts/api-server/src/routes/workflows.ts:528:          before: { phase: execution.currentPhase, status: "running" },
+artifacts/api-server/src/routes/workflows.ts:529:          after: { phase: nextPhase, status: isLastPhase ? "completed" : "running" },
+artifacts/api-server/src/routes/workflows.ts:537:      return res.status(409).json({ error: err.message });
+artifacts/api-server/src/routes/workflows.ts:577:      phaseExecutionStatus: phaseExecution.status,
+artifacts/api-server/src/routes/workflows.ts:591:  if (!workflow[0]) return res.status(404).json({ error: "Workflow not found" });
+artifacts/api-server/src/routes/workflows.ts:598:    return res.status(409).json({ error: "Workflow has no running execution to fail" });
+artifacts/api-server/src/routes/workflows.ts:608:        .set({ status: "failed", errorMessage, completedAt: now })
+artifacts/api-server/src/routes/workflows.ts:609:        .where(and(eq(workflowExecutionsTable.id, execution.id), eq(workflowExecutionsTable.status, "running")))
+artifacts/api-server/src/routes/workflows.ts:617:        .set({ status: "failed", updatedAt: now })
+artifacts/api-server/src/routes/workflows.ts:629:          before: { status: "running", phase: execution.currentPhase },
+artifacts/api-server/src/routes/workflows.ts:630:          after: { status: "failed", errorMessage },
+artifacts/api-server/src/routes/workflows.ts:638:      return res.status(409).json({ error: err.message });
+artifacts/api-server/src/routes/workflows.ts:648:    stateBefore: { status: "running", currentPhase: execution.currentPhase },
+artifacts/api-server/src/routes/workflows.ts:649:    stateAfter: { status: "failed", errorMessage },
+artifacts/api-server/src/routes/workflows.ts:661:router.post("/workflows/:workflowId/executions/:executionId/retry-phase", async (req, res) => {
+artifacts/api-server/src/routes/workflows.ts:665:  if (!workflow[0]) return res.status(404).json({ error: "Workflow not found" });
+artifacts/api-server/src/routes/workflows.ts:667:  const retryOwnerProject = await loadProjectByIdForUser(workflow[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/workflows.ts:668:  if (!retryOwnerProject) return;
+artifacts/api-server/src/routes/workflows.ts:676:    return res.status(404).json({ error: "Execution not found" });
+artifacts/api-server/src/routes/workflows.ts:686:        .set({ status: "running", errorMessage: null, completedAt: null })
+artifacts/api-server/src/routes/workflows.ts:687:        .where(and(eq(workflowExecutionsTable.id, executionId), eq(workflowExecutionsTable.status, "failed")))
+artifacts/api-server/src/routes/workflows.ts:690:        throw new WorkflowStateConflictError(`Cannot retry execution with status "${execution.status}"`);
+artifacts/api-server/src/routes/workflows.ts:695:        .set({ status: "running", currentPhase: execution.currentPhase, updatedAt: now })
+artifacts/api-server/src/routes/workflows.ts:704:        message: `Workflow "${workflow[0].name}" retrying phase "${execution.currentPhase ?? "unknown"}"`,
+artifacts/api-server/src/routes/workflows.ts:707:          before: { status: "failed", phase: execution.currentPhase },
+artifacts/api-server/src/routes/workflows.ts:708:          after: { status: "running", phase: execution.currentPhase },
+artifacts/api-server/src/routes/workflows.ts:716:      return res.status(409).json({ error: err.message });
+artifacts/api-server/src/routes/workflows.ts:726:    stateBefore: { status: "failed", currentPhase: execution.currentPhase },
+artifacts/api-server/src/routes/workflows.ts:727:    stateAfter: { status: "running", currentPhase: execution.currentPhase },
+artifacts/api-server/src/routes/workflows.ts:734:  return res.status(202).json(updatedExecution);
+artifacts/api-server/src/routes/workflows.ts:744:    return res.status(400).json({
+artifacts/api-server/src/routes/workflows.ts:755:  if (!workflow[0]) return res.status(404).json({ error: "Workflow not found" });
+artifacts/api-server/src/routes/workflows.ts:766:    return res.status(404).json({ error: "Execution not found" });
+artifacts/api-server/src/routes/workflows.ts:769:  if (!["running", "failed", "completed"].includes(execution.status)) {
+artifacts/api-server/src/routes/workflows.ts:770:    return res.status(409).json({
+artifacts/api-server/src/routes/workflows.ts:772:      status: execution.status,
+artifacts/api-server/src/routes/workflows.ts:780:    return res.status(409).json({
+artifacts/api-server/src/routes/workflows.ts:789:      ? execution.status === "completed"
+artifacts/api-server/src/routes/workflows.ts:794:    return res.status(409).json({
+artifacts/api-server/src/routes/workflows.ts:803:    return res.status(409).json({
+artifacts/api-server/src/routes/workflows.ts:811:    return res.status(409).json({
+artifacts/api-server/src/routes/workflows.ts:840:          status: "running",
+artifacts/api-server/src/routes/workflows.ts:850:            eq(workflowExecutionsTable.status, execution.status),
+artifacts/api-server/src/routes/workflows.ts:862:          status: "running",
+artifacts/api-server/src/routes/workflows.ts:878:            status: execution.status,
+artifacts/api-server/src/routes/workflows.ts:883:            status: "running",
+artifacts/api-server/src/routes/workflows.ts:894:      return res.status(409).json({ error: err.message });
+artifacts/api-server/src/routes/workflows.ts:905:      status: execution.status,
+artifacts/api-server/src/routes/workflows.ts:910:      status: "running",
+artifacts/api-server/src/routes/workflows.test.ts:24:    status: "active",
+artifacts/api-server/src/routes/workflows.test.ts:63:    expect(created.status).toBe(201);
+artifacts/api-server/src/routes/workflows.test.ts:67:    expect(started.status).toBe(202);
+artifacts/api-server/src/routes/workflows.test.ts:76:    expect(first.status).toBe(200);
+artifacts/api-server/src/routes/workflows.test.ts:79:    expect(first.body.status).toBe("running");
+artifacts/api-server/src/routes/workflows.test.ts:86:    expect(third.body.status).toBe("completed");
+artifacts/api-server/src/routes/workflows.test.ts:91:    expect(workflow[0].status).toBe("completed");
+artifacts/api-server/src/routes/workflows.test.ts:138:  it("emits WorkflowPhaseRetried when retry-phase is called", async () => {
+artifacts/api-server/src/routes/workflows.test.ts:146:      `/api/workflows/${workflowId}/executions/${failed.body.id}/retry-phase`,
+artifacts/api-server/src/routes/workflows.test.ts:156:  it("marks a phase failed and allows retrying it in place", async () => {
+artifacts/api-server/src/routes/workflows.test.ts:162:    expect(failed.status).toBe(200);
+artifacts/api-server/src/routes/workflows.test.ts:163:    expect(failed.body.status).toBe("failed");
+artifacts/api-server/src/routes/workflows.test.ts:172:    expect(workflowAfterFail[0].status).toBe("failed");
+artifacts/api-server/src/routes/workflows.test.ts:175:      .post(`/api/workflows/${workflowId}/executions/${failed.body.id}/retry-phase`);
+artifacts/api-server/src/routes/workflows.test.ts:176:    expect(retried.status).toBe(202);
+artifacts/api-server/src/routes/workflows.test.ts:177:    expect(retried.body.status).toBe("running");
+artifacts/api-server/src/routes/workflows.test.ts:186:    expect(workflowAfterRetry[0].status).toBe("running");
+artifacts/api-server/src/routes/workflows.test.ts:203:    expect(rolledBack.status).toBe(200);
+artifacts/api-server/src/routes/workflows.test.ts:204:    expect(rolledBack.body.status).toBe("running");
+artifacts/api-server/src/routes/workflows.test.ts:214:    expect(workflow[0].status).toBe("running");
+artifacts/api-server/src/routes/workflows.test.ts:243:    expect(res.status).toBe(409);
+artifacts/api-server/src/routes/workflows.test.ts:254:    expect(res.status).toBe(409);
+artifacts/api-server/src/routes/workflows.test.ts:266:    expect(res.status).toBe(409);
+artifacts/api-server/src/routes/workflows.test.ts:290:    expect(created.status).toBe(201);
+artifacts/api-server/src/routes/workflows.test.ts:294:    expect(started.status).toBe(202);
+artifacts/api-server/src/routes/workflows.test.ts:303:    expect(res.status).toBe(409);
+artifacts/api-server/src/routes/workflows.test.ts:314:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/workflows.test.ts:322:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/workflows.test.ts:329:    expect(res.status).toBe(400);
+artifacts/api-server/src/routes/workflows.test.ts:351:    expect(created.status).toBe(201);
+artifacts/api-server/src/routes/workflows.test.ts:357:    expect(res.status).toBe(409);
+artifacts/api-server/src/routes/workflows.test.ts:361:  it("returns 409 when retrying an execution that isn't failed", async () => {
+artifacts/api-server/src/routes/workflows.test.ts:370:      `/api/workflows/${workflowId}/executions/${runningExecution.id}/retry-phase`,
+artifacts/api-server/src/routes/workflows.test.ts:372:    expect(res.status).toBe(409);
+artifacts/api-server/src/routes/workflows.test.ts:382:    expect([first.status, second.status].sort()).toEqual([200, 409]);
+artifacts/api-server/src/routes/workflows.test.ts:391:    expect(executions.filter((execution) => execution.status === "running")).toHaveLength(1);
+artifacts/api-server/src/routes/workflows.test.ts:397:      before: { phase: "build", status: "running" },
+artifacts/api-server/src/routes/workflows.test.ts:398:      after: { phase: "test", status: "running" },
+lib/api-zod/src/generated/types/workflowExecution.ts:13:  status: WorkflowStatus;
+lib/api-zod/src/generated/types/workflow.ts:16:  status: WorkflowStatus;
+lib/api-zod/src/generated/types/validationResult.ts:17:  status: ValidationResultStatus;
+lib/api-zod/src/generated/types/updateTaskInput.ts:14:  status?: TaskStatus;
+lib/api-zod/src/generated/types/updateProjectInput.ts:13:  status?: UpdateProjectInputStatus;
+artifacts/api-server/src/routes/upload.ts:40:      return res.status(413).json({ error: "Archive exceeds the 50 MB upload limit", code: "UPLOAD_TOO_LARGE" });
+artifacts/api-server/src/routes/upload.ts:47:    return res.status(400).json({
+artifacts/api-server/src/routes/upload.ts:58:    return res.status(400).json({
+artifacts/api-server/src/routes/upload.ts:85:    return res.status(201).json({ uploadId, originalName: originalname });
+artifacts/api-server/src/routes/upload.ts:93:    return res.status(422).json({ error: `Archive extraction failed: ${msg}` });
+artifacts/api-server/src/routes/discovery.ts:63:  const staleSessions = await db
+artifacts/api-server/src/routes/discovery.ts:81:  for (const session of staleSessions) {
+artifacts/api-server/src/routes/discovery.ts:193:    return res.status(resolved.status).json({ error: resolved.error, reason: resolved.reason });
+artifacts/api-server/src/routes/discovery.ts:209:      return res.status(422).json({ error: rootError, reason: "no_project_root" });
+artifacts/api-server/src/routes/discovery.ts:220:        return res.status(established.status).json({
+artifacts/api-server/src/routes/discovery.ts:233:      return res.status(422).json({
+artifacts/api-server/src/routes/discovery.ts:245:      return res.status(400).json({ error: pathError, reason: "invalid_source" });
+artifacts/api-server/src/routes/discovery.ts:249:  // Cleanup stale sessions opportunistically
+artifacts/api-server/src/routes/discovery.ts:254:    status: "pending",
+artifacts/api-server/src/routes/discovery.ts:261:      status: "pending",
+artifacts/api-server/src/routes/discovery.ts:280:  // making the 202 response show status="error" instead of "pending".
+artifacts/api-server/src/routes/discovery.ts:294:  // reconciliation pass or stale-pending sweep cannot enqueue the same session
+artifacts/api-server/src/routes/discovery.ts:295:  // twice. The discovery runner transitions status on its own, so a duplicate
+artifacts/api-server/src/routes/discovery.ts:296:  // would race on the "discovering" status update — this prevents that entirely.
+artifacts/api-server/src/routes/discovery.ts:307:  return res.status(202).json(toSessionResponse(session[0]));
+artifacts/api-server/src/routes/discovery.ts:331:    res.status(404).json({ error: "Discovery session not found", reason: "not_found" });
+artifacts/api-server/src/routes/discovery.ts:335:    res.status(403).json({ error: "You do not have access to this discovery session", reason: "permission_denied" });
+artifacts/api-server/src/routes/discovery.ts:354:  if (session.status !== "ready" && session.status !== "imported") {
+artifacts/api-server/src/routes/discovery.ts:355:    return res.status(409).json({ error: "Discovery not yet complete", status: session.status, reason: "resolution_failed" });
+artifacts/api-server/src/routes/discovery.ts:358:  if (!result) return res.status(500).json({ error: "Discovery result missing" });
+artifacts/api-server/src/routes/discovery.ts:373:  // state. Ownership is checked before status so a non-owner never learns
+artifacts/api-server/src/routes/discovery.ts:378:  if (session.status === "imported") {
+artifacts/api-server/src/routes/discovery.ts:379:    return res.status(409).json({ error: "Session already imported", status: session.status, reason: "invalid_source" });
+artifacts/api-server/src/routes/discovery.ts:381:  if (session.status !== "ready") {
+artifacts/api-server/src/routes/discovery.ts:382:    return res.status(409).json({ error: "Discovery not yet complete", status: session.status, reason: "resolution_failed" });
+artifacts/api-server/src/routes/discovery.ts:386:  if (!result) return res.status(500).json({ error: "Discovery result missing" });
+artifacts/api-server/src/routes/discovery.ts:400:    const status = rootResult.reason === "root_unavailable" ? 409 : rootResult.status;
+artifacts/api-server/src/routes/discovery.ts:401:    return res.status(status).json({
+artifacts/api-server/src/routes/discovery.ts:438:          status: "active",
+artifacts/api-server/src/routes/discovery.ts:453:        .set({ status: "imported", importedProjectId: projectId })
+artifacts/api-server/src/routes/discovery.ts:457:            eq(discoverySessionsTable.status, "ready"),
+artifacts/api-server/src/routes/discovery.ts:513:          status: "pending",
+artifacts/api-server/src/routes/discovery.ts:542:      return res.status(409).json({ error: txErr.message, reason: "invalid_source" });
+artifacts/api-server/src/routes/discovery.ts:553:      return res.status(409).json({
+artifacts/api-server/src/routes/discovery.ts:558:    // Transaction rolled back — session status is already back to its
+artifacts/api-server/src/routes/discovery.ts:563:    return res.status(500).json({ error: message, reason: "import_failed" });
+artifacts/api-server/src/routes/discovery.ts:576:    stateBefore: { status: "ready" },
+artifacts/api-server/src/routes/discovery.ts:577:    stateAfter: { status: "imported", importedProjectId: projectId },
+artifacts/api-server/src/routes/discovery.ts:583:  return res.status(201).json(project);
+artifacts/api-server/src/routes/discovery.ts:590:  status: string;
+artifacts/api-server/src/routes/discovery.ts:601:    status: session.status,
+artifacts/api-server/src/routes/discovery.test.ts:91:    status: "ready",
+artifacts/api-server/src/routes/discovery.test.ts:125:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/discovery.test.ts:206:    expect(res.status).toBe(400);
+artifacts/api-server/src/routes/discovery.test.ts:214:    expect(res.status).toBe(400);
+artifacts/api-server/src/routes/discovery.test.ts:222:    expect(res.status).toBe(400);
+artifacts/api-server/src/routes/discovery.test.ts:236:      expect(res.status).toBe(400);
+artifacts/api-server/src/routes/discovery.test.ts:253:    expect(res.status).toBe(400);
+artifacts/api-server/src/routes/discovery.test.ts:261:    expect(res.status).toBe(400);
+artifacts/api-server/src/routes/discovery.test.ts:269:    expect(res.status).toBe(404);
+artifacts/api-server/src/routes/discovery.test.ts:277:    expect(res.status).toBe(501);
+artifacts/api-server/src/routes/discovery.test.ts:286:    expect(res.status).toBe(501);
+artifacts/api-server/src/routes/discovery.test.ts:300:    expect(res.status).toBe(202);
+artifacts/api-server/src/routes/discovery.test.ts:302:    expect(res.body.status).toBe("pending");
+artifacts/api-server/src/routes/discovery.test.ts:315:    expect(res.status).toBe(202);
+artifacts/api-server/src/routes/discovery.test.ts:317:    expect(res.body).toHaveProperty("status");
+artifacts/api-server/src/routes/discovery.test.ts:336:    expect(res.status).toBe(404);
+artifacts/api-server/src/routes/discovery.test.ts:343:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/discovery.test.ts:345:    expect(res.body.status).toBe("ready");
+artifacts/api-server/src/routes/discovery.test.ts:352:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/discovery.test.ts:354:    expect(res.body).toHaveProperty("status");
+artifacts/api-server/src/routes/discovery.test.ts:373:    expect(res.status).toBe(404);
+artifacts/api-server/src/routes/discovery.test.ts:381:      .set({ status: "discovering" })
+artifacts/api-server/src/routes/discovery.test.ts:385:    expect(res.status).toBe(409);
+artifacts/api-server/src/routes/discovery.test.ts:393:      .set({ status: "error" })
+artifacts/api-server/src/routes/discovery.test.ts:397:    expect(res.status).toBe(409);
+artifacts/api-server/src/routes/discovery.test.ts:406:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/discovery.test.ts:417:      .set({ status: "imported" })
+artifacts/api-server/src/routes/discovery.test.ts:421:    expect(res.status).toBe(200);
+artifacts/api-server/src/routes/discovery.test.ts:439:    const statuses = [first.status, second.status].sort();
+artifacts/api-server/src/routes/discovery.test.ts:440:    expect(statuses).toEqual([201, 409]);
+artifacts/api-server/src/routes/discovery.test.ts:442:    const winner = first.status === 201 ? first : second;
+artifacts/api-server/src/routes/discovery.test.ts:457:    expect(session[0]?.status).toBe("imported");
+artifacts/api-server/src/routes/discovery.test.ts:467:    expect(res.status).toBe(409);
+artifacts/api-server/src/routes/discovery.test.ts:477:    expect(session[0]?.status).toBe("ready");
+artifacts/api-server/src/routes/discovery.test.ts:487:      expect(res.status).toBe(422);
+artifacts/api-server/src/routes/discovery.test.ts:496:      expect(session[0]?.status).toBe("ready");
+artifacts/api-server/src/routes/discovery.test.ts:510:        status: "ready",
+artifacts/api-server/src/routes/discovery.test.ts:523:      expect(res.status).toBe(201);
+artifacts/api-server/src/routes/discovery.test.ts:537:    expect(res.status).toBe(422);
+artifacts/api-server/src/routes/discovery.test.ts:545:      .set({ status: "discovering" })
+artifacts/api-server/src/routes/discovery.test.ts:549:    expect(res.status).toBe(409);
+artifacts/api-server/src/routes/discovery.test.ts:557:      .set({ status: "imported" })
+artifacts/api-server/src/routes/discovery.test.ts:561:    expect(res.status).toBe(409);
+artifacts/api-server/src/routes/discovery.test.ts:569:    expect(res.status).toBe(404);
+artifacts/api-server/src/routes/discovery.test.ts:583:    expect(res.status).toBe(201);
+artifacts/api-server/src/routes/discovery.test.ts:597:    expect(res.status).toBe(201);
+artifacts/api-server/src/routes/discovery.test.ts:608:    expect(res.status).toBe(201);
+artifacts/api-server/src/routes/discovery.test.ts:646:    expect(res.status).toBe(201);
+artifacts/api-server/src/routes/discovery.test.ts:657:    expect(res.status).toBe(201);
+artifacts/api-server/src/routes/discovery.test.ts:675:    expect(res.status).toBe(201);
+artifacts/api-server/src/routes/discovery.test.ts:691:    expect(res.status).toBe(201);
+artifacts/api-server/src/routes/discovery.test.ts:722:    expect(res.status).toBe(201);
+artifacts/api-server/src/routes/discovery.test.ts:740:    expect(res.status).toBe(201);
+artifacts/api-server/src/routes/discovery.test.ts:763:    const winner = first.status === 201 ? first : second;
+artifacts/api-server/src/routes/discovery.test.ts:773:    expect(session[0]?.status).toBe("imported");
+artifacts/api-server/src/routes/discovery.test.ts:786:    // *before* res.status(201).json(), so a failing audit would suppress the
+artifacts/api-server/src/routes/discovery.test.ts:794:    expect(res.status).toBe(201);
+artifacts/api-server/src/routes/discovery.test.ts:804:    expect(session[0]?.status).toBe("imported");
+artifacts/api-server/src/routes/discovery.test.ts:814:    expect(first.status).toBe(201);
+artifacts/api-server/src/routes/discovery.test.ts:818:    expect(second.status).toBe(409);
+artifacts/api-server/src/routes/discovery.test.ts:838:      status: "ready",
+artifacts/api-server/src/routes/discovery.test.ts:854:      status: "ready",
+artifacts/api-server/src/routes/discovery.test.ts:866:    expect(resA.status).toBe(201);
+artifacts/api-server/src/routes/discovery.test.ts:871:    expect(resB.status).toBe(409);
+artifacts/api-server/src/routes/discovery.test.ts:880:    expect(sessionB[0]?.status).toBe("ready");
+artifacts/api-server/src/routes/discovery.test.ts:945:          res.statusCode = 502;
+artifacts/api-server/src/routes/discovery.test.ts:950:        let status = 200;
+artifacts/api-server/src/routes/discovery.test.ts:956:          if (name.toLowerCase() === "status") {
+artifacts/api-server/src/routes/discovery.test.ts:957:            status = Number.parseInt(value, 10) || 200;
+artifacts/api-server/src/routes/discovery.test.ts:962:        res.statusCode = status;
+artifacts/api-server/src/routes/discovery.test.ts:977:    expect(start.status).toBe(202);
+artifacts/api-server/src/routes/discovery.test.ts:981:    let session: { status: string; rootPath: string } | undefined;
+artifacts/api-server/src/routes/discovery.test.ts:984:      const statusResponse = await request(app).get(`/api/projects/discover/${discoveryId}`);
+artifacts/api-server/src/routes/discovery.test.ts:985:      session = statusResponse.body;
+artifacts/api-server/src/routes/discovery.test.ts:986:      if (session?.status === "ready" || session?.status === "error") break;
+artifacts/api-server/src/routes/discovery.test.ts:990:    expect(session?.status).toBe("ready");
+artifacts/api-server/src/routes/discovery.test.ts:1002:    expect(imported.status).toBe(201);

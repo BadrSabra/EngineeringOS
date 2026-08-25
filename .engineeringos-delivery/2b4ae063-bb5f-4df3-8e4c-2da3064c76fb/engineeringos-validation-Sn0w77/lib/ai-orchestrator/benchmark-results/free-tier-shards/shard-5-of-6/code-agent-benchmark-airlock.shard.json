@@ -1,0 +1,16 @@
+{
+  "kind": "code-agent-benchmark-airlock-shard",
+  "version": 1,
+  "shard": {
+    "index": 4,
+    "count": 6
+  },
+  "caseIds": [
+    "multi-file-001",
+    "test-failure-003",
+    "dependency-graph-001",
+    "broad-001",
+    "blocked-003"
+  ],
+  "freeOnly": true
+}

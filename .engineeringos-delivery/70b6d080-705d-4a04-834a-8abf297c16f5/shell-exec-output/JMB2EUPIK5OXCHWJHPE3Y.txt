@@ -1,0 +1,196 @@
+): Promise<{ provider: ProviderId; apiKey: string } | null> {
+  const resolved = await resolveProvider(userId, options);
+  if (!resolved) {
+    const hint = options?.requireTools
+      ? "Save a tool-capable API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, or groq). Gemini is available for text-only requests."
+      : "Save an API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, groq, or gemini).";
+    res.status(428).json({
+      error: "AI provider not configured",
+      hint,
+    });
+    return null;
+  }
+  return resolved;
+}
+
+/**
+ * Rejects the request with 428 if no Groq API key can be resolved.
+ * Kept for backward-compatibility with non-chat routes that only support Groq.
+ */
+export async function requireGroqApiKey(
+  userId: string,
+  res: import("express").Response,
+): Promise<string | null> {
+  const key = await resolveGroqApiKey(userId);
+  if (!key) {
+    res.status(428).json({
+      error: "AI provider not configured",
+      hint: "Save a Groq API key via PUT /api/ai/providers/groq/key or ask your administrator to set GROQ_API_KEY on the server. OpenRouter and DeepSeek are also supported via OPENROUTER_API_KEY and DEEPSEEK_API_KEY.",
+    });
+    return null;
+  }
+  return key;
+}
+
+// ── Error mapping ─────────────────────────────────────────────────────────────
+
+/**
+ * Maps GroqClientError codes to typed HTTP responses so callers receive a
+ * structured error body instead of a generic 500.
+ *
+ * @param ctx.provider  The provider that actually produced the error.
+ *                      Uses the registry to build provider-accurate labels and URLs.
+ */
+export function handleOrchestratorError(
+  err: unknown,
+  res: import("express").Response,
+  ctx?: { projectId?: string; operation?: string; provider?: ProviderId },
+): boolean {
+  if (!(err instanceof GroqClientError)) return false;
+
+  logger.error(
+    { err, projectId: ctx?.projectId, operation: ctx?.operation, provider: ctx?.provider },
+    "AI orchestrator request failed",
+  );
+
+  if (ctx?.projectId) {
+    void db
+      .insert(eventsTable)
+      .values({
+        id: randomUUID(),
+        type: "AiOrchestratorError",
+        projectId: ctx.projectId,
+        severity: "error",
+        // Provider details stay in the server log below. Events are exposed
+        // through the user-facing activity feed and must not contain raw
+        // provider messages, request IDs, or runtime paths.
+        message: `AI request failed [${err.code}]${ctx.operation ? ` during ${ctx.operation}` : ""}${ctx.provider ? ` (provider: ${ctx.provider})` : ""}`,
+      })
+      .catch(() => {});
+  }
+
+  // Build provider-specific labels and URLs from the registry.
+  const providerId: ProviderId = ctx?.provider ?? "groq";
+  const config = PROVIDER_REGISTRY[providerId];
+  const providerLabel = config?.label ?? "AI provider";
+  const providerConsole = config?.consoleUrl ?? "your provider's dashboard";
+  const providerStatus = config?.statusUrl ?? "your provider's status page";
+
+  const base = { code: err.code, provider: providerId };
+
+  switch (err.code) {
+    case "TIMEOUT":
+    case "NETWORK_ERROR":
+      res.status(503).json({ ...base, error: `${providerLabel} is unreachable — try again in a moment.` });
+      return true;
+    case "AUTH_ERROR":
+      res.status(401).json({
+        ...base,
+        error: `${providerLabel} API key is invalid or unauthorized.`,
+        hint: `Delete your current key and save a valid one from ${providerConsole}.`,
+      });
+      return true;
+    case "RATE_LIMITED":
+      if (err.retryAfterMs !== undefined) {
+        res.setHeader("Retry-After", String(Math.ceil(err.retryAfterMs / 1000)));
+      }
+      res.status(429).json({
+        ...base,
+        error: `${providerLabel} rate limit reached — retry after ${Math.max(1, Math.ceil((err.retryAfterMs ?? 30_000) / 1000))} seconds.`,
+        retryAfterMs: err.retryAfterMs,
+        hint: `You've exceeded your ${providerLabel} API quota. Retry after the indicated delay or configure another provider at ${providerConsole}.`,
+      });
+      return true;
+    case "SERVER_ERROR":
+      res.status(502).json({
+        ...base,
+        error: `${providerLabel} server error — this is a temporary infrastructure issue.`,
+        hint: `Try again in a moment. If it persists, check ${providerStatus}.`,
+      });
+      return true;
+    case "MODEL_NOT_FOUND": {
+      const isOpenRouter = providerId === "openrouter";
+      res.status(422).json({
+        ...base,
+        error: `${providerLabel} model has been discontinued or removed.`,
+        hint: isOpenRouter
+          ? `All OpenRouter free-tier models are currently unavailable — the model may have been discontinued. Try a different provider (Groq, DeepSeek, or Gemini) by saving another API key.`
+          : `The configured model slug is no longer accepted by ${providerLabel}. Re-save the provider key or try again after the model catalog refreshes.`,
+      });
+      return true;
+    }
+    // PR-04: plan-restricted models (402 — free-tier limitation)
+    case "PLAN_RESTRICTED": {
+      const isOpenRouter = providerId === "openrouter";
+      res.status(402).json({
+        ...base,
+        error: `${providerLabel} model requires a paid plan or credit balance.`,
+        hint: isOpenRouter
+          ? `The selected OpenRouter model is only available on paid plans. Add a small credit balance at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`
+          : `${providerLabel} requires a paid plan for this model. Check your plan at ${providerConsole}.`,
+      });
+      return true;
+    }
+    // PR-04: model temporarily offline (410/422)
+    case "MODEL_UNAVAILABLE": {
+      res.status(503).json({
+        ...base,
+        error: `${providerLabel} model is temporarily unavailable.`,
+        hint: `The model is temporarily offline or being retired. Try again in a moment, or save a fallback provider key (Groq, DeepSeek, or Gemini) for automatic retry.`,
+      });
+      return true;
+    }
+    // PR-04: billing quota / credits exhausted
+    case "QUOTA": {
+      res.status(402).json({
+        ...base,
+        error: `${providerLabel} billing quota or credits are exhausted.`,
+        hint: `Replenish your ${providerLabel} credits at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`,
+      });
+      return true;
+    }
+    case "NON_200":
+      res.status(502).json({
+        ...base,
+        error: `${providerLabel} returned an unexpected error.`,
+        hint: `Check your ${providerLabel} API key or try again.`,
+      });
+      return true;
+    case "EMPTY_RESPONSE":
+      res.status(502).json({
+        ...base,
+        error: `${providerLabel} returned an empty response.`,
+        hint: `This may be a transient ${providerLabel} issue — try again.`,
+      });
+      return true;
+    case "INVALID_CONFIG":
+      if (providerId === "openrouter" && err.providerCode === "NO_COMPATIBLE_FREE_MODEL") {
+        res.status(503).json({
+          ...base,
+          error: "No compatible free OpenRouter model is currently available.",
+          hint: err.catalogStatus === "failed" || err.catalogStatus === "empty"
+            ? "OpenRouter's model catalog could not be refreshed. Try again shortly."
+            : "OpenRouter currently has no free model matching this request. Try again later or configure another provider.",
+        });
+        return true;
+      }
+      if (providerId === "openrouter" && err.providerCode === "MODEL_CAPABILITY_MISMATCH") {
+        res.status(422).json({
+          ...base,
+          error: "The selected OpenRouter model no longer supports this request.",
+          hint: "The model catalog changed while this request was starting. Retry to select a current compatible model.",
+        });
+        return true;
+      }
+      if (providerId === "openrouter" && err.providerCode === "STALE_CONFIGURED_MODEL") {
+        res.status(422).json({
+          ...base,
+          error: "The configured OpenRouter model is no longer available.",
+          hint: "Select a current free model or clear the stale model override.",
+        });
+        return true;
+      }
+      res.status(422).json({
+        ...base,
+        error: "AI provider configuration is invalid.",
+        hint: `Re-save your ${providerLabel} API key.`,

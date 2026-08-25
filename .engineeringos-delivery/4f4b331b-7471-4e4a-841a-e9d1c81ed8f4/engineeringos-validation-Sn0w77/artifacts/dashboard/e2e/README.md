@@ -1,0 +1,106 @@
+# Dashboard browser journey
+
+This is a release-only real-browser smoke test, separate from the dashboard
+Vitest suite. It never calls an AI provider or mutates projects, Git, or
+production data.
+
+## Run
+
+The dedicated release validation job starts or selects the existing dashboard
+and API workflows. Those workflows use the registered artifact paths and ports:
+
+```sh
+PORT=23183 BASE_PATH=/dashboard/ pnpm --filter @workspace/dashboard run dev
+PORT=8080 pnpm --filter @workspace/api-server run dev
+```
+
+It checks `/dashboard/` and `/api/healthz` before running the journey. To run
+the same controlled job locally after starting those workflows:
+
+```sh
+RUN_CONTROLLED_RELEASE_VALIDATION=1 \
+DASHBOARD_E2E_BASE_URL=https://$REPLIT_DEV_DOMAIN/dashboard/ \
+DASHBOARD_E2E_API_HEALTH_URL=https://$REPLIT_DEV_DOMAIN/api/healthz \
+pnpm run validate:dashboard-journey
+```
+
+The release environment provisions or selects the isolated user named by
+`DASHBOARD_E2E_EMAIL` (default:
+`engineeringos-dashboard-release@example.com`). The Replit browser runner
+provides the `signInClerkUser` helper described in
+`.local/skills/clerk-auth-e2e-testing-only/SKILL.md`; the journey invokes that
+helper to obtain a short-lived session URL and never fills Clerk forms. When
+the release job runs outside that browser runner, it uses `CLERK_SECRET_KEY`
+to create the same short-lived Clerk sign-in token through the Backend API.
+
+The API routes used by the journey are intercepted in the browser with
+read-only fixtures. This keeps dashboard/project/event success states stable,
+uses a controlled execution id for Flight Deck, and returns a deliberate
+provider-unavailable response for AI. Routing, Clerk session handoff, and
+rendering remain real browser behavior.
+
+## Bounded live-provider correlation run
+
+The live-provider path is opt-in and never runs as part of the normal smoke
+journey. It uses the isolated Clerk user, a disposable project already owned
+by that user, and the configured provider without printing keys or model
+responses:
+
+```sh
+DASHBOARD_E2E_LIVE_PROVIDER=1 \
+DASHBOARD_E2E_LIVE_CAMPAIGN=1 \
+DASHBOARD_E2E_LIVE_SCENARIO=delivery-success \
+DASHBOARD_E2E_LIVE_DISPOSABLE=1 \
+DASHBOARD_E2E_LIVE_PROJECT_ID=<disposable-project-id> \
+DASHBOARD_E2E_LIVE_REPORT_PATH=test-results/dashboard-journey/live-mission-correlation.json \
+RUN_CONTROLLED_RELEASE_VALIDATION=1 \
+pnpm run validate:dashboard-journey
+```
+
+The run is bounded by `DASHBOARD_E2E_LIVE_TIMEOUT_MS` (default 120 seconds)
+and the live browser test allows an additional five seconds for Playwright
+cleanup and report collection. The normal journey remains non-executing: the
+provider-backed path is skipped unless `DASHBOARD_E2E_LIVE_PROVIDER=1` is set.
+The fast `test:dashboard-journey-contract` and
+`test:mission-correlation-report` checks run before release validation. Together
+they verify the timeout relationship, provider opt-in guard, and the report
+boundary. The correlation report contract requires redacted identity
+(`operationId`, `projectId`, `sessionId`, and `workspaceRevision`), one
+supported terminal state, and execution, message, SSE, checkpoint, and
+dashboard surfaces. It explicitly classifies successful terminals separately
+from blocked, cancelled, failed, and unavailable terminals, so an incomplete
+report fails with the missing surface named before a live provider run.
+When enabled, it exports a redacted report keyed by the provider-backed `operationId` and
+the latest Git `workspaceRevision`. The report verifies persisted messages,
+SSE events, execution checkpoints, evidence, proposals, validation, and
+Mission Control state. `COMPLETED`-class states are success; provider
+failover, unavailable, failed, and cancelled terminals are retained as
+explicit non-success outcomes rather than being treated as passing runs.
+The live objective is an explicit, bounded forensic review of
+`scripts/mission-correlation-report.mjs`, requiring at least one accepted
+evidence item and one validation checkpoint. A successful `COMPLETED` report
+is rejected if either proof surface is empty; provider-unavailable, blocked,
+cancelled, failed, and otherwise incomplete outcomes remain non-success.
+For the disposable campaign, run the same command once per scenario:
+`provider-outage`, `malformed-output`, and `delivery-success`. The first
+records OpenRouter rate-limit/provider-exhaustion as a current non-success
+operation; the second records malformed live output as non-success; the third
+requires candidate-bound evidence before apply, commit, or push can count as
+delivery proof. Reports include operation ID, project revision, and candidate
+identity/revision, and explicitly label any retained result. A failed current
+operation cannot reuse an older or cached analysis as a fresh success.
+The release log also prints a redacted one-line result with the terminal,
+outcome class, accepted evidence count, and validation checkpoint count. It
+does not print prompts, source contents, provider credentials, or model
+responses; non-success terminals are labeled `outcome=non-success`.
+
+## Failure diagnostics
+
+The Playwright config retains traces and screenshots on failure under
+`test-results/dashboard-journey`; video is intentionally disabled because the
+managed runner does not download Playwright's optional ffmpeg helper. Check
+the dashboard and API workflow logs first, then confirm
+`BASE_PATH=/dashboard/`, the dashboard/API workflows are running, both health
+checks pass, `DASHBOARD_E2E_BASE_URL` includes the trailing `/dashboard/`, and
+the browser runner has injected `signInClerkUser`. A missing helper is an
+environment/setup failure, not a Clerk form failure.

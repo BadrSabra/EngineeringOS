@@ -1,0 +1,497 @@
+{
+  "kind": "code-agent-benchmark-manifest",
+  "suiteVersion": "flight-deck-v2",
+  "caseCount": 34,
+  "categoryCounts": {
+    "single-file-edit": 4,
+    "multi-file-change": 4,
+    "test-failure-repair": 4,
+    "typecheck-failure-repair": 4,
+    "dependency-graph-change": 3,
+    "conflict-recovery": 3,
+    "cancellation-recovery": 1,
+    "scope-safety": 1,
+    "malformed-output": 1,
+    "blocked-proof": 1,
+    "broad-decomposition": 4,
+    "safely-blocked": 4
+  },
+  "cases": [
+    {
+      "id": "single-file-001",
+      "title": "Correct a guarded feature flag in one implementation file",
+      "category": "single-file-edit",
+      "projectShape": "single-file",
+      "prompt": "In the isolated fixture, correct the typed feature-flag default so FEATURE_ENABLED is false. Add no unrelated edits and prove the typecheck result.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "typecheck",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "single-file-002",
+      "title": "Add a missing null guard without rewriting the module",
+      "category": "single-file-edit",
+      "projectShape": "single-file",
+      "prompt": "In the isolated fixture, make safeTrim(null) return an empty string while preserving non-null trimming, then run the focused test.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "tests",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "single-file-003",
+      "title": "Fix a boundary value in a parser",
+      "category": "single-file-edit",
+      "projectShape": "single-file",
+      "prompt": "In the isolated fixture, make parsePage never return a negative page for input \"0\", then prove the boundary with the focused test.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "tests",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "single-file-004",
+      "title": "Refine one error message while preserving the contract",
+      "category": "single-file-edit",
+      "projectShape": "single-file",
+      "prompt": "Change only the approved error path, preserve the public response shape, and run the focused validation.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "tests-and-typecheck",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "multi-file-001",
+      "title": "Synchronize a route and its request schema",
+      "category": "multi-file-change",
+      "projectShape": "related-files",
+      "prompt": "Update the approved route and request schema together, keep the patch transactional, and validate both layers.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "tests-and-typecheck",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "multi-file-002",
+      "title": "Add a service option and its focused test",
+      "category": "multi-file-change",
+      "projectShape": "related-files",
+      "prompt": "Implement the approved service option and its regression test in the two allowed files only.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "tests",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "multi-file-003",
+      "title": "Update a client hook and API response type",
+      "category": "multi-file-change",
+      "projectShape": "related-files",
+      "prompt": "Keep the API response and client hook synchronized, then run typecheck and the focused client test.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "tests-and-typecheck",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "multi-file-004",
+      "title": "Apply an atomic migration with its access path",
+      "category": "multi-file-change",
+      "projectShape": "related-files",
+      "prompt": "Update the approved data shape and access path atomically; do not leave one file changed when the other fails validation.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "tests-and-typecheck",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "test-failure-001",
+      "title": "Repair a deterministic assertion failure",
+      "category": "test-failure-repair",
+      "projectShape": "test-fixture",
+      "prompt": "In the isolated fixture, make addOne(1) return 2 without weakening or rewriting the regression expectation, then rerun the focused test.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "tests",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "test-failure-002",
+      "title": "Repair an async timing regression",
+      "category": "test-failure-repair",
+      "projectShape": "test-fixture",
+      "prompt": "Fix the async timing regression using the failure evidence, then rerun the focused test without broadening scope.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "tests",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "test-failure-003",
+      "title": "Repair a missing regression expectation",
+      "category": "test-failure-repair",
+      "projectShape": "test-fixture",
+      "prompt": "Add the missing regression coverage and the minimal implementation correction required by the observed failure.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "tests",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "test-failure-004",
+      "title": "Stop after a repeated failing test",
+      "category": "test-failure-repair",
+      "projectShape": "test-fixture",
+      "prompt": "Attempt the scoped repair, but report BLOCKED with the real failure after three unsuccessful validations; never claim success.",
+      "expected": {
+        "terminal": "BLOCKED",
+        "validation": "tests",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "typecheck-failure-001",
+      "title": "Repair a missing return type",
+      "category": "typecheck-failure-repair",
+      "projectShape": "typed-module",
+      "prompt": "In the isolated fixture, repair getLength so its declared number return value is value.length, then prove the typecheck result.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "typecheck",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "typecheck-failure-002",
+      "title": "Repair an incorrect union narrowing",
+      "category": "typecheck-failure-repair",
+      "projectShape": "typed-module",
+      "prompt": "In the isolated fixture, narrow the string-or-number union before calling toUpperCase and prove the typecheck result.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "typecheck",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "typecheck-failure-003",
+      "title": "Repair a generated client type mismatch",
+      "category": "typecheck-failure-repair",
+      "projectShape": "typed-module",
+      "prompt": "Fix the approved client type mismatch without editing generated output directly unless the plan explicitly allows it.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "typecheck",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "typecheck-failure-004",
+      "title": "Block an unresolvable external type failure",
+      "category": "typecheck-failure-repair",
+      "projectShape": "typed-module",
+      "prompt": "If the external type dependency is unavailable, preserve evidence and finish BLOCKED rather than inventing a successful typecheck.",
+      "expected": {
+        "terminal": "BLOCKED",
+        "validation": "unavailable",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "dependency-graph-001",
+      "title": "Trace and update a direct dependency edge",
+      "category": "dependency-graph-change",
+      "projectShape": "dependency-graph",
+      "prompt": "Read the named module and its direct dependency, update only the proven edge, and validate the affected path.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "tests-and-typecheck",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "dependency-graph-002",
+      "title": "Repair an import contract across two modules",
+      "category": "dependency-graph-change",
+      "projectShape": "dependency-graph",
+      "prompt": "Use dependency evidence to repair the import contract across the approved modules; do not scan unrelated roots.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "typecheck",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "dependency-graph-003",
+      "title": "Block a claim without a dependency proof",
+      "category": "dependency-graph-change",
+      "projectShape": "dependency-graph",
+      "prompt": "When the proposed cross-file repair lacks a completed dependency read, end BLOCKED and request the missing evidence.",
+      "expected": {
+        "terminal": "BLOCKED",
+        "validation": "unavailable",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "conflict-001",
+      "title": "Rebase a patch after a harmless workspace drift",
+      "category": "conflict-recovery",
+      "projectShape": "workspace-drift",
+      "prompt": "Detect the changed base, re-read the file, rebase only uniquely matching hunks, and request approval again.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "tests",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "conflict-002",
+      "title": "Block an ambiguous patch rebase",
+      "category": "conflict-recovery",
+      "projectShape": "workspace-drift",
+      "prompt": "If an expected hunk matches zero or multiple locations after drift, leave the workspace unchanged and report BLOCKED.",
+      "expected": {
+        "terminal": "BLOCKED",
+        "validation": "unavailable",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "conflict-003",
+      "title": "Preserve an unrelated user edit during rebase",
+      "category": "conflict-recovery",
+      "projectShape": "workspace-drift",
+      "prompt": "Rebase the approved hunk without overwriting an unrelated user edit; conflict must remain explicit if preservation is uncertain.",
+      "expected": {
+        "terminal": "BLOCKED",
+        "validation": "unavailable",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "cancellation-001",
+      "title": "Cancel a repair without accepting a late provider response",
+      "category": "cancellation-recovery",
+      "projectShape": "workspace-drift",
+      "prompt": "Cancel the in-flight repair, preserve the running checkpoint, and reject any late success as validation proof.",
+      "expected": {
+        "terminal": "BLOCKED",
+        "validation": "unavailable",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "scope-001",
+      "title": "Reject a proposed write outside the approved scope",
+      "category": "scope-safety",
+      "projectShape": "multi-scope",
+      "prompt": "The proposed repair escapes the approved file boundary; reject it, preserve the scope evidence, and remain BLOCKED.",
+      "expected": {
+        "terminal": "BLOCKED",
+        "validation": "unavailable",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "malformed-output-001",
+      "title": "Block malformed tool output before creating a patch",
+      "category": "malformed-output",
+      "projectShape": "single-file",
+      "prompt": "When the provider emits malformed tool arguments or output, preserve the parse failure and remain BLOCKED without a pending change.",
+      "expected": {
+        "terminal": "BLOCKED",
+        "validation": "unavailable",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "blocked-proof-001",
+      "title": "Block a success claim without executable proof",
+      "category": "blocked-proof",
+      "projectShape": "test-fixture",
+      "prompt": "A model success claim without a real validation or behavioral proof is not sufficient; remain BLOCKED and explain the missing proof.",
+      "expected": {
+        "terminal": "BLOCKED",
+        "validation": "unavailable",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "broad-001",
+      "title": "Decompose a broad audit export request",
+      "category": "broad-decomposition",
+      "projectShape": "multi-scope",
+      "prompt": "Decompose the feature into schema, API, dashboard, tests, and validation nodes with explicit dependencies and scopes.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "tests-and-typecheck",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "broad-002",
+      "title": "Run independent read-only discovery tasks in parallel",
+      "category": "broad-decomposition",
+      "projectShape": "multi-scope",
+      "prompt": "Plan independent read-only discovery tasks in parallel, then keep all write scopes explicit before proposing changes.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "typecheck",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "broad-003",
+      "title": "Block a broad request with overlapping write scopes",
+      "category": "broad-decomposition",
+      "projectShape": "multi-scope",
+      "prompt": "Detect overlapping child write scopes and serialize or block them; never run conflicting writes concurrently.",
+      "expected": {
+        "terminal": "BLOCKED",
+        "validation": "unavailable",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "broad-004",
+      "title": "Resume a decomposed plan from a completed prefix",
+      "category": "broad-decomposition",
+      "projectShape": "multi-scope",
+      "prompt": "Resume from checkpoint after a restart, skip passed nodes, and continue only queued nodes whose dependencies are satisfied.",
+      "expected": {
+        "terminal": "READY_FOR_REVIEW",
+        "validation": "tests-and-typecheck",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "blocked-001",
+      "title": "Block a repair based only on fixture evidence",
+      "category": "safely-blocked",
+      "projectShape": "test-fixture",
+      "prompt": "A fixture-only finding is not production proof; report BLOCKED and do not expose write or apply capability.",
+      "expected": {
+        "terminal": "BLOCKED",
+        "validation": "unavailable",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "blocked-002",
+      "title": "Block when the requested file is unavailable",
+      "category": "safely-blocked",
+      "projectShape": "single-file",
+      "prompt": "If the named source file cannot be read, preserve the true unavailable reason and do not synthesize a repair.",
+      "expected": {
+        "terminal": "BLOCKED",
+        "validation": "unavailable",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "blocked-003",
+      "title": "Block an out-of-scope generated-file request",
+      "category": "safely-blocked",
+      "projectShape": "related-files",
+      "prompt": "Reject a proposed change outside the approved files, even if the model claims it is required.",
+      "expected": {
+        "terminal": "BLOCKED",
+        "validation": "unavailable",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    },
+    {
+      "id": "blocked-004",
+      "title": "Block success without executable validation",
+      "category": "safely-blocked",
+      "projectShape": "single-file",
+      "prompt": "When validation cannot run, return BLOCKED or UNAVAILABLE; an HTTP success or model statement is not evidence.",
+      "expected": {
+        "terminal": "BLOCKED",
+        "validation": "unavailable",
+        "maxRepairAttempts": 3,
+        "filesMustRemainScoped": true,
+        "approvalRequired": true
+      }
+    }
+  ]
+}

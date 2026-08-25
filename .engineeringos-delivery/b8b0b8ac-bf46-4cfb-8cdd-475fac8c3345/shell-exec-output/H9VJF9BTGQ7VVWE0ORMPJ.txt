@@ -1,0 +1,258 @@
+/**
+ * AI provider key management routes.
+ *
+ * Canonical generic endpoint:
+ *   GET/PUT/DELETE /api/ai/providers/:provider/key
+ *
+ * Backward-compatible aliases (delegate to the generic handler):
+ *   GET/PUT/DELETE /api/ai/groq-key
+ *   GET/PUT/DELETE /api/ai/deepseek-key
+ *   GET/PUT/DELETE /api/ai/openrouter-key
+ *
+ *   GET /api/ai/active-provider
+ */
+import { Router } from "express";
+import { randomUUID } from "crypto";
+import { db } from "@workspace/db";
+import { aiProviderCredentialsTable } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
+import { encryptApiKey } from "../../lib/credentials-crypto.js";
+import { logger } from "../../lib/logger.js";
+import { resolveProvider } from "../../lib/ai-route-helpers.js";
+import {
+  validateProviderKey,
+  PROVIDER_REGISTRY,
+  PROVIDER_PRIORITY,
+  getProviderMetrics,
+  getBehavioralScorecards,
+  getCircuitState,
+} from "@workspace/ai-orchestrator";
+import type { ProviderId } from "@workspace/ai-orchestrator";
+import type { Request, Response } from "express";
+
+const router = Router();
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const VALID_PROVIDERS = new Set<string>(Object.keys(PROVIDER_REGISTRY));
+
+function isValidProvider(p: string): p is ProviderId {
+  return VALID_PROVIDERS.has(p);
+}
+
+/** Shared GET handler — return key status (never the key itself). */
+async function handleGetKey(req: Request, res: Response, provider: ProviderId) {
+  const [row] = await db
+    .select({
+      last4: aiProviderCredentialsTable.last4,
+      updatedAt: aiProviderCredentialsTable.updatedAt,
+    })
+    .from(aiProviderCredentialsTable)
+    .where(
+      and(
+        eq(aiProviderCredentialsTable.ownerId, req.userId),
+        eq(aiProviderCredentialsTable.provider, provider),
+      ),
+    )
+    .limit(1);
+
+  if (!row) return res.json({ configured: false, last4: null, updatedAt: null });
+  return res.json({ configured: true, last4: row.last4, updatedAt: row.updatedAt });
+}
+
+/** Shared PUT handler — validate and persist the API key. */
+async function handlePutKey(req: Request, res: Response, provider: ProviderId) {
+  const { apiKey } = req.body as { apiKey?: string };
+  if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length < 10) {
+    return res.status(400).json({ error: "apiKey must be at least 10 characters" });
+  }
+  const trimmed = apiKey.trim();
+
+  const config = PROVIDER_REGISTRY[provider];
+  const label = config?.label ?? provider;
+  const consoleUrl = config?.consoleUrl ?? "your provider's dashboard";
+
+  const validation = await validateProviderKey(provider, trimmed);
+  if (!validation.valid) {
+    return res.status(422).json({
+      error: `${label} API key is invalid or unauthorized`,
+      hint: `Check your key at ${consoleUrl} — it was rejected by the ${label} API.`,
+      detail: validation.reason,
+    });
+  }
+
+  const last4 = trimmed.slice(-4);
+  let encryptedApiKey: string;
+  try {
+    encryptedApiKey = encryptApiKey(trimmed);
+  } catch (err) {
+    logger.error({ err, provider }, "Key encryption failed");
+    return res.status(500).json({ error: "Key storage unavailable — encryption not configured" });
+  }
+
+  const now = new Date();
+  await db
+    .insert(aiProviderCredentialsTable)
+    .values({
+      id: randomUUID(),
+      ownerId: req.userId,
+      provider,
+      encryptedApiKey,
+      last4,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+      set: { encryptedApiKey, last4, updatedAt: now },
+    });
+
+  return res.json({ configured: true, last4, updatedAt: now });
+}
+
+/** Shared DELETE handler — remove the saved key. */
+async function handleDeleteKey(req: Request, res: Response, provider: ProviderId) {
+  await db
+    .delete(aiProviderCredentialsTable)
+    .where(
+      and(
+        eq(aiProviderCredentialsTable.ownerId, req.userId),
+        eq(aiProviderCredentialsTable.provider, provider),
+      ),
+    );
+  return res.json({ configured: false });
+}
+
+// ── Generic routes (:provider param) ─────────────────────────────────────────
+
+router.get("/ai/providers/:provider/key", async (req, res) => {
+  const { provider } = req.params;
+  if (!isValidProvider(provider)) {
+    return res.status(400).json({
+      error: `Unknown provider "${provider}". Valid values: ${[...VALID_PROVIDERS].join(", ")}`,
+    });
+  }
+  return handleGetKey(req, res, provider);
+});
+
+router.put("/ai/providers/:provider/key", async (req, res) => {
+  const { provider } = req.params;
+  if (!isValidProvider(provider)) {
+    return res.status(400).json({
+      error: `Unknown provider "${provider}". Valid values: ${[...VALID_PROVIDERS].join(", ")}`,
+    });
+  }
+  return handlePutKey(req, res, provider);
+});
+
+router.delete("/ai/providers/:provider/key", async (req, res) => {
+  const { provider } = req.params;
+  if (!isValidProvider(provider)) {
+    return res.status(400).json({
+      error: `Unknown provider "${provider}". Valid values: ${[...VALID_PROVIDERS].join(", ")}`,
+    });
+  }
+  return handleDeleteKey(req, res, provider);
+});
+
+// ── Active provider ───────────────────────────────────────────────────────────
+
+/** GET /api/ai/active-provider — which provider will be used for this user */
+router.get("/ai/active-provider", async (req, res) => {
+  const resolved = await resolveProvider(req.userId);
+  if (!resolved) return res.json({ provider: null, configured: false });
+  return res.json({ provider: resolved.provider, configured: true });
+});
+
+// ── PR-011: Provider metrics ──────────────────────────────────────────────────
+
+/**
+ * GET /api/ai/metrics
+ *
+ * PR-05/PR-06: Returns in-memory provider reliability metrics merged with
+ * circuit-breaker state so the dashboard can show per-provider runtime health.
+ *
+ * Shape per entry:
+ *   requests, failures, fallbackSuccesses, invalidModels, latency percentiles,
+ *   successRate, lastSuccessAt, lastFailureAt, consecutiveFailures   (PR-05)
+ *   circuitOpen, cooldownRemainingMs                                 (PR-07)
+ *
+ * Resets on process restart — for runtime observability, not persistent analytics.
+ */
+router.get("/ai/metrics", (_req, res) => {
+  const metricsMap = new Map(getProviderMetrics().map((m) => [m.provider, m]));
+
+  // Merge circuit state into each metric snapshot; include all known providers
+  // even if no requests have been recorded yet (so the UI always has an entry).
+  const enriched = PROVIDER_PRIORITY.map((provider) => {
+    const metric = metricsMap.get(provider) ?? {
+      provider,
+      requests: 0, failures: 0, fallbackSuccesses: 0, invalidModels: 0,
+      p50LatencyMs: null, p95LatencyMs: null, avgLatencyMs: null,
+      successRate: null, lastSuccessAt: null, lastFailureAt: null,
+      consecutiveFailures: 0,
+    };
+    const circuit = getCircuitState(provider);
+    return {
+      ...metric,
+      circuitOpen:         circuit.open,
+      circuitHalfOpen:     circuit.halfOpen,
+      cooldownRemainingMs: circuit.cooldownRemainingMs,
+    };
+  });
+
+  return res.json({
+    metrics: enriched,
+    behavioralScorecards: getBehavioralScorecards(),
+  });
+});
+
+// ── Backward-compat aliases ───────────────────────────────────────────────────
+// Delegates to the generic handlers — preserves existing clients without change.
+
+router.get("/ai/groq-key",        (req, res) => handleGetKey(req, res, "groq"));
+router.put("/ai/groq-key",        (req, res) => handlePutKey(req, res, "groq"));
+router.delete("/ai/groq-key",     (req, res) => handleDeleteKey(req, res, "groq"));
+
+router.get("/ai/deepseek-key",    (req, res) => handleGetKey(req, res, "deepseek"));
+router.put("/ai/deepseek-key",    (req, res) => handlePutKey(req, res, "deepseek"));
+router.delete("/ai/deepseek-key", (req, res) => handleDeleteKey(req, res, "deepseek"));
+
+router.get("/ai/openrouter-key",    (req, res) => handleGetKey(req, res, "openrouter"));
+router.put("/ai/openrouter-key",    (req, res) => handlePutKey(req, res, "openrouter"));
+router.delete("/ai/openrouter-key", (req, res) => handleDeleteKey(req, res, "openrouter"));
+
+router.get("/ai/gemini-key",    (req, res) => handleGetKey(req, res, "gemini"));
+router.put("/ai/gemini-key",    (req, res) => handlePutKey(req, res, "gemini"));
+router.delete("/ai/gemini-key", (req, res) => handleDeleteKey(req, res, "gemini"));
+
+export default router;
+artifacts/api-server/src/routes/ai/workflows.ts
+28:  requireProvider,
+80:  const providerResolved = await requireProvider(req.userId, res, {
+
+artifacts/api-server/src/routes/ai/chat-sse.test.ts
+268:    requireProvider:        vi.fn(),
+309:import { chatWithFallback, requireProvider, requestLooksToolBound } from "../../lib/ai-route-helpers.js";
+533:  vi.mocked(requireProvider).mockReset();
+542:  vi.mocked(requireProvider).mockResolvedValue({ provider: "openai" as never, apiKey: "test-key" });
+795:    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+840:    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+897:    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+943:    expect(requireProvider).toHaveBeenCalledWith(
+
+artifacts/api-server/src/routes/ai/chat.ts
+137:  requireProvider,
+1941:  const providerResolved = await requireProvider(req.userId, res, {
+2538:  const providerResolved = await requireProvider(req.userId, res, {
+
+artifacts/api-server/src/routes/ai/tasks.ts
+27:  requireProvider,
+59:  const providerResolved = await requireProvider(req.userId, res, {
+
+artifacts/api-server/src/routes/ai/analysis.ts
+23:  requireProvider,
+183:  const providerResolved = await requireProvider(req.userId, res, {
+299:  const providerResolved = await requireProvider(req.userId, res, {
+374:  const providerResolved = await requireProvider(req.userId, res, { qualityProfile: "analysis" });
+500:  const providerResolved = await requireProvider(req.userId, res, { qualityProfile: "code_review" });

@@ -1,0 +1,240 @@
+artifacts/api-server/src/lib/ai-route-helpers.ts:281: * PR-03: MODEL_UNAVAILABLE (410/422) and PLAN_RESTRICTED (402 free-tier) are
+artifacts/api-server/src/lib/ai-route-helpers.ts:294:  "MODEL_NOT_FOUND",
+artifacts/api-server/src/lib/ai-route-helpers.ts:295:  "MODEL_UNAVAILABLE",   // PR-03: 410/422 — model temporarily offline
+artifacts/api-server/src/lib/ai-route-helpers.ts:296:  "PLAN_RESTRICTED",     // PR-03/PR-04: 402 — free-tier restriction
+artifacts/api-server/src/lib/ai-route-helpers.ts:430:      "INVALID_CONFIG",
+artifacts/api-server/src/lib/ai-route-helpers.ts:630:    case "MODEL_NOT_FOUND": {
+artifacts/api-server/src/lib/ai-route-helpers.ts:636:          ? `All OpenRouter free-tier models are currently unavailable — the model may have been discontinued. Try a different provider (Groq, DeepSeek, or Gemini) by saving another API key.`
+artifacts/api-server/src/lib/ai-route-helpers.ts:637:          : `The configured model slug is no longer accepted by ${providerLabel}. Re-save the provider key or try again after the model catalog refreshes.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:641:    // PR-04: plan-restricted models (402 — free-tier limitation)
+artifacts/api-server/src/lib/ai-route-helpers.ts:648:          ? `The selected OpenRouter model is only available on paid plans. Add a small credit balance at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`
+artifacts/api-server/src/lib/ai-route-helpers.ts:654:    case "MODEL_UNAVAILABLE": {
+artifacts/api-server/src/lib/ai-route-helpers.ts:667:        hint: `Replenish your ${providerLabel} credits at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`,
+artifacts/api-server/src/lib/ai-route-helpers.ts:685:    case "INVALID_CONFIG":
+artifacts/api-server/src/lib/ai-route-helpers.ts:686:      if (providerId === "openrouter" && err.providerCode === "NO_COMPATIBLE_FREE_MODEL") {
+artifacts/api-server/src/lib/ai-route-helpers.ts:689:          error: "No compatible free OpenRouter model is currently available.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:690:          hint: err.catalogStatus === "failed" || err.catalogStatus === "empty"
+artifacts/api-server/src/lib/ai-route-helpers.ts:691:            ? "OpenRouter's model catalog could not be refreshed. Try again shortly."
+artifacts/api-server/src/lib/ai-route-helpers.ts:692:            : "OpenRouter currently has no free model matching this request. Try again later or configure another provider.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:696:      if (providerId === "openrouter" && err.providerCode === "MODEL_CAPABILITY_MISMATCH") {
+artifacts/api-server/src/lib/ai-route-helpers.ts:700:          hint: "The model catalog changed while this request was starting. Retry to select a current compatible model.",
+artifacts/api-server/src/lib/ai-route-helpers.ts:704:      if (providerId === "openrouter" && err.providerCode === "STALE_CONFIGURED_MODEL") {
+artifacts/api-server/src/lib/ai-route-helpers.ts:708:          hint: "Select a current free model or clear the stale model override.",
+artifacts/api-server/src/routes/ai/chat.ts:1326:  verificationStage?: "MODEL_RESPONSE" | "VERIFIED_RESPONSE";
+artifacts/api-server/src/routes/ai/chat.ts:1675: * this diagnostic bounded and content-free: it proves whether the route loaded
+artifacts/api-server/src/routes/ai/chat.ts:3726:        if (err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE") {
+artifacts/api-server/src/routes/ai/chat.ts:3782:          case "MODEL_NOT_FOUND":
+artifacts/api-server/src/routes/ai/chat.ts:3795:              message: "The selected AI model requires a paid plan or credit balance — all free-tier fallbacks failed.",
+artifacts/api-server/src/routes/ai/chat.ts:3797:              suggestedFix: "Add credit balance to your OpenRouter account, or save a Groq/Gemini API key as a free fallback.",
+artifacts/api-server/src/routes/ai/chat.ts:3800:          case "MODEL_UNAVAILABLE":
+artifacts/api-server/src/routes/ai/chat.ts:3862:          errorCode: "MODEL_OUTPUT_INVALID",
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:1:import type { ModelCapability } from "../openrouter/model-catalog.js";
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:9:import { getDynamicCatalogStatus } from "../openrouter/dynamic-catalog.js";
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:20:  source: "openrouter-catalog" | "provider-registry";
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:37:    throw new Error(`OpenRouter model override is not a currently-free catalog model: ${normalized}${detail}`);
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:99:    // this override environment-only so ordinary provider-free validation and
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:100:    // normal free-tier routing retain the catalog-driven fallback chain.
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:101:    const configuredModel = process.env.OPENROUTER_MODEL?.trim() || undefined;
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:109:      const catalog = getDynamicCatalogStatus();
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:111:        "INVALID_CONFIG",
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:112:        `No compatible free OpenRouter model is available for capability="${capability}"`,
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:116:            providerCode: "NO_COMPATIBLE_FREE_MODEL",
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:117:            catalogLoaded: catalog.loaded,
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:118:            catalogUsable: catalog.usable,
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:119:            catalogStatus: catalog.lastRefreshStatus,
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:120:            catalogError: catalog.lastRefreshError ?? undefined,
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:135:      source: "openrouter-catalog",
+lib/ai-orchestrator/src/model-selection/model-resolver.ts:154:      action: "resolve_execution_model",
+lib/ai-orchestrator/src/model-selection/decision-engine.ts:24:  return Object.freeze(plan) as Readonly<ExecutionPlan>;
+lib/ai-orchestrator/src/deepseek-client.ts:15: * Both MODEL constants point to deepseek-chat so the agentic tool-calling
+lib/ai-orchestrator/src/deepseek-client.ts:22:export const DEEPSEEK_MODEL_FAST    = "deepseek-chat";
+lib/ai-orchestrator/src/deepseek-client.ts:23:export const DEEPSEEK_MODEL_POWERFUL = "deepseek-chat";
+lib/ai-orchestrator/src/deepseek-client.ts:85:    model     = DEEPSEEK_MODEL_FAST,
+lib/ai-orchestrator/src/deepseek-client.ts:199:    model     = DEEPSEEK_MODEL_FAST,
+lib/ai-orchestrator/src/agent-complete.ts:17:import { resolveExecutionDecision } from "./model-selection/decision-engine.js";
+lib/ai-orchestrator/src/agent-complete.ts:18:import { resolveExecutionProvider } from "./model-selection/provider-strategy.js";
+lib/ai-orchestrator/src/agent-complete.ts:19:import { resolveExecutionModel } from "./model-selection/model-resolver.js";
+lib/ai-orchestrator/src/agent-complete.ts:52:      "INVALID_CONFIG",
+lib/ai-orchestrator/src/openai-compatible-client.ts:14: * PR-001: default model derived from FREE_MODELS[0] — no hardcoded string.
+lib/ai-orchestrator/src/openai-compatible-client.ts:15: * PR-003: 410 and 422 treated as MODEL_UNAVAILABLE (fallback-worthy).
+lib/ai-orchestrator/src/openai-compatible-client.ts:17: * PR-008: QUOTA code for billing exhaustion; MODEL_UNAVAILABLE for 410/422.
+lib/ai-orchestrator/src/openai-compatible-client.ts:26:import { getDynamicCatalogStatus } from "./openrouter/dynamic-catalog.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:27:import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
+lib/ai-orchestrator/src/openai-compatible-client.ts:69:// PR-001: safe fallback — derived at module load from the static catalog so
+lib/ai-orchestrator/src/openai-compatible-client.ts:71:const FALLBACK_DEFAULT_MODEL: string =
+lib/ai-orchestrator/src/openai-compatible-client.ts:72:  FREE_MODELS.find((m) => m.quality === "fast")?.id ??
+lib/ai-orchestrator/src/openai-compatible-client.ts:73:  "meta-llama/llama-3.1-8b-instruct:free";
+lib/ai-orchestrator/src/openai-compatible-client.ts:75:// ── OpenRouter free-tier helpers ──────────────────────────────────────────────
+lib/ai-orchestrator/src/openai-compatible-client.ts:78: * OR-003: Conservative token cap for OpenRouter free-tier requests.
+lib/ai-orchestrator/src/openai-compatible-client.ts:306: * Stable, provider-free policy used by recovery callers and diagnostics.
+lib/ai-orchestrator/src/openai-compatible-client.ts:320:    case "MODEL_NOT_FOUND":
+lib/ai-orchestrator/src/openai-compatible-client.ts:321:    case "MODEL_UNAVAILABLE":
+lib/ai-orchestrator/src/openai-compatible-client.ts:333:    case "INVALID_CONFIG":
+lib/ai-orchestrator/src/openai-compatible-client.ts:341: * Includes MODEL_NOT_FOUND (removed), PLAN_RESTRICTED (free-tier),
+lib/ai-orchestrator/src/openai-compatible-client.ts:342: * MODEL_UNAVAILABLE (temporarily offline — 422/410), and EMPTY_RESPONSE
+lib/ai-orchestrator/src/openai-compatible-client.ts:348:    (err.code === "MODEL_NOT_FOUND" ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:350:      err.code === "MODEL_UNAVAILABLE" ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:500:    normalizedBody.includes("unavailable for free") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:508:  //   402 — model requires a paid plan or the free quota is exhausted.
+lib/ai-orchestrator/src/openai-compatible-client.ts:512:      "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/openai-compatible-client.ts:536:      `OpenRouter model requires a paid plan or free-tier credit balance (402). ${body.slice(0, 200)}`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:544:        "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/openai-compatible-client.ts:551:      normalizedBody.includes("unavailable for free") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:552:      normalizedBody.includes("free tier") ||
+lib/ai-orchestrator/src/openai-compatible-client.ts:560:        `OpenRouter rejected the request because the selected model requires a paid plan or free-tier credits (400). ${body.slice(0, 200)}`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:567:        "MODEL_UNAVAILABLE",
+lib/ai-orchestrator/src/openai-compatible-client.ts:575:  // temporarily offline or being retired. Both are MODEL_UNAVAILABLE (not
+lib/ai-orchestrator/src/openai-compatible-client.ts:576:  // MODEL_NOT_FOUND) — the distinction is useful for dashboards (temporary
+lib/ai-orchestrator/src/openai-compatible-client.ts:583:      "MODEL_UNAVAILABLE",
+lib/ai-orchestrator/src/openai-compatible-client.ts:597:// Some free models (e.g. InclusionAI Ling) output tool calls as XML text in
+lib/ai-orchestrator/src/openai-compatible-client.ts:600:// Some free-tier models return `function.arguments` as a raw object, an empty
+lib/ai-orchestrator/src/openai-compatible-client.ts:721:    model = FALLBACK_DEFAULT_MODEL,  // PR-001: no hardcoded string
+lib/ai-orchestrator/src/openai-compatible-client.ts:877:  // Some free models (e.g. Ling-3.0-flash) embed tool calls as XML text in
+lib/ai-orchestrator/src/openai-compatible-client.ts:938:    model = FALLBACK_DEFAULT_MODEL,  // PR-001: no hardcoded string
+lib/ai-orchestrator/src/openai-compatible-client.ts:1092: *         fallback for brief free-tier blips.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1116:      (err.code === "NON_200" || err.code === "MODEL_UNAVAILABLE") &&
+lib/ai-orchestrator/src/openai-compatible-client.ts:1154: * `capability` to pick the best currently-free model from the live catalog.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1156: * be stale by the time the first catalog refresh completes).
+lib/ai-orchestrator/src/openai-compatible-client.ts:1171: * Non-streaming completion via OpenRouter with automatic free-model fallback
+lib/ai-orchestrator/src/openai-compatible-client.ts:1174: * PR-003: MODEL_UNAVAILABLE (410/422) is now also fallback-worthy in addition
+lib/ai-orchestrator/src/openai-compatible-client.ts:1175: * to MODEL_NOT_FOUND (404/402/400). EMPTY_RESPONSE is also fallback-worthy
+lib/ai-orchestrator/src/openai-compatible-client.ts:1179: * RC-04: when `model` is not provided, resolves the best available free model
+lib/ai-orchestrator/src/openai-compatible-client.ts:1180: * from the live catalog at call time using the `quality` + `capability` hints.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1190:    ? FREE_MODELS.some((candidate) => candidate.id === initialModel)
+lib/ai-orchestrator/src/openai-compatible-client.ts:1194:      "INVALID_CONFIG",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1195:      `OpenRouter configured model is not a known free catalog model: ${initialModel}`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1196:      { context: { providerName: "OpenRouter", providerModel: initialModel, providerCode: "STALE_CONFIGURED_MODEL" } },
+lib/ai-orchestrator/src/openai-compatible-client.ts:1201:  // fallback chain from the live free-tier catalog at call time.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1213:    const catalog = getDynamicCatalogStatus();
+lib/ai-orchestrator/src/openai-compatible-client.ts:1215:      "INVALID_CONFIG",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1216:      `OpenRouter model ${initialModel} does not satisfy capability="${capability}" in the current catalog`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1221:          providerCode: "MODEL_CAPABILITY_MISMATCH",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1222:          catalogLoaded: catalog.loaded,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1223:          catalogUsable: catalog.usable,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1224:          catalogStatus: catalog.lastRefreshStatus,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1225:          catalogError: catalog.lastRefreshError ?? undefined,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1257:      // PR-003: treat MODEL_UNAVAILABLE (422/410) the same as MODEL_NOT_FOUND.
+lib/ai-orchestrator/src/openai-compatible-client.ts:1269:            code: "MODEL_FALLBACK",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1305:  const catalog = getDynamicCatalogStatus();
+lib/ai-orchestrator/src/openai-compatible-client.ts:1306:  throw new GroqClientError("MODEL_NOT_FOUND", "All OpenRouter free-tier fallback models exhausted", {
+lib/ai-orchestrator/src/openai-compatible-client.ts:1309:      catalogLoaded: catalog.loaded,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1310:      catalogUsable: catalog.usable,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1311:      catalogStatus: catalog.lastRefreshStatus,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1312:      catalogError: catalog.lastRefreshError ?? undefined,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1340:      "INVALID_CONFIG",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1341:      `OpenRouter stream requires a currently-free model matching capability="${capability}"`,
+lib/ai-orchestrator/src/openai-compatible-client.ts:1415:          code: "STREAM_MODEL_FALLBACK",
+lib/ai-orchestrator/src/openai-compatible-client.ts:1431:  throw new GroqClientError("MODEL_NOT_FOUND", "No OpenRouter free model satisfies the stream capability", {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:5: *   • Model Removed (404)           → MODEL_NOT_FOUND, automatic fallback
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:11: *   • Provider Failover             → MODEL_UNAVAILABLE triggers next model
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:13: *   • Runtime Model Refresh         → dynamic catalog filters stale IDs
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:34:} from "../openrouter/dynamic-catalog.js";
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:35:import { FREE_MODELS } from "../openrouter/model-catalog.js";
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:55:function okResponse(model = "inclusionai/ling-3.0-flash:free") {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:148:describe("model-resolver — empty catalog fallback", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:157:    // First entry must be a powerful-tier model from FREE_MODELS
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:158:    const first = FREE_MODELS.find((m) => m.id === chain[0]!.id);
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:163:    const initial = "nvidia/nemotron-3-super-120b-a12b:free";
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:181:// ── Dynamic catalog interaction ───────────────────────────────────────────────
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:183:describe("dynamic catalog — runtime model refresh", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:191:  it("resolveFallbackChain falls back to static list when catalog not loaded", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:192:    // catalog not loaded → getDynamicModelIds() returns null → static list used
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:195:    // All IDs should come from FREE_MODELS since catalog is not loaded
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:196:    const staticIds = new Set(FREE_MODELS.map((m) => m.id));
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:215:  it("keeps only free live IDs and preserves the last catalog on an empty refresh", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:217:    const liveFree = FREE_MODELS[0].id;
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:249:  it("uses a loaded live catalog as a hard boundary for stale candidates", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:250:    const liveFree = FREE_MODELS[0].id;
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:263:    expect(chain.every((model) => model.id.endsWith(":free"))).toBe(true);
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:266:  it("re-resolves a pinned model when the request refresh replaces its snapshot", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:268:    const firstModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:269:    const secondModel = FREE_MODELS.find((model) =>
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:273:    let catalogFetches = 0;
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:276:        catalogFetches++;
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:277:        const useSecondSnapshot = catalogFetches > 1;
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:340:        model: "inclusionai/ling-3.0-flash:free",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:345:  it("404 → MODEL_NOT_FOUND", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:349:      e instanceof GroqClientError && e.code === "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:367:          model: "actual/model:free",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:382:        model: "requested/model:free",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:386:    expect(result.model).toBe("actual/model:free");
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:401:          model: "actual/model:free",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:412:        model: "requested/model:free",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:439:          model: "same/model:free",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:449:        model: "same/model:free",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:494:  it("410 → MODEL_UNAVAILABLE", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:498:      e instanceof GroqClientError && e.code === "MODEL_UNAVAILABLE",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:502:  it("422 → MODEL_UNAVAILABLE", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:506:      e instanceof GroqClientError && e.code === "MODEL_UNAVAILABLE",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:511:    expect(classifyOpenRouterFailure("MODEL_NOT_FOUND")).toMatchObject({
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:516:    expect(classifyOpenRouterFailure("MODEL_UNAVAILABLE").action).toBe("choose-alternative");
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:559:        { apiKey: "fixture-key", model: FREE_MODELS[0].id, maxFallbackModels: 1 },
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:571:  it("advances to the next capability-compatible free model when unavailable", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:585:        model: FREE_MODELS.find((entry) => entry.capabilities.includes("chat"))!.id,
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:599:    expect(attemptedModels.every((model: string) => model.endsWith(":free"))).toBe(true);
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:613:        { apiKey: "fixture-key", model: FREE_MODELS[0].id, maxFallbackModels: 2 },
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:655:          text: () => Promise.resolve(JSON.stringify({ error: { code: "model_not_found" } })),
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:667:      { apiKey: "sk-test", model: "nvidia/nemotron-3-super-120b-a12b:free" },
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:697:      { apiKey: "sk-test", model: "nvidia/nemotron-3-super-120b-a12b:free" },
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:703:  it("uses full resolver chain when no model specified", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:716:          text: () => Promise.resolve(JSON.stringify({ error: { code: "model_not_found" } })),
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:742:      text: () => Promise.resolve(JSON.stringify({ error: { code: "model_not_found" } })),
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:745:    // Use a model not in FREE_MODELS → chain = [id] → one attempt → throws
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:754:      e instanceof GroqClientError && e.code === "INVALID_CONFIG",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:773:        { apiKey: "sk-test", model: FREE_MODELS[0].id },
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:780:      expect(JSON.parse(call[1].body as string).model).toMatch(/:free$/);
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:803:      { apiKey: "sk-test", model: FREE_MODELS[0].id, maxFallbackModels: 2 },
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:808:      JSON.parse(call[1].body as string).model.endsWith(":free"),
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:855:// ── INT-001: Static catalog before runtime catalog is loaded ──────────────────
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:857:describe("integration (INT-001) — static catalog used before runtime catalog loads", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:867:  it("should use static catalog before runtime catalog is loaded", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:868:    // Dynamic catalog must not be loaded at test start
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:881:          Promise.resolve(okResponse(capturedModel || "inclusionai/ling-3.0-flash:free")),
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:891:    // Completion succeeded using the static catalog
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:894:    // Dynamic catalog was never loaded — only the static list was used
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:897:    // The model selected must be a known static FREE_MODELS entry (not a stale hardcoded ID)
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:898:    const staticIds = new Set(FREE_MODELS.map((m) => m.id));
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:902:    // Exactly one fetch call: the completion request (no dynamic catalog refresh)
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:907:// ── INT-002: Runtime catalog loaded, powerful tier empty → fast tier used ─────
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:909:describe("integration (INT-002) — downgrade to fast tier when powerful free models unavailable", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:919:  it("should downgrade to fast tier when powerful free models are unavailable", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:920:    // Build a catalog containing only fast-tier model IDs (all powerful ones are absent)
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:921:    const fastOnlyEntries = FREE_MODELS
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:936:    // Requesting "powerful" — but all powerful models are absent from the live catalog
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:939:    // No powerful-tier model should appear — all were filtered by the live catalog
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:941:      const staticModel = FREE_MODELS.find((m) => m.id === entry.id);
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:948:      const staticModel = FREE_MODELS.find((m) => m.id === entry.id);
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:953:    // No fallback to the raw static pool (RC-01: catalog loaded → no re-insertion of paid models)
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:958:// ── INT-003: All free models filtered → empty chain → no fetch (INT-003 + INT-007 empty-chain) ──
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:970:  it("should fail over cleanly when no free model remains", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:971:    // Populate the live catalog with a model ID that does not exist in FREE_MODELS.
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:972:    // This simulates all static models having moved from free → paid.
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:978:          data: [{ id: "unknown/not-in-static-catalog:free", pricing: { prompt: "0", completion: "0" } }],
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:994:    // openrouterCompleteWithFallback must throw MODEL_NOT_FOUND immediately —
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1002:      (e: unknown) => e instanceof GroqClientError && e.code === "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1010:    // Same setup — catalog contains no FREE_MODELS entries
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1020:    // The paid model has non-zero pricing so refreshDynamicCatalog keeps previous catalog.
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1021:    // Reset so catalog shows loaded-but-empty by calling refresh with a response that
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1022:    // passes the free-model filter with an ID not in FREE_MODELS.
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1028:          data: [{ id: "nonexistent/model:free", pricing: { prompt: "0", completion: "0" } }],
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1043:      (e: unknown) => e instanceof GroqClientError && e.code === "MODEL_NOT_FOUND",
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1051:    // Catalog not loaded → static list used (no catalog fetch in this path)
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1082:          text: () => Promise.resolve(JSON.stringify({ error: { code: "model_not_found" } })),
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1095:      { apiKey: "sk-test", model: "nvidia/nemotron-3-super-120b-a12b:free" },
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1106:describe("integration (INT-004) — agentComplete resolves models from quality hints instead of stale model IDs", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1116:  it("should resolve models from quality hints instead of stale model ids", async () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1121:      const model = (capturedRequestBody["model"] as string) ?? "inclusionai/ling-3.0-flash:free";
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1125:        json: () => Promise.resolve(okResponse(model)),
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1135:        // RC-04: qualityProfile drives resolver hints; no explicit model ID
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1146:    // The selected model must come from FREE_MODELS — the resolver, not a hardcoded ID
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1147:    const staticIds = new Set(FREE_MODELS.map((m) => m.id));
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:1152:    const resolvedModel = FREE_MODELS.find((m) => m.id === usedModel);
+lib/ai-orchestrator/src/index.ts:1:export { complete, completeRaw, completeStream, MODEL_POWERFUL, MODEL_FAST } from "./groq-client.js";
+lib/ai-orchestrator/src/index.ts:103:export { resolveExecutionDecision } from "./model-selection/decision-engine.js";
+lib/ai-orchestrator/src/index.ts:105:export { resolveExecutionProvider } from "./model-selection/provider-strategy.js";
+lib/ai-orchestrator/src/index.ts:107:export { resolveExecutionModel } from "./model-selection/model-resolver.js";
+lib/ai-orchestrator/src/index.ts:109:export { resolveFreeModelOverride, isFreeOpenRouterModel } from "./model-selection/model-resolver.js";
+lib/ai-orchestrator/src/index.ts:515:} from "./benchmark/free-tier-quality-envelope.js";
+lib/ai-orchestrator/src/index.ts:520:} from "./benchmark/free-tier-quality-envelope.js";
+lib/ai-orchestrator/src/index.ts:521:export { buildFreeTierFailureAnalysis } from "./benchmark/free-tier-failure-analysis.js";
+lib/ai-orchestrator/src/index.ts:525:} from "./benchmark/free-tier-failure-analysis.js";
