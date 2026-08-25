@@ -1973,6 +1973,36 @@ test.describe("EngineeringOS dashboard browser journey", () => {
     await expect(
       page.getByText(`Support reference: ${supportReferences.quota_exhausted}`),
     ).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByLabel("Expand task Recover authentication failure"),
+    ).toBeVisible();
+    await page
+      .getByLabel("Expand task Recover authentication failure")
+      .click();
+    const reloadedAuthDetails = page.locator(
+      "#task-details-e2e-auth-failed-task",
+    );
+    await expect(reloadedAuthDetails).toContainText(
+      "Provider authentication failed",
+    );
+    await expect(reloadedAuthDetails).toContainText(
+      "Replace the provider API key with a valid key, then retry.",
+    );
+    await expect(reloadedAuthDetails).toContainText(
+      `Support reference: ${supportReferences.authentication_failed}`,
+    );
+    await page.getByLabel("Expand task Recover quota exhaustion").click();
+    await expect(page.getByText("Provider quota is exhausted")).toBeVisible();
+    await expect(
+      page.getByText(`Support reference: ${supportReferences.quota_exhausted}`),
+    ).toBeVisible();
+    const reloadedTaskText = await page.locator("body").innerText();
+    expect(reloadedTaskText).not.toContain(rawDiagnostic);
+    expect(reloadedTaskText).not.toContain(rawCredential);
+    expect(reloadedTaskText).not.toMatch(
+      /secret-model-name|\/home\/runner|\/tmp\//i,
+    );
 
     await openNavigation(page, "Workflows", `${DASHBOARD_PATH}workflows`);
     await expect(page.getByText("Recover provider outage")).toBeVisible();
@@ -1988,6 +2018,22 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       "Retry in a moment; configure another provider if the issue persists.",
     );
     await expect(execution).toContainText(
+      `Support reference: ${supportReferences.provider_outage}`,
+    );
+    await page.reload();
+    await expect(page.getByText("Recover provider outage")).toBeVisible();
+    await page.getByRole("button", { name: "Execution history" }).click();
+    const reloadedExecution = page
+      .getByText("failed · no successful completion")
+      .locator("..")
+      .locator("..");
+    await expect(reloadedExecution).toContainText(
+      "The provider is temporarily unavailable",
+    );
+    await expect(reloadedExecution).toContainText(
+      "Retry in a moment; configure another provider if the issue persists.",
+    );
+    await expect(reloadedExecution).toContainText(
       `Support reference: ${supportReferences.provider_outage}`,
     );
 

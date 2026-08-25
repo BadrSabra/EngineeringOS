@@ -728,13 +728,12 @@ export default function Tasks() {
                                   </span>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2 text-muted-foreground font-mono">
-                                  <span>Provider: {receipt.provider ?? '—'}</span>
-                                  <span>Model: {receipt.model ?? '—'}</span>
                                   <span>Attempts: {receipt.attempts ?? 1}</span>
                                   <span>Duration: {receipt.durationMs != null ? `${receipt.durationMs}ms` : '—'}</span>
                                 </div>
-                                {receipt.terminalReason && <div className="mt-2 text-muted-foreground">Reason: {safeTaskText(receipt.terminalReason)}</div>}
-                                {receipt.operationId && <div className="mt-2 truncate text-muted-foreground">Operation: {safeTaskText(receipt.operationId)}</div>}
+                                <div className="mt-2 text-muted-foreground">
+                                  Provider diagnostics and credentials are not shown.
+                                </div>
                                 <ProviderRecoveryCard
                                   recovery={receipt}
                                   className="mt-3"
