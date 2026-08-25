@@ -422,7 +422,7 @@ describe('AiChat authenticated generated mutations', () => {
 
     const assertSafeRecovery = () => {
       expect(screen.getByText(/temporarily unavailable/i)).toBeInTheDocument();
-      expect(screen.getByText(/Retry in a moment/i)).toBeInTheDocument();
+      expect(screen.getByText(/try again in a moment/i)).toBeInTheDocument();
       expect(screen.getByText('Support reference: support-chat-outage-34')).toBeInTheDocument();
       const visibleText = document.body.textContent ?? '';
       expect(visibleText).not.toMatch(/secret-model-name|\/home\/runner|sk-live-provider-secret/i);
@@ -670,7 +670,8 @@ describe('AiChat authenticated generated mutations', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
 
     expect(await screen.findByText('Execution failed')).toBeInTheDocument();
-    expect(screen.getByText(/query_knowledge_graph was unavailable/)).toBeInTheDocument();
+    expect(screen.getByText(/The AI provider could not complete this request/i)).toBeInTheDocument();
+    expect(screen.queryByText(/query_knowledge_graph was unavailable/)).not.toBeInTheDocument();
     expect(screen.queryByText('Persisted execution proof')).not.toBeInTheDocument();
     expect(screen.queryByText(/COMPLETED/)).not.toBeInTheDocument();
   });
