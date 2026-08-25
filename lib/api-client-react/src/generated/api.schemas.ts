@@ -83,6 +83,18 @@ export const ValidationResultStatus = {
   blocked: 'blocked',
 } as const;
 
+export type ValidationResultTerminalState = typeof ValidationResultTerminalState[keyof typeof ValidationResultTerminalState];
+
+
+export const ValidationResultTerminalState = {
+  running: 'running',
+  passed: 'passed',
+  failed: 'failed',
+  blocked: 'blocked',
+  unavailable: 'unavailable',
+  timed_out: 'timed_out',
+} as const;
+
 export interface ValidationFailure {
   name: string;
   file?: string;
@@ -122,6 +134,23 @@ export interface ValidationResult {
   changedFiles: string[];
   evidence: ValidationEvidence;
   detail?: string;
+  /**
+     * Server-owned maximum duration for the validation process.
+     * @minimum 0
+     */
+  processBudgetMs?: number;
+  /**
+     * Server-owned maximum duration for the complete validation attempt.
+     * @minimum 0
+     */
+  overallBudgetMs?: number;
+  /** @minimum 0 */
+  elapsedMs?: number;
+  /** @minimum 0 */
+  remainingMs?: number;
+  terminalState?: ValidationResultTerminalState;
+  /** One safe operator action that does not bypass validation. */
+  nextAction?: string;
 }
 
 export type AiBenchmarkMetricsGradeCounts = {[key: string]: number};
@@ -1400,6 +1429,18 @@ export const PublicValidationResultReasonCode = {
   stale_revision: 'stale_revision',
 } as const;
 
+export type PublicValidationResultTerminalState = typeof PublicValidationResultTerminalState[keyof typeof PublicValidationResultTerminalState];
+
+
+export const PublicValidationResultTerminalState = {
+  running: 'running',
+  passed: 'passed',
+  failed: 'failed',
+  blocked: 'blocked',
+  unavailable: 'unavailable',
+  timed_out: 'timed_out',
+} as const;
+
 export interface PublicValidationResult {
   profile: string;
   status: PublicValidationResultStatus;
@@ -1409,6 +1450,16 @@ export interface PublicValidationResult {
   evidence: ValidationEvidence;
   reasonCode?: PublicValidationResultReasonCode;
   detail?: string;
+  /** @minimum 0 */
+  processBudgetMs?: number;
+  /** @minimum 0 */
+  overallBudgetMs?: number;
+  /** @minimum 0 */
+  elapsedMs?: number;
+  /** @minimum 0 */
+  remainingMs?: number;
+  terminalState?: PublicValidationResultTerminalState;
+  nextAction?: string;
 }
 
 export interface AiPendingProposal {

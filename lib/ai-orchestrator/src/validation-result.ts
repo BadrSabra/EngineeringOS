@@ -7,6 +7,13 @@
  * persisted evidence reference is not sufficient to prove a repair.
  */
 export type ValidationStatus = "passed" | "failed" | "skipped" | "unavailable" | "blocked";
+export type ValidationTerminalState =
+  | "running"
+  | "passed"
+  | "failed"
+  | "blocked"
+  | "unavailable"
+  | "timed_out";
 /** Safe, operator-facing reasons for a browser validation preflight block. */
 export type BrowserValidationBlockReason =
   | "ownership"
@@ -53,6 +60,13 @@ export type ValidationResult = {
   evidence: ValidationEvidence;
   detail?: string;
   reasonCode?: BrowserValidationBlockReason;
+  /** Server-owned operator telemetry; never supplied by model output. */
+  processBudgetMs?: number;
+  overallBudgetMs?: number;
+  elapsedMs?: number;
+  remainingMs?: number;
+  terminalState?: ValidationTerminalState;
+  nextAction?: string;
 };
 
 /**
@@ -62,7 +76,9 @@ export type ValidationResult = {
  */
 export type PublicValidationResult = Pick<
   ValidationResult,
-  "profile" | "status" | "scenario" | "exitCode" | "evidence" | "reasonCode"
+  | "profile" | "status" | "scenario" | "exitCode" | "evidence" | "reasonCode"
+  | "processBudgetMs" | "overallBudgetMs" | "elapsedMs" | "remainingMs"
+  | "terminalState" | "nextAction"
 > & {
   detail?: string;
 };
@@ -100,6 +116,12 @@ export function toPublicValidationResult(result: ValidationResult): PublicValida
       ...(evidence.consoleErrorCount !== undefined ? { consoleErrorCount: evidence.consoleErrorCount } : {}),
     },
     ...(result.reasonCode ? { reasonCode: result.reasonCode } : {}),
+    ...(result.processBudgetMs !== undefined ? { processBudgetMs: result.processBudgetMs } : {}),
+    ...(result.overallBudgetMs !== undefined ? { overallBudgetMs: result.overallBudgetMs } : {}),
+    ...(result.elapsedMs !== undefined ? { elapsedMs: result.elapsedMs } : {}),
+    ...(result.remainingMs !== undefined ? { remainingMs: result.remainingMs } : {}),
+    ...(result.terminalState ? { terminalState: result.terminalState } : {}),
+    ...(result.nextAction ? { nextAction: sanitizeValidationDetail(result.nextAction) } : {}),
     ...(result.detail ? { detail: sanitizeValidationDetail(result.detail) } : {}),
   };
 }

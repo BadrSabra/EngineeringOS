@@ -216,11 +216,22 @@ function CandidateValidationProof({
       {hasEvidence ? (
         <div className="mt-2 space-y-1 border-t border-current/10 pt-2">
           {receipts.map((item) => (
-            <div key={item.evidence.evidenceId} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-              <span className="font-medium">{item.profile}</span>
-              <span className="text-muted-foreground">{item.status}</span>
-              <span className="text-muted-foreground">{item.scenario}</span>
-              {item.evidence.promotedHash && <span className="text-emerald-300">promoted bytes verified</span>}
+            <div key={item.evidence.evidenceId} className="space-y-1">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span className="font-medium">{item.profile}</span>
+                <span className="text-muted-foreground">{item.terminalState ?? item.status}</span>
+                <span className="text-muted-foreground">{item.scenario}</span>
+                {item.evidence.promotedHash && <span className="text-emerald-300">promoted bytes verified</span>}
+              </div>
+              {(item.processBudgetMs !== undefined || item.overallBudgetMs !== undefined) && (
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-muted-foreground">
+                  {item.processBudgetMs !== undefined && <span>process budget {formatValidationDuration(item.processBudgetMs)}</span>}
+                  {item.overallBudgetMs !== undefined && <span>overall budget {formatValidationDuration(item.overallBudgetMs)}</span>}
+                  {item.elapsedMs !== undefined && <span>elapsed {formatValidationDuration(item.elapsedMs)}</span>}
+                  {item.remainingMs !== undefined && <span>remaining {formatValidationDuration(item.remainingMs)}</span>}
+                </div>
+              )}
+              {item.nextAction && <div className="text-current/80">Next safe action: {item.nextAction}</div>}
             </div>
           ))}
         </div>
@@ -229,6 +240,13 @@ function CandidateValidationProof({
       )}
     </div>
   );
+}
+
+function formatValidationDuration(valueMs: number): string {
+  if (valueMs < 1000) return `${valueMs} ms`;
+  const seconds = valueMs / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
+  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 }
 
 function browserValidationBlockExplanation(reasonCode: BrowserValidationBlockReason | undefined): {
@@ -5068,13 +5086,23 @@ function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentActivity
             : 'Validation failed',
         detail: [
           entry.validation?.profile ?? entry.validationProfile,
+           entry.validation?.terminalState
+             ? `state ${entry.validation.terminalState}`
+             : undefined,
           (entry.attempt ?? entry.validationAttempt) != null
             ? `attempt ${entry.attempt ?? entry.validationAttempt}/${entry.maxAttempts ?? entry.validationMaxAttempts ?? '?'}`
             : undefined,
+           entry.validation?.elapsedMs !== undefined
+             ? `elapsed ${formatValidationDuration(entry.validation.elapsedMs)}`
+             : undefined,
+           entry.validation?.remainingMs !== undefined
+             ? `remaining ${formatValidationDuration(entry.validation.remainingMs)}`
+             : undefined,
           (entry.validation?.exitCode ?? entry.validationExitCode) != null
             ? `exit ${entry.validation?.exitCode ?? entry.validationExitCode}`
             : undefined,
           entry.validation?.detail ?? entry.validationDetail,
+           entry.validation?.nextAction,
         ].filter(Boolean).join(' · '),
         status: status === 'passed' ? 'done' : 'info',
       });
@@ -5093,7 +5121,9 @@ function activityEventsFromToolTrace(trace: ToolTraceEntry[]): LiveAgentActivity
             : state === 'READY_FOR_REVIEW'
               ? 'Ready for review'
               : 'Repair blocked',
-        detail: entry.reason,
+        detail: state === 'VALIDATING'
+          ? `${entry.reason ?? 'Server-owned validation is running.'} Wait for the bounded result; promotion remains blocked until validation passes.`
+          : entry.reason,
         status: state === 'READY_FOR_REVIEW' ? 'done' : state === 'VALIDATING' ? 'active' : 'info',
       });
       continue;

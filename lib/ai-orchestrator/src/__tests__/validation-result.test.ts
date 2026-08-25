@@ -86,4 +86,24 @@ describe("canonical validation evidence", () => {
       promotedHash: "promoted-1",
     });
   });
+
+  it("retains bounded operator timing and next-action telemetry", () => {
+    const publicResult = toPublicValidationResult(result({
+      processBudgetMs: 30_000,
+      overallBudgetMs: 45_000,
+      elapsedMs: 12_500,
+      remainingMs: 32_500,
+      terminalState: "passed",
+      nextAction: "Review the validated candidate.",
+    }));
+
+    expect(publicResult).toMatchObject({
+      processBudgetMs: 30_000,
+      overallBudgetMs: 45_000,
+      elapsedMs: 12_500,
+      remainingMs: 32_500,
+      terminalState: "passed",
+      nextAction: "Review the validated candidate.",
+    });
+  });
 });

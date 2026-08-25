@@ -3524,6 +3524,16 @@ export const AiApplyChangesBody = zod.object({
 }))
 })
 
+export const aiApplyChangesResponseValidationEvidenceItemProcessBudgetMsMin = 0;
+
+export const aiApplyChangesResponseValidationEvidenceItemOverallBudgetMsMin = 0;
+
+export const aiApplyChangesResponseValidationEvidenceItemElapsedMsMin = 0;
+
+export const aiApplyChangesResponseValidationEvidenceItemRemainingMsMin = 0;
+
+
+
 export const AiApplyChangesResponse = zod.object({
   "correlationId": zod.string().describe('Logical operation identifier shared with the proposal\'s plan and later Git operations'),
   "applyStatus": zod.enum(['APPLIED', 'PARTIAL', 'BLOCKED', 'ROLLBACK_FAILED']),
@@ -3552,7 +3562,13 @@ export const AiApplyChangesResponse = zod.object({
   "consoleErrorCount": zod.number().optional()
 }),
   "reasonCode": zod.enum(['ownership', 'invalid_profile', 'resource_limit', 'stale_revision']).optional(),
-  "detail": zod.string().optional()
+  "detail": zod.string().optional(),
+  "processBudgetMs": zod.number().min(aiApplyChangesResponseValidationEvidenceItemProcessBudgetMsMin).optional(),
+  "overallBudgetMs": zod.number().min(aiApplyChangesResponseValidationEvidenceItemOverallBudgetMsMin).optional(),
+  "elapsedMs": zod.number().min(aiApplyChangesResponseValidationEvidenceItemElapsedMsMin).optional(),
+  "remainingMs": zod.number().min(aiApplyChangesResponseValidationEvidenceItemRemainingMsMin).optional(),
+  "terminalState": zod.enum(['running', 'passed', 'failed', 'blocked', 'unavailable', 'timed_out']).optional(),
+  "nextAction": zod.string().optional()
 })).optional(),
   "results": zod.array(zod.object({
   "path": zod.string(),
@@ -3763,6 +3779,14 @@ export const getAiPendingProposalResponseChangesItemEvidenceMax = 4;
 
 export const getAiPendingProposalResponseRevisionMin = 0;
 
+export const getAiPendingProposalResponseValidationEvidenceItemProcessBudgetMsMin = 0;
+
+export const getAiPendingProposalResponseValidationEvidenceItemOverallBudgetMsMin = 0;
+
+export const getAiPendingProposalResponseValidationEvidenceItemElapsedMsMin = 0;
+
+export const getAiPendingProposalResponseValidationEvidenceItemRemainingMsMin = 0;
+
 
 
 export const GetAiPendingProposalResponse = zod.object({
@@ -3827,7 +3851,13 @@ export const GetAiPendingProposalResponse = zod.object({
   "consoleErrorCount": zod.number().optional()
 }),
   "reasonCode": zod.enum(['ownership', 'invalid_profile', 'resource_limit', 'stale_revision']).optional(),
-  "detail": zod.string().optional()
+  "detail": zod.string().optional(),
+  "processBudgetMs": zod.number().min(getAiPendingProposalResponseValidationEvidenceItemProcessBudgetMsMin).optional(),
+  "overallBudgetMs": zod.number().min(getAiPendingProposalResponseValidationEvidenceItemOverallBudgetMsMin).optional(),
+  "elapsedMs": zod.number().min(getAiPendingProposalResponseValidationEvidenceItemElapsedMsMin).optional(),
+  "remainingMs": zod.number().min(getAiPendingProposalResponseValidationEvidenceItemRemainingMsMin).optional(),
+  "terminalState": zod.enum(['running', 'passed', 'failed', 'blocked', 'unavailable', 'timed_out']).optional(),
+  "nextAction": zod.string().optional()
 })).optional()
 })
 

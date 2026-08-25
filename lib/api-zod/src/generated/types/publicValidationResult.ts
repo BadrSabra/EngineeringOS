@@ -7,6 +7,7 @@
  */
 import type { PublicValidationResultReasonCode } from './publicValidationResultReasonCode';
 import type { PublicValidationResultStatus } from './publicValidationResultStatus';
+import type { PublicValidationResultTerminalState } from './publicValidationResultTerminalState';
 import type { ValidationEvidence } from './validationEvidence';
 
 export interface PublicValidationResult {
@@ -18,4 +19,14 @@ export interface PublicValidationResult {
   evidence: ValidationEvidence;
   reasonCode?: PublicValidationResultReasonCode;
   detail?: string;
+  /** @minimum 0 */
+  processBudgetMs?: number;
+  /** @minimum 0 */
+  overallBudgetMs?: number;
+  /** @minimum 0 */
+  elapsedMs?: number;
+  /** @minimum 0 */
+  remainingMs?: number;
+  terminalState?: PublicValidationResultTerminalState;
+  nextAction?: string;
 }

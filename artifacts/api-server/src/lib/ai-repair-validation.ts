@@ -113,6 +113,28 @@ const VALIDATION_COPY_OMIT = new Set([
 
 type ValidationDraft = Omit<ValidationResult, "evidence">;
 
+function validationNextAction(status: ValidationStatus, terminalState?: ValidationResult["terminalState"]): string {
+  if (terminalState === "timed_out") {
+    return "Review the bounded timeout evidence, then rerun the same approved validation or narrow the approved check.";
+  }
+  switch (status) {
+    case "passed":
+      return "Review the validated candidate; approval and scope gates still apply.";
+    case "failed":
+      return "Review the bounded failure summary, correct the candidate, and rerun the approved validation.";
+    case "unavailable":
+      return "Restore the registered validation profile or project workspace, then rerun validation.";
+    case "skipped":
+      return "Select an approved validation profile before attempting promotion.";
+    default:
+      return "Review the validation evidence before attempting another approved run.";
+  }
+}
+
+function validationTerminalState(status: ValidationStatus): ValidationResult["terminalState"] {
+  return status === "blocked" || status === "skipped" ? "blocked" : status;
+}
+
 export async function createValidationWorkspace(
   rootPath: string,
   pendingChanges: readonly PendingValidationChange[],
@@ -229,6 +251,12 @@ function emptyValidationDraft(
     failedTests: [],
     changedFiles: [],
     detail,
+    processBudgetMs: definition?.timeoutMs ?? config.validationProcessTimeoutMs,
+    overallBudgetMs: config.validationOverallTimeoutMs,
+    elapsedMs: 0,
+    remainingMs: config.validationOverallTimeoutMs,
+    terminalState: status === "blocked" ? "timed_out" : validationTerminalState(status),
+    nextAction: validationNextAction(status, status === "blocked" ? "timed_out" : validationTerminalState(status)),
   };
 }
 
@@ -332,6 +360,7 @@ async function runRepairValidationCore(
       changedFiles: extractAffectedFiles(output),
     };
     if (execution.status !== "passed") {
+      const terminalState = execution.status === "timed_out" ? "timed_out" : execution.status === "cancelled" ? "blocked" : "failed";
       return {
         status: execution.status === "timed_out" ? "blocked" : "failed",
         profile,
@@ -342,6 +371,15 @@ async function runRepairValidationCore(
           execution.status === "timed_out"
             ? "Validation timed out before the candidate could be approved."
             : boundedDetail(output) || `Registered validation failed with status ${execution.status}.`,
+        processBudgetMs: definition.timeoutMs,
+        overallBudgetMs: config.validationOverallTimeoutMs,
+        elapsedMs: execution.durationMs,
+        remainingMs: Math.max(0, config.validationOverallTimeoutMs - execution.durationMs),
+        terminalState,
+        nextAction: validationNextAction(
+          execution.status === "timed_out" ? "blocked" : "failed",
+          terminalState,
+        ),
       };
     }
     return {
@@ -351,6 +389,12 @@ async function runRepairValidationCore(
         ...executionEvidence,
         failedTests: executionEvidence.failedTests.map(toValidationFailure),
       detail: output.slice(-2_000) || "Registered validation completed successfully.",
+      processBudgetMs: definition.timeoutMs,
+      overallBudgetMs: config.validationOverallTimeoutMs,
+      elapsedMs: execution.durationMs,
+      remainingMs: Math.max(0, config.validationOverallTimeoutMs - execution.durationMs),
+      terminalState: "passed",
+      nextAction: validationNextAction("passed"),
     };
   } catch (error) {
     const executionError = error as NodeJS.ErrnoException & {
@@ -374,6 +418,12 @@ async function runRepairValidationCore(
       failedTests: extractFailedTests(output).map(toValidationFailure),
       changedFiles: extractAffectedFiles(output),
       detail: reason,
+      processBudgetMs: definition.timeoutMs,
+      overallBudgetMs: config.validationOverallTimeoutMs,
+      elapsedMs: config.validationProcessTimeoutMs,
+      remainingMs: 0,
+      terminalState: executionError.killed ? "timed_out" : "failed",
+      nextAction: validationNextAction("failed", executionError.killed ? "timed_out" : "failed"),
     };
   } finally {
     await validationWorkspace.cleanup();
@@ -428,8 +478,21 @@ export async function runRepairValidation(
   signal?: AbortSignal,
   pendingChanges: readonly PendingValidationChange[] = [],
 ): Promise<ValidationResult> {
+  const startedAt = Date.now();
   const result = await runWithValidationDeadline(rootPath, profile, relativePaths, signal, pendingChanges);
-  return attachValidationEvidence(result);
+  const elapsedMs = Math.max(result.elapsedMs ?? 0, Date.now() - startedAt);
+  const terminalState = result.terminalState ?? (
+    result.status === "blocked" ? "timed_out" : validationTerminalState(result.status)
+  );
+  return attachValidationEvidence({
+    ...result,
+    processBudgetMs: result.processBudgetMs ?? config.validationProcessTimeoutMs,
+    overallBudgetMs: result.overallBudgetMs ?? config.validationOverallTimeoutMs,
+    elapsedMs,
+    remainingMs: Math.max(0, config.validationOverallTimeoutMs - elapsedMs),
+    terminalState,
+    nextAction: result.nextAction ?? validationNextAction(result.status, terminalState),
+  });
 }
 
 /**
@@ -521,5 +584,13 @@ export async function runRepairPreviewValidation(input: {
       consoleErrorCount: result.consoleErrors.length,
     },
     detail: result.summary,
+    terminalState: status === "passed"
+      ? "passed"
+      : result.status === "unavailable"
+        ? "unavailable"
+        : "blocked",
+    nextAction: status === "passed"
+      ? "Review the browser validation evidence; approval and scope gates still apply."
+      : "Review the browser validation block or failure, then rerun the approved Preview check.",
   };
 }

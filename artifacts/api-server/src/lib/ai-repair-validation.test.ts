@@ -56,6 +56,10 @@ describe("AI repair validation registry", () => {
     ]);
     expect(result.status).toBe("unavailable");
     expect(result.detail).toMatch(/package\.json/i);
+    expect(result.processBudgetMs).toBeGreaterThan(0);
+    expect(result.overallBudgetMs).toBeGreaterThanOrEqual(result.processBudgetMs ?? 0);
+    expect(result.terminalState).toBe("unavailable");
+    expect(result.nextAction).toMatch(/profile|workspace|validation/i);
   });
 
   it("runs validation against pending content in an isolated workspace", async () => {

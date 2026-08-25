@@ -8,6 +8,7 @@
 import type { ValidationEvidence } from './validationEvidence';
 import type { ValidationFailure } from './validationFailure';
 import type { ValidationResultStatus } from './validationResultStatus';
+import type { ValidationResultTerminalState } from './validationResultTerminalState';
 
 /**
  * Canonical registered-validation result shared by the validator, repair loop, API trace/SSE, and dashboard. Evidence metadata identifies the bounded validation artifact that can be inspected again.
@@ -25,4 +26,21 @@ export interface ValidationResult {
   changedFiles: string[];
   evidence: ValidationEvidence;
   detail?: string;
+  /**
+     * Server-owned maximum duration for the validation process.
+     * @minimum 0
+     */
+  processBudgetMs?: number;
+  /**
+     * Server-owned maximum duration for the complete validation attempt.
+     * @minimum 0
+     */
+  overallBudgetMs?: number;
+  /** @minimum 0 */
+  elapsedMs?: number;
+  /** @minimum 0 */
+  remainingMs?: number;
+  terminalState?: ValidationResultTerminalState;
+  /** One safe operator action that does not bypass validation. */
+  nextAction?: string;
 }

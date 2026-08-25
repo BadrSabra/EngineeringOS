@@ -3313,6 +3313,26 @@ components:
           $ref: "#/components/schemas/ValidationEvidence"
         detail:
           type: string
+        processBudgetMs:
+          type: integer
+          minimum: 0
+          description: Server-owned maximum duration for the validation process.
+        overallBudgetMs:
+          type: integer
+          minimum: 0
+          description: Server-owned maximum duration for the complete validation attempt.
+        elapsedMs:
+          type: integer
+          minimum: 0
+        remainingMs:
+          type: integer
+          minimum: 0
+        terminalState:
+          type: string
+          enum: [running, passed, failed, blocked, unavailable, timed_out]
+        nextAction:
+          type: string
+          description: One safe operator action that does not bypass validation.
     ValidationFailure:
       type: object
       additionalProperties: false
@@ -4897,6 +4917,14 @@ components:
           type: string
           enum: [ownership, invalid_profile, resource_limit, stale_revision]
         detail: { type: string }
+        processBudgetMs: { type: integer, minimum: 0 }
+        overallBudgetMs: { type: integer, minimum: 0 }
+        elapsedMs: { type: integer, minimum: 0 }
+        remainingMs: { type: integer, minimum: 0 }
+        terminalState:
+          type: string
+          enum: [running, passed, failed, blocked, unavailable, timed_out]
+        nextAction: { type: string }
 
     AiChatOutput:
       type: object
