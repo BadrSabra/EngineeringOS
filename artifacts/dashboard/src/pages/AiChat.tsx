@@ -535,6 +535,51 @@ function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | unde
   );
 }
 
+function ProviderReadinessNotice({
+  activeProvider,
+  metric,
+}: {
+  activeProvider: ActiveProvider | undefined;
+  metric: ProviderRuntimeMetric | undefined;
+}) {
+  if (!activeProvider) {
+    return (
+      <div className="mb-2 flex items-center gap-2 rounded-lg border border-border bg-secondary/50 px-3 py-2 text-[11px] text-muted-foreground" role="status">
+        <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+        <span>Checking AI provider health…</span>
+      </div>
+    );
+  }
+
+  if (!activeProvider.configured || !activeProvider.provider) {
+    return (
+      <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300" role="alert">
+        <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+        <span>No AI provider is ready. Save an API key in the provider cards before sending a message.</span>
+      </div>
+    );
+  }
+
+  if (metric?.circuitOpen) {
+    const cooldown = metric.cooldownRemainingMs != null
+      ? ` Retry in ${Math.ceil(metric.cooldownRemainingMs / 1000)}s.`
+      : '';
+    return (
+      <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300" role="status">
+        <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+        <span>{activeProvider.provider} is temporarily unavailable.{cooldown} A fallback may be used.</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-2 flex items-center gap-2 px-1 text-[11px] text-emerald-600 dark:text-emerald-400" role="status">
+      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" />
+      <span>AI ready · {activeProvider.provider}</span>
+    </div>
+  );
+}
+
 /**
  * Maps an AiApiError (or any error) to a concise, user-facing string.
  * Status codes align with what ai.ts returns after handleOrchestratorError.
@@ -8206,6 +8251,14 @@ export default function AiChat() {
       toast({ title: 'No project selected', description: 'Select a project first to start chatting.', variant: 'destructive' });
       return;
     }
+    if (!activeProvider) {
+      toast({ title: 'Checking AI provider health', description: 'Please wait a moment and try again.', variant: 'default' });
+      return;
+    }
+    if (!activeProvider.configured || !activeProvider.provider) {
+      toast({ title: 'AI provider unavailable', description: 'Save an API key in the provider cards before sending a message.', variant: 'destructive' });
+      return;
+    }
     if (isSending) return;
     const generation = ++streamGenerationRef.current;
     const requestProjectId = selectedProjectId;
@@ -9553,7 +9606,12 @@ export default function AiChat() {
               )}
             </div>
           )}
-          <div className="mx-auto flex w-full min-w-0 max-w-3xl items-end gap-2">
+          <div className="mx-auto w-full min-w-0 max-w-3xl">
+            <ProviderReadinessNotice
+              activeProvider={activeProvider}
+              metric={activeProvider?.provider ? metricsMap.get(activeProvider.provider) : undefined}
+            />
+            <div className="flex items-end gap-2">
             <Textarea
               ref={textareaRef}
               value={input}
@@ -9562,12 +9620,12 @@ export default function AiChat() {
               placeholder={applyMutation.isPending ? 'Applying changes… please wait' : isAgentBusy ? 'Working… progress is shown above' : getPlaceholder()}
               className="min-h-[44px] min-w-0 max-h-32 flex-1 resize-none bg-secondary border-border text-sm"
               rows={1}
-              disabled={!isLoaded || projectsLoading || !selectedProjectId || applyMutation.isPending || isAgentBusy}
+              disabled={!isLoaded || projectsLoading || !selectedProjectId || !activeProvider?.configured || applyMutation.isPending || isAgentBusy}
             />
             <Button
               size="icon"
               onClick={handleSend}
-              disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || isAgentBusy || applyMutation.isPending}
+               disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || !activeProvider?.configured || isAgentBusy || applyMutation.isPending}
               className="h-11 w-11 shrink-0"
               title={applyMutation.isPending ? 'Applying changes…' : isAgentBusy ? 'AI is working…' : getSendTitle()}
             >
@@ -9577,6 +9635,7 @@ export default function AiChat() {
                 <Send className="w-4 h-4" />
               )}
             </Button>
+            </div>
           </div>
         </div>
       </div>

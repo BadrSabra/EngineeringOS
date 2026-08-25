@@ -202,7 +202,7 @@ vi.mock('@workspace/api-client-react', () => {
     useGetGroqKeyStatus: vi.fn(status),
     useGetProviderKeyStatus: vi.fn(status),
     useGetOpenRouterKeyStatus: vi.fn(status),
-    useGetActiveProvider: vi.fn(() => ({ data: { provider: null }, isLoading: false, isError: false, error: null })),
+    useGetActiveProvider: vi.fn(() => ({ data: { provider: 'groq', configured: true }, isLoading: false, isError: false, error: null })),
     useGetAiMetrics: vi.fn(() => ({ data: { metrics: [], behavioralScorecards: [] }, isLoading: false, isError: false, error: null })),
     useGetAiExecution: vi.fn(() => ({
       data: mocks.activeExecutionStatus,
