@@ -27,6 +27,10 @@ import {
   recordCircuitFailure,
   recordCircuitSuccess,
 } from "../openrouter/circuit-breaker.js";
+import {
+  isCatalogFreeModel,
+  isCatalogFreeModelForCapability,
+} from "../openrouter/model-resolver.js";
 import type { RawMessage } from "../groq-client.js";
 import type {
   ProviderStrategy,
@@ -82,7 +86,30 @@ export const openrouterStrategy: ProviderStrategy = {
     await refreshDynamicCatalog(opts.apiKey);
 
     try {
-      const result = await openrouterCompleteWithFallback(messages, { ...opts, apiKey: opts.apiKey });
+      // Model selection can happen just before the request-scoped refresh. If
+      // that refresh replaces the snapshot and removes the pinned model,
+      // resolve a fresh compatible chain rather than rejecting the whole turn.
+      const pinnedModelIsCurrent = opts.model
+        ? (opts.capability
+          ? isCatalogFreeModelForCapability(opts.model, {
+              capability: opts.capability,
+              requireTools: Boolean(opts.tools?.length),
+            })
+          : isCatalogFreeModel(opts.model))
+        : true;
+      const requestOpts = pinnedModelIsCurrent ? opts : { ...opts, model: undefined };
+      if (!pinnedModelIsCurrent) {
+        console.warn(
+          JSON.stringify({
+            scope: "openrouter-strategy",
+            action: "re_resolve_stale_model",
+            staleModel: opts.model,
+            capability: opts.capability ?? "chat",
+            catalog: "current_snapshot",
+          }),
+        );
+      }
+      const result = await openrouterCompleteWithFallback(messages, { ...requestOpts, apiKey: opts.apiKey });
       // PR-07: successful call closes any open circuit.
       recordCircuitSuccess("openrouter");
       console.info(
@@ -158,7 +185,24 @@ export const openrouterStrategy: ProviderStrategy = {
     await refreshDynamicCatalog(opts.apiKey);
 
     try {
-      yield* openrouterCompleteStream(messages, { ...opts, apiKey: opts.apiKey });
+      const pinnedModelIsCurrent = opts.model
+        ? (opts.capability
+          ? isCatalogFreeModelForCapability(opts.model, { capability: opts.capability })
+          : isCatalogFreeModel(opts.model))
+        : true;
+      const requestOpts = pinnedModelIsCurrent ? opts : { ...opts, model: undefined };
+      if (!pinnedModelIsCurrent) {
+        console.warn(
+          JSON.stringify({
+            scope: "openrouter-strategy",
+            action: "re_resolve_stale_stream_model",
+            staleModel: opts.model,
+            capability: opts.capability ?? "chat",
+            catalog: "current_snapshot",
+          }),
+        );
+      }
+      yield* openrouterCompleteStream(messages, { ...requestOpts, apiKey: opts.apiKey });
       recordCircuitSuccess("openrouter");
       console.info(
         JSON.stringify({

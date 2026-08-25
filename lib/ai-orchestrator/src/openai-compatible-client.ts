@@ -23,6 +23,7 @@ import {
   isCatalogFreeModelForCapability,
   resolveFallbackChain,
 } from "./openrouter/model-resolver.js";
+import { getDynamicCatalogStatus } from "./openrouter/dynamic-catalog.js";
 import { FREE_MODELS, type ModelCapability } from "./openrouter/model-catalog.js";
 import type { TaskType } from "./quality/task-profile.js";
 import type { ExecutionPhase } from "./quality/execution-phases.js";
@@ -1191,8 +1192,8 @@ export async function openrouterCompleteWithFallback(
   if (initialModel && !knownInitialModel) {
     throw new GroqClientError(
       "INVALID_CONFIG",
-      `OpenRouter fallback requires a currently-free model matching capability="${capability}"`,
-      { context: { providerName: "OpenRouter", providerModel: initialModel } },
+      `OpenRouter configured model is not a known free catalog model: ${initialModel}`,
+      { context: { providerName: "OpenRouter", providerModel: initialModel, providerCode: "STALE_CONFIGURED_MODEL" } },
     );
   }
 
@@ -1209,10 +1210,21 @@ export async function openrouterCompleteWithFallback(
          taskType: opts.taskType,
       }).map((m) => m.id);
   if (initialModel && resolvedChain.length === 0) {
+    const catalog = getDynamicCatalogStatus();
     throw new GroqClientError(
       "INVALID_CONFIG",
-      `OpenRouter fallback requires a currently-free model matching capability="${capability}"`,
-      { context: { providerName: "OpenRouter", providerModel: initialModel } },
+      `OpenRouter model ${initialModel} does not satisfy capability="${capability}" in the current catalog`,
+      {
+        context: {
+          providerName: "OpenRouter",
+          providerModel: initialModel,
+          providerCode: "MODEL_CAPABILITY_MISMATCH",
+          catalogLoaded: catalog.loaded,
+          catalogUsable: catalog.usable,
+          catalogStatus: catalog.lastRefreshStatus,
+          catalogError: catalog.lastRefreshError ?? undefined,
+        },
+      },
     );
   }
   const maxFallbackModels =
@@ -1290,8 +1302,15 @@ export async function openrouterCompleteWithFallback(
       },
     });
   }
+  const catalog = getDynamicCatalogStatus();
   throw new GroqClientError("MODEL_NOT_FOUND", "All OpenRouter free-tier fallback models exhausted", {
-    context: { providerAttemptedModels: [...attemptedModels] },
+    context: {
+      providerAttemptedModels: [...attemptedModels],
+      catalogLoaded: catalog.loaded,
+      catalogUsable: catalog.usable,
+      catalogStatus: catalog.lastRefreshStatus,
+      catalogError: catalog.lastRefreshError ?? undefined,
+    },
   });
 }
 

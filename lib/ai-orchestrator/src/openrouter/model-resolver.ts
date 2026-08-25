@@ -32,7 +32,9 @@ export function isCatalogFreeModel(modelId: string): boolean {
   const model = FREE_MODELS.find((candidate) => candidate.id === modelId.trim());
   if (!model || !model.free) return false;
   const liveIds = getUsableDynamicModelIds();
-  return !isDynamicCatalogLoaded() || liveIds?.has(model.id) === true;
+  // A failed or expired refresh is not an authoritative catalog boundary.
+  // Keep the static compatibility path until a successful live snapshot exists.
+  return liveIds === null || liveIds.has(model.id);
 }
 
 export type FreeModelCapabilityOptions = {
@@ -143,11 +145,12 @@ export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
   // Return an empty pool instead; the caller (openrouterCompleteWithFallback or
   // the outer provider chain) will handle it cleanly as "no candidates available".
   const catalogLoaded = isDynamicCatalogLoaded();
+  const liveCatalog = getUsableDynamicModelIds();
   const effectivePool = pool.length > 0
     ? pool
-    : catalogLoaded
-      ? []      // catalog loaded, all candidates are paid → fail fast
-      : rawPool; // catalog not yet loaded → use static list as best-effort
+    : liveCatalog !== null
+      ? []      // authoritative live catalog has no compatible free candidates
+      : rawPool; // cold start or refresh failure → use static list as best-effort
 
   // Prefer the requested quality tier, then the other tier (stable within each).
   effectivePool.sort((a, b) => {

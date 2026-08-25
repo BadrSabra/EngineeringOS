@@ -37,6 +37,7 @@ import {
   classifyOpenRouterFailure,
   openrouterCompleteStream,
 } from "../openai-compatible-client.js";
+import { openrouterStrategy } from "../strategies/openrouter.strategy.js";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -198,6 +199,19 @@ describe("dynamic catalog — runtime model refresh", () => {
     }
   });
 
+  it("keeps the static compatibility path when the first refresh fails", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: () => Promise.resolve({}),
+    }) as typeof fetch;
+
+    await refreshDynamicCatalog("test-key");
+
+    expect(isDynamicCatalogLoaded()).toBe(true);
+    expect(resolveFallbackChain({ capability: "chat" }).length).toBeGreaterThan(0);
+  });
+
   it("keeps only free live IDs and preserves the last catalog on an empty refresh", async () => {
     vi.useFakeTimers({ now: Date.now() });
     const liveFree = FREE_MODELS[0].id;
@@ -247,6 +261,59 @@ describe("dynamic catalog — runtime model refresh", () => {
     expect(chain).toHaveLength(1);
     expect(chain[0]?.id).toBe(liveFree);
     expect(chain.every((model) => model.id.endsWith(":free"))).toBe(true);
+  });
+
+  it("re-resolves a pinned model when the request refresh replaces its snapshot", async () => {
+    vi.useFakeTimers({ now: Date.now() });
+    const firstModel = FREE_MODELS.find((model) => model.capabilities.includes("chat"))!.id;
+    const secondModel = FREE_MODELS.find((model) =>
+      model.capabilities.includes("chat") && model.id !== firstModel,
+    )!.id;
+    const seenModels: string[] = [];
+    let catalogFetches = 0;
+    global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      if (String(url).endsWith("/models")) {
+        catalogFetches++;
+        const useSecondSnapshot = catalogFetches > 1;
+        return {
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({
+            data: [{
+              id: useSecondSnapshot ? secondModel : firstModel,
+              pricing: { prompt: "0", completion: "0" },
+            }],
+          }),
+        } as Response;
+      }
+      const body = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      seenModels.push(String(body.model));
+      return {
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({
+          choices: [{ message: { content: "ok" } }],
+          model: body.model,
+          usage: {},
+        }),
+      } as Response;
+    }) as typeof fetch;
+
+    await refreshDynamicCatalog("test-key");
+    vi.advanceTimersByTime(10 * 60 * 1_000 + 1);
+    const result = await openrouterStrategy.call(
+      [{ role: "user", content: "hello" }],
+      {
+        apiKey: "test-key",
+        model: firstModel,
+        capability: "chat",
+        quality: "fast",
+      },
+    );
+
+    expect(result.content).toBe("ok");
+    expect(seenModels).toEqual([secondModel]);
+    vi.useRealTimers();
   });
 });
 

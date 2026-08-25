@@ -683,6 +683,32 @@ export function handleOrchestratorError(
       });
       return true;
     case "INVALID_CONFIG":
+      if (providerId === "openrouter" && err.providerCode === "NO_COMPATIBLE_FREE_MODEL") {
+        res.status(503).json({
+          ...base,
+          error: "No compatible free OpenRouter model is currently available.",
+          hint: err.catalogStatus === "failed" || err.catalogStatus === "empty"
+            ? "OpenRouter's model catalog could not be refreshed. Try again shortly."
+            : "OpenRouter currently has no free model matching this request. Try again later or configure another provider.",
+        });
+        return true;
+      }
+      if (providerId === "openrouter" && err.providerCode === "MODEL_CAPABILITY_MISMATCH") {
+        res.status(422).json({
+          ...base,
+          error: "The selected OpenRouter model no longer supports this request.",
+          hint: "The model catalog changed while this request was starting. Retry to select a current compatible model.",
+        });
+        return true;
+      }
+      if (providerId === "openrouter" && err.providerCode === "STALE_CONFIGURED_MODEL") {
+        res.status(422).json({
+          ...base,
+          error: "The configured OpenRouter model is no longer available.",
+          hint: "Select a current free model or clear the stale model override.",
+        });
+        return true;
+      }
       res.status(422).json({
         ...base,
         error: "AI provider configuration is invalid.",

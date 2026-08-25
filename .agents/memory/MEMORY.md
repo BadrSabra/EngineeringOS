@@ -66,3 +66,4 @@
 - [Durable job boundary](durable-job-boundary.md) — Postgres rows plus leases are the durable queue; local dispatch is a recovery handle, not a source of truth.
 - [Dashboard process campaign](dashboard-process-campaign.md) — release browser campaigns coordinate real API restarts through a bounded localhost control surface.
 - [Dashboard freshness watermarks](dashboard-freshness-watermarks.md) — aggregated snapshots need server-owned monotonic revisions so delayed reconnect responses cannot roll visible state back.
+- [OpenRouter catalog state](openrouter-catalog-state.md) — only a successful usable live snapshot is authoritative; failed or expired refreshes retain static compatibility candidates.

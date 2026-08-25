@@ -6,6 +6,8 @@ import {
   type FreeModelCapabilityOptions,
 } from "../openrouter/model-resolver.js";
 import { loadProvider, type ProviderId } from "../provider-registry.js";
+import { getDynamicCatalogStatus } from "../openrouter/dynamic-catalog.js";
+import { GroqClientError } from "../errors.js";
 import type { ExecutionPlan } from "./execution-plan.js";
 
 export type ExecutionModelDecision = {
@@ -104,8 +106,20 @@ export function resolveExecutionModel(
         })
       : undefined;
     if (fallbackChain.length === 0 && !liveModel) {
-      throw new Error(
-        `No currently-free OpenRouter model satisfies capability="${capability}"`,
+      const catalog = getDynamicCatalogStatus();
+      throw new GroqClientError(
+        "INVALID_CONFIG",
+        `No compatible free OpenRouter model is available for capability="${capability}"`,
+        {
+          context: {
+            providerName: "OpenRouter",
+            providerCode: "NO_COMPATIBLE_FREE_MODEL",
+            catalogLoaded: catalog.loaded,
+            catalogUsable: catalog.usable,
+            catalogStatus: catalog.lastRefreshStatus,
+            catalogError: catalog.lastRefreshError ?? undefined,
+          },
+        },
       );
     }
     const model = liveModel ?? fallbackChain[0]!;

@@ -76,6 +76,11 @@ export type ProviderErrorContext = {
   retryAfterMs?: number;
   /** Every provider-owned fallback model attempted before this error surfaced. */
   providerAttemptedModels?: string[];
+  /** Safe OpenRouter catalog diagnostics for model-resolution failures. */
+  catalogLoaded?: boolean;
+  catalogUsable?: boolean;
+  catalogStatus?: "never" | "success" | "failed" | "empty";
+  catalogError?: string;
 };
 
 /**
@@ -100,6 +105,10 @@ function redactProviderContext(context: ProviderErrorContext): ProviderErrorCont
     providerName: context.providerName ? redactProviderErrorText(context.providerName) : context.providerName,
     providerModel: context.providerModel ? redactProviderErrorText(context.providerModel) : context.providerModel,
     providerAttemptedModels: context.providerAttemptedModels?.map(redactProviderErrorText),
+    catalogLoaded: context.catalogLoaded,
+    catalogUsable: context.catalogUsable,
+    catalogStatus: context.catalogStatus,
+    catalogError: context.catalogError ? redactProviderErrorText(context.catalogError) : context.catalogError,
   };
 }
 
@@ -114,6 +123,10 @@ export class GroqClientError extends Error {
   readonly providerModel?: string;
   readonly retryAfterMs?: number;
   readonly providerAttemptedModels?: string[];
+  readonly catalogLoaded?: boolean;
+  readonly catalogUsable?: boolean;
+  readonly catalogStatus?: ProviderErrorContext["catalogStatus"];
+  readonly catalogError?: string;
 
   constructor(
     code: GroqErrorCode,
@@ -131,6 +144,10 @@ export class GroqClientError extends Error {
       this.providerModel   = options.context.providerModel;
       this.retryAfterMs    = options.context.retryAfterMs;
       this.providerAttemptedModels = options.context.providerAttemptedModels;
+      this.catalogLoaded = options.context.catalogLoaded;
+      this.catalogUsable = options.context.catalogUsable;
+      this.catalogStatus = options.context.catalogStatus;
+      this.catalogError = options.context.catalogError;
     }
   }
 
