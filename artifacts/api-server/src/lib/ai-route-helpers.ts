@@ -526,6 +526,9 @@ export async function requireProvider(
     res.status(428).json({
       error: "AI provider not configured",
       hint,
+      availabilityState: "missing_credentials",
+      operatorAction: "Save an API key for at least one supported provider, then retry.",
+      correlationId: randomUUID(),
     });
     return null;
   }
@@ -545,6 +548,9 @@ export async function requireGroqApiKey(
     res.status(428).json({
       error: "AI provider not configured",
       hint: "Save a Groq API key via PUT /api/ai/providers/groq/key or ask your administrator to set GROQ_API_KEY on the server. OpenRouter and DeepSeek are also supported via OPENROUTER_API_KEY and DEEPSEEK_API_KEY.",
+      availabilityState: "missing_credentials",
+      operatorAction: "Save an API key for at least one supported provider, then retry.",
+      correlationId: randomUUID(),
     });
     return null;
   }
@@ -595,7 +601,13 @@ export function handleOrchestratorError(
   const providerConsole = config?.consoleUrl ?? "your provider's dashboard";
   const providerStatus = config?.statusUrl ?? "your provider's status page";
 
-  const base = { code: err.code, provider: providerId };
+  const correlationId = randomUUID();
+  const base = {
+    code: err.code,
+    provider: providerId,
+    correlationId,
+    ...providerAvailabilityProjection(err, providerId, providerConsole, providerStatus),
+  };
 
   switch (err.code) {
     case "TIMEOUT":
@@ -719,4 +731,71 @@ export function handleOrchestratorError(
       res.status(502).json({ ...base, error: `${providerLabel} provider error.`, hint: "Try again in a moment." });
       return true;
   }
+}
+
+type ProviderAvailabilityState =
+  | "missing_credentials"
+  | "authentication_failed"
+  | "no_compatible_free_model"
+  | "catalog_stale"
+  | "quota_exhausted"
+  | "rate_limited"
+  | "provider_outage";
+
+function providerAvailabilityProjection(
+  err: GroqClientError,
+  providerId: ProviderId,
+  providerConsole: string,
+  providerStatus: string,
+): {
+  availabilityState: ProviderAvailabilityState;
+  operatorAction: string;
+  catalogStatus?: string;
+} {
+  if (err.code === "AUTH_ERROR") {
+    return {
+      availabilityState: "authentication_failed",
+      operatorAction: `Replace the ${providerId} API key with a valid key from ${providerConsole}, then retry.`,
+    };
+  }
+  if (err.code === "RATE_LIMITED") {
+    return {
+      availabilityState: "rate_limited",
+      operatorAction: "Wait for the rate-limit window to reset, then retry or configure another provider.",
+    };
+  }
+  if (err.code === "QUOTA" || err.code === "PLAN_RESTRICTED") {
+    return {
+      availabilityState: "quota_exhausted",
+      operatorAction: `Add provider credits at ${providerConsole}, or configure another provider.`,
+    };
+  }
+  if (
+    providerId === "openrouter" &&
+    err.providerCode === "NO_COMPATIBLE_FREE_MODEL" &&
+    (err.catalogStatus === "failed" || err.catalogStatus === "empty" || err.catalogUsable === false)
+  ) {
+    return {
+      availabilityState: "catalog_stale",
+      operatorAction: "Retry shortly so OpenRouter can refresh its model catalog; configure another provider if it persists.",
+      catalogStatus: err.catalogStatus,
+    };
+  }
+  if (providerId === "openrouter" && err.providerCode === "NO_COMPATIBLE_FREE_MODEL") {
+    return {
+      availabilityState: "no_compatible_free_model",
+      operatorAction: "Select another compatible model or configure another provider, then retry.",
+      catalogStatus: err.catalogStatus,
+    };
+  }
+  if (err.code === "TIMEOUT" || err.code === "NETWORK_ERROR" || err.code === "SERVER_ERROR" || err.code === "MODEL_UNAVAILABLE") {
+    return {
+      availabilityState: "provider_outage",
+      operatorAction: `Retry in a moment; if the issue continues, check ${providerStatus} or configure another provider.`,
+    };
+  }
+  return {
+    availabilityState: "provider_outage",
+    operatorAction: `Retry in a moment or configure another provider. Check ${providerStatus} if it persists.`,
+  };
 }

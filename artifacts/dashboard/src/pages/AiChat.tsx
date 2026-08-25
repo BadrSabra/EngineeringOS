@@ -557,18 +557,27 @@ function providerContextSuffix(err: ApiError): string {
     if (ctx['providerName']) parts.push(`Provider: ${ctx['providerName']}`);
     if (ctx['providerModel']) parts.push(`Model: ${fmtModelId(String(ctx['providerModel']))}`);
     if (ctx['providerStatus']) parts.push(`Status: ${ctx['providerStatus']}`);
-    if (ctx['providerMessage'] && typeof ctx['providerMessage'] === 'string') {
-      // Include raw provider message (truncated) for OpenRouter debugging.
-      const raw = ctx['providerMessage'].slice(0, 120);
-      if (raw) parts.push(`Detail: ${raw}`);
-    }
   }
+  return parts.length > 0 ? ` (${parts.join(' · ')})` : '';
+}
+
+function availabilitySuffix(err: unknown): string {
+  const value = err as { data?: unknown; availabilityState?: unknown; operatorAction?: unknown; correlationId?: unknown };
+  const data = value.data && typeof value.data === 'object' ? value.data as Record<string, unknown> : {};
+  const state = data.availabilityState ?? value.availabilityState;
+  const action = data.operatorAction ?? value.operatorAction;
+  const correlationId = data.correlationId ?? value.correlationId;
+  const parts = [
+    typeof state === 'string' ? `Status: ${state.replace(/_/g, ' ')}` : '',
+    typeof action === 'string' ? `Next step: ${action}` : '',
+    typeof correlationId === 'string' ? `Reference: ${correlationId}` : '',
+  ].filter(Boolean);
   return parts.length > 0 ? ` (${parts.join(' · ')})` : '';
 }
 
 function describeAiError(err: unknown): string {
   if (err instanceof AiApiError) {
-    const suffix = providerContextSuffix(err);
+    const suffix = providerContextSuffix(err) + availabilitySuffix(err);
     switch (err.status) {
       case 400: return err.errorMessage + suffix;
       case 401: return (err.errorMessage || err.hint || 'AI API key is invalid — delete it and save a valid key from your provider\'s dashboard.') + suffix;
@@ -582,13 +591,13 @@ function describeAiError(err: unknown): string {
           return (err.errorMessage || err.hint || 'The selected AI model is unavailable — try again or switch providers.') + suffix;
         }
         return (err.errorMessage || err.hint || 'AI provider configuration is invalid. Re-save your API key.') + suffix;
-      case 428: return err.errorMessage || err.hint || 'No AI key configured — save an OpenRouter, DeepSeek, or Groq API key first.';
+      case 428: return (err.errorMessage || err.hint || 'No AI key configured — save an OpenRouter, DeepSeek, or Groq API key first.') + suffix;
       case 502: return (err.errorMessage || err.hint || 'AI provider returned an error. Check your API key or try again.') + suffix;
-      case 503: return 'AI provider is temporarily unreachable — try again in a moment.';
+      case 503: return (err.errorMessage || err.hint || 'AI provider is temporarily unreachable — try again in a moment.') + suffix;
       default:  return (err.errorMessage || `Request failed (${err.status}).`) + suffix;
     }
   }
-  if (err instanceof Error) return err.message;
+  if (err instanceof Error) return err.message + availabilitySuffix(err);
   return String(err);
 }
 
@@ -7860,6 +7869,11 @@ export default function AiChat() {
       err.message,
       err.hint,
       err.code,
+      {
+        availabilityState: err.availabilityState,
+        operatorAction: err.operatorAction,
+        correlationId: err.correlationId,
+      },
     );
     return describeAiError(tmpErr);
   }

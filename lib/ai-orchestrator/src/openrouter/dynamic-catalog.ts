@@ -36,8 +36,9 @@ let _lastRefreshError: string | null = null;
  * Used by the resolver to decide whether to apply the filter.
  */
 export function isDynamicCatalogLoaded(): boolean {
-  // An attempted but failed/expired refresh is intentionally considered
-  // loaded: the resolver must not silently fall back to stale static IDs.
+  // Preserve the historical meaning of this telemetry helper: a refresh has
+  // been attempted. Routing decisions must use getUsableDynamicModelIds()
+  // instead, because failed/expired refreshes are not authoritative.
   return _refreshAttempted;
 }
 

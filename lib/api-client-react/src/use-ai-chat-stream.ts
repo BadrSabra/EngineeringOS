@@ -213,6 +213,9 @@ export type AiStreamErrorEvent = {
   turnIntent?: string;
   outcome?: 'FAILED' | 'INTERRUPTED';
   failureKind?: 'PROVIDER_FORMAT' | 'RATE_LIMIT' | 'CONFIGURATION' | 'PROVIDER_FAILURE' | 'TRANSPORT';
+  availabilityState?: 'missing_credentials' | 'authentication_failed' | 'no_compatible_free_model' | 'catalog_stale' | 'quota_exhausted' | 'rate_limited' | 'provider_outage';
+  operatorAction?: string;
+  correlationId?: string;
 };
 
 export type AiStreamResetEvent = {

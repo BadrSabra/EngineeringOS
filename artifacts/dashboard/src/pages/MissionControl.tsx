@@ -189,6 +189,28 @@ function ProviderRecoverySummary({ value }: { value: unknown }) {
   );
 }
 
+function ProviderAvailabilityCard({ execution }: { execution: MissionExecution | undefined }) {
+  const recovery = asRecord(execution?.recovery) ?? asRecord(execution?.recoverySummary);
+  if (!recovery) return null;
+  const state = textValue(recovery.availabilityState);
+  const action = textValue(recovery.operatorAction);
+  const correlationId = textValue(recovery.correlationId);
+  if (!state && !action && !correlationId) return null;
+  return (
+    <section className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4" aria-label="Provider availability">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
+        <div className="min-w-0">
+          <h2 className="font-semibold text-amber-100">AI provider needs attention</h2>
+          {state && <p className="mt-1 text-xs uppercase tracking-wide text-amber-200/80">Status: {state.replace(/_/g, ' ')}</p>}
+          {action && <p className="mt-2 text-xs leading-5 text-muted-foreground">Next step: {action}</p>}
+          {correlationId && <p className="mt-2 font-mono text-[10px] text-muted-foreground">Reference: {correlationId}</p>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ComparisonRunColumn({
   label,
   execution,
@@ -1078,6 +1100,8 @@ export default function MissionControl() {
                </div>
              </section>
            )}
+
+          <ProviderAvailabilityCard execution={selectedExecution} />
 
           <section className="rounded-xl border border-border bg-card">
             <div className="flex items-center gap-2 border-b border-border/70 px-4 py-3.5">

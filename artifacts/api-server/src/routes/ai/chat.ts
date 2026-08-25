@@ -3744,6 +3744,29 @@ router.post("/ai/chat/stream", async (req, res) => {
         const base: Record<string, unknown> = {
           type: "error",
           code: err.code,
+          correlationId: randomUUID(),
+          availabilityState:
+            err.code === "AUTH_ERROR" ? "authentication_failed" :
+            err.code === "RATE_LIMITED" ? "rate_limited" :
+            err.code === "QUOTA" || err.code === "PLAN_RESTRICTED" ? "quota_exhausted" :
+            err.code === "TIMEOUT" || err.code === "NETWORK_ERROR" || err.code === "SERVER_ERROR" || err.code === "MODEL_UNAVAILABLE"
+              ? "provider_outage"
+              : err.providerCode === "NO_COMPATIBLE_FREE_MODEL" &&
+                  (err.catalogStatus === "failed" || err.catalogStatus === "empty" || err.catalogUsable === false)
+                ? "catalog_stale"
+                : err.providerCode === "NO_COMPATIBLE_FREE_MODEL"
+                  ? "no_compatible_free_model"
+                  : "provider_outage",
+          operatorAction:
+            err.code === "AUTH_ERROR" ? "Replace the provider key in Settings, then retry." :
+            err.code === "RATE_LIMITED" ? "Wait for the rate-limit window to reset, then retry or configure another provider." :
+            err.code === "QUOTA" || err.code === "PLAN_RESTRICTED" ? "Add provider credits or configure another provider, then retry." :
+            err.providerCode === "NO_COMPATIBLE_FREE_MODEL" &&
+                (err.catalogStatus === "failed" || err.catalogStatus === "empty" || err.catalogUsable === false)
+              ? "Retry shortly so OpenRouter can refresh its model catalog; configure another provider if it persists."
+              : err.providerCode === "NO_COMPATIBLE_FREE_MODEL"
+                ? "Select another compatible model or configure another provider, then retry."
+                : "Retry in a moment; configure another provider if the issue persists.",
           // PR-007: surface provider context on the wire.
           ...(Object.keys(publicProviderCtx).length > 0
             ? { providerContext: redactUserFacingValue(publicProviderCtx) }

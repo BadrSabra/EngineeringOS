@@ -144,7 +144,9 @@ export function resolveFallbackChain(opts: ResolveModelOpts): ResolvedModel[] {
   // to paid — using rawPool would just replay the same "paid version" 404s.
   // Return an empty pool instead; the caller (openrouterCompleteWithFallback or
   // the outer provider chain) will handle it cleanly as "no candidates available".
-  const catalogLoaded = isDynamicCatalogLoaded();
+  // A refresh attempt is not an authoritative catalog boundary. Failed or
+  // expired refreshes must retain the static compatibility fallback.
+  const catalogLoaded = getUsableDynamicModelIds() !== null;
   const liveCatalog = getUsableDynamicModelIds();
   const effectivePool = pool.length > 0
     ? pool
