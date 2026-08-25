@@ -1,4 +1,5 @@
 import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { ValidationProfile } from "../schemas/chat.schema.js";
 import type { CodeAgentBenchmarkCase } from "./code-agent-benchmark.js";
@@ -18,6 +19,8 @@ export type CodeAgentBenchmarkFixture = {
     telemetry?: CodeAgentExecutionTelemetry;
     pendingChanges: readonly { path: string; newContent: string }[];
   }) => Promise<{ status: "passed" | "failed"; code?: string }>;
+  /** Server-owned passing candidate used by the provider-free release gate. */
+  focusedPendingChanges?: readonly { path: string; newContent: string }[];
   runtimeOracle?: {
     command: "pnpm";
     args: readonly string[];
@@ -257,6 +260,7 @@ function buildSyntheticFixture(
       pendingChanges.length === 0
         ? { status: "passed" }
         : { status: "failed", code: "BLOCKED_FIXTURE_HAS_PENDING_CHANGE" };
+    fixture.focusedPendingChanges = [];
     return fixture;
   }
 
@@ -300,6 +304,12 @@ function buildSyntheticFixture(
     }
     return { status: "passed" };
   };
+  fixture.focusedPendingChanges = targetPaths.map((targetPath) => ({
+    path: targetPath,
+    newContent: scenario.typecheck
+      ? `export const ${scenario.token}: string = ${JSON.stringify(scenario.expectedValue ?? "fixed")};\n`
+      : `export const ${scenario.token} = ${JSON.stringify(scenario.expectedValue ?? "fixed")};\n`,
+  }));
   return fixture;
 }
 
@@ -479,6 +489,10 @@ export function getCodeAgentBenchmarkFixture(
         ? { status: "passed" }
         : { status: "failed", code: "FEATURE_FLAG_DEFAULT_NOT_FALSE" };
     };
+    fixture.focusedPendingChanges = [{
+      path: targetPath,
+      newContent: "export const FEATURE_ENABLED: boolean = false;\n",
+    }];
   }
 
   if (testCase.id === "typecheck-failure-001") {
@@ -501,6 +515,10 @@ export function getCodeAgentBenchmarkFixture(
         ? { status: "passed" }
         : { status: "failed", code: "GET_LENGTH_RETURN_NOT_LENGTH" };
     };
+    fixture.focusedPendingChanges = [{
+      path: targetPath,
+      newContent: "export function getLength(value: string): number {\n  return value.length;\n}\n",
+    }];
   }
 
   if (testCase.id === "single-file-002") {
@@ -549,6 +567,15 @@ export function getCodeAgentBenchmarkFixture(
         ? { status: "passed" }
         : { status: "failed", code: "SAFE_TRIM_NULL_GUARD_MISSING" };
     };
+    fixture.focusedPendingChanges = [{
+      path: targetPath,
+      newContent: [
+        "function safeTrim(value: string | null): string {",
+        '  return value?.trim() ?? "";',
+        "}",
+        "",
+      ].join("\n"),
+    }];
   }
 
   if (testCase.id === "single-file-003") {
@@ -596,6 +623,10 @@ export function getCodeAgentBenchmarkFixture(
         ? { status: "passed" }
         : { status: "failed", code: "PARSE_PAGE_BOUNDARY_NOT_CLAMPED" };
     };
+    fixture.focusedPendingChanges = [{
+      path: targetPath,
+      newContent: "function parsePage(input: string): number { return Math.max(0, Number(input) - 1); }\n",
+    }];
   }
 
   if (testCase.id === "typecheck-failure-002") {
@@ -626,6 +657,10 @@ export function getCodeAgentBenchmarkFixture(
         ? { status: "passed" }
         : { status: "failed", code: "UNION_NARROWING_MISSING" };
     };
+    fixture.focusedPendingChanges = [{
+      path: targetPath,
+      newContent: 'export function upper(value: string | number): string {\n  return typeof value === "string" ? value.toUpperCase() : String(value);\n}\n',
+    }];
   }
 
   if (testCase.id === "test-failure-001") {
@@ -672,6 +707,10 @@ export function getCodeAgentBenchmarkFixture(
         ? { status: "passed" }
         : { status: "failed", code: "ADD_ONE_DOES_NOT_INCREMENT" };
     };
+    fixture.focusedPendingChanges = [{
+      path: implementationPath,
+      newContent: "export function addOne(value: number): number { return value + 1; }\n",
+    }];
   }
 
   const syntheticScenario = SYNTHETIC_SCENARIOS[testCase.id];
@@ -707,4 +746,56 @@ export function validateCodeAgentBenchmarkFixtureContracts(
     }
   }
   return errors;
+}
+
+export type CodeAgentBenchmarkFixtureBehaviorResult = {
+  passedScenarioIds: readonly string[];
+  failedScenarioIds: readonly string[];
+  errors: readonly string[];
+};
+
+/**
+ * Execute every fixture's focused semantic proof without contacting a model.
+ * Each case gets its own temporary root so setup and oracle code are exercised
+ * as they are during a live campaign, while the candidate patch remains
+ * server-owned and cannot affect benchmark scoring.
+ */
+export async function validateCodeAgentBenchmarkFixtureBehavior(
+  cases: readonly CodeAgentBenchmarkCase[],
+): Promise<CodeAgentBenchmarkFixtureBehaviorResult> {
+  const roots: string[] = [];
+  const passedScenarioIds: string[] = [];
+  const failedScenarioIds: string[] = [];
+  const errors: string[] = [];
+
+  try {
+    for (const testCase of cases) {
+      const fixture = getCodeAgentBenchmarkFixture(testCase);
+      const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), "code-agent-fixture-check-"));
+      roots.push(rootPath);
+      try {
+        await fixture.prepare?.(rootPath);
+        if (!fixture.behavioralOracle) {
+          throw new Error("fixture has no behavioral oracle");
+        }
+        const result = await fixture.behavioralOracle({
+          rootPath,
+          pendingChanges: fixture.focusedPendingChanges ?? [],
+        });
+        if (result.status !== "passed") {
+          throw new Error(result.code ?? "focused behavioral oracle failed");
+        }
+        passedScenarioIds.push(testCase.id);
+      } catch (error) {
+        failedScenarioIds.push(testCase.id);
+        errors.push(
+          `${testCase.id}: ${error instanceof Error ? error.message : "focused behavioral check failed"}`,
+        );
+      }
+    }
+  } finally {
+    await Promise.all(roots.map((root) => fs.rm(root, { recursive: true, force: true })));
+  }
+
+  return { passedScenarioIds, failedScenarioIds, errors };
 }

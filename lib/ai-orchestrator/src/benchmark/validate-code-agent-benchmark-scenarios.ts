@@ -3,7 +3,11 @@ import {
   validateCodeAgentBenchmarkManifest,
   type CodeAgentBenchmarkCase,
 } from "./code-agent-benchmark.js";
-import { getCodeAgentBenchmarkFixture, validateCodeAgentBenchmarkFixtureContracts } from "./code-agent-benchmark-fixtures.js";
+import {
+  getCodeAgentBenchmarkFixture,
+  validateCodeAgentBenchmarkFixtureBehavior,
+  validateCodeAgentBenchmarkFixtureContracts,
+} from "./code-agent-benchmark-fixtures.js";
 
 export type CodeAgentBenchmarkScenarioCoverage = {
   manifestScenarioIds: readonly string[];
@@ -12,6 +16,13 @@ export type CodeAgentBenchmarkScenarioCoverage = {
   unrecognizedScenarioIds: readonly string[];
   errors: readonly string[];
 };
+
+export async function validateCodeAgentBenchmarkScenarioBehavior(
+  cases: readonly CodeAgentBenchmarkCase[] = getCodeAgentBenchmarkCases(),
+) {
+  const result = await validateCodeAgentBenchmarkFixtureBehavior(cases);
+  return result.errors;
+}
 
 /**
  * Check the complete manifest against the focused, executable fixture
@@ -66,9 +77,12 @@ export function validateCodeAgentBenchmarkScenarioCoverage(
 }
 
 const coverage = validateCodeAgentBenchmarkScenarioCoverage();
+const behaviorErrors = await validateCodeAgentBenchmarkScenarioBehavior();
 console.log(
   `Focused benchmark fixture checks cover ${coverage.coveredScenarioIds.length}/${coverage.manifestScenarioIds.length} manifest scenarios: ${coverage.coveredScenarioIds.join(", ")}`,
 );
-if (coverage.errors.length > 0) {
-  throw new Error(`Invalid Code Agent benchmark scenario coverage: ${coverage.errors.join("; ")}`);
+if (coverage.errors.length > 0 || behaviorErrors.length > 0) {
+  throw new Error(
+    `Invalid Code Agent benchmark scenario coverage: ${[...coverage.errors, ...behaviorErrors].join("; ")}`,
+  );
 }

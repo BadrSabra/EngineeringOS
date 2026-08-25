@@ -9,6 +9,7 @@ import {
 } from "./code-agent-benchmark.js";
 import {
   getCodeAgentBenchmarkFixture,
+  validateCodeAgentBenchmarkFixtureBehavior,
   validateCodeAgentBenchmarkFixtureContracts,
 } from "./code-agent-benchmark-fixtures.js";
 import { classifyRequest } from "../prompts/profile-classifier.js";
@@ -56,6 +57,12 @@ describe("executable benchmark fixtures", () => {
       expect(fixture.postcondition, testCase.id).toBeTruthy();
       expect(fixture.prompt, testCase.id).toContain(testCase.prompt);
     }
+  });
+
+  it("executes the focused behavioral proof for every manifest scenario", async () => {
+    const result = await validateCodeAgentBenchmarkFixtureBehavior(getCodeAgentBenchmarkCases());
+    expect(result.failedScenarioIds, result.errors.join("; ")).toEqual([]);
+    expect(result.passedScenarioIds).toHaveLength(getCodeAgentBenchmarkCases().length);
   });
 
   it("provides setup, scope, validation, and an oracle for every manifest case", () => {
