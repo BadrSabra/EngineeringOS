@@ -115,6 +115,7 @@ import {
   checkpointAiExecution,
   claimAiExecution,
   completeAiExecution,
+  createAutonomousOperationContract,
   createAiExecution,
   failAiExecution,
   getAiExecutionForUser,
@@ -2557,6 +2558,7 @@ router.post("/ai/chat/stream", async (req, res) => {
   let executionTerminal = false;
   let executionNodeStates: ActiveTaskExecutionPlan["nodes"] = [];
   let resumeCheckpoint: AiExecutionCheckpoint | undefined;
+  let autonomousOperation: ReturnType<typeof createAutonomousOperationContract> | undefined;
 
   try {
     res.setHeader("Content-Type", "text/event-stream");
@@ -2835,6 +2837,27 @@ router.post("/ai/chat/stream", async (req, res) => {
       return;
     }
     executionNodeStates = reconciledExecutionNodes ?? persistedExecutionNodes;
+    const checkpointOperation = resumeCheckpoint?.operation;
+    autonomousOperation = checkpointOperation ?? createAutonomousOperationContract({
+      operationId: aiExecution.operationId ?? aiExecution.id,
+      objective: typeof executionRequest.objective === "string"
+        ? executionRequest.objective
+        : executionRequest.message,
+      revisionManifest: executionRequest.workspaceRevision,
+      targetPaths: executionRequest.validationTargetPaths,
+      expectedBehavior: executionRequest.message,
+      nodes: executionNodeStates.map((node) => ({
+        id: node.id,
+        kind: executionRequest.validationTargetPaths.length > 0 ? "mutate" : "inspect",
+        dependencies: [...node.dependencies],
+        status: node.status,
+        attempts: node.attempts,
+        validationAttempts: node.validationAttempts,
+        allowedFiles: [...node.allowedFiles],
+        validationProfile: node.validationProfile,
+        evidenceRefs: [],
+      })),
+    });
     const activeExecutionAbortController = new AbortController();
     executionAbortController = activeExecutionAbortController;
     registerAiExecutionController(aiExecution.id, activeExecutionAbortController);
@@ -2847,6 +2870,25 @@ router.post("/ai/chat/stream", async (req, res) => {
       const sequence = ++checkpointSequence;
       const completeCheckpoint: AiExecutionCheckpoint = {
         ...checkpoint,
+        ...(autonomousOperation
+          ? {
+              operation: {
+                ...autonomousOperation,
+                nodes: executionNodeStates.map((node) => ({
+                  id: node.id,
+                  kind: executionRequest.validationTargetPaths.length > 0 ? "mutate" as const : "inspect" as const,
+                  dependencies: [...node.dependencies],
+                  status: node.status,
+                  attempts: node.attempts,
+                  validationAttempts: node.validationAttempts,
+                  allowedFiles: [...node.allowedFiles],
+                  validationProfile: node.validationProfile,
+                  evidenceRefs: [],
+                })),
+                updatedAt: new Date().toISOString(),
+              },
+            }
+          : {}),
         ...(executionNodeStates.length > 0
           ? {
               nodeStates: executionNodeStates,
@@ -4061,6 +4103,28 @@ router.post("/ai/chat/stream", async (req, res) => {
         executionEvidenceReason = finalValidation.detail ?? "Validation ended with an unresolved failure.";
       }
     }
+    if (autonomousOperation) {
+      const finalEvidenceRef = finalValidation?.kind === "validation"
+        ? finalValidation.result.evidence.artifactRef
+        : undefined;
+      autonomousOperation = {
+        ...autonomousOperation,
+        state: "validating",
+        nodes: executionNodeStates.map((node) => ({
+          id: node.id,
+          kind: executionRequest.validationTargetPaths.length > 0 ? "mutate" as const : "inspect" as const,
+          dependencies: [...node.dependencies],
+          status: node.status,
+          attempts: node.attempts,
+          validationAttempts: node.validationAttempts,
+          allowedFiles: [...node.allowedFiles],
+          validationProfile: node.validationProfile,
+          evidenceRefs: finalEvidenceRef ? [finalEvidenceRef] : [],
+        })),
+        evidenceRefs: finalEvidenceRef ? [finalEvidenceRef] : autonomousOperation.evidenceRefs,
+        updatedAt: new Date().toISOString(),
+      };
+    }
     if (checkpointFailure) {
       throw new Error("AI execution checkpoint persistence failed before finalization");
     }
@@ -4071,6 +4135,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         error: "Execution stopped before the first source read.",
         cancelled: false,
         nodeStates: executionNodeStates,
+        operation: autonomousOperation,
       });
     } else {
       const completed = await completeAiExecution({
@@ -4078,6 +4143,7 @@ router.post("/ai/chat/stream", async (req, res) => {
         workerId: executionWorkerId!,
         finalMessageId: assistantMsg.id,
         proposalId,
+        operation: autonomousOperation,
         nodeStates: executionNodeStates,
         evidenceVerdict: executionEvidenceVerdict,
         evidenceReason: executionEvidenceReason,
