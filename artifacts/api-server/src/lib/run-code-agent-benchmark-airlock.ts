@@ -210,6 +210,7 @@ function boundedObservation(value: unknown, knownIds: Set<string>): BenchmarkAir
     providerAttempts: typeof value.providerAttempts === "number" ? value.providerAttempts : 0,
     observation: {
       caseId: value.caseId,
+      ...(typeof raw.candidateHash === "string" ? { candidateHash: raw.candidateHash.slice(0, 200) } : {}),
       grade: raw.grade as CodeAgentBenchmarkObservation["grade"],
       correct: raw.correct as boolean,
       completedFirstAttempt: raw.completedFirstAttempt as boolean,
@@ -451,6 +452,7 @@ try {
     promptForCase: defaultApiBenchmarkPrompt,
     historyForCase: defaultApiBenchmarkHistory,
     caseTimeoutMs: Number.parseInt(process.env.BENCHMARK_CASE_TIMEOUT_MS ?? "90000", 10),
+    candidateHash: process.env.BENCHMARK_CANDIDATE_HASH?.trim() || undefined,
     signal: campaignController.signal,
     onProviderHealth: async (health) => {
       providerHealth = health;

@@ -107,6 +107,7 @@ const RUN_KEYS = new Set([
 ]);
 const OBSERVATION_KEYS = new Set([
   "caseId",
+  "candidateHash",
   "grade",
   "correct",
   "completedFirstAttempt",
@@ -303,6 +304,9 @@ function parseObservation(value: unknown, path: string): CodeAgentBenchmarkObser
   if (!GRADES.has(grade)) fail(`${path}.grade`, "unknown grade");
   const observation: CodeAgentBenchmarkObservation = {
     caseId: stringField(value.caseId, `${path}.caseId`, 120),
+    ...(value.candidateHash === undefined
+      ? {}
+      : { candidateHash: stringField(value.candidateHash, `${path}.candidateHash`, 200) }),
     grade,
     correct: booleanField(value.correct, `${path}.correct`),
     completedFirstAttempt: booleanField(value.completedFirstAttempt, `${path}.completedFirstAttempt`),

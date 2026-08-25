@@ -49,6 +49,8 @@ export type ChatCodeAgentBenchmarkExecutorOptions = {
   providerHealthProbe?: () => Promise<ProviderHealthProbeResult>;
   /** Reuse a run-level health result so the airlock does not probe twice. */
   providerHealth?: ProviderHealthProbeResult;
+  /** Hash of the immutable candidate workspace used for this benchmark case. */
+  candidateHash?: string;
   /** Prepare an isolated case fixture before the model sees it. */
   prepareCase?: (testCase: CodeAgentBenchmarkCase) => Promise<void>;
   /** Server-owned contract/behavior oracle; model text is never the oracle. */
@@ -123,6 +125,7 @@ function telemetryFromChatResult(
   steps: readonly AgentStep[],
   allowedPaths: readonly string[],
   startedAt: number,
+  candidateHash?: string,
 ): CodeAgentExecutionTelemetry {
   const validation = latestValidation(steps);
   const providerUnavailable = steps.some(
@@ -167,6 +170,9 @@ function telemetryFromChatResult(
     }));
 
   return {
+    ...(candidateHash ?? validation?.result.evidence.candidateHash
+      ? { candidateHash: candidateHash ?? validation?.result.evidence.candidateHash }
+      : {}),
     actualTerminal: terminalFromChatResult(result, steps),
     validationStatus:
       validation?.result.status === "passed"
@@ -354,6 +360,7 @@ export function createChatCodeAgentBenchmarkExecutor(
         steps,
         allowedPaths,
         startedAt,
+        opts.candidateHash,
       );
       if (opts.freeOnly && opts.provider === "openrouter" &&
         (telemetry.providerModelsFree !== true || telemetry.providerCapabilityValid !== true)) {

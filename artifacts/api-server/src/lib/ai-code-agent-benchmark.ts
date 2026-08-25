@@ -45,6 +45,8 @@ export type ApiCodeAgentBenchmarkOptions = {
   onCaseComplete?: CodeAgentBenchmarkCaseComplete;
   signal?: AbortSignal;
   generatedAt?: string;
+  /** Hash of the immutable candidate workspace used for every benchmark case. */
+  candidateHash?: string;
 };
 
 /**
@@ -93,6 +95,7 @@ export async function runApiCodeAgentBenchmark(
     provider: opts.provider,
     apiKey: opts.apiKey,
     model: opts.model,
+    candidateHash: opts.candidateHash,
     validationRunner,
     includeTestSources: true,
     validationProfileForCase: (testCase) => getCodeAgentBenchmarkFixture(testCase).validationProfile,
@@ -165,6 +168,8 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
   initialResults?: import("@workspace/ai-orchestrator").BenchmarkAirlockObservation[];
   signal?: AbortSignal;
   generatedAt?: string;
+  /** Hash of the immutable candidate workspace used for every benchmark case. */
+  candidateHash?: string;
   runId: string;
   onObservation?: (
     observation: BenchmarkAirlockObservation,
@@ -216,6 +221,7 @@ export async function runApiCodeAgentBenchmarkAirlock(opts: {
       provider: provider.provider,
       apiKey: provider.apiKey,
       model: provider.model,
+      candidateHash: opts.candidateHash,
       providerHealth: health,
       freeOnly: opts.mode === "free-only",
       validationRunner,

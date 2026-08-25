@@ -108,6 +108,8 @@ export type CodeAgentBenchmarkGrade = "A" | "B" | "C" | "D" | "F" | "U";
 
 export type CodeAgentBenchmarkObservation = {
   caseId: string;
+  /** Hash of the candidate bytes used for this case's oracle/validation run. */
+  candidateHash?: string;
   grade: CodeAgentBenchmarkGrade;
   correct: boolean;
   completedFirstAttempt: boolean;
@@ -138,6 +140,8 @@ export type CodeAgentBenchmarkObservation = {
 };
 
 export type CodeAgentExecutionTelemetry = {
+  /** Hash of the candidate bytes used for this case's oracle/validation run. */
+  candidateHash?: string;
   actualTerminal: CodeAgentExpectedTerminal;
   validationStatus: "passed" | "failed" | "unavailable" | "not-run";
   changedPaths: string[];
@@ -249,6 +253,8 @@ export type CodeAgentBenchmarkScorecard = {
   suiteVersion: typeof CODE_AGENT_BENCHMARK_VERSION;
   generatedAt: string;
   cases: CodeAgentBenchmarkObservation[];
+  /** Candidate hash shared by every retained observation, when consistent. */
+  candidateHash?: string;
   missingCaseIds: string[];
   metrics: CodeAgentBenchmarkMetrics;
   rolloutAllowed: boolean;
@@ -721,6 +727,7 @@ export function observationFromCodeAgentExecution(
 
   return {
     caseId: testCase.id,
+    ...(telemetry.candidateHash ? { candidateHash: telemetry.candidateHash } : {}),
     grade,
     correct,
     completedFirstAttempt,
@@ -934,6 +941,15 @@ export function buildCodeAgentBenchmarkScorecard(args: {
     (result) => result.behavioralOracleStatus !== "passed",
   ).length;
   const complete = observedCases === totalCases;
+  const candidateHashes = results.map((result) => result.candidateHash);
+  const expectedCandidateHash = candidateHashes.find(
+    (candidateHash): candidateHash is string => Boolean(candidateHash?.trim()),
+  );
+  const missingCandidateHash = candidateHashes.filter(
+    (candidateHash) => !candidateHash?.trim(),
+  ).length;
+  const mismatchedCandidateHash = expectedCandidateHash !== undefined &&
+    candidateHashes.some((candidateHash) => candidateHash !== expectedCandidateHash);
   const rolloutBlockers = [
     ...(!complete ? [`benchmark incomplete: ${totalCases - observedCases} cases missing`] : []),
     ...(providerUnavailableCount > 0
@@ -948,6 +964,10 @@ export function buildCodeAgentBenchmarkScorecard(args: {
     ...(behavioralOracleTracked && behavioralOracleMissing > 0
       ? [`behavioral oracle missing or failed for ${behavioralOracleMissing} observed case${behavioralOracleMissing === 1 ? "" : "s"}`]
       : []),
+    ...(missingCandidateHash > 0
+      ? [`candidate hash missing for ${missingCandidateHash} observed case${missingCandidateHash === 1 ? "" : "s"}`]
+      : []),
+    ...(mismatchedCandidateHash ? ["candidate hash mismatch across benchmark observations"] : []),
   ];
 
   const metrics: CodeAgentBenchmarkMetrics = {
@@ -981,6 +1001,7 @@ export function buildCodeAgentBenchmarkScorecard(args: {
     suiteVersion: CODE_AGENT_BENCHMARK_VERSION,
     generatedAt: args.generatedAt ?? new Date().toISOString(),
     cases: results,
+    ...(expectedCandidateHash ? { candidateHash: expectedCandidateHash } : {}),
     missingCaseIds: cases.map((testCase) => testCase.id).filter((id) => !seenIds.has(id)),
     metrics,
     rolloutAllowed: rolloutBlockers.length === 0,
