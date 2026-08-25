@@ -5364,6 +5364,7 @@ export async function chat(opts: {
     powerModel,
     provider: providerId,
     apiKey,
+    capability: modelDecision.capability,
     tools,
     rootPath: rootPath ?? "",
     pendingChanges,

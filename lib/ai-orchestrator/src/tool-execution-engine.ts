@@ -27,6 +27,7 @@ import type { ProductionReachabilityTrace } from "./semantic-trace.js";
 import type { CanonicalSourceCoverage, RepairBlockReason } from "./evidence-integrity.js";
 import type { RawMessage, RawGroqResponse } from "./groq-client.js";
 import type { ProviderStrategy } from "./provider-strategy.js";
+import type { ModelCapability } from "./openrouter/model-catalog.js";
 import { authorizeToolInvocation, type ToolDefinitionLike } from "./tool-policy.js";
 import type { PendingChange } from "./schemas/chat.schema.js";
 import type { TaskType } from "./quality/task-profile.js";
@@ -1000,6 +1001,9 @@ export type ToolLoopOpts = {
 
   /** Optional per-user API key forwarded to every strategy.call(). */
   apiKey?: string;
+
+  /** Capability contract for every model call in this loop. */
+  capability?: ModelCapability;
 
   /** Task profile used for behavioral model routing. */
   taskType?: TaskType;
@@ -2054,6 +2058,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           : Math.min(options.timeoutMs ?? 60_000, remaining);
         return await strategy.call(callMessages, {
           ...options,
+          ...(opts.capability ? { capability: opts.capability } : {}),
           timeoutMs: attemptTimeoutMs,
           signal: controller.signal,
         });
@@ -2462,6 +2467,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
               timeoutMs: 60_000,
               apiKey,
               taskType,
+              ...(opts.capability ? { capability: opts.capability } : {}),
               ...(callToolChoice ? { toolChoice: callToolChoice } : {}),
               ...(iterationTools != null ? { tools: iterationTools } : {}),
               ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
@@ -2475,6 +2481,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
         apiKey,
          ...(opts.signal ? { signal: opts.signal } : {}),
          taskType,
+         ...(opts.capability ? { capability: opts.capability } : {}),
         ...(callToolChoice ? { toolChoice: callToolChoice } : {}),
         ...(iterationTools != null ? { tools: iterationTools } : {}),
         ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
@@ -2513,6 +2520,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
                 timeoutMs: 60_000,
                 apiKey,
                 taskType,
+                 ...(opts.capability ? { capability: opts.capability } : {}),
                 ...(iterationTools != null ? { tools: iterationTools } : {}),
                 ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
             })
@@ -2523,6 +2531,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
             apiKey,
              ...(opts.signal ? { signal: opts.signal } : {}),
              taskType,
+             ...(opts.capability ? { capability: opts.capability } : {}),
             ...(callToolChoice ? { toolChoice: callToolChoice } : {}),
             ...(iterationTools != null ? { tools: iterationTools } : {}),
             ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
@@ -2801,6 +2810,7 @@ export async function executeToolLoop(opts: ToolLoopOpts): Promise<ToolLoopResul
           ...(retryMaxTokens !== undefined ? { maxTokens: retryMaxTokens } : {}),
           timeoutMs: 60_000,
           apiKey,
+          ...(opts.capability ? { capability: opts.capability } : {}),
            ...(opts.signal ? { signal: opts.signal } : {}),
           ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
         });
