@@ -131,6 +131,7 @@ describe("GET /dashboard", () => {
   it("returns 200 with all required top-level fields", async () => {
     const res = await request(app).get("/api/dashboard");
     expect(res.status).toBe(200);
+    expect(typeof res.body.freshnessRevision).toBe("string");
     expect(res.body).toHaveProperty("projectCount");
     expect(res.body).toHaveProperty("activeTaskCount");
     expect(res.body).toHaveProperty("completedTaskCount");

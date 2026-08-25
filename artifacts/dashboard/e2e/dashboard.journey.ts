@@ -96,6 +96,7 @@ function approvedDashboardOrigins(): string[] {
 }
 
 const dashboardFixture = {
+  freshnessRevision: "2026-01-01T00:00:00.000Z",
   projectCount: 1,
   activeTaskCount: 0,
   completedTaskCount: 2,
@@ -1822,22 +1823,35 @@ test.describe("EngineeringOS dashboard browser journey", () => {
       // A response that arrives after a newer request must not replace the
       // visible ready state with stale data. Keep the delay bounded so a
       // hung request cannot make this campaign pass indefinitely.
-      let staleResponseHeld = true;
+      const currentDashboardFixture = {
+        ...dashboardFixture,
+        freshnessRevision: "2026-01-01T00:03:00.000Z",
+        projectScores: [{ ...dashboardFixture.projectScores[0], projectName: "Concurrent Project", score: 97 }],
+        activeTaskCount: 1,
+        taskStatusBreakdown: { pending: 0, running: 1 },
+      };
+      let refreshCount = 0;
       let releaseStaleResponse!: () => void;
       const staleResponseReleased = new Promise<void>((resolve) => {
         releaseStaleResponse = resolve;
       });
       await page.route("**/api/dashboard", async (route) => {
-        if (!staleResponseHeld) return route.continue();
-        staleResponseHeld = false;
+        refreshCount += 1;
+        if (refreshCount === 1) return route.fulfill(jsonResponse(currentDashboardFixture));
         await staleResponseReleased;
         return route.fulfill(jsonResponse(dashboardFixture));
       });
+      await page.getByRole("button", { name: "Refresh status" }).click();
+      await expect(page.getByText("Concurrent Project", { exact: true })).toBeVisible();
+      await expect(page.getByText("97", { exact: true })).toBeVisible();
       const staleRefresh = page.getByRole("button", { name: "Refresh status" }).click();
-      await page.waitForTimeout(50);
+      await expect.poll(() => refreshCount).toBe(2);
       releaseStaleResponse();
       await staleRefresh;
       await expectDashboardReady(page);
+      await expect(page.getByText("Concurrent Project", { exact: true })).toBeVisible();
+      await expect(page.getByText("97", { exact: true })).toBeVisible();
+      await expect(page.getByText("1", { exact: true }).first()).toBeVisible();
 
       // Simulate a dropped connection in the second browser and assert the
       // recovery action rendered by the dashboard, then let the next request

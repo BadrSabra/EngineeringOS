@@ -141,7 +141,24 @@ router.get("/dashboard", requireAuth, async (req, res) => {
     hitCount: r.hitCount ?? 0,
   }));
 
+  // A response can be delayed across a reconnect. Expose a server-owned
+  // watermark so clients can reject an older snapshot rather than comparing
+  // request arrival times.
+  const freshnessRevision = [
+    ...projects.map((p) => p.updatedAt),
+    ...tasks.map((t) => t.updatedAt),
+    ...recentEvents.map((event) => event.timestamp),
+    ...latestMetrics.map((metric) => metric.timestamp),
+    ...allRules.map((rule) => rule.updatedAt),
+  ]
+    .filter(Boolean)
+    .reduce((latest, value) => {
+      const timestamp = new Date(value).getTime();
+      return Number.isFinite(timestamp) && timestamp > latest ? timestamp : latest;
+    }, 0);
+
   return res.json({
+    freshnessRevision: new Date(freshnessRevision).toISOString(),
     projectCount: projects.length,
     activeTaskCount,
     completedTaskCount,

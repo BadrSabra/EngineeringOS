@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import { useMonotonicData } from '@/lib/freshness';
 
 function formatHealthTimestamp(value: Date | string | null | undefined): string {
   if (!value) return 'Not recorded';
@@ -23,7 +24,9 @@ function formatHealthTimestamp(value: Date | string | null | undefined): string 
 }
 
 export default function Dashboard() {
-  const { data: dashboard, isLoading, error, refetch, isRefetching, dataUpdatedAt } = useGetDashboard();
+  const dashboardQuery = useGetDashboard();
+  const { data: rawDashboard, isLoading, error, refetch, isRefetching, dataUpdatedAt } = dashboardQuery;
+  const dashboard = useMonotonicData(rawDashboard, rawDashboard?.freshnessRevision);
   const { data: health, refetch: refetchHealth } = useGetHealth({
     query: {
       queryKey: getGetHealthQueryKey(),

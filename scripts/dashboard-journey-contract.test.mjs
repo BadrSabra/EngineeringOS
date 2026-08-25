@@ -354,6 +354,34 @@ test("the standard release journey remains provider-free", () => {
   );
 });
 
+test("dashboard convergence carries a server revision and asserts rendered freshness", () => {
+  assert.match(
+    journeySource,
+    /freshnessRevision:\s*"2026-01-01T00:03:00\.000Z"/,
+    "The browser fixture must model a newer server-owned dashboard revision.",
+  );
+  assert.match(
+    journeySource,
+    /Concurrent Project/,
+    "The browser journey must assert a changed project summary.",
+  );
+  assert.match(
+    journeySource,
+    /await expect\(page\.getByText\("97", \{ exact: true \}\)\)\.toBeVisible\(\)/,
+    "The journey must assert the newest rendered project score.",
+  );
+  assert.match(
+    journeySource,
+    /await Promise\.all\(\[programmaticSignIn\(page\), programmaticSignIn\(secondPage\)\]\)/,
+    "The convergence journey must use two authenticated browser sessions.",
+  );
+  assert.match(
+    journeySource,
+    /Retry Connection/,
+    "Reconnect assertions must verify the available recovery action.",
+  );
+});
+
 test("the opt-in live journey requests and captures forensic proof", () => {
   assert.match(
     journeySource,

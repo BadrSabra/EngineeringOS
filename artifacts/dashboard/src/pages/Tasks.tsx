@@ -32,6 +32,7 @@ import {
   ShieldCheck,
   FileCheck2,
 } from 'lucide-react';
+import { newestUpdatedAt, useMonotonicData } from '@/lib/freshness';
 
 // ─── Task logs sub-component ──────────────────────────────────────────────────
 // Separated so the hook always runs unconditionally within the mounted component.
@@ -403,7 +404,7 @@ export default function Tasks() {
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
   const [logsTab, setLogsTab] = useState<Record<string, 'details' | 'logs'>>({});
 
-  const { data: tasks, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListTasks(
+  const { data: rawTasks, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListTasks(
     { status: filterStatus || undefined, priority: filterPriority || undefined },
     {
       query: {
@@ -414,6 +415,7 @@ export default function Tasks() {
       },
     },
   );
+  const tasks = useMonotonicData(rawTasks, newestUpdatedAt(rawTasks));
 
   const { toast } = useToast();
   const executeTask = useExecuteTask();

@@ -2431,6 +2431,7 @@ export const UploadArchiveResponse = zod.object({
  * @summary Aggregated dashboard data (projects, active tasks, recent events, scores)
  */
 export const GetDashboardResponse = zod.object({
+  "freshnessRevision": zod.string().describe('Monotonic server-owned revision for the authenticated dashboard snapshot.'),
   "projectCount": zod.number(),
   "activeTaskCount": zod.number(),
   "completedTaskCount": zod.number(),

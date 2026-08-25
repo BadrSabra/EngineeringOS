@@ -1,0 +1,266 @@
+ca75bf6 Add bounded dashboard reload and API restart convergence campaign
+ .agents/memory/MEMORY.md                     |   3 +-
+ .agents/memory/dashboard-process-campaign.md |  10 +++
+ artifacts/dashboard/e2e/dashboard.journey.ts | 101 +++++++++++++++++++++++++++
+ scripts/run-dashboard-journey.mjs            |  70 ++++++++++++++++++-
+ 4 files changed, 181 insertions(+), 3 deletions(-)
+commit ca75bf68d08a661f02e3e794c0cb99fabcae8fd2
+Author:     sabrabadr626f <64080524-sabrabadr626f@users.noreply.replit.com>
+AuthorDate: Mon Aug 24 23:13:47 2026 +0000
+Commit:     sabrabadr626f <64080524-sabrabadr626f@users.noreply.replit.com>
+CommitDate: Mon Aug 24 23:13:47 2026 +0000
+
+    Add bounded dashboard reload and API restart convergence campaign
+    
+    Replit-Task-Id: 19dcd00f-61ed-4b30-8cb5-39b9311bf93a
+    Replit-Merge-Attempt: MergeTask:19dcd00f-61ed-4b30-8cb5-39b9311bf93a:1:f14c57c8
+
+diff --git a/artifacts/dashboard/e2e/dashboard.journey.ts b/artifacts/dashboard/e2e/dashboard.journey.ts
+index 7aacb9f..bdb3587 100644
+--- a/artifacts/dashboard/e2e/dashboard.journey.ts
++++ b/artifacts/dashboard/e2e/dashboard.journey.ts
+@@ -134,6 +134,22 @@ async function expectNoHorizontalOverflow(page: Page) {
+   expect(overflow.body).toBeLessThanOrEqual(overflow.viewport + 1);
+ }
+ 
++async function expectDashboardReady(page: Page) {
++  await expect(
++    page.getByRole("heading", { name: "System Overview" }),
++  ).toBeVisible();
++  await expect(page.getByText("SYSTEM ONLINE", { exact: true })).toBeVisible();
++}
++
++async function restartApiForCampaign(page: Page) {
++  const controlUrl = process.env.DASHBOARD_E2E_CONTROL_URL;
++  if (!controlUrl) throw new Error("Dashboard campaign control URL is missing.");
++  const response = await page.request.post(`${controlUrl}/restart-api`, {
++    timeout: 15_000,
++  });
++  expect(response.status()).toBe(204);
++}
++
+ type ArabicAiFixture = {
+   question: string;
+   answer: string;
+@@ -1685,6 +1701,91 @@ test.describe("EngineeringOS dashboard browser journey", () => {
+     ).toBeVisible();
+   });
+ 
++  test("converges two browser sessions across reload, reconnect, stale results, and API restart", async ({
++    browser,
++    page,
++  }) => {
++    test.skip(
++      !process.env.DASHBOARD_E2E_CONTROL_URL,
++      "The multi-process convergence campaign runs only under the release runner.",
++    );
++    test.setTimeout(90_000);
++
++    const secondContext = await browser.newContext();
++    const secondPage = await secondContext.newPage();
++    try {
++      await Promise.all([programmaticSignIn(page), programmaticSignIn(secondPage)]);
++      await Promise.all([
++        page.goto(DASHBOARD_PATH),
++        secondPage.goto(`${DASHBOARD_PATH}ai`),
++      ]);
++      await expectDashboardReady(page);
++      await expect(secondPage.locator("textarea").first()).toBeVisible();
++
++      // A response that arrives after a newer request must not replace the
++      // visible ready state with stale data. Keep the delay bounded so a
++      // hung request cannot make this campaign pass indefinitely.
++      let staleResponseHeld = true;
++      let releaseStaleResponse!: () => void;
++      const staleResponseReleased = new Promise<void>((resolve) => {
++        releaseStaleResponse = resolve;
++      });
++      await page.route("**/api/dashboard", async (route) => {
++        if (!staleResponseHeld) return route.continue();
++        staleResponseHeld = false;
++        await staleResponseReleased;
++        return route.fulfill(jsonResponse(dashboardFixture));
++      });
++      const staleRefresh = page.getByRole("button", { name: "Refresh status" }).click();
++      await page.waitForTimeout(50);
++      releaseStaleResponse();
++      await staleRefresh;
++      await expectDashboardReady(page);
++
++      // Simulate a dropped connection in the second browser and assert the
++      // recovery action rendered by the dashboard, then let the next request
++      // reconnect normally.
++      let reconnectAttempt = 0;
++      await secondPage.goto(DASHBOARD_PATH);
++      await expectDashboardReady(secondPage);
++      await secondPage.route("**/api/dashboard", async (route) => {
++        reconnectAttempt += 1;
++        // useGetDashboard retries once; hold both bounded attempts so the
++        // rendered error state is observable before the operator retries.
++        if (reconnectAttempt <= 2) {
++          return route.fulfill(
++            jsonResponse({ error: "controlled reconnect interruption" }, 503),
++          );
++        }
++        return route.continue();
++      });
++      await secondPage.reload();
++      await expect(
++        secondPage.getByRole("heading", { name: "Failed to load dashboard" }),
++      ).toBeVisible();
++      await expect(
++        secondPage.getByRole("button", { name: "Retry Connection" }),
++      ).toBeVisible();
++      await secondPage.unroute("**/api/dashboard");
++      await secondPage.getByRole("button", { name: "Retry Connection" }).click();
++      await expectDashboardReady(secondPage);
++
++      await restartApiForCampaign(page);
++      await Promise.all([page.reload(), secondPage.reload()]);
++      await expectDashboardReady(page);
++      await expectDashboardReady(secondPage);
++
++      await page.reload();
++      await expectDashboardReady(page);
++      await expect(
++        page.getByRole("button", { name: "Retry Connection" }),
++      ).toHaveCount(0);
++      await expectNoHorizontalOverflow(page);
++    } finally {
++      await secondContext.close();
++    }
++  });
++
+   test("previews and downloads the completed execution audit without duplicating effects", async ({
+     page,
+   }) => {
+diff --git a/scripts/run-dashboard-journey.mjs b/scripts/run-dashboard-journey.mjs
+index 79fcdde..4a28c3c 100644
+--- a/scripts/run-dashboard-journey.mjs
++++ b/scripts/run-dashboard-journey.mjs
+@@ -1,6 +1,7 @@
+ #!/usr/bin/env node
+ 
+ import { execFileSync, spawn } from "node:child_process";
++import { createServer } from "node:http";
+ import { mkdir, readFile, writeFile } from "node:fs/promises";
+ import { resolve } from "node:path";
+ import {
+@@ -75,6 +76,11 @@ const originDiagnosticsPath = resolve(
+ const services = [];
+ let releaseLockCleanup;
+ const releasePorts = [apiPort, dashboardPort];
++const controlPort = Number(
++  process.env.DASHBOARD_E2E_CONTROL_PORT ?? apiPort + 1,
++);
++let apiService;
++let campaignControlServer;
+ 
+ function redact(value) {
+   const secretValues = Object.values(process.env).filter(
+@@ -122,6 +128,50 @@ function startService(label, command, args, env, port) {
+   return child;
+ }
+ 
++async function restartApiService() {
++  if (!apiService) throw new Error("API release service is not running.");
++  signalProcessGroup(apiService, "SIGTERM");
++  await waitForPortClosed(apiPort);
++  apiService = startService(
++    "API release service (restarted)",
++    "node",
++    ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
++    {
++      NODE_ENV: "development",
++      PORT: String(apiPort),
++      APP_ORIGINS: approvedDashboardOrigins.join(","),
++    },
++    apiPort,
++  );
++  await waitFor(apiHealthUrl, "restarted API workflow");
++}
++
++async function startCampaignControl() {
++  campaignControlServer = createServer(async (request, response) => {
++    if (request.method !== "POST" || request.url !== "/restart-api") {
++      response.writeHead(404);
++      response.end();
++      return;
++    }
++    try {
++      await restartApiService();
++      response.writeHead(204);
++      response.end();
++    } catch (error) {
++      response.writeHead(503, { "content-type": "application/json" });
++      response.end(
++        JSON.stringify({
++          error: redact(error instanceof Error ? error.message : String(error)),
++        }),
++      );
++    }
++  });
++  await new Promise((resolve, reject) => {
++    campaignControlServer.once("error", reject);
++    campaignControlServer.listen(controlPort, "127.0.0.1", resolve);
++  });
++}
++
+ function listeningUsers(port) {
+   try {
+     const output = execFileSync(
+@@ -238,6 +288,10 @@ async function waitForChild(child, label) {
+ }
+ 
+ async function stopServices() {
++  if (campaignControlServer) {
++    await new Promise((resolve) => campaignControlServer.close(resolve));
++    campaignControlServer = undefined;
++  }
+   for (const { child } of services) {
+     try {
+       signalProcessGroup(child, "SIGTERM");
+@@ -485,7 +539,7 @@ async function startReleaseServices() {
+     { NODE_ENV: "development" },
+   );
+   await waitForChild(apiBuild, "API release build");
+-  startService(
++  apiService = startService(
+     "API release service",
+     "node",
+     ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
+@@ -512,6 +566,7 @@ async function startReleaseServices() {
+     dashboardPort,
+   );
+   await waitFor(apiHealthUrl, "API workflow");
++  await startCampaignControl();
+   const dashboardResponse = await waitFor(
+     dashboardBaseUrl,
+     "Dashboard workflow",
+@@ -807,7 +862,17 @@ try {
+     console.log(`Using isolated Clerk journey user ${testEmail}`);
+     const journey = spawn(
+       "pnpm",
+-      ["--filter", "@workspace/dashboard", "run", "test:e2e"],
++      [
++        "--filter",
++        "@workspace/dashboard",
++        "exec",
++        "playwright",
++        "test",
++        "--config=e2e/playwright.config.ts",
++        ...(process.env.DASHBOARD_E2E_GREP
++          ? ["--grep", process.env.DASHBOARD_E2E_GREP]
++          : []),
++      ],
+       {
+         cwd: workspaceRoot,
+         env: {
+@@ -815,6 +880,7 @@ try {
+           CI: "true",
+           DASHBOARD_E2E_BASE_URL: dashboardBaseUrl,
+           DASHBOARD_E2E_API_BASE_URL: apiBaseUrl,
++          DASHBOARD_E2E_CONTROL_URL: `http://127.0.0.1:${controlPort}`,
+           DASHBOARD_E2E_EMAIL: testEmail,
+           DASHBOARD_E2E_APPROVED_ORIGINS: approvedDashboardOrigins.join(","),
+           DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH: originDiagnosticsPath,

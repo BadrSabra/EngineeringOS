@@ -34,6 +34,7 @@ import {
 import { Link } from 'wouter';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
 import { useQuery } from '@tanstack/react-query';
+import { useMonotonicData } from '@/lib/freshness';
 
 type BrowserValidationProfile = {
   id: string;
@@ -50,7 +51,7 @@ export default function ProjectDetail() {
   const projectId = params?.id || '';
   const queryClient = useQueryClient();
 
-  const { data: project, isLoading: loadingProject, isError: projectError, error: projectErrorValue, refetch: refetchProject, isRefetching: projectRefreshing, dataUpdatedAt } = useGetProject(projectId, {
+  const projectQuery = useGetProject(projectId, {
     query: {
       enabled: !!projectId,
       queryKey: getGetProjectQueryKey(projectId),
@@ -60,6 +61,8 @@ export default function ProjectDetail() {
       refetchInterval: (query) => (query.state.data?.status === 'scanning' ? 1500 : false),
     },
   });
+  const { data: rawProject, isLoading: loadingProject, isError: projectError, error: projectErrorValue, refetch: refetchProject, isRefetching: projectRefreshing, dataUpdatedAt } = projectQuery;
+  const project = useMonotonicData(rawProject, rawProject?.updatedAt);
 
   const { data: summary, isLoading: loadingSummary, isError: summaryError, refetch: refetchSummary } = useGetProjectSummary(projectId, {
     query: { enabled: !!projectId, queryKey: getGetProjectSummaryQueryKey(projectId) },

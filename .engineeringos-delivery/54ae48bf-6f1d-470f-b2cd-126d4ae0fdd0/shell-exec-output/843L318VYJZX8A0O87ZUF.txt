@@ -1,0 +1,376 @@
+# Task #104: Catch dashboard freshness drift after reconnect
+
+# Catch dashboard freshness drift
+
+## What & Why
+Prevent an older dashboard response from overwriting newer project or task data after reconnect, reload, or concurrent changes from another session. Operators must see the latest readiness state and available recovery action.
+
+## Done looks like
+- Two authenticated dashboard sessions can use distinct project summaries.
+- A project or task summary changed in one session remains current in the other after refresh or reconnect.
+- A delayed older response cannot overwrite the newer rendered readiness or data state.
+- Browser assertions verify visible values and available recovery actions rather than relying only on network request counts.
+- The provider-free test path remains deterministic and bounded.
+
+## Out of scope
+- Redesigning dashboard project management.
+- Changing server-side project authorization or persistence semantics.
+- Live-provider campaigns or deployment validation.
+
+## Steps
+1. **Map freshness ownership** — Identify the dashboard queries, reconnect handlers, and state transitions that can receive responses out of order, then define the server or client freshness identity used to reject older results.
+2. **Guard stale responses** — Ensure delayed responses cannot replace newer project, task, readiness, or recovery state after a reconnect or concurrent update.
+3. **Add the multi-session browser journey** — Exercise a changed visible dataset across two authenticated sessions with bounded delays and reconnect behavior.
+4. **Assert rendered convergence** — Verify the browser displays the newest project summary, readiness state, and safe action after stale responses arrive.
+5. **Preserve isolation and determinism** — Keep fixtures provider-free, use request-identity-based concurrency barriers, and avoid unbounded polling or assumptions about request order.
+
+## Relevant files
+- `artifacts/dashboard/e2e/dashboard.journey.ts`
+- `scripts/run-dashboard-journey.mjs`
+- `scripts/dashboard-journey-contract.test.mjs`
+- `artifacts/dashboard/src`
+
+
+--- dashboard source files ---
+artifacts/dashboard/src/App.tsx
+artifacts/dashboard/src/components/GitPanel.test.tsx
+artifacts/dashboard/src/components/GitPanel.tsx
+artifacts/dashboard/src/components/layout/Shell.tsx
+artifacts/dashboard/src/components/layout/Sidebar.tsx
+artifacts/dashboard/src/components/OperatorResilience.test.tsx
+artifacts/dashboard/src/components/OperatorResilience.tsx
+artifacts/dashboard/src/components/ui/accordion.tsx
+artifacts/dashboard/src/components/ui/alert-dialog.tsx
+artifacts/dashboard/src/components/ui/alert.tsx
+artifacts/dashboard/src/components/ui/aspect-ratio.tsx
+artifacts/dashboard/src/components/ui/avatar.tsx
+artifacts/dashboard/src/components/ui/badge.tsx
+artifacts/dashboard/src/components/ui/breadcrumb.tsx
+artifacts/dashboard/src/components/ui/button-group.tsx
+artifacts/dashboard/src/components/ui/button.tsx
+artifacts/dashboard/src/components/ui/calendar.tsx
+artifacts/dashboard/src/components/ui/card.tsx
+artifacts/dashboard/src/components/ui/carousel.tsx
+artifacts/dashboard/src/components/ui/chart.tsx
+artifacts/dashboard/src/components/ui/checkbox.tsx
+artifacts/dashboard/src/components/ui/collapsible.tsx
+artifacts/dashboard/src/components/ui/command.tsx
+artifacts/dashboard/src/components/ui/context-menu.tsx
+artifacts/dashboard/src/components/ui/dialog.tsx
+artifacts/dashboard/src/components/ui/drawer.tsx
+artifacts/dashboard/src/components/ui/dropdown-menu.tsx
+artifacts/dashboard/src/components/ui/empty.tsx
+artifacts/dashboard/src/components/ui/field.tsx
+artifacts/dashboard/src/components/ui/form.tsx
+artifacts/dashboard/src/components/ui/hover-card.tsx
+artifacts/dashboard/src/components/ui/input-group.tsx
+artifacts/dashboard/src/components/ui/input-otp.tsx
+artifacts/dashboard/src/components/ui/input.tsx
+artifacts/dashboard/src/components/ui/item.tsx
+artifacts/dashboard/src/components/ui/kbd.tsx
+artifacts/dashboard/src/components/ui/label.tsx
+artifacts/dashboard/src/components/ui/menubar.tsx
+artifacts/dashboard/src/components/ui/navigation-menu.tsx
+artifacts/dashboard/src/components/ui/pagination.tsx
+artifacts/dashboard/src/components/ui/popover.tsx
+artifacts/dashboard/src/components/ui/progress.tsx
+artifacts/dashboard/src/components/ui/radio-group.tsx
+artifacts/dashboard/src/components/ui/resizable.tsx
+artifacts/dashboard/src/components/ui/scroll-area.tsx
+artifacts/dashboard/src/components/ui/select.tsx
+artifacts/dashboard/src/components/ui/separator.tsx
+artifacts/dashboard/src/components/ui/sheet.tsx
+artifacts/dashboard/src/components/ui/sidebar.tsx
+artifacts/dashboard/src/components/ui/skeleton.tsx
+artifacts/dashboard/src/components/ui/slider.tsx
+artifacts/dashboard/src/components/ui/sonner.tsx
+artifacts/dashboard/src/components/ui/spinner.tsx
+artifacts/dashboard/src/components/ui/switch.tsx
+artifacts/dashboard/src/components/ui/table.tsx
+artifacts/dashboard/src/components/ui/tabs.tsx
+artifacts/dashboard/src/components/ui/textarea.tsx
+artifacts/dashboard/src/components/ui/toaster.tsx
+artifacts/dashboard/src/components/ui/toast.tsx
+artifacts/dashboard/src/components/ui/toggle-group.tsx
+artifacts/dashboard/src/components/ui/toggle.tsx
+artifacts/dashboard/src/components/ui/tooltip.tsx
+artifacts/dashboard/src/hooks/use-mobile.tsx
+artifacts/dashboard/src/hooks/use-toast.ts
+artifacts/dashboard/src/index.css
+artifacts/dashboard/src/lib/api-fetch.ts
+artifacts/dashboard/src/lib/clerk-handoff.test.ts
+artifacts/dashboard/src/lib/clerk-handoff.ts
+artifacts/dashboard/src/lib/clerk.ts
+artifacts/dashboard/src/lib/fixtures/stored-mission-correlation-report.json
+artifacts/dashboard/src/lib/mission-correlation-report.test.ts
+artifacts/dashboard/src/lib/mission-correlation-report.ts
+artifacts/dashboard/src/lib/utils.ts
+artifacts/dashboard/src/lib/validation-sse-contract.test.ts
+artifacts/dashboard/src/main.tsx
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx
+artifacts/dashboard/src/pages/AiChat.tsx
+artifacts/dashboard/src/pages/Dashboard.tsx
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx
+artifacts/dashboard/src/pages/Events.test.tsx
+artifacts/dashboard/src/pages/Events.tsx
+artifacts/dashboard/src/pages/FlightDeck.test.tsx
+artifacts/dashboard/src/pages/FlightDeck.tsx
+artifacts/dashboard/src/pages/Graph.test.tsx
+artifacts/dashboard/src/pages/Graph.tsx
+artifacts/dashboard/src/pages/Landing.test.tsx
+artifacts/dashboard/src/pages/Landing.tsx
+artifacts/dashboard/src/pages/Metrics.tsx
+artifacts/dashboard/src/pages/MissionControl.test.tsx
+artifacts/dashboard/src/pages/MissionControl.tsx
+artifacts/dashboard/src/pages/not-found.tsx
+artifacts/dashboard/src/pages/ProjectDetail.tsx
+artifacts/dashboard/src/pages/Projects.test.tsx
+artifacts/dashboard/src/pages/Projects.tsx
+artifacts/dashboard/src/pages/Rules.tsx
+artifacts/dashboard/src/pages/SignIn.tsx
+artifacts/dashboard/src/pages/SignUp.tsx
+artifacts/dashboard/src/pages/Tasks.tsx
+artifacts/dashboard/src/pages/Workflows.tsx
+artifacts/dashboard/src/test/setup.ts
+
+--- freshness/reconnect references ---
+artifacts/dashboard/e2e/dashboard.journey.ts:10:const DASHBOARD_PATH = "/dashboard/";
+artifacts/dashboard/e2e/dashboard.journey.ts:16:    "engineeringos-dashboard-smoke@example.com",
+artifacts/dashboard/e2e/dashboard.journey.ts:79:      "DASHBOARD_E2E_APPROVED_ORIGINS must contain every approved dashboard origin.",
+artifacts/dashboard/e2e/dashboard.journey.ts:98:const dashboardFixture = {
+artifacts/dashboard/e2e/dashboard.journey.ts:139:  objective: { objective: "Verify the dashboard browser journey" },
+artifacts/dashboard/e2e/dashboard.journey.ts:209:      recoveredToken: string;
+artifacts/dashboard/e2e/dashboard.journey.ts:216:      recoveryAction?: {
+artifacts/dashboard/e2e/dashboard.journey.ts:224:    projects?: Array<Record<string, unknown>>;
+artifacts/dashboard/e2e/dashboard.journey.ts:252:    const path = url.pathname.replace(/^\/dashboard(?=\/|$)/, "");
+artifacts/dashboard/e2e/dashboard.journey.ts:370:    if (path === "/api/dashboard")
+artifacts/dashboard/e2e/dashboard.journey.ts:371:      return route.fulfill(jsonResponse(dashboardFixture));
+artifacts/dashboard/e2e/dashboard.journey.ts:402:      if (!body?.includes(Buffer.from("dashboard-journey.zip"))) {
+artifacts/dashboard/e2e/dashboard.journey.ts:428:            description: "A task used to verify live dashboard updates.",
+artifacts/dashboard/e2e/dashboard.journey.ts:458:        // Exercise the browser's reconnect path without changing the task
+artifacts/dashboard/e2e/dashboard.journey.ts:473:    if (path === "/api/projects") {
+artifacts/dashboard/e2e/dashboard.journey.ts:476:          overrides?.projects ?? [
+artifacts/dashboard/e2e/dashboard.journey.ts:492:      path === "/api/ai/delivery/recoverable"
+artifacts/dashboard/e2e/dashboard.journey.ts:500:      overrides?.deliveryRecovery?.recoveryAction &&
+artifacts/dashboard/e2e/dashboard.journey.ts:502:        `/api/ai/delivery/${overrides.deliveryRecovery.recoveryAction.proposalId}/${overrides.deliveryRecovery.recoveryAction.action}`
+artifacts/dashboard/e2e/dashboard.journey.ts:505:      if (overrides.deliveryRecovery.recoveryAction.nextOperations) {
+artifacts/dashboard/e2e/dashboard.journey.ts:507:          overrides.deliveryRecovery.recoveryAction.nextOperations;
+artifacts/dashboard/e2e/dashboard.journey.ts:511:          overrides.deliveryRecovery.recoveryAction.response,
+artifacts/dashboard/e2e/dashboard.journey.ts:512:          overrides.deliveryRecovery.recoveryAction.status ?? 409,
+artifacts/dashboard/e2e/dashboard.journey.ts:517:      const events = overrides?.events ?? dashboardFixture.recentEvents;
+artifacts/dashboard/e2e/dashboard.journey.ts:564:          resumeToken: overrides.interruptedResume.recoveredToken,
+artifacts/dashboard/e2e/dashboard.journey.ts:912:  const question = "Verify the analysis evidence after reconnect.";
+artifacts/dashboard/e2e/dashboard.journey.ts:984:  const recoveredToken = "e2e-interrupted-recovered-token";
+artifacts/dashboard/e2e/dashboard.journey.ts:989:    "The original release execution resumed after capability recovery.";
+artifacts/dashboard/e2e/dashboard.journey.ts:1024:    recoveredToken,
+artifacts/dashboard/e2e/dashboard.journey.ts:1032:        resumeToken: recoveredToken,
+artifacts/dashboard/e2e/dashboard.journey.ts:1362:          name: "hostile-dashboard-journey.zip",
+artifacts/dashboard/e2e/dashboard.journey.ts:1455:test.describe("EngineeringOS dashboard browser journey", () => {
+artifacts/dashboard/e2e/dashboard.journey.ts:1485:        idempotencyKey: `dashboard-live-${Date.now()}`,
+artifacts/dashboard/e2e/dashboard.journey.ts:1535:    const gitLog = await liveJson(page, `/api/projects/${projectId}/git/log`);
+artifacts/dashboard/e2e/dashboard.journey.ts:1537:    const dashboardState = await liveJson(page, "/api/dashboard");
+artifacts/dashboard/e2e/dashboard.journey.ts:1707:      dashboard: missionControl,
+artifacts/dashboard/e2e/dashboard.journey.ts:1708:      dashboardState: {
+artifacts/dashboard/e2e/dashboard.journey.ts:1709:        projectCount: dashboardState.projectCount,
+artifacts/dashboard/e2e/dashboard.journey.ts:1710:        activeTaskCount: dashboardState.activeTaskCount,
+artifacts/dashboard/e2e/dashboard.journey.ts:1715:      "test-results/dashboard-journey/live-mission-correlation.json";
+artifacts/dashboard/e2e/dashboard.journey.ts:1751:    await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+artifacts/dashboard/e2e/dashboard.journey.ts:1801:  test("converges two browser sessions across reload, reconnect, stale results, and API restart", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:1823:      // visible ready state with stale data. Keep the delay bounded so a
+artifacts/dashboard/e2e/dashboard.journey.ts:1825:      let staleResponseHeld = true;
+artifacts/dashboard/e2e/dashboard.journey.ts:1827:      const staleResponseReleased = new Promise<void>((resolve) => {
+artifacts/dashboard/e2e/dashboard.journey.ts:1830:      await page.route("**/api/dashboard", async (route) => {
+artifacts/dashboard/e2e/dashboard.journey.ts:1831:        if (!staleResponseHeld) return route.continue();
+artifacts/dashboard/e2e/dashboard.journey.ts:1832:        staleResponseHeld = false;
+artifacts/dashboard/e2e/dashboard.journey.ts:1833:        await staleResponseReleased;
+artifacts/dashboard/e2e/dashboard.journey.ts:1834:        return route.fulfill(jsonResponse(dashboardFixture));
+artifacts/dashboard/e2e/dashboard.journey.ts:1836:      const staleRefresh = page.getByRole("button", { name: "Refresh status" }).click();
+artifacts/dashboard/e2e/dashboard.journey.ts:1839:      await staleRefresh;
+artifacts/dashboard/e2e/dashboard.journey.ts:1843:      // recovery action rendered by the dashboard, then let the next request
+artifacts/dashboard/e2e/dashboard.journey.ts:1844:      // reconnect normally.
+artifacts/dashboard/e2e/dashboard.journey.ts:1845:      let reconnectAttempt = 0;
+artifacts/dashboard/e2e/dashboard.journey.ts:1848:      await secondPage.route("**/api/dashboard", async (route) => {
+artifacts/dashboard/e2e/dashboard.journey.ts:1849:        reconnectAttempt += 1;
+artifacts/dashboard/e2e/dashboard.journey.ts:1852:        if (reconnectAttempt <= 2) {
+artifacts/dashboard/e2e/dashboard.journey.ts:1854:            jsonResponse({ error: "controlled reconnect interruption" }, 503),
+artifacts/dashboard/e2e/dashboard.journey.ts:1861:        secondPage.getByRole("heading", { name: "Failed to load dashboard" }),
+artifacts/dashboard/e2e/dashboard.journey.ts:1866:      await secondPage.unroute("**/api/dashboard");
+artifacts/dashboard/e2e/dashboard.journey.ts:2127:        originalName: "dashboard-journey.zip",
+artifacts/dashboard/e2e/dashboard.journey.ts:2131:        title: "Verify live dashboard updates",
+artifacts/dashboard/e2e/dashboard.journey.ts:2149:        "dashboard-journey.zip",
+artifacts/dashboard/e2e/dashboard.journey.ts:2163:      originalName: "dashboard-journey.zip",
+artifacts/dashboard/e2e/dashboard.journey.ts:2168:      "Expand task Verify live dashboard updates",
+artifacts/dashboard/e2e/dashboard.journey.ts:2178:  test("recovers a live task update after a temporary stream failure", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:2181:    const taskId = "e2e-reconnecting-live-task";
+artifacts/dashboard/e2e/dashboard.journey.ts:2183:      id: "e2e-reconnecting-live-log",
+artifacts/dashboard/e2e/dashboard.journey.ts:2186:      message: "Authoritative update received after reconnect",
+artifacts/dashboard/e2e/dashboard.journey.ts:2189:        operationId: "e2e-reconnecting-operation",
+artifacts/dashboard/e2e/dashboard.journey.ts:2216:        message: "the task log stream should reconnect exactly once",
+artifacts/dashboard/e2e/dashboard.journey.ts:2229:  test("shows an actionable terminal state when live task reconnects are exhausted", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:2270:        message: "the task log stream should exhaust its bounded reconnect budget",
+artifacts/dashboard/e2e/dashboard.journey.ts:2275:    await expect(exhausted).toContainText("Live task updates could not reconnect");
+artifacts/dashboard/e2e/dashboard.journey.ts:2312:      projects: [
+artifacts/dashboard/e2e/dashboard.journey.ts:2493:      /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+artifacts/dashboard/e2e/dashboard.journey.ts:2554:      /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+artifacts/dashboard/e2e/dashboard.journey.ts:2558:  test("keeps safe citation state when switching projects", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:2573:      projects: [
+artifacts/dashboard/e2e/dashboard.journey.ts:2652:      /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+artifacts/dashboard/e2e/dashboard.journey.ts:2711:        /MISSING_LITERAL_MATCH|rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+artifacts/dashboard/e2e/dashboard.journey.ts:2720:    await openNavigation(page, "Projects", `${DASHBOARD_PATH}projects`);
+artifacts/dashboard/e2e/dashboard.journey.ts:2733:      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}projects$`),
+artifacts/dashboard/e2e/dashboard.journey.ts:3041:  test("recovers a missing token after a real stream abort and resumes one execution", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:3044:    const recovery = installInterruptedResumeFixture();
+artifacts/dashboard/e2e/dashboard.journey.ts:3045:    await installApiFixtures(page, { interruptedResume: recovery });
+artifacts/dashboard/e2e/dashboard.journey.ts:3119:    await composer.fill(recovery.fixture.question);
+artifacts/dashboard/e2e/dashboard.journey.ts:3136:      .toContain(recovery.initialToken);
+artifacts/dashboard/e2e/dashboard.journey.ts:3161:      .toBe(recovery.recoveredToken);
+artifacts/dashboard/e2e/dashboard.journey.ts:3165:      page.getByText(recovery.fixture.answer, { exact: true }),
+artifacts/dashboard/e2e/dashboard.journey.ts:3171:        message: recovery.fixture.question,
+artifacts/dashboard/e2e/dashboard.journey.ts:3179:        sessionId: recovery.fixture.sessionId,
+artifacts/dashboard/e2e/dashboard.journey.ts:3180:        executionId: recovery.fixture.executionId,
+artifacts/dashboard/e2e/dashboard.journey.ts:3181:        resumeToken: recovery.recoveredToken,
+artifacts/dashboard/e2e/dashboard.journey.ts:3182:        message: recovery.fixture.question,
+artifacts/dashboard/e2e/dashboard.journey.ts:3187:    ).toEqual([recovery.fixture.executionId]);
+artifacts/dashboard/e2e/dashboard.journey.ts:3190:  test("projects delivery recovery states safely after reload", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:3193:    const recovery = {
+artifacts/dashboard/e2e/dashboard.journey.ts:3197:          proposalId: "e2e-recovery-available-proposal",
+artifacts/dashboard/e2e/dashboard.journey.ts:3198:          operationId: "e2e-recovery-available-operation",
+artifacts/dashboard/e2e/dashboard.journey.ts:3199:          sessionId: "e2e-recovery-available-session",
+artifacts/dashboard/e2e/dashboard.journey.ts:3203:          recoveryState: "recoverable",
+artifacts/dashboard/e2e/dashboard.journey.ts:3207:            "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3214:          proposalId: "e2e-recovery-missing-proposal",
+artifacts/dashboard/e2e/dashboard.journey.ts:3215:          operationId: "e2e-recovery-missing-operation",
+artifacts/dashboard/e2e/dashboard.journey.ts:3216:          sessionId: "e2e-recovery-missing-session",
+artifacts/dashboard/e2e/dashboard.journey.ts:3220:          recoveryState: "missing_workspace",
+artifacts/dashboard/e2e/dashboard.journey.ts:3222:            "The saved delivery workspace is no longer available, so recovery cannot continue.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3224:            "Start a new delivery from the current project rather than retrying this recovery.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3231:          proposalId: "e2e-recovery-discarded-proposal",
+artifacts/dashboard/e2e/dashboard.journey.ts:3232:          operationId: "e2e-recovery-discarded-operation",
+artifacts/dashboard/e2e/dashboard.journey.ts:3233:          sessionId: "e2e-recovery-discarded-session",
+artifacts/dashboard/e2e/dashboard.journey.ts:3237:          recoveryState: "discarded",
+artifacts/dashboard/e2e/dashboard.journey.ts:3238:          operatorExplanation: "This delivery recovery was already discarded.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3247:    await installApiFixtures(page, { deliveryRecovery: recovery });
+artifacts/dashboard/e2e/dashboard.journey.ts:3264:        "The saved delivery workspace is no longer available, so recovery cannot continue.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3269:      region.getByText("This delivery recovery was already discarded.", {
+artifacts/dashboard/e2e/dashboard.journey.ts:3281:      '[data-operation-id="e2e-recovery-available-operation"]',
+artifacts/dashboard/e2e/dashboard.journey.ts:3284:      '[data-operation-id="e2e-recovery-missing-operation"]',
+artifacts/dashboard/e2e/dashboard.journey.ts:3287:      '[data-operation-id="e2e-recovery-discarded-operation"]',
+artifacts/dashboard/e2e/dashboard.journey.ts:3290:      "data-recovery-state",
+artifacts/dashboard/e2e/dashboard.journey.ts:3291:      "recoverable",
+artifacts/dashboard/e2e/dashboard.journey.ts:3294:      "data-recovery-state",
+artifacts/dashboard/e2e/dashboard.journey.ts:3298:      "data-recovery-state",
+artifacts/dashboard/e2e/dashboard.journey.ts:3321:        .locator('[data-operation-id="e2e-recovery-missing-operation"]')
+artifacts/dashboard/e2e/dashboard.journey.ts:3326:        .locator('[data-operation-id="e2e-recovery-discarded-operation"]')
+artifacts/dashboard/e2e/dashboard.journey.ts:3329:    expect(recovery.requests.length).toBeGreaterThanOrEqual(2);
+artifacts/dashboard/e2e/dashboard.journey.ts:3330:    expect(recovery.requests.every((url) => url.includes("projectId=e2e-project"))).toBe(true);
+artifacts/dashboard/e2e/dashboard.journey.ts:3333:  test("explains when delivery recovery loses a race and refreshes state", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:3336:    const recovery = {
+artifacts/dashboard/e2e/dashboard.journey.ts:3341:          proposalId: "e2e-recovery-race-proposal",
+artifacts/dashboard/e2e/dashboard.journey.ts:3342:          operationId: "e2e-recovery-race-operation",
+artifacts/dashboard/e2e/dashboard.journey.ts:3343:          sessionId: "e2e-recovery-race-session",
+artifacts/dashboard/e2e/dashboard.journey.ts:3347:          recoveryState: "recoverable",
+artifacts/dashboard/e2e/dashboard.journey.ts:3351:            "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3358:      recoveryAction: {
+artifacts/dashboard/e2e/dashboard.journey.ts:3359:        proposalId: "e2e-recovery-race-proposal",
+artifacts/dashboard/e2e/dashboard.journey.ts:3362:          error: "This delivery recovery was already discarded.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3365:          recoveryState: "discarded",
+artifacts/dashboard/e2e/dashboard.journey.ts:3371:            proposalId: "e2e-recovery-race-proposal",
+artifacts/dashboard/e2e/dashboard.journey.ts:3372:            operationId: "e2e-recovery-race-operation",
+artifacts/dashboard/e2e/dashboard.journey.ts:3373:            sessionId: "e2e-recovery-race-session",
+artifacts/dashboard/e2e/dashboard.journey.ts:3377:            recoveryState: "discarded",
+artifacts/dashboard/e2e/dashboard.journey.ts:3378:            operatorExplanation: "This delivery recovery was already discarded.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3388:    await installApiFixtures(page, { deliveryRecovery: recovery });
+artifacts/dashboard/e2e/dashboard.journey.ts:3396:      '[data-operation-id="e2e-recovery-race-operation"]',
+artifacts/dashboard/e2e/dashboard.journey.ts:3404:        "This recovery was already discarded. The recovery list was refreshed.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3409:      .poll(() => recovery.requests.length)
+artifacts/dashboard/e2e/dashboard.journey.ts:3411:    await expect(operation).toHaveAttribute("data-recovery-state", "discarded");
+artifacts/dashboard/e2e/dashboard.journey.ts:3412:    expect(recovery.actionRequests).toHaveLength(1);
+artifacts/dashboard/e2e/dashboard.journey.ts:3413:    expect(recovery.actionRequests[0]).toContain(
+artifacts/dashboard/e2e/dashboard.journey.ts:3414:      "/api/ai/delivery/e2e-recovery-race-proposal/resume-validation",
+artifacts/dashboard/e2e/dashboard.journey.ts:3416:    expect(await region.locator('[data-operation-id="e2e-recovery-race-operation"]').count()).toBe(1);
+artifacts/dashboard/e2e/dashboard.journey.ts:3422:  test("explains when an old recovery link points to a deleted operation", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:3425:    const recovery = {
+artifacts/dashboard/e2e/dashboard.journey.ts:3430:          proposalId: "e2e-recovery-deleted-proposal",
+artifacts/dashboard/e2e/dashboard.journey.ts:3431:          operationId: "e2e-recovery-deleted-operation",
+artifacts/dashboard/e2e/dashboard.journey.ts:3432:          sessionId: "e2e-recovery-deleted-session",
+artifacts/dashboard/e2e/dashboard.journey.ts:3436:          recoveryState: "recoverable",
+artifacts/dashboard/e2e/dashboard.journey.ts:3440:            "Resume validation to re-check the saved changes, or discard this recovery if it is no longer needed.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3447:      recoveryAction: {
+artifacts/dashboard/e2e/dashboard.journey.ts:3448:        proposalId: "e2e-recovery-deleted-proposal",
+artifacts/dashboard/e2e/dashboard.journey.ts:3459:    await installApiFixtures(page, { deliveryRecovery: recovery });
+artifacts/dashboard/e2e/dashboard.journey.ts:3467:      '[data-operation-id="e2e-recovery-deleted-operation"]',
+artifacts/dashboard/e2e/dashboard.journey.ts:3475:        "This recovery operation no longer exists. The recovery list was refreshed.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3479:    await expect.poll(() => recovery.requests.length).toBeGreaterThanOrEqual(2);
+artifacts/dashboard/e2e/dashboard.journey.ts:3481:    expect(recovery.actionRequests).toHaveLength(1);
+artifacts/dashboard/e2e/dashboard.journey.ts:3482:    expect(recovery.actionRequests[0]).toContain(
+artifacts/dashboard/e2e/dashboard.journey.ts:3483:      "/api/ai/delivery/e2e-recovery-deleted-proposal/resume-validation",
+artifacts/dashboard/e2e/dashboard.journey.ts:3525:    await page.route("**/api/dashboard", (route) =>
+artifacts/dashboard/e2e/dashboard.journey.ts:3527:        jsonResponse({ error: "controlled dashboard outage" }, 503),
+artifacts/dashboard/e2e/dashboard.journey.ts:3532:      page.getByRole("heading", { name: "Failed to load dashboard" }),
+artifacts/dashboard/src/pages/FlightDeck.tsx:4:import { useQueryClient } from '@tanstack/react-query';
+artifacts/dashboard/src/pages/FlightDeck.tsx:138:    return 'Do not rely on this result as verified; reconnect or start a new run to rebuild the missing proof.';
+artifacts/dashboard/src/pages/FlightDeck.tsx:247:  const queryClient = useQueryClient();
+artifacts/dashboard/src/pages/FlightDeck.tsx:250:    query: {
+artifacts/dashboard/src/pages/FlightDeck.tsx:251:      queryKey: ['ai-flight-deck-execution', executionId],
+artifacts/dashboard/src/pages/FlightDeck.tsx:253:      refetchInterval: (query) => {
+artifacts/dashboard/src/pages/FlightDeck.tsx:254:        const status = query.state.data?.status;
+artifacts/dashboard/src/pages/FlightDeck.tsx:262:    query: {
+artifacts/dashboard/src/pages/FlightDeck.tsx:264:      queryKey: ['flight-deck-git-status', projectId],
+artifacts/dashboard/src/pages/FlightDeck.tsx:265:      refetchInterval: (query) => (query.state.status === 'error' ? false : 10_000),
+artifacts/dashboard/src/pages/FlightDeck.tsx:270:    query: {
+artifacts/dashboard/src/pages/FlightDeck.tsx:272:      queryKey: ['flight-deck-git-log', projectId],
+artifacts/dashboard/src/pages/FlightDeck.tsx:273:      staleTime: 15_000,
+artifacts/dashboard/src/pages/FlightDeck.tsx:280:        queryClient.invalidateQueries({ queryKey: ['flight-deck-git-status', projectId] });
+artifacts/dashboard/src/pages/FlightDeck.tsx:281:        queryClient.invalidateQueries({ queryKey: ['flight-deck-git-log', projectId] });
+artifacts/dashboard/src/pages/FlightDeck.tsx:282:        queryClient.invalidateQueries({ queryKey: ['ai-flight-deck-execution', executionId] });
+artifacts/dashboard/src/pages/FlightDeck.tsx:289:        queryClient.invalidateQueries({ queryKey: ['flight-deck-git-status', projectId] });
+artifacts/dashboard/src/pages/FlightDeck.tsx:290:        queryClient.invalidateQueries({ queryKey: ['ai-flight-deck-execution', executionId] });
+artifacts/dashboard/src/pages/FlightDeck.tsx:487:                onClick={() => queryClient.invalidateQueries({ queryKey: ['flight-deck-git-status', projectId] })}
+artifacts/dashboard/src/pages/FlightDeck.test.tsx:2:import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+artifacts/dashboard/src/pages/FlightDeck.test.tsx:69:  const queryClient = new QueryClient({
+artifacts/dashboard/src/pages/FlightDeck.test.tsx:73:    <QueryClientProvider client={queryClient}>
+artifacts/dashboard/src/pages/FlightDeck.test.tsx:116:    expect(screen.queryByText('Mission → Push')).toBeNull();
+artifacts/dashboard/src/pages/FlightDeck.test.tsx:151:    expect(screen.queryByText(/Next safe action/)).toBeNull();
+artifacts/dashboard/src/pages/FlightDeck.test.tsx:177:    expect(screen.queryByText('Verified chain')).toBeNull();
+artifacts/dashboard/src/lib/validation-sse-contract.test.ts:18:describe('dashboard validation SSE contract', () => {
+artifacts/dashboard/src/lib/validation-sse-contract.test.ts:80:        reasonCode: 'stale_revision',
+artifacts/dashboard/src/lib/validation-sse-contract.test.ts:94:    expect(onValidation.mock.calls[0][0].validation.reasonCode).toBe('stale_revision');
+artifacts/dashboard/src/pages/Projects.test.tsx:8:  getListProjectsQueryKey: () => ["projects"],
+artifacts/dashboard/src/pages/Projects.test.tsx:48:  it("renders all projects when search is empty", () => {
+artifacts/dashboard/src/pages/Projects.test.tsx:55:  it("filters projects by name (case-insensitive)", () => {
+artifacts/dashboard/src/pages/Projects.test.tsx:57:    const input = screen.getByPlaceholderText(/filter projects/i);
+artifacts/dashboard/src/pages/Projects.test.tsx:60:    expect(screen.queryByText("beta-worker")).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/Projects.test.tsx:61:    expect(screen.queryByText("gamma-lib")).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/Projects.test.tsx:64:  it("shows empty state when no projects match the search", () => {
+artifacts/dashboard/src/pages/Projects.test.tsx:66:    const input = screen.getByPlaceholderText(/filter projects/i);
+artifacts/dashboard/src/pages/Projects.test.tsx:68:    expect(screen.queryByText("alpha-service")).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/Projects.test.tsx:94:    expect(screen.queryByTestId("discover-wizard")).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/MissionControl.test.tsx:2:import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+artifacts/dashboard/src/pages/MissionControl.test.tsx:56:        recoveryAction: 'Switched to a bounded retry',
+artifacts/dashboard/src/pages/MissionControl.test.tsx:63:          recoveryAction: 'Compacted the evidence window',
+artifacts/dashboard/src/pages/MissionControl.test.tsx:86:  const queryClient = new QueryClient({
+artifacts/dashboard/src/pages/MissionControl.test.tsx:91:      return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+artifacts/dashboard/src/pages/MissionControl.test.tsx:163:  it('keeps historical provider recovery details visible after the query is reloaded', async () => {
+artifacts/dashboard/src/pages/MissionControl.test.tsx:176:    expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('3')).toBeInTheDocument();
+artifacts/dashboard/src/pages/MissionControl.test.tsx:177:    expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('2')).toBeInTheDocument();
+artifacts/dashboard/src/pages/MissionControl.test.tsx:197:    expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('3')).toBeInTheDocument();
+artifacts/dashboard/src/pages/MissionControl.test.tsx:198:    expect(within(screen.getByLabelText('Historical provider recovery summaries')).getByText('2')).toBeInTheDocument();
+artifacts/dashboard/src/pages/MissionControl.test.tsx:202:  it('renders the normal benchmark view for a legacy envelope without recovery summaries', async () => {
+artifacts/dashboard/src/pages/MissionControl.test.tsx:217:    expect(screen.queryByText('Historical report recovery details')).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/MissionControl.test.tsx:218:    expect(screen.queryByText('Provider recovery')).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/MissionControl.test.tsx:227:        objective: index === 9 ? 'Investigate the quota recovery path' : `Repair run ${index + 1}`,
+artifacts/dashboard/src/pages/MissionControl.test.tsx:230:        recoveryAction: index === 9 ? 'Switch provider' : undefined,
+artifacts/dashboard/src/pages/MissionControl.test.tsx:239:    expect(screen.queryByText('Investigate the quota recovery path')).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/MissionControl.test.tsx:243:    expect(screen.getByText('Investigate the quota recovery path')).toBeInTheDocument();
+artifacts/dashboard/src/pages/MissionControl.test.tsx:253:    expect(screen.getByText('Investigate the quota recovery path')).toBeInTheDocument();
+artifacts/dashboard/src/pages/MissionControl.test.tsx:261:  it('exports every filtered execution with recovery and benchmark context, not just the current page', async () => {
+artifacts/dashboard/src/pages/MissionControl.test.tsx:267:        objective: index === 9 ? 'Investigate the quota recovery path' : `Repair run ${index + 1}`,
+artifacts/dashboard/src/pages/MissionControl.test.tsx:270:        recoveryAction: index === 9 ? 'Switch provider' : undefined,
+artifacts/dashboard/src/pages/MissionControl.test.tsx:305:      checks: [{ name: 'recovery', passed: true }],
+artifacts/dashboard/src/pages/MissionControl.test.tsx:364:        objective: 'Archived recovery',
+artifacts/dashboard/src/pages/MissionControl.test.tsx:373:    const file = new File([JSON.stringify(imported)], 'recovery-history.json', { type: 'application/json' });
+artifacts/dashboard/src/pages/MissionControl.test.tsx:375:    fireEvent.change(screen.getByLabelText('Import JSON recovery history'), { target: { files: [file] } });
+artifacts/dashboard/src/pages/MissionControl.test.tsx:379:    expect(screen.getByText('Imported 1 executions from recovery-history.json.')).toBeInTheDocument();
+artifacts/dashboard/src/pages/MissionControl.test.tsx:383:    expect(screen.queryByText('archived-suite')).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/MissionControl.test.tsx:403:          recoveryAction: 'Escalate to operator',
+artifacts/dashboard/src/pages/MissionControl.test.tsx:412:        { id: 'archived-1', state: 'COMPLETED', objective: 'Archived first', attempts: 1, eventCount: 2, evidence: { verdict: 'VERIFIED' }, recoveryAction: 'Retry' },

@@ -2649,6 +2649,8 @@ export type DashboardOverviewTopRulesItem = {
 };
 
 export interface DashboardOverview {
+  /** Monotonic server-owned revision for the authenticated dashboard snapshot. */
+  freshnessRevision: string;
   projectCount: number;
   activeTaskCount: number;
   completedTaskCount: number;

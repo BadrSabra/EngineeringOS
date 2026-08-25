@@ -11,6 +11,8 @@ import type { DashboardOverviewTopRulesItem } from './dashboardOverviewTopRulesI
 import type { Event } from './event';
 
 export interface DashboardOverview {
+  /** Monotonic server-owned revision for the authenticated dashboard snapshot. */
+  freshnessRevision: string;
   projectCount: number;
   activeTaskCount: number;
   completedTaskCount: number;

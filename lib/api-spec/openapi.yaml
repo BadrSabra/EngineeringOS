@@ -6557,8 +6557,11 @@ components:
     # ─── Dashboard ─────────────────────────────────────────────────────────────
     DashboardOverview:
       type: object
-      required: [projectCount, activeTaskCount, completedTaskCount, failedTaskCount, recentEvents, projectScores]
+      required: [freshnessRevision, projectCount, activeTaskCount, completedTaskCount, failedTaskCount, recentEvents, projectScores]
       properties:
+        freshnessRevision:
+          type: string
+          description: Monotonic server-owned revision for the authenticated dashboard snapshot.
         projectCount:
           type: integer
         activeTaskCount:

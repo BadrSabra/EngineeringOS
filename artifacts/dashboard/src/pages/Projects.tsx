@@ -15,14 +15,16 @@ import {
 } from 'lucide-react';
 import { Link } from 'wouter';
 import { DiscoverProjectWizard } from './DiscoverProjectWizard';
+import { newestUpdatedAt, useMonotonicData } from '@/lib/freshness';
 
 export default function Projects() {
-  const { data: projects, isLoading, isError, error } = useListProjects(undefined, {
+  const { data: rawProjects, isLoading, isError, error } = useListProjects(undefined, {
     query: {
       queryKey: getListProjectsQueryKey(),
       retry: (failureCount, err) => isRetryableProjectError(err, failureCount),
     },
   });
+  const projects = useMonotonicData(rawProjects, newestUpdatedAt(rawProjects));
   const [showDiscover, setShowDiscover] = useState(false);
   const [search, setSearch] = useState('');
 
