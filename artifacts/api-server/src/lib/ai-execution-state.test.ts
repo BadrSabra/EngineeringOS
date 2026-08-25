@@ -181,6 +181,16 @@ describe("autonomous operation contract", () => {
       allowed: false,
       reasons: expect.arrayContaining(["workspace revision does not match the execution request"]),
     });
+
+    expect(validateAutonomousOperationCompletion(operation, {
+      evidenceVerdict: "PROVEN",
+      workspaceRevision: "revision-current",
+      candidateIdentity: "candidate-stale",
+      evidenceRefs: ["validation-result:1"],
+    })).toMatchObject({
+      allowed: false,
+      reasons: expect.arrayContaining(["candidate identity does not match the operation"]),
+    });
   });
 
   it("accepts a complete operation only with proven evidence and matching revision", () => {

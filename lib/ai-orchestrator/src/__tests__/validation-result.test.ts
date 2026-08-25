@@ -39,6 +39,10 @@ describe("canonical validation evidence", () => {
       ...result(),
       evidence: { evidenceId: "", observedAt: "", artifactRef: "" },
     })).toBe(false);
+    expect(isProvenValidation({
+      ...result(),
+      evidence: { evidenceId: "validation-result:test", observedAt: "2026-08-18T12:00:00.000Z", artifactRef: "" },
+    })).toBe(false);
   });
 
   it("projects only bounded validation metadata for persistence and clients", () => {

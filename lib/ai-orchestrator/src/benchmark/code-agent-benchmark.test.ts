@@ -211,6 +211,114 @@ describe("Code Agent benchmark manifest", () => {
     expect(unsafe.scopeEscape).toBe(true);
   });
 
+  it("does not let a drifted oracle verdict become a successful observation", () => {
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "READY_FOR_REVIEW",
+    )!;
+    const result = observationFromCodeAgentExecution(testCase, {
+      actualTerminal: "READY_FOR_REVIEW",
+      validationStatus: "passed",
+      changedPaths: ["src/feature.ts"],
+      allowedPaths: ["src/feature.ts"],
+      filesRead: 1,
+      toolCalls: 2,
+      repairAttempts: 0,
+      rejectedChanges: 0,
+      conflict: false,
+      typecheckPassed: true,
+      testsPassed: null,
+      oracleStatus: "failed",
+      oracleCode: "VERDICT_DRIFT",
+    });
+
+    expect(result.grade).toBe("F");
+    expect(result.correct).toBe(false);
+    expect(result.falseSuccess).toBe(true);
+    expect(result.diagnosis).toMatch(/false success|behavioral proof/i);
+  });
+
+  it("blocks rollout when an otherwise passing observation has incomplete oracle evidence", () => {
+    const testCase = getCodeAgentBenchmarkCases()[0]!;
+    const result = observation(testCase.id, {
+      behavioralOracleStatus: "not-run",
+    });
+    const scorecard = buildCodeAgentBenchmarkScorecard({
+      cases: [testCase],
+      results: [result],
+    });
+
+    expect(result.grade).toBe("A");
+    expect(scorecard.rolloutAllowed).toBe(false);
+    expect(scorecard.rolloutBlockers).toContain(
+      "behavioral oracle missing or failed for 1 observed case",
+    );
+  });
+
+  it("does not treat skipped validation as proof for a review-ready terminal", () => {
+    const testCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "READY_FOR_REVIEW",
+    )!;
+    const result = observationFromCodeAgentExecution(testCase, {
+      actualTerminal: "READY_FOR_REVIEW",
+      validationStatus: "not-run",
+      changedPaths: ["src/feature.ts"],
+      allowedPaths: ["src/feature.ts"],
+      filesRead: 1,
+      toolCalls: 1,
+      repairAttempts: 0,
+      rejectedChanges: 0,
+      conflict: false,
+      typecheckPassed: null,
+      testsPassed: null,
+    });
+
+    expect(result.grade).toBe("F");
+    expect(result.falseSuccess).toBe(true);
+    expect(result.correct).toBe(false);
+  });
+
+  it("keeps terminal mismatches distinct from safely blocked outcomes", () => {
+    const readyCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "READY_FOR_REVIEW",
+    )!;
+    const blockedCase = getCodeAgentBenchmarkCases().find(
+      (candidate) => candidate.expected.terminal === "BLOCKED",
+    )!;
+
+    const incomplete = observationFromCodeAgentExecution(readyCase, {
+      actualTerminal: "BLOCKED",
+      validationStatus: "not-run",
+      changedPaths: ["src/feature.ts"],
+      allowedPaths: ["src/feature.ts"],
+      filesRead: 1,
+      toolCalls: 1,
+      repairAttempts: 1,
+      rejectedChanges: 0,
+      conflict: false,
+      typecheckPassed: null,
+      testsPassed: null,
+    });
+    const falseSuccess = observationFromCodeAgentExecution(blockedCase, {
+      actualTerminal: "READY_FOR_REVIEW",
+      validationStatus: "passed",
+      changedPaths: [],
+      allowedPaths: [],
+      filesRead: 1,
+      toolCalls: 1,
+      repairAttempts: 0,
+      rejectedChanges: 0,
+      conflict: false,
+      typecheckPassed: null,
+      testsPassed: null,
+    });
+
+    expect(incomplete.grade).toBe("C");
+    expect(incomplete.usefulButIncomplete).toBe(true);
+    expect(incomplete.safelyBlocked).toBe(false);
+    expect(falseSuccess.grade).toBe("F");
+    expect(falseSuccess.falseSuccess).toBe(true);
+  });
+
   it("separates provider unavailability from agent-quality failures", () => {
     const unavailable = observationFromCodeAgentExecution(
       getCodeAgentBenchmarkCases()[0]!,
