@@ -1,7 +1,7 @@
 {
   "kind": "ai-release-quality-decision",
   "version": 1,
-  "generatedAt": "2026-08-25T02:38:11.494Z",
+  "generatedAt": "2026-08-25T02:52:29.413Z",
   "status": "blocked",
   "liveProviderChecks": "disabled",
   "previewChecks": "disabled",
@@ -29,7 +29,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 35903
+      "durationMs": 31250
     },
     {
       "id": "dashboard-typecheck",
@@ -41,7 +41,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 17704
+      "durationMs": 18276
     },
     {
       "id": "openapi-client-parity",
@@ -54,7 +54,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 7822
+      "durationMs": 8029
     },
     {
       "id": "truth-flow-parity",
@@ -66,7 +66,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 1537
+      "durationMs": 1706
     },
     {
       "id": "ai-contract-and-json",
@@ -82,7 +82,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_CONTRACT_AND_JSON_FAILED_1",
-      "durationMs": 20545
+      "durationMs": 19343
     },
     {
       "id": "ai-sse-and-redaction",
@@ -98,7 +98,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_SSE_AND_REDACTION_FAILED_1",
-      "durationMs": 20328
+      "durationMs": 20556
     },
     {
       "id": "ai-operational-safety",
@@ -115,7 +115,7 @@
       "enabled": true,
       "status": "failed",
       "failureCode": "AI_OPERATIONAL_SAFETY_FAILED_1",
-      "durationMs": 260541
+      "durationMs": 264007
     },
     {
       "id": "ai-deterministic-benchmark",
@@ -130,7 +130,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 775
+      "durationMs": 1413
     },
     {
       "id": "benchmark-baseline-regression",
@@ -144,7 +144,7 @@
       ],
       "enabled": true,
       "status": "passed",
-      "durationMs": 388
+      "durationMs": 731
     },
     {
       "id": "dashboard-preview-contract",

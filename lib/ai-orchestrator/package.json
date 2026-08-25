@@ -8,7 +8,8 @@
     "./capability-probe": "./src/prompts/capability-probe.ts"
   },
   "scripts": {
-    "test": "vitest run",
+    "test": "pnpm run test:runtime-oracle && vitest run",
+    "test:runtime-oracle": "vitest run src/benchmark-scenarios/runtime-oracle.test.ts --testNamePattern='validates the fixture before running behavior assertions'",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
