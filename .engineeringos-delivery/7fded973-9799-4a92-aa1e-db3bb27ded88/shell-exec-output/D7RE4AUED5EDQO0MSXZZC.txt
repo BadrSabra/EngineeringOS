@@ -1,0 +1,183 @@
+569:export function handleOrchestratorError(
+736:type ProviderAvailabilityState =
+   580
+   581  if (ctx?.projectId) {
+   582    void db
+   583      .insert(eventsTable)
+   584      .values({
+   585        id: randomUUID(),
+   586        type: "AiOrchestratorError",
+   587        projectId: ctx.projectId,
+   588        severity: "error",
+   589        // Provider details stay in the server log below. Events are exposed
+   590        // through the user-facing activity feed and must not contain raw
+   591        // provider messages, request IDs, or runtime paths.
+   592        message: `AI request failed [${err.code}]${ctx.operation ? ` during ${ctx.operation}` : ""}${ctx.provider ? ` (provider: ${ctx.provider})` : ""}`,
+   593      })
+   594      .catch(() => {});
+   595  }
+   596
+   597  // Build provider-specific labels and URLs from the registry.
+   598  const providerId: ProviderId = ctx?.provider ?? "groq";
+   599  const config = PROVIDER_REGISTRY[providerId];
+   600  const providerLabel = config?.label ?? "AI provider";
+   601  const providerConsole = config?.consoleUrl ?? "your provider's dashboard";
+   602  const providerStatus = config?.statusUrl ?? "your provider's status page";
+   603
+   604  const correlationId = randomUUID();
+   605  const base = {
+   606    code: err.code,
+   607    provider: providerId,
+   608    correlationId,
+   609    ...providerAvailabilityProjection(err, providerId, providerConsole, providerStatus),
+   610  };
+   611
+   612  switch (err.code) {
+   613    case "TIMEOUT":
+   614    case "NETWORK_ERROR":
+   615      res.status(503).json({ ...base, error: `${providerLabel} is unreachable — try again in a moment.` });
+   616      return true;
+   617    case "AUTH_ERROR":
+   618      res.status(401).json({
+   619        ...base,
+   620        error: `${providerLabel} API key is invalid or unauthorized.`,
+   621        hint: `Delete your current key and save a valid one from ${providerConsole}.`,
+   622      });
+   623      return true;
+   624    case "RATE_LIMITED":
+   625      if (err.retryAfterMs !== undefined) {
+   626        res.setHeader("Retry-After", String(Math.ceil(err.retryAfterMs / 1000)));
+   627      }
+   628      res.status(429).json({
+   629        ...base,
+   630        error: `${providerLabel} rate limit reached — retry after ${Math.max(1, Math.ceil((err.retryAfterMs ?? 30_000) / 1000))} seconds.`,
+   631        retryAfterMs: err.retryAfterMs,
+   632        hint: `You've exceeded your ${providerLabel} API quota. Retry after the indicated delay or configure another provider at ${providerConsole}.`,
+   633      });
+   634      return true;
+   635    case "SERVER_ERROR":
+   636      res.status(502).json({
+   637        ...base,
+   638        error: `${providerLabel} server error — this is a temporary infrastructure issue.`,
+   639        hint: `Try again in a moment. If it persists, check ${providerStatus}.`,
+   640      });
+   641      return true;
+   642    case "MODEL_NOT_FOUND": {
+   643      const isOpenRouter = providerId === "openrouter";
+   644      res.status(422).json({
+   645        ...base,
+   646        error: `${providerLabel} model has been discontinued or removed.`,
+   647        hint: isOpenRouter
+   648          ? `All OpenRouter free-tier models are currently unavailable — the model may have been discontinued. Try a different provider (Groq, DeepSeek, or Gemini) by saving another API key.`
+   649          : `The configured model slug is no longer accepted by ${providerLabel}. Re-save the provider key or try again after the model catalog refreshes.`,
+   650      });
+   651      return true;
+   652    }
+   653    // PR-04: plan-restricted models (402 — free-tier limitation)
+   654    case "PLAN_RESTRICTED": {
+   655      const isOpenRouter = providerId === "openrouter";
+   656      res.status(402).json({
+   657        ...base,
+   658        error: `${providerLabel} model requires a paid plan or credit balance.`,
+   659        hint: isOpenRouter
+   660          ? `The selected OpenRouter model is only available on paid plans. Add a small credit balance at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`
+   661          : `${providerLabel} requires a paid plan for this model. Check your plan at ${providerConsole}.`,
+   662      });
+   663      return true;
+   664    }
+   665    // PR-04: model temporarily offline (410/422)
+   666    case "MODEL_UNAVAILABLE": {
+   667      res.status(503).json({
+   668        ...base,
+   669        error: `${providerLabel} model is temporarily unavailable.`,
+   670        hint: `The model is temporarily offline or being retired. Try again in a moment, or save a fallback provider key (Groq, DeepSeek, or Gemini) for automatic retry.`,
+   671      });
+   672      return true;
+   673    }
+   674    // PR-04: billing quota / credits exhausted
+   675    case "QUOTA": {
+   676      res.status(402).json({
+   677        ...base,
+   678        error: `${providerLabel} billing quota or credits are exhausted.`,
+   679        hint: `Replenish your ${providerLabel} credits at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`,
+   680      });
+   681      return true;
+   682    }
+   683    case "NON_200":
+   684      res.status(502).json({
+   685        ...base,
+   686        error: `${providerLabel} returned an unexpected error.`,
+   687        hint: `Check your ${providerLabel} API key or try again.`,
+   688      });
+   689      return true;
+   690    case "EMPTY_RESPONSE":
+   691      res.status(502).json({
+   692        ...base,
+   693        error: `${providerLabel} returned an empty response.`,
+   694        hint: `This may be a transient ${providerLabel} issue — try again.`,
+   695      });
+   696      return true;
+   697    case "INVALID_CONFIG":
+   698      if (providerId === "openrouter" && err.providerCode === "NO_COMPATIBLE_FREE_MODEL") {
+   699        res.status(503).json({
+   700          ...base,
+   701          error: "No compatible free OpenRouter model is currently available.",
+   702          hint: err.catalogStatus === "failed" || err.catalogStatus === "empty"
+   703            ? "OpenRouter's model catalog could not be refreshed. Try again shortly."
+   704            : "OpenRouter currently has no free model matching this request. Try again later or configure another provider.",
+   705        });
+   706        return true;
+   707      }
+   708      if (providerId === "openrouter" && err.providerCode === "MODEL_CAPABILITY_MISMATCH") {
+   709        res.status(422).json({
+   710          ...base,
+   711          error: "The selected OpenRouter model no longer supports this request.",
+   712          hint: "The model catalog changed while this request was starting. Retry to select a current compatible model.",
+   713        });
+   714        return true;
+   715      }
+   716      if (providerId === "openrouter" && err.providerCode === "STALE_CONFIGURED_MODEL") {
+   717        res.status(422).json({
+   718          ...base,
+   719          error: "The configured OpenRouter model is no longer available.",
+   720          hint: "Select a current free model or clear the stale model override.",
+   721        });
+   722        return true;
+   723      }
+   724      res.status(422).json({
+   725        ...base,
+   726        error: "AI provider configuration is invalid.",
+   727        hint: `Re-save your ${providerLabel} API key.`,
+   728      });
+   729      return true;
+   730    default:
+   731      res.status(502).json({ ...base, error: `${providerLabel} provider error.`, hint: "Try again in a moment." });
+   732      return true;
+   733  }
+   734}
+   735
+   736type ProviderAvailabilityState =
+   737  | "missing_credentials"
+   738  | "authentication_failed"
+   739  | "no_compatible_free_model"
+   740  | "catalog_stale"
+   741  | "quota_exhausted"
+   742  | "rate_limited"
+   743  | "provider_outage";
+   744
+   745function providerAvailabilityProjection(
+   746  err: GroqClientError,
+   747  providerId: ProviderId,
+   748  providerConsole: string,
+   749  providerStatus: string,
+   750): {
+   751  availabilityState: ProviderAvailabilityState;
+   752  operatorAction: string;
+   753  catalogStatus?: string;
+   754} {
+   755  if (err.code === "AUTH_ERROR") {
+   756    return {
+   757      availabilityState: "authentication_failed",
+   758      operatorAction: `Replace the ${providerId} API key with a valid key from ${providerConsole}, then retry.`,
+   759    };
+   760  }

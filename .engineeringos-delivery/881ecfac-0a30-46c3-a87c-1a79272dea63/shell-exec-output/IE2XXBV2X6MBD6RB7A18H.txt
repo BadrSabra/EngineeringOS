@@ -1,0 +1,299 @@
+import { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useUser } from '@clerk/react';
+import { Bot, Send, Plus, ChevronDown, Loader2, User, Zap, Search, Code2, GitMerge, Key, Trash2, Check, FileCode2, ChevronRight, X, Menu, Activity, ShieldAlert, ShieldCheck, CheckCircle2, FileSearch, RotateCcw, Square, Eye, Play, Pause, SkipBack, StepForward, ExternalLink, Clock3, Download, AlertCircle } from 'lucide-react';
+import { Link } from 'wouter';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Input } from '@/components/ui/input';
+import { useToast } from '@/hooks/use-toast';
+import {
+  useListProjects,
+  getListProjectsQueryKey,
+  classifyProjectError,
+  isRetryableProjectError,
+  emitProjectLoadFailed,
+  useAiChatStream,
+  useAiTaskStream,
+  useGetDeepSeekKeyStatus,
+  useGetGroqKeyStatus,
+  useGetProviderKeyStatus,
+  useGetOpenRouterKeyStatus,
+  useGetActiveProvider,
+  useGetAiMetrics,
+  useGetAiExecution,
+  useListAiExecutionHistory,
+  useListAiChatSessions,
+  useListAiChatMessages,
+  useGetAiPendingProposal,
+  useListEvents,
+  useGetAiChatFileContent,
+  getGetAiChatFileContentQueryKey,
+  useSaveDeepSeekKey,
+  useDeleteDeepSeekKey,
+  useSaveGroqKey,
+  useDeleteGroqKey,
+  useSaveGeminiKey,
+  useDeleteGeminiKey,
+  useSaveOpenRouterKey,
+  useDeleteOpenRouterKey,
+  useAiApplyChanges,
+  useAiRebaseChanges,
+  useApproveAiRebasedProposal,
+  useRejectAiChangeProposal,
+  useGitCommit,
+  useGitPush,
+} from '@workspace/api-client-react';
+// Canonical AI Model Capability Probe prompt — no manual paste of the probe
+// body. Imported via ai-orchestrator's leaf subpath so the browser bundle does
+// not pull server-only deps (groq-sdk, db) into the client.
+import { CAPABILITY_PROBE_MESSAGE } from '@workspace/ai-orchestrator/capability-probe';
+import type {
+  AiStreamErrorEvent,
+  AiExecutionNodeSnapshot,
+  AiScanAnalysis,
+  AiCodeReview,
+  AiStreamExecutionSummary,
+  AiCrossFileSemanticTrace,
+  AiProductionReachabilityTrace,
+  AiBehaviorEvidence,
+  MissionCorrelationReport,
+  Event as ApiEvent,
+  ExportAiExecutionAudit200,
+} from '@workspace/api-client-react';
+import type { BrowserValidationBlockReason, PublicValidationResult } from '@workspace/ai-orchestrator';
+// Keep the shared structured error type for translating SSE failures into
+// the same user-facing error format as regular API requests.
+import { ApiError } from '@/lib/api-fetch';
+import {
+  readMissionCorrelationReportGeneratedAt,
+  readStoredMissionCorrelationReport,
+} from '@/lib/mission-correlation-report';
+
+type Project = { id: string; name: string; language: string };
+type BrowserValidationProfileFreshness = {
+  name: string;
+  freshnessStatus: 'fresh' | 'stale';
+  freshnessReason: 'stale_revision' | null;
+  currentRevision: string;
+};
+type BenchmarkScorecard = {
+  suiteVersion?: string;
+  generatedAt?: string;
+  provider?: string;
+  model?: string | null;
+  metrics?: {
+    observedCases?: number;
+    totalCases?: number;
+    gradeCounts?: Record<string, number>;
+    providerUnavailableCount?: number;
+    falseSuccessRate?: number;
+    scopeEscapeRate?: number;
+    correctCompletionRate?: number;
+  };
+  rolloutAllowed?: boolean;
+  rolloutBlockers?: string[];
+  baseline?: {
+    baselineId?: string;
+    suiteVersion?: string;
+    generatedAt?: string;
+  };
+  baselineComparison?: {
+    status?: 'missing' | 'incompatible' | 'regressed' | 'passed';
+    baselineId?: string;
+    baselineGeneratedAt?: string;
+    metricDeltas?: {
+      correctCompletionRate?: number;
+      firstAttemptRate?: number;
+      safelyBlockedRate?: number;
+    };
+    blockers?: string[];
+  };
+};
+type ChatMessage = {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  sources?: string;
+  toolTrace?: string | null;
+  turnIntent?: string | null;
+  executionId?: string | null;
+  outcome?: 'SUCCEEDED' | 'FAILED' | 'INTERRUPTED' | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  /** Optional persisted release report attached to a historical run. */
+  missionCorrelationReport?: MissionCorrelationReport | null;
+  /** The API found a non-null persisted report that is not readable by this dashboard. */
+  missionCorrelationReportError?: boolean;
+  /** Safe operational timeline captured from the live SSE run. */
+  activityEvents?: LiveAgentActivityEvent[];
+  /** Accepted behavior-evidence excerpts, optionally with an exact source line span. */
+  behaviorEvidence?: AiBehaviorEvidence[] | string | null;
+  /** AI-008: per-task typed result from the SSE done event. Absent on generic turns and reloaded history. */
+  taskResult?: AiTaskResult | null;
+  operationMode?: OperationMode;
+  structuredTask?: 'analyze' | 'review';
+  failureKind?: AiStreamErrorEvent['failureKind'];
+  createdAt: string;
+};
+
+type OperationMode = 'FORENSIC_AUDIT' | 'DELIVERY' | 'CHAT';
+type DeliveryLifecycle =
+  | 'proposed' | 'isolated' | 'validated' | 'applied' | 'conflicted'
+  | 'committed' | 'cancelled' | 'abandoned' | 'blocked';
+type RecoverableDelivery = {
+  proposalId: string;
+  operationId: string;
+  projectRevision?: string | null;
+  changeSetHash?: string | null;
+  sessionId: string;
+  lifecycle: DeliveryLifecycle;
+  status: string;
+  createdAt: string;
+  conflictReason?: string | null;
+  recoveryState: 'recoverable' | 'missing_workspace' | 'discarded';
+  operatorExplanation: string;
+  nextAction: string;
+  validationEvidence?: PublicValidationResult[] | null;
+  workspaceAvailable: boolean;
+  changeCount: number;
+};
+
+function CandidateValidationProof({
+  evidence,
+  operationId,
+  projectRevision,
+  changeSetHash,
+  lifecycle,
+}: {
+  evidence?: PublicValidationResult[] | null;
+  operationId?: string | null;
+  projectRevision?: string | null;
+  changeSetHash?: string | null;
+  lifecycle?: DeliveryLifecycle | null;
+}) {
+  const receipts = evidence?.filter((item) => item && item.evidence) ?? [];
+  const hasEvidence = receipts.length > 0;
+  const receipt = receipts[0];
+  const displayedOperationId = operationId ?? receipt?.evidence.operationId;
+  const displayedRevision = projectRevision ?? receipt?.evidence.projectRevision;
+  const displayedChangeSetHash = changeSetHash ?? receipt?.evidence.changeSetHash;
+  const isBlocked = lifecycle === 'blocked' || lifecycle === 'conflicted';
+  const isPromoted = lifecycle === 'applied' || lifecycle === 'committed';
+  const statusLabel = !hasEvidence
+    ? 'Unavailable'
+    : isBlocked
+      ? 'Blocked'
+      : isPromoted
+        ? 'Promoted'
+        : evidence?.every((item) => item.status === 'passed')
+          ? 'Validated candidate'
+          : 'Review required';
+  const statusClass = statusLabel === 'Promoted' || statusLabel === 'Validated candidate'
+    ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-200'
+    : statusLabel === 'Blocked' || statusLabel === 'Review required'
+      ? 'border-amber-500/30 bg-amber-500/5 text-amber-200'
+      : 'border-border/60 bg-background/30 text-muted-foreground';
+
+  return (
+    <div className={`border-y px-4 py-3 ${statusClass}`} aria-label="Candidate validation proof">
+      <div className="flex items-center gap-2">
+        <ShieldCheck className="h-4 w-4 shrink-0" />
+        <span className="text-xs font-semibold">Candidate validation receipt</span>
+        <span className="ml-auto rounded-full border border-current/30 px-1.5 py-0.5 text-[10px] font-semibold">
+          {statusLabel}
+        </span>
+      </div>
+      <div className="mt-2 grid gap-1.5 text-[10px] sm:grid-cols-2">
+        <div><span className="text-muted-foreground">Operation ID </span><code className="break-all">{displayedOperationId ?? 'Unavailable'}</code></div>
+        <div><span className="text-muted-foreground">Project revision </span><code className="break-all">{displayedRevision ?? 'Unavailable'}</code></div>
+        <div><span className="text-muted-foreground">Candidate hash </span><code className="break-all">{receipt?.evidence.candidateHash ?? 'Unavailable'}</code></div>
+        <div><span className="text-muted-foreground">Changeset hash </span><code className="break-all">{displayedChangeSetHash ?? 'Unavailable'}</code></div>
+      </div>
+      {hasEvidence ? (
+        <div className="mt-2 space-y-1 border-t border-current/10 pt-2">
+          {receipts.map((item) => (
+            <div key={item.evidence.evidenceId} className="space-y-1">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span className="font-medium">{item.profile}</span>
+                <span className="text-muted-foreground">{item.terminalState ?? item.status}</span>
+                <span className="text-muted-foreground">{item.scenario}</span>
+                {item.evidence.promotedHash && <span className="text-emerald-300">promoted bytes verified</span>}
+              </div>
+              {(item.processBudgetMs !== undefined || item.overallBudgetMs !== undefined) && (
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-muted-foreground">
+                  {item.processBudgetMs !== undefined && <span>process budget {formatValidationDuration(item.processBudgetMs)}</span>}
+                  {item.overallBudgetMs !== undefined && <span>overall budget {formatValidationDuration(item.overallBudgetMs)}</span>}
+                  {item.elapsedMs !== undefined && <span>elapsed {formatValidationDuration(item.elapsedMs)}</span>}
+                  {item.remainingMs !== undefined && <span>remaining {formatValidationDuration(item.remainingMs)}</span>}
+                </div>
+              )}
+              {item.nextAction && <div className="text-current/80">Next safe action: {item.nextAction}</div>}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2 border-t border-current/10 pt-2 text-[10px]">No public validation receipt is available for this candidate.</p>
+      )}
+    </div>
+  );
+}
+
+function formatValidationDuration(valueMs: number): string {
+  if (valueMs < 1000) return `${valueMs} ms`;
+  const seconds = valueMs / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
+  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+}
+
+function browserValidationBlockExplanation(reasonCode: BrowserValidationBlockReason | undefined): {
+  title: string;
+  action: string;
+} | null {
+  switch (reasonCode) {
+    case 'ownership':
+      return {
+        title: 'This browser check is not available for the selected project.',
+        action: 'Choose a project you own or ask its owner to register the check.',
+      };
+    case 'invalid_profile':
+      return {
+        title: 'The browser check profile is not valid for this run.',
+        action: 'Use the approved browser profile instead of retrying the same request.',
+      };
+    case 'resource_limit':
+      return {
+        title: 'The browser check exceeds the Preview resource limits.',
+        action: 'Use a smaller approved check or update the profile before rerunning validation.',
+      };
+    case 'stale_revision':
+      return {
+        title: 'The browser check belongs to an older project revision.',
+        action: 'Refresh the project and create a new approved validation run before retrying.',
+      };
+    default:
+      return null;
+  }
+}
+/**
+ * Structured error from any /api/* endpoint.
+ *
+ * The generated API client handles dashboard requests. This class remains
+ * available for translating structured SSE errors into the same UI format.
+ */
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly errorMessage: string,
+    public readonly hint?: string,
+    public readonly code?: string,
+    /** Provider context forwarded from the API for diagnostic display. */
+    public readonly providerContext?: Record<string, unknown>,
+  ) {
+    super(errorMessage);
+    this.name = 'ApiError';
+  }
+}

@@ -27,6 +27,7 @@ import {
   getBehavioralScorecards,
   getCircuitState,
 } from "@workspace/ai-orchestrator";
+import { getDynamicCatalogStatus } from "@workspace/ai-orchestrator";
 import type { ProviderId } from "@workspace/ai-orchestrator";
 import type { Request, Response } from "express";
 
@@ -179,8 +180,21 @@ router.get("/ai/active-provider", async (req, res) => {
  *
  * Resets on process restart — for runtime observability, not persistent analytics.
  */
-router.get("/ai/metrics", (_req, res) => {
+router.get("/ai/metrics", async (req, res) => {
   const metricsMap = new Map(getProviderMetrics().map((m) => [m.provider, m]));
+  const configuredRows = await db
+    .select({ provider: aiProviderCredentialsTable.provider })
+    .from(aiProviderCredentialsTable)
+    .where(eq(aiProviderCredentialsTable.ownerId, req.userId));
+  const configured = new Set(configuredRows.map((row) => row.provider));
+  // Server-managed keys are intentionally represented only as booleans.
+  // Never include their values, prefixes, or lengths in the response.
+  const serverConfigured = new Set(
+    (["openrouter", "gemini", "deepseek", "groq"] as const).filter((provider) =>
+      Boolean(process.env[`${provider.toUpperCase()}_API_KEY`]),
+    ),
+  );
+  const catalog = getDynamicCatalogStatus();
 
   // Merge circuit state into each metric snapshot; include all known providers
   // even if no requests have been recorded yet (so the UI always has an entry).
@@ -193,8 +207,35 @@ router.get("/ai/metrics", (_req, res) => {
       consecutiveFailures: 0,
     };
     const circuit = getCircuitState(provider);
+    const isConfigured = configured.has(provider) || serverConfigured.has(provider);
+    const isCatalogStale =
+      provider === "openrouter" &&
+      isConfigured &&
+      catalog.loaded &&
+      (!catalog.usable || catalog.lastRefreshStatus === "failed" || catalog.lastRefreshStatus === "empty");
+    const availabilityState = !isConfigured
+      ? "missing_credentials"
+      : circuit.open
+        ? "circuit_open"
+        : isCatalogStale
+          ? "catalog_stale"
+          : metric.requests === 0
+            ? "unknown"
+            : metric.consecutiveFailures > 0 || (metric.successRate !== null && metric.successRate < 0.8)
+              ? "degraded"
+              : "healthy";
     return {
       ...metric,
+      configured: isConfigured,
+      availabilityState,
+      operatorAction: !isConfigured
+        ? "Save an API key for this provider to enable it."
+        : circuit.open
+          ? "Wait for the cooldown to finish, then retry or configure another provider."
+          : isCatalogStale
+            ? "Retry shortly so the model catalog can refresh; configure another provider if it persists."
+            : null,
+      correlationId: randomUUID(),
       circuitOpen:         circuit.open,
       circuitHalfOpen:     circuit.halfOpen,
       cooldownRemainingMs: circuit.cooldownRemainingMs,
@@ -203,6 +244,12 @@ router.get("/ai/metrics", (_req, res) => {
 
   return res.json({
     metrics: enriched,
+    catalog: {
+      loaded: catalog.loaded,
+      usable: catalog.usable,
+      ageMs: catalog.ageMs,
+      lastRefreshStatus: catalog.lastRefreshStatus,
+    },
     behavioralScorecards: getBehavioralScorecards(),
   });
 });

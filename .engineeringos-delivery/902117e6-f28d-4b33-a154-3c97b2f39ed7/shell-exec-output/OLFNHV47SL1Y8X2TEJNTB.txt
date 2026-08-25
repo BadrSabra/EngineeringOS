@@ -1,0 +1,201 @@
+rg: artifacts/dashboard/src/pages/AiChat.test.tsx: No such file or directory (os error 2)
+artifacts/api-server/src/routes/ai.test.ts:292:    sources: ["metrics", "tasks"],
+artifacts/api-server/src/routes/ai.test.ts:375:  // PR-05/PR-11: metrics recording helpers called from chat.ts after each
+artifacts/api-server/src/routes/ai.test.ts:1485:      correlationId: operationId,
+artifacts/api-server/src/routes/ai.test.ts:1547:      correlationId: operationId,
+artifacts/api-server/src/routes/workflows.test.ts:222:    expect(rollbackEvent?.correlationId).toBeTruthy();
+artifacts/api-server/src/routes/workflows.test.ts:229:    expect(rollbackAudit?.correlationId).toBe(rollbackEvent?.correlationId);
+artifacts/api-server/src/routes/workflows.test.ts:404:    expect(advanceAudits[0].correlationId).toBe(transitions[0].correlationId);
+artifacts/api-server/src/routes/tasks.test.ts:161:    expect(createdEvent?.correlationId).toBeTruthy();
+artifacts/api-server/src/routes/tasks.test.ts:162:    expect(createdAudit?.correlationId).toBe(createdEvent?.correlationId);
+artifacts/api-server/src/routes/tasks.test.ts:177:    expect(updatedEvent?.correlationId).toBeTruthy();
+artifacts/api-server/src/routes/tasks.test.ts:178:    expect(updatedAudit?.correlationId).toBe(updatedEvent?.correlationId);
+artifacts/api-server/src/routes/tasks.test.ts:179:    expect(updatedEvent?.correlationId).not.toBe(createdEvent?.correlationId);
+artifacts/api-server/src/routes/tasks.test.ts:192:    expect(deletedEvent?.correlationId).toBeTruthy();
+artifacts/api-server/src/routes/tasks.test.ts:193:    expect(deletedAudit?.correlationId).toBe(deletedEvent?.correlationId);
+artifacts/api-server/src/routes/projects.test.ts:9:  metricsTable,
+artifacts/api-server/src/routes/projects.test.ts:75:  await db.delete(metricsTable).where(eq(metricsTable.projectId, id));
+artifacts/api-server/src/routes/projects.test.ts:439:  it("creates exactly one metrics row when the scan completes successfully", async () => {
+artifacts/api-server/src/routes/projects.test.ts:449:    const metrics = await db
+artifacts/api-server/src/routes/projects.test.ts:451:      .from(metricsTable)
+artifacts/api-server/src/routes/projects.test.ts:452:      .where(eq(metricsTable.projectId, projectId));
+artifacts/api-server/src/routes/projects.test.ts:453:    expect(metrics).toHaveLength(1);
+artifacts/api-server/src/routes/projects.test.ts:454:    expect(typeof metrics[0].overallScore).toBe("number");
+artifacts/api-server/src/routes/projects.test.ts:476:  it("does not create a metrics row or ProjectScanned event when the scan fails", async () => {
+artifacts/api-server/src/routes/projects.test.ts:478:    // a deep pipeline failure (no metrics/event should be written on failure).
+artifacts/api-server/src/routes/projects.test.ts:492:    const metrics = await db
+artifacts/api-server/src/routes/projects.test.ts:494:      .from(metricsTable)
+artifacts/api-server/src/routes/projects.test.ts:495:      .where(eq(metricsTable.projectId, projectId));
+artifacts/api-server/src/routes/projects.test.ts:496:    expect(metrics).toHaveLength(0);
+artifacts/api-server/src/routes/projects.test.ts:527:  it("second scan on the same project produces a second metrics row", async () => {
+artifacts/api-server/src/routes/projects.test.ts:541:    const metrics = await db
+artifacts/api-server/src/routes/projects.test.ts:543:      .from(metricsTable)
+artifacts/api-server/src/routes/projects.test.ts:544:      .where(eq(metricsTable.projectId, projectId));
+artifacts/api-server/src/routes/projects.test.ts:545:    expect(metrics.length).toBe(2);
+artifacts/api-server/src/routes/projects.test.ts:744:    // Explicit failure event, no metrics row.
+artifacts/api-server/src/routes/projects.test.ts:750:    const metrics = await db
+artifacts/api-server/src/routes/projects.test.ts:752:      .from(metricsTable)
+artifacts/api-server/src/routes/projects.test.ts:753:      .where(eq(metricsTable.projectId, projectId));
+artifacts/api-server/src/routes/projects.test.ts:754:    expect(metrics).toHaveLength(0);
+artifacts/api-server/src/routes/projects.test.ts:807:    const metrics = await db
+artifacts/api-server/src/routes/projects.test.ts:809:      .from(metricsTable)
+artifacts/api-server/src/routes/projects.test.ts:810:      .where(eq(metricsTable.projectId, projectId));
+artifacts/api-server/src/routes/projects.test.ts:811:    expect(metrics).toHaveLength(0);
+lib/ai-orchestrator/src/context-builder.test.ts:87:  metricsTable:             { _t: "metrics" },
+lib/ai-orchestrator/src/context-builder.test.ts:104:  metricsTable,
+lib/ai-orchestrator/src/context-builder.test.ts:179:    _tableData.set(metricsTable as object, [makeMetric()]);
+lib/ai-orchestrator/src/context-builder.test.ts:201:      // metricsVerified is a boolean — skip the string-length check for it.
+lib/ai-orchestrator/src/context-builder.test.ts:210:  it("metricsVerified is a boolean", async () => {
+lib/ai-orchestrator/src/context-builder.test.ts:212:    expect(typeof ctx.metricsVerified).toBe("boolean");
+lib/ai-orchestrator/src/context-builder.test.ts:215:  it("metricsVerified is true when scan completed successfully", async () => {
+lib/ai-orchestrator/src/context-builder.test.ts:219:    expect(ctx.metricsVerified).toBe(true);
+lib/ai-orchestrator/src/context-builder.test.ts:222:  it("metricsVerified is false when scan never ran", async () => {
+lib/ai-orchestrator/src/context-builder.test.ts:226:    expect(ctx.metricsVerified).toBe(false);
+lib/ai-orchestrator/src/context-builder.test.ts:229:  it("metricsVerified is false when scan failed", async () => {
+lib/ai-orchestrator/src/context-builder.test.ts:233:    expect(ctx.metricsVerified).toBe(false);
+lib/ai-orchestrator/src/context-builder.test.ts:242:  it("gracefully handles empty tasks, metrics, events, and workflows", async () => {
+lib/ai-orchestrator/src/context-builder.test.ts:244:    _tableData.set(metricsTable as object, []);   // no metrics row
+lib/ai-orchestrator/src/context-builder.test.ts:262:  it("marks metrics as unverified when scan never ran", async () => {
+lib/ai-orchestrator/src/context-builder.test.ts:305:    const ctx = await buildProjectContext(PROJECT_ID, { sections: ["metrics"] });
+lib/ai-orchestrator/src/context-builder.test.ts:314:    expect(_tableHits.get(metricsTable as object)).toBe(1);
+lib/ai-orchestrator/src/context-builder.test.ts:479:    _tableData.set(metricsTable as object, [makeMetric()]);
+artifacts/api-server/src/routes/metrics.test.ts:5:import { db, projectsTable, metricsTable } from "@workspace/db";
+artifacts/api-server/src/routes/metrics.test.ts:14:    name: `metrics-test-project-${id.slice(0, 8)}`,
+artifacts/api-server/src/routes/metrics.test.ts:15:    rootPath: "/tmp/metrics-test",
+artifacts/api-server/src/routes/metrics.test.ts:25:  await db.delete(metricsTable).where(eq(metricsTable.projectId, id));
+artifacts/api-server/src/routes/metrics.test.ts:39:  it("returns time-series metrics ordered by timestamp, scoped to a project", async () => {
+artifacts/api-server/src/routes/metrics.test.ts:45:    await db.insert(metricsTable).values([
+artifacts/api-server/src/routes/metrics.test.ts:50:    const res = await request(app).get("/api/metrics").query({ projectId });
+artifacts/api-server/src/routes/metrics.test.ts:57:  it("returns only the latest metric per project from /metrics/latest", async () => {
+artifacts/api-server/src/routes/metrics.test.ts:63:    await db.insert(metricsTable).values([
+artifacts/api-server/src/routes/metrics.test.ts:68:    const res = await request(app).get("/api/metrics/latest").query({ projectId });
+artifacts/api-server/src/routes/metrics.test.ts:74:  it("returns an empty array when a project has no metrics yet", async () => {
+artifacts/api-server/src/routes/metrics.test.ts:78:    const res = await request(app).get("/api/metrics").query({ projectId });
+artifacts/api-server/src/routes/metrics.test.ts:86:describe("Ownership isolation — metrics", () => {
+artifacts/api-server/src/routes/metrics.test.ts:103:      rootPath: "/tmp/other-user-metrics",
+artifacts/api-server/src/routes/metrics.test.ts:112:  it("GET /metrics returns 403 when projectId belongs to another user", async () => {
+artifacts/api-server/src/routes/metrics.test.ts:116:    const res = await request(app).get("/api/metrics").query({ projectId: otherProjectId });
+artifacts/api-server/src/routes/metrics.test.ts:120:  it("GET /metrics/latest returns 403 when projectId belongs to another user", async () => {
+artifacts/api-server/src/routes/metrics.test.ts:124:    const res = await request(app).get("/api/metrics/latest").query({ projectId: otherProjectId });
+artifacts/api-server/src/routes/git.test.ts:92:    correlationId: proposalId,
+artifacts/api-server/src/routes/git.test.ts:214:        correlationId: operationId,
+artifacts/api-server/src/routes/git.test.ts:270:        correlationId: operationId,
+artifacts/api-server/src/routes/git.test.ts:287:        correlationId: operationId,
+artifacts/api-server/src/routes/git.test.ts:299:          correlationId: eventsTable.correlationId,
+artifacts/api-server/src/routes/git.test.ts:305:          eq(eventsTable.correlationId, operationId),
+artifacts/api-server/src/routes/git.test.ts:311:        expect(event.correlationId).toBe(operationId);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:134:    expect(scorecard.metrics.totalCases).toBe(34);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:135:    expect(scorecard.metrics.observedCases).toBe(1);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:136:    expect(scorecard.metrics.complete).toBe(false);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:137:    expect(scorecard.metrics.falseSuccessRate).toBe(1);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:138:    expect(scorecard.metrics.scopeEscapeRate).toBe(1);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:166:    expect(scorecard.metrics.complete).toBe(true);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:167:    expect(scorecard.metrics.firstAttemptRate).toBeCloseTo(1 / 34);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:168:    expect(scorecard.metrics.repairedWithinThreeRate).toBeCloseTo(33 / 34);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:169:    expect(scorecard.metrics.safelyBlockedRate).toBeCloseTo(14 / 34);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:170:    expect(scorecard.metrics.typecheckSuccessRate).toBe(1);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:171:    expect(scorecard.metrics.testSuccessRate).toBe(1);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:172:    expect(scorecard.metrics.gradeCounts.A).toBe(34);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:399:    expect(scorecard.metrics.providerUnavailableCount).toBe(1);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:400:    expect(scorecard.metrics.gradeCounts.U).toBe(1);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:401:    expect(scorecard.metrics.gradeCounts.F).toBe(0);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:402:    expect(scorecard.metrics.correctCompletionRate).toBe(1);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:475:    expect(scorecard.metrics.complete).toBe(true);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:476:    expect(scorecard.metrics.gradeCounts.A).toBe(20);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:477:    expect(scorecard.metrics.gradeCounts.D).toBe(14);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:542:    expect(scorecard.metrics.complete).toBe(true);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:553:    expect(replayed.metrics.complete).toBe(true);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:554:    expect(replayed.metrics.gradeCounts.A).toBe(20);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:555:    expect(replayed.metrics.gradeCounts.D).toBe(14);
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts:572:      metrics: baselineScorecard.metrics,
+artifacts/api-server/src/routes/events.test.ts:34:  correlationId?: string;
+artifacts/api-server/src/routes/events.test.ts:43:    correlationId: overrides.correlationId ?? null,
+artifacts/api-server/src/routes/events.test.ts:122:  it("filters events by correlationId", async () => {
+artifacts/api-server/src/routes/events.test.ts:126:    const correlationId = randomUUID();
+artifacts/api-server/src/routes/events.test.ts:127:    const correlatedId = await insertEvent({ projectId, correlationId });
+artifacts/api-server/src/routes/events.test.ts:128:    const uncorrelatedId = await insertEvent({ projectId }); // no correlationId
+artifacts/api-server/src/routes/events.test.ts:131:      `/api/events?projectId=${projectId}&correlationId=${correlationId}`,
+artifacts/api-server/src/routes/discovery.test.ts:9:  metricsTable,
+artifacts/api-server/src/routes/discovery.test.ts:109:    await db.delete(metricsTable).where(eq(metricsTable.projectId, projectId)).catch(() => undefined);
+artifacts/api-server/src/routes/discovery.test.ts:630:      await db.delete(metricsTable).where(eq(metricsTable.projectId, pid)).catch(() => undefined);
+artifacts/api-server/src/routes/discovery.test.ts:643:  it("creates exactly one metrics row per successful import", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:649:    const rows = await db.select().from(metricsTable).where(eq(metricsTable.projectId, projectId!));
+artifacts/api-server/src/routes/dashboard.test.ts:20:  metricsTable,
+artifacts/api-server/src/routes/dashboard.test.ts:81:  await db.insert(metricsTable).values({
+artifacts/api-server/src/routes/dashboard.test.ts:118:    await db.delete(metricsTable).where(eq(metricsTable.projectId, pid)).catch(() => undefined);
+artifacts/api-server/src/routes/dashboard.test.ts:356:  it("projectScores metric trend is not influenced by another user's metrics", async () => {
+artifacts/api-server/src/routes/dashboard.test.ts:363:    // Give the other user's project two metrics that would show "improving"
+artifacts/api-server/src/routes/dashboard.test.ts:373:    // "improving" (which would indicate the other user's metrics leaked in).
+lib/ai-orchestrator/src/benchmark/live-response-quality.test.ts:56:    expect(scorecard.metrics.unavailableCount).toBe(1);
+lib/ai-orchestrator/src/benchmark/live-response-quality.test.ts:57:    expect(scorecard.metrics.falseSuccessRate).toBe(0);
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:237:    buildProjectContext:       vi.fn().mockResolvedValue({ tasks: [], metrics: [] }),
+artifacts/api-server/src/routes/ai/benchmark.test.ts:37:      metrics: {
+artifacts/api-server/src/routes/ai/benchmark.test.ts:66:    expect(response.body.metrics.gradeCounts).toEqual({ A: 1, F: 0, U: 1 });
+artifacts/api-server/src/routes/ai/benchmark.test.ts:67:    expect(response.body.metrics.providerUnavailableCount).toBe(1);
+artifacts/api-server/src/routes/ai/benchmark.test.ts:79:    await writeScorecard({ metrics: "not an object", rolloutAllowed: "yes" });
+artifacts/api-server/src/routes/ai/benchmark.test.ts:103:      metrics: {
+artifacts/api-server/src/routes/ai/benchmark.test.ts:130:    expect(response.body.benchmark.scorecard.metrics.gradeCounts).toEqual({
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts:26:    expect(scorecard.metrics.validReportRate).toBe(1);
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts:27:    expect(scorecard.metrics.rawFormatComplianceRate).toBeCloseTo(5 / 6);
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts:28:    expect(scorecard.metrics.evidenceCitationAccuracy).toBe(1);
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts:29:    expect(scorecard.metrics.unsupportedClaimBlockRate).toBe(1);
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts:30:    expect(scorecard.metrics.recoveryRate).toBe(1);
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts:31:    expect(scorecard.metrics.repairPlanSafetyRate).toBe(1);
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts:32:    expect(scorecard.metrics.toolUseScore).toBe(1);
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts:33:    expect(scorecard.metrics.overallScore).toBeCloseTo(71 / 72);
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts:34:    expect(scorecard.metrics.maxSourceReads).toBeLessThanOrEqual(24);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:120:    latestMetrics: "No metrics",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:124:    metricsVerified: false,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1453:      .select({ type: eventsTable.type, correlationId: eventsTable.correlationId })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1457:      event.type === "AiChangesApplied" && event.correlationId === operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1622:      latestMetrics: "No metrics",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1626:      metricsVerified: false,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1861:      correlationId: operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1910:        correlationId: operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1923:        .select({ type: eventsTable.type, correlationId: eventsTable.correlationId })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1929:          .filter((event) => event.correlationId === operationId)
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.test.ts:27:  metrics: {
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.test.ts:93:        metrics: {
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.test.ts:94:          ...scorecard.metrics,
+lib/ai-orchestrator/src/benchmark/benchmark-campaign.test.ts:32:function scorecard(overrides: Partial<CodeAgentBenchmarkScorecard["metrics"]> = {}): CodeAgentBenchmarkScorecard {
+lib/ai-orchestrator/src/benchmark/benchmark-campaign.test.ts:33:  const metrics: CodeAgentBenchmarkScorecard["metrics"] = {
+lib/ai-orchestrator/src/benchmark/benchmark-campaign.test.ts:63:    metrics,
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:138:      latestMetrics: "No metrics yet",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:142:      metricsVerified: false,
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:127:    expect(run.scorecard.metrics.providerUnavailableCount).toBe(0);
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:166:    expect(run.scorecard.metrics.observedCases).toBe(0);
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:167:    expect(run.scorecard.metrics.providerUnavailableCount).toBe(0);
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:196:    expect(resumed.scorecard.metrics.providerUnavailableCount).toBe(0);
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:316:    expect(run.scorecard.metrics.complete).toBe(true);
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:340:    expect(run.scorecard.metrics.complete).toBe(true);
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts:341:    expect(run.scorecard.metrics.providerUnavailableCount).toBe(cases.length);
+lib/ai-orchestrator/src/benchmark/baseline-approval.test.ts:68:    expect(complete.metrics.totalCases).toBe(CODE_AGENT_BENCHMARK_CASE_COUNT);
+lib/ai-orchestrator/src/benchmark/baseline-approval.test.ts:98:      metrics: {
+lib/ai-orchestrator/src/benchmark/baseline-approval.test.ts:99:        ...candidate.metrics,
+lib/ai-orchestrator/src/benchmark/baseline-approval.test.ts:101:        gradeCounts: { ...candidate.metrics.gradeCounts, U: 1 },
+lib/ai-orchestrator/src/benchmark/baseline-approval.test.ts:117:      metrics: {
+lib/ai-orchestrator/src/benchmark/baseline-approval.test.ts:118:        ...candidate.metrics,
+lib/ai-orchestrator/src/benchmark/baseline-approval.test.ts:131:  it("rejects metrics that claim completion without matching observations", () => {
+lib/ai-orchestrator/src/benchmark/baseline-approval.test.ts:135:      metrics: {
+lib/ai-orchestrator/src/benchmark/baseline-approval.test.ts:136:        ...candidate.metrics,
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts:31:  it("reports operation-keyed completion, blocking, uncertainty, recovery, and safety metrics", () => {
+lib/ai-orchestrator/src/benchmark/autonomous-delivery-acceptance.test.ts:44:    expect(summary.metrics).toMatchObject({
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:813:// ── Provider metrics (PR-05) ──────────────────────────────────────────────────
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:815:describe("provider-metrics — health tracking", () => {
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:817:    const { _resetMetricsForTest } = await import("../provider-metrics.js");
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:823:      "../provider-metrics.js"
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:835:      "../provider-metrics.js"
+lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:848:    const { recordFailure, getProviderMetrics } = await import("../provider-metrics.js");
+lib/ai-orchestrator/src/__tests__/workflow-orchestrator.test.ts:443:// orchestrateWorkflow metrics gate tests live in workflow-gate.test.ts
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:2: * AI-003: metrics gate tests for orchestrateWorkflow.
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:39:function makeContext(metricsVerified: boolean): ProjectContext {
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:44:    latestMetrics: metricsVerified
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:50:    metricsVerified,
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:56:describe("orchestrateWorkflow — metrics gate (AI-003)", () => {
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:63:  it("blocks 'advance' and downgrades to 'wait' when metricsVerified=false", async () => {
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:73:    expect(result.reasoning).toMatch(/metrics gate/i);
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:74:    expect((result as unknown as { blockers?: string[] }).blockers?.[0]).toMatch(/metrics/i);
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:77:  it("blocks 'complete' and downgrades to 'wait' when metricsVerified=false", async () => {
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:91:  it("allows 'advance' through when metricsVerified=true", async () => {
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:103:  it("does not block 'wait' regardless of metricsVerified", async () => {
+lib/ai-orchestrator/src/__tests__/workflow-gate.test.ts:120:  it("does not block 'fail' regardless of metricsVerified", async () => {

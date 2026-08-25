@@ -1,0 +1,220 @@
+./.engineeringos-delivery/03bc8a19-1050-481e-8785-10177c132c3a/lib/ai-orchestrator/apply-test-886a3b32.ts
+./.engineeringos-delivery/08f8d990-43aa-4e7f-b16e-d0ea68215961/lib/ai-orchestrator/apply-rollback-failure-a70fd9c7.ts
+./.engineeringos-delivery/0a08a6fb-d0df-496a-91fc-5f9f067312d2/lib/ai-orchestrator/apply-test-428cdd0c.ts
+./.engineeringos-delivery/0c42ade6-e29b-49b7-b5b3-4a958137c211/lib/ai-orchestrator/apply-rollback-failure-3825f764.ts
+./.engineeringos-delivery/2274e8cc-3088-448e-88af-cb39f5643b92/lib/ai-orchestrator/apply-test-ef4cbc90.ts
+./.engineeringos-delivery/2296e6c1-d077-454f-a858-f9a61d8f5db2/lib/ai-orchestrator/apply-replay-4b545fe9.ts
+./.engineeringos-delivery/24e488d1-e2e8-49b5-b66e-fb962c927102/lib/ai-orchestrator/apply-rollback-failure-8965ce9a.ts
+./.engineeringos-delivery/256f3317-d6af-4a95-8543-12171596f599/lib/ai-orchestrator/apply-replay-3204c4a3.ts
+./.engineeringos-delivery/27b9c1ce-a28d-420a-928f-229055133baa/lib/ai-orchestrator/apply-test-74c8079d.ts
+./.engineeringos-delivery/3d37fcfc-ae27-411e-8aa6-2c0f2c690dbc/lib/ai-orchestrator/apply-replay-9c483ee6.ts
+./.engineeringos-delivery/3e20bbc4-f00d-4603-a3f3-59c968eeae33/lib/ai-orchestrator/apply-test-7df40ab7.ts
+./.engineeringos-delivery/4bea2a04-48fb-46bf-b5d8-ea65a9152631/lib/ai-orchestrator/apply-test-4b868fc2.ts
+./.engineeringos-delivery/51e290bd-2d55-4843-9948-60cb1c483094/lib/ai-orchestrator/apply-rollback-failure-5bf0c256.ts
+./.engineeringos-delivery/62a351b3-9570-41f8-89c0-321c14ea679a/lib/ai-orchestrator/apply-rollback-failure-08747d02.ts
+./.engineeringos-delivery/6b8d8858-c11d-4ff7-9760-14d7b23b5a64/lib/ai-orchestrator/apply-replay-395c73d4.ts
+./.engineeringos-delivery/83a29c19-565c-47c4-93fd-7fd45ec6209f/lib/ai-orchestrator/apply-replay-a16ea8b5.ts
+./.engineeringos-delivery/8e561524-874d-453c-b789-596c7ecd8849/lib/ai-orchestrator/apply-replay-9228ec1b.ts
+./.engineeringos-delivery/a8bc0a01-309c-4098-99f2-d76fb71d992b/lib/ai-orchestrator/apply-rollback-failure-c0e28c59.ts
+./.engineeringos-delivery/baa80658-861b-4cac-b200-e102820b1197/lib/ai-orchestrator/apply-replay-6e42e212.ts
+./.engineeringos-delivery/c9ac3117-5a03-4f02-a212-ad0fcc54f774/lib/ai-orchestrator/apply-test-e76c7d25.ts
+./.engineeringos-delivery/f79e6848-70c4-439b-a0bd-f166ad88297d/lib/ai-orchestrator/apply-rollback-failure-9a51d257.ts
+./.engineeringos-delivery/6434331e-4e73-47b3-8ffc-b8eeb8144471/lib/ai-orchestrator/apply-rollback-failure-0c3eef66.ts
+./.engineeringos-delivery/8dc8d144-eb24-4108-ab63-fbe62cc482b6/lib/ai-orchestrator/apply-test-31f85976.ts
+./.engineeringos-delivery/a3cc1de8-c551-4106-8366-7d5899aa340d/lib/ai-orchestrator/apply-replay-a883b3b3.ts
+./.engineeringos-delivery/3e2200b9-7986-46fc-ba55-b1a53b5559b3/lib/ai-orchestrator/apply-rollback-failure-13e323ee.ts
+./.engineeringos-delivery/6a8c9cdc-6c6c-4d36-98e1-90444403ed7d/lib/ai-orchestrator/apply-test-d5906359.ts
+./.engineeringos-delivery/77eec452-4bf5-4996-9a94-c4d7e2107b31/lib/ai-orchestrator/apply-replay-6e653fe0.ts
+./.engineeringos-delivery/08ccfb8f-c021-49a0-9d51-1e79b90c96a5/lib/ai-orchestrator/apply-test-288c6126.ts
+./.engineeringos-delivery/1a4b7d38-ae64-446a-8453-78bf292df46c/lib/ai-orchestrator/apply-replay-95e31bfc.ts
+./.engineeringos-delivery/7a762ad6-572c-4885-9263-709a2c133118/lib/ai-orchestrator/apply-rollback-failure-bb41f837.ts
+./.engineeringos-delivery/8f53d08d-1298-43b8-b91b-675dbbe653f1/lib/ai-orchestrator/apply-replay-503a4884.ts
+./.engineeringos-delivery/b8012577-f964-406e-8f42-61ccf085852b/lib/ai-orchestrator/apply-rollback-failure-1bb665cf.ts
+./.engineeringos-delivery/c89f399b-0308-4f10-b3a3-52bc77d74adb/lib/ai-orchestrator/apply-test-412636d8.ts
+./.engineeringos-delivery/5e88d712-4e46-4515-9a8c-ef175d860918/lib/ai-orchestrator/apply-replay-51f088df.ts
+./.engineeringos-delivery/aaeb637d-b186-4cee-902a-5686cb485401/lib/ai-orchestrator/apply-test-73529d69.ts
+./.engineeringos-delivery/e76e7ed9-1eaa-41c7-a447-6219b4c7bcb2/lib/ai-orchestrator/apply-rollback-failure-2c94fe86.ts
+./.engineeringos-delivery/2bb40c6b-444a-4209-b9cb-cae3f9a25441/lib/ai-orchestrator/apply-test-303eed45.ts
+./.engineeringos-delivery/7e19e541-4cae-449c-9f81-1753c6bf9cb6/lib/ai-orchestrator/apply-replay-6897017d.ts
+./.engineeringos-delivery/9cc9a860-f4fa-4061-9625-08386d4a43f7/lib/ai-orchestrator/apply-replay-9e70b1d9.ts
+./.engineeringos-delivery/adfc475c-90f4-46ca-9125-7bc8eb6cbb80/lib/ai-orchestrator/apply-rollback-failure-351a73c1.ts
+./artifacts/dashboard/src/pages/AiChat.tsx:515:        <span>Circuit open{cooldownSec != null ? ` · ${cooldownSec}s cooldown` : ''}</span>
+./artifacts/api-server/src/routes/ai.test.ts:261:  // providers.ts imports PROVIDER_REGISTRY and validateProviderKey at module
+./artifacts/api-server/src/routes/ai.test.ts:263:  // "No PROVIDER_REGISTRY export defined" before any test runs.
+./artifacts/api-server/src/routes/ai.test.ts:264:  PROVIDER_REGISTRY: {
+./artifacts/api-server/src/routes/ai.test.ts:281:  validateProviderKey: vi.fn(async () => ({ valid: true })),
+./artifacts/api-server/src/routes/ai.test.ts:352:    readonly catalogStatus?: "never" | "success" | "failed" | "empty";
+./artifacts/api-server/src/routes/ai.test.ts:359:        catalogStatus?: "never" | "success" | "failed" | "empty";
+./artifacts/api-server/src/routes/ai.test.ts:367:      this.catalogStatus = options?.context?.catalogStatus;
+./artifacts/api-server/src/routes/ai.test.ts:371:  // PR-07: circuit breaker — collectAvailableProviders calls isCircuitOpen for
+./artifacts/api-server/src/routes/ai.test.ts:373:  // provider selection throw "No isCircuitOpen export defined on the mock".
+./artifacts/api-server/src/routes/ai.test.ts:374:  isCircuitOpen: vi.fn().mockReturnValue(false),
+./artifacts/api-server/src/routes/ai.test.ts:710:      catalogStatus: "failed" as const,
+./artifacts/api-server/src/routes/ai.test.ts:717:      catalogStatus: "success" as const,
+./artifacts/api-server/src/routes/ai.test.ts:724:      catalogStatus: "success" as const,
+./artifacts/api-server/src/routes/ai.test.ts:730:    catalogStatus,
+./artifacts/api-server/src/routes/ai.test.ts:744:            catalogStatus,
+./artifacts/api-server/src/routes/ai/chat.ts:3755:                  (err.catalogStatus === "failed" || err.catalogStatus === "empty" || err.catalogUsable === false)
+./artifacts/api-server/src/routes/ai/chat.ts:3765:                (err.catalogStatus === "failed" || err.catalogStatus === "empty" || err.catalogUsable === false)
+./artifacts/api-server/src/routes/ai/providers.ts:23:  validateProviderKey,
+./artifacts/api-server/src/routes/ai/providers.ts:24:  PROVIDER_REGISTRY,
+./artifacts/api-server/src/routes/ai/providers.ts:26:  getProviderMetrics,
+./artifacts/api-server/src/routes/ai/providers.ts:28:  getCircuitState,
+./artifacts/api-server/src/routes/ai/providers.ts:37:const VALID_PROVIDERS = new Set<string>(Object.keys(PROVIDER_REGISTRY));
+./artifacts/api-server/src/routes/ai/providers.ts:71:  const config = PROVIDER_REGISTRY[provider];
+./artifacts/api-server/src/routes/ai/providers.ts:75:  const validation = await validateProviderKey(provider, trimmed);
+./artifacts/api-server/src/routes/ai/providers.ts:183:  const metricsMap = new Map(getProviderMetrics().map((m) => [m.provider, m]));
+./artifacts/api-server/src/routes/ai/providers.ts:195:    const circuit = getCircuitState(provider);
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:99:  PROVIDER_REGISTRY: {
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:116:  validateProviderKey:      vi.fn(async () => ({ valid: true })),
+./artifacts/api-server/src/routes/ai-stream-integration.test.ts:155:  isCircuitOpen:           vi.fn().mockReturnValue(false),
+./artifacts/api-server/src/lib/ai-route-helpers.ts:19:  PROVIDER_REGISTRY,
+./artifacts/api-server/src/lib/ai-route-helpers.ts:21:  isCircuitOpen,
+./artifacts/api-server/src/lib/ai-route-helpers.ts:74:  const config = PROVIDER_REGISTRY[provider];
+./artifacts/api-server/src/lib/ai-route-helpers.ts:103:    if (isCircuitOpen(provider)) {
+./artifacts/api-server/src/lib/ai-route-helpers.ts:183:      const label = PROVIDER_REGISTRY[provider]?.label ?? provider;
+./artifacts/api-server/src/lib/ai-route-helpers.ts:599:  const config = PROVIDER_REGISTRY[providerId];
+./artifacts/api-server/src/lib/ai-route-helpers.ts:702:          hint: err.catalogStatus === "failed" || err.catalogStatus === "empty"
+./artifacts/api-server/src/lib/ai-route-helpers.ts:753:  catalogStatus?: string;
+./artifacts/api-server/src/lib/ai-route-helpers.ts:776:    (err.catalogStatus === "failed" || err.catalogStatus === "empty" || err.catalogUsable === false)
+./artifacts/api-server/src/lib/ai-route-helpers.ts:781:      catalogStatus: err.catalogStatus,
+./artifacts/api-server/src/lib/ai-route-helpers.ts:788:      catalogStatus: err.catalogStatus,
+./artifacts/api-server/src/lib/task-execution-service.ts:14:  PROVIDER_REGISTRY,
+./artifacts/api-server/src/lib/task-execution-service.ts:111:    model: PROVIDER_REGISTRY[params.provider]?.defaultModels.powerful ?? "provider-default",
+./artifacts/api-server/src/lib/task-execution-service.ts:143:    model: PROVIDER_REGISTRY[params.provider]?.defaultModels.powerful ?? "provider-default",
+./artifacts/api-server/scripts/run-live-openrouter-free-smoke.mjs:39:    catalogStatus: status.lastRefreshStatus,
+./lib/ai-orchestrator/src/tool-execution-engine.ts:59:import { recordProviderTelemetry } from "./provider-registry.js";
+./lib/ai-orchestrator/src/tool-execution-engine.ts:2757:    recordProviderTelemetry({
+./lib/ai-orchestrator/src/tool-execution-engine.ts:2758:      provider: provider as Parameters<typeof recordProviderTelemetry>[0]["provider"],
+./lib/ai-orchestrator/src/tool-execution-engine.ts:2906:          recordProviderTelemetry({
+./lib/ai-orchestrator/src/tool-execution-engine.ts:2907:            provider: provider as Parameters<typeof recordProviderTelemetry>[0]["provider"],
+./lib/ai-orchestrator/src/openai-compatible-client.ts:360:function extractProviderError(body: string): { code?: string; message?: string } {
+./lib/ai-orchestrator/src/openai-compatible-client.ts:430:  const { code: pCode, message: pMessage } = extractProviderError(body);
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1224:          catalogStatus: catalog.lastRefreshStatus,
+./lib/ai-orchestrator/src/openai-compatible-client.ts:1311:      catalogStatus: catalog.lastRefreshStatus,
+./lib/ai-orchestrator/src/errors.ts:64:export type ProviderErrorContext = {
+./lib/ai-orchestrator/src/errors.ts:82:  catalogStatus?: "never" | "success" | "failed" | "empty";
+./lib/ai-orchestrator/src/errors.ts:92:export function redactProviderErrorText(value: string): string {
+./lib/ai-orchestrator/src/errors.ts:100:function redactProviderContext(context: ProviderErrorContext): ProviderErrorContext {
+./lib/ai-orchestrator/src/errors.ts:103:    providerCode: context.providerCode ? redactProviderErrorText(context.providerCode) : context.providerCode,
+./lib/ai-orchestrator/src/errors.ts:104:    providerMessage: context.providerMessage ? redactProviderErrorText(context.providerMessage) : context.providerMessage,
+./lib/ai-orchestrator/src/errors.ts:105:    providerName: context.providerName ? redactProviderErrorText(context.providerName) : context.providerName,
+./lib/ai-orchestrator/src/errors.ts:106:    providerModel: context.providerModel ? redactProviderErrorText(context.providerModel) : context.providerModel,
+./lib/ai-orchestrator/src/errors.ts:107:    providerAttemptedModels: context.providerAttemptedModels?.map(redactProviderErrorText),
+./lib/ai-orchestrator/src/errors.ts:110:    catalogStatus: context.catalogStatus,
+./lib/ai-orchestrator/src/errors.ts:111:    catalogError: context.catalogError ? redactProviderErrorText(context.catalogError) : context.catalogError,
+./lib/ai-orchestrator/src/errors.ts:128:  readonly catalogStatus?: ProviderErrorContext["catalogStatus"];
+./lib/ai-orchestrator/src/errors.ts:134:    options?: { cause?: unknown; context?: ProviderErrorContext },
+./lib/ai-orchestrator/src/errors.ts:136:    super(redactProviderErrorText(message), { cause: options?.cause });
+./lib/ai-orchestrator/src/errors.ts:149:      this.catalogStatus = options.context.catalogStatus;
+./lib/ai-orchestrator/src/errors.ts:155:  toProviderContext(): ProviderErrorContext {
+./lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts:14:import { redactProviderErrorText } from "../errors.js";
+./lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts:230:  return redactProviderErrorText(value).slice(0, 200);
+./lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts:409:      ? raw.model === null ? null : redactProviderErrorText(raw.model).slice(0, 200)
+./lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:1:import { GroqClientError, redactProviderErrorText, type GroqErrorCode } from "../errors.js";
+./lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:93:  const attemptedModels = model ? [redactProviderErrorText(model).slice(0, 200)] : [];
+./lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:109:      model: model ? redactProviderErrorText(model).slice(0, 200) : null,
+./lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:222:        ? redactProviderErrorText(response.model ?? options.model!).slice(0, 200)
+./lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:229:      attemptedModels: response.model ?? options.model ? [redactProviderErrorText(response.model ?? options.model!).slice(0, 200)] : [],
+./lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:271:    const isProviderError = error instanceof GroqClientError;
+./lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:272:    const attemptedModels = isProviderError
+./lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:276:      model: isProviderError ? error.providerModel ?? options.model ?? null : options.model ?? null,
+./lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:277:      failureCode: isProviderError ? error.code : "NETWORK_ERROR",
+./lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:278:      failureReason: isProviderError
+./lib/ai-orchestrator/src/benchmark/provider-health-probe.ts:285:        .map((model) => redactProviderErrorText(model).slice(0, 200));
+./lib/ai-orchestrator/src/provider-strategy.ts:9: *   3. A new entry in `PROVIDER_REGISTRY` and `PROVIDER_PRIORITY`.
+./lib/ai-orchestrator/src/provider-metrics.ts:5: * Exposed via getProviderMetrics() and surfaced through /api/ai/metrics.
+./lib/ai-orchestrator/src/provider-metrics.ts:112:export function getProviderMetrics(): ProviderMetricsSnapshot[] {
+./lib/ai-orchestrator/src/openrouter/index.ts:25:  isCircuitOpen,
+./lib/ai-orchestrator/src/openrouter/index.ts:26:  recordCircuitFailure,
+./lib/ai-orchestrator/src/openrouter/index.ts:27:  recordCircuitSuccess,
+./lib/ai-orchestrator/src/openrouter/index.ts:28:  getCircuitState,
+./lib/ai-orchestrator/src/openrouter/index.ts:29:  _resetCircuitsForTest,
+./lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:2: * PR-07 — Circuit Breaker for AI Providers
+./lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:20:type CircuitState = {
+./lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:28:const _circuits = new Map<string, CircuitState>();
+./lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:30:function getOrCreate(provider: string): CircuitState {
+./lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:43:export function isCircuitOpen(provider: string): boolean {
+./lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:86:export function recordCircuitFailure(provider: string): void {
+./lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:114:export function recordCircuitSuccess(provider: string): void {
+./lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:139:export function getCircuitState(provider: string): {
+./lib/ai-orchestrator/src/openrouter/circuit-breaker.ts:166:export function _resetCircuitsForTest(): void {
+./lib/ai-orchestrator/src/model-selection/model-resolver.ts:119:            catalogStatus: catalog.lastRefreshStatus,
+./lib/ai-orchestrator/src/index.ts:30:export { agentComplete, validateProviderKey } from "./agent-complete.js";
+./lib/ai-orchestrator/src/index.ts:32:export { PROVIDER_REGISTRY, PROVIDER_PRIORITY, getProvider, loadProvider, discoverProvider, discoverProviders, registerProvider, getProviderCapabilities, getStrategy } from "./provider-registry.js";
+./lib/ai-orchestrator/src/index.ts:603:export type { ProviderErrorContext } from "./errors.js";
+./lib/ai-orchestrator/src/index.ts:613:  getProviderMetrics,
+./lib/ai-orchestrator/src/index.ts:632:  isCircuitOpen,
+./lib/ai-orchestrator/src/index.ts:633:  recordCircuitFailure,
+./lib/ai-orchestrator/src/index.ts:634:  recordCircuitSuccess,
+./lib/ai-orchestrator/src/index.ts:635:  getCircuitState,
+./lib/ai-orchestrator/src/groq-client.ts:111:// ── Circuit Breaker ──────────────────────────────────────────────────────────
+./lib/ai-orchestrator/src/groq-client.ts:126:type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN";
+./lib/ai-orchestrator/src/groq-client.ts:127:interface CircuitEntry {
+./lib/ai-orchestrator/src/groq-client.ts:128:  state: CircuitState;
+./lib/ai-orchestrator/src/groq-client.ts:132:const _circuits = new Map<string, CircuitEntry>();
+./lib/ai-orchestrator/src/groq-client.ts:134:function getCircuit(key: string): CircuitEntry {
+./lib/ai-orchestrator/src/groq-client.ts:148:  const cb = getCircuit(key);
+./lib/ai-orchestrator/src/groq-client.ts:162:  const cb = getCircuit(key);
+./lib/ai-orchestrator/src/groq-client.ts:332:    const remaining = Math.max(0, Math.ceil((getCircuit(circuitKey).openedAt + CIRCUIT_RESET_MS - Date.now()) / 1_000));
+./lib/ai-orchestrator/src/groq-client.ts:494: * the Groq API rejects stream + tools together in most configurations. Circuit-breaker
+./lib/ai-orchestrator/src/groq-client.ts:516:      Math.ceil((getCircuit(circuitKey).openedAt + CIRCUIT_RESET_MS - Date.now()) / 1_000),
+./lib/ai-orchestrator/src/groq-client.ts:591:    const remaining = Math.max(0, Math.ceil((getCircuit(circuitKey).openedAt + CIRCUIT_RESET_MS - Date.now()) / 1_000));
+./lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:26:  isCircuitOpen,
+./lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:27:  recordCircuitFailure,
+./lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:28:  recordCircuitSuccess,
+./lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:56:    if (isCircuitOpen("openrouter")) {
+./lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:114:      recordCircuitSuccess("openrouter");
+./lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:128:      recordCircuitFailure("openrouter");
+./lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:159:    if (isCircuitOpen("openrouter")) {
+./lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:206:      recordCircuitSuccess("openrouter");
+./lib/ai-orchestrator/src/strategies/openrouter.strategy.ts:216:      recordCircuitFailure("openrouter");
+./lib/ai-orchestrator/src/agent-complete.ts:124:export async function validateProviderKey(
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:12: *   • Circuit Breaker Activation    → opens after threshold, skips provider
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:19:  isCircuitOpen,
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:20:  recordCircuitFailure,
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:21:  recordCircuitSuccess,
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:22:  getCircuitState,
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:23:  _resetCircuitsForTest,
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:87:// ── Circuit Breaker ───────────────────────────────────────────────────────────
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:90:  beforeEach(() => _resetCircuitsForTest());
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:93:    expect(isCircuitOpen("openrouter")).toBe(false);
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:94:    const state = getCircuitState("openrouter");
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:100:    for (let i = 0; i < 4; i++) recordCircuitFailure("openrouter");
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:101:    expect(isCircuitOpen("openrouter")).toBe(false);
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:102:    expect(getCircuitState("openrouter").consecutiveFailures).toBe(4);
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:106:    for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:107:    expect(isCircuitOpen("openrouter")).toBe(true);
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:108:    expect(getCircuitState("openrouter").open).toBe(true);
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:112:    for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:113:    expect(isCircuitOpen("openrouter")).toBe(true);
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:115:    const state = getCircuitState("openrouter");
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:119:    _resetCircuitsForTest();
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:120:    recordCircuitSuccess("openrouter");
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:121:    expect(isCircuitOpen("openrouter")).toBe(false);
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:122:    expect(getCircuitState("openrouter").consecutiveFailures).toBe(0);
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:126:    for (let i = 0; i < 3; i++) recordCircuitFailure("openrouter");
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:127:    recordCircuitSuccess("openrouter");
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:128:    expect(getCircuitState("openrouter").consecutiveFailures).toBe(0);
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:132:    for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:133:    const { cooldownRemainingMs } = getCircuitState("openrouter");
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:140:    for (let i = 0; i < 5; i++) recordCircuitFailure("openrouter");
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:141:    expect(isCircuitOpen("openrouter")).toBe(true);
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:142:    expect(isCircuitOpen("groq")).toBe(false);
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:822:    const { recordFailure, recordSuccess, getProviderMetrics } = await import(
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:828:    const snap = getProviderMetrics().find((m) => m.provider === "openrouter");
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:834:    const { recordRequest, recordFailure, recordSuccess, getProviderMetrics } = await import(
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:842:    const snap = getProviderMetrics().find((m) => m.provider === "groq");
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:848:    const { recordFailure, getProviderMetrics } = await import("../provider-metrics.js");
+./lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts:850:    const snap = getProviderMetrics().find((m) => m.provider === "openrouter");
+./lib/ai-orchestrator/src/agents/chat-agent.ts:46:import { getStrategy, recordProviderTelemetry, type ProviderId } from "../provider-registry.js";
+./lib/ai-orchestrator/src/agents/chat-agent.ts:7316:          recordProviderTelemetry({
+./docs/gap-analysis-2026-07-27.md:157:The PROVIDER_REGISTRY pattern exists in `agent-complete.ts` and works correctly there. `chat-agent.ts` was written before the registry was mature and was never refactored to use it.
+./docs/gap-analysis-2026-07-27.md:164:Replace the three ternary chains in `chat-agent.ts` with a lookup against `PROVIDER_REGISTRY[provider]`, matching the pattern already used in `agent-complete.ts`.
+./docs/ai-orchestrator-forensic-analysis.md:388:- Circuit Breaker: Retries are present, but no stateful breaker to trip on sustained downstream failure.
+./docs/ai-orchestrator-executive-table.md:11:| `lib/ai-orchestrator/src/groq-client.ts` | LLM Gateway — الحاجز الوحيد بين الكود وـ Groq API. يدير: تهيئة العميل، إرسال الطلبات، تصنيف الأخطاء، إعادة المحاولة. | (1) `MODEL_FAST = MODEL_POWERFUL` — التمييز بين النموذجين dormant حالياً، أي كل طلب يستهلك موارد النموذج الثقيل. (2) لا يوجد Circuit Breaker — عند انهيار Groq المستمر، كل طلب يكمل الـ 3 retries كاملاً قبل الفشل. (3) `_keyedClients` Map مشترك عبر كل المستخدمين — تسرب API key ممكن نظرياً عبر timing attack على LRU eviction. (4) لا توجد مهلة (timeout) على مستوى الشبكة منفصلة عن مهلة Groq SDK. تحقق: تفعيل `MODEL_FAST` الحقيقي، إضافة circuit breaker stateful. |
+./lib/ai-orchestrator/src/provider-registry.ts:12: *   3. An entry in PROVIDER_REGISTRY and PROVIDER_PRIORITY.
+./lib/ai-orchestrator/src/provider-registry.ts:63:export const PROVIDER_REGISTRY: Record<ProviderId, ProviderConfig> = {
+./lib/ai-orchestrator/src/provider-registry.ts:175:  Object.values(PROVIDER_REGISTRY).map((provider) => [provider.providerId, provider]),
+./lib/ai-orchestrator/src/provider-registry.ts:241: * PROVIDER_REGISTRY without a corresponding strategy entry — caught at dev time).
+./lib/ai-orchestrator/src/provider-registry.ts:276:export function recordProviderTelemetry(entry: ProviderTelemetry): void {

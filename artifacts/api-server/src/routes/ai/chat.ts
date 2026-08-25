@@ -3747,9 +3747,13 @@ router.post("/ai/chat/stream", async (req, res) => {
           correlationId: randomUUID(),
           availabilityState:
             err.code === "AUTH_ERROR" ? "authentication_failed" :
+            err.providerCode === "CIRCUIT_OPEN" ? "circuit_open" :
             err.code === "RATE_LIMITED" ? "rate_limited" :
             err.code === "QUOTA" || err.code === "PLAN_RESTRICTED" ? "quota_exhausted" :
-            err.code === "TIMEOUT" || err.code === "NETWORK_ERROR" || err.code === "SERVER_ERROR" || err.code === "MODEL_UNAVAILABLE"
+            err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE" ||
+              err.providerCode === "MODEL_CAPABILITY_MISMATCH" || err.providerCode === "STALE_CONFIGURED_MODEL"
+              ? "incompatible_model" :
+            err.code === "TIMEOUT" || err.code === "NETWORK_ERROR" || err.code === "SERVER_ERROR"
               ? "provider_outage"
               : err.providerCode === "NO_COMPATIBLE_FREE_MODEL" &&
                   (err.catalogStatus === "failed" || err.catalogStatus === "empty" || err.catalogUsable === false)
@@ -3759,6 +3763,7 @@ router.post("/ai/chat/stream", async (req, res) => {
                   : "provider_outage",
           operatorAction:
             err.code === "AUTH_ERROR" ? "Replace the provider key in Settings, then retry." :
+            err.providerCode === "CIRCUIT_OPEN" ? "Wait for the provider cooldown to finish, then retry or configure another provider." :
             err.code === "RATE_LIMITED" ? "Wait for the rate-limit window to reset, then retry or configure another provider." :
             err.code === "QUOTA" || err.code === "PLAN_RESTRICTED" ? "Add provider credits or configure another provider, then retry." :
             err.providerCode === "NO_COMPATIBLE_FREE_MODEL" &&
@@ -3847,7 +3852,10 @@ router.post("/ai/chat/stream", async (req, res) => {
         sse({
           type: "error",
           code: "unknown",
-          message: redactUserFacingText(err instanceof Error ? err.message : String(err)),
+          message: "The AI provider could not complete the request. Retry in a moment or configure another provider.",
+          availabilityState: "provider_outage",
+          operatorAction: "Retry in a moment; configure another provider if the issue persists.",
+          correlationId: randomUUID(),
         });
       }
       await persistFailedChatTurn({

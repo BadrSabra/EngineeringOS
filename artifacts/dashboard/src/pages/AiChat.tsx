@@ -414,6 +414,10 @@ type ProviderRuntimeMetric = {
   circuitOpen: boolean;
   circuitHalfOpen: boolean;
   cooldownRemainingMs: number | null;
+  configured?: boolean;
+  availabilityState?: 'missing_credentials' | 'authentication_failed' | 'incompatible_model' | 'no_compatible_free_model' | 'catalog_stale' | 'quota_exhausted' | 'rate_limited' | 'circuit_open' | 'provider_outage' | 'degraded' | 'healthy' | 'unknown';
+  operatorAction?: string | null;
+  correlationId?: string;
 };
 type MetricsResponse = { metrics: ProviderRuntimeMetric[] };
 type PendingChange = {
@@ -493,7 +497,7 @@ const AiApiError = ApiError;
  * Shows circuit state, consecutive failures, last success, and avg latency.
  */
 function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | undefined }) {
-  if (!metric || metric.requests === 0) return null;
+  if (!metric) return null;
 
   const cooldownSec = metric.cooldownRemainingMs != null
     ? Math.ceil(metric.cooldownRemainingMs / 1000)
@@ -508,11 +512,35 @@ function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | unde
       })()
     : null;
 
-  if (metric.circuitOpen) {
+  const stateLabels: Record<string, string> = {
+    missing_credentials: 'Not configured',
+    authentication_failed: 'Authentication failed',
+    incompatible_model: 'Model incompatible',
+    no_compatible_free_model: 'No compatible model',
+    catalog_stale: 'Model catalog stale',
+    quota_exhausted: 'Quota exhausted',
+    rate_limited: 'Rate limited',
+    circuit_open: 'Circuit open',
+    provider_outage: 'Provider unavailable',
+    degraded: 'Degraded',
+    healthy: 'Healthy',
+    unknown: 'Ready',
+  };
+  const state = metric.availabilityState ?? (
+    metric.circuitOpen ? 'circuit_open' :
+      metric.requests === 0 ? 'unknown' :
+        metric.consecutiveFailures > 0 ? 'degraded' : 'healthy'
+  );
+  const isActionable = !['healthy', 'unknown'].includes(state);
+
+  if (state === 'circuit_open' || metric.circuitOpen) {
     return (
-      <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-red-400">
+      <div className="mt-1.5 space-y-0.5 text-[10px] text-red-400">
+        <div className="flex items-center gap-1.5">
         <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
-        <span>Circuit open{cooldownSec != null ? ` · ${cooldownSec}s cooldown` : ''}</span>
+          <span>{stateLabels[state]}{cooldownSec != null ? ` · ${cooldownSec}s cooldown` : ''}</span>
+        </div>
+        {metric.operatorAction && <div className="pl-3 text-red-300/80">{metric.operatorAction}</div>}
       </div>
     );
   }
@@ -521,16 +549,22 @@ function ProviderRuntimeBadge({ metric }: { metric: ProviderRuntimeMetric | unde
   const isDegraded = metric.consecutiveFailures > 0 || (metric.successRate != null && metric.successRate < 0.8);
 
   return (
-    <div className="mt-1.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+    <div className={`mt-1.5 space-y-0.5 text-[10px] ${isActionable ? 'text-amber-300' : 'text-muted-foreground'}`}>
+      <div className="flex items-center gap-1.5">
       <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isHealthy ? 'bg-green-400' : isDegraded ? 'bg-yellow-400' : 'bg-muted-foreground'}`} />
       <span className="flex-1 truncate">
-        {metric.consecutiveFailures > 0
+        {isActionable
+          ? stateLabels[state] ?? state.replace(/_/g, ' ')
+          : metric.consecutiveFailures > 0
           ? `${metric.consecutiveFailures} consecutive fail${metric.consecutiveFailures > 1 ? 's' : ''}`
           : lastSuccessLabel
             ? `OK · ${lastSuccessLabel}`
             : 'Active'}
         {metric.avgLatencyMs != null ? ` · ${metric.avgLatencyMs}ms` : ''}
       </span>
+      </div>
+      {metric.operatorAction && <div className="pl-3 text-amber-200/80">{metric.operatorAction}</div>}
+      {isActionable && metric.correlationId && <div className="pl-3 text-muted-foreground">Reference: {metric.correlationId}</div>}
     </div>
   );
 }

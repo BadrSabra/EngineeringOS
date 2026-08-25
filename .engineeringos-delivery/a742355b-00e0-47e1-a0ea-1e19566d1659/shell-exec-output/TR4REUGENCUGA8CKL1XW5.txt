@@ -1,0 +1,457 @@
+          logger.warn(
+            {
+              scope: "chat-route",
+              code: "IMPLEMENTATION_PLAN_SCOPE_BLOCKED",
+              buildPlanMessageId: effectiveBuildPlanMessageId,
+              outOfScopeFiles: [...new Set(outOfScopeFiles)].slice(0, 12),
+            },
+            "Build Mode proposed a file outside the approved implementation plan",
+          );
+          sse({
+            type: "error",
+            code: "IMPLEMENTATION_PLAN_SCOPE_BLOCKED",
+            message: "Build Mode proposed changes outside the approved implementation plan. No proposal was created.",
+            files: [...new Set(outOfScopeFiles)].slice(0, 12),
+          });
+          res.end();
+          return;
+        }
+      }
+      if (approvedImplementationPlan && effectiveBuildPlanMessageId) {
+        await db.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "AiBuildCompleted",
+          projectId,
+          severity: "success",
+          message: "Build Mode completed and produced a scoped proposal",
+          correlationId: effectiveBuildPlanMessageId,
+          payload: {
+            messageId: effectiveBuildPlanMessageId,
+            proposedChanges: result.pendingChanges?.length ?? 0,
+          },
+        });
+      }
+      // PR-05/PR-011: record successful call latency and health.
+      const callLatency = Date.now() - chatStartMs;
+      const effectiveProvider = chatOut.effectiveProvider ?? provider;
+      recordLatency(effectiveProvider, callLatency);
+      recordSuccess(effectiveProvider);
+      // effectiveProvider differs from `provider` when fallback occurred
+      if (chatOut.effectiveProvider && chatOut.effectiveProvider !== provider) {
+        recordFallbackSuccess(provider);
+      }
+    } catch (err) {
+      // PR-011: record failure metrics before emitting the SSE error.
+      recordFailure(provider);
+      if (err instanceof GroqClientError) {
+        if (err.code === "MODEL_NOT_FOUND" || err.code === "MODEL_UNAVAILABLE") {
+          recordInvalidModel(provider);
+        }
+        logger.error(
+          { code: err.code, message: err.message, provider,
+            providerStatus: err.providerStatus, providerModel: err.providerModel },
+          "chat stream: all providers failed",
+        );
+
+        // PR-009: structured error with provider context so the dashboard can
+        // show actionable diagnostics (model name, HTTP status, suggestedFix).
+        const providerCtx = err.toProviderContext() ?? {};
+        // Provider messages can contain request IDs, file paths, or upstream
+        // diagnostics. They remain in the structured server log above, not on
+        // the user-facing stream.
+        const publicProviderCtx = Object.fromEntries(
+          Object.entries(providerCtx).filter(([key]) => key !== "providerMessage"),
+        );
+        const base: Record<string, unknown> = {
+          type: "error",
+          code: err.code,
+          correlationId: randomUUID(),
+          availabilityState:
+            err.code === "AUTH_ERROR" ? "authentication_failed" :
+            err.code === "RATE_LIMITED" ? "rate_limited" :
+            err.code === "QUOTA" || err.code === "PLAN_RESTRICTED" ? "quota_exhausted" :
+            err.code === "TIMEOUT" || err.code === "NETWORK_ERROR" || err.code === "SERVER_ERROR" || err.code === "MODEL_UNAVAILABLE"
+              ? "provider_outage"
+              : err.providerCode === "NO_COMPATIBLE_FREE_MODEL" &&
+                  (err.catalogStatus === "failed" || err.catalogStatus === "empty" || err.catalogUsable === false)
+                ? "catalog_stale"
+                : err.providerCode === "NO_COMPATIBLE_FREE_MODEL"
+                  ? "no_compatible_free_model"
+                  : "provider_outage",
+          operatorAction:
+            err.code === "AUTH_ERROR" ? "Replace the provider key in Settings, then retry." :
+            err.code === "RATE_LIMITED" ? "Wait for the rate-limit window to reset, then retry or configure another provider." :
+            err.code === "QUOTA" || err.code === "PLAN_RESTRICTED" ? "Add provider credits or configure another provider, then retry." :
+            err.providerCode === "NO_COMPATIBLE_FREE_MODEL" &&
+                (err.catalogStatus === "failed" || err.catalogStatus === "empty" || err.catalogUsable === false)
+              ? "Retry shortly so OpenRouter can refresh its model catalog; configure another provider if it persists."
+              : err.providerCode === "NO_COMPATIBLE_FREE_MODEL"
+                ? "Select another compatible model or configure another provider, then retry."
+                : "Retry in a moment; configure another provider if the issue persists.",
+          // PR-007: surface provider context on the wire.
+          ...(Object.keys(publicProviderCtx).length > 0
+            ? { providerContext: redactUserFacingValue(publicProviderCtx) }
+            : {}),
+        };
+
+        switch (err.code) {
+          case "RATE_LIMITED":
+            // SSE headers were flushed before provider execution starts, so
+            // the retry hint must travel in the error event rather than via
+            // HTTP Retry-After.
+            sse({
+              ...base,
+              message: `Rate limit reached on all configured AI providers — retry after ${Math.max(1, Math.ceil((err.retryAfterMs ?? 30_000) / 1000))} seconds.`,
+              retryAfterMs: err.retryAfterMs,
+              retryable: true,
+              suggestedFix: "Retry after the indicated delay or configure another provider.",
+            });
+            break;
+          case "QUOTA":
+            sse({
+              ...base,
+              message: "AI provider billing quota or credits are exhausted.",
+              retryable: false,
+              suggestedFix: "Check your OpenRouter/provider account balance and top up credits.",
+            });
+            break;
+          case "AUTH_ERROR":
+            sse({
+              ...base,
+              message: "AI provider key is invalid or unauthorized.",
+              retryable: false,
+              suggestedFix: "Delete your current provider key and save a valid one in Settings.",
+            });
+            break;
+          case "MODEL_NOT_FOUND":
+            sse({
+              ...base,
+               message: redactUserFacingText(
+                 `All AI model fallbacks exhausted${err.providerModel ? ` (last tried: ${err.providerModel})` : ""} — no model was available.`,
+               ),
+              retryable: false,
+              suggestedFix: "Check your OpenRouter API key and model availability on openrouter.ai/models.",
+            });
+            break;
+          case "PLAN_RESTRICTED":
+            sse({
+              ...base,
+              message: "The selected AI model requires a paid plan or credit balance — all free-tier fallbacks failed.",
+              retryable: false,
+              suggestedFix: "Add credit balance to your OpenRouter account, or save a Groq/Gemini API key as a free fallback.",
+            });
+            break;
+          case "MODEL_UNAVAILABLE":
+            sse({
+              ...base,
+  // GAP-C1: All providers exhausted — surface the full cascade so the caller
+  // (and the user) can see which providers were tried and why each failed,
+  // instead of only seeing the last provider's error code.
+  const cascade = providerErrors.map((e) => `${e.provider}: [${e.code}] ${e.message.slice(0, 120)}`).join(" | ");
+  const exhaustedMsg = cascade
+    ? `All providers failed — ${cascade}`
+    : "No AI provider returned a response";
+  throw lastErr
+    ? new GroqClientError(lastErr.code, exhaustedMsg)
+    : new GroqClientError("EMPTY_RESPONSE", exhaustedMsg);
+}
+
+/**
+ * Rejects the request with 428 if no provider key can be resolved.
+ * Returns { provider, apiKey } on success, null on failure (response already sent).
+ */
+export async function requireProvider(
+  userId: string,
+  res: import("express").Response,
+  options?: ProviderSelectionOptions,
+): Promise<{ provider: ProviderId; apiKey: string } | null> {
+  const resolved = await resolveProvider(userId, options);
+  if (!resolved) {
+    const hint = options?.requireTools
+      ? "Save a tool-capable API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, or groq). Gemini is available for text-only requests."
+      : "Save an API key via PUT /api/ai/providers/:provider/key (openrouter, deepseek, groq, or gemini).";
+    res.status(428).json({
+      error: "AI provider not configured",
+      hint,
+      availabilityState: "missing_credentials",
+      operatorAction: "Save an API key for at least one supported provider, then retry.",
+      correlationId: randomUUID(),
+    });
+    return null;
+  }
+  return resolved;
+}
+
+/**
+ * Rejects the request with 428 if no Groq API key can be resolved.
+ * Kept for backward-compatibility with non-chat routes that only support Groq.
+ */
+export async function requireGroqApiKey(
+  userId: string,
+  res: import("express").Response,
+): Promise<string | null> {
+  const key = await resolveGroqApiKey(userId);
+  if (!key) {
+    res.status(428).json({
+      error: "AI provider not configured",
+      hint: "Save a Groq API key via PUT /api/ai/providers/groq/key or ask your administrator to set GROQ_API_KEY on the server. OpenRouter and DeepSeek are also supported via OPENROUTER_API_KEY and DEEPSEEK_API_KEY.",
+      availabilityState: "missing_credentials",
+      operatorAction: "Save an API key for at least one supported provider, then retry.",
+      correlationId: randomUUID(),
+    });
+    return null;
+  }
+  return key;
+}
+
+// ── Error mapping ─────────────────────────────────────────────────────────────
+
+/**
+ * Maps GroqClientError codes to typed HTTP responses so callers receive a
+ * structured error body instead of a generic 500.
+ *
+ * @param ctx.provider  The provider that actually produced the error.
+ *                      Uses the registry to build provider-accurate labels and URLs.
+ */
+export function handleOrchestratorError(
+  err: unknown,
+  res: import("express").Response,
+  ctx?: { projectId?: string; operation?: string; provider?: ProviderId },
+): boolean {
+  if (!(err instanceof GroqClientError)) return false;
+
+  logger.error(
+    { err, projectId: ctx?.projectId, operation: ctx?.operation, provider: ctx?.provider },
+    "AI orchestrator request failed",
+  );
+
+  if (ctx?.projectId) {
+    void db
+      .insert(eventsTable)
+      .values({
+        id: randomUUID(),
+        type: "AiOrchestratorError",
+        projectId: ctx.projectId,
+        severity: "error",
+        // Provider details stay in the server log below. Events are exposed
+        // through the user-facing activity feed and must not contain raw
+        // provider messages, request IDs, or runtime paths.
+        message: `AI request failed [${err.code}]${ctx.operation ? ` during ${ctx.operation}` : ""}${ctx.provider ? ` (provider: ${ctx.provider})` : ""}`,
+      })
+      .catch(() => {});
+  }
+
+  // Build provider-specific labels and URLs from the registry.
+  const providerId: ProviderId = ctx?.provider ?? "groq";
+  const config = PROVIDER_REGISTRY[providerId];
+  const providerLabel = config?.label ?? "AI provider";
+  const providerConsole = config?.consoleUrl ?? "your provider's dashboard";
+  const providerStatus = config?.statusUrl ?? "your provider's status page";
+
+  const correlationId = randomUUID();
+  const base = {
+    code: err.code,
+    provider: providerId,
+    correlationId,
+    ...providerAvailabilityProjection(err, providerId, providerConsole, providerStatus),
+  };
+
+  switch (err.code) {
+    case "TIMEOUT":
+    case "NETWORK_ERROR":
+      res.status(503).json({ ...base, error: `${providerLabel} is unreachable — try again in a moment.` });
+      return true;
+    case "AUTH_ERROR":
+      res.status(401).json({
+        ...base,
+        error: `${providerLabel} API key is invalid or unauthorized.`,
+        hint: `Delete your current key and save a valid one from ${providerConsole}.`,
+      });
+      return true;
+    case "RATE_LIMITED":
+      if (err.retryAfterMs !== undefined) {
+        res.setHeader("Retry-After", String(Math.ceil(err.retryAfterMs / 1000)));
+      }
+      res.status(429).json({
+        ...base,
+        error: `${providerLabel} rate limit reached — retry after ${Math.max(1, Math.ceil((err.retryAfterMs ?? 30_000) / 1000))} seconds.`,
+        retryAfterMs: err.retryAfterMs,
+        hint: `You've exceeded your ${providerLabel} API quota. Retry after the indicated delay or configure another provider at ${providerConsole}.`,
+      });
+      return true;
+    case "SERVER_ERROR":
+      res.status(502).json({
+        ...base,
+        error: `${providerLabel} server error — this is a temporary infrastructure issue.`,
+        hint: `Try again in a moment. If it persists, check ${providerStatus}.`,
+      });
+      return true;
+    case "MODEL_NOT_FOUND": {
+      const isOpenRouter = providerId === "openrouter";
+      res.status(422).json({
+        ...base,
+        error: `${providerLabel} model has been discontinued or removed.`,
+        hint: isOpenRouter
+          ? `All OpenRouter free-tier models are currently unavailable — the model may have been discontinued. Try a different provider (Groq, DeepSeek, or Gemini) by saving another API key.`
+          : `The configured model slug is no longer accepted by ${providerLabel}. Re-save the provider key or try again after the model catalog refreshes.`,
+      });
+      return true;
+    }
+    // PR-04: plan-restricted models (402 — free-tier limitation)
+    case "PLAN_RESTRICTED": {
+      const isOpenRouter = providerId === "openrouter";
+      res.status(402).json({
+        ...base,
+        error: `${providerLabel} model requires a paid plan or credit balance.`,
+        hint: isOpenRouter
+          ? `The selected OpenRouter model is only available on paid plans. Add a small credit balance at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`
+          : `${providerLabel} requires a paid plan for this model. Check your plan at ${providerConsole}.`,
+      });
+      return true;
+    }
+    // PR-04: model temporarily offline (410/422)
+    case "MODEL_UNAVAILABLE": {
+      res.status(503).json({
+        ...base,
+        error: `${providerLabel} model is temporarily unavailable.`,
+        hint: `The model is temporarily offline or being retired. Try again in a moment, or save a fallback provider key (Groq, DeepSeek, or Gemini) for automatic retry.`,
+      });
+      return true;
+    }
+    // PR-04: billing quota / credits exhausted
+    case "QUOTA": {
+      res.status(402).json({
+        ...base,
+        error: `${providerLabel} billing quota or credits are exhausted.`,
+        hint: `Replenish your ${providerLabel} credits at ${providerConsole}, or save a Groq or Gemini API key as a free fallback.`,
+      });
+      return true;
+    }
+    case "NON_200":
+      res.status(502).json({
+        ...base,
+        error: `${providerLabel} returned an unexpected error.`,
+        hint: `Check your ${providerLabel} API key or try again.`,
+      });
+      return true;
+    case "EMPTY_RESPONSE":
+      res.status(502).json({
+        ...base,
+        error: `${providerLabel} returned an empty response.`,
+        hint: `This may be a transient ${providerLabel} issue — try again.`,
+      });
+      return true;
+    case "INVALID_CONFIG":
+      if (providerId === "openrouter" && err.providerCode === "NO_COMPATIBLE_FREE_MODEL") {
+        res.status(503).json({
+          ...base,
+          error: "No compatible free OpenRouter model is currently available.",
+          hint: err.catalogStatus === "failed" || err.catalogStatus === "empty"
+            ? "OpenRouter's model catalog could not be refreshed. Try again shortly."
+            : "OpenRouter currently has no free model matching this request. Try again later or configure another provider.",
+        });
+        return true;
+      }
+      if (providerId === "openrouter" && err.providerCode === "MODEL_CAPABILITY_MISMATCH") {
+        res.status(422).json({
+          ...base,
+          error: "The selected OpenRouter model no longer supports this request.",
+          hint: "The model catalog changed while this request was starting. Retry to select a current compatible model.",
+        });
+        return true;
+      }
+      if (providerId === "openrouter" && err.providerCode === "STALE_CONFIGURED_MODEL") {
+        res.status(422).json({
+          ...base,
+          error: "The configured OpenRouter model is no longer available.",
+          hint: "Select a current free model or clear the stale model override.",
+        });
+        return true;
+      }
+      res.status(422).json({
+        ...base,
+        error: "AI provider configuration is invalid.",
+        hint: `Re-save your ${providerLabel} API key.`,
+      });
+      return true;
+    default:
+      res.status(502).json({ ...base, error: `${providerLabel} provider error.`, hint: "Try again in a moment." });
+      return true;
+  }
+}
+
+type ProviderAvailabilityState =
+  | "missing_credentials"
+  | "authentication_failed"
+  | "no_compatible_free_model"
+  | "catalog_stale"
+  | "quota_exhausted"
+  | "rate_limited"
+  | "provider_outage";
+
+function providerAvailabilityProjection(
+{
+  "name": "@workspace/api-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "export NODE_ENV=development && pnpm run build && node ./scripts/stop-old-api.mjs && pnpm run start",
+    "build": "node ./build.mjs",
+    "start": "node --enable-source-maps ./dist/index.mjs",
+    "typecheck:dependencies": "tsc --build --force ../../lib/db ../../lib/api-zod ../../lib/api-client-react ../../lib/scanner ../../lib/knowledge-engine ../../lib/ai-orchestrator",
+    "typecheck": "pnpm run typecheck:dependencies && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run && node --test scripts/stop-old-api.test.mjs scripts/release-lock.test.mjs",
+    "test:release-fixture-collisions": "node ./scripts/run-release-fixture-collision-check.mjs",
+    "test:release-synthesis-telemetry": "node ./scripts/run-release-ai-stream.mjs && node ./scripts/run-release-synthesis-telemetry.mjs",
+    "test:process-recovery": "node ./scripts/run-real-process-recovery.mjs",
+    "test:live-empty-model-response": "node ./scripts/run-live-empty-model-response.mjs",
+    "smoke:openrouter-free": "tsx ./scripts/run-live-openrouter-free-smoke.mjs",
+    "benchmark:live": "tsx src/lib/run-code-agent-benchmark.ts",
+    "benchmark:airlock": "tsx src/lib/run-code-agent-benchmark-airlock.ts",
+    "benchmark:coverage": "BENCHMARK_CAMPAIGN_MODE=coverage tsx src/lib/run-code-agent-benchmark-airlock.ts",
+    "benchmark:recovery": "BENCHMARK_CAMPAIGN_MODE=clean-witness BENCHMARK_RECOVERY_ONLY=true tsx src/lib/run-code-agent-benchmark-airlock.ts",
+    "benchmark:witness": "BENCHMARK_CAMPAIGN_MODE=clean-witness tsx src/lib/run-code-agent-benchmark-airlock.ts",
+    "benchmark:canary": "tsx src/lib/run-code-agent-benchmark-airlock.ts",
+    "benchmark:approve-baseline": "tsx src/lib/approve-code-agent-baseline.ts",
+    "benchmark:release-gate": "tsx src/lib/benchmark-release-gate.ts",
+    "validate:ai-release": "tsx src/lib/ai-release-quality-gate.ts"
+  },
+  "dependencies": {
+    "@clerk/express": "^2.1.39",
+    "@clerk/shared": "^4.25.2",
+    "@workspace/ai-orchestrator": "workspace:*",
+    "@workspace/api-zod": "workspace:*",
+    "@workspace/db": "workspace:*",
+    "@workspace/knowledge-engine": "workspace:*",
+    "@workspace/scanner": "workspace:*",
+    "adm-zip": "^0.6.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "drizzle-orm": "catalog:",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
+    "helmet": "^8.2.0",
+    "http-proxy-middleware": "^4.2.0",
+    "multer": "^2.2.0",
+    "pino": "^9.14.0",
+    "pino-http": "^10.5.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.2.0",
+    "@types/node": "catalog:",
+    "@types/supertest": "^7.2.0",
+    "esbuild": "0.27.3",
+    "esbuild-plugin-pino": "^2.3.3",
+    "pino-pretty": "^13.1.3",
+    "supertest": "^7.2.2",
+    "thread-stream": "3.1.0",
+    "tsx": "catalog:",
+    "vitest": "^4.1.10"
+  }
+}

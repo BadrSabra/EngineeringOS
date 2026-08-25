@@ -736,13 +736,15 @@ export function handleOrchestratorError(
 type ProviderAvailabilityState =
   | "missing_credentials"
   | "authentication_failed"
+  | "incompatible_model"
   | "no_compatible_free_model"
   | "catalog_stale"
   | "quota_exhausted"
   | "rate_limited"
+  | "circuit_open"
   | "provider_outage";
 
-function providerAvailabilityProjection(
+export function providerAvailabilityProjection(
   err: GroqClientError,
   providerId: ProviderId,
   providerConsole: string,
@@ -756,6 +758,23 @@ function providerAvailabilityProjection(
     return {
       availabilityState: "authentication_failed",
       operatorAction: `Replace the ${providerId} API key with a valid key from ${providerConsole}, then retry.`,
+    };
+  }
+  if (err.providerCode === "CIRCUIT_OPEN") {
+    return {
+      availabilityState: "circuit_open",
+      operatorAction: "Wait for the provider cooldown to finish, then retry or configure another provider.",
+    };
+  }
+  if (
+    err.code === "MODEL_NOT_FOUND" ||
+    err.code === "MODEL_UNAVAILABLE" ||
+    err.providerCode === "MODEL_CAPABILITY_MISMATCH" ||
+    err.providerCode === "STALE_CONFIGURED_MODEL"
+  ) {
+    return {
+      availabilityState: "incompatible_model",
+      operatorAction: "Choose a compatible current model or configure another provider, then retry.",
     };
   }
   if (err.code === "RATE_LIMITED") {
@@ -788,7 +807,7 @@ function providerAvailabilityProjection(
       catalogStatus: err.catalogStatus,
     };
   }
-  if (err.code === "TIMEOUT" || err.code === "NETWORK_ERROR" || err.code === "SERVER_ERROR" || err.code === "MODEL_UNAVAILABLE") {
+  if (err.code === "TIMEOUT" || err.code === "NETWORK_ERROR" || err.code === "SERVER_ERROR") {
     return {
       availabilityState: "provider_outage",
       operatorAction: `Retry in a moment; if the issue continues, check ${providerStatus} or configure another provider.`,

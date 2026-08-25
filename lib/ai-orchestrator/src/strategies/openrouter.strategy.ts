@@ -66,6 +66,7 @@ export const openrouterStrategy: ProviderStrategy = {
       throw new GroqClientError(
         "MODEL_NOT_FOUND",
         "OpenRouter is temporarily disabled — too many consecutive failures. It will be retried automatically after the cooldown.",
+        { context: { providerCode: "CIRCUIT_OPEN" } },
       );
     }
 
@@ -169,6 +170,7 @@ export const openrouterStrategy: ProviderStrategy = {
       throw new GroqClientError(
         "MODEL_NOT_FOUND",
         "OpenRouter is temporarily disabled — too many consecutive failures.",
+        { context: { providerCode: "CIRCUIT_OPEN" } },
       );
     }
 
