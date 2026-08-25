@@ -402,6 +402,39 @@ describe('AiChat authenticated generated mutations', () => {
     expect(missionControl).toHaveTextContent('provider unavailable for 1 observed case');
   });
 
+  it('keeps failed chat recovery guidance safe after the conversation is reloaded', async () => {
+    const unsafeDiagnostic = [
+      'provider outage: model secret-model-name failed at /home/runner/workspace/artifacts/api-server/src/chat.ts',
+      'apiKey=sk-live-provider-secret',
+      'Support reference: support-chat-outage-34',
+    ].join(' ');
+    mocks.proposalMessages[0] = {
+      ...mocks.proposalMessages[0],
+      content: unsafeDiagnostic,
+      outcome: 'FAILED',
+      failureKind: 'TRANSPORT',
+      errorCode: 'PROVIDER_OUTAGE',
+      errorMessage: unsafeDiagnostic,
+    };
+
+    const firstRender = renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+
+    const assertSafeRecovery = () => {
+      expect(screen.getByText(/temporarily unavailable/i)).toBeInTheDocument();
+      expect(screen.getByText(/Retry in a moment/i)).toBeInTheDocument();
+      expect(screen.getByText('Support reference: support-chat-outage-34')).toBeInTheDocument();
+      const visibleText = document.body.textContent ?? '';
+      expect(visibleText).not.toMatch(/secret-model-name|\/home\/runner|sk-live-provider-secret/i);
+    };
+    assertSafeRecovery();
+
+    firstRender.unmount();
+    renderAiChat();
+    fireEvent.click(await screen.findByRole('button', { name: 'Existing session' }));
+    assertSafeRecovery();
+  });
+
   it('restores a paused execution after refresh and resumes the same execution', async () => {
     mocks.activeExecutionStatus = { status: 'paused' };
     localStorage.setItem('eos_ai_execution_current_project-1', 'session-1');

@@ -698,6 +698,37 @@ function describeAiError(err: unknown): string {
   return String(err);
 }
 
+/**
+ * Chat history can contain provider-shaped diagnostics from older API
+ * versions. Failed turns must render stable recovery guidance rather than
+ * replaying that persisted payload. Support references are deliberately
+ * allowlisted because they are safe for operators to search.
+ */
+function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'errorCode' | 'errorMessage' | 'content'>): string {
+  const raw = [
+    message.failureKind,
+    message.errorCode,
+    message.errorMessage,
+    message.content,
+  ].filter(Boolean).join(' ').toLowerCase();
+  const supportReference = [message.errorMessage, message.content]
+    .map((value) => value?.match(/\bsupport reference:\s*([a-z0-9][a-z0-9_-]{2,80})\b/i)?.[1])
+    .find(Boolean);
+
+  let guidance = 'The AI provider could not complete this request. Try again in a moment.';
+  if (message.failureKind === 'CONFIGURATION' || /authentication|unauthori[sz]|invalid.*key|credential/.test(raw)) {
+    guidance = 'Authentication failed. Check the provider configuration or choose another provider, then retry.';
+  } else if (message.failureKind === 'RATE_LIMIT' || /rate.?limit|quota|429/.test(raw)) {
+    guidance = 'The provider quota or rate limit was reached. Wait a moment, then retry or choose another provider.';
+  } else if (message.failureKind === 'TRANSPORT' || /outage|timeout|temporarily unavailable|disconnected|502|503/.test(raw)) {
+    guidance = 'The provider is temporarily unavailable. Retry in a moment; choose another provider if the issue persists.';
+  }
+
+  return supportReference
+    ? `${guidance} Support reference: ${supportReference}`
+    : guidance;
+}
+
 // AI-specific endpoints use cookie-based Clerk auth (same-origin — no Bearer needed).
 
 /**
@@ -4306,6 +4337,7 @@ function MessageBubble({
   const reportGeneratedAt = !isUser
     ? readMissionCorrelationReportGeneratedAt(msg.missionCorrelationReport)
     : null;
+  const safeFailureMessage = failedTurn ? safeChatRecoveryMessage(msg) : null;
 
   return (
     <div className={`chat-message flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
@@ -4326,13 +4358,12 @@ function MessageBubble({
         >
           {failedTurn ? (
             <>
-              <div className="mb-2 whitespace-pre-wrap">{userFacingContent}</div>
+              <div className="mb-2 whitespace-pre-wrap">{safeFailureMessage}</div>
               <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-200">
                 <div className="font-medium">
                   {msg.outcome === 'INTERRUPTED' ? 'Execution interrupted' : 'Execution failed'}
                 </div>
                 <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-300/80">{failureKindLabel}</div>
-                {msg.errorMessage && <div className="mt-1 text-xs">{msg.errorMessage}</div>}
                 {msg.executionId && (
                   <div className="mt-1 text-[10px] opacity-70">Durable execution: {msg.executionId}</div>
                 )}
