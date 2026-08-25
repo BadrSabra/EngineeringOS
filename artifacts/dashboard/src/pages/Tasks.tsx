@@ -33,6 +33,7 @@ import {
   FileCheck2,
 } from 'lucide-react';
 import { newestUpdatedAt, useMonotonicData } from '@/lib/freshness';
+import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
 
 // ─── Task logs sub-component ──────────────────────────────────────────────────
 // Separated so the hook always runs unconditionally within the mounted component.
@@ -87,6 +88,8 @@ type TaskExecutionReceipt = {
   terminalStatus?: 'SUCCEEDED' | 'BLOCKED' | 'FAILED' | 'CANCELLED';
   terminalReason?: string;
   summary?: string;
+  availabilityState?: string;
+  operatorAction?: string | null;
 };
 
 function parseExecutionReceipt(raw: string | undefined): TaskExecutionReceipt | null {
@@ -732,6 +735,10 @@ export default function Tasks() {
                                 </div>
                                 {receipt.terminalReason && <div className="mt-2 text-muted-foreground">Reason: {safeTaskText(receipt.terminalReason)}</div>}
                                 {receipt.operationId && <div className="mt-2 truncate text-muted-foreground">Operation: {safeTaskText(receipt.operationId)}</div>}
+                                <ProviderRecoveryCard
+                                  recovery={receipt}
+                                  className="mt-3"
+                                />
                               </div>
                             );
                           })()}

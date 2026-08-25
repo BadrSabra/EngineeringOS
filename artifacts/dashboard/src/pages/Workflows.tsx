@@ -32,6 +32,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
 
 function CreateWorkflowModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -299,6 +300,11 @@ function ExecutionHistory({
       ? 'text-amber-500'
       : 'text-muted-foreground';
 
+  type ExecutionWithRecovery = (typeof executions)[number] & {
+    recovery?: Record<string, unknown>;
+    recoverySummary?: Record<string, unknown>;
+  };
+
   return (
     <div className="space-y-2">
       {executions.map((exec) => (
@@ -329,10 +335,16 @@ function ExecutionHistory({
               </div>
             )}
             {exec.errorMessage && (
-              <div className="text-[10px] text-destructive mt-1 truncate" title={exec.errorMessage}>
-                {exec.errorMessage}
+              <div className="text-[10px] text-destructive mt-1 truncate" title="Workflow execution failed">
+                Workflow execution did not complete.
               </div>
             )}
+            {(() => {
+              const execution = exec as ExecutionWithRecovery;
+              const recovery = execution.recovery ?? execution.recoverySummary
+                ?? (exec.errorMessage ? { availabilityState: 'unknown' } : null);
+              return <ProviderRecoveryCard recovery={recovery} className="mt-2" />;
+            })()}
           </div>
           <div className="text-[10px] text-muted-foreground font-mono shrink-0">
             {new Date(exec.startedAt).toLocaleString()}
