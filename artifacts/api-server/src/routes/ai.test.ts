@@ -4237,6 +4237,170 @@ describe("POST /api/ai/tasks/:taskId/execute", () => {
   });
 });
 
+// ─── Provider failure parity for task/workflow AI runs ─────────────────────────
+
+describe("task and workflow provider failure contract", () => {
+  const failureCases = [
+    {
+      name: "authentication",
+      errorCode: "AUTH_ERROR",
+      providerCode: undefined,
+      catalogStatus: undefined,
+      expectedStatus: 401,
+      expectedAvailability: "authentication_failed",
+      provider: "groq" as const,
+    },
+    {
+      name: "model",
+      errorCode: "MODEL_NOT_FOUND",
+      providerCode: undefined,
+      catalogStatus: undefined,
+      expectedStatus: 422,
+      expectedAvailability: "incompatible_model",
+      provider: "groq" as const,
+    },
+    {
+      name: "catalog",
+      errorCode: "INVALID_CONFIG",
+      providerCode: "NO_COMPATIBLE_FREE_MODEL",
+      catalogStatus: "failed" as const,
+      expectedStatus: 503,
+      expectedAvailability: "catalog_stale",
+      provider: "openrouter" as const,
+    },
+    {
+      name: "quota",
+      errorCode: "QUOTA",
+      providerCode: undefined,
+      catalogStatus: undefined,
+      expectedStatus: 402,
+      expectedAvailability: "quota_exhausted",
+      provider: "groq" as const,
+    },
+    {
+      name: "rate-limit",
+      errorCode: "RATE_LIMITED",
+      providerCode: undefined,
+      catalogStatus: undefined,
+      expectedStatus: 429,
+      expectedAvailability: "rate_limited",
+      provider: "groq" as const,
+    },
+    {
+      name: "circuit",
+      errorCode: "MODEL_NOT_FOUND",
+      providerCode: "CIRCUIT_OPEN",
+      catalogStatus: undefined,
+      expectedStatus: 422,
+      expectedAvailability: "circuit_open",
+      provider: "groq" as const,
+    },
+    {
+      name: "outage",
+      errorCode: "SERVER_ERROR",
+      providerCode: undefined,
+      catalogStatus: undefined,
+      expectedStatus: 502,
+      expectedAvailability: "provider_outage",
+      provider: "groq" as const,
+    },
+  ] as const;
+
+  function makeProviderError(
+    GroqClientError: new (
+      code: string,
+      message: string,
+      options?: { context?: { providerCode?: string; catalogStatus?: "never" | "success" | "failed" | "empty"; catalogError?: string } },
+    ) => Error,
+    failure: (typeof failureCases)[number],
+  ): Error {
+    return new GroqClientError(
+      failure.errorCode,
+      `Authorization: Bearer provider-key-secret; upstream ${failure.name} request raw-provider-message at /srv/provider/${failure.name}.ts`,
+      {
+        context: {
+          ...(failure.providerCode ? { providerCode: failure.providerCode } : {}),
+          ...(failure.catalogStatus ? { catalogStatus: failure.catalogStatus } : {}),
+          ...(failure.providerCode === "NO_COMPATIBLE_FREE_MODEL"
+            ? { catalogError: "raw catalog response at /tmp/catalog.json" }
+            : {}),
+        },
+      },
+    );
+  }
+
+  function assertSafeFailureResponse(
+    response: { status: number; body: Record<string, unknown> },
+    failure: (typeof failureCases)[number],
+  ): void {
+    expect(response.status).toBe(failure.expectedStatus);
+    expect(response.body).toMatchObject({
+      code: failure.errorCode,
+      provider: failure.provider,
+      availabilityState: failure.expectedAvailability,
+    });
+    expect(typeof response.body.correlationId).toBe("string");
+    expect(response.body.correlationId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(response.body.operatorAction).toMatch(/retry|replace|configure|choose|select|wait|credits/i);
+
+    const serialized = JSON.stringify(response.body);
+    expect(serialized).not.toContain("provider-key-secret");
+    expect(serialized).not.toContain("Authorization");
+    expect(serialized).not.toContain("raw-provider-message");
+    expect(serialized).not.toContain("raw catalog response");
+    expect(serialized).not.toContain("/srv/provider/");
+    expect(serialized).not.toContain("/tmp/catalog.json");
+  }
+
+  async function withOnlyProvider<T>(
+    provider: (typeof failureCases)[number]["provider"],
+    run: () => Promise<T>,
+  ): Promise<T> {
+    const providerKeys = ["OPENROUTER_API_KEY", "GEMINI_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY"] as const;
+    const saved = Object.fromEntries(providerKeys.map((key) => [key, process.env[key]]));
+    for (const key of providerKeys) delete process.env[key];
+    const envKey = `${provider.toUpperCase()}_API_KEY` as (typeof providerKeys)[number];
+    process.env[envKey] = `test-${provider}-key-for-provider-failure-matrix`;
+    try {
+      return await run();
+    } finally {
+      for (const key of providerKeys) {
+        const value = saved[key];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  }
+
+  it.each(failureCases)("keeps $name guidance safe for task execution", async (failure) => {
+    await withOnlyProvider(failure.provider, async () => {
+      const { GroqClientError, executeTask: mockExecuteTask } = await import("@workspace/ai-orchestrator");
+      vi.mocked(mockExecuteTask).mockRejectedValueOnce(makeProviderError(GroqClientError, failure));
+
+      const projectId = await insertProject();
+      projectIds.push(projectId);
+      const taskId = await insertTask(projectId, "pending");
+
+      const response = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+      assertSafeFailureResponse(response, failure);
+    });
+  });
+
+  it.each(failureCases)("keeps $name guidance safe for workflow orchestration", async (failure) => {
+    await withOnlyProvider(failure.provider, async () => {
+      const { GroqClientError, orchestrateWorkflow: mockOrchestrate } = await import("@workspace/ai-orchestrator");
+      vi.mocked(mockOrchestrate).mockRejectedValueOnce(makeProviderError(GroqClientError, failure));
+
+      const projectId = await insertProject();
+      projectIds.push(projectId);
+      const workflowId = await insertWorkflow(projectId);
+      workflowIds.push(workflowId);
+
+      const response = await request(app).post(`/api/ai/workflows/${workflowId}/orchestrate`).send({});
+      assertSafeFailureResponse(response, failure);
+    });
+  });
+});
 
 describe("resolveProvider tool-capability filtering", () => {
   it("skips Gemini when a request requires tools", async () => {

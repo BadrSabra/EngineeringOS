@@ -1,0 +1,258 @@
+# Task #29: Keep provider failure guidance consistent in task and workflow runs
+
+# Keep provider failure guidance consistent in task and workflow runs
+
+## What & Why
+Chat failures now retain safe provider references and never expose upstream diagnostics. Task and workflow AI routes use the same error helper but do not yet have an equivalent focused matrix proving their user-facing failures stay aligned.
+
+## Done looks like
+- Task execution and workflow orchestration API fixtures cover authentication, model, catalog, quota, rate-limit, circuit, and outage failures
+- Responses retain a correlation ID and safe operator action
+- Provider keys, authorization values, raw messages, and runtime paths are absent from every response
+
+## Relevant files
+- artifacts/api-server/src/routes/ai/tasks.ts
+- artifacts/api-server/src/routes/ai/workflows.ts
+- artifacts/api-server/src/lib/ai-route-helpers.ts
+
+--- relevant files ---
+artifacts/api-server/src/routes/ai/workflows.ts:26:import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
+artifacts/api-server/src/routes/ai/workflows.ts:80:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/workflows.ts:83:  if (!providerResolved) return;
+artifacts/api-server/src/routes/ai/workflows.ts:84:  const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/workflows.ts:101:      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlOrch.retryAfterSec}s.`,
+artifacts/api-server/src/routes/ai/workflows.ts:119:    modelMessage: "Choose the next workflow phase from the server-provided phase list.",
+artifacts/api-server/src/routes/ai/workflows.ts:161:          stage: "model_call",
+artifacts/api-server/src/routes/ai/workflows.ts:185:      provider,
+artifacts/api-server/src/routes/ai/workflows.ts:192:        error: "Workflow orchestration provider failed",
+artifacts/api-server/src/routes/ai/workflows.ts:196:    if (handleOrchestratorError(err, res, { projectId: workflow.projectId, operation: "workflow-orchestration", provider })) return;
+artifacts/api-server/src/routes/ai/workflows.ts:207:        error: "Workflow orchestration returned invalid model output",
+artifacts/api-server/src/routes/ai/workflows.ts:212:      error: "model_output_invalid",
+artifacts/api-server/src/routes/ai/workflows.ts:213:      code: "model_output_invalid",
+artifacts/api-server/src/routes/ai/workflows.ts:214:      hint: "The AI model returned an unexpected response — try again in a moment.",
+artifacts/api-server/src/routes/ai/tasks.ts:24:import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
+artifacts/api-server/src/routes/ai/tasks.ts:59:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/tasks.ts:62:  if (!providerResolved) return;
+artifacts/api-server/src/routes/ai/tasks.ts:63:  const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/tasks.ts:68:      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlExecute.retryAfterSec}s.`,
+artifacts/api-server/src/routes/ai/tasks.ts:77:      provider: { provider, apiKey },
+artifacts/api-server/src/routes/ai/tasks.ts:120:    if (lifecycle.errorCode === "model_output_invalid") {
+artifacts/api-server/src/routes/ai/tasks.ts:122:        error: "model_output_invalid",
+artifacts/api-server/src/routes/ai/tasks.ts:123:        code: "model_output_invalid",
+artifacts/api-server/src/routes/ai/tasks.ts:125:        hint: "The AI model returned an unexpected response — try executing the task again.",
+artifacts/api-server/src/routes/ai/tasks.ts:131:      provider,
+artifacts/api-server/src/routes/ai/tasks.ts:193:    if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution", provider })) return;
+artifacts/api-server/src/routes/ai/tasks.ts:223:  let effectiveProvider = provider;
+artifacts/api-server/src/routes/ai/tasks.ts:227:      { provider, apiKey },
+artifacts/api-server/src/routes/ai/tasks.ts:283:    if (handleOrchestratorError(err, res, { projectId: task.projectId, operation: "task-execution", provider: effectiveProvider })) return;
+artifacts/api-server/src/routes/ai/tasks.ts:298:      logger.warn({ taskId, correlationId }, "AI parse failure occurred, but task state changed concurrently — rollback skipped");
+artifacts/api-server/src/routes/ai/tasks.ts:304:      message: `AI agent parse failure [${parseError!.code}]`,
+artifacts/api-server/src/routes/ai/tasks.ts:313:      error: "model_output_invalid",
+artifacts/api-server/src/routes/ai/tasks.ts:314:      code: "model_output_invalid",
+artifacts/api-server/src/routes/ai/tasks.ts:315:      hint: "The AI model returned an unexpected response — try executing the task again.",
+artifacts/api-server/src/routes/ai/tasks.ts:422:        logger.warn({ taskId }, "AI auto-trigger: no AI provider configured — task stays in verifying");
+artifacts/api-server/src/routes/ai/tasks.ts:429:          message: `AI auto-trigger skipped for "${task.title}": no AI provider configured`,
+artifacts/api-server/src/routes/ai/tasks.ts:434:      const { provider, apiKey } = resolved;
+artifacts/api-server/src/routes/ai/tasks.ts:440:          "AI auto-trigger: rate limited — task stays in verifying",
+artifacts/api-server/src/routes/ai/tasks.ts:448:        provider: { provider, apiKey },
+artifacts/api-server/src/routes/ai/tasks.ts:545:          { provider, apiKey },
+artifacts/api-server/src/routes/ai/tasks.ts:610:          logger.warn({ taskId, correlationId }, "AI auto-execution parse failure occurred, but task state changed concurrently — rollback skipped");
+artifacts/api-server/src/routes/ai/tasks.ts:617:          message: `AI auto-execution parse failure [${parseError!.code}]`,
+artifacts/api-server/src/routes/ai/tasks.ts:633:          payload: { status: "verifying", code: "model_output_invalid" },
+artifacts/api-server/src/routes/ai-route-parity.test.ts:147:      "GET /api/ai/active-provider",
+artifacts/api-server/src/middlewares/requireAuth.test.ts:5: * clerk-auth-testing memory note) means going through the real Express app
+artifacts/api-server/src/middlewares/requireAuth.test.ts:10: * (unauthenticated 401, authenticated authContext shape) directly, and
+artifacts/api-server/src/middlewares/requireAuth.test.ts:49:    expect(res.json).toHaveBeenCalledWith({ error: "Unauthorized" });
+artifacts/api-server/src/middlewares/requireAuth.test.ts:51:    expect(req.authContext).toBeUndefined();
+artifacts/api-server/src/middlewares/requireAuth.test.ts:54:  it("requireAuth attaches a consistent authContext and req.userId when a session exists", async () => {
+artifacts/api-server/src/middlewares/requireAuth.test.ts:70:    expect(req.authContext).toEqual({
+artifacts/api-server/src/middlewares/requireAuth.test.ts:88:    expect(req.authContext).toEqual({
+artifacts/api-server/src/middlewares/requireAuth.test.ts:109:    expect(req.authContext).toBeUndefined();
+artifacts/api-server/src/middlewares/requireAuth.test.ts:113:  it("optionalAuth attaches the same authContext shape as requireAuth when a session exists", async () => {
+artifacts/api-server/src/middlewares/requireAuth.test.ts:127:    expect(req.authContext).toEqual({
+artifacts/api-server/src/middlewares/requireAuth.test.ts:137:  it("attaches the same authContext shape the real branch would, with a fixed synthetic user", async () => {
+artifacts/api-server/src/middlewares/requireAuth.test.ts:153:    expect(req.authContext).toEqual({
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:2: * Focused tests for chat-provider routing helpers.
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:12:  providerAvailabilityProjection,
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:34:        sources: ["/tmp/provider-output.txt (request 123e4567-e89b-12d3-a456-426614174000)"],
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:49:      name: "provider error",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:68:  it("redacts standalone provider error text without changing the contract shape", () => {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:74:describe("provider health failure contract", () => {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:75:  const provider = "openrouter" as ProviderId;
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:82:      expected: "provider_outage",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:85:      name: "authentication",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:87:      expected: "authentication_failed",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:90:      name: "incompatible model",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:91:      error: new GroqClientError("MODEL_NOT_FOUND", "upstream model error: raw upstream detail"),
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:92:      expected: "incompatible_model",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:95:      name: "stale catalog",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:96:      error: new GroqClientError("INVALID_CONFIG", "catalog refresh failed: /srv/catalog.ts", {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:98:          providerCode: "NO_COMPATIBLE_FREE_MODEL",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:99:          catalogStatus: "failed",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:100:          catalogError: "raw upstream catalog response sk-or-v1-secret",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:103:      expected: "catalog_stale",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:106:      name: "quota",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:107:      error: new GroqClientError("QUOTA", "quota response contains raw upstream detail"),
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:108:      expected: "quota_exhausted",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:111:      name: "rate limit",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:113:      expected: "rate_limited",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:116:      name: "circuit open",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:117:      error: new GroqClientError("MODEL_NOT_FOUND", "circuit detail raw upstream", {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:118:        context: { providerCode: "CIRCUIT_OPEN" },
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:120:      expected: "circuit_open",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:123:      name: "outage",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:124:      error: new GroqClientError("SERVER_ERROR", "provider outage raw upstream"),
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:125:      expected: "provider_outage",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:130:    const projection = providerAvailabilityProjection(error, provider, consoleUrl, statusUrl);
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:135:    expect(JSON.stringify(projection)).not.toContain("/srv/catalog.ts");
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:138:  it("keeps circuit-open and stale-catalog failures distinct from incompatible models", () => {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:139:    const stale = providerAvailabilityProjection(
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:141:        context: { providerCode: "NO_COMPATIBLE_FREE_MODEL", catalogStatus: "empty" },
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:143:      provider,
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:147:    const circuit = providerAvailabilityProjection(
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:148:      new GroqClientError("MODEL_NOT_FOUND", "circuit", {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:149:        context: { providerCode: "CIRCUIT_OPEN" },
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:151:      provider,
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:155:    const incompatible = providerAvailabilityProjection(
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:156:      new GroqClientError("MODEL_NOT_FOUND", "model"),
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:157:      provider,
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:162:    expect(stale.availabilityState).toBe("catalog_stale");
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:163:    expect(circuit.availabilityState).toBe("circuit_open");
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:164:    expect(incompatible.availabilityState).toBe("incompatible_model");
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:165:    expect(stale.catalogStatus).toBe("empty");
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:168:  it("serializes only safe provider reference details", () => {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:169:    const error = new GroqClientError("INVALID_CONFIG", "raw /srv/provider.ts sk-or-v1-secret", {
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:171:        providerCode: "NO_COMPATIBLE_FREE_MODEL",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:172:        providerMessage: "raw upstream message",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:173:        providerModel: "model-free",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:174:        catalogStatus: "failed",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:175:        catalogError: "raw catalog body",
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:179:    // The SSE route intentionally removes providerMessage before serializing
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:182:      Object.entries(context).filter(([key]) => key !== "providerMessage"),
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:189:    expect(serialized).not.toContain("raw catalog body");
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:191:    expect(serialized).not.toContain("/srv/provider.ts");
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:5: * chatWithFallback -> chat -> tool-execution-engine path. Only the provider
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:6: * strategy is deterministic, so the test never needs a live model or key.
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:39:    model: "repair-loop-fixture-model",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:46:    model: "repair-loop-fixture-model",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:51:    providerId: "groq",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:65:          "Repair-loop fixture exhausted its injected provider responses. "
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:66:          + "Add the expected deterministic response before the next model turn.",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:87:vi.mock("../../../../lib/ai-orchestrator/src/provider-registry.js", async (importOriginal) => {
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:106:vi.mock("../../../../lib/ai-orchestrator/src/model-selection/decision-engine.js", () => ({
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:110:vi.mock("../../../../lib/ai-orchestrator/src/model-selection/provider-strategy.js", () => ({
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:111:  resolveExecutionProvider: vi.fn((_: unknown, provider: string) => ({ providerId: provider })),
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:114:vi.mock("../../../../lib/ai-orchestrator/src/model-selection/model-resolver.js", () => ({
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:116:    model: "repair-loop-fixture-model",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:117:    powerModel: "repair-loop-fixture-model",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:118:    fallbackChain: ["repair-loop-fixture-model"],
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:122:vi.mock("../../../../lib/ai-orchestrator/src/openrouter/model-resolver.js", async (importOriginal) => {
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:126:    resolveFallbackChain: vi.fn(() => [{ id: "repair-loop-fixture-model" }]),
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:127:    buildFallbackChainFromId: vi.fn(() => [{ id: "repair-loop-fixture-model" }]),
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:154:      provider: "groq",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:471:        reason: "Correct the typecheck failure from validation attempt 1.",
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:489:          "Implementation task: repair the approved change after validation failure.",
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:39:      providerUnavailableCount: 0,
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:67:    providerOrder: ["openrouter"],
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:68:    providerHealth: [],
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:130:          providerUnavailableCount: 1,
+artifacts/api-server/src/routes/git.test.ts:231:      provider: "github",
+artifacts/api-server/src/routes/git.test.ts:237:      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+artifacts/api-server/src/routes/git.test.ts:249:        eq(aiProviderCredentialsTable.provider, "github"),
+artifacts/api-server/src/routes/events.test.ts:70:  it("returns events from all projects owned by the authenticated user when projectId is omitted", async () => {
+artifacts/api-server/src/routes/events.test.ts:85:  it("returns an empty array when the authenticated user owns no projects", async () => {
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:2: * Explicit live-provider contract check.
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:4: * This file intentionally has no provider mocks. It is excluded from the
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:5: * normal test command and is run only by run-live-empty-model-response.mjs.
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:6: * The selected model must be documented by the operator as capable of
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:19:const provider = (process.env.EMPTY_MODEL_RESPONSE_TEST_PROVIDER ??
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:21:const providerKeyEnvironment: Partial<Record<ProviderId, string>> = {
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:25:const providerKey = providerKeyEnvironment[provider];
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:29:  Boolean(providerKey && process.env[providerKey]) &&
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:40:describe("controlled live empty-model-response contract", () => {
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:41:  // Provider-free coverage for the provider-shaped empty-final fixtures lives
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:45:    "live provider returns an empty final response after completed reads",
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:47:      const rootPath = await fs.mkdtemp("/tmp/empty-model-response-live-");
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:49:      const relativeFile = "src/empty-provider-fixture.ts";
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:72:        provider,
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:73:        apiKey: process.env[providerKey!],
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:74:        model: process.env.EMPTY_MODEL_RESPONSE_TEST_MODEL,
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:94:      expect(response).not.toContain("providerMessage");
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:96:      expect(diagnostics.join("\n")).not.toContain(process.env[providerKey!]);
+artifacts/api-server/src/routes/empty-model-response-live.test.ts:98:      // A model that emits text means the controlled scenario was not
+artifacts/api-server/src/routes/discovery.test.ts:750:  // ── No partial writes on failure ──────────────────────────────────────────
+artifacts/api-server/src/routes/dashboard.test.ts:222:  it("global rules (no projectId) appear in topRules for any authenticated user", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:75:      modelMessage: "test",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:284:vi.mock("../../lib/db-rate-limiter.js", () => ({
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:311:import { checkProjectRateLimitDb } from "../../lib/db-rate-limiter.js";
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:391:    resolvedModel: { id: "test-model", provider: "openai", free: false },
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:542:  vi.mocked(requireProvider).mockResolvedValue({ provider: "openai" as never, apiKey: "test-key" });
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:601:      async (_userId, _params, _provider, onDelta, _options, _reset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:702:      async (_userId, _params, _provider, onDelta) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:730:      async (_userId, _params, _provider, onDelta, _options, _reset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:776:      async (_userId, params, _provider, _onDelta, options) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:821:      async (_userId, params, _provider, _onDelta, options) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:878:      async (_userId, params, _provider, _onDelta, options) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1347:      resolvedModel: { id: "test-model", provider: "openai", free: false },
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1439:          resolvedModel: { id: "test-model", provider: "openai", free: false },
+artifacts/api-server/src/routes/ai/benchmark.test.ts:35:      provider: "openrouter",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:36:      model: "test-model",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:41:        providerUnavailableCount: 1,
+artifacts/api-server/src/routes/ai/benchmark.test.ts:47:      rolloutBlockers: ["provider unavailable for 1 observed case"],
+artifacts/api-server/src/routes/ai/benchmark.test.ts:67:    expect(response.body.metrics.providerUnavailableCount).toBe(1);
+artifacts/api-server/src/routes/ai/benchmark.test.ts:68:    expect(response.body.model).toBe("test-model");
+artifacts/api-server/src/routes/ai/benchmark.test.ts:72:    expect(response.body.rolloutBlockers).toEqual(["provider unavailable for 1 observed case"]);
+artifacts/api-server/src/routes/ai/benchmark.test.ts:115:      providerRecoverySummaries: [{
+artifacts/api-server/src/routes/ai/benchmark.test.ts:116:        provider: "openrouter",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:117:        model: "test-model:free",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:118:        failureCategory: "quota",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:122:        providerMessage: "do not expose this",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:141:    expect(response.body.benchmark.freeTierEnvelope.providerRecoverySummaries).toEqual([{
+artifacts/api-server/src/routes/ai/benchmark.test.ts:142:      provider: "openrouter",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:143:      model: "test-model:free",
+artifacts/api-server/src/routes/ai/benchmark.test.ts:144:      failureCategory: "quota",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:6: *   INT-006  Error path    : provider failover surfaces a structured SSE error event
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:14: *   • All other infrastructure (DB, advisory locks, rate limiter) runs against
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:100:    groq:       { providerId: "groq",       label: "Groq",       supportsStreaming: true, supportsTools: true,  supportsJsonMode: true, consoleUrl: "console.groq.com",       statusUrl: "status.groq.com",                defaultModels: { fast: "llama-3.1-8b-instant",      powerful: "llama-3.3-70b-versatile" } },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:101:    deepseek:   { providerId: "deepseek",   label: "DeepSeek",   supportsStreaming: true, supportsTools: true,  supportsJsonMode: true, consoleUrl: "platform.deepseek.com",  statusUrl: "platform.deepseek.com",          defaultModels: { fast: "deepseek-chat",              powerful: "deepseek-chat"            } },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:102:    gemini:     { providerId: "gemini",     label: "Gemini",     supportsStreaming: true, supportsTools: false, supportsJsonMode: true, consoleUrl: "aistudio.google.com/apikey", statusUrl: "status.cloud.google.com",    defaultModels: { fast: "gemini-2.0-flash",          powerful: "gemini-2.0-flash"         } },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:103:    openrouter: { providerId: "openrouter", label: "OpenRouter", supportsStreaming: true, supportsTools: true,  supportsJsonMode: true, consoleUrl: "openrouter.ai/keys",     statusUrl: "openrouter.ai",                  defaultModels: { fast: "google/gemma-4-31b-it:free", powerful: "nvidia/nemotron-3-ultra-550b-a55b:free" } },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:107:    const registry: Record<string, { providerId: string; label: string }> = {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:108:      groq:       { providerId: "groq",       label: "Groq"       },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:109:      deepseek:   { providerId: "deepseek",   label: "DeepSeek"   },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:110:      gemini:     { providerId: "gemini",     label: "Gemini"     },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:111:      openrouter: { providerId: "openrouter", label: "OpenRouter" },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:113:    if (!registry[id]) throw new Error(`Unknown provider: ${id}`);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:132:    readonly providerModel?: string;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:133:    readonly providerStatus?: number;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:138:      options?: { context?: { providerModel?: string; providerStatus?: number; retryAfterMs?: number } },
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:143:      this.providerModel = options?.context?.providerModel;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:144:      this.providerStatus = options?.context?.providerStatus;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:149:        providerModel: this.providerModel,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:150:        providerStatus: this.providerStatus,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:196:    provider: "groq" as const,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:221:        model?: string;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:222:        provider?: string;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:242:        kind: "model_call",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:243:        model: "actual-fallback-model",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:244:        provider: "openrouter",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:262:  resolveProvider:          vi.fn(async () => ({ provider: "groq", apiKey: "test-dummy-key" })),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:263:  collectAvailableProviders: vi.fn(async () => [{ provider: "groq", apiKey: "test-dummy-key" }]),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:438:describe("AI provider key persistence", () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:439:  it("updates an existing owner/provider credential through the generic PUT route", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:441:    const provider = "groq";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:448:        eq(aiProviderCredentialsTable.provider, provider),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:453:    const fixtureKey = "fixture-provider-key-before";
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:461:        provider,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:472:        .put(`/api/ai/providers/${provider}/key`)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:473:        .send({ apiKey: "updated-provider-key-9876" });
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:489:          eq(aiProviderCredentialsTable.provider, provider),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:536:        modelMessage: "resume",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:652:        // live provider key, never a fixture credential or a higher-priority
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:653:        // provider that would steer the request to another lane.
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:682:            modelMessage: "forensic audit of src/process-recovery.ts",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:852:      modelMessage: "ابدأ",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:976:      modelMessage: "continue the implementation",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1043:          response: "Resumed after provider failover.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1102:        modelMessage: "cancel before start",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1141:        message: "cancel during provider call",
