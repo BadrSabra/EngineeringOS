@@ -1,0 +1,151 @@
+artifacts/api-server/src/lib/ai-execution-state.ts:756:  // than surfacing the expected conflict, so both callers get the same
+artifacts/api-server/src/lib/ai-execution-state.ts:758:  // a conflicting key must never allow a different request to reuse it.
+artifacts/api-server/src/lib/approve-code-agent-baseline.ts:44:    "conflictRate",
+artifacts/api-server/src/lib/delivery-workspace.ts:6:  | "proposed" | "isolated" | "validated" | "applied" | "conflicted"
+artifacts/api-server/src/lib/delivery-workspace.ts:250:    isolated: ["validated", "conflicted", "cancelled", "abandoned", "blocked"],
+artifacts/api-server/src/lib/delivery-workspace.ts:251:    validated: ["applied", "conflicted", "cancelled", "abandoned", "blocked"],
+artifacts/api-server/src/lib/delivery-workspace.ts:252:    applied: ["committed", "conflicted", "cancelled", "blocked"],
+artifacts/api-server/src/lib/delivery-workspace.ts:253:    conflicted: ["isolated", "cancelled", "abandoned", "blocked"],
+artifacts/api-server/src/lib/github-connector.test.ts:58:        if (requestPath.endsWith(`/git/commits/${parentHash}`)) {
+artifacts/api-server/src/lib/github-connector.test.ts:66:        if (requestPath.endsWith("/git/commits")) return { sha: "remote-commit" };
+artifacts/api-server/src/lib/github-connector.test.ts:86:        `GET /repos/acme/flight-deck/git/commits/${parentHash}`,
+artifacts/api-server/src/lib/github-connector.test.ts:89:        "POST /repos/acme/flight-deck/git/commits",
+artifacts/api-server/src/lib/github-connector.ts:197:  const commit = await request(repoPath(args.remote, `/git/commits/${encodePathPart(remoteCommitHash)}`));
+artifacts/api-server/src/lib/github-connector.ts:243:  const createdCommit = await request(repoPath(args.remote, "/git/commits"), {
+artifacts/api-server/src/lib/job-reconciliation.ts:76: * visible conflict. This makes the post-crash state known and prevents a
+artifacts/api-server/src/lib/job-reconciliation.ts:162:          lifecycle: "conflicted",
+artifacts/api-server/src/lib/job-reconciliation.ts:163:          conflictReason: "Promotion completed before validation outcome was recorded; resume validation before delivery can continue.",
+artifacts/api-server/src/lib/job-reconciliation.ts:167:          lifecycle: "conflicted",
+artifacts/api-server/src/lib/job-reconciliation.ts:168:          conflictReason: "Promotion was interrupted and rolled back; resume validation before retrying.",
+artifacts/api-server/src/lib/job-reconciliation.ts:172:          lifecycle: "conflicted",
+artifacts/api-server/src/lib/job-reconciliation.ts:173:          conflictReason: "Promotion encountered unexpected live-root bytes; manual review is required before retrying.",
+artifacts/api-server/src/lib/job-reconciliation.ts:180:      lifecycle: "conflicted",
+artifacts/api-server/src/lib/job-reconciliation.ts:181:      conflictReason: "Delivery was interrupted during apply; filesystem state requires review before retry.",
+artifacts/api-server/src/lib/operation-evidence.ts:98:  if (["failed", "error", "rejected", "conflicted"].includes(normalized)) return "failed";
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts:185:    "conflictRate",
+artifacts/api-server/src/lib/scan-runner.ts:98:  // produce conflicting graph/metrics writes. Locking on projectId ensures
+artifacts/api-server/src/lib/task-execution-service.ts:37:  status: "completed" | "verifying" | "failed" | "conflict";
+artifacts/api-server/src/lib/task-execution-service.ts:168:  if (!before) return { ok: false, status: "conflict", errorCode: "task_not_found" };
+artifacts/api-server/src/lib/task-execution-service.ts:205:    return { ok: false, status: "conflict", executionId, errorCode: "execution_already_claimed" };
+artifacts/api-server/src/lib/task-execution-service.ts:222:    return { ok: false, status: "conflict", executionId, errorCode: "task_state_changed" };
+artifacts/api-server/src/lib/task-execution-service.ts:227:    return { ok: false, status: "conflict", executionId, errorCode: "invalid_task_transition" };
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts:30:      conflictRate: 0,
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:220:  const booleans = ["correct", "completedFirstAttempt", "repairedWithinThreeAttempts", "usefulButIncomplete", "safelyBlocked", "falseSuccess", "scopeEscape", "conflict"] as const;
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:240:      conflict: raw.conflict as boolean,
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:309:      "conflictRate",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1433:      .get(`/api/ai/chat/${sessionId}/pending-proposal`);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1457:      event.type === "AiChangesApplied" && event.correlationId === operationId,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1809:      .get(`/api/ai/chat/${plan.sessionId}/pending-proposal`);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1856:      .post(`/api/projects/${projectId}/git/commit`)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1904:        .post(`/api/projects/${projectId}/git/push`)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1926:      expect(pushedEvents.some((event) => event.type === "GitPushed")).toBe(true);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1937:        "AiChangesApplied",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1939:        "GitPushed",
+artifacts/api-server/src/routes/ai/tasks.ts:100:  if (lifecycle.status === "conflict") {
+artifacts/api-server/src/routes/ai/tasks.ts:452:      if (lifecycle.status === "conflict") {
+artifacts/api-server/src/routes/ai/chat.ts:526: * audit exports. Keep the optional generatedAt field after schema parsing
+artifacts/api-server/src/routes/ai/chat.ts:4420:  const hasAppliedChanges = operationEvents.some((event) => event.type === "AiChangesApplied");
+artifacts/api-server/src/routes/ai/chat.ts:4422:  const hasPushedChanges = operationEvents.some((event) => event.type === "GitPushed");
+artifacts/api-server/src/routes/ai/chat.ts:4504:router.get("/ai/executions/:executionId/audit-export", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5223:router.get("/ai/chat/:sessionId/pending-proposal", async (req, res) => {
+artifacts/api-server/src/routes/ai/chat.ts:5279:            conflictReason: proposal.conflictReason
+artifacts/api-server/src/routes/ai/chat.ts:5280:              ? redactUserFacingText(proposal.conflictReason).slice(0, 500)
+artifacts/api-server/src/routes/ai/chat.ts:5310:      inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted", "cancelled"]),
+artifacts/api-server/src/routes/ai/chat.ts:5329:        : proposal.lifecycle === "conflicted"
+artifacts/api-server/src/routes/ai/chat.ts:5348:      conflictReason: proposal.conflictReason
+artifacts/api-server/src/routes/ai/chat.ts:5349:        ? redactUserFacingText(proposal.conflictReason).slice(0, 500)
+artifacts/api-server/src/routes/ai/chat.ts:5381:  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)
+artifacts/api-server/src/routes/ai/chat.ts:5446:    conflictReason: passed ? null : "Validation recovery did not pass all registered profiles.",
+artifacts/api-server/src/routes/ai/chat.ts:5450:    inArray(aiChangeProposalsTable.lifecycle, ["abandoned", "blocked", "conflicted"]),
+artifacts/api-server/src/routes/ai/chat.ts:5474:  if (!["abandoned", "blocked", "conflicted"].includes(proposal.lifecycle)) {
+artifacts/api-server/src/routes/ai/chat.ts:5595:    const conflicts: Array<{
+artifacts/api-server/src/routes/ai/chat.ts:5600:      conflict?: {
+artifacts/api-server/src/routes/ai/chat.ts:5614:        conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5623:        conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5634:        conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5648:          conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5657:          conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5676:          conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5681:            conflict: rebased.kind === "hunk_mismatch"
+artifacts/api-server/src/routes/ai/chat.ts:5707:        conflicts.push({
+artifacts/api-server/src/routes/ai/chat.ts:5716:    if (conflicts.length > 0 || rebasedChanges.length !== approvedChanges.length) {
+artifacts/api-server/src/routes/ai/chat.ts:5721:          ...conflicts,
+artifacts/api-server/src/routes/ai/chat.ts:5726:            error: "Batch rebase aborted because another file conflicted.",
+artifacts/api-server/src/routes/ai/chat.ts:6013:      conflict?: {
+artifacts/api-server/src/routes/ai/chat.ts:6118:        conflictReason: null,
+artifacts/api-server/src/routes/ai/chat.ts:6216:              error: "Patch conflict: the file changed after the patch was generated. Read it again and create a fresh patch.",
+artifacts/api-server/src/routes/ai/chat.ts:6217:              conflict: {
+artifacts/api-server/src/routes/ai/chat.ts:6250:              error: `Patch conflict: ${rebaseResult.reason}`,
+artifacts/api-server/src/routes/ai/chat.ts:6251:              conflict: {
+artifacts/api-server/src/routes/ai/chat.ts:6647:        type: "AiChangesApplied",
+artifacts/api-server/src/routes/ai/chat.ts:6693:            lifecycle: rollbackFailed || failedPaths.length > 0 ? "conflicted" : "blocked",
+artifacts/api-server/src/routes/ai/chat.ts:6694:            conflictReason: rollbackFailed
+artifacts/api-server/src/routes/discovery.ts:550:    // same "already imported" conflict, just detected one step earlier, so
+artifacts/api-server/src/routes/git.test.ts:88:    type: "AiChangesApplied",
+artifacts/api-server/src/routes/git.test.ts:130:      eq(eventsTable.type, "AiChangesApplied"),
+artifacts/api-server/src/routes/git.test.ts:135:      .post(`/api/projects/${fixture.projectId}/git/commit`)
+artifacts/api-server/src/routes/git.test.ts:152:      .post(`/api/projects/${fixture.projectId}/git/commit`)
+artifacts/api-server/src/routes/git.test.ts:169:      .post(`/api/projects/${fixture.projectId}/git/commit`)
+artifacts/api-server/src/routes/git.test.ts:224:        eq(eventsTable.type, "AiChangesApplied"),
+artifacts/api-server/src/routes/git.test.ts:262:        .post(`/api/projects/${fixture.projectId}/git/commit`)
+artifacts/api-server/src/routes/git.test.ts:275:        .post(`/api/projects/${fixture.projectId}/git/push`)
+artifacts/api-server/src/routes/git.test.ts:281:        .post(`/api/projects/${fixture.projectId}/git/push`)
+artifacts/api-server/src/routes/git.test.ts:308:        expect.arrayContaining(["AiChangesApplied", "GitCommitCreated", "GitPushed"]),
+artifacts/api-server/src/routes/git.test.ts:310:      for (const event of traceEvents.filter((entry) => ["AiChangesApplied", "GitCommitCreated", "GitPushed"].includes(entry.type))) {
+artifacts/api-server/src/routes/git.ts:253:/** GET /api/projects/:projectId/git/log */
+artifacts/api-server/src/routes/git.ts:254:router.get("/projects/:projectId/git/log", requireProjectAccess, async (req, res) => {
+artifacts/api-server/src/routes/git.ts:292:/** POST /api/projects/:projectId/git/commit — stage selected or all changes and commit */
+artifacts/api-server/src/routes/git.ts:293:router.post("/projects/:projectId/git/commit", requireProjectWriteAccess, async (req, res) => {
+artifacts/api-server/src/routes/git.ts:345:      const applyEvidence = await findOperationEvent(projectId, "AiChangesApplied", correlationId);
+artifacts/api-server/src/routes/git.ts:533:/** POST /api/projects/:projectId/git/push — push through GitHub connector or legacy HTTPS token */
+artifacts/api-server/src/routes/git.ts:534:router.post("/projects/:projectId/git/push", requireProjectWriteAccess, async (req, res) => {
+artifacts/api-server/src/routes/git.ts:679:      type: "GitPushed",
+artifacts/api-server/src/routes/tasks.ts:126:    const conflict = taskTransitionConflict(
+artifacts/api-server/src/routes/tasks.ts:131:    if (conflict) {
+artifacts/api-server/src/routes/tasks.ts:136:        reason: `Rejected task status transition: ${conflict}`,
+artifacts/api-server/src/routes/tasks.ts:145:        reason: conflict,
+artifacts/api-server/src/routes/ai.test.ts:476:  lifecycle: "abandoned" | "blocked" | "conflicted" = "blocked",
+artifacts/api-server/src/routes/ai.test.ts:477:  options: { withWorkspace?: boolean; conflictReason?: string } = {},
+artifacts/api-server/src/routes/ai.test.ts:514:    conflictReason: options.conflictReason ?? "Validation was interrupted before delivery completed.",
+artifacts/api-server/src/routes/ai.test.ts:823:      .get(`/api/ai/chat/${proposal.sessionId}/pending-proposal`);
+artifacts/api-server/src/routes/ai.test.ts:1475:describe("GET /api/ai/executions/:executionId/audit-export", () => {
+artifacts/api-server/src/routes/ai.test.ts:1562:      .get(`/api/ai/executions/${created.execution.id}/audit-export`);
+artifacts/api-server/src/routes/ai.test.ts:1601:      .get(`/api/ai/executions/${created.execution.id}/audit-export`);
+artifacts/api-server/src/routes/ai.test.ts:2613:      conflictReason: "Internal diagnostic: recovery stopped at /tmp/private-proposal-recovery.",
+artifacts/api-server/src/routes/ai.test.ts:2668:  it("lists only owned recoverable operations and retains conflict evidence", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2671:    const operation = await makeRecoverableProposal(projectId, "conflicted", {
+artifacts/api-server/src/routes/ai.test.ts:2672:      conflictReason: "Apply stopped after a file conflict; review is required.",
+artifacts/api-server/src/routes/ai.test.ts:2684:      lifecycle: "conflicted",
+artifacts/api-server/src/routes/ai.test.ts:2686:      conflictReason: "Apply stopped after a file conflict; review is required.",
+artifacts/api-server/src/routes/ai.test.ts:2703:      conflictReason: "Recovery stopped at /tmp/private-delivery-root after a diagnostic failure.",
+artifacts/api-server/src/routes/ai.test.ts:2734:      conflictReason: "Internal diagnostic: recovery stopped at /tmp/private-recovery-root.",
+artifacts/api-server/src/routes/ai.test.ts:2882:  it("emits a warning AiChangesApplied event when no file can be written", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2923:    const ev = events.find((e) => e.type === "AiChangesApplied");
+artifacts/api-server/src/routes/ai.test.ts:2979:    const ev = events.find((e) => e.type === "AiChangesApplied");
+artifacts/api-server/src/routes/ai.test.ts:3055:      const event = events.find((candidate) => candidate.type === "AiChangesApplied");
+artifacts/api-server/src/routes/ai.test.ts:3241:  it("returns a base-hash conflict and never writes a stale patch", async () => {
+artifacts/api-server/src/routes/ai.test.ts:3247:      name: `apply-hash-conflict-${id.slice(0, 8)}`,
+artifacts/api-server/src/routes/ai.test.ts:3256:    const fileName = `apply-hash-conflict-${randomUUID().slice(0, 8)}.ts`;
+artifacts/api-server/src/routes/ai.test.ts:3283:        conflict: { kind: "base_hash_mismatch" },
+artifacts/api-server/src/routes/ai.test.ts:3353:        conflict: { kind: "base_hash_mismatch" },
+artifacts/api-server/src/routes/ai.test.ts:3367:  it("returns a hunk conflict even when the submitted base hash is current", async () => {
+artifacts/api-server/src/routes/ai.test.ts:3373:      name: `apply-hunk-conflict-${id.slice(0, 8)}`,
+artifacts/api-server/src/routes/ai.test.ts:3382:    const fileName = `apply-hunk-conflict-${randomUUID().slice(0, 8)}.ts`;
+artifacts/api-server/src/routes/ai.test.ts:3413:        conflict: { kind: "hunk_mismatch", hunkIndex: 0 },
+artifacts/api-server/src/routes/ai.test.ts:3801:  it("does not update a proposal when one rebase hunk conflicts", async () => {
+artifacts/api-server/src/routes/ai.test.ts:3807:      name: `apply-rebase-conflict-${id.slice(0, 8)}`,
+artifacts/api-server/src/routes/ai.test.ts:3816:    const fileName = `apply-rebase-conflict-${randomUUID().slice(0, 8)}.ts`;
+artifacts/api-server/src/routes/ai.test.ts:3844:          conflict: { kind: "hunk_mismatch", hunkIndex: 0 },
+artifacts/dashboard/e2e/dashboard.journey.ts:390:      path === `/api/ai/executions/${EXECUTION_ID}/audit-export`
+artifacts/dashboard/e2e/dashboard.journey.ts:1549:      `/api/ai/chat/${sessionId}/pending-proposal`,
+artifacts/dashboard/e2e/dashboard.journey.ts:1551:    const gitLog = await liveJson(page, `/api/projects/${projectId}/git/log`);
+artifacts/dashboard/e2e/dashboard.journey.ts:1610:      applied: events.some((event) => event?.type === "AiChangesApplied"),
+artifacts/dashboard/e2e/dashboard.journey.ts:1612:      pushed: events.some((event) => event?.type === "GitPushed"),
+artifacts/dashboard/e2e/dashboard.journey.ts:1987:      `/api/ai/executions/${EXECUTION_ID}/audit-export`,
+artifacts/dashboard/e2e/dashboard.journey.ts:3132:          conflictReason: null,
+artifacts/dashboard/e2e/dashboard.journey.ts:3149:          conflictReason: "Workspace expired after the runner was recycled.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3164:          conflictReason: "Internal diagnostic: should never be rendered",
+artifacts/dashboard/e2e/dashboard.journey.ts:3276:          conflictReason: null,
+artifacts/dashboard/e2e/dashboard.journey.ts:3304:            conflictReason: null,
+artifacts/dashboard/e2e/dashboard.journey.ts:3365:          conflictReason: null,
+scripts/dashboard-journey-contract.test.mjs:582:    /AiChangesApplied[\s\S]*GitCommitCreated[\s\S]*GitPushed/,

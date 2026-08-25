@@ -1,0 +1,260 @@
+artifacts/dashboard/src/pages/AiChat.tsx:74:} from '@/lib/mission-correlation-report';
+artifacts/dashboard/src/pages/AiChat.tsx:127:  /** Optional persisted release report attached to a historical run. */
+artifacts/dashboard/src/pages/AiChat.tsx:129:  /** The API found a non-null persisted report that is not readable by this dashboard. */
+artifacts/dashboard/src/pages/AiChat.tsx:339:      report: string;
+artifacts/dashboard/src/pages/AiChat.tsx:344:       report: string;
+artifacts/dashboard/src/pages/AiChat.tsx:744:  phase?: 'localization' | 'evidence' | 'patch_proposal' | 'validation' | 'repair_recovery' | 'report';
+artifacts/dashboard/src/pages/AiChat.tsx:955:  // summary available after history reload so the incomplete report's
+artifacts/dashboard/src/pages/AiChat.tsx:1018:    // cancelled report and its terminal state survive history reload, but
+artifacts/dashboard/src/pages/AiChat.tsx:1057: * from the report that is actually rendered, with the Final Judgment section
+artifacts/dashboard/src/pages/AiChat.tsx:1071:  // Check the rendered report before historical trace fields so a stale
+artifacts/dashboard/src/pages/AiChat.tsx:1078:  // The report's NOT PROVEN wording can describe a blocked repair handoff,
+artifacts/dashboard/src/pages/AiChat.tsx:1432: * the UI cannot report "0 completed reads" beside "5 retained bodies".
+artifacts/dashboard/src/pages/AiChat.tsx:1529:      return 'provider timed out — partial report returned';
+artifacts/dashboard/src/pages/AiChat.tsx:1552:    'provider recovery exhausted without an accepted six-section report',
+artifacts/dashboard/src/pages/AiChat.tsx:1582:    return 'The structured Recovery envelope was accepted and rebuilt into the six-section forensic report.';
+artifacts/dashboard/src/pages/AiChat.tsx:1585:    return 'Recovery was skipped because no completed source read was available to support a trustworthy report.';
+artifacts/dashboard/src/pages/AiChat.tsx:1610:      ? `The recovery response could not be parsed into the required six-section forensic report: ${violation}.`
+artifacts/dashboard/src/pages/AiChat.tsx:1611:      : 'The recovery response could not be parsed into the required six-section forensic report.';
+artifacts/dashboard/src/pages/AiChat.tsx:1617:      : 'The bounded recovery attempt failed, so the report stayed fail-closed instead of accepting unsupported findings.';
+artifacts/dashboard/src/pages/AiChat.tsx:2147:                  <div className="text-[10px] text-muted-foreground">report synthesis</div>
+artifacts/dashboard/src/pages/AiChat.tsx:2163:                    : 'Forensic Recovery started after the tool-loop response but did not produce an accepted six-section report; the preserved-evidence fallback remains active.'}
+artifacts/dashboard/src/pages/AiChat.tsx:2326:                The provider-generated report did not satisfy the Recovery contract. This status is separate from the final evidence decision above.
+artifacts/dashboard/src/pages/AiChat.tsx:2990:      <span className="text-amber-300">Forensic report:</span>{' '}
+artifacts/dashboard/src/pages/AiChat.tsx:2994:        ? 'Completed source reads were preserved and the Evidence Map was rebuilt deterministically, but the report remained NOT PROVEN; no repair phase was accepted.'
+artifacts/dashboard/src/pages/AiChat.tsx:2995:        : 'No verified report was produced from the available evidence. The response was safely downgraded to NOT PROVEN; no repair phase was accepted.'}
+artifacts/dashboard/src/pages/AiChat.tsx:3726:    'Source collection reached an empty provider response, but bounded forensic recovery did not produce an accepted report. The run is blocked without calling it budget exhaustion.',
+artifacts/dashboard/src/pages/AiChat.tsx:3765:  const [reportExpanded, setReportExpanded] = useState(false);
+artifacts/dashboard/src/pages/AiChat.tsx:3853:      if (!result.report) return null;
+artifacts/dashboard/src/pages/AiChat.tsx:3861:            <span>{result.kind === 'WORKSPACE_REVIEW_RESULT' ? 'Workspace review' : 'Forensic report'}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:3864:          <p className="text-[12px] leading-relaxed text-foreground/90 whitespace-pre-wrap break-words">{result.report}</p>
+artifacts/dashboard/src/pages/AiChat.tsx:3871:                aria-expanded={reportExpanded}
+artifacts/dashboard/src/pages/AiChat.tsx:3873:                <ChevronRight className={`w-3 h-3 transition-transform ${reportExpanded ? 'rotate-90' : ''}`} />
+artifacts/dashboard/src/pages/AiChat.tsx:3876:              {reportExpanded && (
+artifacts/dashboard/src/pages/AiChat.tsx:4133:  reportRegenerationPending,
+artifacts/dashboard/src/pages/AiChat.tsx:4146:  reportRegenerationPending?: boolean;
+artifacts/dashboard/src/pages/AiChat.tsx:4227:  const reportGeneratedAt = !isUser
+artifacts/dashboard/src/pages/AiChat.tsx:4339:            <span className="min-w-0 flex-1">The historical mission report is unavailable, but this conversation is preserved.</span>
+artifacts/dashboard/src/pages/AiChat.tsx:4347:                disabled={reportRegenerationPending}
+artifacts/dashboard/src/pages/AiChat.tsx:4349:                {reportRegenerationPending ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RotateCcw className="mr-1 h-3 w-3" />}
+artifacts/dashboard/src/pages/AiChat.tsx:4350:                {reportRegenerationPending ? 'Regenerating…' : 'Regenerate report'}
+artifacts/dashboard/src/pages/AiChat.tsx:4355:        {reportGeneratedAt && (
+artifacts/dashboard/src/pages/AiChat.tsx:4359:            <time dateTime={reportGeneratedAt}>
+artifacts/dashboard/src/pages/AiChat.tsx:4360:              {new Date(reportGeneratedAt).toLocaleString()}
+artifacts/dashboard/src/pages/AiChat.tsx:5193:    return 'Evidence gathering is paused while the final forensic report is assembled.';
+artifacts/dashboard/src/pages/AiChat.tsx:5234:  /** True once the live SSE stream reports a fixture-local forensic_status. */
+artifacts/dashboard/src/pages/AiChat.tsx:5265:    /synthes|model response|report|diagnostic|recover/i.test(stage ?? '');
+artifacts/dashboard/src/pages/AiChat.tsx:6973:  /** True once a live forensic_status SSE step reports isFixtureLocal — lets
+artifacts/dashboard/src/pages/AiChat.tsx:6974:   *  LiveAgentActivity show the FIXTURE-LOCAL badge before the report lands. */
+artifacts/dashboard/src/pages/AiChat.tsx:7759:        `/api/ai/chat/${encodeURIComponent(sessionId ?? '')}/messages/${encodeURIComponent(messageId)}/mission-correlation-report/regenerate`,
+artifacts/dashboard/src/pages/AiChat.tsx:7764:        throw new Error(typeof payload?.error === 'string' ? payload.error : 'The historical report could not be regenerated.');
+artifacts/dashboard/src/pages/AiChat.tsx:7771:      toast({ title: 'Historical report regenerated', description: 'The report is now available from the retained run evidence.' });
+artifacts/dashboard/src/pages/AiChat.tsx:7785:    // A mission report is optional enrichment on an otherwise useful message.
+artifacts/dashboard/src/pages/AiChat.tsx:7786:    // Validate each one independently so one old/corrupt report cannot discard
+artifacts/dashboard/src/pages/AiChat.tsx:7807:        ? 'A historical mission report could not be loaded. Your conversation is still available.'
+artifacts/dashboard/src/pages/AiChat.tsx:8584:        // as soon as the task router decides it — before the report lands.
+artifacts/dashboard/src/pages/AiChat.tsx:9366:                  reportRegenerationPending={regenerateReportMutation.isPending && regenerateReportMutation.variables === msg.id}
+scripts/release-configuration.test.ts:44:      "run test:mission-correlation-report",
+scripts/release-configuration.test.ts:51:    name: "mission correlation report",
+scripts/release-configuration.test.ts:52:    command: "run test:mission-correlation-report",
+scripts/release-configuration.test.ts:53:    diagnostic: "mission correlation report fixture failed: operation revision mismatched",
+scripts/release-configuration.test.ts:307:    "deployments must report the post-build validation command as their result",
+scripts/release-configuration.test.ts:348:      "the real recovery check must report success before post-build completes",
+scripts/release-configuration.test.ts:394:test("reports a missing production origin before controlled recovery", async () => {
+scripts/release-configuration.test.ts:483:      /run test:dashboard-journey-contract|run test:mission-correlation-report|run test:process-recovery/,
+scripts/release-configuration.test.ts:591:    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+scripts/release-configuration.test.ts:638:    "release validation must configure the teardown report path",
+scripts/release-configuration.test.ts:653:    "release teardown upload must use the configured report path",
+scripts/validate-github-workflows.test.mjs:9:test("discovers nested workflows and reports every YAML parser location", async () => {
+scripts/validate-github-workflows.test.mjs:43:test("reports structural failures from every parseable workflow", async () => {
+scripts/validate-github-workflows.test.mjs:84:test("reports structural failures with the complete path for nested workflows", async () => {
+scripts/validate-github-workflows.test.mjs:124:test("reports malformed steps collections from nested workflows", async () => {
+scripts/validate-github-workflows.test.mjs:166:test("reports missing execution configuration from nested workflows", async () => {
+scripts/validate-github-workflows.test.mjs:207:test("reports malformed runner declarations from nested workflows", async () => {
+scripts/validate-github-workflows.test.mjs:270:test("reports malformed reusable workflow references with the complete nested path and job ID", async () => {
+.agents/memory/benchmark-behavior-gates.md:8:**Why:** Contract-only checks can remain green while a fixture's behavior or oracle semantics regress, hiding failures until an external provider campaign.
+.agents/memory/benchmark-behavior-gates.md:10:**How to apply:** Keep focused candidates outside provider input and scoring paths; report failures with the scenario ID and preserve benchmark scorecard behavior.
+.agents/memory/MEMORY.md:12:- [Forensic fixture language](forensic-fixture-language.md) — deterministic forensic prompts and natural-language reports must use the same language.
+.agents/memory/MEMORY.md:24:- [Empty provider recovery](empty-provider-recovery.md) — empty or exhausted evidence runs use a deterministic read-manifest report instead of a generic blocking message.
+.agents/memory/MEMORY.md:26:- [Live campaign isolation](live-campaign-isolation.md) — provider campaigns require explicit opt-in, disposable output/workspaces, bounded duration, and review-only artifacts.
+.agents/memory/MEMORY.md:67:- [Dashboard process campaign](dashboard-process-campaign.md) — release browser campaigns coordinate real API restarts through a bounded localhost control surface.
+.agents/memory/openrouter-catalog-state.md:8:**Why:** Treating “refresh attempted” as “catalog loaded” caused valid chat requests to report that no free chat model existed during temporary catalog outages or stale metadata windows.
+.local/tasks/bind-releases-source-revision-v2.md:4:Restore the cancelled source-lineage work by binding every benchmark release artifact to the exact server-observed source revision that produced it. Candidate hashes already identify the evaluated bytes; this adds the missing immutable lineage needed for trustworthy release comparison and final rollout decisions. The approved planning reference is the current `main` revision `672a2447a0604e4f562796dab969b5d136582277`, subject to verification at campaign start.
+.local/tasks/bind-releases-source-revision-v2.md:7:- Targeted and clean-witness benchmark artifacts contain a bounded, server-owned source revision captured at campaign start.
+.local/tasks/bind-releases-source-revision-v2.md:16:- Live provider campaign execution.
+.local/tasks/bind-releases-source-revision-v2.md:23:1. **Capture authoritative lineage** — At campaign start, resolve and retain the server-owned source revision for the approved main branch, verify its format and expected reference, and prevent caller-provided values from becoming authoritative.
+.local/tasks/replit-agent-parity-gap-plan.md:9:- The report ranks remaining work by user impact, reliability risk, security/safety risk, and dependency order.
+.agents/memory/shared-package-type-lag.md:6:When a shared workspace type has just changed but a consumer still reports the old shape, keep the runtime contract additive and use a narrow compatibility projection at the consumer boundary until the package graph is rebuilt.
+.agents/memory/scan-root-fail-closed.md:6:**Rule:** Every scan re-establishes the persisted `root_path` through `establishProjectRoot` before any filesystem walk. If establishment fails (missing, not a directory, unreadable, unsafe), the scan fails with a `root_unavailable` outcome (`ScanRootUnavailableError`), leaving `root_path` and project state untouched. Startup reconciliation only *reports* dead legacy `/tmp/eos-git-*` roots — it never rewrites them.
+.agents/memory/release-wrapper-teardown.md:6:Release validation must distinguish assertion results from wrapper/process teardown status. Dashboard E2E and restart smoke can report all checks passed while their child dev server exits with SIGTERM during cleanup; real process recovery can remain running until externally stopped and then surface SIGHUP.
+.agents/memory/live-correlation-release.md:6:The live-provider acceptance path must remain opt-in and use a disposable project plus the isolated Clerk user. Its exported report may include operationId, workspace revision, bounded counts, terminal state, and safe IDs, but never provider credentials, prompts, model responses, source bodies, or resume tokens.
+.agents/memory/live-correlation-release.md:10:**How to apply:** Keep live execution behind an explicit environment flag and validate the report after Playwright exits; treat failover, unavailable, failed, and cancelled terminals as explicit non-success outcomes.
+.agents/memory/live-correlation-release.md:16:**How to apply:** Keep the default prompt non-executing, pass a focused prompt through `DASHBOARD_E2E_LIVE_PROMPT`, and allow the test timeout to exceed `DASHBOARD_E2E_LIVE_TIMEOUT_MS`.
+.agents/memory/live-correlation-release.md:18:Successful live mission correlation reports must prove at least one accepted
+.agents/memory/live-correlation-release.md:19:evidence item and one validation checkpoint; missing either is a report
+.agents/memory/live-correlation-release.md:27:redacted report builder reject successful terminals with empty proof surfaces.
+.agents/memory/live-campaign-isolation.md:2:name: Live campaign isolation
+.agents/memory/live-campaign-isolation.md:3:description: Safety boundaries for empirical provider, browser, deployment, and remote-delivery campaigns.
+.agents/memory/live-campaign-isolation.md:6:Live campaigns are measurement-only: they require explicit opt-in, disposable workspaces and outputs, bounded execution, and redacted operation-keyed receipts. External unavailability is uncertainty, not a quality failure.
+.agents/memory/forensic-recovery-formatting.md:3:description: Safe tolerance rules for provider-generated Recovery reports.
+.agents/memory/forensic-recovery-formatting.md:8:**Why:** Providers occasionally return a semantically complete six-section report with minor heading formatting differences, causing a parse failure even though the report can still be checked safely.
+.agents/memory/forensic-recovery-formatting.md:10:**How to apply:** Normalize only the headings and require all six exact section names in order. Always run the normalized report through the existing contract and source-evidence gates; never relax source matching, coverage, Finding fields, repair linkage, or verdict rules.
+.agents/memory/forensic-recovery-deadline.md:8:**Why:** Provider-owned fallback chains and multiple evidence packets can multiply a nominal request timeout until a live audit remains open for several minutes without producing a usable report.
+.agents/memory/forensic-recovery-deadline.md:10:**How to apply:** Let the orchestrator own the ordered recovery candidates, cap provider fallback within each attempt, abort or race each call against the remaining deadline, and return one sanitized `ANALYSIS_INCOMPLETE` report when no accepted report exists.
+.agents/memory/forensic-fixture-language.md:7:must match the natural-language report language, while protocol labels and
+.agents/memory/forensic-fixture-language.md:13:**How to apply:** Use English prompts for intentionally English forensic reports;
+.agents/memory/forensic-fixture-language.md:16:an Arabic forensic fixture so a prompt/report mismatch fails before assertions.
+.agents/memory/forensic-empty-verdicts.md:6:An empty forensic report must distinguish `NO_VERIFIED_FINDING` from `ANALYSIS_INCOMPLETE`: the former means the retained source reads completed without proving a Finding, while the latter means the evidence scope or source reads were incomplete.
+.agents/memory/forensic-empty-verdicts.md:10:**How to apply:** Use the evidence-read state when constructing deterministic reports and fallbacks; keep recovery details and telemetry out of the user-facing six-section report.
+.agents/memory/forensic-cancellation.md:8:standard six-section report with `ANALYSIS_INCOMPLETE`; never allow cancellation
+.agents/memory/forensic-cancellation.md:17:only sanitized report/terminal metadata.
+.agents/memory/empty-provider-recovery.md:6:When an evidence-oriented run has completed reads but the provider returns no final text, render a deterministic `ANALYSIS_INCOMPLETE` report from the server-owned read manifest. Do not retry synthesis indefinitely or emit a generic language/blocked message.
+.agents/memory/empty-provider-recovery.md:10:**How to apply:** Keep the report free of model claims and internal recovery diagnostics, list only completed reads, state that no executable excerpt closed the claim, and preserve the next-step guidance without treating the result as a Finding or final negative verdict.
+.agents/memory/dashboard-process-campaign.md:2:name: Dashboard process campaign
+.agents/memory/dashboard-process-campaign.md:3:description: Release browser campaigns can coordinate real child-process restarts through a bounded localhost control surface.
+.agents/memory/dashboard-process-campaign.md:6:The browser campaign should keep the dashboard process and multiple browser sessions alive while the release runner owns API stop/start and health recovery through a localhost-only, bounded control surface.
+.local/tasks/actual-capability-baseline-audit.md:7:- A versioned audit report identifies each user-visible Agent capability and its verified implementation path.
+.local/tasks/actual-capability-baseline-audit.md:11:- The report distinguishes safe proposed changes, validated changes, committed changes, and pushed changes.
+.local/tasks/actual-capability-baseline-audit.md:15:- Enabling live-provider campaigns or changing provider credentials.
+.local/tasks/actual-capability-baseline-audit.md:25:6. **Publish the baseline report** — Write the findings to a durable project report with file references, test evidence, confidence labels, unresolved questions, and a short list of capabilities that require a real browser/API smoke check before being called operational.
+scripts/run-dashboard-journey.mjs:14:} from "./mission-correlation-report.mjs";
+scripts/run-dashboard-journey.mjs:44:  process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
+scripts/run-dashboard-journey.mjs:83:let campaignControlServer;
+scripts/run-dashboard-journey.mjs:150:  campaignControlServer = createServer(async (request, response) => {
+scripts/run-dashboard-journey.mjs:170:    campaignControlServer.once("error", reject);
+scripts/run-dashboard-journey.mjs:171:    campaignControlServer.listen(controlPort, "127.0.0.1", resolve);
+scripts/run-dashboard-journey.mjs:291:  if (campaignControlServer) {
+scripts/run-dashboard-journey.mjs:292:    await new Promise((resolve) => campaignControlServer.close(resolve));
+scripts/run-dashboard-journey.mjs:293:    campaignControlServer = undefined;
+scripts/run-dashboard-journey.mjs:666:      ["run", "test:mission-correlation-report"],
+scripts/run-dashboard-journey.mjs:676:          `Unable to start mission correlation report contract checks: ${redact(error.message)}`,
+scripts/run-dashboard-journey.mjs:684:            `Mission correlation report contract checks stopped by ${signal}.`,
+scripts/run-dashboard-journey.mjs:690:            `Mission correlation report contract checks failed with exit code ${code ?? 1}.`,
+scripts/run-dashboard-journey.mjs:782:    const reportPath = resolve(
+scripts/run-dashboard-journey.mjs:784:      process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+scripts/run-dashboard-journey.mjs:785:        "test-results/dashboard-journey/live-mission-correlation.json",
+scripts/run-dashboard-journey.mjs:789:      ["scripts/mission-correlation-report.mjs", reportPath],
+scripts/run-dashboard-journey.mjs:812:            `Live mission correlation report failed with exit code ${code ?? 1}.`,
+scripts/run-dashboard-journey.mjs:817:          const report = parseMissionCorrelationReportOutput(output);
+scripts/run-dashboard-journey.mjs:818:          console.log(formatMissionCorrelationSummary(report));
+scripts/run-dashboard-journey.mjs:819:          resolve(report);
+scripts/run-dashboard-journey.mjs:823:              `Live mission correlation report produced invalid output: ${
+scripts/run-dashboard-journey.mjs:843:    console.log("Mission correlation report contracts passed.");
+scripts/run-dashboard-journey.mjs:858:        `API health check did not report status=ok (${apiHealthUrl}).`,
+scripts/run-dashboard-journey.mjs:891:          DASHBOARD_E2E_LIVE_REPORT_PATH: resolve(
+scripts/run-dashboard-journey.mjs:893:            process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+scripts/run-dashboard-journey.mjs:894:              "test-results/dashboard-journey/live-mission-correlation.json",
+scripts/run-dashboard-journey.mjs:897:            ? { DASHBOARD_E2E_LIVE_TIMEOUT_MS: String(liveTimeoutMs) }
+scripts/run-dashboard-journey.mjs:917:      process.env.DASHBOARD_E2E_LIVE_PROVIDER === "1"
+.agents/memory/capability-probe-evidence.md:10:**Why:** A provider can produce a plausible seven-line report from partial
+.agents/memory/candidate-validation-boundary.md:8:**Why:** A guarded apply can otherwise report a successful check for a different tree than the artifact being delivered, while sequential promotion can still leave partial state after a crash.
+.agents/memory/autonomous-delivery-acceptance.md:3:description: The measurement boundary for unified operation-loop campaigns and verified delivery outcomes.
+.agents/memory/autonomous-delivery-acceptance.md:10:**How to apply:** Keep deterministic fixtures as the default campaign. Enable provider, browser, deployment, and remote-delivery lanes explicitly, with isolated workspaces and redacted receipts. Count completion only when candidate delivery is verified and no scope or repeated-side-effect violation occurred.
+.agents/memory/arabic-fixture-guards.md:10:**How to apply:** Use the shared fixture guard for Arabic reports in chat-agent and forensic end-to-end tests; do not apply it to intentionally structured English protocol fields or non-Arabic fixtures.
+.local/tasks/openrouter-fallback-root-cause.md:23:4. **Improve safe error reporting** — Map the distinct conditions to precise internal error codes and concise UI messages that distinguish catalog refresh failure, stale configured model, and genuine absence of a compatible model.
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:350:  const [report, setReport] = useState<DiscoveryReport | null>(null);
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:450:    if (!discoveryId || !report) return;
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:808:    if (!report) {
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:815:                <div className="font-medium mb-0.5">Failed to load discovery report</div>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:840:    const name = overrides['name'] ?? report.detectedName;
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:841:    const language = overrides['language'] ?? report.detectedLanguage;
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:842:    const framework = overrides['framework'] ?? report.detectedFramework;
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:852:            <div className={`text-2xl font-bold font-mono ${scoreColor(report.qualityScore)}`}>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:853:              {report.qualityScore}<span className="text-sm text-muted-foreground font-sans font-normal">/100</span>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:864:              <span className="font-mono font-semibold text-emerald-400">{report.confidenceScore}%</span>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:867:              <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${report.confidenceScore}%` }} />
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:871:            <div className="font-mono">{report.moduleCount} modules</div>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:872:            <div className="font-mono">{fmt(report.repoSizeBytes)}</div>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:885:            <ReportRow icon={Cpu} label="Runtime" value={report.detectedRuntime} />
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:886:            <ReportRow icon={Package} label="Package Manager" value={report.detectedPackageManager} />
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:887:            <ReportRow icon={GitBranch} label="Architecture" value={report.detectedArchitecture} />
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:897:            <ReportRow icon={Database} label="Database" value={report.detectedDb} />
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:898:            <ReportRow icon={Box} label="ORM" value={report.detectedOrm} />
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:899:            <ReportRow icon={TestTube2} label="Test Framework" value={report.detectedTestFramework} />
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:900:            <ReportRow icon={Hammer} label="Build Tool" value={report.detectedBuildTool} />
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:901:            <ReportRow icon={GitFork} label="CI/CD" value={report.detectedCi} />
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:908:            { label: 'APIs', value: report.detectedApis.length },
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:909:            { label: 'Modules', value: report.moduleCount },
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:910:            { label: 'Packages', value: report.packageCount },
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:911:            { label: 'Graph Nodes', value: report.graphSummary.entityCount },
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:922:          {report.isMonorepo && (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:927:          {report.hasDocker && (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:932:          {report.hasOpenApi && (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:937:          {report.detectedLanguages.slice(0, 4).map((l) => (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:943:        {report.detectedRisks.length > 0 && (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:948:                {report.detectedRisks.length} Risk{report.detectedRisks.length !== 1 ? 's' : ''} Detected
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:951:            {report.detectedRisks.map((r, i) => (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:960:        {report.ruleViolations.length > 0 && (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:964:                Rule Violations ({report.ruleViolations.length})
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:968:              {report.ruleViolations.slice(0, 5).map((v, i) => (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:976:              {report.ruleViolations.length > 5 && (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:977:                <div className="px-4 py-2 text-xs text-muted-foreground/50">+{report.ruleViolations.length - 5} more violations…</div>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1015:          <span className="font-semibold text-foreground">{overrides['name'] ?? report?.detectedName}</span>{' '}
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1025:          `Knowledge graph built (${report?.graphSummary.entityCount ?? 0} entities)`,
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1026:          `Tasks created (${report?.ruleViolations.length ?? 0} from rule violations)`,
+scripts/mission-correlation-report.test.mjs:13:} from "./mission-correlation-report.mjs";
+scripts/mission-correlation-report.test.mjs:15:const reportScript = resolve(import.meta.dirname, "mission-correlation-report.mjs");
+scripts/mission-correlation-report.test.mjs:49:    const child = spawn(process.execPath, [reportScript, capturePath], {
+scripts/mission-correlation-report.test.mjs:72:test("keeps the mission correlation report version compatible with stored report readers", () => {
+scripts/mission-correlation-report.test.mjs:73:  const report = buildMissionCorrelationReport({
+scripts/mission-correlation-report.test.mjs:93:  assert.equal(report.version, SUPPORTED_MISSION_CORRELATION_REPORT_VERSION);
+scripts/mission-correlation-report.test.mjs:94:  assert.equal(assertSupportedMissionCorrelationReportVersion(report), report);
+scripts/mission-correlation-report.test.mjs:104:    "Live mission correlation report: outcome=success terminal=COMPLETED evidence=2 validation=3.",
+scripts/mission-correlation-report.test.mjs:108:test("labels non-success release terminals without exposing report contents", () => {
+scripts/mission-correlation-report.test.mjs:117:    "Live mission correlation report: outcome=non-success terminal=UNAVAILABLE evidence=0 validation=0.",
+scripts/mission-correlation-report.test.mjs:122:  const directory = await mkdtemp(resolve(tmpdir(), "mission-report-"));
+scripts/mission-correlation-report.test.mjs:140:      const report = parseMissionCorrelationReportOutput(stdout);
+scripts/mission-correlation-report.test.mjs:141:      const summary = formatMissionCorrelationSummary(report);
+scripts/mission-correlation-report.test.mjs:143:      assert.equal(report.redacted, true);
+scripts/mission-correlation-report.test.mjs:147:          ? "Live mission correlation report: outcome=success terminal=COMPLETED evidence=2 validation=1."
+scripts/mission-correlation-report.test.mjs:148:          : "Live mission correlation report: outcome=non-success terminal=UNAVAILABLE evidence=0 validation=0.",
+scripts/mission-correlation-report.test.mjs:169:      kind: "mission-correlation-report",
+scripts/mission-correlation-report.test.mjs:177:test("rejects incompatible mission correlation report versions with an upgrade action", () => {
+scripts/mission-correlation-report.test.mjs:181:        kind: "mission-correlation-report",
+scripts/mission-correlation-report.test.mjs:186:        "Unsupported mission correlation report version: expected 1, got 2. " +
+scripts/mission-correlation-report.test.mjs:187:        "Update the report reader before changing the producer version.",
+scripts/mission-correlation-report.test.mjs:193:  const report = buildMissionCorrelationReport({
+scripts/mission-correlation-report.test.mjs:222:  assert.equal(report.redacted, true);
+scripts/mission-correlation-report.test.mjs:223:  assert.equal(report.workspaceRevision, "abc1234");
+scripts/mission-correlation-report.test.mjs:224:  assert.equal(report.outcomeClass, "success");
+scripts/mission-correlation-report.test.mjs:225:  assert.ok(Object.values(report.agreement).every(Boolean));
+scripts/mission-correlation-report.test.mjs:259:  const report = buildMissionCorrelationReport({
+scripts/mission-correlation-report.test.mjs:280:  assert.equal(report.outcomeClass, "non-success");
+scripts/mission-correlation-report.test.mjs:281:  assert.equal(report.terminalState, "UNAVAILABLE");
+scripts/mission-correlation-report.test.mjs:284:test("requires the redacted report identity, terminal, and core surfaces", () => {
+scripts/mission-correlation-report.test.mjs:331:test("names the missing core surface instead of accepting an incomplete report", () => {
+scripts/mission-correlation-report.test.mjs:385:    const report = buildMissionCorrelationReport({
+scripts/mission-correlation-report.test.mjs:405:    assert.equal(report.redacted, true);
+scripts/mission-correlation-report.test.mjs:406:    assert.equal(report.outcomeClass, outcomeClass);
+scripts/mission-correlation-report.test.mjs:407:    assert.equal(report.terminalState, terminalState);
+scripts/mission-correlation-report.test.mjs:409:      Object.keys(report).sort(),
+scripts/mission-correlation-report.test.mjs:456:  const report = buildMissionCorrelationReport(
+scripts/mission-correlation-report.test.mjs:480:  assert.equal(report.outcomeClass, "success");
+scripts/mission-correlation-report.test.mjs:481:  assert.equal(report.agreement.evidence, true);
+scripts/mission-correlation-report.test.mjs:482:  assert.equal(report.agreement.validation, true);
+scripts/mission-correlation-report.test.mjs:505:  const report = buildMissionCorrelationReport({
+scripts/mission-correlation-report.test.mjs:513:  assert.equal(report.candidateIdentity, "candidate-1");
+scripts/mission-correlation-report.test.mjs:514:  assert.equal(report.candidateRevision, "abc1234");
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:5:import storedMissionCorrelationReport from '../lib/fixtures/stored-mission-correlation-report.json';
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:12:  | { kind: 'FORENSIC_REPORT_RESULT'; report: string; evidence: Record<string, unknown>[] }
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:13:   | { kind: 'WORKSPACE_REVIEW_RESULT'; report: string; evidence: Record<string, unknown>[] }
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:765:  it('sends a provider key through the generated mutation and reports success/error', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1334:  it('keeps a proven fixture Finding visible when the final report blocks repair', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1689:  it('renders a FORENSIC_REPORT_RESULT with the report text', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1690:    mocks.serverProposal = { proposalId: 'report-proposal', changes: [] };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1693:      report: 'No behavioral defect found across reviewed sources.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1699:    expect(await screen.findByText('Forensic report')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1715:        // A stale status must not override the cancelled report.
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1832:      report: 'Workspace review is NOT PROVEN without completed source reads.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1981:          report: 'Audit remains blocked until all evidence is retained.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2186:  it('accepts a generated API-shaped mission correlation report in history', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2187:    mocks.serverProposal = { proposalId: 'stored-report', changes: [] };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2197:  it('shows regenerated report provenance without exposing internal identifiers', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2199:    mocks.serverProposal = { proposalId: 'historical-regenerated-report', changes: [] };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2218:    ['scalar', 'not-a-report'],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2220:  ])('keeps history when the stored mission report is %s', async (_label, report) => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2221:    mocks.serverProposal = { proposalId: 'incompatible-report', changes: [] };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2222:    mocks.proposalMessages[0].missionCorrelationReport = report as Record<string, unknown>;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2231:        'A historical mission report could not be loaded.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3067:      report: 'Audit is not a delivery run.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3119:          'FULL_FORENSIC_AUDIT response is missing one or more report sections',

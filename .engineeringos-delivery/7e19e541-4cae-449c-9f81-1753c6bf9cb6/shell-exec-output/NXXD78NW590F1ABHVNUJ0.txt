@@ -1,0 +1,286 @@
+{
+  "name": "workspace",
+  "version": "0.0.0",
+  "license": "MIT",
+  "scripts": {
+    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "codegen": "pnpm --filter @workspace/api-spec run codegen",
+    "codegen:check": "pnpm --filter @workspace/scripts run check-codegen-drift",
+    "db:schema:check": "pnpm --filter @workspace/db run check-audit-schema",
+    "verify:benchmark-rollout": "node scripts/verify-benchmark-rollout.mjs",
+    "test:benchmark-rollout": "node --test scripts/verify-benchmark-rollout.test.mjs",
+    "test:mission-correlation-report": "node --test scripts/mission-correlation-report.test.mjs",
+    "test:dashboard-journey-contract": "node --test scripts/dashboard-journey-contract.test.mjs",
+    "test:release-port-cleanup": "node --test scripts/release-port-cleanup.test.mjs",
+    "test:dashboard-contract-trigger": "node --test scripts/dashboard-contract-trigger.test.mjs",
+    "validate:github-workflows": "pnpm --filter @workspace/scripts run validate-github-workflows",
+    "validate:app-origins": "NODE_ENV=production node scripts/validate-app-origins.mjs",
+    "validate:release": "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+    "validate:release:controlled": "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
+    "validate:ai-release": "pnpm --filter @workspace/api-server run validate:ai-release",
+    "validate:dashboard-journey": "RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs",
+    "validate:live-empty-model-response": "pnpm --filter @workspace/api-server run test:live-empty-model-response",
+    "deployment:post-build": "pnpm run db:schema:check && pnpm run test:benchmark-rollout && pnpm run verify:benchmark-rollout && pnpm run validate:release && pnpm store prune",
+    "validate:dashboard-client-contract": "node scripts/validate-dashboard-client-contract.mjs",
+    "validate": "pnpm run validate:github-workflows && pnpm run validate:dashboard-client-contract && pnpm run typecheck && pnpm run validate:dashboard-restart",
+    "validate:dashboard-restart": "pnpm --filter @workspace/dashboard run smoke:restart",
+    "truth:baseline:check": "pnpm --filter @workspace/scripts run generate-truth-flow",
+    "truth:baseline:materialize": "pnpm --filter @workspace/scripts run generate-truth-flow -- --write",
+    "truth:validate": "pnpm --filter @workspace/scripts run validate-truth-flow",
+    "benchmark:baseline:check": "pnpm --filter @workspace/scripts run validate-benchmark-baseline",
+    "build": "pnpm run codegen && pnpm run typecheck && pnpm -r --if-present run build",
+    "typecheck:libs": "tsc --build",
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
+    "test": "pnpm -r --if-present run test"
+  },
+  "private": true,
+  "dependencies": {
+    "@replit/connectors-sdk": "^0.4.1"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.4",
+    "typescript": "~5.9.3"
+  }
+}
+
+--- validation scripts ---
+package.json:16:    "validate:github-workflows": "pnpm --filter @workspace/scripts run validate-github-workflows",
+package.json:17:    "validate:app-origins": "NODE_ENV=production node scripts/validate-app-origins.mjs",
+package.json:18:    "validate:release": "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+package.json:19:    "validate:release:controlled": "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
+package.json:20:    "validate:ai-release": "pnpm --filter @workspace/api-server run validate:ai-release",
+package.json:21:    "validate:dashboard-journey": "RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs",
+package.json:22:    "validate:live-empty-model-response": "pnpm --filter @workspace/api-server run test:live-empty-model-response",
+package.json:23:    "deployment:post-build": "pnpm run db:schema:check && pnpm run test:benchmark-rollout && pnpm run verify:benchmark-rollout && pnpm run validate:release && pnpm store prune",
+package.json:24:    "validate:dashboard-client-contract": "node scripts/validate-dashboard-client-contract.mjs",
+package.json:25:    "validate": "pnpm run validate:github-workflows && pnpm run validate:dashboard-client-contract && pnpm run typecheck && pnpm run validate:dashboard-restart",
+package.json:26:    "validate:dashboard-restart": "pnpm --filter @workspace/dashboard run smoke:restart",
+scripts/release-configuration.test.ts:93:      "run validate:release",
+scripts/release-configuration.test.ts:103:      "run validate:release",
+scripts/release-configuration.test.ts:111:    laterCommands: ["run validate:release", "store prune"],
+scripts/release-configuration.test.ts:115:    command: "run validate:release",
+scripts/release-configuration.test.ts:141:if [ "$*" != "run validate:release" ]; then
+scripts/release-configuration.test.ts:151:    const result = spawnSync("pnpm", ["run", "validate:release"], {
+scripts/release-configuration.test.ts:278:  const recoveryIndex = deploymentSteps.indexOf("pnpm run validate:release");
+scripts/release-configuration.test.ts:312:    (step) => step === "pnpm run validate:release",
+scripts/release-configuration.test.ts:314:  assert.equal(recoveryStep, "pnpm run validate:release");
+scripts/release-configuration.test.ts:329:    const result = spawnSync("pnpm", ["run", "validate:release:controlled"], {
+scripts/release-configuration.test.ts:371:      "run validate:release",
+scripts/release-configuration.test.ts:375:      fixture.trace.indexOf("run validate:release") <
+scripts/release-configuration.test.ts:397:    ["run", "validate:release"],
+scripts/release-configuration.test.ts:414:    /> workspace@[^ ]+ validate:release/,
+scripts/release-configuration.test.ts:451:      ["run", "validate:release"],
+scripts/release-configuration.test.ts:572:    /validate:release|release-process-recovery|dashboard-restart-smoke/,
+scripts/release-configuration.test.ts:581:    'args = "APP_ORIGINS=\\"https://${REPLIT_DEV_DOMAIN}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 pnpm run validate:release"',
+scripts/release-configuration.test.ts:585:  const releaseTestCommand = packageJson.scripts?.["validate:release"];
+scripts/release-configuration.test.ts:587:    packageJson.scripts?.["validate:release:controlled"];
+scripts/release-configuration.test.ts:591:    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+scripts/release-configuration.test.ts:595:    "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
+scripts/release-configuration.test.ts:607:    /args = "APP_ORIGINS=\\"https:\/\/\$\{REPLIT_DEV_DOMAIN\}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=\$\(command -v chromium\) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"/,
+scripts/release-configuration.test.ts:632:    /pnpm run validate:dashboard-journey/,
+artifacts/mockup-sandbox/src/hooks/use-toast.ts:173:    listeners.push(setState)
+scripts/verify-setup.sh:3:# Run after: pnpm install, Clerk secrets provisioned, pnpm --filter @workspace/db run push
+scripts/verify-setup.sh:66:# 6. DB schema pushed (projects table exists)
+scripts/verify-setup.sh:70:    check "DB schema pushed (projects table)" "ok"
+scripts/verify-setup.sh:72:    check "DB schema pushed (projects table)" "missing — run: pnpm --filter @workspace/db run push"
+scripts/verify-setup.sh:75:  check "DB schema pushed (projects table)" "ok (skipped — psql not in PATH or DATABASE_URL unset)"
+scripts/verify-benchmark-rollout.test.mjs:13:const liveFixturePath = path.join(
+scripts/verify-benchmark-rollout.test.mjs:15:  "lib/ai-orchestrator/benchmark-results/code-agent-benchmark-live.json",
+scripts/verify-benchmark-rollout.test.mjs:22:async function runVerifier(live, baseline) {
+scripts/verify-benchmark-rollout.test.mjs:24:  const livePath = path.join(directory, "live.json");
+scripts/verify-benchmark-rollout.test.mjs:29:      writeFile(livePath, JSON.stringify(live)),
+scripts/verify-benchmark-rollout.test.mjs:37:        BENCHMARK_LIVE_SCORECARD_PATH: livePath,
+scripts/verify-benchmark-rollout.test.mjs:51:  it("accepts the approved flight-deck-v2 baseline-shaped live scorecard", async () => {
+scripts/verify-benchmark-rollout.test.mjs:52:    const live = await readFixture(liveFixturePath);
+scripts/verify-benchmark-rollout.test.mjs:55:    const result = await runVerifier(live, baseline);
+scripts/verify-benchmark-rollout.test.mjs:66:  it("rejects a stale flight-deck-v1 live scorecard", async () => {
+scripts/verify-benchmark-rollout.test.mjs:67:    const live = await readFixture(liveFixturePath);
+scripts/verify-benchmark-rollout.test.mjs:69:    live.kind = "code-agent-benchmark";
+scripts/verify-benchmark-rollout.test.mjs:70:    live.suiteVersion = "flight-deck-v1";
+scripts/verify-benchmark-rollout.test.mjs:72:    await rejects(runVerifier(live, baseline), (error) => {
+scripts/verify-benchmark-rollout.test.mjs:78:  it("rejects a live scorecard with provider-blocked cases", async () => {
+scripts/verify-benchmark-rollout.test.mjs:79:    const live = await readFixture(liveFixturePath);
+scripts/verify-benchmark-rollout.test.mjs:81:    live.metrics.providerUnavailableCount = 1;
+scripts/verify-benchmark-rollout.test.mjs:83:    await rejects(runVerifier(live, baseline), (error) => {
+artifacts/dashboard/e2e/dashboard.journey.ts:35:  "delivery-success",
+artifacts/dashboard/e2e/dashboard.journey.ts:38:function liveCampaignScenario(): string | undefined {
+artifacts/dashboard/e2e/dashboard.journey.ts:42:      "Live campaign requires DASHBOARD_E2E_LIVE_SCENARIO=provider-outage, malformed-output, or delivery-success.",
+artifacts/dashboard/e2e/dashboard.journey.ts:46:    throw new Error(`Unsupported live campaign scenario: ${scenario}.`);
+artifacts/dashboard/e2e/dashboard.journey.ts:51:function livePrompt(): string {
+artifacts/dashboard/e2e/dashboard.journey.ts:52:  const scenario = liveCampaignScenario();
+artifacts/dashboard/e2e/dashboard.journey.ts:57:    return "Run a bounded forensic audit and treat malformed provider output as failed or incomplete. Do not claim success, apply, commit, or push without candidate-bound evidence.";
+artifacts/dashboard/e2e/dashboard.journey.ts:59:  if (scenario === "delivery-success") {
+artifacts/dashboard/e2e/dashboard.journey.ts:60:    return "Run the bounded delivery proof campaign on this disposable project. Exercise apply, commit, and push only when each current operation, project revision, candidate identity, and candidate-bound evidence match. Report every terminal receipt.";
+artifacts/dashboard/e2e/dashboard.journey.ts:65:function liveTimeoutMs(): number {
+artifacts/dashboard/e2e/dashboard.journey.ts:179:  if (!controlUrl) throw new Error("Dashboard campaign control URL is missing.");
+artifacts/dashboard/e2e/dashboard.journey.ts:213:    deliveryRecovery?: {
+artifacts/dashboard/e2e/dashboard.journey.ts:239:    liveTask?: {
+artifacts/dashboard/e2e/dashboard.journey.ts:392:      overrides.auditExport.requests.push(route.request().url());
+artifacts/dashboard/e2e/dashboard.journey.ts:437:    if (overrides?.liveTask && path === "/api/tasks") {
+artifacts/dashboard/e2e/dashboard.journey.ts:441:            id: overrides.liveTask.id,
+artifacts/dashboard/e2e/dashboard.journey.ts:442:            projectId: overrides.liveTask.projectId,
+artifacts/dashboard/e2e/dashboard.journey.ts:443:            title: overrides.liveTask.title,
+artifacts/dashboard/e2e/dashboard.journey.ts:444:            description: "A task used to verify live dashboard updates.",
+artifacts/dashboard/e2e/dashboard.journey.ts:457:      overrides?.liveTask &&
+artifacts/dashboard/e2e/dashboard.journey.ts:458:      path === `/api/tasks/${overrides.liveTask.id}/logs`
+artifacts/dashboard/e2e/dashboard.journey.ts:460:      return route.fulfill(jsonResponse(overrides.liveTask.initialLogs ?? []));
+artifacts/dashboard/e2e/dashboard.journey.ts:463:      overrides?.liveTask &&
+artifacts/dashboard/e2e/dashboard.journey.ts:464:      path === `/api/tasks/${overrides.liveTask.id}/logs/stream`
+artifacts/dashboard/e2e/dashboard.journey.ts:466:      const streamRequests = overrides.liveTask.streamRequests;
+artifacts/dashboard/e2e/dashboard.journey.ts:467:      streamRequests?.push(route.request().url());
+artifacts/dashboard/e2e/dashboard.journey.ts:469:        (overrides.liveTask.failFirstStream && streamRequests?.length === 1) ||
+artifacts/dashboard/e2e/dashboard.journey.ts:470:        (overrides.liveTask.failStreamAttempts &&
+artifacts/dashboard/e2e/dashboard.journey.ts:472:          streamRequests.length <= overrides.liveTask.failStreamAttempts)
+artifacts/dashboard/e2e/dashboard.journey.ts:486:        body: `event: log\ndata: ${JSON.stringify(overrides.liveTask.log)}\n\n`,
+artifacts/dashboard/e2e/dashboard.journey.ts:507:      overrides?.deliveryRecovery &&
+artifacts/dashboard/e2e/dashboard.journey.ts:508:      path === "/api/ai/delivery/recoverable"
+artifacts/dashboard/e2e/dashboard.journey.ts:510:      overrides.deliveryRecovery.requests.push(route.request().url());
+artifacts/dashboard/e2e/dashboard.journey.ts:512:        jsonResponse({ operations: overrides.deliveryRecovery.operations }),
+artifacts/dashboard/e2e/dashboard.journey.ts:516:      overrides?.deliveryRecovery?.recoveryAction &&
+artifacts/dashboard/e2e/dashboard.journey.ts:518:        `/api/ai/delivery/${overrides.deliveryRecovery.recoveryAction.proposalId}/${overrides.deliveryRecovery.recoveryAction.action}`
+artifacts/dashboard/e2e/dashboard.journey.ts:520:      overrides.deliveryRecovery.actionRequests?.push(route.request().url());
+artifacts/dashboard/e2e/dashboard.journey.ts:521:      if (overrides.deliveryRecovery.recoveryAction.nextOperations) {
+artifacts/dashboard/e2e/dashboard.journey.ts:522:        overrides.deliveryRecovery.operations =
+artifacts/dashboard/e2e/dashboard.journey.ts:523:          overrides.deliveryRecovery.recoveryAction.nextOperations;
+artifacts/dashboard/e2e/dashboard.journey.ts:527:          overrides.deliveryRecovery.recoveryAction.response,
+artifacts/dashboard/e2e/dashboard.journey.ts:528:          overrides.deliveryRecovery.recoveryAction.status ?? 409,
+artifacts/dashboard/e2e/dashboard.journey.ts:1174:async function liveRequest(
+artifacts/dashboard/e2e/dashboard.journey.ts:1257:      diagnostics.push({
+artifacts/dashboard/e2e/dashboard.journey.ts:1263:      recordedOriginDiagnostics.push(diagnostics.at(-1)!);
+artifacts/dashboard/e2e/dashboard.journey.ts:1268:        diagnostics.push({ origin, phase });
+artifacts/dashboard/e2e/dashboard.journey.ts:1352:  const liveUpdateUrl = new URL("/api/ai/chat/stream", apiBaseUrl).toString();
+artifacts/dashboard/e2e/dashboard.journey.ts:1357:  recordedOriginDiagnostics.push(diagnostic);
+artifacts/dashboard/e2e/dashboard.journey.ts:1389:    const hostileLiveUpdate = await page.request.post(liveUpdateUrl, {
+artifacts/dashboard/e2e/dashboard.journey.ts:1426:async function liveJson(
+artifacts/dashboard/e2e/dashboard.journey.ts:1430:  const response = await liveRequest(page, path);
+artifacts/dashboard/e2e/dashboard.journey.ts:1439:async function liveArray(
+artifacts/dashboard/e2e/dashboard.journey.ts:1443:  const response = await liveRequest(page, path);
+artifacts/dashboard/e2e/dashboard.journey.ts:1454:async function liveOptionalRecord(
+artifacts/dashboard/e2e/dashboard.journey.ts:1458:  const response = await liveRequest(page, path);
+artifacts/dashboard/e2e/dashboard.journey.ts:1472:  test("exports one redacted live-provider mission correlation report", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:1477:    test.setTimeout(liveTimeoutMs() + LIVE_TEST_TIMEOUT_MARGIN_MS);
+artifacts/dashboard/e2e/dashboard.journey.ts:1487:    const campaignScenario = liveCampaignScenario();
+artifacts/dashboard/e2e/dashboard.journey.ts:1491:        "DASHBOARD_E2E_LIVE_PROJECT_ID is required for the live-provider journey.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1495:    const streamResponse = await liveRequest(page, "/api/ai/chat/stream", {
+artifacts/dashboard/e2e/dashboard.journey.ts:1497:      timeout: liveTimeoutMs(),
+artifacts/dashboard/e2e/dashboard.journey.ts:1500:         message: livePrompt(),
+artifacts/dashboard/e2e/dashboard.journey.ts:1501:        idempotencyKey: `dashboard-live-${Date.now()}`,
+artifacts/dashboard/e2e/dashboard.journey.ts:1521:    const deadline = Date.now() + liveTimeoutMs();
+artifacts/dashboard/e2e/dashboard.journey.ts:1523:      execution = await liveJson(page, `/api/ai/executions/${executionId}`);
+artifacts/dashboard/e2e/dashboard.journey.ts:1539:    const messages = await liveArray(
+artifacts/dashboard/e2e/dashboard.journey.ts:1543:    const events = await liveArray(
+artifacts/dashboard/e2e/dashboard.journey.ts:1547:    const proposal = await liveOptionalRecord(
+artifacts/dashboard/e2e/dashboard.journey.ts:1551:    const gitLog = await liveJson(page, `/api/projects/${projectId}/git/log`);
+artifacts/dashboard/e2e/dashboard.journey.ts:1552:    const missionControl = await liveJson(page, "/api/ai/mission-control");
+artifacts/dashboard/e2e/dashboard.journey.ts:1553:    const dashboardState = await liveJson(page, "/api/dashboard");
+artifacts/dashboard/e2e/dashboard.journey.ts:1584:      throw new Error("Live campaign requires operation, revision, and candidate correlation.");
+artifacts/dashboard/e2e/dashboard.journey.ts:1601:      campaignScenario === "delivery-success" &&
+artifacts/dashboard/e2e/dashboard.journey.ts:1606:        "Delivery-success campaign cannot pass without a candidate-bound validation hash.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1609:    const deliveryStages = {
+artifacts/dashboard/e2e/dashboard.journey.ts:1612:      pushed: events.some((event) => event?.type === "GitPushed"),
+artifacts/dashboard/e2e/dashboard.journey.ts:1615:      campaignScenario === "delivery-success" &&
+artifacts/dashboard/e2e/dashboard.journey.ts:1617:      !Object.values(deliveryStages).every(Boolean)
+artifacts/dashboard/e2e/dashboard.journey.ts:1620:        "Delivery-success campaign cannot pass without operation-correlated apply, commit, and push evidence.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1642:      campaignScenario,
+artifacts/dashboard/e2e/dashboard.journey.ts:1643:      deliveryStages,
+artifacts/dashboard/e2e/dashboard.journey.ts:1731:      "test-results/dashboard-journey/live-mission-correlation.json";
+artifacts/dashboard/e2e/dashboard.journey.ts:1818:      "The multi-process convergence campaign runs only under the release runner.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1835:      // hung request cannot make this campaign pass indefinitely.
+artifacts/dashboard/e2e/dashboard.journey.ts:2097:      proof.getByRole("button", { name: /push committed changes/i }),
+artifacts/dashboard/e2e/dashboard.journey.ts:2137:  test("uploads an archive and renders a live task update", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:2140:    const taskId = "e2e-live-task";
+artifacts/dashboard/e2e/dashboard.journey.ts:2141:    const liveLog = {
+artifacts/dashboard/e2e/dashboard.journey.ts:2142:      id: "e2e-live-log",
+artifacts/dashboard/e2e/dashboard.journey.ts:2153:      liveTask: {
+artifacts/dashboard/e2e/dashboard.journey.ts:2155:        title: "Verify live dashboard updates",
+artifacts/dashboard/e2e/dashboard.journey.ts:2157:        log: liveLog,
+artifacts/dashboard/e2e/dashboard.journey.ts:2192:      "Expand task Verify live dashboard updates",
+artifacts/dashboard/e2e/dashboard.journey.ts:2202:  test("recovers a live task update after a temporary stream failure", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:2205:    const taskId = "e2e-reconnecting-live-task";
+artifacts/dashboard/e2e/dashboard.journey.ts:2206:    const liveLog = {
+artifacts/dashboard/e2e/dashboard.journey.ts:2207:      id: "e2e-reconnecting-live-log",
+artifacts/dashboard/e2e/dashboard.journey.ts:2219:      liveTask: {
+artifacts/dashboard/e2e/dashboard.journey.ts:2221:        title: "Recover live task updates",
+artifacts/dashboard/e2e/dashboard.journey.ts:2223:        log: liveLog,
+artifacts/dashboard/e2e/dashboard.journey.ts:2231:    const taskRow = page.getByLabel("Expand task Recover live task updates");
+artifacts/dashboard/e2e/dashboard.journey.ts:2237:    await expect(activity).toContainText(liveLog.message);
+artifacts/dashboard/e2e/dashboard.journey.ts:2249:      activity.locator("summary").filter({ hasText: liveLog.message }),
+artifacts/dashboard/e2e/dashboard.journey.ts:2253:  test("shows an actionable terminal state when live task reconnects are exhausted", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:2256:    const taskId = "e2e-exhausted-live-task";
+artifacts/dashboard/e2e/dashboard.journey.ts:2258:    const liveLog = {
+artifacts/dashboard/e2e/dashboard.journey.ts:2259:      id: "e2e-exhausted-live-log",
+artifacts/dashboard/e2e/dashboard.journey.ts:2270:      if (!request.url().includes("/logs/stream")) nonStreamRequests.push(request.method());
+artifacts/dashboard/e2e/dashboard.journey.ts:2273:      liveTask: {
+artifacts/dashboard/e2e/dashboard.journey.ts:2275:        title: "Recover exhausted live task updates",
+artifacts/dashboard/e2e/dashboard.journey.ts:2277:        log: liveLog,
+artifacts/dashboard/e2e/dashboard.journey.ts:2278:        initialLogs: [liveLog],
+artifacts/dashboard/e2e/dashboard.journey.ts:2286:    await page.getByLabel("Expand task Recover exhausted live task updates").click();
+artifacts/dashboard/e2e/dashboard.journey.ts:2290:    await expect(activity).toContainText(liveLog.message);
+artifacts/dashboard/e2e/dashboard.journey.ts:2303:    await expect(exhausted.getByRole("button", { name: "Retry live updates" })).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts:2306:    await exhausted.getByRole("button", { name: "Retry live updates" }).click();
+artifacts/dashboard/e2e/dashboard.journey.ts:2312:      activity.locator("summary").filter({ hasText: liveLog.message }),
+artifacts/dashboard/e2e/dashboard.journey.ts:2332:        eventRequests.push(request.url());
+artifacts/dashboard/e2e/dashboard.journey.ts:3032:          streamRequests.push(
+artifacts/dashboard/e2e/dashboard.journey.ts:3114:  test("projects delivery recovery states safely after reload", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:3129:            "The delivery stopped because validation needs to be run again.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3132:          conflictReason: null,
+artifacts/dashboard/e2e/dashboard.journey.ts:3146:            "The saved delivery workspace is no longer available, so recovery cannot continue.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3148:            "Start a new delivery from the current project rather than retrying this recovery.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3149:          conflictReason: "Workspace expired after the runner was recycled.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3162:          operatorExplanation: "This delivery recovery was already discarded.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3164:          conflictReason: "Internal diagnostic: should never be rendered",
+artifacts/dashboard/e2e/dashboard.journey.ts:3171:    await installApiFixtures(page, { deliveryRecovery: recovery });
+artifacts/dashboard/e2e/dashboard.journey.ts:3176:      name: "Recoverable delivery operations",
+artifacts/dashboard/e2e/dashboard.journey.ts:3188:        "The saved delivery workspace is no longer available, so recovery cannot continue.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3193:      region.getByText("This delivery recovery was already discarded.", {
+artifacts/dashboard/e2e/dashboard.journey.ts:3240:      name: "Recoverable delivery operations",
+artifacts/dashboard/e2e/dashboard.journey.ts:3257:  test("explains when delivery recovery loses a race and refreshes state", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:3273:            "The delivery stopped because the retained changes need review before validation can continue.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3276:          conflictReason: null,
+artifacts/dashboard/e2e/dashboard.journey.ts:3286:          error: "This delivery recovery was already discarded.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3302:            operatorExplanation: "This delivery recovery was already discarded.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3304:            conflictReason: null,
+artifacts/dashboard/e2e/dashboard.journey.ts:3312:    await installApiFixtures(page, { deliveryRecovery: recovery });
+artifacts/dashboard/e2e/dashboard.journey.ts:3317:      name: "Recoverable delivery operations",
+artifacts/dashboard/e2e/dashboard.journey.ts:3338:      "/api/ai/delivery/e2e-recovery-race-proposal/resume-validation",
+artifacts/dashboard/e2e/dashboard.journey.ts:3362:            "The delivery stopped because the retained changes need review before validation can continue.",
+artifacts/dashboard/e2e/dashboard.journey.ts:3365:          conflictReason: null,
+artifacts/dashboard/e2e/dashboard.journey.ts:3376:          error: "Delivery operation not found",
+artifacts/dashboard/e2e/dashboard.journey.ts:3383:    await installApiFixtures(page, { deliveryRecovery: recovery });
+artifacts/dashboard/e2e/dashboard.journey.ts:3388:      name: "Recoverable delivery operations",
+artifacts/dashboard/e2e/dashboard.journey.ts:3407:      "/api/ai/delivery/e2e-recovery-deleted-proposal/resume-validation",
+artifacts/dashboard/e2e/dashboard.journey.ts:3411:      /Delivery operation not found|Do not render this server detail|\/home\/runner|\/tmp\//i,
+scripts/verify-benchmark-rollout.mjs:7:const livePath = path.resolve(
+scripts/verify-benchmark-rollout.mjs:8:  process.env.BENCHMARK_LIVE_SCORECARD_PATH ?? path.join(resultsRoot, "code-agent-benchmark-live.json"),
+scripts/verify-benchmark-rollout.mjs:37:  const scorecard = requireRecord(raw, "live benchmark scorecard");
+scripts/verify-benchmark-rollout.mjs:51:    throw new Error("live benchmark scorecard has an unsupported kind");
+scripts/verify-benchmark-rollout.mjs:54:    throw new Error("live benchmark scorecard is not the approved flight-deck-v2 schema");
+scripts/verify-benchmark-rollout.mjs:62:  const metrics = requireRecord(scorecard.metrics, "live benchmark metrics");
+scripts/verify-benchmark-rollout.mjs:63:  if (metrics.complete !== true) throw new Error("live benchmark metrics are incomplete");
+scripts/verify-benchmark-rollout.mjs:64:  requireNumber(metrics.observedCases, "live benchmark observedCases");
+scripts/verify-benchmark-rollout.mjs:65:  requireNumber(metrics.totalCases, "live benchmark totalCases");
+scripts/verify-benchmark-rollout.mjs:67:    throw new Error("live benchmark observedCases does not equal totalCases");
+scripts/verify-benchmark-rollout.mjs:69:  requireNumber(metrics.providerUnavailableCount, "live benchmark providerUnavailableCount");
+scripts/verify-benchmark-rollout.mjs:74:    throw new Error("live benchmark contains rollout blockers");
+scripts/verify-benchmark-rollout.mjs:77:    throw new Error("live benchmark cases are missing");
+scripts/verify-benchmark-rollout.mjs:84:    throw new Error(`live benchmark has ${unexplainedBlocked.length} D result(s) without a diagnosis`);
+scripts/verify-benchmark-rollout.mjs:125:  const [live, baseline] = await Promise.all([
+scripts/verify-benchmark-rollout.mjs:126:    readJson(livePath, "live benchmark scorecard"),
+scripts/verify-benchmark-rollout.mjs:130:  const liveSummary = validateRolloutScorecard(live);
+scripts/verify-benchmark-rollout.mjs:133:    suiteVersion: liveSummary.suiteVersion,
+scripts/verify-benchmark-rollout.mjs:134:    baselineId: liveSummary.baselineId,
+scripts/verify-benchmark-rollout.mjs:135:    observedCases: liveSummary.observedCases,
+scripts/validate-truth-flow.ts:24: *   RUNTIME   — live graph/scan output (informs future baseline updates; not validated here)
+artifacts/dashboard/e2e/README.md:24:pnpm run validate:dashboard-journey
+artifacts/dashboard/e2e/README.md:32:helper to obtain a short-lived session URL and never fills Clerk forms. When
+artifacts/dashboard/e2e/README.md:34:to create the same short-lived Clerk sign-in token through the Backend API.
+artifacts/dashboard/e2e/README.md:42:## Bounded live-provider correlation run
+artifacts/dashboard/e2e/README.md:44:The live-provider path is opt-in and never runs as part of the normal smoke
+artifacts/dashboard/e2e/README.md:52:DASHBOARD_E2E_LIVE_SCENARIO=delivery-success \
+artifacts/dashboard/e2e/README.md:55:DASHBOARD_E2E_LIVE_REPORT_PATH=test-results/dashboard-journey/live-mission-correlation.json \
+artifacts/dashboard/e2e/README.md:57:pnpm run validate:dashboard-journey
+artifacts/dashboard/e2e/README.md:61:and the live browser test allows an additional five seconds for Playwright
+artifacts/dashboard/e2e/README.md:72:report fails with the missing surface named before a live provider run.
+artifacts/dashboard/e2e/README.md:79:The live objective is an explicit, bounded forensic review of
+artifacts/dashboard/e2e/README.md:84:For the disposable campaign, run the same command once per scenario:
+artifacts/dashboard/e2e/README.md:85:`provider-outage`, `malformed-output`, and `delivery-success`. The first

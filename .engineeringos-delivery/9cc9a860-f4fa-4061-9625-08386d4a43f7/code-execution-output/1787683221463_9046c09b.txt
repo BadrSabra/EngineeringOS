@@ -1,0 +1,708 @@
+stdout:
+[
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": "artifacts/api-server: API Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": "artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": "artifacts/mockup-sandbox: Component Preview Server",
+    "state": "running"
+  },
+  {
+    "command": "pnpm run validate:dashboard-restart",
+    "name": "dashboard-restart-smoke",
+    "state": "not_started"
+  },
+  {
+    "command": "APP_ORIGINS=\"https://${REPLIT_DEV_DOMAIN}\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 pnpm run validate:release",
+    "name": "release-process-recovery",
+    "state": "not_started"
+  },
+  {
+    "command": "APP_ORIGINS=\"https://${REPLIT_DEV_DOMAIN}\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=$(command -v chromium) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey",
+    "name": "release-dashboard-journey",
+    "state": "not_started"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/e14fef06-0e40-4f5d-8082-de33f0d69dfa/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "running"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/e14fef06-0e40-4f5d-8082-de33f0d69dfa/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/e14fef06-0e40-4f5d-8082-de33f0d69dfa/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/c89f399b-0308-4f10-b3a3-52bc77d74adb/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "running"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/c89f399b-0308-4f10-b3a3-52bc77d74adb/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/c89f399b-0308-4f10-b3a3-52bc77d74adb/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/9c3ddf8f-b30f-4212-8ed3-e2bbb7c626c6/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "running"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/9c3ddf8f-b30f-4212-8ed3-e2bbb7c626c6/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/9c3ddf8f-b30f-4212-8ed3-e2bbb7c626c6/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+    "state": "running"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/9a78a491-eedd-4b42-a3db-f1328ced866b/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/9a78a491-eedd-4b42-a3db-f1328ced866b/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/9a78a491-eedd-4b42-a3db-f1328ced866b/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+    "state": "running"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/7a762ad6-572c-4885-9263-709a2c133118/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/7a762ad6-572c-4885-9263-709a2c133118/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/7a762ad6-572c-4885-9263-709a2c133118/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/6778b497-8d79-4bd7-9c3e-7c75edb7355c/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/6778b497-8d79-4bd7-9c3e-7c75edb7355c/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/6778b497-8d79-4bd7-9c3e-7c75edb7355c/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+    "state": "running"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/5134fe3f-6d04-4f79-8ee3-e0ec12b97a6d/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/5134fe3f-6d04-4f79-8ee3-e0ec12b97a6d/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/5134fe3f-6d04-4f79-8ee3-e0ec12b97a6d/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/4edace73-2aac-4f74-a666-c36157d80660/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/4edace73-2aac-4f74-a666-c36157d80660/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/4edace73-2aac-4f74-a666-c36157d80660/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/3e2200b9-7986-46fc-ba55-b1a53b5559b3/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/3e2200b9-7986-46fc-ba55-b1a53b5559b3/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/ab892c9c-bc11-4ab9-8613-9dc3ad7a2748/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/3e2200b9-7986-46fc-ba55-b1a53b5559b3/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+    "state": "running"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/ab892c9c-bc11-4ab9-8613-9dc3ad7a2748/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/ab892c9c-bc11-4ab9-8613-9dc3ad7a2748/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/24c7b9fa-5a86-4c72-8e3b-a465a7359a26/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "running"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/2b4ae063-bb5f-4df3-8e4c-2da3064c76fb/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "running"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/2b4ae063-bb5f-4df3-8e4c-2da3064c76fb/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+    "state": "running"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/2b4ae063-bb5f-4df3-8e4c-2da3064c76fb/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+    "state": "running"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/77eec452-4bf5-4996-9a94-c4d7e2107b31/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/77eec452-4bf5-4996-9a94-c4d7e2107b31/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/77eec452-4bf5-4996-9a94-c4d7e2107b31/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+    "state": "running"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/b8b0b8ac-bf46-4cfb-8cdd-475fac8c3345/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/b8b0b8ac-bf46-4cfb-8cdd-475fac8c3345/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/b8b0b8ac-bf46-4cfb-8cdd-475fac8c3345/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/24c7b9fa-5a86-4c72-8e3b-a465a7359a26/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/24c7b9fa-5a86-4c72-8e3b-a465a7359a26/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+    "state": "running"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/769bf680-7eba-4d7d-ab62-7e11ca8e440b/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/769bf680-7eba-4d7d-ab62-7e11ca8e440b/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/769bf680-7eba-4d7d-ab62-7e11ca8e440b/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/23fe405a-cee4-4647-9bb0-5389b0ea1276/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "running"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/23fe405a-cee4-4647-9bb0-5389b0ea1276/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/23fe405a-cee4-4647-9bb0-5389b0ea1276/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/1a4b7d38-ae64-446a-8453-78bf292df46c/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/1a4b7d38-ae64-446a-8453-78bf292df46c/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/1a4b7d38-ae64-446a-8453-78bf292df46c/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/70b6d080-705d-4a04-834a-8abf297c16f5/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/70b6d080-705d-4a04-834a-8abf297c16f5/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/70b6d080-705d-4a04-834a-8abf297c16f5/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/6a8c9cdc-6c6c-4d36-98e1-90444403ed7d/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/4f4b331b-7471-4e4a-841a-e9d1c81ed8f4/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/6a8c9cdc-6c6c-4d36-98e1-90444403ed7d/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+    "state": "running"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/6a8c9cdc-6c6c-4d36-98e1-90444403ed7d/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/4f4b331b-7471-4e4a-841a-e9d1c81ed8f4/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/4f4b331b-7471-4e4a-841a-e9d1c81ed8f4/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/cc8b70a3-9e80-432c-8629-09c7068d3679/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/cc8b70a3-9e80-432c-8629-09c7068d3679/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/mockup-sandbox run dev",
+    "name": ".engineeringos-delivery/dafcd1e9-bbf1-4c71-8d2f-846c38a18006/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/cc8b70a3-9e80-432c-8629-09c7068d3679/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/dashboard run dev",
+    "name": ".engineeringos-delivery/dafcd1e9-bbf1-4c71-8d2f-846c38a18006/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+    "state": "failed"
+  },
+  {
+    "command": "pnpm --filter @workspace/api-server run dev",
+    "name": ".engineeringos-delivery/dafcd1e9-bbf1-4c71-8d2f-846c38a18006/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+    "state": "running"
+  }
+]
+{
+  "name": "dashboard-restart-smoke",
+  "state": "not_started",
+  "output": ""
+}
+{
+  "name": "release-process-recovery",
+  "state": "not_started",
+  "output": ""
+}
+{
+  "name": "release-dashboard-journey",
+  "state": "not_started",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/e14fef06-0e40-4f5d-8082-de33f0d69dfa/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "running",
+  "output": "help"
+}
+{
+  "name": ".engineeringos-delivery/e14fef06-0e40-4f5d-8082-de33f0d69dfa/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+  "state": "failed",
+  "output": " 134"
+}
+{
+  "name": ".engineeringos-delivery/e14fef06-0e40-4f5d-8082-de33f0d69dfa/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/c89f399b-0308-4f10-b3a3-52bc77d74adb/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "running",
+  "output": "help"
+}
+{
+  "name": ".engineeringos-delivery/c89f399b-0308-4f10-b3a3-52bc77d74adb/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/c89f399b-0308-4f10-b3a3-52bc77d74adb/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/9c3ddf8f-b30f-4212-8ed3-e2bbb7c626c6/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "running",
+  "output": "help"
+}
+{
+  "name": ".engineeringos-delivery/9c3ddf8f-b30f-4212-8ed3-e2bbb7c626c6/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/9c3ddf8f-b30f-4212-8ed3-e2bbb7c626c6/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+  "state": "running",
+  "output": ".mjs"
+}
+{
+  "name": ".engineeringos-delivery/9a78a491-eedd-4b42-a3db-f1328ced866b/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/9a78a491-eedd-4b42-a3db-f1328ced866b/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/9a78a491-eedd-4b42-a3db-f1328ced866b/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+  "state": "running",
+  "output": ".mjs"
+}
+{
+  "name": ".engineeringos-delivery/7a762ad6-572c-4885-9263-709a2c133118/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": "us 2"
+}
+{
+  "name": ".engineeringos-delivery/7a762ad6-572c-4885-9263-709a2c133118/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/7a762ad6-572c-4885-9263-709a2c133118/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/6778b497-8d79-4bd7-9c3e-7c75edb7355c/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": " 134"
+}
+{
+  "name": ".engineeringos-delivery/6778b497-8d79-4bd7-9c3e-7c75edb7355c/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/6778b497-8d79-4bd7-9c3e-7c75edb7355c/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+  "state": "running",
+  "output": "tart"
+}
+{
+  "name": ".engineeringos-delivery/5134fe3f-6d04-4f79-8ee3-e0ec12b97a6d/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": " 134"
+}
+{
+  "name": ".engineeringos-delivery/5134fe3f-6d04-4f79-8ee3-e0ec12b97a6d/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/5134fe3f-6d04-4f79-8ee3-e0ec12b97a6d/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/4edace73-2aac-4f74-a666-c36157d80660/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": "us 1"
+}
+{
+  "name": ".engineeringos-delivery/4edace73-2aac-4f74-a666-c36157d80660/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/4edace73-2aac-4f74-a666-c36157d80660/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+  "state": "failed",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/3e2200b9-7986-46fc-ba55-b1a53b5559b3/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": "us 2"
+}
+{
+  "name": ".engineeringos-delivery/3e2200b9-7986-46fc-ba55-b1a53b5559b3/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/ab892c9c-bc11-4ab9-8613-9dc3ad7a2748/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": "us 2"
+}
+{
+  "name": ".engineeringos-delivery/3e2200b9-7986-46fc-ba55-b1a53b5559b3/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+  "state": "running",
+  "output": "tart"
+}
+{
+  "name": ".engineeringos-delivery/ab892c9c-bc11-4ab9-8613-9dc3ad7a2748/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/ab892c9c-bc11-4ab9-8613-9dc3ad7a2748/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/24c7b9fa-5a86-4c72-8e3b-a465a7359a26/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "running",
+  "output": "fork"
+}
+{
+  "name": ".engineeringos-delivery/2b4ae063-bb5f-4df3-8e4c-2da3064c76fb/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "running",
+  "output": "help"
+}
+{
+  "name": ".engineeringos-delivery/2b4ae063-bb5f-4df3-8e4c-2da3064c76fb/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+  "state": "running",
+  "output": "help"
+}
+{
+  "name": ".engineeringos-delivery/2b4ae063-bb5f-4df3-8e4c-2da3064c76fb/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+  "state": "running",
+  "output": ".mjs"
+}
+{
+  "name": ".engineeringos-delivery/77eec452-4bf5-4996-9a94-c4d7e2107b31/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": " 134"
+}
+{
+  "name": ".engineeringos-delivery/77eec452-4bf5-4996-9a94-c4d7e2107b31/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+  "state": "failed",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/77eec452-4bf5-4996-9a94-c4d7e2107b31/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+  "state": "running",
+  "output": ".mjs"
+}
+{
+  "name": ".engineeringos-delivery/b8b0b8ac-bf46-4cfb-8cdd-475fac8c3345/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/b8b0b8ac-bf46-4cfb-8cdd-475fac8c3345/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/b8b0b8ac-bf46-4cfb-8cdd-475fac8c3345/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": "GAIN"
+}
+{
+  "name": ".engineeringos-delivery/24c7b9fa-5a86-4c72-8e3b-a465a7359a26/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+  "state": "failed",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/24c7b9fa-5a86-4c72-8e3b-a465a7359a26/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+  "state": "running",
+  "output": ".mjs"
+}
+{
+  "name": ".engineeringos-delivery/769bf680-7eba-4d7d-ab62-7e11ca8e440b/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/769bf680-7eba-4d7d-ab62-7e11ca8e440b/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+  "state": "failed",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/769bf680-7eba-4d7d-ab62-7e11ca8e440b/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+  "state": "failed",
+  "output": "us 1"
+}
+{
+  "name": ".engineeringos-delivery/23fe405a-cee4-4647-9bb0-5389b0ea1276/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "running",
+  "output": "help"
+}
+{
+  "name": ".engineeringos-delivery/23fe405a-cee4-4647-9bb0-5389b0ea1276/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+  "state": "failed",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/23fe405a-cee4-4647-9bb0-5389b0ea1276/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/1a4b7d38-ae64-446a-8453-78bf292df46c/engineeringos-validation-ZoXZVt/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/1a4b7d38-ae64-446a-8453-78bf292df46c/engineeringos-validation-ZoXZVt/artifacts/dashboard: web",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/1a4b7d38-ae64-446a-8453-78bf292df46c/engineeringos-validation-ZoXZVt/artifacts/api-server: API Server",
+  "state": "failed",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/70b6d080-705d-4a04-834a-8abf297c16f5/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/70b6d080-705d-4a04-834a-8abf297c16f5/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+  "state": "failed",
+  "output": "us 1"
+}
+{
+  "name": ".engineeringos-delivery/70b6d080-705d-4a04-834a-8abf297c16f5/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+  "state": "failed",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/6a8c9cdc-6c6c-4d36-98e1-90444403ed7d/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/4f4b331b-7471-4e4a-841a-e9d1c81ed8f4/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": " 134"
+}
+{
+  "name": ".engineeringos-delivery/6a8c9cdc-6c6c-4d36-98e1-90444403ed7d/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+  "state": "running",
+  "output": "15ms"
+}
+{
+  "name": ".engineeringos-delivery/6a8c9cdc-6c6c-4d36-98e1-90444403ed7d/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/4f4b331b-7471-4e4a-841a-e9d1c81ed8f4/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+  "state": "failed",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/4f4b331b-7471-4e4a-841a-e9d1c81ed8f4/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+  "state": "failed",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/cc8b70a3-9e80-432c-8629-09c7068d3679/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": "us 1"
+}
+{
+  "name": ".engineeringos-delivery/cc8b70a3-9e80-432c-8629-09c7068d3679/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+  "state": "failed",
+  "output": ""
+}
+{
+  "name": ".engineeringos-delivery/dafcd1e9-bbf1-4c71-8d2f-846c38a18006/engineeringos-validation-Sn0w77/artifacts/mockup-sandbox: Component Preview Server",
+  "state": "failed",
+  "output": "us 1"
+}
+{
+  "name": ".engineeringos-delivery/cc8b70a3-9e80-432c-8629-09c7068d3679/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+  "state": "failed",
+  "output": "all?"
+}
+{
+  "name": ".engineeringos-delivery/dafcd1e9-bbf1-4c71-8d2f-846c38a18006/engineeringos-validation-Sn0w77/artifacts/dashboard: web",
+  "state": "failed",
+  "output": "us 2"
+}
+{
+  "name": ".engineeringos-delivery/dafcd1e9-bbf1-4c71-8d2f-846c38a18006/engineeringos-validation-Sn0w77/artifacts/api-server: API Server",
+  "state": "running",
+  "output": ".mjs"
+}

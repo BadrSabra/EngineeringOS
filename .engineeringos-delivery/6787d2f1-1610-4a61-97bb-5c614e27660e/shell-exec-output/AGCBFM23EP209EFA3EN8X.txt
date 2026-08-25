@@ -1,0 +1,160 @@
+artifacts/api-server/src/app.ts:200:// ("which projects can they touch") is enforced per-route via
+artifacts/api-server/src/index.ts:42:           (table_name = 'projects' AND column_name = 'id')
+artifacts/api-server/src/index.ts:59:    "projects.id",
+artifacts/api-server/src/index.ts:169:// Report (read-only) any projects whose root_path points to a dead temp
+artifacts/api-server/src/index.ts:171:// are never rewritten — scans of such projects fail with root_unavailable
+artifacts/api-server/src/lib/ai-analysis-tools.ts:1:import { db, graphEntitiesTable, projectsTable } from "@workspace/db";
+artifacts/api-server/src/lib/ai-analysis-tools.ts:72:        .select({ updatedAt: projectsTable.updatedAt })
+artifacts/api-server/src/lib/ai-analysis-tools.ts:73:        .from(projectsTable)
+artifacts/api-server/src/lib/ai-analysis-tools.ts:74:        .where(eq(projectsTable.id, projectId))
+artifacts/api-server/src/lib/ai-analysis-tools.ts:88:          .select({ updatedAt: projectsTable.updatedAt })
+artifacts/api-server/src/lib/ai-analysis-tools.ts:89:          .from(projectsTable)
+artifacts/api-server/src/lib/ai-analysis-tools.ts:90:          .where(eq(projectsTable.id, projectId))
+artifacts/api-server/src/lib/ai-execution-state.ts:72:  candidateIdentity: string | null;
+artifacts/api-server/src/lib/ai-execution-state.ts:145:    workspaceRevision?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:146:    candidateIdentity?: string | null;
+artifacts/api-server/src/lib/ai-execution-state.ts:157:  if (params.workspaceRevision && operation.revisionManifest !== params.workspaceRevision) {
+artifacts/api-server/src/lib/ai-execution-state.ts:160:  if (params.candidateIdentity !== undefined && operation.candidateIdentity !== params.candidateIdentity) {
+artifacts/api-server/src/lib/ai-execution-state.ts:204:    "candidateIdentity",
+artifacts/api-server/src/lib/ai-execution-state.ts:230:  workspaceRevision?: string;
+artifacts/api-server/src/lib/ai-execution-state.ts:304:  candidateIdentity?: string | null;
+artifacts/api-server/src/lib/ai-execution-state.ts:317:    candidateIdentity: params.candidateIdentity ?? null,
+artifacts/api-server/src/lib/ai-execution-state.ts:495:    || (candidate.candidateIdentity !== null && typeof candidate.candidateIdentity !== "string")
+artifacts/api-server/src/lib/ai-execution-state.ts:555:    candidateIdentity: candidate.candidateIdentity ? candidate.candidateIdentity.slice(0, 500) : null,
+artifacts/api-server/src/lib/ai-execution-state.ts:719:    revisionManifest: params.request.workspaceRevision,
+artifacts/api-server/src/lib/ai-execution-state.ts:1068:      workspaceRevision: request?.workspaceRevision,
+artifacts/api-server/src/lib/ai-execution-state.ts:1069:      candidateIdentity: operation.candidateIdentity,
+artifacts/api-server/src/lib/ai-route-helpers.test.ts:28:        summary: "See /workspace/projects/demo/src/index.ts",
+artifacts/api-server/src/lib/delivery-workspace.ts:184:          ".engineeringos-projects",
+artifacts/api-server/src/lib/discovery-adapters.test.ts:292:    const { db, projectsTable } = await import("@workspace/db");
+artifacts/api-server/src/lib/discovery-adapters.test.ts:295:    await db.insert(projectsTable).values({
+artifacts/api-server/src/lib/discovery-adapters.test.ts:313:      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+artifacts/api-server/src/lib/discovery-adapters.test.ts:318:    const { db, projectsTable } = await import("@workspace/db");
+artifacts/api-server/src/lib/discovery-adapters.test.ts:322:    await db.insert(projectsTable).values({
+artifacts/api-server/src/lib/discovery-adapters.test.ts:339:      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+artifacts/api-server/src/lib/discovery-adapters.test.ts:474:      expect(durablePath).toContain(".engineeringos-projects");
+artifacts/api-server/src/lib/discovery-adapters.ts:23:import { projectsTable } from "@workspace/db";
+artifacts/api-server/src/lib/discovery-adapters.ts:249:  // own projects. Without this check, any authenticated user could supply
+artifacts/api-server/src/lib/discovery-adapters.ts:258:      .from(projectsTable)
+artifacts/api-server/src/lib/discovery-adapters.ts:259:      .where(eq(projectsTable.id, config.projectId!))
+artifacts/api-server/src/lib/discovery-runner.test.ts:9: *    for projects that use Drizzle.
+artifacts/api-server/src/lib/discovery-runner.ts:5: * from both the POST /projects/discover route handler and the startup
+artifacts/api-server/src/lib/job-concurrency.test.ts:11:import { db, projectsTable, scanJobsTable } from "@workspace/db";
+artifacts/api-server/src/lib/job-concurrency.test.ts:24:  await db.insert(projectsTable).values({
+artifacts/api-server/src/lib/job-concurrency.test.ts:62:      await db.delete(projectsTable).where(eq(projectsTable.id, id));
+artifacts/api-server/src/lib/job-idempotency.test.ts:11:import { db, projectsTable, scanJobsTable } from "@workspace/db";
+artifacts/api-server/src/lib/job-idempotency.test.ts:19:  await db.insert(projectsTable).values({
+artifacts/api-server/src/lib/job-idempotency.test.ts:43:      await db.delete(projectsTable).where(eq(projectsTable.id, id));
+artifacts/api-server/src/lib/job-lease.test.ts:9:import { db, projectsTable, scanJobsTable, discoverySessionsTable } from "@workspace/db";
+artifacts/api-server/src/lib/job-lease.test.ts:27:  await db.insert(projectsTable).values({
+artifacts/api-server/src/lib/job-lease.test.ts:51:      await db.delete(projectsTable).where(eq(projectsTable.id, id));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:4:import { db, projectsTable, scanJobsTable, discoverySessionsTable, tasksTable, taskLogsTable } from "@workspace/db";
+artifacts/api-server/src/lib/job-reconciliation.test.ts:42:  await db.insert(projectsTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:69:        await db.delete(projectsTable).where(eq(projectsTable.id, id));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:112:      .from(projectsTable)
+artifacts/api-server/src/lib/job-reconciliation.test.ts:113:      .where(eq(projectsTable.id, projectId))
+artifacts/api-server/src/lib/job-reconciliation.test.ts:192:      .from(projectsTable)
+artifacts/api-server/src/lib/job-reconciliation.test.ts:193:      .where(eq(projectsTable.id, projectId))
+artifacts/api-server/src/lib/job-reconciliation.test.ts:559:        await db.delete(projectsTable).where(eq(projectsTable.id, id));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:680:        await db.delete(projectsTable).where(eq(projectsTable.id, id));
+artifacts/api-server/src/lib/job-reconciliation.ts:53:  projectsTable,
+artifacts/api-server/src/lib/job-reconciliation.ts:111:        .select({ rootPath: projectsTable.rootPath })
+artifacts/api-server/src/lib/job-reconciliation.ts:112:        .from(projectsTable)
+artifacts/api-server/src/lib/job-reconciliation.ts:113:        .where(eq(projectsTable.id, proposal.projectId))
+artifacts/api-server/src/lib/job-reconciliation.ts:291:        .update(projectsTable)
+artifacts/api-server/src/lib/job-reconciliation.ts:295:            eq(projectsTable.id, job.projectId),
+artifacts/api-server/src/lib/job-reconciliation.ts:296:            eq(projectsTable.status, "scanning"),
+artifacts/api-server/src/lib/job-recovery.test.ts:13:  projectsTable,
+artifacts/api-server/src/lib/job-recovery.test.ts:39:  await db.insert(projectsTable).values({
+artifacts/api-server/src/lib/job-recovery.test.ts:62:      await db.delete(projectsTable).where(eq(projectsTable.id, id));
+artifacts/api-server/src/lib/operation-evidence.test.ts:19:      request: JSON.stringify({ workspaceRevision: "revision-1", objective: "Ship the change" }),
+artifacts/api-server/src/lib/operation-evidence.ts:165:  const revision = text(request.workspaceRevision, 200) ?? text(input.proposal?.baseRevision, 200) ?? text(execution.baseRevision, 200) ?? null;
+artifacts/api-server/src/lib/operation-evidence.ts:227:    candidateIdentity: input.proposal?.changeSetHash ?? null,
+artifacts/api-server/src/lib/operational-readiness-gate.test.ts:6:  candidateIdentity: "candidate-1", approvedScope: ["src/a.ts"], operationState: "succeeded",
+artifacts/api-server/src/lib/operational-readiness-gate.ts:28:  candidateIdentity?: string | null;
+artifacts/api-server/src/lib/operational-readiness-gate.ts:90:    input.candidateRevision && input.candidateIdentity && input.candidateRevision === input.projectRevision,
+artifacts/api-server/src/lib/operational-readiness-gate.ts:93:    input.candidateRevision && input.candidateIdentity
+artifacts/api-server/src/lib/operational-readiness-gate.ts:152:  input: Pick<OperationalReadinessInput, "approvedScope" | "candidateRevision" | "candidateIdentity" | "requiredNodes" | "terminalVerdict" | "campaign">,
+artifacts/api-server/src/lib/plugin-runtime.test.ts:229:  it("returns no events for non-Python projects", async () => {
+artifacts/api-server/src/lib/project-error.test.ts:24:  return new ApiError(response, body, { method: "GET", url: "/api/projects" });
+artifacts/api-server/src/lib/project-error.test.ts:183:// ─── Route-level behaviour: GET /api/projects returns correct status codes ────
+artifacts/api-server/src/lib/project-error.test.ts:188:describe("GET /api/projects — route-level status codes (test env = authenticated)", () => {
+artifacts/api-server/src/lib/project-error.test.ts:190:    const res = await request(app).get("/api/projects");
+artifacts/api-server/src/lib/project-error.test.ts:195:  it("returns an empty array when the user has no projects", async () => {
+artifacts/api-server/src/lib/project-error.test.ts:196:    // In the test environment, 'test-user' may or may not have projects.
+artifacts/api-server/src/lib/project-error.test.ts:198:    const res = await request(app).get("/api/projects");
+artifacts/api-server/src/lib/project-error.test.ts:204:    const res = await request(app).get("/api/projects");
+artifacts/api-server/src/lib/project-error.test.ts:211:    const r1 = await request(app).get("/api/projects");
+artifacts/api-server/src/lib/project-error.test.ts:212:    const r2 = await request(app).get("/api/projects");
+artifacts/api-server/src/lib/project-materialization.ts:14:  ".engineeringos-projects",
+artifacts/api-server/src/lib/project-root.ts:9: * MUST be the value persisted to projects.root_path — never the raw
+artifacts/api-server/src/lib/scan-runner.ts:4: * it can run out-of-band (see routes/projects.ts) instead of blocking the
+artifacts/api-server/src/lib/scan-runner.ts:9:  projectsTable,
+artifacts/api-server/src/lib/scan-runner.ts:181:        .update(projectsTable)
+artifacts/api-server/src/lib/scan-runner.ts:183:        .where(and(eq(projectsTable.id, projectId), eq(projectsTable.status, "scanning")));
+artifacts/api-server/src/lib/scan-runner.ts:233:    db.select().from(projectsTable).where(eq(projectsTable.id, projectId)).limit(1),
+artifacts/api-server/src/lib/scan-runner.ts:260:  // provenance from the projects row alone, and anyone can create a
+artifacts/api-server/src/lib/scan-runner.ts:562:      .update(projectsTable)
+artifacts/api-server/src/lib/scan-runner.ts:569:      .where(and(eq(projectsTable.id, projectId), eq(projectsTable.status, "scanning")));
+artifacts/api-server/src/lib/startup-migrations.test.ts:3:import { db, pool, projectsTable } from "@workspace/db";
+artifacts/api-server/src/lib/startup-migrations.test.ts:17:  await db.insert(projectsTable).values({
+artifacts/api-server/src/lib/startup-migrations.test.ts:36:      if (id) await db.delete(projectsTable).where(eq(projectsTable.id, id));
+artifacts/api-server/src/lib/startup-migrations.test.ts:49:      .from(projectsTable)
+artifacts/api-server/src/lib/startup-migrations.test.ts:50:      .where(eq(projectsTable.id, projectId))
+artifacts/api-server/src/lib/startup-migrations.test.ts:65:      .from(projectsTable)
+artifacts/api-server/src/lib/startup-migrations.test.ts:66:      .where(eq(projectsTable.id, projectId))
+artifacts/api-server/src/lib/startup-migrations.test.ts:81:      .from(projectsTable)
+artifacts/api-server/src/lib/startup-migrations.test.ts:82:      .where(eq(projectsTable.id, projectId))
+artifacts/api-server/src/lib/startup-migrations.test.ts:132:  it("projects legacy flattened fields and strips their diagnostic payload", () => {
+artifacts/api-server/src/lib/startup-migrations.ts:14:import { projectsTable } from "@workspace/db";
+artifacts/api-server/src/lib/startup-migrations.ts:80: * This function ONLY reports these projects. It deliberately does NOT rewrite
+artifacts/api-server/src/lib/startup-migrations.ts:92:      .select({ id: projectsTable.id, name: projectsTable.name, rootPath: projectsTable.rootPath })
+artifacts/api-server/src/lib/startup-migrations.ts:93:      .from(projectsTable)
+artifacts/api-server/src/lib/startup-migrations.ts:94:      .where(like(projectsTable.rootPath, "/tmp/eos-git-%"));
+artifacts/api-server/src/lib/startup-migrations.ts:114:        projects: dead.map((p) => ({ id: p.id, rootPath: p.rootPath })),
+artifacts/api-server/src/lib/task-execution-retention.test.ts:7:  projectsTable,
+artifacts/api-server/src/lib/task-execution-retention.test.ts:81:    await db.insert(projectsTable).values({
+artifacts/api-server/src/lib/task-execution-retention.test.ts:186:      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+artifacts/api-server/src/lib/task-execution-retention.test.ts:199:    await db.insert(projectsTable).values({
+artifacts/api-server/src/lib/task-execution-retention.test.ts:296:      await db.delete(projectsTable).where(eq(projectsTable.id, projectId));
+artifacts/api-server/src/lib/task-execution-service.ts:165:  workspaceRevision?: string;
+artifacts/api-server/src/lib/task-execution-service.ts:178:    workspaceRevision: params.workspaceRevision,
+artifacts/api-server/src/lib/task-execution-service.ts:311:        executionId, correlationId, revision: params.workspaceRevision,
+artifacts/api-server/src/lib/task-execution-service.ts:333:          revision: params.workspaceRevision ?? null,
+artifacts/api-server/src/lib/task-execution-service.ts:357:      executionId, correlationId, revision: params.workspaceRevision,
+artifacts/api-server/src/lib/task-execution-service.ts:458:      executionId, correlationId, revision: params.workspaceRevision,
+artifacts/api-server/src/lib/task-execution-service.ts:482:        revision: params.workspaceRevision ?? null,
+artifacts/api-server/src/lib/task-execution-service.ts:500:        revision: params.workspaceRevision ?? null,
+artifacts/api-server/src/lib/upload-store.ts:8: * and `POST /api/projects/discover` (which consumes it) silently dropped the
+artifacts/api-server/src/lib/workflow-phase-execution.ts:55:    workspaceRevision: params.revision,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:109:      candidateIdentity: phaseKey,
+artifacts/api-server/src/lib/ai-repair-validation.ts:109:  ".engineeringos-projects",
+artifacts/api-server/src/lib/ai-repair-validation.ts:146:  // Project roots may be symlinks (for example, imported projects or isolated
+artifacts/api-server/src/lib/ai-execution-state.test.ts:172:      workspaceRevision: "revision-current",
+artifacts/api-server/src/lib/ai-execution-state.test.ts:178:      workspaceRevision: "revision-stale",
+artifacts/api-server/src/lib/ai-execution-state.test.ts:187:      workspaceRevision: "revision-current",
+artifacts/api-server/src/lib/ai-execution-state.test.ts:188:      candidateIdentity: "candidate-stale",
+artifacts/api-server/src/lib/ai-execution-state.test.ts:206:      workspaceRevision: "revision-current",
+artifacts/api-server/src/middlewares/requireProjectAccess.test.ts:49:    projectsTable: { id: "id" },
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:5: * requireAuth.ts). It says nothing about *which* projects that user may
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:28:import { db, projectsTable } from "@workspace/db";
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:46: * Extends `requireProjectAccess` with a write-gate: archived projects are
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:81:): Promise<typeof projectsTable.$inferSelect | undefined> {
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:90:    .from(projectsTable)
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:91:    .where(eq(projectsTable.id, projectId))
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:120:): Promise<typeof projectsTable.$inferSelect | undefined> {
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:127:    .from(projectsTable)
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:128:    .where(eq(projectsTable.id, projectId))
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:21:  projectsTable,
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:202:  await db.insert(projectsTable).values({
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:286:      await db.delete(projectsTable).where(eq(projectsTable.id, projectId)).catch(() => undefined);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:15: *     the real test database — projects are inserted and cleaned up per test.
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:31:  projectsTable,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:300:  await db.insert(projectsTable).values({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:401:    await db.delete(projectsTable).where(eq(projectsTable.id, pid)).catch(() => undefined);
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:410:      .select({ id: projectsTable.id })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:411:      .from(projectsTable)
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:412:      .where(eq(projectsTable.id, fixture.projectId))
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:977:      workspaceRevision: (await db
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:978:        .select({ updatedAt: projectsTable.updatedAt })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:979:        .from(projectsTable)

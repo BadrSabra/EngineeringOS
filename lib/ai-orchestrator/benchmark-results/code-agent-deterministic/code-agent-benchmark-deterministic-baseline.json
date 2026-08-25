@@ -2,14 +2,14 @@
   "kind": "code-agent-benchmark-deterministic-baseline",
   "version": 1,
   "suiteVersion": "flight-deck-v2",
-  "generatedAt": "2026-08-25T16:16:34.842Z",
+  "generatedAt": "2026-08-25T18:54:41.993Z",
   "source": "expected-terminal-contract-replay",
   "qualityEligible": false,
   "scorecard": {
     "kind": "code-agent-benchmark",
     "version": 1,
     "suiteVersion": "flight-deck-v2",
-    "generatedAt": "2026-08-25T16:16:34.842Z",
+    "generatedAt": "2026-08-25T18:54:41.993Z",
     "cases": [
       {
         "caseId": "single-file-001",
@@ -725,6 +725,7 @@
     "rolloutAllowed": false,
     "rolloutBlockers": [
       "candidate hash missing for 34 observed cases",
+      "source revision missing for 34 observed cases",
       "DETERMINISTIC_CONTRACT_BASELINE_NOT_LIVE_QUALITY"
     ]
   }

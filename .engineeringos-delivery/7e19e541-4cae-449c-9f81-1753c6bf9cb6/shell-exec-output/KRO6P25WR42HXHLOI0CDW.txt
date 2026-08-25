@@ -1,0 +1,342 @@
+#!/usr/bin/env node
+
+import { execFileSync, spawn } from "node:child_process";
+import { createServer } from "node:http";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import {
+  acquireReleaseLock,
+  lockPath,
+} from "../artifacts/api-server/scripts/run-release-ai-stream.mjs";
+import {
+  formatMissionCorrelationSummary,
+  parseMissionCorrelationReportOutput,
+} from "./mission-correlation-report.mjs";
+
+if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
+  console.error(
+    "Dashboard browser journey is release-only; set RUN_CONTROLLED_RELEASE_VALIDATION=1.",
+  );
+  process.exit(2);
+}
+
+const apiPort = Number(process.env.DASHBOARD_E2E_API_PORT ?? 18081);
+const dashboardPort = Number(process.env.DASHBOARD_E2E_PORT ?? 23184);
+const dashboardBaseUrl =
+  process.env.DASHBOARD_E2E_BASE_URL ??
+  `http://127.0.0.1:${dashboardPort}/dashboard/`;
+const apiHealthUrl =
+  process.env.DASHBOARD_E2E_API_HEALTH_URL ??
+  `http://127.0.0.1:${apiPort}/api/healthz`;
+// Origin contract probes must reach the API listener directly. Sending them
+// through the dashboard dev proxy lets some browser environments terminate
+// OPTIONS locally with a bare 204, which hides the API's CORS response.
+const apiBaseUrl =
+  process.env.DASHBOARD_E2E_API_BASE_URL ??
+  `http://127.0.0.1:${apiPort}/`;
+const testEmail =
+  process.env.DASHBOARD_E2E_EMAIL ??
+  "engineeringos-dashboard-release@example.com";
+const timeoutMs = Number(
+  process.env.DASHBOARD_E2E_PREFLIGHT_TIMEOUT_MS ?? 30_000,
+);
+const liveTimeoutMs = Number(
+  process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS ?? 120_000,
+);
+const childTimeoutMs = Number(
+  process.env.DASHBOARD_E2E_CHILD_TIMEOUT_MS ?? 300_000,
+);
+const approvedDashboardOrigins = (process.env.APP_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+if (
+  approvedDashboardOrigins.length === 0 &&
+  process.env.DASHBOARD_E2E_TEARDOWN_FIXTURE === "1"
+) {
+  approvedDashboardOrigins.push(`http://127.0.0.1:${dashboardPort}`);
+}
+if (approvedDashboardOrigins.length === 0) {
+  throw new Error(
+    "APP_ORIGINS must contain every approved dashboard origin for the release journey.",
+  );
+}
+const workspaceRoot = resolve(new URL("..", import.meta.url).pathname);
+const outputDir = resolve(
+  process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
+);
+const teardownArtifactPath = resolve(
+  process.env.DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH ??
+    resolve(outputDir, "release-teardown.json"),
+);
+const originDiagnosticsPath = resolve(
+  process.env.DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH ??
+    resolve(outputDir, "origin-diagnostics.json"),
+);
+const services = [];
+let releaseLockCleanup;
+const releasePorts = [apiPort, dashboardPort];
+const controlPort = Number(
+  process.env.DASHBOARD_E2E_CONTROL_PORT ?? apiPort + 1,
+);
+let apiService;
+let campaignControlServer;
+
+function redact(value) {
+  const secretValues = Object.values(process.env).filter(
+    (item) => typeof item === "string" && item.length >= 8,
+  );
+  return secretValues.reduce(
+    (redacted, secret) => redacted.split(secret).join("[REDACTED]"),
+    value,
+  );
+}
+
+async function waitFor(url, label) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = "not attempted";
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (response.ok) {
+        return response;
+      }
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+
+  throw new Error(`${label} did not become healthy: ${lastError} (${url})`);
+}
+
+function startService(label, command, args, env, port) {
+  const child = spawn(command, args, {
+    cwd: workspaceRoot,
+    env: { ...process.env, ...env },
+    stdio: "inherit",
+    detached: true,
+  });
+  services.push({ label, child, port });
+  child.on("error", (error) => {
+    console.error(`${label} could not start: ${redact(error.message)}`);
+  });
+  return child;
+}
+
+async function restartApiService() {
+  if (!apiService) throw new Error("API release service is not running.");
+  signalProcessGroup(apiService, "SIGTERM");
+  await waitForPortClosed(apiPort);
+  apiService = startService(
+    "API release service (restarted)",
+    "node",
+    ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
+    {
+      NODE_ENV: "development",
+      PORT: String(apiPort),
+      APP_ORIGINS: approvedDashboardOrigins.join(","),
+    },
+    apiPort,
+  );
+  await waitFor(apiHealthUrl, "restarted API workflow");
+}
+
+async function startCampaignControl() {
+  campaignControlServer = createServer(async (request, response) => {
+    if (request.method !== "POST" || request.url !== "/restart-api") {
+      response.writeHead(404);
+      response.end();
+      return;
+    }
+    try {
+      await restartApiService();
+      response.writeHead(204);
+      response.end();
+    } catch (error) {
+      response.writeHead(503, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          error: redact(error instanceof Error ? error.message : String(error)),
+        }),
+      );
+    }
+  });
+  await new Promise((resolve, reject) => {
+    campaignControlServer.once("error", reject);
+    campaignControlServer.listen(controlPort, "127.0.0.1", resolve);
+  });
+}
+
+function listeningUsers(port) {
+  try {
+    const output = execFileSync(
+      "lsof",
+      ["-nP", "-t", `-iTCP:${port}`, "-sTCP:LISTEN"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    );
+    return [
+      ...new Set(
+        [...output.matchAll(/\b\d+\b/g)].map((match) => Number(match[0])),
+      ),
+    ];
+  } catch {
+    return [];
+  }
+}
+
+function signalProcessGroup(child, signal) {
+  if (!child.pid) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch (error) {
+    if (error?.code !== "ESRCH") throw error;
+  }
+}
+
+async function waitForPortClosed(port, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (listeningUsers(port).length === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const remainingPids = listeningUsers(port);
+  const error = new Error(
+    `Release port ${port} did not become available; surviving process IDs: ${
+      remainingPids.length > 0 ? remainingPids.join(", ") : "unknown"
+    }.`,
+  );
+  error.remainingPids = remainingPids;
+  throw error;
+}
+
+async function waitForPortOpen(port, timeoutMs = 2_500) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (listeningUsers(port).length > 0) return;
+
+--- config live references ---
+artifacts/dashboard/e2e/dashboard.journey.ts:19:const DEFAULT_LIVE_TIMEOUT_MS = 120_000;
+artifacts/dashboard/e2e/dashboard.journey.ts:20:const LIVE_TEST_TIMEOUT_MARGIN_MS = 5_000;
+artifacts/dashboard/e2e/dashboard.journey.ts:28:const DEFAULT_LIVE_PROMPT =
+artifacts/dashboard/e2e/dashboard.journey.ts:32:const LIVE_CAMPAIGN_SCENARIOS = new Set([
+artifacts/dashboard/e2e/dashboard.journey.ts:35:  "delivery-success",
+artifacts/dashboard/e2e/dashboard.journey.ts:38:function liveCampaignScenario(): string | undefined {
+artifacts/dashboard/e2e/dashboard.journey.ts:39:  const scenario = process.env.DASHBOARD_E2E_LIVE_SCENARIO?.trim();
+artifacts/dashboard/e2e/dashboard.journey.ts:40:  if (process.env.DASHBOARD_E2E_LIVE_CAMPAIGN === "1" && !scenario) {
+artifacts/dashboard/e2e/dashboard.journey.ts:42:      "Live campaign requires DASHBOARD_E2E_LIVE_SCENARIO=provider-outage, malformed-output, or delivery-success.",
+artifacts/dashboard/e2e/dashboard.journey.ts:45:  if (scenario && !LIVE_CAMPAIGN_SCENARIOS.has(scenario)) {
+artifacts/dashboard/e2e/dashboard.journey.ts:46:    throw new Error(`Unsupported live campaign scenario: ${scenario}.`);
+artifacts/dashboard/e2e/dashboard.journey.ts:51:function livePrompt(): string {
+artifacts/dashboard/e2e/dashboard.journey.ts:52:  const scenario = liveCampaignScenario();
+artifacts/dashboard/e2e/dashboard.journey.ts:59:  if (scenario === "delivery-success") {
+artifacts/dashboard/e2e/dashboard.journey.ts:60:    return "Run the bounded delivery proof campaign on this disposable project. Exercise apply, commit, and push only when each current operation, project revision, candidate identity, and candidate-bound evidence match. Report every terminal receipt.";
+artifacts/dashboard/e2e/dashboard.journey.ts:62:  return process.env.DASHBOARD_E2E_LIVE_PROMPT ?? DEFAULT_LIVE_PROMPT;
+artifacts/dashboard/e2e/dashboard.journey.ts:65:function liveTimeoutMs(): number {
+artifacts/dashboard/e2e/dashboard.journey.ts:66:  const configured = Number(process.env.DASHBOARD_E2E_LIVE_TIMEOUT_MS);
+artifacts/dashboard/e2e/dashboard.journey.ts:69:    : DEFAULT_LIVE_TIMEOUT_MS;
+artifacts/dashboard/e2e/dashboard.journey.ts:213:    deliveryRecovery?: {
+artifacts/dashboard/e2e/dashboard.journey.ts:239:    liveTask?: {
+artifacts/dashboard/e2e/dashboard.journey.ts:437:    if (overrides?.liveTask && path === "/api/tasks") {
+artifacts/dashboard/e2e/dashboard.journey.ts:441:            id: overrides.liveTask.id,
+artifacts/dashboard/e2e/dashboard.journey.ts:442:            projectId: overrides.liveTask.projectId,
+artifacts/dashboard/e2e/dashboard.journey.ts:443:            title: overrides.liveTask.title,
+artifacts/dashboard/e2e/dashboard.journey.ts:444:            description: "A task used to verify live dashboard updates.",
+artifacts/dashboard/e2e/dashboard.journey.ts:457:      overrides?.liveTask &&
+artifacts/dashboard/e2e/dashboard.journey.ts:458:      path === `/api/tasks/${overrides.liveTask.id}/logs`
+artifacts/dashboard/e2e/dashboard.journey.ts:460:      return route.fulfill(jsonResponse(overrides.liveTask.initialLogs ?? []));
+artifacts/dashboard/e2e/dashboard.journey.ts:463:      overrides?.liveTask &&
+artifacts/dashboard/e2e/dashboard.journey.ts:464:      path === `/api/tasks/${overrides.liveTask.id}/logs/stream`
+artifacts/dashboard/e2e/dashboard.journey.ts:466:      const streamRequests = overrides.liveTask.streamRequests;
+artifacts/dashboard/e2e/dashboard.journey.ts:469:        (overrides.liveTask.failFirstStream && streamRequests?.length === 1) ||
+artifacts/dashboard/e2e/dashboard.journey.ts:470:        (overrides.liveTask.failStreamAttempts &&
+artifacts/dashboard/e2e/dashboard.journey.ts:472:          streamRequests.length <= overrides.liveTask.failStreamAttempts)
+artifacts/dashboard/e2e/dashboard.journey.ts:486:        body: `event: log\ndata: ${JSON.stringify(overrides.liveTask.log)}\n\n`,
+artifacts/dashboard/e2e/dashboard.journey.ts:507:      overrides?.deliveryRecovery &&
+artifacts/dashboard/e2e/dashboard.journey.ts:508:      path === "/api/ai/delivery/recoverable"
+artifacts/dashboard/e2e/dashboard.journey.ts:510:      overrides.deliveryRecovery.requests.push(route.request().url());
+artifacts/dashboard/e2e/dashboard.journey.ts:512:        jsonResponse({ operations: overrides.deliveryRecovery.operations }),
+artifacts/dashboard/e2e/dashboard.journey.ts:516:      overrides?.deliveryRecovery?.recoveryAction &&
+artifacts/dashboard/e2e/dashboard.journey.ts:518:        `/api/ai/delivery/${overrides.deliveryRecovery.recoveryAction.proposalId}/${overrides.deliveryRecovery.recoveryAction.action}`
+artifacts/dashboard/e2e/dashboard.journey.ts:520:      overrides.deliveryRecovery.actionRequests?.push(route.request().url());
+artifacts/dashboard/e2e/dashboard.journey.ts:521:      if (overrides.deliveryRecovery.recoveryAction.nextOperations) {
+artifacts/dashboard/e2e/dashboard.journey.ts:522:        overrides.deliveryRecovery.operations =
+artifacts/dashboard/e2e/dashboard.journey.ts:523:          overrides.deliveryRecovery.recoveryAction.nextOperations;
+artifacts/dashboard/e2e/dashboard.journey.ts:527:          overrides.deliveryRecovery.recoveryAction.response,
+artifacts/dashboard/e2e/dashboard.journey.ts:528:          overrides.deliveryRecovery.recoveryAction.status ?? 409,
+artifacts/dashboard/e2e/dashboard.journey.ts:1174:async function liveRequest(
+artifacts/dashboard/e2e/dashboard.journey.ts:1352:  const liveUpdateUrl = new URL("/api/ai/chat/stream", apiBaseUrl).toString();
+artifacts/dashboard/e2e/dashboard.journey.ts:1389:    const hostileLiveUpdate = await page.request.post(liveUpdateUrl, {
+artifacts/dashboard/e2e/dashboard.journey.ts:1426:async function liveJson(
+artifacts/dashboard/e2e/dashboard.journey.ts:1430:  const response = await liveRequest(page, path);
+artifacts/dashboard/e2e/dashboard.journey.ts:1439:async function liveArray(
+artifacts/dashboard/e2e/dashboard.journey.ts:1443:  const response = await liveRequest(page, path);
+artifacts/dashboard/e2e/dashboard.journey.ts:1454:async function liveOptionalRecord(
+artifacts/dashboard/e2e/dashboard.journey.ts:1458:  const response = await liveRequest(page, path);
+artifacts/dashboard/e2e/dashboard.journey.ts:1472:  test("exports one redacted live-provider mission correlation report", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:1477:    test.setTimeout(liveTimeoutMs() + LIVE_TEST_TIMEOUT_MARGIN_MS);
+artifacts/dashboard/e2e/dashboard.journey.ts:1479:      process.env.DASHBOARD_E2E_LIVE_PROVIDER !== "1",
+artifacts/dashboard/e2e/dashboard.journey.ts:1482:    if (process.env.DASHBOARD_E2E_LIVE_DISPOSABLE !== "1") {
+artifacts/dashboard/e2e/dashboard.journey.ts:1484:        "Live-provider journey requires DASHBOARD_E2E_LIVE_DISPOSABLE=1 and a disposable project.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1487:    const campaignScenario = liveCampaignScenario();
+artifacts/dashboard/e2e/dashboard.journey.ts:1488:    const projectId = process.env.DASHBOARD_E2E_LIVE_PROJECT_ID;
+artifacts/dashboard/e2e/dashboard.journey.ts:1491:        "DASHBOARD_E2E_LIVE_PROJECT_ID is required for the live-provider journey.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1495:    const streamResponse = await liveRequest(page, "/api/ai/chat/stream", {
+artifacts/dashboard/e2e/dashboard.journey.ts:1497:      timeout: liveTimeoutMs(),
+artifacts/dashboard/e2e/dashboard.journey.ts:1500:         message: livePrompt(),
+artifacts/dashboard/e2e/dashboard.journey.ts:1501:        idempotencyKey: `dashboard-live-${Date.now()}`,
+artifacts/dashboard/e2e/dashboard.journey.ts:1521:    const deadline = Date.now() + liveTimeoutMs();
+artifacts/dashboard/e2e/dashboard.journey.ts:1523:      execution = await liveJson(page, `/api/ai/executions/${executionId}`);
+artifacts/dashboard/e2e/dashboard.journey.ts:1539:    const messages = await liveArray(
+artifacts/dashboard/e2e/dashboard.journey.ts:1543:    const events = await liveArray(
+artifacts/dashboard/e2e/dashboard.journey.ts:1547:    const proposal = await liveOptionalRecord(
+artifacts/dashboard/e2e/dashboard.journey.ts:1551:    const gitLog = await liveJson(page, `/api/projects/${projectId}/git/log`);
+artifacts/dashboard/e2e/dashboard.journey.ts:1552:    const missionControl = await liveJson(page, "/api/ai/mission-control");
+artifacts/dashboard/e2e/dashboard.journey.ts:1553:    const dashboardState = await liveJson(page, "/api/dashboard");
+artifacts/dashboard/e2e/dashboard.journey.ts:1581:      process.env.DASHBOARD_E2E_LIVE_CAMPAIGN === "1" &&
+artifacts/dashboard/e2e/dashboard.journey.ts:1601:      campaignScenario === "delivery-success" &&
+artifacts/dashboard/e2e/dashboard.journey.ts:1606:        "Delivery-success campaign cannot pass without a candidate-bound validation hash.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1609:    const deliveryStages = {
+artifacts/dashboard/e2e/dashboard.journey.ts:1615:      campaignScenario === "delivery-success" &&
+artifacts/dashboard/e2e/dashboard.journey.ts:1617:      !Object.values(deliveryStages).every(Boolean)
+artifacts/dashboard/e2e/dashboard.journey.ts:1620:        "Delivery-success campaign cannot pass without operation-correlated apply, commit, and push evidence.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1643:      deliveryStages,
+artifacts/dashboard/e2e/dashboard.journey.ts:1730:      process.env.DASHBOARD_E2E_LIVE_REPORT_PATH ??
+artifacts/dashboard/e2e/dashboard.journey.ts:1731:      "test-results/dashboard-journey/live-mission-correlation.json";
+artifacts/dashboard/e2e/dashboard.journey.ts:2137:  test("uploads an archive and renders a live task update", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:2140:    const taskId = "e2e-live-task";
+artifacts/dashboard/e2e/dashboard.journey.ts:2141:    const liveLog = {
+artifacts/dashboard/e2e/dashboard.journey.ts:2142:      id: "e2e-live-log",
+artifacts/dashboard/e2e/dashboard.journey.ts:2153:      liveTask: {
+artifacts/dashboard/e2e/dashboard.journey.ts:2155:        title: "Verify live dashboard updates",
+artifacts/dashboard/e2e/dashboard.journey.ts:2157:        log: liveLog,
+artifacts/dashboard/e2e/dashboard.journey.ts:2192:      "Expand task Verify live dashboard updates",
+artifacts/dashboard/e2e/dashboard.journey.ts:2202:  test("recovers a live task update after a temporary stream failure", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:2205:    const taskId = "e2e-reconnecting-live-task";
+artifacts/dashboard/e2e/dashboard.journey.ts:2206:    const liveLog = {
+artifacts/dashboard/e2e/dashboard.journey.ts:2207:      id: "e2e-reconnecting-live-log",
+artifacts/dashboard/e2e/dashboard.journey.ts:2219:      liveTask: {
+artifacts/dashboard/e2e/dashboard.journey.ts:2221:        title: "Recover live task updates",
+artifacts/dashboard/e2e/dashboard.journey.ts:2223:        log: liveLog,
+artifacts/dashboard/e2e/dashboard.journey.ts:2231:    const taskRow = page.getByLabel("Expand task Recover live task updates");
+artifacts/dashboard/e2e/dashboard.journey.ts:2237:    await expect(activity).toContainText(liveLog.message);
+artifacts/dashboard/e2e/dashboard.journey.ts:2249:      activity.locator("summary").filter({ hasText: liveLog.message }),
+artifacts/dashboard/e2e/dashboard.journey.ts:2253:  test("shows an actionable terminal state when live task reconnects are exhausted", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:2256:    const taskId = "e2e-exhausted-live-task";
+artifacts/dashboard/e2e/dashboard.journey.ts:2258:    const liveLog = {
+artifacts/dashboard/e2e/dashboard.journey.ts:2259:      id: "e2e-exhausted-live-log",
+artifacts/dashboard/e2e/dashboard.journey.ts:2273:      liveTask: {
+artifacts/dashboard/e2e/dashboard.journey.ts:2275:        title: "Recover exhausted live task updates",
+artifacts/dashboard/e2e/dashboard.journey.ts:2277:        log: liveLog,
+artifacts/dashboard/e2e/dashboard.journey.ts:2278:        initialLogs: [liveLog],
+artifacts/dashboard/e2e/dashboard.journey.ts:2286:    await page.getByLabel("Expand task Recover exhausted live task updates").click();
+artifacts/dashboard/e2e/dashboard.journey.ts:2290:    await expect(activity).toContainText(liveLog.message);
+artifacts/dashboard/e2e/dashboard.journey.ts:2303:    await expect(exhausted.getByRole("button", { name: "Retry live updates" })).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts:2306:    await exhausted.getByRole("button", { name: "Retry live updates" }).click();
+artifacts/dashboard/e2e/dashboard.journey.ts:2312:      activity.locator("summary").filter({ hasText: liveLog.message }),
+artifacts/dashboard/e2e/dashboard.journey.ts:3114:  test("projects delivery recovery states safely after reload", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:3129:            "The delivery stopped because validation needs to be run again.",
