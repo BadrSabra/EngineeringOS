@@ -7,6 +7,7 @@ import {
   getCodeAgentBenchmarkFixture,
   validateCodeAgentBenchmarkFixtureBehavior,
   validateCodeAgentBenchmarkFixtureContracts,
+  validateCodeAgentBenchmarkFixtureMutations,
 } from "./code-agent-benchmark-fixtures.js";
 
 export type CodeAgentBenchmarkScenarioCoverage = {
@@ -21,7 +22,8 @@ export async function validateCodeAgentBenchmarkScenarioBehavior(
   cases: readonly CodeAgentBenchmarkCase[] = getCodeAgentBenchmarkCases(),
 ) {
   const result = await validateCodeAgentBenchmarkFixtureBehavior(cases);
-  return result.errors;
+  const mutationResult = await validateCodeAgentBenchmarkFixtureMutations(cases);
+  return [...result.errors, ...mutationResult.errors];
 }
 
 /**

@@ -11,6 +11,7 @@ import {
   getCodeAgentBenchmarkFixture,
   validateCodeAgentBenchmarkFixtureBehavior,
   validateCodeAgentBenchmarkFixtureContracts,
+  validateCodeAgentBenchmarkFixtureMutations,
 } from "./code-agent-benchmark-fixtures.js";
 import { classifyRequest } from "../prompts/profile-classifier.js";
 
@@ -65,12 +66,19 @@ describe("executable benchmark fixtures", () => {
     expect(result.passedScenarioIds).toHaveLength(getCodeAgentBenchmarkCases().length);
   });
 
+  it("proves every focused oracle rejects a representative regression", async () => {
+    const result = await validateCodeAgentBenchmarkFixtureMutations(getCodeAgentBenchmarkCases());
+    expect(result.failedScenarioIds, result.errors.join("; ")).toEqual([]);
+    expect(result.passedScenarioIds).toHaveLength(getCodeAgentBenchmarkCases().length);
+  });
+
   it("provides setup, scope, validation, and an oracle for every manifest case", () => {
     for (const testCase of getCodeAgentBenchmarkCases()) {
       const fixture = getCodeAgentBenchmarkFixture(testCase);
       expect(fixture.targetPaths.length, testCase.id).toBeGreaterThan(0);
       expect(fixture.allowedPaths, testCase.id).toEqual([...fixture.targetPaths]);
       expect(fixture.behavioralOracle, testCase.id).toBeTypeOf("function");
+      expect(fixture.regressionPendingChanges?.length, testCase.id).toBeGreaterThan(0);
 
       if (testCase.expected.terminal === "READY_FOR_REVIEW") {
         expect(fixture.prepare, testCase.id).toBeTypeOf("function");
