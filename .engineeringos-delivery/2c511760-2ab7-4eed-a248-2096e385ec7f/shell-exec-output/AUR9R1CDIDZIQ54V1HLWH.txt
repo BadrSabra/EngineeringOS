@@ -1,0 +1,148 @@
+rg: artifacts/api-spec/openapi.yaml: No such file or directory (os error 2)
+rg: artifacts/api-spec/openapi.json: No such file or directory (os error 2)
+lib/api-client-react/src/generated/api.ts:105:  ListProjectsParams,
+lib/api-client-react/src/generated/api.ts:246:export const getListProjectsUrl = (params?: ListProjectsParams,) => {
+lib/api-client-react/src/generated/api.ts:264:export const listProjects = async (params?: ListProjectsParams, options?: RequestInit): Promise<Project[]> => {
+lib/api-client-react/src/generated/api.ts:266:  return customFetch<Project[]>(getListProjectsUrl(params),
+lib/api-client-react/src/generated/api.ts:279:export const getListProjectsQueryKey = (params?: ListProjectsParams,) => {
+lib/api-client-react/src/generated/api.ts:286:export const getListProjectsQueryOptions = <TData = Awaited<ReturnType<typeof listProjects>>, TError = ErrorType<unknown>>(params?: ListProjectsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProjects>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:291:  const queryKey =  queryOptions?.queryKey ?? getListProjectsQueryKey(params);
+lib/api-client-react/src/generated/api.ts:295:    const queryFn: QueryFunction<Awaited<ReturnType<typeof listProjects>>> = ({ signal }) => listProjects(params, { signal, ...requestOptions });
+lib/api-client-react/src/generated/api.ts:301:   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listProjects>>, TError, TData> & { queryKey: QueryKey }
+lib/api-client-react/src/generated/api.ts:304:export type ListProjectsQueryResult = NonNullable<Awaited<ReturnType<typeof listProjects>>>
+lib/api-client-react/src/generated/api.ts:305:export type ListProjectsQueryError = ErrorType<unknown>
+lib/api-client-react/src/generated/api.ts:312:export function useListProjects<TData = Awaited<ReturnType<typeof listProjects>>, TError = ErrorType<unknown>>(
+lib/api-client-react/src/generated/api.ts:313: params?: ListProjectsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProjects>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:317:  const queryOptions = getListProjectsQueryOptions(params,options)
+
+  // Use the generated hook (same URL and auth path as Projects.tsx) so this
+  // query uses customFetch — which throws ApiError on non-2xx, preserving the
+  // HTTP status through to the error classifier below.
+  const {
+    data: rawProjects,
+    isLoading: projectsLoading,
+    error: projectsError,
+  } = useListProjects(undefined, {
+    query: {
+      queryKey: getListProjectsQueryKey(),
+      // Wait for Clerk to finish loading before the very first request so we
+      // don't race the browser's own session cookie hydration.
+      enabled: isLoaded,
+      // Classify each failure to decide whether to retry automatically.
+       // Clerk can briefly return 401 while its browser session cookie is
+       // refreshed during a long-running AI stream. Retry only when Clerk has
+       // already loaded a signed-in user; an unauthenticated 401 remains
+       // terminal and is shown as a real session-expiry error.
+       retry: (failureCount, err) =>
+         isRetryableProjectError(err, failureCount, 2, isLoaded && !!user),
+    },
+  });
+  const projects = (rawProjects as Project[] | undefined) ?? [];
+
+  // Derive a classified failure record once and reuse it in all three places
+  // where error text is shown — status, kind, and message are all in one place.
+  const projectLoadFailure = projectsError ? classifyProjectError(projectsError) : null;
+
+  // Emit telemetry whenever a project-load failure is first observed.
+  // TanStack Query v5 removed onError from query options; useEffect is the
+  // correct place for side-effects on state changes.
+  useEffect(() => {
+    if (projectsError) emitProjectLoadFailed(projectsError, { userId: user?.id });
+  }, [projectsError, user?.id]);
+
+  const {
+    data: sessions = [],
+    isFetched: sessionsFetched,
+    isError: sessionsError,
+  } = useListAiChatSessions<Session[]>(
+    { projectId: selectedProjectId ?? '' },
+    {
+      query: {
+        queryKey: ['ai-sessions', selectedProjectId],
+        enabled: isLoaded && !!selectedProjectId,
+      },
+    },
+  );
+
+  const { data: serverMessages = [], isFetched: messagesFetched } = useListAiChatMessages<ChatMessage[]>(
+    sessionId ?? '',
+    {
+      query: {
+        queryKey: ['ai-messages', sessionId],
+        enabled: isLoaded && !!sessionId,
+      },
+    },
+  );
+
+  const { data: serverProposal } = useGetAiPendingProposal<{
+    proposalId: string | null;
+    operationId: string | null;
+    changes: PendingChange[];
+    approvalRequired: boolean;
+    revision: number | null;
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={resumeActiveExecution}
+                    disabled={!activeExecution.resumeToken && !resumeRecoveryError}
+                  >
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                    {resumeRecoveryError ? 'Retry' : activeExecution.resumeToken ? 'Resume' : 'Recovering…'}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="mx-auto w-full min-w-0 max-w-3xl">
+            <ProviderReadinessNotice
+              activeProvider={activeProvider}
+              metric={activeProvider?.provider ? metricsMap.get(activeProvider.provider) : undefined}
+            />
+            <div className="flex items-end gap-2">
+            <Textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={applyMutation.isPending ? 'Applying changes… please wait' : isAgentBusy ? 'Working… progress is shown above' : getPlaceholder()}
+              className="min-h-[44px] min-w-0 max-h-32 flex-1 resize-none bg-secondary border-border text-sm"
+              rows={1}
+              disabled={!isLoaded || projectsLoading || !selectedProjectId || !activeProvider?.configured || applyMutation.isPending || isAgentBusy}
+            />
+            <Button
+              size="icon"
+              onClick={handleSend}
+               disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || !activeProvider?.configured || isAgentBusy || applyMutation.isPending}
+              className="h-11 w-11 shrink-0"
+              title={applyMutation.isPending ? 'Applying changes…' : isAgentBusy ? 'AI is working…' : getSendTitle()}
+            >
+              {isSending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+            </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+573:  activeProvider,
+576:  activeProvider: ActiveProvider | undefined;
+579:  if (!activeProvider) {
+588:  if (!activeProvider.configured || !activeProvider.provider) {
+604:        <span>{activeProvider.provider} is temporarily unavailable.{cooldown} A fallback may be used.</span>
+612:      <span>AI ready · {activeProvider.provider}</span>
+7619:  const { data: activeProvider } = useGetActiveProvider<ActiveProvider>({
+8319:    if (!activeProvider) {
+8323:    if (!activeProvider.configured || !activeProvider.provider) {
+9297:            {activeProvider?.provider === 'deepseek'
+9299:              : activeProvider?.provider === 'openrouter'
+9303:                : activeProvider?.provider === 'gemini'
+9676:              activeProvider={activeProvider}
+9677:              metric={activeProvider?.provider ? metricsMap.get(activeProvider.provider) : undefined}
+9688:              disabled={!isLoaded || projectsLoading || !selectedProjectId || !activeProvider?.configured || applyMutation.isPending || isAgentBusy}
+9693:               disabled={!isLoaded || projectsLoading || !input.trim() || !selectedProjectId || !activeProvider?.configured || isAgentBusy || applyMutation.isPending}

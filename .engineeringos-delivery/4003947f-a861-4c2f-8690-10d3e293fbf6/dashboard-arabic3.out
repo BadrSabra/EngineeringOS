@@ -1,0 +1,57 @@
+
+Running 1 test using 1 worker
+
+[1/1] e2e/dashboard.journey.ts:2653:3 › EngineeringOS dashboard browser journey › renders an Arabic source-backed AI answer without internal diagnostics
+  1) e2e/dashboard.journey.ts:2653:3 › EngineeringOS dashboard browser journey › renders an Arabic source-backed AI answer without internal diagnostics 
+
+    Test timeout of 45000ms exceeded.
+
+    Error: locator.fill: Test timeout of 45000ms exceeded.
+    Call log:
+      - waiting for locator('textarea').first()
+        - locator resolved to <textarea rows="1" disabled data-component-name="textarea" placeholder="Ask about your codebase, tasks, or metrics… (Enter to send)" data-replit-metadata="artifacts/dashboard/src/components/ui/textarea.tsx:9:4" class="flex w-full rounded-md border px-3 py-2 shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm min-h-[44px] min-w-0 max-h-32 flex-1 resize-none bg-secondary border-border…></textarea>
+        - fill("ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟")
+      - attempting fill action
+        2 × waiting for element to be visible, enabled and editable
+          - element is not enabled
+        - retrying fill action
+        - waiting 20ms
+        2 × waiting for element to be visible, enabled and editable
+          - element is not enabled
+        - retrying fill action
+          - waiting 100ms
+        61 × waiting for element to be visible, enabled and editable
+           - element is not enabled
+         - retrying fill action
+           - waiting 500ms
+
+
+      2661 |     const composer = page.locator("textarea").first();
+      2662 |     await expect(composer).toBeVisible();
+    > 2663 |     await composer.fill(fixture.question);
+           |                    ^
+      2664 |     const sendButton = composer.locator("xpath=..").getByRole("button");
+      2665 |     await expect(sendButton).toBeEnabled();
+      2666 |     const streamResponsePromise = page.waitForResponse((response) =>
+        at /home/runner/workspace/artifacts/dashboard/e2e/dashboard.journey.ts:2663:20
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-99a50-ithout-internal-diagnostics/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/dashboard.journey.ts-Engin-99a50-ithout-internal-diagnostics/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/dashboard.journey.ts-Engin-99a50-ithout-internal-diagnostics/trace.zip
+    Usage:
+
+        pnpm exec playwright show-trace test-results/dashboard.journey.ts-Engin-99a50-ithout-internal-diagnostics/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+  1 failed
+    e2e/dashboard.journey.ts:2653:3 › EngineeringOS dashboard browser journey › renders an Arabic source-backed AI answer without internal diagnostics 
+undefined
+/home/runner/workspace/artifacts/dashboard:
+ ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command failed with exit code 1: playwright test --config=e2e/playwright.config.ts --grep renders an Arabic source-backed AI answer without internal diagnostics --reporter=line

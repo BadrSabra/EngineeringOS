@@ -1,0 +1,361 @@
+
+ RUN  v4.1.10 /home/runner/workspace/artifacts/api-server
+
+ ✓ src/lib/ai-repair-validation.test.ts > AI repair validation registry > exposes only a registered bounded profile 4ms
+ ✓ src/lib/ai-repair-validation.test.ts > AI repair validation registry > accepts a changed file inside the selected profile scope 0ms
+ ✓ src/lib/ai-repair-validation.test.ts > AI repair validation registry > registers the workspace typecheck for implementation-plan changes 1ms
+ ✓ src/lib/ai-repair-validation.test.ts > AI repair validation registry > returns unavailable scope errors instead of executing an unrelated suite 0ms
+ ✓ src/lib/ai-repair-validation.test.ts > AI repair validation registry > returns unavailable when the registered command cannot run from the project root 3ms
+ ✓ src/lib/ai-repair-validation.test.ts > AI repair validation registry > runs validation against pending content in an isolated workspace 41084ms
+ ✓ src/lib/ai-repair-validation.test.ts > AI repair validation registry > runs a fixture runtime oracle against pending content without mutating live files 6454ms
+ ✓ src/lib/ai-repair-validation.test.ts > AI repair validation registry > fails closed when the runtime oracle rejects pending behavior 843ms
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > keeps the source untouched while read -> pending write -> overlay validation reaches READY_FOR_REVIEW
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"GENERIC_RESPONSE"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":true,"repairPlanExecution":true,"historyMessageCount":1,"priorPlanRecovered":true,"structuredPlanRecovered":true,"structuredPlanPhaseCount":1,"executionFilePaths":["artifacts/dashboard/src/App.tsx"],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"GENERIC_RESPONSE","validator":"AnswerValidator","category":"code","turnIntent":"DELIVERY","requiresTools":true,"requiresEvidence":false,"agentScope":"task_execution","taskType":"task_execution","immediateExecution":true,"priorPlanRecovered":true,"priorPlanChars":1533,"executionFilePaths":["artifacts/dashboard/src/App.tsx"]}
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"groq","rootPath":"/tmp/repair-loop-root-gcefh0","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":true,"allowAnalysis":true,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"REPAIR_PLAN_TOOL_SCOPE","allowedTools":["read_file","replace_text","write_file","run_validation"],"blockedTools":["read_file_range","list_directory","search_code","git_status","git_diff","git_log","run_browser_validation","run_command","refresh_project_scan","query_knowledge_graph","discover_project_apis"]}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > keeps the source untouched while read -> pending write -> overlay validation reaches READY_FOR_REVIEW
+{"scope":"plan-prefetch","code":"PLAN_PREFETCH_COMPLETE","files":["artifacts/dashboard/src/App.tsx"],"bytesLoaded":6143}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > keeps the source untouched while read -> pending write -> overlay validation reaches READY_FOR_REVIEW
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"task_execution","selectedBudget":{"maxIterations":192,"maxToolCalls":720},"appliedBudget":{"maxIterations":192,"maxToolCalls":720},"implementationTaskMode":true,"repairPlanExecution":true}
+
+[15:51:55.311] INFO (36569): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "d925c1e9-759c-4564-b3f1-2a3421c4dcaa"
+    projectId: "8e151007-c657-4313-906c-7d5c3238c0f3"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 1
+    turnIntent: "DELIVERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "task_execution"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": true,
+      "sessionId": "d925c1e9-759c-4564-b3f1-2a3421c4dcaa",
+      "historyMessageCount": 1,
+      "repairPlanCandidateCount": 1
+    }
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > keeps the source untouched while read -> pending write -> overlay validation reaches READY_FOR_REVIEW
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+[15:51:55.318] INFO (36569): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: true
+    available: [
+      "openrouter"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > keeps the source untouched while read -> pending write -> overlay validation reaches READY_FOR_REVIEW
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > keeps the source untouched while read -> pending write -> overlay validation reaches READY_FOR_REVIEW
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > keeps the source untouched while read -> pending write -> overlay validation reaches READY_FOR_REVIEW
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > retries a failed validation, applies a bounded repair, and reaches READY_FOR_REVIEW
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"GENERIC_RESPONSE"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":true,"repairPlanExecution":true,"historyMessageCount":1,"priorPlanRecovered":true,"structuredPlanRecovered":true,"structuredPlanPhaseCount":1,"executionFilePaths":["artifacts/dashboard/src/App.tsx"],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"GENERIC_RESPONSE","validator":"AnswerValidator","category":"code","turnIntent":"DELIVERY","requiresTools":true,"requiresEvidence":false,"agentScope":"task_execution","taskType":"task_execution","immediateExecution":true,"priorPlanRecovered":true,"priorPlanChars":1533,"executionFilePaths":["artifacts/dashboard/src/App.tsx"]}
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"groq","rootPath":"/tmp/repair-loop-root-63rAxO","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":true,"allowAnalysis":true,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"REPAIR_PLAN_TOOL_SCOPE","allowedTools":["read_file","replace_text","write_file","run_validation"],"blockedTools":["read_file_range","list_directory","search_code","git_status","git_diff","git_log","run_browser_validation","run_command","refresh_project_scan","query_knowledge_graph","discover_project_apis"]}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > retries a failed validation, applies a bounded repair, and reaches READY_FOR_REVIEW
+{"scope":"plan-prefetch","code":"PLAN_PREFETCH_COMPLETE","files":["artifacts/dashboard/src/App.tsx"],"bytesLoaded":6143}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > retries a failed validation, applies a bounded repair, and reaches READY_FOR_REVIEW
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"task_execution","selectedBudget":{"maxIterations":192,"maxToolCalls":720},"appliedBudget":{"maxIterations":192,"maxToolCalls":720},"implementationTaskMode":true,"repairPlanExecution":true}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > retries a failed validation, applies a bounded repair, and reaches READY_FOR_REVIEW
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > retries a failed validation, applies a bounded repair, and reaches READY_FOR_REVIEW
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > retries a failed validation, applies a bounded repair, and reaches READY_FOR_REVIEW
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > retries a failed validation, applies a bounded repair, and reaches READY_FOR_REVIEW
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > retries a failed validation, applies a bounded repair, and reaches READY_FOR_REVIEW
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > retries a failed validation, applies a bounded repair, and reaches READY_FOR_REVIEW
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > retries a failed validation, applies a bounded repair, and reaches READY_FOR_REVIEW
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+ ✓ src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > keeps the source untouched while read -> pending write -> overlay validation reaches READY_FOR_REVIEW 870ms
+[15:51:55.648] INFO (36569): request completed
+    req: {
+      "id": 1,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 629
+[15:51:55.740] INFO (36569): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "ead10a88-5c48-4692-b921-a74198721db5"
+    projectId: "a5fac70c-f8f0-48a1-ab74-e34c90112c58"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 1
+    turnIntent: "DELIVERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "task_execution"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": true,
+      "sessionId": "ead10a88-5c48-4692-b921-a74198721db5",
+      "historyMessageCount": 1,
+      "repairPlanCandidateCount": 1
+    }
+[15:51:55.745] INFO (36569): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: true
+    available: [
+      "openrouter"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+[15:51:55.961] INFO (36569): request completed
+    req: {
+      "id": 2,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 256
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks repeated validation without a changed pending patch and emits BLOCKED without a proposal
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"GENERIC_RESPONSE"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":true,"repairPlanExecution":true,"historyMessageCount":1,"priorPlanRecovered":true,"structuredPlanRecovered":true,"structuredPlanPhaseCount":1,"executionFilePaths":["artifacts/dashboard/src/App.tsx"],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"GENERIC_RESPONSE","validator":"AnswerValidator","category":"code","turnIntent":"DELIVERY","requiresTools":true,"requiresEvidence":false,"agentScope":"task_execution","taskType":"task_execution","immediateExecution":true,"priorPlanRecovered":true,"priorPlanChars":1533,"executionFilePaths":["artifacts/dashboard/src/App.tsx"]}
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"groq","rootPath":"/tmp/repair-loop-root-WMbeMW","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":true,"allowAnalysis":true,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"REPAIR_PLAN_TOOL_SCOPE","allowedTools":["read_file","replace_text","write_file","run_validation"],"blockedTools":["read_file_range","list_directory","search_code","git_status","git_diff","git_log","run_browser_validation","run_command","refresh_project_scan","query_knowledge_graph","discover_project_apis"]}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks repeated validation without a changed pending patch and emits BLOCKED without a proposal
+{"scope":"plan-prefetch","code":"PLAN_PREFETCH_COMPLETE","files":["artifacts/dashboard/src/App.tsx"],"bytesLoaded":6143}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks repeated validation without a changed pending patch and emits BLOCKED without a proposal
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"task_execution","selectedBudget":{"maxIterations":192,"maxToolCalls":720},"appliedBudget":{"maxIterations":192,"maxToolCalls":720},"implementationTaskMode":true,"repairPlanExecution":true}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks repeated validation without a changed pending patch and emits BLOCKED without a proposal
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks repeated validation without a changed pending patch and emits BLOCKED without a proposal
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks repeated validation without a changed pending patch and emits BLOCKED without a proposal
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks repeated validation without a changed pending patch and emits BLOCKED without a proposal
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks repeated validation without a changed pending patch and emits BLOCKED without a proposal
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks repeated validation without a changed pending patch and emits BLOCKED without a proposal
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"groq","model":"repair-loop-fixture-model","iter":0,"errorCode":"unknown","reason":"Repair-loop fixture exhausted its injected provider responses. Add the expected deterministic response before the next model turn."}
+
+stderr | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks repeated validation without a changed pending patch and emits BLOCKED without a proposal
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"groq","model":"repair-loop-fixture-model","iter":0,"errorCode":"unknown","reason":"Repair-loop fixture exhausted its injected provider responses. Add the expected deterministic response before the next model turn."}
+
+ ✓ src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > retries a failed validation, applies a bounded repair, and reaches READY_FOR_REVIEW 316ms
+[15:51:56.055] INFO (36569): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "0915071b-2ebc-43af-a476-05bb5f871570"
+    projectId: "bb298d8e-1539-4e5a-bcbd-86659a92c93d"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 1
+    turnIntent: "DELIVERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "task_execution"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": true,
+      "sessionId": "0915071b-2ebc-43af-a476-05bb5f871570",
+      "historyMessageCount": 1,
+      "repairPlanCandidateCount": 1
+    }
+[15:51:56.060] INFO (36569): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: true
+    available: [
+      "openrouter"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks an unavailable validator without a proposal, apply path, or source mutation
+{"scope":"chat-agent","code":"PROMPT_MODE_DECISION","mode":"chat","reason":"no linkedTaskId","taskId":null,"singleFileForensicMode":false,"singleFilePaths":[],"orderedForensicRoots":[],"includeTestSources":false,"fixtureAuditMode":false,"taskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"GENERIC_RESPONSE"}
+{"scope":"chat-agent","code":"EXECUTION_HANDOFF_DECISION","immediateExecution":true,"repairPlanExecution":true,"historyMessageCount":1,"priorPlanRecovered":true,"structuredPlanRecovered":true,"structuredPlanPhaseCount":1,"executionFilePaths":["artifacts/dashboard/src/App.tsx"],"blockedRepairPlan":false}
+{"scope":"chat-agent","code":"MODEL_TIER_DECISION","isDeepAnalysis":false,"structuredOutputMode":false,"promptStructuredOutputMode":false,"forensicTaskType":"BEHAVIOR_QUERY","analysisMode":"STANDARD","outputContract":"GENERIC_RESPONSE","validator":"AnswerValidator","category":"code","turnIntent":"DELIVERY","requiresTools":true,"requiresEvidence":false,"agentScope":"task_execution","taskType":"task_execution","immediateExecution":true,"priorPlanRecovered":true,"priorPlanChars":1533,"executionFilePaths":["artifacts/dashboard/src/App.tsx"]}
+{"scope":"tool-policy","action":"resolve_tool_policy","provider":"groq","rootPath":"/tmp/repair-loop-root-gf6E3t","mode":"workspace","enabled":true,"allowFileRead":true,"allowFileWrite":true,"allowGit":true,"allowExecution":true,"allowAnalysis":true,"reason":null,"supportsTools":true}
+{"scope":"chat-agent","code":"REPAIR_PLAN_TOOL_SCOPE","allowedTools":["read_file","replace_text","write_file","run_validation"],"blockedTools":["read_file_range","list_directory","search_code","git_status","git_diff","git_log","run_browser_validation","run_command","refresh_project_scan","query_knowledge_graph","discover_project_apis"]}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks an unavailable validator without a proposal, apply path, or source mutation
+{"scope":"plan-prefetch","code":"PLAN_PREFETCH_COMPLETE","files":["artifacts/dashboard/src/App.tsx"],"bytesLoaded":6143}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks an unavailable validator without a proposal, apply path, or source mutation
+{"scope":"chat-agent","code":"TASK_BUDGET_DECISION","forensicTaskType":"BEHAVIOR_QUERY","executionTaskType":"task_execution","selectedBudget":{"maxIterations":192,"maxToolCalls":720},"appliedBudget":{"maxIterations":192,"maxToolCalls":720},"implementationTaskMode":true,"repairPlanExecution":true}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks an unavailable validator without a proposal, apply path, or source mutation
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":1}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks an unavailable validator without a proposal, apply path, or source mutation
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks an unavailable validator without a proposal, apply path, or source mutation
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stdout | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks an unavailable validator without a proposal, apply path, or source mutation
+{"scope":"provider-telemetry","provider":"groq","model":"repair-loop-fixture-model","attemptCount":1,"promptTokens":0,"completionTokens":0,"durationMs":0}
+
+stderr | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks an unavailable validator without a proposal, apply path, or source mutation
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"groq","model":"repair-loop-fixture-model","iter":0,"errorCode":"unknown","reason":"Repair-loop fixture exhausted its injected provider responses. Add the expected deterministic response before the next model turn."}
+
+stderr | src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks an unavailable validator without a proposal, apply path, or source mutation
+{"scope":"tool-execution-engine","code":"MODEL_ERROR","provider":"groq","model":"repair-loop-fixture-model","iter":0,"errorCode":"unknown","reason":"Repair-loop fixture exhausted its injected provider responses. Add the expected deterministic response before the next model turn."}
+
+[15:51:56.268] INFO (36569): request completed
+    req: {
+      "id": 3,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 240
+[15:51:56.327] INFO (36569): chat/stream: dispatching chatWithFallback
+    scope: "chat-route"
+    action: "pre_stream_trace"
+    provider: "groq"
+    sessionId: "1121e05a-35c7-457a-a33e-8292dc6d55fe"
+    projectId: "52c4d66a-8ef4-4cc0-a6db-7b4a9c18683d"
+    linkedTaskId: null
+    taskLoaded: false
+    promptMode: "chat"
+    messageCount: 1
+    turnIntent: "DELIVERY"
+    requireTools: true
+    requiresEvidence: false
+    qualityProfile: "task_execution"
+    contextProfile: "chat-normal"
+    executionHandoff: {
+      "requested": true,
+      "sessionId": "1121e05a-35c7-457a-a33e-8292dc6d55fe",
+      "historyMessageCount": 1,
+      "repairPlanCandidateCount": 1
+    }
+[15:51:56.330] INFO (36569): provider selection complete
+    scope: "provider-selection"
+    action: "collect_available_providers"
+    qualityProfile: "task_execution"
+    requireTools: true
+    available: [
+      "openrouter"
+    ]
+    skipped: [
+      {
+        "provider": "gemini",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "deepseek",
+        "reason": "no_api_key"
+      },
+      {
+        "provider": "groq",
+        "reason": "no_api_key"
+      }
+    ]
+ ✓ src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks repeated validation without a changed pending patch and emits BLOCKED without a proposal 287ms
+[15:51:56.495] INFO (36569): request completed
+    req: {
+      "id": 4,
+      "method": "POST",
+      "url": "/api/ai/chat/stream"
+    }
+    res: {
+      "statusCode": 200
+    }
+    responseTime: 191
+ ✓ src/routes/ai-repair-loop-e2e.test.ts > verified repair loop through the real SSE route and chat engine > blocks an unavailable validator without a proposal, apply path, or source mutation 230ms
+ ✓ src/lib/job-concurrency.test.ts > concurrent workers > 5 concurrent workers claim exactly 1 job — no double execution 72ms
+ ✓ src/lib/job-concurrency.test.ts > concurrent workers > winner completes the job; losers' completion attempts are no-ops 30ms
+ ✓ src/lib/job-concurrency.test.ts > concurrent workers > expired-lease job can be re-claimed after reconciliation resets it to queued 27ms
+ ✓ src/lib/job-concurrency.test.ts > concurrent workers > a worker that loses a race cannot overwrite the winner's lease 27ms
+
+ Test Files  3 passed (3)
+      Tests  16 passed (16)
+   Start at  15:50:57
+   Duration  59.47s (transform 4.16s, setup 0ms, import 8.48s, tests 50.26s, environment 0ms)
+

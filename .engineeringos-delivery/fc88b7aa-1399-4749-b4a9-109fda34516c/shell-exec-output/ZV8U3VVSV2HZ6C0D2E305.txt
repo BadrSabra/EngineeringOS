@@ -1,0 +1,420 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  useListTasks,
+  useExecuteTask,
+  useRetryTask,
+  useRollbackTask,
+  useGetTaskLogs,
+  getListTasksQueryKey,
+  getGetTaskLogsQueryKey,
+  type TaskLog,
+} from '@workspace/api-client-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useToast } from '@/hooks/use-toast';
+import { RefreshButton, RequestError } from '@/components/OperatorResilience';
+import {
+  Play,
+  RotateCcw,
+  RefreshCw,
+  Search,
+  TerminalSquare,
+  Activity,
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+  FileCode,
+  ChevronRight,
+  ChevronDown,
+  Terminal,
+  X,
+  Wifi,
+  WifiOff,
+  ShieldCheck,
+  FileCheck2,
+} from 'lucide-react';
+import { newestUpdatedAt, useMonotonicData } from '@/lib/freshness';
+import { ProviderRecoveryCard } from '@/components/ProviderRecoveryCard';
+
+// ─── Task logs sub-component ──────────────────────────────────────────────────
+// Separated so the hook always runs unconditionally within the mounted component.
+
+function stepIcon(message: string, level: TaskLog['level']): string {
+  if (level === 'error') return '❌';
+  if (level === 'warn')  return '⚠️';
+  const m = message.toLowerCase();
+  if (m.includes('read_file') || m.includes('list_dir'))   return '📂';
+  if (m.includes('search_code') || m.includes('search'))   return '🔍';
+  if (m.includes('write_file'))                             return '✏️';
+  if (m.includes('git_'))                                   return '🔀';
+  if (m.includes('calling ai') || m.includes('agent…') || m.includes('model')) return '🧠';
+  if (m.includes('project context') || m.includes('context')) return '📋';
+  if (m.includes('completed') || m.includes('confidence'))  return '✅';
+  if (m.includes('started') || m.includes('trigger'))       return '🚀';
+  if (m.includes('auto-execution') || m.includes('auto-trigger')) return '⚡';
+  return '·';
+}
+
+type TaskView = {
+  id: string;
+  projectId: string;
+  title: string;
+  description?: string;
+  status: string;
+  phase?: string;
+  relatedFiles?: string[];
+  retryCount?: number;
+  maxRetries?: number;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  agentResponse?: string;
+  verificationResult?: {
+    passed: boolean;
+    steps: Array<{ name: string; passed: boolean; output?: string }>;
+  };
+};
+
+type TaskExecutionReceipt = {
+  kind?: string;
+  operationId?: string;
+  correlationId?: string;
+  revision?: string | null;
+  provider?: string;
+  model?: string;
+  attempt?: number;
+  attempts?: number;
+  durationMs?: number;
+  stages?: string[];
+  terminalStatus?: 'SUCCEEDED' | 'BLOCKED' | 'FAILED' | 'CANCELLED';
+  terminalReason?: string;
+  summary?: string;
+  availabilityState?: string;
+  operatorAction?: string | null;
+};
+
+function parseExecutionReceipt(raw: string | undefined): TaskExecutionReceipt | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as TaskExecutionReceipt;
+    return value && value.kind === 'AI_TASK_EXECUTION_RECEIPT' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function safeTaskText(value: unknown, fallback = 'No additional detail available.'): string {
+  if (typeof value !== 'string') return fallback;
+  return value
+    .replace(/\/(?:home\/runner|workspace|tmp)\/[^\s"'<>),;]+/g, '[project path]')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '[internal id]')
+    .replace(/\b(?:sk|key|token|secret)[-_]?[a-z0-9]{12,}\b/gi, '[redacted]')
+    .slice(0, 300);
+}
+
+type ActivityItem = {
+  key: string;
+  kind: 'activity' | 'evidence' | 'warning' | 'error' | 'result';
+  label: string;
+  summary: string;
+  timestamp: string;
+  count: number;
+};
+
+const MAX_RECONNECT_ATTEMPTS = 5;
+
+function activityItem(log: TaskLog): ActivityItem {
+  const message = safeTaskText(log.message);
+  const lower = message.toLowerCase();
+  const kind = log.level === 'error'
+    ? 'error'
+    : log.level === 'warn'
+      ? 'warning'
+      : /verification|confirmed|completed|passed/.test(lower)
+        ? 'result'
+        : /file|pattern|search|project root/.test(lower)
+          ? 'evidence'
+          : 'activity';
+  const label = kind === 'evidence' ? 'Evidence collected'
+    : kind === 'result' ? 'Verification result'
+      : kind === 'warning' ? 'Needs attention'
+        : kind === 'error' ? 'Execution error'
+          : 'Activity';
+  return { key: `${kind}:${message}`, kind, label, summary: message, timestamp: log.timestamp, count: 1 };
+}
+
+function groupActivity(logs: TaskLog[]): ActivityItem[] {
+  const groups: ActivityItem[] = [];
+  for (const log of [...logs].sort((a, b) =>
+    a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id))) {
+    const item = activityItem(log);
+    const previous = groups[groups.length - 1];
+    if (previous?.key === item.key) previous.count += 1;
+    else groups.push(item);
+  }
+  return groups;
+}
+
+function taskPlan(task: TaskView): Array<{ title: string; status: 'done' | 'active' | 'pending' | 'blocked'; detail: string }> {
+  const terminal = ['completed', 'failed', 'cancelled'].includes(task.status);
+  const verificationDone = Boolean(task.verificationResult);
+  return [
+    { title: 'Understand the task', status: 'done', detail: 'Task goal and project scope recorded.' },
+    { title: 'Execute the approved workflow', status: task.status === 'pending' || task.status === 'queued' ? 'pending' : 'done', detail: 'Only the existing task execution path is used.' },
+    { title: 'Verify the result', status: verificationDone ? 'done' : task.status === 'running' || task.status === 'verifying' ? 'active' : terminal ? 'blocked' : 'pending', detail: verificationDone ? 'Verification result recorded by the server.' : 'Waiting for a server-owned verification result.' },
+    { title: 'Report outcome', status: terminal ? 'done' : 'pending', detail: terminal ? 'Final outcome is preserved below.' : 'The final report will remain available after completion.' },
+  ];
+}
+
+function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: string }) {
+  const taskId = task.id;
+  const isRunning = taskStatus === 'running';
+
+  // Live logs accumulated via SSE while the task is running
+  const [liveLogs, setLiveLogs] = useState<TaskLog[]>([]);
+  const [sseActive, setSseActive] = useState(false);
+  const [connectionState, setConnectionState] = useState<'connected' | 'reconnecting' | 'exhausted' | 'disconnected'>('disconnected');
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seenIds = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (!isRunning) {
+      setLiveLogs([]);
+      seenIds.current.clear();
+      setSseActive(false);
+      setConnectionState('disconnected');
+      return;
+    }
+
+    const es = new EventSource(`/api/tasks/${taskId}/logs/stream`);
+    setSseActive(true);
+    setConnectionState('connected');
+
+    es.addEventListener('log', (e) => {
+      try {
+        const log = JSON.parse(e.data) as TaskLog;
+        if (seenIds.current.has(log.id)) return;
+        seenIds.current.add(log.id);
+        setLiveLogs((prev) => [...prev, log].sort((a, b) => a.timestamp.localeCompare(b.timestamp) || a.id.localeCompare(b.id)));
+      } catch { /* ignore malformed frames */ }
+    });
+
+    es.addEventListener('done', () => {
+      es.close();
+      setSseActive(false);
+      setConnectionState('disconnected');
+      setReconnectAttempt(0);
+    });
+
+    es.onerror = () => {
+      es.close();
+      setSseActive(false);
+      if (reconnectAttempt < MAX_RECONNECT_ATTEMPTS) {
+        setConnectionState('reconnecting');
+        reconnectTimer.current = setTimeout(
+          () => setReconnectAttempt((attempt) => attempt + 1),
+          Math.min(1000 * 2 ** reconnectAttempt, 8000),
+        );
+      } else {
+        setConnectionState('exhausted');
+      }
+    };
+
+    return () => {
+      es.close();
+      if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      setSseActive(false);
+      setConnectionState('disconnected');
+    };
+  }, [taskId, isRunning, reconnectAttempt]);
+
+  // REST fallback: poll after task finishes or when SSE isn't active
+  const { data: polledLogs, isLoading, isError: logsError, refetch: refetchLogs } = useGetTaskLogs(taskId, {
+    query: {
+      queryKey: getGetTaskLogsQueryKey(taskId),
+      staleTime: 5_000,
+      refetchInterval: 5_000,
+      enabled: true,
+    },
+  });
+
+import { Router } from "express";
+import { db } from "@workspace/db";
+import {
+  tasksTable,
+  eventsTable,
+  taskLogsTable,
+  aiExecutionsTable,
+} from "@workspace/db";
+import {
+  CreateTaskBody,
+  UpdateTaskBody,
+  UpdateTaskParams,
+  DeleteTaskParams,
+  GetTaskParams,
+  ExecuteTaskParams,
+  RetryTaskParams,
+  RollbackTaskParams,
+  GetTaskLogsParams,
+  ListTasksQueryParams,
+} from "@workspace/api-zod";
+import { eq, and, desc, gt, asc, inArray, or, isNull } from "drizzle-orm";
+import { randomUUID } from "crypto";
+import { recordAudit, recordAuditInTransaction } from "../lib/audit.js";
+import { invalidateContextCache } from "@workspace/ai-orchestrator";
+import { runTaskVerification } from "../services/task-service.js";
+import { requireAuth } from "../middlewares/requireAuth.js";
+import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
+import { scheduleAiTaskExecution } from "./ai.js";
+import { parsePagination } from "../lib/pagination.js";
+import { taskTransitionConflict, type TaskStatus } from "../lib/task-state.js";
+
+const router = Router();
+
+// Defense-in-depth: requireAuth is already applied globally in app.ts, but
+// adding it here too means this router is safe even if mounted without it.
+router.use(requireAuth);
+
+class TaskStateConflictError extends Error {}
+
+// List tasks
+router.get("/tasks", async (req, res) => {
+  const params = ListTasksQueryParams.parse(req.query);
+  const pagination = parsePagination(req, { defaultPageSize: 50, maxPageSize: 200 });
+  const project = await loadProjectByIdForUser(params.projectId, req.userId, res);
+  if (!project) return;
+
+  const conditions: ReturnType<typeof eq>[] = [eq(tasksTable.projectId, project.id)];
+  if (params.status) conditions.push(eq(tasksTable.status, params.status));
+  if (params.priority)
+    conditions.push(eq(tasksTable.priority, params.priority));
+
+  const tasks = await db
+    .select()
+    .from(tasksTable)
+    .where(and(...conditions))
+    .orderBy(desc(tasksTable.createdAt), desc(tasksTable.id))
+    .limit(pagination.pageSize)
+    .offset(pagination.offset);
+  return res.json(tasks);
+});
+
+// Create task
+router.post("/tasks", async (req, res) => {
+  const body = CreateTaskBody.parse(req.body);
+  const project = await loadProjectByIdForUser(body.projectId, req.userId, res);
+  if (!project) return;
+
+  const now = new Date();
+  const correlationId = randomUUID();
+  const task = await db.transaction(async (tx) => {
+    const rows = await tx.insert(tasksTable)
+      .values({ id: randomUUID(), ...body, correlationId, createdAt: now, updatedAt: now })
+      .returning();
+    await tx.insert(eventsTable).values({
+      id: randomUUID(), type: "TaskCreated", projectId: body.projectId,
+      taskId: rows[0].id, severity: "info",
+      message: `Task "${body.title}" created (${body.priority})`, correlationId,
+    });
+    await recordAuditInTransaction(tx, {
+      entityType: "task", entityId: rows[0].id, action: "created",
+      projectId: body.projectId, actor: req.userId, correlationId,
+      stateAfter: rows[0],
+    });
+    return rows;
+  });
+
+  invalidateContextCache(project.id);
+
+  return res.status(201).json(task[0]);
+});
+
+// Get task
+router.get("/tasks/:taskId", async (req, res) => {
+  const { taskId } = GetTaskParams.parse(req.params);
+  const task = await db
+    .select()
+    .from(tasksTable)
+    .where(eq(tasksTable.id, taskId))
+    .limit(1);
+  if (!task[0]) return res.status(404).json({ error: "Task not found" });
+  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+  if (!project) return;
+  return res.json(task[0]);
+});
+
+// Update task
+router.patch("/tasks/:taskId", async (req, res) => {
+  const { taskId } = UpdateTaskParams.parse(req.params);
+  const body = UpdateTaskBody.parse(req.body);
+
+  const before = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+  if (!before[0]) return res.status(404).json({ error: "Task not found" });
+  const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+  if (!project) return;
+
+  // GAP-B3: reject edits while the AI agent is actively executing the task.
+  // Allowing a PATCH on a running task could corrupt the agent's in-flight
+  // state (e.g. overwriting the status it's about to transition away from).
+  if (before[0].status === "running") {
+    return res.status(409).json({
+      error: "task_running",
+      hint: "This task is currently being executed by the AI — wait for it to finish (or cancel it) before making changes.",
+    });
+  }
+  if (body.status && body.status !== before[0].status) {
+    const conflict = taskTransitionConflict(
+      before[0].status as TaskStatus,
+      body.status as TaskStatus,
+      "manual",
+    );
+    if (conflict) {
+      await recordAudit({
+        entityType: "task",
+        entityId: taskId,
+        action: "updated",
+        reason: `Rejected task status transition: ${conflict}`,
+        projectId: before[0].projectId,
+        actor: req.userId,
+        correlationId: randomUUID(),
+        changedFields: body,
+        stateBefore: before[0],
+      });
+      return res.status(409).json({
+        error: "invalid_task_transition",
+        reason: conflict,
+        from: before[0].status,
+        to: body.status,
+      });
+    }
+  }
+
+  const correlationId = randomUUID();
+  const updated = await db.transaction(async (tx) => {
+    const rows = await tx.update(tasksTable)
+      .set({ ...body, updatedAt: new Date() })
+      .where(and(
+        eq(tasksTable.id, taskId),
+        eq(tasksTable.status, before[0].status),
+        isNull(tasksTable.workerId),
+      )).returning();
+    if (rows[0]) {
+      const changes: string[] = [];
+      if (body.status && body.status !== before[0].status) changes.push(`status: ${before[0].status} → ${body.status}`);
+      if (body.priority && body.priority !== before[0].priority) changes.push(`priority: ${before[0].priority} → ${body.priority}`);
+      if (body.title && body.title !== before[0].title) changes.push("title updated");
+      if (changes.length) {
+        const isStatusChange = body.status !== undefined && body.status !== before[0].status;
+        await tx.insert(eventsTable).values({
+          id: randomUUID(), type: isStatusChange ? "TaskStatusChanged" : "TaskUpdated",
+          projectId: before[0].projectId, taskId, severity: "info",
+          message: `Task "${rows[0].title}" updated — ${changes.join(", ")}`, correlationId,
+          ...(isStatusChange ? { payload: { before: { status: before[0].status }, after: { status: body.status } } } : {}),
+        });
+      }
+      await recordAuditInTransaction(tx, {
+        entityType: "task", entityId: taskId, action: "updated",
+        projectId: before[0].projectId, actor: req.userId, correlationId,
+        changedFields: body, stateBefore: before[0], stateAfter: rows[0],
+      });
+    }
