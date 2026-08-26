@@ -4358,6 +4358,11 @@ function MessageBubble({
         >
           {failedTurn ? (
             <>
+              {!internalTechnicalDump && redactedDisplayContent.trim() && (
+                <div className="mb-2 whitespace-pre-wrap">
+                  {redactedDisplayContent}
+                </div>
+              )}
               <div className="mb-2 whitespace-pre-wrap">{safeFailureMessage}</div>
               <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-200">
                 <div className="font-medium">
