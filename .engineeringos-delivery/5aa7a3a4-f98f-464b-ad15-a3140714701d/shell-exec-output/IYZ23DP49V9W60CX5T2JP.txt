@@ -1,0 +1,260 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+import { resolve } from "node:path";
+
+const root = resolve(import.meta.dirname, "..");
+const journeyPath = resolve(
+  root,
+  "artifacts/dashboard/e2e/dashboard.journey.ts",
+);
+const runnerPath = resolve(root, "scripts/run-dashboard-journey.mjs");
+const workflowPath = resolve(root, ".github/workflows/ci.yml");
+
+const [journeySource, runnerSource, workflowSource] = await Promise.all([
+  readFile(journeyPath, "utf8"),
+  readFile(runnerPath, "utf8"),
+  readFile(workflowPath, "utf8"),
+]);
+
+function constant(source, name) {
+  const match = source.match(new RegExp(`const ${name} = ([0-9_]+);`));
+  assert.ok(match, `Expected ${name} to remain a numeric constant.`);
+  return Number(match[1].replaceAll("_", ""));
+}
+
+function runnerDefaultTimeout(source) {
+  const match = source.match(
+    /DASHBOARD_E2E_LIVE_TIMEOUT_MS\s*\?\?\s*([0-9_]+)/,
+  );
+  assert.ok(match, "Expected the runner to define a live timeout default.");
+  return Number(match[1].replaceAll("_", ""));
+}
+
+async function startApiCorsHarness() {
+  const port = 30_000 + Math.floor(Math.random() * 1_000);
+  const harnessSource = `
+    import app from "./artifacts/api-server/src/app.ts";
+    const server = app.listen(Number(process.env.PORT), "127.0.0.1");
+    process.once("SIGTERM", () => server.close(() => process.exit(0)));
+  `;
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx/esm", "--eval", harnessSource],
+    {
+      cwd: root,
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        PORT: String(port),
+        APP_ORIGINS: "https://dashboard-approved.example.test",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  let output = "";
+  child.stdout.on("data", (chunk) => {
+    output += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    output += chunk;
+  });
+
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const deadline = Date.now() + 10_000;
+  let lastError = "not attempted";
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${baseUrl}/api/healthz`);
+      if (response.status === 200) {
+        return {
+          child,
+          baseUrl,
+          async close() {
+            child.kill("SIGTERM");
+            await new Promise((resolveChild, reject) => {
+              child.once("exit", (code, signal) => {
+                if (signal === "SIGTERM" || code === 0) {
+                  resolveChild();
+                } else {
+                  reject(
+                    new Error(
+                      `CORS harness exited with ${signal ?? code}.\n${output}`,
+                    ),
+                  );
+                }
+              });
+            });
+          },
+        };
+      }
+      lastError = `HTTP ${response.status}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolveRetry) => setTimeout(resolveRetry, 50));
+  }
+
+  child.kill("SIGKILL");
+  throw new Error(`CORS harness did not start: ${lastError}.\n${output}`);
+}
+
+test("release API listener enforces approved and hostile-origin CORS", async () => {
+  const approvedOrigin = "https://dashboard-approved.example.test";
+  const hostileOrigin = "https://hostile.example.test";
+  const harness = await startApiCorsHarness();
+
+  try {
+    const getResponse = await fetch(`${harness.baseUrl}/api/healthz`, {
+      headers: { Origin: approvedOrigin },
+    });
+    assert.equal(getResponse.status, 200);
+    assert.equal(
+      getResponse.headers.get("access-control-allow-origin"),
+      approvedOrigin,
+    );
+    assert.equal(
+      getResponse.headers.get("access-control-allow-credentials"),
+      "true",
+    );
+
+    const preflightResponse = await fetch(`${harness.baseUrl}/api/projects`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: approvedOrigin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type, x-csrf-token",
+      },
+    });
+    assert.equal(preflightResponse.status, 204);
+    assert.equal(
+      preflightResponse.headers.get("access-control-allow-origin"),
+      approvedOrigin,
+    );
+    assert.equal(
+      preflightResponse.headers.get("access-control-allow-credentials"),
+      "true",
+    );
+    assert.match(
+      preflightResponse.headers.get("access-control-allow-methods") ?? "",
+      /\bPOST\b/,
+    );
+    assert.match(
+      preflightResponse.headers.get("access-control-allow-headers") ?? "",
+      /x-csrf-token/i,
+    );
+
+    const approvedMutation = await fetch(
+      `${harness.baseUrl}/api/release-cors-contract`,
+      {
+        method: "POST",
+        headers: { Origin: approvedOrigin, "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    assert.notEqual(
+      approvedMutation.status,
+      403,
+      "approved state-changing origins must reach the API route layer",
+    );
+    assert.equal(
+      approvedMutation.headers.get("access-control-allow-origin"),
+      approvedOrigin,
+    );
+    assert.equal(
+      approvedMutation.headers.get("access-control-allow-credentials"),
+      "true",
+    );
+
+    const hostileMutation = await fetch(
+      `${harness.baseUrl}/api/release-cors-contract`,
+      {
+        method: "POST",
+        headers: { Origin: hostileOrigin, "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    assert.equal(hostileMutation.status, 403);
+    assert.equal(
+      hostileMutation.headers.get("access-control-allow-origin"),
+      null,
+      "hostile state-changing origins must not receive CORS permission",
+    );
+  } finally {
+    await harness.close();
+  }
+});
+
+test("release API listener protects upload and live-update requests", async () => {
+  const approvedOrigin = "https://dashboard-approved.example.test";
+  const hostileOrigin = "https://hostile.example.test";
+  const harness = await startApiCorsHarness();
+
+  function expectApprovedCors(response, description) {
+    assert.equal(
+      response.headers.get("access-control-allow-origin"),
+      approvedOrigin,
+      `${description} must receive approved-origin CORS permission`,
+    );
+    assert.equal(
+      response.headers.get("access-control-allow-credentials"),
+      "true",
+      `${description} must allow credentialed dashboard requests`,
+    );
+  }
+
+  try {
+    // A multipart request exercises the same shape sent by the dashboard
+    // upload flow without creating a durable upload or invoking discovery.
+    const uploadBody = new FormData();
+    uploadBody.append(
+      "archive",
+      new Blob(["not an archive"], { type: "application/zip" }),
+      "release-contract.zip",
+    );
+    const approvedUpload = await fetch(
+      `${harness.baseUrl}/api/upload/archive`,
+      {
+        method: "POST",
+        headers: { Origin: approvedOrigin },
+        body: uploadBody,
+      },
+    );
+    assert.equal(
+      approvedUpload.status,
+      422,
+      "approved upload requests should reach archive validation without provider work",
+    );
+    expectApprovedCors(approvedUpload, "approved upload request");
+
+    const hostileUploadBody = new FormData();
+    hostileUploadBody.append(
+      "archive",
+      new Blob(["not an archive"], { type: "application/zip" }),
+      "release-contract.zip",
+    );
+    const hostileUpload = await fetch(
+      `${harness.baseUrl}/api/upload/archive`,
+      {
+        method: "POST",
+        headers: { Origin: hostileOrigin },
+        body: hostileUploadBody,
+      },
+    );
+    assert.equal(
+      hostileUpload.status,
+      403,
+      "hostile upload origins must be rejected before multipart handling",
+    );
+    assert.equal(
+      hostileUpload.headers.get("access-control-allow-origin"),
+      null,
+      "hostile upload origins must not receive CORS permission",
+    );
+
+    // An invalid JSON payload stops before project/provider work while still
+    // traversing the live stream route and its state-changing CORS guard.
+    const approvedLiveUpdate = await fetch(
+      `${harness.baseUrl}/api/ai/chat/stream`,
+      {

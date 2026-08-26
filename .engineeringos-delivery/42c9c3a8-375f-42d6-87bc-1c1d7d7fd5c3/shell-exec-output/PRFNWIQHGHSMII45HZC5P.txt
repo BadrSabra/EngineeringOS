@@ -1,0 +1,300 @@
+artifacts/dashboard/e2e/dashboard.journey.ts:5:  parseClerkSignInTokenResponse,
+artifacts/dashboard/e2e/dashboard.journey.ts:6:  parseClerkUserLookupResponse,
+artifacts/dashboard/e2e/dashboard.journey.ts:7:  parseCreatedClerkUserResponse,
+artifacts/dashboard/e2e/dashboard.journey.ts:118:      message: "Dashboard API fixture ready",
+artifacts/dashboard/e2e/dashboard.journey.ts:138:    detail: "Controlled browser fixture completed.",
+artifacts/dashboard/e2e/dashboard.journey.ts:204:      fixture: ArabicAiFixture;
+artifacts/dashboard/e2e/dashboard.journey.ts:208:      fixture: ArabicAiFixture;
+artifacts/dashboard/e2e/dashboard.journey.ts:261:      (fixture): fixture is ArabicAiFixture => Boolean(fixture),
+artifacts/dashboard/e2e/dashboard.journey.ts:270:        (fixture) => !fixture.projectId || fixture.projectId === projectId,
+artifacts/dashboard/e2e/dashboard.journey.ts:274:          projectSessions.map((fixture) => ({
+artifacts/dashboard/e2e/dashboard.journey.ts:275:            id: fixture.sessionId,
+artifacts/dashboard/e2e/dashboard.journey.ts:276:            title: fixture.question,
+artifacts/dashboard/e2e/dashboard.journey.ts:290:        requestBody.executionId === overrides.resumeFailure.fixture.executionId
+artifacts/dashboard/e2e/dashboard.journey.ts:296:          body: overrides.resumeFailure.fixture.streamBody,
+artifacts/dashboard/e2e/dashboard.journey.ts:307:      const { fixture, resumedStreamBody } = overrides.interruptedResume;
+artifacts/dashboard/e2e/dashboard.journey.ts:308:      if (requestBody.executionId === fixture.executionId) {
+artifacts/dashboard/e2e/dashboard.journey.ts:323:          body: fixture.streamBody,
+artifacts/dashboard/e2e/dashboard.journey.ts:337:        (fixture) =>
+artifacts/dashboard/e2e/dashboard.journey.ts:339:          (requestedMessage === fixture.question ||
+artifacts/dashboard/e2e/dashboard.journey.ts:340:            requestedMessage.includes(fixture.question)),
+artifacts/dashboard/e2e/dashboard.journey.ts:350:    const messageFixture = aiFixtures.find((fixture) =>
+artifacts/dashboard/e2e/dashboard.journey.ts:351:      path.endsWith(`/api/ai/chat/${fixture.sessionId}/messages`),
+artifacts/dashboard/e2e/dashboard.journey.ts:394:    if (path === "/api/tasks") {
+artifacts/dashboard/e2e/dashboard.journey.ts:483:    if (overrides?.liveTask && path === "/api/tasks") {
+artifacts/dashboard/e2e/dashboard.journey.ts:504:      path === `/api/tasks/${overrides.liveTask.id}/logs`
+artifacts/dashboard/e2e/dashboard.journey.ts:510:      path === `/api/tasks/${overrides.liveTask.id}/logs/stream`
+artifacts/dashboard/e2e/dashboard.journey.ts:612:        `/api/ai/executions/${overrides.resumeFailure.fixture.executionId}`
+artifacts/dashboard/e2e/dashboard.journey.ts:619:        `/api/ai/executions/${overrides.interruptedResume.fixture.executionId}`
+artifacts/dashboard/e2e/dashboard.journey.ts:626:        `/api/ai/executions/${overrides.interruptedResume.fixture.executionId}/resume-capability`
+artifacts/dashboard/e2e/dashboard.journey.ts:630:          executionId: overrides.interruptedResume.fixture.executionId,
+artifacts/dashboard/e2e/dashboard.journey.ts:820:  const source = "src/missing-release-fixture.ts";
+artifacts/dashboard/e2e/dashboard.journey.ts:1001:  const fixture: ArabicAiFixture = {
+artifacts/dashboard/e2e/dashboard.journey.ts:1022:    fixture,
+artifacts/dashboard/e2e/dashboard.journey.ts:1068:  const fixture: ArabicAiFixture = {
+artifacts/dashboard/e2e/dashboard.journey.ts:1089:    fixture,
+artifacts/dashboard/e2e/dashboard.journey.ts:1137:      "CLERK_SECRET_KEY is required for the release-only programmatic Clerk handoff.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1149:  let userId = parseClerkUserLookupResponse(await userResponse.json());
+artifacts/dashboard/e2e/dashboard.journey.ts:1165:    userId = parseCreatedClerkUserResponse(await createdResponse.json());
+artifacts/dashboard/e2e/dashboard.journey.ts:1170:      "The isolated Clerk release user could not be provisioned.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1178:  const token = parseClerkSignInTokenResponse(await tokenResponse.json());
+artifacts/dashboard/e2e/dashboard.journey.ts:1190:    globalThis.signInClerkUser ??
+artifacts/dashboard/e2e/dashboard.journey.ts:1193:    if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
+artifacts/dashboard/e2e/dashboard.journey.ts:1195:        "Clerk browser helper is unavailable. Run this journey in the Replit browser runner, which injects signInClerkUser.",
+artifacts/dashboard/e2e/dashboard.journey.ts:1791:  test("signs in and traverses the authenticated operational shell", async ({
+artifacts/dashboard/e2e/dashboard.journey.ts:1811:      page.getByText("Dashboard API fixture ready", { exact: true }),
+artifacts/dashboard/e2e/dashboard.journey.ts:1824:      page.getByText("Dashboard API fixture ready", { exact: true }),
+artifacts/dashboard/e2e/dashboard.journey.ts:1856:      page.getByText("Controlled browser fixture completed.", { exact: true }),
+artifacts/dashboard/e2e/dashboard.journey.ts:1964:    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+artifacts/dashboard/e2e/dashboard.journey.ts:2435:    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+artifacts/dashboard/e2e/dashboard.journey.ts:2475:    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+artifacts/dashboard/e2e/dashboard.journey.ts:2491:      `/api/tasks/${taskId}/logs/stream`,
+artifacts/dashboard/e2e/dashboard.journey.ts:2514:      if (!request.url().includes("/api/tasks/")) return;
+artifacts/dashboard/e2e/dashboard.journey.ts:2530:    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+artifacts/dashboard/e2e/dashboard.journey.ts:2664:    const fixture = await installArabicAiFixture(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:2665:    await installApiFixtures(page, { arabicAi: fixture });
+artifacts/dashboard/e2e/dashboard.journey.ts:2671:    await composer.fill(fixture.question);
+artifacts/dashboard/e2e/dashboard.journey.ts:2682:      page.getByText(fixture.question, { exact: true }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts:2685:      page.getByText(fixture.answer, { exact: true }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts:2695:      page.getByText(fixture.source, { exact: true }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts:2718:    const fixture = await installArabicAiFixture(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:2719:    await installApiFixtures(page, { arabicAi: fixture });
+artifacts/dashboard/e2e/dashboard.journey.ts:2724:    await composer.fill(fixture.question);
+artifacts/dashboard/e2e/dashboard.journey.ts:2728:      page.getByText(fixture.answer, { exact: true }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts:2732:        .getByText(`${fixture.source}:42`, { exact: false })
+artifacts/dashboard/e2e/dashboard.journey.ts:2741:    await expect(page.locator("body")).toContainText(fixture.source);
+artifacts/dashboard/e2e/dashboard.journey.ts:3011:    const fixture = installToolFailureFixture();
+artifacts/dashboard/e2e/dashboard.journey.ts:3012:    await installApiFixtures(page, { arabicAi: fixture });
+artifacts/dashboard/e2e/dashboard.journey.ts:3017:    await composer.fill(fixture.question);
+artifacts/dashboard/e2e/dashboard.journey.ts:3021:      page.getByText(fixture.answer, { exact: true }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts:3037:      "src/missing-release-fixture.ts",
+artifacts/dashboard/e2e/dashboard.journey.ts:3051:    const fixture = installToolFailureFixture();
+artifacts/dashboard/e2e/dashboard.journey.ts:3052:    await installApiFixtures(page, { arabicAi: fixture });
+artifacts/dashboard/e2e/dashboard.journey.ts:3057:    await composer.fill(fixture.question);
+artifacts/dashboard/e2e/dashboard.journey.ts:3061:      page.getByText(fixture.answer, { exact: true }).last(),
+artifacts/dashboard/e2e/dashboard.journey.ts:3077:      "src/missing-release-fixture.ts",
+artifacts/dashboard/e2e/dashboard.journey.ts:3083:      /raw exception|stack trace|\/home\/runner|secret|fixture diagnostic/i,
+artifacts/dashboard/e2e/dashboard.journey.ts:3092:    const fixture = installDisconnectedAiFixture();
+artifacts/dashboard/e2e/dashboard.journey.ts:3093:    await installApiFixtures(page, { disconnectAi: fixture });
+artifacts/dashboard/e2e/dashboard.journey.ts:3098:    await composer.fill(fixture.question);
+artifacts/dashboard/e2e/dashboard.journey.ts:3101:    const answer = page.getByText(fixture.answer, { exact: true });
+artifacts/dashboard/e2e/dashboard.journey.ts:3118:      .getByRole("button", { name: fixture.question, exact: true })
+artifacts/dashboard/e2e/dashboard.journey.ts:3121:    await expect(page.getByText(fixture.answer, { exact: true }).last()).toBeVisible();
+artifacts/dashboard/e2e/dashboard.journey.ts:3139:    const { fixture, execution } = installResumedAnalysisFailureFixture();
+artifacts/dashboard/e2e/dashboard.journey.ts:3141:      arabicAi: fixture,
+artifacts/dashboard/e2e/dashboard.journey.ts:3142:      resumeFailure: { fixture, execution },
+artifacts/dashboard/e2e/dashboard.journey.ts:3164:        sessionId: fixture.sessionId,
+artifacts/dashboard/e2e/dashboard.journey.ts:3165:        executionId: fixture.executionId,
+artifacts/dashboard/e2e/dashboard.journey.ts:3168:        message: fixture.question,
+artifacts/dashboard/e2e/dashboard.journey.ts:3191:        sessionId: fixture.sessionId,
+artifacts/dashboard/e2e/dashboard.journey.ts:3192:        executionId: fixture.executionId,
+artifacts/dashboard/e2e/dashboard.journey.ts:3194:        message: fixture.question,
+artifacts/dashboard/e2e/dashboard.journey.ts:3288:    await composer.fill(recovery.fixture.question);
+artifacts/dashboard/e2e/dashboard.journey.ts:3334:      page.getByText(recovery.fixture.answer, { exact: true }),
+artifacts/dashboard/e2e/dashboard.journey.ts:3340:        message: recovery.fixture.question,
+artifacts/dashboard/e2e/dashboard.journey.ts:3348:        sessionId: recovery.fixture.sessionId,
+artifacts/dashboard/e2e/dashboard.journey.ts:3349:        executionId: recovery.fixture.executionId,
+artifacts/dashboard/e2e/dashboard.journey.ts:3351:        message: recovery.fixture.question,
+artifacts/dashboard/e2e/dashboard.journey.ts:3356:    ).toEqual([recovery.fixture.executionId]);
+artifacts/dashboard/e2e/dashboard.journey.ts:3665:    const fixture = await installArabicAiFixture(page);
+artifacts/dashboard/e2e/dashboard.journey.ts:3666:    await installApiFixtures(page, { arabicAi: fixture });
+artifacts/dashboard/e2e/playwright.config.ts:31:      process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
+artifacts/dashboard/e2e/global.d.ts:5:   * Replit's browser runner injects signInClerkUser into the action scope.
+artifacts/dashboard/e2e/global.d.ts:7:   * Playwright project remains independent from Clerk's UI and credentials.
+artifacts/dashboard/e2e/global.d.ts:9:  var signInClerkUser:
+artifacts/dashboard/e2e/global.d.ts:20:    | typeof signInClerkUser
+artifacts/dashboard/e2e/README.md:21:RUN_CONTROLLED_RELEASE_VALIDATION=1 \
+artifacts/dashboard/e2e/README.md:30:provides the `signInClerkUser` helper described in
+artifacts/dashboard/e2e/README.md:32:helper to obtain a short-lived session URL and never fills Clerk forms. When
+artifacts/dashboard/e2e/README.md:34:to create the same short-lived Clerk sign-in token through the Backend API.
+artifacts/dashboard/e2e/README.md:37:read-only fixtures. This keeps dashboard/project/event success states stable,
+artifacts/dashboard/e2e/README.md:39:provider-unavailable response for AI. Routing, Clerk session handoff, and
+artifacts/dashboard/e2e/README.md:45:journey. It uses the isolated Clerk user, a disposable project already owned
+artifacts/dashboard/e2e/README.md:56:RUN_CONTROLLED_RELEASE_VALIDATION=1 \
+artifacts/dashboard/e2e/README.md:105:the browser runner has injected `signInClerkUser`. A missing helper is an
+artifacts/dashboard/e2e/README.md:106:environment/setup failure, not a Clerk form failure.
+scripts/dashboard-journey-contract.test.mjs:361:    "The browser fixture must model a newer server-owned dashboard revision.",
+scripts/dashboard-journey-contract.test.mjs:376:    "The convergence journey must use two authenticated browser sessions.",
+artifacts/api-server/src/services/task-service.ts:2: * Task domain service — extracted from routes/tasks.ts (audit finding W-003).
+artifacts/api-server/src/services/task-service.ts:9: *   1. `db.select().from(rulesTable)` — to resolve the rule pattern for tasks
+scripts/verify-setup.sh:3:# Run after: pnpm install, Clerk secrets provisioned, pnpm --filter @workspace/db run push
+scripts/verify-setup.sh:34:# 2. Clerk secrets set
+scripts/verify-setup.sh:39:    check "Secret: $var" "not set — provision via setupClerkWhitelabelAuth()"
+scripts/run-dashboard-journey.mjs:16:if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
+scripts/run-dashboard-journey.mjs:18:    "Dashboard browser journey is release-only; set RUN_CONTROLLED_RELEASE_VALIDATION=1.",
+scripts/run-dashboard-journey.mjs:66:  process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
+scripts/run-dashboard-journey.mjs:223:  throw new Error(`Teardown fixture did not open port ${port}.`);
+scripts/run-dashboard-journey.mjs:582:function runClerkHandoffContracts() {
+scripts/run-dashboard-journey.mjs:599:          `Unable to start dashboard Clerk handoff contract checks: ${redact(error.message)}`,
+scripts/run-dashboard-journey.mjs:608:            `Dashboard Clerk handoff contract checks stopped by ${signal}.`,
+scripts/run-dashboard-journey.mjs:616:            `Dashboard Clerk handoff contract checks failed with exit code ${code ?? 1}; browser startup was skipped.`,
+scripts/run-dashboard-journey.mjs:640:          `Unable to start dashboard journey contract checks: ${redact(error.message)}`,
+scripts/run-dashboard-journey.mjs:844:    await runClerkHandoffContracts();
+scripts/run-dashboard-journey.mjs:845:    console.log("Dashboard Clerk handoff response contracts passed.");
+scripts/run-dashboard-journey.mjs:851:        "Skipping duplicate API concurrency contracts; release validation owns the shared database fixture.",
+scripts/run-dashboard-journey.mjs:863:    console.log(`Using isolated Clerk journey user ${testEmail}`);
+scripts/run-dashboard-journey.mjs:890:          PLAYWRIGHT_OUTPUT_DIR: outputDir,
+scripts/release-port-cleanup.test.mjs:71:          RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+scripts/release-port-cleanup.test.mjs:92:            `Teardown fixture exited with ${signal ?? code}.\n${output}`,
+scripts/release-configuration.test.ts:11:  process.env.RUN_CONTROLLED_RELEASE_VALIDATION === "1";
+scripts/release-configuration.test.ts:40:    name: "dashboard journey contract",
+scripts/release-configuration.test.ts:42:    diagnostic: "dashboard journey contract fixture failed: expected route was missing",
+scripts/release-configuration.test.ts:45:      "--filter @workspace/api-server run test:release-fixture-collisions",
+scripts/release-configuration.test.ts:53:    diagnostic: "mission correlation report fixture failed: operation revision mismatched",
+scripts/release-configuration.test.ts:55:      "--filter @workspace/api-server run test:release-fixture-collisions",
+scripts/release-configuration.test.ts:61:    name: "release fixture collision check",
+scripts/release-configuration.test.ts:62:    command: "--filter @workspace/api-server run test:release-fixture-collisions",
+scripts/release-configuration.test.ts:63:    diagnostic: "release fixture collision check failed: duplicate fixture identity",
+scripts/release-configuration.test.ts:100:    diagnostic: "benchmark rollout tests failed: rollout fixture was incomplete",
+scripts/release-configuration.test.ts:333:        RUN_CONTROLLED_RELEASE_VALIDATION: "1",
+scripts/release-configuration.test.ts:358:  const fixture = await runSuccessfulDeploymentFixture();
+scripts/release-configuration.test.ts:362:      fixture.status,
+scripts/release-configuration.test.ts:364:      `successful deployment fixture must remain zero:\n${fixture.output}`,
+scripts/release-configuration.test.ts:366:    assert.deepEqual(fixture.trace.trim().split("\n"), [
+scripts/release-configuration.test.ts:375:      fixture.trace.indexOf("run validate:release") <
+scripts/release-configuration.test.ts:376:        fixture.trace.indexOf("store prune"),
+scripts/release-configuration.test.ts:380:    await rm(fixture.temporaryDirectory, { recursive: true, force: true });
+scripts/release-configuration.test.ts:390:    "temporary deployment fixtures must leave no working-tree changes",
+scripts/release-configuration.test.ts:484:      "later fixture and browser checks must not start after the API typecheck fails",
+scripts/release-configuration.test.ts:591:    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+scripts/release-configuration.test.ts:595:    "RUN_CONTROLLED_RELEASE_VALIDATION=1 pnpm run validate:release",
+scripts/release-configuration.test.ts:633:    "release validation must run the controlled dashboard journey",
+artifacts/api-server/src/scripts/seed-provenance.ts:10: *  - ..._seed_*.json    → adds `note` and `source_of_truth` fields not
+artifacts/api-server/src/scripts/seed-provenance.ts:23: * Usage: pnpm --filter @workspace/api-server exec tsx src/scripts/seed-provenance.ts
+artifacts/api-server/src/scripts/seed-provenance.ts:44:  "attached_assets/EngineeringOS_provenance_registry_seed_1783911530658.json",
+artifacts/api-server/src/scripts/seed-provenance.ts:87:  const [linked, seed] = await Promise.all([
+artifacts/api-server/src/scripts/seed-provenance.ts:92:  const seedByPath = new Map(seed.map((s) => [s.path, s]));
+artifacts/api-server/src/scripts/seed-provenance.ts:96:  console.log(`Loaded ${linked.length} linked records, ${seed.length} seed records.`);
+artifacts/api-server/src/scripts/seed-provenance.ts:100:    const seedRec = seedByPath.get(rec.path);
+artifacts/api-server/src/scripts/seed-provenance.ts:118:        note: seedRec?.note ?? null,
+artifacts/api-server/src/scripts/seed-provenance.ts:119:        provenanceBucket: seedRec?.provenance_bucket ?? null,
+artifacts/api-server/src/scripts/seed-provenance.ts:120:        sourceOfTruth: seedRec?.source_of_truth ?? false,
+artifacts/api-server/src/scripts/seed-provenance.ts:121:        operationalImpact: seedRec?.operational_impact || null,
+artifacts/api-server/src/scripts/seed-provenance.ts:122:        provenanceSummary: seedRec?.provenance_summary || null,
+artifacts/api-server/src/scripts/seed-provenance.ts:123:        verifiedAt: seedRec?.verified_at ?? null,
+artifacts/api-server/src/scripts/seed-provenance.ts:127:      // manual seed rather than an automated AST extraction.
+artifacts/api-server/src/scripts/seed-provenance.ts:130:        method: "manual-seed",
+artifacts/api-server/src/scripts/seed-provenance.ts:179:      method: "manual-seed",
+scripts/post-merge.sh:6:#   1. Clerk auth secrets — provisioned via setupClerkWhitelabelAuth() in the
+artifacts/api-server/src/config.ts:26:  // Clerk credentials. The API host itself is always allowed as well.
+artifacts/api-server/src/config.ts:28:  // Comma-separated Clerk user IDs allowed to change server-wide policy.
+artifacts/api-server/src/app.ts:15:  getClerkProxyHost,
+artifacts/api-server/src/app.ts:79:  // Cookie-authenticated requests without browser provenance headers are
+artifacts/api-server/src/app.ts:103:// Clerk's Frontend API proxy must be mounted first — it streams raw bytes
+artifacts/api-server/src/app.ts:152:// rejected origins receive no CORS permission and cannot use Clerk cookies.
+artifacts/api-server/src/app.ts:165:// Health checks must be registered BEFORE Clerk middleware — the deployment
+artifacts/api-server/src/app.ts:166:// platform's health probe and uptime monitors don't carry a Clerk session, and
+artifacts/api-server/src/app.ts:167:// clerkMiddleware will throw "Missing Clerk Secret Key" if it intercepts any
+artifacts/api-server/src/app.ts:169:// not yet been provisioned with Clerk secrets). The healthz route must always
+artifacts/api-server/src/app.ts:170:// respond 200 regardless of auth/Clerk configuration state.
+artifacts/api-server/src/app.ts:178:// server can serve multiple Clerk custom domains. Falls back to
+artifacts/api-server/src/app.ts:181:// Skipped in the vitest test environment (NODE_ENV=test): Clerk requires
+artifacts/api-server/src/app.ts:182:// CLERK_SECRET_KEY at middleware-mount time, but tests run without Clerk
+artifacts/api-server/src/app.ts:191:        getClerkProxyHost(req) ?? "",
+artifacts/api-server/src/routes/tasks.ts:4:  tasksTable,
+artifacts/api-server/src/routes/tasks.ts:41:// List tasks
+artifacts/api-server/src/routes/tasks.ts:42:router.get("/tasks", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:48:  const conditions: ReturnType<typeof eq>[] = [eq(tasksTable.projectId, project.id)];
+artifacts/api-server/src/routes/tasks.ts:49:  if (params.status) conditions.push(eq(tasksTable.status, params.status));
+artifacts/api-server/src/routes/tasks.ts:51:    conditions.push(eq(tasksTable.priority, params.priority));
+artifacts/api-server/src/routes/tasks.ts:53:  const tasks = await db
+artifacts/api-server/src/routes/tasks.ts:55:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:57:    .orderBy(desc(tasksTable.createdAt), desc(tasksTable.id))
+artifacts/api-server/src/routes/tasks.ts:60:  return res.json(tasks);
+artifacts/api-server/src/routes/tasks.ts:64:router.post("/tasks", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:72:    const rows = await tx.insert(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:94:router.get("/tasks/:taskId", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:98:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:99:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:108:router.patch("/tasks/:taskId", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:112:  const before = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+artifacts/api-server/src/routes/tasks.ts:155:    const rows = await tx.update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:158:        eq(tasksTable.id, taskId),
+artifacts/api-server/src/routes/tasks.ts:159:        eq(tasksTable.status, before[0].status),
+artifacts/api-server/src/routes/tasks.ts:160:        isNull(tasksTable.workerId),
+artifacts/api-server/src/routes/tasks.ts:203:router.delete("/tasks/:taskId", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:206:  const before = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+artifacts/api-server/src/routes/tasks.ts:214:    const [lockedTask] = await tx.select().from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:215:      .where(eq(tasksTable.id, taskId)).for("update");
+artifacts/api-server/src/routes/tasks.ts:243:    await tx.delete(tasksTable).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/tasks.ts:268:router.post("/tasks/:taskId/execute", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:272:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:273:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:287:    .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:289:    .where(and(eq(tasksTable.id, taskId), inArray(tasksTable.status, ["pending", "queued"])))
+artifacts/api-server/src/routes/tasks.ts:333:      .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:335:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")));
+artifacts/api-server/src/routes/tasks.ts:385:  let updated: typeof tasksTable.$inferSelect | undefined;
+artifacts/api-server/src/routes/tasks.ts:389:      .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:400:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/tasks.ts:464:router.post("/tasks/:taskId/retry", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:468:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:469:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:489:  let updated: typeof tasksTable.$inferSelect;
+artifacts/api-server/src/routes/tasks.ts:497:        .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:501:            eq(tasksTable.id, taskId),
+artifacts/api-server/src/routes/tasks.ts:502:            inArray(tasksTable.status, ["failed", "cancelled"]),
+artifacts/api-server/src/routes/tasks.ts:503:            eq(tasksTable.retryCount, retryCount),
+artifacts/api-server/src/routes/tasks.ts:550:router.post("/tasks/:taskId/rollback", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:554:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:555:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:593:  let updated: typeof tasksTable.$inferSelect;
+artifacts/api-server/src/routes/tasks.ts:601:        .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:603:        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, task[0].status)))
+artifacts/api-server/src/routes/tasks.ts:650:router.get("/tasks/:taskId/logs", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:654:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:655:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:670:// GET /tasks/:taskId/logs/stream
+artifacts/api-server/src/routes/tasks.ts:671:router.get("/tasks/:taskId/logs/stream", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:676:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:677:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:739:        .select({ status: tasksTable.status })
+artifacts/api-server/src/routes/tasks.ts:740:        .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:741:        .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/graph.test.ts:55:async function seedTriangle(projectId: string) {
+artifacts/api-server/src/routes/graph.test.ts:102:    const { a, b, c } = await seedTriangle(projectId);
+artifacts/api-server/src/routes/graph.test.ts:158:    const { a, b, c } = await seedTriangle(projectId);
+artifacts/api-server/src/routes/graph.test.ts:178:    const { b } = await seedTriangle(projectId);
+artifacts/api-server/src/routes/graph.test.ts:201:    const { a, b, c } = await seedTriangle(projectId);
+artifacts/api-server/src/routes/graph.test.ts:232:    const { a, b } = await seedTriangle(projectId);
+artifacts/api-server/src/routes/graph.test.ts:249:    const { b, c } = await seedTriangle(projectId);
+artifacts/api-server/src/routes/graph.test.ts:264:    const { b, c } = await seedTriangle(projectId);
+artifacts/api-server/src/routes/graph.test.ts:278:    const { a } = await seedTriangle(projectId);
+artifacts/api-server/src/routes/graph.test.ts:305:    const { a, b: _b, c: _c } = await seedTriangle(projectId);
+artifacts/api-server/src/routes/graph.test.ts:349:  async function seedLayeredEdges(projectId: string) {
+artifacts/api-server/src/routes/graph.test.ts:401:    await seedLayeredEdges(projectId);
+artifacts/api-server/src/routes/graph.test.ts:420:    await seedLayeredEdges(projectId);
+artifacts/api-server/src/routes/graph.test.ts:486:    const { a, b } = await seedTriangle(projectId);
+artifacts/api-server/src/routes/graph.test.ts:776:  async function seedLayeredWithProvenance(projectId: string) {
+artifacts/api-server/src/routes/graph.test.ts:807:    await seedLayeredWithProvenance(projectId);
+artifacts/api-server/src/routes/graph.test.ts:847:    const { a, b } = await seedTriangle(projectId);
+artifacts/api-server/src/routes/graph.test.ts:1369:    const { a, b } = await seedTriangle(projectId);
+artifacts/api-server/src/routes/graph.test.ts:1381:    const { b, c } = await seedTriangle(projectId);
+artifacts/api-server/src/routes/ai/analysis.ts:191:    sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+artifacts/api-server/src/routes/ai/analysis.ts:307:    sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+artifacts/api-server/src/routes/ai/analysis.ts:392:      sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+artifacts/api-server/src/routes/ai/analysis.ts:518:      sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+artifacts/api-server/src/routes/git.ts:12: * the authenticated URL.
+artifacts/api-server/src/routes/git.ts:48:const TEST_FIXTURE_REMOTE = "https://fixture.local/engineeringos.git";
+artifacts/api-server/src/routes/git.test.ts:36:  await writeFile(path.join(rootPath, "README.md"), "fixture\n");
+artifacts/api-server/src/routes/git.test.ts:38:  await git(rootPath, ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "-qm", "fixture"]);
+artifacts/api-server/src/routes/git.test.ts:127:    const fixture = await createFixture();
+artifacts/api-server/src/routes/git.test.ts:129:      eq(eventsTable.projectId, fixture.projectId),
+artifacts/api-server/src/routes/git.test.ts:132:    await writeFile(path.join(fixture.rootPath, "verified.ts"), "export const verified = true;\n");
+artifacts/api-server/src/routes/git.test.ts:135:      .post(`/api/projects/${fixture.projectId}/git/commit`)
+artifacts/api-server/src/routes/git.test.ts:136:      .send({ message: "Apply verified AI changes", proposalId: fixture.proposalId });
+artifacts/api-server/src/routes/git.test.ts:141:      proposalId: fixture.proposalId,
+artifacts/api-server/src/routes/git.test.ts:142:      operationId: fixture.proposalId,
+artifacts/api-server/src/routes/git.test.ts:147:    const fixture = await createFixture();
+artifacts/api-server/src/routes/git.test.ts:148:    await writeFile(path.join(fixture.rootPath, "verified.ts"), "export const verified = true;\n");
+artifacts/api-server/src/routes/git.test.ts:149:    await writeFile(path.join(fixture.rootPath, "unrelated.ts"), "export const unrelated = true;\n");
+artifacts/api-server/src/routes/git.test.ts:152:      .post(`/api/projects/${fixture.projectId}/git/commit`)
+artifacts/api-server/src/routes/git.test.ts:153:      .send({ message: "Apply verified AI changes", proposalId: fixture.proposalId });
+artifacts/api-server/src/routes/git.test.ts:163:    const fixture = await createFixture();
+artifacts/api-server/src/routes/git.test.ts:164:    await writeFile(path.join(fixture.rootPath, "verified.ts"), "export const verified = true;\n");
+artifacts/api-server/src/routes/git.test.ts:165:    await writeFile(path.join(fixture.rootPath, "unrelated.ts"), "export const unrelated = true;\n");
+artifacts/api-server/src/routes/git.test.ts:166:    await git(fixture.rootPath, ["add", "unrelated.ts"]);
+artifacts/api-server/src/routes/git.test.ts:169:      .post(`/api/projects/${fixture.projectId}/git/commit`)
+artifacts/api-server/src/routes/git.test.ts:170:      .send({ message: "Apply verified AI changes", proposalId: fixture.proposalId });
+artifacts/api-server/src/routes/git.test.ts:177:    const fixture = await createFixture();
+artifacts/api-server/src/routes/git.test.ts:183:    await git(fixture.rootPath, ["branch", "-M", "main"]);

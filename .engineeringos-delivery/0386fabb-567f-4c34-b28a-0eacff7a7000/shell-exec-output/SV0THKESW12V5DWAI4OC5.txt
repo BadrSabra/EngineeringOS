@@ -1,0 +1,213 @@
+lib/api-spec/openapi.yaml:189:  /api/tasks:
+lib/api-spec/openapi.yaml:5482:    RemediationPlan:
+lib/api-spec/openapi.yaml:5575:        remediationPlan:
+lib/api-spec/openapi.yaml:5576:          $ref: "#/components/schemas/RemediationPlan"
+lib/api-spec/openapi.yaml:6626:        remediationPlan:
+lib/api-spec/openapi.yaml:6627:          $ref: "#/components/schemas/RemediationPlan"
+lib/db/src/schema/tasks.ts:14:export type RemediationPlanStatus = "needs_review" | "ready" | "verified";
+lib/db/src/schema/tasks.ts:28:export interface RemediationPlan {
+lib/db/src/schema/tasks.ts:45:  status: RemediationPlanStatus;
+lib/db/src/schema/tasks.ts:90:  remediationPlan: jsonb("remediation_plan").$type<RemediationPlan>(),
+lib/api-zod/src/generated/api.ts:303:export const listTasksResponseRemediationPlanOccurrenceCountMin = 0;
+lib/api-zod/src/generated/api.ts:306:export const listTasksResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+lib/api-zod/src/generated/api.ts:308:export const listTasksResponseRemediationPlanEvidenceMax = 100;
+lib/api-zod/src/generated/api.ts:310:export const listTasksResponseRemediationPlanRelatedFilesMax = 20;
+lib/api-zod/src/generated/api.ts:312:export const listTasksResponseRemediationPlanVerificationStepsMax = 20;
+lib/api-zod/src/generated/api.ts:340:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:346:  "occurrenceCount": zod.number().min(listTasksResponseRemediationPlanOccurrenceCountMin),
+lib/api-zod/src/generated/api.ts:351:  "occurrences": zod.number().min(listTasksResponseRemediationPlanEvidenceItemOccurrencesMin)
+lib/api-zod/src/generated/api.ts:352:})).max(listTasksResponseRemediationPlanEvidenceMax),
+lib/api-zod/src/generated/api.ts:353:  "relatedFiles": zod.array(zod.string()).max(listTasksResponseRemediationPlanRelatedFilesMax),
+lib/api-zod/src/generated/api.ts:355:  "verificationSteps": zod.array(zod.string()).max(listTasksResponseRemediationPlanVerificationStepsMax),
+lib/api-zod/src/generated/api.ts:374:export const CreateTaskBody = zod.object({
+lib/api-zod/src/generated/api.ts:386:export const createTaskResponseRemediationPlanOccurrenceCountMin = 0;
+lib/api-zod/src/generated/api.ts:389:export const createTaskResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+lib/api-zod/src/generated/api.ts:391:export const createTaskResponseRemediationPlanEvidenceMax = 100;
+lib/api-zod/src/generated/api.ts:393:export const createTaskResponseRemediationPlanRelatedFilesMax = 20;
+lib/api-zod/src/generated/api.ts:395:export const createTaskResponseRemediationPlanVerificationStepsMax = 20;
+lib/api-zod/src/generated/api.ts:423:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:429:  "occurrenceCount": zod.number().min(createTaskResponseRemediationPlanOccurrenceCountMin),
+lib/api-zod/src/generated/api.ts:434:  "occurrences": zod.number().min(createTaskResponseRemediationPlanEvidenceItemOccurrencesMin)
+lib/api-zod/src/generated/api.ts:435:})).max(createTaskResponseRemediationPlanEvidenceMax),
+lib/api-zod/src/generated/api.ts:436:  "relatedFiles": zod.array(zod.string()).max(createTaskResponseRemediationPlanRelatedFilesMax),
+lib/api-zod/src/generated/api.ts:438:  "verificationSteps": zod.array(zod.string()).max(createTaskResponseRemediationPlanVerificationStepsMax),
+lib/api-zod/src/generated/api.ts:460:export const getTaskResponseRemediationPlanOccurrenceCountMin = 0;
+lib/api-zod/src/generated/api.ts:463:export const getTaskResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+lib/api-zod/src/generated/api.ts:465:export const getTaskResponseRemediationPlanEvidenceMax = 100;
+lib/api-zod/src/generated/api.ts:467:export const getTaskResponseRemediationPlanRelatedFilesMax = 20;
+lib/api-zod/src/generated/api.ts:469:export const getTaskResponseRemediationPlanVerificationStepsMax = 20;
+lib/api-zod/src/generated/api.ts:497:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:503:  "occurrenceCount": zod.number().min(getTaskResponseRemediationPlanOccurrenceCountMin),
+lib/api-zod/src/generated/api.ts:508:  "occurrences": zod.number().min(getTaskResponseRemediationPlanEvidenceItemOccurrencesMin)
+lib/api-zod/src/generated/api.ts:509:})).max(getTaskResponseRemediationPlanEvidenceMax),
+lib/api-zod/src/generated/api.ts:510:  "relatedFiles": zod.array(zod.string()).max(getTaskResponseRemediationPlanRelatedFilesMax),
+lib/api-zod/src/generated/api.ts:512:  "verificationSteps": zod.array(zod.string()).max(getTaskResponseRemediationPlanVerificationStepsMax),
+lib/api-zod/src/generated/api.ts:541:export const updateTaskResponseRemediationPlanOccurrenceCountMin = 0;
+lib/api-zod/src/generated/api.ts:544:export const updateTaskResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+lib/api-zod/src/generated/api.ts:546:export const updateTaskResponseRemediationPlanEvidenceMax = 100;
+lib/api-zod/src/generated/api.ts:548:export const updateTaskResponseRemediationPlanRelatedFilesMax = 20;
+lib/api-zod/src/generated/api.ts:550:export const updateTaskResponseRemediationPlanVerificationStepsMax = 20;
+lib/api-zod/src/generated/api.ts:578:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:584:  "occurrenceCount": zod.number().min(updateTaskResponseRemediationPlanOccurrenceCountMin),
+lib/api-zod/src/generated/api.ts:589:  "occurrences": zod.number().min(updateTaskResponseRemediationPlanEvidenceItemOccurrencesMin)
+lib/api-zod/src/generated/api.ts:590:})).max(updateTaskResponseRemediationPlanEvidenceMax),
+lib/api-zod/src/generated/api.ts:591:  "relatedFiles": zod.array(zod.string()).max(updateTaskResponseRemediationPlanRelatedFilesMax),
+lib/api-zod/src/generated/api.ts:593:  "verificationSteps": zod.array(zod.string()).max(updateTaskResponseRemediationPlanVerificationStepsMax),
+lib/api-zod/src/generated/api.ts:625:export const executeTaskResponseRemediationPlanOccurrenceCountMin = 0;
+lib/api-zod/src/generated/api.ts:628:export const executeTaskResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+lib/api-zod/src/generated/api.ts:630:export const executeTaskResponseRemediationPlanEvidenceMax = 100;
+lib/api-zod/src/generated/api.ts:632:export const executeTaskResponseRemediationPlanRelatedFilesMax = 20;
+lib/api-zod/src/generated/api.ts:634:export const executeTaskResponseRemediationPlanVerificationStepsMax = 20;
+lib/api-zod/src/generated/api.ts:662:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:668:  "occurrenceCount": zod.number().min(executeTaskResponseRemediationPlanOccurrenceCountMin),
+lib/api-zod/src/generated/api.ts:673:  "occurrences": zod.number().min(executeTaskResponseRemediationPlanEvidenceItemOccurrencesMin)
+lib/api-zod/src/generated/api.ts:674:})).max(executeTaskResponseRemediationPlanEvidenceMax),
+lib/api-zod/src/generated/api.ts:675:  "relatedFiles": zod.array(zod.string()).max(executeTaskResponseRemediationPlanRelatedFilesMax),
+lib/api-zod/src/generated/api.ts:677:  "verificationSteps": zod.array(zod.string()).max(executeTaskResponseRemediationPlanVerificationStepsMax),
+lib/api-zod/src/generated/api.ts:699:export const retryTaskResponseRemediationPlanOccurrenceCountMin = 0;
+lib/api-zod/src/generated/api.ts:702:export const retryTaskResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+lib/api-zod/src/generated/api.ts:704:export const retryTaskResponseRemediationPlanEvidenceMax = 100;
+lib/api-zod/src/generated/api.ts:706:export const retryTaskResponseRemediationPlanRelatedFilesMax = 20;
+lib/api-zod/src/generated/api.ts:708:export const retryTaskResponseRemediationPlanVerificationStepsMax = 20;
+lib/api-zod/src/generated/api.ts:736:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:742:  "occurrenceCount": zod.number().min(retryTaskResponseRemediationPlanOccurrenceCountMin),
+lib/api-zod/src/generated/api.ts:747:  "occurrences": zod.number().min(retryTaskResponseRemediationPlanEvidenceItemOccurrencesMin)
+lib/api-zod/src/generated/api.ts:748:})).max(retryTaskResponseRemediationPlanEvidenceMax),
+lib/api-zod/src/generated/api.ts:749:  "relatedFiles": zod.array(zod.string()).max(retryTaskResponseRemediationPlanRelatedFilesMax),
+lib/api-zod/src/generated/api.ts:751:  "verificationSteps": zod.array(zod.string()).max(retryTaskResponseRemediationPlanVerificationStepsMax),
+lib/api-zod/src/generated/api.ts:773:export const rollbackTaskResponseRemediationPlanOccurrenceCountMin = 0;
+lib/api-zod/src/generated/api.ts:776:export const rollbackTaskResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+lib/api-zod/src/generated/api.ts:778:export const rollbackTaskResponseRemediationPlanEvidenceMax = 100;
+lib/api-zod/src/generated/api.ts:780:export const rollbackTaskResponseRemediationPlanRelatedFilesMax = 20;
+lib/api-zod/src/generated/api.ts:782:export const rollbackTaskResponseRemediationPlanVerificationStepsMax = 20;
+lib/api-zod/src/generated/api.ts:810:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:816:  "occurrenceCount": zod.number().min(rollbackTaskResponseRemediationPlanOccurrenceCountMin),
+lib/api-zod/src/generated/api.ts:821:  "occurrences": zod.number().min(rollbackTaskResponseRemediationPlanEvidenceItemOccurrencesMin)
+lib/api-zod/src/generated/api.ts:822:})).max(rollbackTaskResponseRemediationPlanEvidenceMax),
+lib/api-zod/src/generated/api.ts:823:  "relatedFiles": zod.array(zod.string()).max(rollbackTaskResponseRemediationPlanRelatedFilesMax),
+lib/api-zod/src/generated/api.ts:825:  "verificationSteps": zod.array(zod.string()).max(rollbackTaskResponseRemediationPlanVerificationStepsMax),
+lib/api-zod/src/generated/api.ts:2615:export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanOccurrenceCountMin = 0;
+lib/api-zod/src/generated/api.ts:2618:export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanEvidenceItemOccurrencesMin = 0;
+lib/api-zod/src/generated/api.ts:2620:export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanEvidenceMax = 100;
+lib/api-zod/src/generated/api.ts:2622:export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanRelatedFilesMax = 20;
+lib/api-zod/src/generated/api.ts:2624:export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanVerificationStepsMax = 20;
+lib/api-zod/src/generated/api.ts:2672:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:2678:  "occurrenceCount": zod.number().min(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanOccurrenceCountMin),
+lib/api-zod/src/generated/api.ts:2683:  "occurrences": zod.number().min(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanEvidenceItemOccurrencesMin)
+lib/api-zod/src/generated/api.ts:2684:})).max(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanEvidenceMax),
+lib/api-zod/src/generated/api.ts:2685:  "relatedFiles": zod.array(zod.string()).max(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanRelatedFilesMax),
+lib/api-zod/src/generated/api.ts:2687:  "verificationSteps": zod.array(zod.string()).max(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanVerificationStepsMax),
+lib/api-zod/src/generated/api.ts:4565:export const aiExecuteTaskResponseRemediationPlanOccurrenceCountMin = 0;
+lib/api-zod/src/generated/api.ts:4568:export const aiExecuteTaskResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+lib/api-zod/src/generated/api.ts:4570:export const aiExecuteTaskResponseRemediationPlanEvidenceMax = 100;
+lib/api-zod/src/generated/api.ts:4572:export const aiExecuteTaskResponseRemediationPlanRelatedFilesMax = 20;
+lib/api-zod/src/generated/api.ts:4574:export const aiExecuteTaskResponseRemediationPlanVerificationStepsMax = 20;
+lib/api-zod/src/generated/api.ts:4602:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:4608:  "occurrenceCount": zod.number().min(aiExecuteTaskResponseRemediationPlanOccurrenceCountMin),
+lib/api-zod/src/generated/api.ts:4613:  "occurrences": zod.number().min(aiExecuteTaskResponseRemediationPlanEvidenceItemOccurrencesMin)
+lib/api-zod/src/generated/api.ts:4614:})).max(aiExecuteTaskResponseRemediationPlanEvidenceMax),
+lib/api-zod/src/generated/api.ts:4615:  "relatedFiles": zod.array(zod.string()).max(aiExecuteTaskResponseRemediationPlanRelatedFilesMax),
+lib/api-zod/src/generated/api.ts:4617:  "verificationSteps": zod.array(zod.string()).max(aiExecuteTaskResponseRemediationPlanVerificationStepsMax),
+lib/db/src/schema/discovery.ts:4:import type { RemediationEvidence, RemediationPlan } from "./tasks.js";
+lib/db/src/schema/discovery.ts:75:  remediationPlan?: RemediationPlan;
+artifacts/api-server/src/services/task-service.ts:45:  remediationPlan?: {
+artifacts/api-server/src/services/task-service.ts:77:    task.remediationPlan &&
+artifacts/api-server/src/services/task-service.ts:78:    (task.remediationPlan.status === "needs_review" ||
+artifacts/api-server/src/services/task-service.ts:79:      !Array.isArray(task.remediationPlan.evidence) ||
+artifacts/api-server/src/services/task-service.ts:80:      task.remediationPlan.evidence.length === 0 ||
+artifacts/api-server/src/services/task-service.ts:81:      !Array.isArray(task.remediationPlan.verificationSteps) ||
+artifacts/api-server/src/services/task-service.ts:82:      task.remediationPlan.verificationSteps.length === 0)
+artifacts/api-server/src/services/task-service.test.ts:11:        remediationPlan: {
+artifacts/api-server/src/routes/tasks.ts:10:  CreateTaskBody,
+artifacts/api-server/src/routes/tasks.ts:31:import { markRemediationPlanVerified } from "../lib/remediation-plan.js";
+artifacts/api-server/src/routes/tasks.ts:65:  const body = CreateTaskBody.parse(req.body);
+artifacts/api-server/src/routes/tasks.ts:393:        remediationPlan: markRemediationPlanVerified(
+artifacts/api-server/src/routes/tasks.ts:394:          task[0].remediationPlan,
+artifacts/api-server/src/routes/discovery.ts:36:  buildRemediationPlan,
+artifacts/api-server/src/routes/discovery.ts:518:        const sourcePlan = violation.remediationPlan;
+artifacts/api-server/src/routes/discovery.ts:523:        const remediationPlan = buildRemediationPlan({
+artifacts/api-server/src/routes/discovery.ts:549:          ruleId: remediationPlan.ruleId ?? undefined,
+artifacts/api-server/src/routes/discovery.ts:550:          title: `Remediate ${remediationPlan.ruleCode}: ${remediationPlan.ruleTitle}`,
+artifacts/api-server/src/routes/discovery.ts:552:            remediationPlan.fixDescription ??
+artifacts/api-server/src/routes/discovery.ts:553:            `${remediationPlan.occurrenceCount} occurrence(s) detected for ${remediationPlan.ruleCode}. Review the bounded evidence before execution.`,
+artifacts/api-server/src/routes/discovery.ts:556:            remediationPlan.severity === "critical"
+artifacts/api-server/src/routes/discovery.ts:558:              : remediationPlan.severity === "high"
+artifacts/api-server/src/routes/discovery.ts:560:              : remediationPlan.severity === "medium"
+artifacts/api-server/src/routes/discovery.ts:563:          relatedFiles: remediationPlan.relatedFiles,
+artifacts/api-server/src/routes/discovery.ts:564:          prompt: buildRemediationPrompt(remediationPlan),
+artifacts/api-server/src/routes/discovery.ts:566:          remediationPlan,
+artifacts/api-server/src/routes/discovery.ts:567:          correlationId: remediationPlan.source.correlationId ?? body.discoveryId,
+lib/api-zod/src/generated/types/task.ts:8:import type { RemediationPlan } from './remediationPlan';
+lib/api-zod/src/generated/types/task.ts:30:  remediationPlan?: RemediationPlan | null;
+lib/api-zod/src/generated/types/remediationPlanVersion.ts:9:export type RemediationPlanVersion = typeof RemediationPlanVersion[keyof typeof RemediationPlanVersion];
+lib/api-zod/src/generated/types/remediationPlanVersion.ts:12:export const RemediationPlanVersion = {
+lib/api-zod/src/generated/types/remediationPlanStatus.ts:9:export type RemediationPlanStatus = typeof RemediationPlanStatus[keyof typeof RemediationPlanStatus];
+lib/api-zod/src/generated/types/remediationPlanStatus.ts:12:export const RemediationPlanStatus = {
+lib/api-zod/src/generated/types/remediationPlanSourceType.ts:9:export type RemediationPlanSourceType = typeof RemediationPlanSourceType[keyof typeof RemediationPlanSourceType];
+lib/api-zod/src/generated/types/remediationPlanSourceType.ts:12:export const RemediationPlanSourceType = {
+lib/api-zod/src/generated/types/remediationPlanSourceCompleteness.ts:12:export type RemediationPlanSourceCompleteness = typeof RemediationPlanSourceCompleteness[keyof typeof RemediationPlanSourceCompleteness] | null;
+lib/api-zod/src/generated/types/remediationPlanSourceCompleteness.ts:15:export const RemediationPlanSourceCompleteness = {
+lib/api-zod/src/generated/types/remediationPlanSource.ts:8:import type { RemediationPlanSourceCompleteness } from './remediationPlanSourceCompleteness';
+lib/api-zod/src/generated/types/remediationPlanSource.ts:9:import type { RemediationPlanSourceType } from './remediationPlanSourceType';
+lib/api-zod/src/generated/types/remediationPlanSource.ts:11:export type RemediationPlanSource = {
+lib/api-zod/src/generated/types/remediationPlanSource.ts:12:  type: RemediationPlanSourceType;
+lib/api-zod/src/generated/types/remediationPlanSource.ts:18:  completeness: RemediationPlanSourceCompleteness;
+lib/api-zod/src/generated/types/remediationPlan.ts:9:import type { RemediationPlanSource } from './remediationPlanSource';
+lib/api-zod/src/generated/types/remediationPlan.ts:10:import type { RemediationPlanStatus } from './remediationPlanStatus';
+lib/api-zod/src/generated/types/remediationPlan.ts:11:import type { RemediationPlanVersion } from './remediationPlanVersion';
+lib/api-zod/src/generated/types/remediationPlan.ts:13:export interface RemediationPlan {
+lib/api-zod/src/generated/types/remediationPlan.ts:14:  version: RemediationPlanVersion;
+lib/api-zod/src/generated/types/remediationPlan.ts:30:  source: RemediationPlanSource;
+lib/api-zod/src/generated/types/remediationPlan.ts:31:  status: RemediationPlanStatus;
+lib/api-zod/src/generated/types/index.ts:292:export * from './remediationPlan';
+lib/api-zod/src/generated/types/index.ts:293:export * from './remediationPlanSource';
+lib/api-zod/src/generated/types/index.ts:294:export * from './remediationPlanSourceCompleteness';
+lib/api-zod/src/generated/types/index.ts:295:export * from './remediationPlanSourceType';
+lib/api-zod/src/generated/types/index.ts:296:export * from './remediationPlanStatus';
+lib/api-zod/src/generated/types/index.ts:297:export * from './remediationPlanVersion';
+lib/api-zod/src/generated/types/discoveryRuleViolationItem.ts:9:import type { RemediationPlan } from './remediationPlan';
+lib/api-zod/src/generated/types/discoveryRuleViolationItem.ts:23:  remediationPlan?: RemediationPlan | null;
+artifacts/api-server/src/routes/ai/tasks.ts:234:        remediationPlan: task.remediationPlan ?? null,
+artifacts/api-server/src/routes/ai/tasks.ts:326:    agentResult.needsHumanReview || task.remediationPlan ? "verifying" : "completed";
+artifacts/api-server/src/routes/ai/tasks.ts:338:            passed: !agentResult.needsHumanReview && !task.remediationPlan,
+artifacts/api-server/src/routes/ai/tasks.ts:341:              passed: !agentResult.needsHumanReview && !task.remediationPlan,
+artifacts/api-server/src/routes/ai/tasks.ts:556:            remediationPlan: task.remediationPlan ?? null,
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:237:    buildProjectContext:       vi.fn().mockResolvedValue({ tasks: [], metrics: [] }),
+artifacts/api-server/src/lib/task-execution-service.ts:31:import { markRemediationPlanVerified } from "./remediation-plan.js";
+artifacts/api-server/src/lib/task-execution-service.ts:297:        remediationPlan: before.remediationPlan ?? null,
+artifacts/api-server/src/lib/task-execution-service.ts:356:      result.needsHumanReview || before.remediationPlan ? "verifying" : "completed";
+artifacts/api-server/src/lib/task-execution-service.ts:389:          passed: taskReceipt.terminalStatus === "SUCCEEDED" && !before.remediationPlan,
+artifacts/api-server/src/lib/task-execution-service.ts:392:            passed: taskReceipt.terminalStatus === "SUCCEEDED" && !before.remediationPlan,
+artifacts/api-server/src/lib/task-execution-service.ts:395:        remediationPlan: markRemediationPlanVerified(
+artifacts/api-server/src/lib/task-execution-service.ts:396:          before.remediationPlan,
+artifacts/api-server/src/lib/scan-runner.ts:40:  buildRemediationPlan,
+artifacts/api-server/src/lib/scan-runner.ts:345:      const remediationPlan = buildRemediationPlan({
+artifacts/api-server/src/lib/scan-runner.ts:361:      const remediationPrompt = buildRemediationPrompt(remediationPlan);
+artifacts/api-server/src/lib/scan-runner.ts:363:        remediationPlan.fixDescription ??
+artifacts/api-server/src/lib/scan-runner.ts:364:        `${remediationPlan.occurrenceCount} occurrence(s) detected for ${rule.code}. Review the bounded evidence before execution.`;
+artifacts/api-server/src/lib/scan-runner.ts:372:            relatedFiles: remediationPlan.relatedFiles,
+artifacts/api-server/src/lib/scan-runner.ts:375:            remediationPlan,
+artifacts/api-server/src/lib/scan-runner.ts:399:        relatedFiles: remediationPlan.relatedFiles,
+artifacts/api-server/src/lib/scan-runner.ts:402:        remediationPlan,
+artifacts/api-server/src/lib/remediation-plan.ts:3:  RemediationPlan,
+artifacts/api-server/src/lib/remediation-plan.ts:4:  RemediationPlanStatus,
+artifacts/api-server/src/lib/remediation-plan.ts:34:): RemediationPlanStatus {
+artifacts/api-server/src/lib/remediation-plan.ts:40:export interface RemediationPlanInput {
+artifacts/api-server/src/lib/remediation-plan.ts:49:  source: RemediationPlan["source"];
+artifacts/api-server/src/lib/remediation-plan.ts:52:export function buildRemediationPlan(input: RemediationPlanInput): RemediationPlan {
+artifacts/api-server/src/lib/remediation-plan.ts:88:export function buildRemediationPrompt(plan: RemediationPlan): string {
+artifacts/api-server/src/lib/remediation-plan.ts:118:export function markRemediationPlanVerified(
+artifacts/api-server/src/lib/remediation-plan.ts:119:  plan: RemediationPlan | null | undefined,
+artifacts/api-server/src/lib/remediation-plan.ts:121:): RemediationPlan | null | undefined {
+artifacts/api-server/src/lib/remediation-plan.test.ts:3:  buildRemediationPlan,
+artifacts/api-server/src/lib/remediation-plan.test.ts:10:    const plan = buildRemediationPlan({
+artifacts/api-server/src/lib/remediation-plan.test.ts:41:    const plan = buildRemediationPlan({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:417:  // ── AI tasks: running → verifying (retryable) ─────────────────────────────
+artifacts/api-server/src/lib/job-reconciliation.test.ts:465:  // ── AI tasks: running → failed (retry limit exceeded) ─────────────────────
+artifacts/api-server/src/lib/job-reconciliation.test.ts:513:  // ── AI tasks: terminal states untouched ───────────────────────────────────
+artifacts/api-server/src/lib/discovery-runner.ts:42:import { buildRemediationPlan } from "./remediation-plan.js";
+artifacts/api-server/src/lib/discovery-runner.ts:494:        const remediationPlan = buildRemediationPlan({
+artifacts/api-server/src/lib/discovery-runner.ts:516:          matches: remediationPlan.evidence,
+artifacts/api-server/src/lib/discovery-runner.ts:517:          fixDescription: remediationPlan.fixDescription,
+artifacts/api-server/src/lib/discovery-runner.ts:518:          verifySteps: remediationPlan.verificationSteps,
+artifacts/api-server/src/lib/discovery-runner.ts:519:          remediationPlan,

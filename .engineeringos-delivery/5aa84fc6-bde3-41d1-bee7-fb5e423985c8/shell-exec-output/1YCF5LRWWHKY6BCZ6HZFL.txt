@@ -1,0 +1,271 @@
+8:const journeyPath = resolve(
+10:  "artifacts/dashboard/e2e/dashboard.journey.ts",
+12:const runnerPath = resolve(root, "scripts/run-dashboard-journey.mjs");
+15:const [journeySource, runnerSource, workflowSource] = await Promise.all([
+16:  readFile(journeyPath, "utf8"),
+302:test("live journey timeout has Playwright headroom", () => {
+303:  const providerTimeout = constant(journeySource, "DEFAULT_LIVE_TIMEOUT_MS");
+305:    journeySource,
+313:    "The release runner and browser journey must use the same live timeout default.",
+317:    "The live journey needs positive Playwright cleanup/reporting headroom.",
+320:    journeySource,
+325:    journeySource,
+331:test("the standard release journey remains provider-free", () => {
+333:    journeySource,
+348:    "Could not locate the browser journey environment.",
+359:    journeySource,
+364:    journeySource,
+366:    "The browser journey must assert a changed project summary.",
+369:    journeySource,
+371:    "The journey must assert the newest rendered project score.",
+374:    journeySource,
+376:    "The convergence journey must use two authenticated browser sessions.",
+379:    journeySource,
+385:test("the opt-in live journey requests and captures forensic proof", () => {
+387:    journeySource,
+389:    "The live journey must use an explicit forensic objective.",
+392:    journeySource,
+397:    journeySource,
+402:    journeySource,
+408:test("the live journey requires an explicitly disposable project", () => {
+410:    journeySource,
+415:    journeySource,
+425:    "The release runner must validate the report boundary before starting the browser journey.",
+553:    journeySource,
+555:    "The live journey must request an evidence-producing forensic mission by default.",
+558:    journeySource,
+571:    journeySource,
+576:    journeySource,
+581:    journeySource,
+605:test("release journey passes the complete approved origin list to API and browser checks", () => {
+622:    journeySource,
+624:    "The browser journey must check every approved origin.",
+627:    journeySource,
+632:    journeySource,
+634:    "The browser journey must reject hostile state-changing origins.",
+640:    journeySource,
+642:    "The browser journey must write origin diagnostics for the release runner.",
+646:      journeySource,
+652:    journeySource,
+667:    journeySource,
+});
+
+test("live journey timeout has Playwright headroom", () => {
+  const providerTimeout = constant(journeySource, "DEFAULT_LIVE_TIMEOUT_MS");
+  const testTimeoutMargin = constant(
+    journeySource,
+    "LIVE_TEST_TIMEOUT_MARGIN_MS",
+  );
+  const runnerTimeout = runnerDefaultTimeout(runnerSource);
+
+  assert.equal(
+    runnerTimeout,
+    providerTimeout,
+    "The release runner and browser journey must use the same live timeout default.",
+  );
+  assert.ok(
+    testTimeoutMargin > 0,
+    "The live journey needs positive Playwright cleanup/reporting headroom.",
+  );
+  assert.match(
+    journeySource,
+    /test\.setTimeout\(liveTimeoutMs\(\) \+ LIVE_TEST_TIMEOUT_MARGIN_MS\)/,
+    "The live test timeout must exceed its provider request/polling budget.",
+  );
+  assert.match(
+    journeySource,
+    /timeout: liveTimeoutMs\(\)/,
+    "The live provider request must use the configured provider timeout.",
+  );
+});
+
+test("the standard release journey remains provider-free", () => {
+  assert.match(
+    journeySource,
+    /test\.skip\(\s*process\.env\.DASHBOARD_E2E_LIVE_PROVIDER !== "1"/,
+    "The provider-backed browser test must remain opt-in.",
+  );
+  assert.match(
+    runnerSource,
+    /process\.env\.DASHBOARD_E2E_LIVE_PROVIDER === "1"/,
+    "Live-only report validation must remain behind the opt-in flag.",
+  );
+
+  const browserEnvironment = runnerSource.match(
+    /const child = spawn\([\s\S]*?env:\s*\{([\s\S]*?)\n\s*\},\s*\n\s*stdio:/,
+  );
+  assert.ok(
+    browserEnvironment,
+    "Could not locate the browser journey environment.",
+  );
+  assert.doesNotMatch(
+    browserEnvironment[1],
+    /DASHBOARD_E2E_LIVE_PROVIDER\s*:/,
+    "The standard runner must not enable live provider execution.",
+  );
+});
+
+test("dashboard convergence carries a server revision and asserts rendered freshness", () => {
+  assert.match(
+    journeySource,
+    /freshnessRevision:\s*"2026-01-01T00:03:00\.000Z"/,
+    "The browser fixture must model a newer server-owned dashboard revision.",
+  );
+  assert.match(
+    journeySource,
+    /Concurrent Project/,
+    "The browser journey must assert a changed project summary.",
+  );
+  assert.match(
+    journeySource,
+    /await expect\(page\.getByText\("97", \{ exact: true \}\)\)\.toBeVisible\(\)/,
+    "The journey must assert the newest rendered project score.",
+  );
+  assert.match(
+    journeySource,
+    /await Promise\.all\(\[programmaticSignIn\(page\), programmaticSignIn\(secondPage\)\]\)/,
+    "The convergence journey must use two authenticated browser sessions.",
+  );
+  assert.match(
+    journeySource,
+    /Retry Connection/,
+    "Reconnect assertions must verify the available recovery action.",
+  );
+});
+
+test("the opt-in live journey requests and captures forensic proof", () => {
+  assert.match(
+    journeySource,
+    /Perform a bounded forensic audit of this disposable project using read-only tools/,
+    "The live journey must use an explicit forensic objective.",
+  );
+  assert.match(
+    journeySource,
+    /at least one accepted evidence item and one validation checkpoint/,
+    "The live objective must require both proof surfaces.",
+  );
+  assert.match(
+    journeySource,
+    /evidenceCount/,
+    "The live report capture must include accepted evidence.",
+  );
+  assert.match(
+    journeySource,
+    /const validation = recentSteps\.filter/,
+    "The live report capture must include validation checkpoints.",
+  );
+});
+
+test("the live journey requires an explicitly disposable project", () => {
+  assert.match(
+    journeySource,
+    /DASHBOARD_E2E_LIVE_DISPOSABLE !== "1"/,
+    "Live browser campaigns must not run against an unspecified or production project.",
+  );
+  assert.match(
+    journeySource,
+    /DASHBOARD_E2E_LIVE_PROJECT_ID/,
+    "Live browser campaigns must identify their disposable project.",
+  );
+});
+
+test("runs the mission correlation report contract before browser startup", () => {
+  assert.match(
+    runnerSource,
+    /await runMissionCorrelationReportContracts\(\)/,
+    "The release runner must validate the report boundary before starting the browser journey.",
+  );
+  assert.match(
+    runnerSource,
+    /test:mission-correlation-report/,
+    "The release runner must invoke the provider-free report contract test.",
+  );
+});
+
+test("release teardown reports each service and any surviving listener", () => {
+  assert.match(
+    runnerSource,
+    /Release service teardown results:/,
+    "The release runner must report lifecycle results for every managed service.",
+  );
+  assert.match(
+    runnerSource,
+    /Release services surviving teardown: none\./,
+    "The release runner must explicitly report a clean teardown.",
+  );
+  assert.match(
+    runnerSource,
+    /Release services surviving teardown:/,
+    "The release runner must identify a service that remains on its release port.",
+  );
+  assert.match(
+    runnerSource,
+    /ensureReleasePortsFree\(\)/,
+    "Residual listeners must still be cleaned up after being reported.",
+  );
+});
+
+test("release teardown writes a structured CI artifact", () => {
+  assert.match(
+    runnerSource,
+    /release-teardown\.json/,
+    "The release runner must write a stable teardown artifact.",
+  );
+  assert.match(
+    runnerSource,
+    /owningService: label/,
+    "The teardown artifact must preserve the owning service.",
+  );
+  assert.match(
+    runnerSource,
+    /configuredPort: port/,
+    "The teardown artifact must preserve the configured port.",
+  );
+  assert.match(
+    runnerSource,
+    /survivingPids:/,
+    "The teardown artifact must preserve surviving process IDs.",
+  );
+  assert.match(
+    runnerSource,
+    /processGroup: child\.pid/,
+    "The teardown artifact must preserve the release process group.",
+  );
+  assert.match(
+    runnerSource,
+    /cleanupOutcome:/,
+    "The teardown artifact must preserve cleanup outcome.",
+  );
+  assert.match(
+    runnerSource,
+    /Release teardown artifact:/,
+    "The release logs must surface the teardown artifact path.",
+  );
+});
+
+test("release diagnostics expose a run-scoped summary and artifact link", () => {
+  assert.match(
+    runnerSource,
+    /Release teardown evidence summary: validation run/,
+    "The release runner must identify the validation run beside the retained artifact.",
+  );
+  assert.match(
+    runnerSource,
+    /Release teardown evidence coverage:/,
+    "The release runner must identify the services and descendant coverage.",
+  );
+
+  assert.match(
+    workflowSource,
+    /Summarize retained release diagnostics/,
+    "CI must publish a human-readable release diagnostics summary.",
+  );
+  assert.match(
+    workflowSource,
+    /actions\/runs\/\$\{\{ github\.run_id \}\}\/artifacts/,
+    "The CI summary must link directly to the retained run artifacts.",
+  );
+  assert.match(
+    workflowSource,
+    /surviving descendants/,
+    "The CI summary must identify descendant coverage for each service.",

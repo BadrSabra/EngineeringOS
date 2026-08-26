@@ -1,0 +1,442 @@
+--- files ---
+./.agents/memory/ai-release-quality-gate.md
+./.agents/memory/controlled-release-validation.md
+./.agents/memory/dashboard-journey-stream-fixtures.md
+./.agents/memory/live-correlation-release.md
+./.agents/memory/release-browser-runtime.md
+./.agents/memory/release-cors-harness.md
+./.agents/memory/release-pipeline-hardening.md
+./.agents/memory/release-test-isolation.md
+./.agents/memory/release-wrapper-teardown.md
+./.agents/memory/task-execution-lifecycle.md
+./artifacts/api-server/scripts/release-lock.test.mjs
+artifacts/api-server/scripts/release-lock.test.mjs
+./artifacts/api-server/scripts/run-release-ai-stream.mjs
+artifacts/api-server/scripts/run-release-ai-stream.mjs
+./artifacts/api-server/scripts/run-release-fixture-collision-check.mjs
+artifacts/api-server/scripts/run-release-fixture-collision-check.mjs
+./artifacts/api-server/scripts/run-release-synthesis-telemetry.mjs
+artifacts/api-server/scripts/run-release-synthesis-telemetry.mjs
+artifacts/api-server/src/lib/ai-release-quality-gate.test.ts
+artifacts/api-server/src/lib/ai-release-quality-gate.ts
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts
+artifacts/api-server/src/lib/benchmark-release-gate.ts
+artifacts/api-server/src/lib/task-execution-retention.test.ts
+artifacts/api-server/src/lib/task-execution-retention.ts
+artifacts/api-server/src/lib/task-execution-service.test.ts
+artifacts/api-server/src/lib/task-execution-service.ts
+artifacts/api-server/src/lib/task-state.ts
+artifacts/api-server/src/routes/ai/tasks.ts
+artifacts/api-server/src/routes/tasks.test.ts
+artifacts/api-server/src/routes/tasks.ts
+artifacts/api-server/src/services/task-service.test.ts
+artifacts/api-server/src/services/task-service.ts
+./artifacts/dashboard/e2e/dashboard.journey.ts
+artifacts/dashboard/e2e/dashboard.journey.ts
+artifacts/dashboard/src/pages/Tasks.test.tsx
+artifacts/dashboard/src/pages/Tasks.tsx
+./.engineeringos-delivery/01e773df-3173-4599-8652-b66acd0c2134/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/01e773df-3173-4599-8652-b66acd0c2134/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/01e773df-3173-4599-8652-b66acd0c2134/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/01e773df-3173-4599-8652-b66acd0c2134/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/01e773df-3173-4599-8652-b66acd0c2134/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/0226a59c-f574-4de0-9acb-af397bc85eb8/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/0226a59c-f574-4de0-9acb-af397bc85eb8/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/0226a59c-f574-4de0-9acb-af397bc85eb8/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/0226a59c-f574-4de0-9acb-af397bc85eb8/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/1700fe90-18fb-4cff-9476-17e3cf975da5/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/1700fe90-18fb-4cff-9476-17e3cf975da5/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/1700fe90-18fb-4cff-9476-17e3cf975da5/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/1700fe90-18fb-4cff-9476-17e3cf975da5/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/1700fe90-18fb-4cff-9476-17e3cf975da5/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/1c946e6e-63f7-426b-a858-08014943aebe/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/1c946e6e-63f7-426b-a858-08014943aebe/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/1c946e6e-63f7-426b-a858-08014943aebe/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/1c946e6e-63f7-426b-a858-08014943aebe/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/1c946e6e-63f7-426b-a858-08014943aebe/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/1e037fa6-a766-4858-b61b-df92ffe53dd6/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/1e037fa6-a766-4858-b61b-df92ffe53dd6/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/1e037fa6-a766-4858-b61b-df92ffe53dd6/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/1e037fa6-a766-4858-b61b-df92ffe53dd6/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/1e037fa6-a766-4858-b61b-df92ffe53dd6/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/21b0c834-b6e2-4ee8-aa03-184bb23a6742/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/21b0c834-b6e2-4ee8-aa03-184bb23a6742/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/21b0c834-b6e2-4ee8-aa03-184bb23a6742/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/21b0c834-b6e2-4ee8-aa03-184bb23a6742/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/21b0c834-b6e2-4ee8-aa03-184bb23a6742/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/24711817-93fb-4be6-9600-f72561e4b76d/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/24711817-93fb-4be6-9600-f72561e4b76d/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/24711817-93fb-4be6-9600-f72561e4b76d/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/24711817-93fb-4be6-9600-f72561e4b76d/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/24711817-93fb-4be6-9600-f72561e4b76d/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/268d33d4-650c-43c4-adb5-d693d1381e4e/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/268d33d4-650c-43c4-adb5-d693d1381e4e/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/268d33d4-650c-43c4-adb5-d693d1381e4e/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/268d33d4-650c-43c4-adb5-d693d1381e4e/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/268d33d4-650c-43c4-adb5-d693d1381e4e/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/27ead0ee-0deb-4149-b07f-7d28abe46b45/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/27ead0ee-0deb-4149-b07f-7d28abe46b45/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/27ead0ee-0deb-4149-b07f-7d28abe46b45/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/27ead0ee-0deb-4149-b07f-7d28abe46b45/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/27ead0ee-0deb-4149-b07f-7d28abe46b45/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/2a256952-6a4a-478b-a20b-d8eda978673e/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/2a256952-6a4a-478b-a20b-d8eda978673e/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/2a256952-6a4a-478b-a20b-d8eda978673e/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/2a256952-6a4a-478b-a20b-d8eda978673e/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/2a256952-6a4a-478b-a20b-d8eda978673e/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/2c511760-2ab7-4eed-a248-2096e385ec7f/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/2c511760-2ab7-4eed-a248-2096e385ec7f/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/2c511760-2ab7-4eed-a248-2096e385ec7f/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/2c511760-2ab7-4eed-a248-2096e385ec7f/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/2c511760-2ab7-4eed-a248-2096e385ec7f/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/2df8b0da-a9cd-49a9-9df7-09a46a113831/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/2df8b0da-a9cd-49a9-9df7-09a46a113831/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/2df8b0da-a9cd-49a9-9df7-09a46a113831/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/2df8b0da-a9cd-49a9-9df7-09a46a113831/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/2df8b0da-a9cd-49a9-9df7-09a46a113831/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/2f7ffd03-6e0f-4f20-a95b-669b1b696214/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/2f7ffd03-6e0f-4f20-a95b-669b1b696214/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/2f7ffd03-6e0f-4f20-a95b-669b1b696214/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/2f7ffd03-6e0f-4f20-a95b-669b1b696214/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/372ce040-498e-4bb6-9fe2-0091969ab8a3/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/372ce040-498e-4bb6-9fe2-0091969ab8a3/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/372ce040-498e-4bb6-9fe2-0091969ab8a3/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/372ce040-498e-4bb6-9fe2-0091969ab8a3/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/372ce040-498e-4bb6-9fe2-0091969ab8a3/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/4003947f-a861-4c2f-8690-10d3e293fbf6/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/4003947f-a861-4c2f-8690-10d3e293fbf6/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/4003947f-a861-4c2f-8690-10d3e293fbf6/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/4003947f-a861-4c2f-8690-10d3e293fbf6/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/4003947f-a861-4c2f-8690-10d3e293fbf6/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/4d7c38b6-909a-48cd-96ff-ada6ec565293/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/4d7c38b6-909a-48cd-96ff-ada6ec565293/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/4d7c38b6-909a-48cd-96ff-ada6ec565293/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/4d7c38b6-909a-48cd-96ff-ada6ec565293/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/4d7c38b6-909a-48cd-96ff-ada6ec565293/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/4d90d034-26f2-401c-a6ba-b9527e86d1f2/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/4d90d034-26f2-401c-a6ba-b9527e86d1f2/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/4d90d034-26f2-401c-a6ba-b9527e86d1f2/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/4d90d034-26f2-401c-a6ba-b9527e86d1f2/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/4e5c1f0d-30aa-471e-8571-dc3ccf914f82/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/4e5c1f0d-30aa-471e-8571-dc3ccf914f82/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/4e5c1f0d-30aa-471e-8571-dc3ccf914f82/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/4e5c1f0d-30aa-471e-8571-dc3ccf914f82/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/4e5c1f0d-30aa-471e-8571-dc3ccf914f82/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/51ef580b-1090-423c-baa9-cd35ec6632d8/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/51ef580b-1090-423c-baa9-cd35ec6632d8/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/51ef580b-1090-423c-baa9-cd35ec6632d8/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/51ef580b-1090-423c-baa9-cd35ec6632d8/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/51ef580b-1090-423c-baa9-cd35ec6632d8/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/545f05a7-aeb4-4099-87f7-13f63d43b515/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/545f05a7-aeb4-4099-87f7-13f63d43b515/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/545f05a7-aeb4-4099-87f7-13f63d43b515/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/545f05a7-aeb4-4099-87f7-13f63d43b515/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/545f05a7-aeb4-4099-87f7-13f63d43b515/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/54e89254-13a6-42d3-a58b-a7568f2915b5/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/54e89254-13a6-42d3-a58b-a7568f2915b5/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/54e89254-13a6-42d3-a58b-a7568f2915b5/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/54e89254-13a6-42d3-a58b-a7568f2915b5/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/54e89254-13a6-42d3-a58b-a7568f2915b5/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/5a4f5fad-aa15-432c-a144-b833923daebe/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/5a4f5fad-aa15-432c-a144-b833923daebe/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/5a4f5fad-aa15-432c-a144-b833923daebe/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/5a4f5fad-aa15-432c-a144-b833923daebe/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/5a4f5fad-aa15-432c-a144-b833923daebe/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/62785861-a19f-4710-8686-256152ca0826/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/62785861-a19f-4710-8686-256152ca0826/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/62785861-a19f-4710-8686-256152ca0826/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/62785861-a19f-4710-8686-256152ca0826/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/627dff88-1745-4283-9d54-e9336f8d0e31/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/627dff88-1745-4283-9d54-e9336f8d0e31/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/627dff88-1745-4283-9d54-e9336f8d0e31/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/627dff88-1745-4283-9d54-e9336f8d0e31/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/64497838-48f0-412d-84ec-422f6711a323/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/64497838-48f0-412d-84ec-422f6711a323/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/64497838-48f0-412d-84ec-422f6711a323/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/64497838-48f0-412d-84ec-422f6711a323/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/64497838-48f0-412d-84ec-422f6711a323/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/654251d7-e4a6-4559-9336-df26ea49c3b6/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/654251d7-e4a6-4559-9336-df26ea49c3b6/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/654251d7-e4a6-4559-9336-df26ea49c3b6/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/654251d7-e4a6-4559-9336-df26ea49c3b6/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/6e40bd9d-b50b-44e0-8d90-4f04e47cf68e/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/6e40bd9d-b50b-44e0-8d90-4f04e47cf68e/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/6e40bd9d-b50b-44e0-8d90-4f04e47cf68e/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/6e40bd9d-b50b-44e0-8d90-4f04e47cf68e/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/6e40bd9d-b50b-44e0-8d90-4f04e47cf68e/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/6fe15709-d346-4651-93ff-ec619f774ce3/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/6fe15709-d346-4651-93ff-ec619f774ce3/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/6fe15709-d346-4651-93ff-ec619f774ce3/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/6fe15709-d346-4651-93ff-ec619f774ce3/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/6fe15709-d346-4651-93ff-ec619f774ce3/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/819ba3a8-22f8-4353-bf1e-b77ebd2767b3/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/819ba3a8-22f8-4353-bf1e-b77ebd2767b3/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/819ba3a8-22f8-4353-bf1e-b77ebd2767b3/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/819ba3a8-22f8-4353-bf1e-b77ebd2767b3/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/819ba3a8-22f8-4353-bf1e-b77ebd2767b3/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/86f181ad-78ad-4743-9958-528964c95251/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/86f181ad-78ad-4743-9958-528964c95251/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/86f181ad-78ad-4743-9958-528964c95251/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/86f181ad-78ad-4743-9958-528964c95251/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/86f181ad-78ad-4743-9958-528964c95251/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/90e75feb-2df5-4035-b075-7492111f1996/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/90e75feb-2df5-4035-b075-7492111f1996/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/90e75feb-2df5-4035-b075-7492111f1996/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/90e75feb-2df5-4035-b075-7492111f1996/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/90e75feb-2df5-4035-b075-7492111f1996/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/992490c6-f27d-4652-b307-e3b8e0205984/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/992490c6-f27d-4652-b307-e3b8e0205984/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/992490c6-f27d-4652-b307-e3b8e0205984/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/992490c6-f27d-4652-b307-e3b8e0205984/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/992490c6-f27d-4652-b307-e3b8e0205984/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/9a3cf83f-b95c-4e6b-be5d-68441bdd1922/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/9a3cf83f-b95c-4e6b-be5d-68441bdd1922/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/9a3cf83f-b95c-4e6b-be5d-68441bdd1922/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/9a3cf83f-b95c-4e6b-be5d-68441bdd1922/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/9a3cf83f-b95c-4e6b-be5d-68441bdd1922/logs/release-process-recovery_20260826_145941_618_c847ab4e.log
+./.engineeringos-delivery/a36ef954-af49-4df7-aa85-9abc5cf9db26/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+./.engineeringos-delivery/a36ef954-af49-4df7-aa85-9abc5cf9db26/logs/release-dashboard-journey_20260826_144415_448_20beac20.log
+./.engineeringos-delivery/a36ef954-af49-4df7-aa85-9abc5cf9db26/logs/release-dashboard-journey_20260826_145459_148_8192cc4a.log
+./.engineeringos-delivery/a36ef954-af49-4df7-aa85-9abc5cf9db26/logs/release-process-recovery_20260826_145606_307_a1136d20.log
+./.engineeringos-delivery/ac33e357-ab71-4c4f-b11d-35a0ba12134f/logs/release-dashboard-journey_20260826_143534_384_5ed222bf.log
+--- task refs ---
+package.json:13:    "test:dashboard-journey-contract": "node --test scripts/dashboard-journey-contract.test.mjs",
+package.json:18:    "validate:release": "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+package.json:21:    "validate:dashboard-journey": "RUN_CONTROLLED_RELEASE_VALIDATION=1 node scripts/run-dashboard-journey.mjs",
+.replit:92:name = "release-dashboard-journey"
+.replit:97:args = "APP_ORIGINS=\"https://${REPLIT_DEV_DOMAIN}\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=$(command -v chromium) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"
+scripts/run-dashboard-journey.mjs:66:  process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
+scripts/run-dashboard-journey.mjs:531:      "release-dashboard-journey requires DASHBOARD_E2E_EXECUTABLE_PATH; configure Chromium before starting services.",
+scripts/run-dashboard-journey.mjs:630:      ["run", "test:dashboard-journey-contract"],
+scripts/run-dashboard-journey.mjs:785:        "test-results/dashboard-journey/live-mission-correlation.json",
+scripts/run-dashboard-journey.mjs:894:              "test-results/dashboard-journey/live-mission-correlation.json",
+scripts/release-port-cleanup.test.mjs:67:      [resolve(root, "scripts/run-dashboard-journey.mjs")],
+scripts/release-port-cleanup.test.mjs:139:    resolve(root, "scripts/run-dashboard-journey.mjs"),
+scripts/release-configuration.test.ts:41:    command: "run test:dashboard-journey-contract",
+scripts/release-configuration.test.ts:483:      /run test:dashboard-journey-contract|run test:mission-correlation-report|run test:process-recovery/,
+scripts/release-configuration.test.ts:591:    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+scripts/release-configuration.test.ts:602:  const journeyStart = replitConfig.indexOf('name = "release-dashboard-journey"');
+scripts/release-configuration.test.ts:607:    /args = "APP_ORIGINS=\\"https:\/\/\$\{REPLIT_DEV_DOMAIN\}\\" RELEASE_VALIDATION_WAIT_FOR_LOCK=1 DASHBOARD_E2E_EXECUTABLE_PATH=\$\(command -v chromium\) DASHBOARD_E2E_SKIP_API_CONTRACTS=1 pnpm run validate:dashboard-journey"/,
+scripts/release-configuration.test.ts:611:    /name = "release-dashboard-journey"/,
+scripts/release-configuration.test.ts:632:    /pnpm run validate:dashboard-journey/,
+scripts/release-configuration.test.ts:637:    /DASHBOARD_E2E_TEARDOWN_ARTIFACT_PATH:\s*test-results\/dashboard-journey\/release-teardown\.json/,
+scripts/release-configuration.test.ts:652:    /path:\s*test-results\/dashboard-journey\/release-teardown\.json/,
+scripts/patch-generated-zod.ts:76:    console.error("❌  Zod post-codegen verification failed:");
+scripts/dashboard-journey-contract.test.mjs:12:const runnerPath = resolve(root, "scripts/run-dashboard-journey.mjs");
+scripts/check-codegen-drift.ts:187:  console.error("❌  Mutator import verification failed:");
+artifacts/dashboard/src/pages/FlightDeck.tsx:141:    return 'Refresh the project and reconcile the operation against the current revision before retrying.';
+artifacts/dashboard/src/pages/FlightDeck.tsx:266:      retry: false,
+artifacts/dashboard/src/pages/FlightDeck.test.tsx:70:    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+artifacts/dashboard/src/pages/Events.test.tsx:61:  it("shows an error and retry action instead of the empty state", () => {
+artifacts/dashboard/src/pages/Dashboard.tsx:34:      retry: 1,
+artifacts/dashboard/src/pages/Dashboard.tsx:68:        retryLabel="Retry Connection"
+artifacts/dashboard/src/pages/Projects.tsx:24:      retry: (failureCount, err) => isRetryableProjectError(err, failureCount),
+artifacts/dashboard/src/pages/MissionControl.tsx:643:      retry: false,
+artifacts/dashboard/src/pages/MissionControl.test.tsx:56:        recoveryAction: 'Switched to a bounded retry',
+artifacts/dashboard/src/pages/MissionControl.test.tsx:87:    defaultOptions: { queries: { retry: false } },
+artifacts/dashboard/src/pages/MissionControl.test.tsx:169:    expect(screen.getByText('Switched to a bounded retry')).toBeInTheDocument();
+artifacts/dashboard/src/pages/MissionControl.test.tsx:191:    expect(screen.getByText('Switched to a bounded retry')).toBeInTheDocument();
+artifacts/dashboard/src/pages/MissionControl.test.tsx:447:        recoveryAction: 'Bounded retry',
+artifacts/dashboard/src/pages/MissionControl.test.tsx:453:          { type: 'retry', timestamp: '2026-08-22T10:02:00.000Z', detail: 'Retry bounded' },
+artifacts/dashboard/src/pages/MissionControl.test.tsx:464:        recoverySummary: { recoveryAction: 'Imported retry', attemptCount: 3 },
+artifacts/dashboard/src/pages/MissionControl.test.tsx:497:      recoveryAction: 'Bounded retry',
+artifacts/dashboard/src/pages/MissionControl.test.tsx:504:      recoveryAction: 'Imported retry',
+artifacts/dashboard/src/pages/MissionControl.test.tsx:523:        recoveryAction: 'Bounded, "safe" retry',
+artifacts/dashboard/src/pages/MissionControl.test.tsx:533:          { type: 'retry', timestamp: '2026-08-22T10:02:00.000Z', detail: 'Retry bounded' },
+artifacts/dashboard/src/pages/MissionControl.test.tsx:544:        recoverySummary: { recoveryAction: 'Imported retry', attemptCount: 3 },
+artifacts/dashboard/src/pages/MissionControl.test.tsx:577:      '2', '1', '2', 'RATE_LIMIT', 'Bounded, "safe" retry', 'INCOMPLETE',
+artifacts/dashboard/src/pages/MissionControl.test.tsx:585:      '0', '0', '1', 'Not categorized', 'Imported retry', 'VERIFIED',
+artifacts/dashboard/src/pages/Workflows.test.tsx:37:  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+artifacts/dashboard/src/pages/Workflows.test.tsx:77:      errorMessage: 'Internal provider diagnostic: provider-secret-token-123456789',
+artifacts/dashboard/src/pages/Workflows.test.tsx:115:  it('does not expose raw provider diagnostics or credentials from an execution', () => {
+artifacts/dashboard/src/pages/Workflows.test.tsx:119:    expect(screen.queryByText(/Internal provider diagnostic/i)).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/Tasks.test.tsx:36:    action: 'Replace the provider API key with a valid key, then retry.',
+artifacts/dashboard/src/pages/Tasks.test.tsx:58:  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+artifacts/dashboard/src/pages/Tasks.test.tsx:78:      retryCount: 0,
+artifacts/dashboard/src/pages/Tasks.test.tsx:90:        upstreamMessage: 'raw provider diagnostic: provider-secret-token-123456789',
+artifacts/dashboard/src/pages/Tasks.test.tsx:128:  it('does not expose raw provider diagnostics or credentials in task details', () => {
+artifacts/dashboard/src/pages/Tasks.test.tsx:132:    expect(screen.queryByText(/raw provider diagnostic/i)).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/Tasks.test.tsx:135:    expect(screen.getByText(/Internal prompts and provider diagnostics are not shown/i)).toBeInTheDocument();
+artifacts/dashboard/src/pages/Workflows.tsx:274:  const retryPhase = useRetryWorkflowPhase();
+artifacts/dashboard/src/pages/Workflows.tsx:355:                retryPhase.mutate(
+artifacts/dashboard/src/pages/Workflows.tsx:360:              disabled={retryPhase.isPending}
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:25:  missing_credentials: { label: 'Provider credentials are missing', action: 'Configure an API key for a supported provider, then retry.' },
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:26:  authentication_failed: { label: 'Provider authentication failed', action: 'Replace the provider API key with a valid key, then retry.' },
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:27:  incompatible_model: { label: 'The selected model is unavailable', action: 'Choose a compatible current model or configure another provider, then retry.' },
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:28:  no_compatible_free_model: { label: 'No compatible free model is available', action: 'Select another compatible model or configure another provider, then retry.' },
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:31:  rate_limited: { label: 'The provider rate limit was reached', action: 'Wait for the rate-limit window to reset, then retry or configure another provider.' },
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:32:  circuit_open: { label: 'Provider temporarily paused', action: 'Wait for the provider cooldown to finish, then retry or configure another provider.' },
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx:30:          operatorAction: 'Configure another provider, then retry.',
+artifacts/dashboard/src/components/ProviderRecoveryCard.test.tsx:36:    expect(screen.getByText('Next step: Configure another provider, then retry.')).toBeInTheDocument();
+artifacts/dashboard/src/components/OperatorResilience.tsx:40:  retryLabel = 'Try again',
+artifacts/dashboard/src/components/OperatorResilience.tsx:45:  retryLabel?: string;
+artifacts/dashboard/src/components/OperatorResilience.tsx:54:          {retryLabel}
+artifacts/dashboard/src/components/OperatorResilience.test.tsx:6:  it('exposes a retry action for failed requests', () => {
+artifacts/dashboard/src/components/OperatorResilience.test.tsx:7:    const retry = vi.fn();
+artifacts/dashboard/src/components/OperatorResilience.test.tsx:8:    render(<RequestError message="API unavailable" onRetry={retry} />);
+artifacts/dashboard/src/components/OperatorResilience.test.tsx:11:    expect(retry).toHaveBeenCalledOnce();
+artifacts/dashboard/src/components/GitPanel.tsx:112:      // Stop polling if the directory is not a git repo (400) — retrying every
+artifacts/dashboard/src/components/GitPanel.tsx:115:      retry: false,
+artifacts/dashboard/src/components/GitPanel.test.tsx:76:    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+artifacts/dashboard/src/App.tsx:39:      retry: 1,
+artifacts/dashboard/src/pages/Tasks.tsx:65:  retryCount?: number;
+artifacts/dashboard/src/pages/Tasks.tsx:71:  verificationResult?: {
+artifacts/dashboard/src/pages/Tasks.tsx:76:  remediationPlan?: {
+artifacts/dashboard/src/pages/Tasks.tsx:86:    verificationSteps: string[];
+artifacts/dashboard/src/pages/Tasks.tsx:152:      : /verification|confirmed|completed|passed/.test(lower)
+artifacts/dashboard/src/pages/Tasks.tsx:179:  const verificationDone = Boolean(task.verificationResult);
+artifacts/dashboard/src/pages/Tasks.tsx:183:    { title: 'Verify the result', status: verificationDone ? 'done' : task.status === 'running' || task.status === 'verifying' ? 'active' : terminal ? 'blocked' : 'pending', detail: verificationDone ? 'Verification result recorded by the server.' : 'Waiting for a server-owned verification result.' },
+artifacts/dashboard/src/pages/Tasks.tsx:276:  const retryLiveUpdates = () => {
+artifacts/dashboard/src/pages/Tasks.tsx:331:            <button type="button" onClick={retryLiveUpdates} className="inline-flex items-center gap-1.5 font-medium text-foreground underline">
+artifacts/dashboard/src/pages/Tasks.tsx:388:            {task.verificationResult?.passed ? <ShieldCheck className="w-4 h-4 text-emerald-500" /> : <FileCheck2 className="w-4 h-4 text-muted-foreground" />}
+artifacts/dashboard/src/pages/Tasks.tsx:392:             {taskStatus === 'completed' && task.verificationResult?.passed
+artifacts/dashboard/src/pages/Tasks.tsx:395:                 ? 'Task completed, but no passed server verification is recorded.'
+artifacts/dashboard/src/pages/Tasks.tsx:398:                   : 'Task ended without a confirmed successful verification.'}
+artifacts/dashboard/src/pages/Tasks.tsx:400:          {task.verificationResult?.steps?.length ? (
+artifacts/dashboard/src/pages/Tasks.tsx:401:            <div className="mt-3 space-y-1">{task.verificationResult.steps.map((step) => (
+artifacts/dashboard/src/pages/Tasks.tsx:407:          ) : <p className="text-xs text-muted-foreground mt-2">No server-owned verification details were recorded.</p>}
+artifacts/dashboard/src/pages/Tasks.tsx:445:  const retryTask   = useRetryTask();
+artifacts/dashboard/src/pages/Tasks.tsx:454:  const handleAction = (action: 'execute' | 'retry' | 'rollback', taskId: string) => {
+artifacts/dashboard/src/pages/Tasks.tsx:464:    if (action === 'retry')   retryTask.mutate({ taskId }, options);
+artifacts/dashboard/src/pages/Tasks.tsx:651:                      onClick={(e) => { e.stopPropagation(); handleAction('retry', task.id); }}
+artifacts/dashboard/src/pages/Tasks.tsx:652:                      disabled={retryTask.isPending}
+artifacts/dashboard/src/pages/Tasks.tsx:704:                          {task.remediationPlan && (
+artifacts/dashboard/src/pages/Tasks.tsx:706:                              aria-labelledby={`remediation-${task.id}`}
+artifacts/dashboard/src/pages/Tasks.tsx:710:                                <h5 id={`remediation-${task.id}`} className="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+artifacts/dashboard/src/pages/Tasks.tsx:715:                                  task.remediationPlan.status === 'verified'
+artifacts/dashboard/src/pages/Tasks.tsx:717:                                    : task.remediationPlan.status === 'ready'
+artifacts/dashboard/src/pages/Tasks.tsx:721:                                  {task.remediationPlan.status === 'verified'
+artifacts/dashboard/src/pages/Tasks.tsx:723:                                    : task.remediationPlan.status === 'ready'
+artifacts/dashboard/src/pages/Tasks.tsx:729:                                <span className="font-mono font-semibold">{task.remediationPlan.ruleCode}</span>
+artifacts/dashboard/src/pages/Tasks.tsx:731:                                <span>{task.remediationPlan.ruleTitle}</span>
+artifacts/dashboard/src/pages/Tasks.tsx:732:                                <span className="rounded border border-border px-1.5 py-0.5 uppercase">{task.remediationPlan.severity}</span>
+artifacts/dashboard/src/pages/Tasks.tsx:733:                                <span className="text-muted-foreground">{task.remediationPlan.occurrenceCount} occurrence(s)</span>
+artifacts/dashboard/src/pages/Tasks.tsx:735:                              {task.remediationPlan.fixDescription ? (
+artifacts/dashboard/src/pages/Tasks.tsx:738:                                  {task.remediationPlan.fixDescription}
+artifacts/dashboard/src/pages/Tasks.tsx:748:                                  {task.remediationPlan.evidence.length > 0 ? (
+artifacts/dashboard/src/pages/Tasks.tsx:750:                                      {task.remediationPlan.evidence.slice(0, 5).map((match, index) => (
+artifacts/dashboard/src/pages/Tasks.tsx:756:                                      {task.remediationPlan.evidence.length > 5 && (
+artifacts/dashboard/src/pages/Tasks.tsx:757:                                        <div className="text-[11px] text-muted-foreground">+{task.remediationPlan.evidence.length - 5} more evidence items</div>
+artifacts/dashboard/src/pages/Tasks.tsx:765:                                  <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">Required verification</div>
+artifacts/dashboard/src/pages/Tasks.tsx:766:                                  {task.remediationPlan.verificationSteps.length > 0 ? (
+artifacts/dashboard/src/pages/Tasks.tsx:768:                                      {task.remediationPlan.verificationSteps.map((step, index) => (
+artifacts/dashboard/src/pages/Tasks.tsx:773:                                    <div className="text-xs text-amber-600 dark:text-amber-400">No verification steps supplied.</div>
+artifacts/dashboard/src/pages/Tasks.tsx:778:                                Source: {task.remediationPlan.source.type}
+artifacts/dashboard/src/pages/Tasks.tsx:779:                                {task.remediationPlan.source.revision
+artifacts/dashboard/src/pages/Tasks.tsx:780:                                  ? ` · revision ${task.remediationPlan.source.revision.slice(0, 12)}`
+artifacts/dashboard/src/pages/Tasks.tsx:808:                            <div>Retries: {task.retryCount || 0}/{task.maxRetries || 3}</div>
+artifacts/dashboard/src/pages/Tasks.tsx:818:                            <div className="text-sm">The agent can report activity and verification here. Internal prompts and provider diagnostics are not shown.</div>
+artifacts/dashboard/src/pages/Tasks.tsx:845:                          {task.verificationResult && (
+artifacts/dashboard/src/pages/Tasks.tsx:851:                                {task.verificationResult.steps.map((step, i) => (
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:301:    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:564:  it('shows a retryable non-resumable state when capability recovery is denied', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1763:          'provider recovery-provider diagnostic: cancellation requested by user',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1779:          'provider recovery-provider diagnostic: cancellation requested by user',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1801:    expect(screen.queryByText(/provider recovery-provider diagnostic/)).not.toBeInTheDocument();
+artifacts/dashboard/e2e/README.md:24:pnpm run validate:dashboard-journey
+artifacts/dashboard/e2e/README.md:55:DASHBOARD_E2E_LIVE_REPORT_PATH=test-results/dashboard-journey/live-mission-correlation.json \
+artifacts/dashboard/e2e/README.md:57:pnpm run validate:dashboard-journey
+artifacts/dashboard/e2e/README.md:64:The fast `test:dashboard-journey-contract` and
+artifacts/dashboard/e2e/README.md:100:`test-results/dashboard-journey`; video is intentionally disabled because the
+artifacts/dashboard/src/pages/AiChat.tsx:265:        action: 'Use the approved browser profile instead of retrying the same request.',
+artifacts/dashboard/src/pages/AiChat.tsx:275:        action: 'Refresh the project and create a new approved validation run before retrying.',
+artifacts/dashboard/src/pages/AiChat.tsx:682:      case 429: return (err.errorMessage || err.hint || 'AI rate limit reached — wait 30–60 seconds before retrying.') + suffix;
+artifacts/dashboard/src/pages/AiChat.tsx:720:    guidance = 'Authentication failed. Check the provider configuration or choose another provider, then retry.';
+artifacts/dashboard/src/pages/AiChat.tsx:722:    guidance = 'The provider quota or rate limit was reached. Wait a moment, then retry or choose another provider.';
+artifacts/dashboard/src/pages/AiChat.tsx:2671:    const verification = (event.payload as { behavioralVerification?: unknown } | undefined)?.behavioralVerification;
+artifacts/dashboard/src/pages/AiChat.tsx:2672:    return Array.isArray(verification) && verification.length > 0 &&
+artifacts/dashboard/src/pages/AiChat.tsx:2673:      verification.every((item) => (item as { status?: unknown })?.status === 'passed');
+artifacts/dashboard/src/pages/AiChat.tsx:3112:  verificationResults,
+artifacts/dashboard/src/pages/AiChat.tsx:3126:  verificationResults: Record<string, BehavioralVerification>;
+artifacts/dashboard/src/pages/AiChat.tsx:3141:  const hasPatchConflict = changes.some((change) => Boolean(verificationResults[change.path]?.conflict));
+artifacts/dashboard/src/pages/AiChat.tsx:3275:                    {verificationResults[change.path] && (
+artifacts/dashboard/src/pages/AiChat.tsx:3277:                        verificationResults[change.path].status === 'failed' ||
+artifacts/dashboard/src/pages/AiChat.tsx:3278:                        verificationResults[change.path].status === 'unavailable'
+artifacts/dashboard/src/pages/AiChat.tsx:3280:                          : verificationResults[change.path].status === 'passed'
+artifacts/dashboard/src/pages/AiChat.tsx:3284:                        Behavioral verification: {verificationResults[change.path].status}
+artifacts/dashboard/src/pages/AiChat.tsx:3285:                        {verificationResults[change.path].detail
+artifacts/dashboard/src/pages/AiChat.tsx:3286:                          ? ` — ${verificationResults[change.path].detail}`
+artifacts/dashboard/src/pages/AiChat.tsx:3290:                    {verificationResults[change.path]?.conflict && (
+artifacts/dashboard/src/pages/AiChat.tsx:3292:                        Patch conflict: {verificationResults[change.path].conflict?.kind === 'hunk_mismatch'
+artifacts/dashboard/src/pages/AiChat.tsx:3293:                          ? `hunk ${((verificationResults[change.path].conflict?.hunkIndex ?? 0) + 1)} no longer matches`
+artifacts/dashboard/src/pages/AiChat.tsx:3466:            Apply and behavioral verification passed for {paths.length} file{paths.length !== 1 ? 's' : ''}.
+artifacts/dashboard/src/pages/AiChat.tsx:3716:        retry: false,
+artifacts/dashboard/src/pages/AiChat.tsx:4245:  retryPending,
+artifacts/dashboard/src/pages/AiChat.tsx:4258:  retryPending?: boolean;
+artifacts/dashboard/src/pages/AiChat.tsx:4382:                    disabled={retryPending}
+artifacts/dashboard/src/pages/AiChat.tsx:4385:                    {retryPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
+artifacts/dashboard/src/pages/AiChat.tsx:4386:                    {retryPending ? 'Retrying…' : `Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
+artifacts/dashboard/src/pages/AiChat.tsx:6405:    retry: false,
+artifacts/dashboard/src/pages/AiChat.tsx:6773:                  The redacted audit handoff is still available. Check the connection and retry this same execution and revision.
+artifacts/dashboard/src/pages/AiChat.tsx:7027:  const [verificationResults, setVerificationResults] = useState<Record<string, BehavioralVerification>>({});
+artifacts/dashboard/src/pages/AiChat.tsx:7220:        description: 'Check the connection and retry the same redacted execution handoff.',
+artifacts/dashboard/src/pages/AiChat.tsx:7464:      case 'RATE_LIMIT': return { title: 'Analysis paused by rate limit', reason: 'The AI provider is rate-limited. Wait a moment, then retry.' };
+artifacts/dashboard/src/pages/AiChat.tsx:7486:  function startStructuredTask(task: 'analyze' | 'review', prompt: string, retryMessageId?: string) {
+artifacts/dashboard/src/pages/AiChat.tsx:7493:    if (!retryMessageId) {
+artifacts/dashboard/src/pages/AiChat.tsx:7499:      setLocalMessages((prev) => prev.filter((message) => message.id !== retryMessageId));
+artifacts/dashboard/src/pages/AiChat.tsx:7578:          ...prev.filter((message) => message.id !== placeholderId && message.id !== retryMessageId),
+artifacts/dashboard/src/pages/AiChat.tsx:7599:          ...prev.filter((message) => message.id !== placeholderId && message.id !== retryMessageId),
+artifacts/dashboard/src/pages/AiChat.tsx:7617:  function retryStructuredTask(task: 'analyze' | 'review', messageId: string) {
+artifacts/dashboard/src/pages/AiChat.tsx:7651:  const verificationKey = sessionId ? `eos_verification_${sessionId}` : undefined;
+artifacts/dashboard/src/pages/AiChat.tsx:7654:    if (!pendingKey || !verificationKey) return;
+artifacts/dashboard/src/pages/AiChat.tsx:7661:    if (Object.keys(verificationResults).length > 0) {
+artifacts/dashboard/src/pages/AiChat.tsx:7662:      localStorage.setItem(verificationKey, JSON.stringify(verificationResults));
+artifacts/dashboard/src/pages/AiChat.tsx:7664:      localStorage.removeItem(verificationKey);
+artifacts/dashboard/src/pages/AiChat.tsx:7666:  }, [pendingChanges, pendingKey, verificationKey, verificationResults]);
+artifacts/dashboard/src/pages/AiChat.tsx:7674:    if (!pendingKey || !verificationKey) return;
+artifacts/dashboard/src/pages/AiChat.tsx:7675:    const storedVerification = localStorage.getItem(verificationKey);
+artifacts/dashboard/src/pages/AiChat.tsx:7680:        localStorage.removeItem(verificationKey);
+artifacts/dashboard/src/pages/AiChat.tsx:7704:  }, [pendingKey, sessionId, verificationKey]);
+artifacts/dashboard/src/pages/AiChat.tsx:7719:      // Classify each failure to decide whether to retry automatically.
+artifacts/dashboard/src/pages/AiChat.tsx:7724:       retry: (failureCount, err) =>
+artifacts/dashboard/src/pages/AiChat.tsx:7942:    if (serverProposal.changes.length === 0 && pendingKey && verificationKey) {
+artifacts/dashboard/src/pages/AiChat.tsx:7944:      localStorage.removeItem(verificationKey);
+artifacts/dashboard/src/pages/AiChat.tsx:8031:        const verificationFor = (result: (typeof data.results)[number]): BehavioralVerification => ({
+artifacts/dashboard/src/pages/AiChat.tsx:8035:          detail: result.behavioralVerification?.detail ?? 'No behavioral verification result was returned.',
+artifacts/dashboard/src/pages/AiChat.tsx:8047:          const verificationText = succeeded
+artifacts/dashboard/src/pages/AiChat.tsx:8048:            .map((r) => `${r.path}: ${verificationFor(r).status}`)
+artifacts/dashboard/src/pages/AiChat.tsx:8050:          const needsReview = succeeded.filter((r) => verificationFor(r).status !== 'passed');
+artifacts/dashboard/src/pages/AiChat.tsx:8056:              ? `Persistence verified, but behavioral verification is incomplete.\n${verificationText}`
+artifacts/dashboard/src/pages/AiChat.tsx:8057:              : `Persistence and behavioral verification passed.\n${verificationText}`,
+artifacts/dashboard/src/pages/AiChat.tsx:8067:          ...Object.fromEntries(data.results.map((r) => [r.path, verificationFor(r)])),
+artifacts/dashboard/src/pages/AiChat.tsx:8069:        // A persisted change is removed only after behavioral verification passes.
+artifacts/dashboard/src/pages/AiChat.tsx:8070:        // Skipped, failed, or unavailable verification remains visible for review.
+artifacts/dashboard/src/pages/AiChat.tsx:8073:            .filter((r) => verificationFor(r).status === 'passed')
+artifacts/dashboard/src/pages/AiChat.tsx:8684:             ? 'Evidence verification completed'
+artifacts/dashboard/src/pages/AiChat.tsx:8689:             label: 'Response verification',
+artifacts/dashboard/src/pages/AiChat.tsx:9490:                  onRetryStructuredTask={retryStructuredTask}
+artifacts/dashboard/src/pages/AiChat.tsx:9491:                  retryPending={structuredRetryMessageId === msg.id}
+artifacts/dashboard/src/pages/AiChat.tsx:9587:                  verificationResults={verificationResults}
+artifacts/dashboard/e2e/playwright.config.ts:16:    // Assertion/configuration failures are deterministic; retrying them hides
+artifacts/dashboard/e2e/playwright.config.ts:31:      process.env.PLAYWRIGHT_OUTPUT_DIR ?? "test-results/dashboard-journey",
+artifacts/api-server/scripts/run-release-ai-stream.mjs:246:        const retryable =
+artifacts/api-server/scripts/run-release-ai-stream.mjs:254:        resolve({ code: code ?? 1, retryable });
+artifacts/api-server/scripts/run-release-ai-stream.mjs:258:  if (validation.code !== 0 && validation.retryable) {
+artifacts/api-server/scripts/run-release-ai-stream.mjs:259:    console.error("API stream release validation retrying once after a transient infrastructure failure.");
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:106:    remediationPlan?: {
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:994:                    <span>{v.remediationPlan?.status === 'ready' ? 'Ready to execute' : 'Needs review'}</span>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:995:                    {v.remediationPlan?.relatedFiles?.length ? (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:996:                      <span>{v.remediationPlan.relatedFiles.length} affected file(s)</span>
+artifacts/api-server/src/services/task-service.test.ts:4:describe("runTaskVerification remediation safeguards", () => {
+artifacts/api-server/src/services/task-service.test.ts:5:  it("keeps incomplete remediation evidence in review instead of marking it complete", async () => {
+artifacts/api-server/src/services/task-service.test.ts:11:        remediationPlan: {
+artifacts/api-server/src/services/task-service.test.ts:14:          verificationSteps: [],
+artifacts/api-server/src/routes/git.ts:330:          error: "AI changes must pass Apply and behavioral verification before commit",
+artifacts/api-server/src/routes/git.ts:421:            error: "An applied AI file changed after verification; commit requires a fresh Apply",
+artifacts/api-server/src/routes/git.ts:775:        error: "GitHub integration authentication failed or is unavailable. Reconnect GitHub and retry.",
+artifacts/api-server/src/routes/ai/analysis.ts:51:   | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; failureKind?: "PROVIDER_FORMAT" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; outcome?: "FAILED" | "INTERRUPTED" })
+artifacts/api-server/src/routes/ai/analysis.ts:151:    failureKind === "RATE_LIMIT" ? "The AI provider is rate-limited. Please wait before retrying." :
+artifacts/api-server/src/routes/ai/analysis.ts:162:      ? "Wait a moment and retry the analysis."
+artifacts/api-server/src/routes/ai/analysis.ts:165:        : "You can retry this task without sending another prompt.",
+artifacts/api-server/src/routes/ai/analysis.ts:166:    retryable: failureKind !== "CONFIGURATION",
+artifacts/api-server/src/routes/ai/analysis.ts:197:      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlAnalyze.retryAfterSec}s.`,
+artifacts/api-server/src/routes/ai/analysis.ts:296:      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlReview.retryAfterSec}s.`,
+artifacts/api-server/src/routes/ai/analysis.ts:383:      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlAnalyze.retryAfterSec}s.`,
+artifacts/api-server/src/routes/ai/analysis.ts:424:        hint: "The response could not be verified as a structured result. You can retry this task.",
+artifacts/api-server/src/routes/ai/analysis.ts:425:        retryable: true,
+artifacts/api-server/src/routes/ai/analysis.ts:509:      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlReview.retryAfterSec}s.`,
+artifacts/api-server/src/routes/ai/analysis.ts:550:        hint: "The response could not be verified as a structured result. You can retry this task.",
+artifacts/api-server/src/routes/ai/analysis.ts:551:        retryable: true,
+artifacts/api-server/src/services/task-service.ts:4: * Contains the verification logic that determines task completion status.
+artifacts/api-server/src/services/task-service.ts:14: * verification logic". Callers and unit tests must account for both the DB
+artifacts/api-server/src/services/task-service.ts:33:  /** Human-readable summary for the task log and verification result column. */

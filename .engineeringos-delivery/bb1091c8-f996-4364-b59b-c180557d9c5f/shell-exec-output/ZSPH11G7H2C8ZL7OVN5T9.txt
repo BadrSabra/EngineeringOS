@@ -1,0 +1,301 @@
+rg: packages: No such file or directory (os error 2)
+artifacts/dashboard/src/pages/Tasks.tsx:76:  remediationPlan?: {
+artifacts/dashboard/src/pages/Tasks.tsx:704:                          {task.remediationPlan && (
+artifacts/dashboard/src/pages/Tasks.tsx:715:                                  task.remediationPlan.status === 'verified'
+artifacts/dashboard/src/pages/Tasks.tsx:717:                                    : task.remediationPlan.status === 'ready'
+artifacts/dashboard/src/pages/Tasks.tsx:721:                                  {task.remediationPlan.status === 'verified'
+artifacts/dashboard/src/pages/Tasks.tsx:723:                                    : task.remediationPlan.status === 'ready'
+artifacts/dashboard/src/pages/Tasks.tsx:729:                                <span className="font-mono font-semibold">{task.remediationPlan.ruleCode}</span>
+artifacts/dashboard/src/pages/Tasks.tsx:731:                                <span>{task.remediationPlan.ruleTitle}</span>
+artifacts/dashboard/src/pages/Tasks.tsx:732:                                <span className="rounded border border-border px-1.5 py-0.5 uppercase">{task.remediationPlan.severity}</span>
+artifacts/dashboard/src/pages/Tasks.tsx:733:                                <span className="text-muted-foreground">{task.remediationPlan.occurrenceCount} occurrence(s)</span>
+artifacts/dashboard/src/pages/Tasks.tsx:735:                              {task.remediationPlan.fixDescription ? (
+artifacts/dashboard/src/pages/Tasks.tsx:738:                                  {task.remediationPlan.fixDescription}
+artifacts/dashboard/src/pages/Tasks.tsx:748:                                  {task.remediationPlan.evidence.length > 0 ? (
+artifacts/dashboard/src/pages/Tasks.tsx:750:                                      {task.remediationPlan.evidence.slice(0, 5).map((match, index) => (
+artifacts/dashboard/src/pages/Tasks.tsx:756:                                      {task.remediationPlan.evidence.length > 5 && (
+artifacts/dashboard/src/pages/Tasks.tsx:757:                                        <div className="text-[11px] text-muted-foreground">+{task.remediationPlan.evidence.length - 5} more evidence items</div>
+artifacts/dashboard/src/pages/Tasks.tsx:766:                                  {task.remediationPlan.verificationSteps.length > 0 ? (
+artifacts/dashboard/src/pages/Tasks.tsx:768:                                      {task.remediationPlan.verificationSteps.map((step, index) => (
+artifacts/dashboard/src/pages/Tasks.tsx:778:                                Source: {task.remediationPlan.source.type}
+artifacts/dashboard/src/pages/Tasks.tsx:779:                                {task.remediationPlan.source.revision
+artifacts/dashboard/src/pages/Tasks.tsx:780:                                  ? ` · revision ${task.remediationPlan.source.revision.slice(0, 12)}`
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:106:    remediationPlan?: {
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:994:                    <span>{v.remediationPlan?.status === 'ready' ? 'Ready to execute' : 'Needs review'}</span>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:995:                    {v.remediationPlan?.relatedFiles?.length ? (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:996:                      <span>{v.remediationPlan.relatedFiles.length} affected file(s)</span>
+artifacts/api-server/src/services/task-service.ts:45:  remediationPlan?: {
+artifacts/api-server/src/services/task-service.ts:77:    task.remediationPlan &&
+artifacts/api-server/src/services/task-service.ts:78:    (task.remediationPlan.status === "needs_review" ||
+artifacts/api-server/src/services/task-service.ts:79:      !Array.isArray(task.remediationPlan.evidence) ||
+artifacts/api-server/src/services/task-service.ts:80:      task.remediationPlan.evidence.length === 0 ||
+artifacts/api-server/src/services/task-service.ts:81:      !Array.isArray(task.remediationPlan.verificationSteps) ||
+artifacts/api-server/src/services/task-service.ts:82:      task.remediationPlan.verificationSteps.length === 0)
+artifacts/api-server/src/services/task-service.test.ts:11:        remediationPlan: {
+artifacts/api-server/src/routes/tasks.ts:4:  tasksTable,
+artifacts/api-server/src/routes/tasks.ts:10:  CreateTaskBody,
+artifacts/api-server/src/routes/tasks.ts:19:  ListTasksQueryParams,
+artifacts/api-server/src/routes/tasks.ts:43:  const params = ListTasksQueryParams.parse(req.query);
+artifacts/api-server/src/routes/tasks.ts:48:  const conditions: ReturnType<typeof eq>[] = [eq(tasksTable.projectId, project.id)];
+artifacts/api-server/src/routes/tasks.ts:49:  if (params.status) conditions.push(eq(tasksTable.status, params.status));
+artifacts/api-server/src/routes/tasks.ts:51:    conditions.push(eq(tasksTable.priority, params.priority));
+artifacts/api-server/src/routes/tasks.ts:55:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:57:    .orderBy(desc(tasksTable.createdAt), desc(tasksTable.id))
+artifacts/api-server/src/routes/tasks.ts:65:  const body = CreateTaskBody.parse(req.body);
+artifacts/api-server/src/routes/tasks.ts:72:    const rows = await tx.insert(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:98:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:99:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:112:  const before = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+artifacts/api-server/src/routes/tasks.ts:155:    const rows = await tx.update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:158:        eq(tasksTable.id, taskId),
+artifacts/api-server/src/routes/tasks.ts:159:        eq(tasksTable.status, before[0].status),
+artifacts/api-server/src/routes/tasks.ts:160:        isNull(tasksTable.workerId),
+artifacts/api-server/src/routes/tasks.ts:206:  const before = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+artifacts/api-server/src/routes/tasks.ts:214:    const [lockedTask] = await tx.select().from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:215:      .where(eq(tasksTable.id, taskId)).for("update");
+artifacts/api-server/src/routes/tasks.ts:243:    await tx.delete(tasksTable).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/tasks.ts:272:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:273:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:287:    .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:289:    .where(and(eq(tasksTable.id, taskId), inArray(tasksTable.status, ["pending", "queued"])))
+artifacts/api-server/src/routes/tasks.ts:333:      .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:335:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")));
+artifacts/api-server/src/routes/tasks.ts:385:  let updated: typeof tasksTable.$inferSelect | undefined;
+artifacts/api-server/src/routes/tasks.ts:389:      .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:393:        remediationPlan: markRemediationPlanVerified(
+artifacts/api-server/src/routes/tasks.ts:394:          task[0].remediationPlan,
+artifacts/api-server/src/routes/tasks.ts:400:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/tasks.ts:468:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:469:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:489:  let updated: typeof tasksTable.$inferSelect;
+artifacts/api-server/src/routes/tasks.ts:497:        .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:501:            eq(tasksTable.id, taskId),
+artifacts/api-server/src/routes/tasks.ts:502:            inArray(tasksTable.status, ["failed", "cancelled"]),
+artifacts/api-server/src/routes/tasks.ts:503:            eq(tasksTable.retryCount, retryCount),
+artifacts/api-server/src/routes/tasks.ts:554:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:555:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:593:  let updated: typeof tasksTable.$inferSelect;
+artifacts/api-server/src/routes/tasks.ts:601:        .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:603:        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, task[0].status)))
+artifacts/api-server/src/routes/tasks.ts:654:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:655:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:676:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:677:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:739:        .select({ status: tasksTable.status })
+artifacts/api-server/src/routes/tasks.ts:740:        .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:741:        .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/discovery.ts:9:  tasksTable,
+artifacts/api-server/src/routes/discovery.ts:518:        const sourcePlan = violation.remediationPlan;
+artifacts/api-server/src/routes/discovery.ts:523:        const remediationPlan = buildRemediationPlan({
+artifacts/api-server/src/routes/discovery.ts:546:        await tx.insert(tasksTable).values({
+artifacts/api-server/src/routes/discovery.ts:549:          ruleId: remediationPlan.ruleId ?? undefined,
+artifacts/api-server/src/routes/discovery.ts:550:          title: `Remediate ${remediationPlan.ruleCode}: ${remediationPlan.ruleTitle}`,
+artifacts/api-server/src/routes/discovery.ts:552:            remediationPlan.fixDescription ??
+artifacts/api-server/src/routes/discovery.ts:553:            `${remediationPlan.occurrenceCount} occurrence(s) detected for ${remediationPlan.ruleCode}. Review the bounded evidence before execution.`,
+artifacts/api-server/src/routes/discovery.ts:556:            remediationPlan.severity === "critical"
+artifacts/api-server/src/routes/discovery.ts:558:              : remediationPlan.severity === "high"
+artifacts/api-server/src/routes/discovery.ts:560:              : remediationPlan.severity === "medium"
+artifacts/api-server/src/routes/discovery.ts:563:          relatedFiles: remediationPlan.relatedFiles,
+artifacts/api-server/src/routes/discovery.ts:564:          prompt: buildRemediationPrompt(remediationPlan),
+artifacts/api-server/src/routes/discovery.ts:566:          remediationPlan,
+artifacts/api-server/src/routes/discovery.ts:567:          correlationId: remediationPlan.source.correlationId ?? body.discoveryId,
+artifacts/api-server/src/routes/discovery.test.ts:12:  tasksTable,
+artifacts/api-server/src/routes/discovery.test.ts:108:    await db.delete(tasksTable).where(eq(tasksTable.projectId, projectId)).catch(() => undefined);
+artifacts/api-server/src/routes/discovery.test.ts:600:      .from(tasksTable)
+artifacts/api-server/src/routes/discovery.test.ts:601:      .where(eq(tasksTable.projectId, res.body.id));
+artifacts/api-server/src/routes/discovery.test.ts:641:      await db.delete(tasksTable).where(eq(tasksTable.projectId, pid)).catch(() => undefined);
+artifacts/api-server/src/routes/discovery.test.ts:755:    const tasks = await db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId!));
+lib/db/src/schema/tasks.ts:65:export const tasksTable = pgTable("tasks", {
+lib/db/src/schema/tasks.ts:90:  remediationPlan: jsonb("remediation_plan").$type<RemediationPlan>(),
+lib/db/src/schema/tasks.ts:122:export type InsertTask = typeof tasksTable.$inferInsert;
+lib/db/src/schema/tasks.ts:123:export type Task = typeof tasksTable.$inferSelect;
+lib/db/src/schema/discovery.ts:75:  remediationPlan?: RemediationPlan;
+lib/db/src/schema/task_logs.ts:2:import { tasksTable } from "./tasks.js";
+lib/db/src/schema/task_logs.ts:15:    .references(() => tasksTable.id, { onDelete: "cascade" }),
+lib/db/src/schema/events.ts:3:import { tasksTable } from "./tasks.js";
+lib/db/src/schema/events.ts:19:  taskId: text("task_id").references(() => tasksTable.id, { onDelete: "set null" }),
+lib/db/src/schema/ai_executions.ts:4:import { tasksTable } from "./tasks.js";
+lib/db/src/schema/ai_executions.ts:34:    .references(() => tasksTable.id, { onDelete: "set null" }),
+lib/db/src/schema/ai_chats.ts:3:import { tasksTable } from "./tasks.js";
+lib/db/src/schema/ai_chats.ts:23:    .references(() => tasksTable.id, { onDelete: "set null" }),
+artifacts/api-server/src/routes/dashboard.ts:5:  tasksTable,
+artifacts/api-server/src/routes/dashboard.ts:51:          .from(tasksTable)
+artifacts/api-server/src/routes/dashboard.ts:52:          .where(inArray(tasksTable.projectId, projectIds))
+artifacts/api-server/src/routes/dashboard.ts:53:      : ([] as (typeof tasksTable.$inferSelect)[]),
+artifacts/api-server/src/routes/dashboard.test.ts:17:  tasksTable,
+artifacts/api-server/src/routes/dashboard.test.ts:51:  await db.insert(tasksTable).values({
+artifacts/api-server/src/routes/dashboard.test.ts:119:    await db.delete(tasksTable).where(eq(tasksTable.projectId, pid)).catch(() => undefined);
+artifacts/api-server/src/routes/ai/tasks.ts:11:  tasksTable,
+artifacts/api-server/src/routes/ai/tasks.ts:45:    .from(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:46:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai/tasks.ts:84:      .select({ status: tasksTable.status })
+artifacts/api-server/src/routes/ai/tasks.ts:85:      .from(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:86:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai/tasks.ts:109:      .select({ status: tasksTable.status })
+artifacts/api-server/src/routes/ai/tasks.ts:110:      .from(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:111:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai/tasks.ts:150:    .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:154:        eq(tasksTable.id, taskId),
+artifacts/api-server/src/routes/ai/tasks.ts:155:        eq(tasksTable.status, task.status),
+artifacts/api-server/src/routes/ai/tasks.ts:178:      .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:180:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:234:        remediationPlan: task.remediationPlan ?? null,
+artifacts/api-server/src/routes/ai/tasks.ts:244:      .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:246:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:294:      .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:296:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:326:    agentResult.needsHumanReview || task.remediationPlan ? "verifying" : "completed";
+artifacts/api-server/src/routes/ai/tasks.ts:329:  let updated: typeof tasksTable.$inferSelect;
+artifacts/api-server/src/routes/ai/tasks.ts:333:        .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:338:            passed: !agentResult.needsHumanReview && !task.remediationPlan,
+artifacts/api-server/src/routes/ai/tasks.ts:341:              passed: !agentResult.needsHumanReview && !task.remediationPlan,
+artifacts/api-server/src/routes/ai/tasks.ts:347:        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:410:        .from(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:411:        .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai/tasks.ts:471:        .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:473:        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "verifying")))
+artifacts/api-server/src/routes/ai/tasks.ts:507:          .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:509:          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:556:            remediationPlan: task.remediationPlan ?? null,
+artifacts/api-server/src/routes/ai/tasks.ts:566:          .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:568:          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:610:          .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:612:          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/tasks.ts:658:        .update(tasksTable)
+artifacts/api-server/src/routes/ai/tasks.ts:672:        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/ai/chat.ts:24:  tasksTable,
+artifacts/api-server/src/routes/ai/chat.ts:1856:        .from(tasksTable)
+artifacts/api-server/src/routes/ai/chat.ts:1857:        .where(eq(tasksTable.id, effectiveLinkedTaskId))
+artifacts/api-server/src/routes/ai/chat.ts:2581:        .from(tasksTable)
+artifacts/api-server/src/routes/ai/chat.ts:2582:        .where(eq(tasksTable.id, effectiveLinkedTaskId))
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:220:    tasksTable:            { _tag: "tasksTable" },
+lib/api-spec/openapi.yaml:5575:        remediationPlan:
+lib/api-spec/openapi.yaml:6626:        remediationPlan:
+lib/api-zod/src/generated/api.ts:295:export const ListTasksQueryParams = zod.object({
+lib/api-zod/src/generated/api.ts:340:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:374:export const CreateTaskBody = zod.object({
+lib/api-zod/src/generated/api.ts:423:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:497:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:578:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:662:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:736:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:810:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:2672:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/api.ts:4602:  "remediationPlan": zod.object({
+lib/api-zod/src/generated/types/task.ts:8:import type { RemediationPlan } from './remediationPlan';
+lib/api-zod/src/generated/types/task.ts:30:  remediationPlan?: RemediationPlan | null;
+lib/api-zod/src/generated/types/remediationPlanSource.ts:8:import type { RemediationPlanSourceCompleteness } from './remediationPlanSourceCompleteness';
+lib/api-zod/src/generated/types/remediationPlanSource.ts:9:import type { RemediationPlanSourceType } from './remediationPlanSourceType';
+lib/api-zod/src/generated/types/remediationPlan.ts:9:import type { RemediationPlanSource } from './remediationPlanSource';
+lib/api-zod/src/generated/types/remediationPlan.ts:10:import type { RemediationPlanStatus } from './remediationPlanStatus';
+lib/api-zod/src/generated/types/remediationPlan.ts:11:import type { RemediationPlanVersion } from './remediationPlanVersion';
+lib/api-client-react/src/generated/api.schemas.ts:2121:  remediationPlan?: RemediationPlan | null;
+lib/api-client-react/src/generated/api.schemas.ts:2710:  remediationPlan?: RemediationPlan | null;
+artifacts/api-server/src/routes/ai.test.ts:17:  tasksTable,
+artifacts/api-server/src/routes/ai.test.ts:522:  await db.insert(tasksTable).values({
+artifacts/api-server/src/routes/ai.test.ts:646:    await db.delete(tasksTable).where(eq(tasksTable.projectId, pid)).catch(() => undefined);
+artifacts/api-server/src/routes/ai.test.ts:4008:      .from(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4009:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai.test.ts:4038:      .from(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4039:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai.test.ts:4087:    await db.update(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4089:      .where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/ai.test.ts:4127:    await db.update(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4129:      .where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/ai.test.ts:4177:        .from(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4178:        .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai.test.ts:4229:    await db.update(tasksTable).set({ status: "verifying", updatedAt: new Date() }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/ai.test.ts:4245:      .from(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4246:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.test.ts:8:  tasksTable,
+artifacts/api-server/src/routes/tasks.test.ts:44:  const tasks = await db.select().from(tasksTable).where(eq(tasksTable.projectId, id));
+artifacts/api-server/src/routes/tasks.test.ts:50:  await db.delete(tasksTable).where(eq(tasksTable.projectId, id));
+artifacts/api-server/src/routes/tasks.test.ts:112:    await db.update(tasksTable).set({ status: "failed", maxRetries: 1 }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/tasks.test.ts:119:    await db.update(tasksTable).set({ status: "failed" }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/tasks.test.ts:233:    await db.update(tasksTable).set({ status: "failed" }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/tasks.test.ts:311:    await db.insert(tasksTable).values({
+artifacts/api-server/src/routes/tasks.test.ts:351:      await db.update(tasksTable).set({ prompt }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/projects.ts:6:  tasksTable,
+artifacts/api-server/src/routes/projects.ts:446:    db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)),
+artifacts/api-server/src/routes/projects.test.ts:10:  tasksTable,
+artifacts/api-server/src/routes/projects.test.ts:74:  await db.delete(tasksTable).where(eq(tasksTable.projectId, id));
+lib/ai-orchestrator/src/context-loader.ts:4:  tasksTable,
+lib/ai-orchestrator/src/context-loader.ts:188:    .from(tasksTable)
+lib/ai-orchestrator/src/context-loader.ts:189:    .where(eq(tasksTable.projectId, projectId))
+lib/ai-orchestrator/src/context-loader.ts:190:    .orderBy(asc(tasksTable.priority), desc(tasksTable.updatedAt))
+lib/ai-orchestrator/src/context-builder.test.ts:86:  tasksTable:               { _t: "tasks" },
+lib/ai-orchestrator/src/context-builder.test.ts:103:  tasksTable,
+lib/ai-orchestrator/src/context-builder.test.ts:178:    _tableData.set(tasksTable as object, []);
+lib/ai-orchestrator/src/context-builder.test.ts:243:    _tableData.set(tasksTable as object, []);
+lib/ai-orchestrator/src/context-builder.test.ts:316:    expect(_tableHits.get(tasksTable as object) ?? 0).toBe(0);
+lib/ai-orchestrator/src/context-builder.test.ts:478:    _tableData.set(tasksTable as object, []);
+artifacts/api-server/src/lib/task-execution-service.ts:8:  tasksTable,
+artifacts/api-server/src/lib/task-execution-service.ts:39:  task?: typeof tasksTable.$inferSelect;
+artifacts/api-server/src/lib/task-execution-service.ts:168:  const [before] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.taskId)).limit(1);
+artifacts/api-server/src/lib/task-execution-service.ts:209:  const [claimedTask] = await db.update(tasksTable)
+artifacts/api-server/src/lib/task-execution-service.ts:219:    .where(and(eq(tasksTable.id, before.id), inArray(tasksTable.status, allowed)))
+artifacts/api-server/src/lib/task-execution-service.ts:254:    await db.update(tasksTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:257:    }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running")));
+artifacts/api-server/src/lib/task-execution-service.ts:262:    void db.update(tasksTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:267:      eq(tasksTable.id, before.id),
+artifacts/api-server/src/lib/task-execution-service.ts:268:      eq(tasksTable.workerId, workerId),
+artifacts/api-server/src/lib/task-execution-service.ts:269:      eq(tasksTable.status, "running"),
+artifacts/api-server/src/lib/task-execution-service.ts:297:        remediationPlan: before.remediationPlan ?? null,
+artifacts/api-server/src/lib/task-execution-service.ts:319:      await db.update(tasksTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:322:      }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running")));
+artifacts/api-server/src/lib/task-execution-service.ts:342:      await db.update(tasksTable).set({ agentResponse: JSON.stringify(parseReceipt) })
+artifacts/api-server/src/lib/task-execution-service.ts:343:        .where(and(eq(tasksTable.id, before.id), eq(tasksTable.correlationId, correlationId)));
+artifacts/api-server/src/lib/task-execution-service.ts:356:      result.needsHumanReview || before.remediationPlan ? "verifying" : "completed";
+artifacts/api-server/src/lib/task-execution-service.ts:382:      const [row] = await tx.update(tasksTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:389:          passed: taskReceipt.terminalStatus === "SUCCEEDED" && !before.remediationPlan,
+artifacts/api-server/src/lib/task-execution-service.ts:392:            passed: taskReceipt.terminalStatus === "SUCCEEDED" && !before.remediationPlan,
+artifacts/api-server/src/lib/task-execution-service.ts:395:        remediationPlan: markRemediationPlanVerified(
+artifacts/api-server/src/lib/task-execution-service.ts:396:          before.remediationPlan,
+artifacts/api-server/src/lib/task-execution-service.ts:401:      }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running"))).returning();
+artifacts/api-server/src/lib/task-execution-service.ts:473:    await db.update(tasksTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:476:    }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running")));
+artifacts/api-server/src/lib/scan-runner.ts:10:  tasksTable,
+artifacts/api-server/src/lib/scan-runner.ts:326:        id: tasksTable.id,
+artifacts/api-server/src/lib/scan-runner.ts:327:        ruleId: tasksTable.ruleId,
+artifacts/api-server/src/lib/scan-runner.ts:328:        status: tasksTable.status,
+artifacts/api-server/src/lib/scan-runner.ts:330:      .from(tasksTable)
+artifacts/api-server/src/lib/scan-runner.ts:331:      .where(eq(tasksTable.projectId, projectId));
+artifacts/api-server/src/lib/scan-runner.ts:345:      const remediationPlan = buildRemediationPlan({
+artifacts/api-server/src/lib/scan-runner.ts:361:      const remediationPrompt = buildRemediationPrompt(remediationPlan);
+artifacts/api-server/src/lib/scan-runner.ts:363:        remediationPlan.fixDescription ??
+artifacts/api-server/src/lib/scan-runner.ts:364:        `${remediationPlan.occurrenceCount} occurrence(s) detected for ${rule.code}. Review the bounded evidence before execution.`;
+artifacts/api-server/src/lib/scan-runner.ts:369:          .update(tasksTable)
+artifacts/api-server/src/lib/scan-runner.ts:372:            relatedFiles: remediationPlan.relatedFiles,
+artifacts/api-server/src/lib/scan-runner.ts:375:            remediationPlan,
+artifacts/api-server/src/lib/scan-runner.ts:379:          .where(eq(tasksTable.id, activeTask.id));
+artifacts/api-server/src/lib/scan-runner.ts:384:      await tx.insert(tasksTable).values({
+artifacts/api-server/src/lib/scan-runner.ts:399:        relatedFiles: remediationPlan.relatedFiles,
+artifacts/api-server/src/lib/scan-runner.ts:402:        remediationPlan,
+lib/ai-orchestrator/src/agents/task-agent.ts:22:  remediationPlan?: TaskRemediationContext | null;
+lib/api-zod/src/generated/types/index.ts:292:export * from './remediationPlan';
+lib/api-zod/src/generated/types/index.ts:293:export * from './remediationPlanSource';
+lib/api-zod/src/generated/types/index.ts:294:export * from './remediationPlanSourceCompleteness';
+lib/api-zod/src/generated/types/index.ts:295:export * from './remediationPlanSourceType';
+lib/api-zod/src/generated/types/index.ts:296:export * from './remediationPlanStatus';
+lib/api-zod/src/generated/types/index.ts:297:export * from './remediationPlanVersion';
+lib/api-zod/src/generated/types/discoveryRuleViolationItem.ts:9:import type { RemediationPlan } from './remediationPlan';
+lib/api-zod/src/generated/types/discoveryRuleViolationItem.ts:23:  remediationPlan?: RemediationPlan | null;
+artifacts/api-server/src/lib/job-reconciliation.ts:54:  tasksTable,
+artifacts/api-server/src/lib/job-reconciliation.ts:606:      id: tasksTable.id,
+artifacts/api-server/src/lib/job-reconciliation.ts:607:      projectId: tasksTable.projectId,
+artifacts/api-server/src/lib/job-reconciliation.ts:608:      retryCount: tasksTable.retryCount,
+artifacts/api-server/src/lib/job-reconciliation.ts:609:      maxRetries: tasksTable.maxRetries,
+artifacts/api-server/src/lib/job-reconciliation.ts:610:    }).from(tasksTable).where(and(
+artifacts/api-server/src/lib/job-reconciliation.ts:611:      eq(tasksTable.status, "running"),
+artifacts/api-server/src/lib/job-reconciliation.ts:612:      lt(tasksTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:616:      const [updated] = await db.update(tasksTable).set({
+artifacts/api-server/src/lib/job-reconciliation.ts:625:        eq(tasksTable.id, task.id),
+artifacts/api-server/src/lib/job-reconciliation.ts:626:        eq(tasksTable.status, "running"),
+artifacts/api-server/src/lib/job-reconciliation.ts:627:        lt(tasksTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:628:      )).returning({ id: tasksTable.id });
+artifacts/api-server/src/lib/job-reconciliation.ts:809:      db.select({ value: count() }).from(tasksTable).where(and(eq(tasksTable.status, "running"), lt(tasksTable.leaseUntil, now))),
+artifacts/api-server/src/lib/job-reconciliation.ts:811:      db.select({ value: count() }).from(tasksTable).where(and(eq(tasksTable.status, "failed"), eq(tasksTable.retryCount, tasksTable.maxRetries))),
+artifacts/api-server/src/lib/job-reconciliation.ts:916:    lt(tasksTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:917:    isNull(tasksTable.leaseUntil),
+artifacts/api-server/src/lib/job-reconciliation.ts:922:      id: tasksTable.id,
+artifacts/api-server/src/lib/job-reconciliation.ts:923:      projectId: tasksTable.projectId,

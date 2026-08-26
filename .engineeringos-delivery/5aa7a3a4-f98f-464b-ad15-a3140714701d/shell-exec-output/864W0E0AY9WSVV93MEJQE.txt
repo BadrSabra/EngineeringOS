@@ -1,0 +1,809 @@
+?.passed ? <ShieldCheck className="w-4 h-4 text-emerald-500" /> : <FileCheck2 className="w-4 h-4 text-muted-foreground" />}
+artifacts/dashboard/src/pages/Tasks.tsx:392:             {taskStatus === 'completed' && task.verificationResult?.passed
+artifacts/dashboard/src/pages/Tasks.tsx:395:                 ? 'Task completed, but no passed server verification is recorded.'
+artifacts/dashboard/src/pages/Tasks.tsx:398:                   : 'Task ended without a confirmed successful verification.'}
+artifacts/dashboard/src/pages/Tasks.tsx:400:          {task.verificationResult?.steps?.length ? (
+artifacts/dashboard/src/pages/Tasks.tsx:401:            <div className="mt-3 space-y-1">{task.verificationResult.steps.map((step) => (
+artifacts/dashboard/src/pages/Tasks.tsx:407:          ) : <p className="text-xs text-muted-foreground mt-2">No server-owned verification details were recorded.</p>}
+artifacts/dashboard/src/pages/Tasks.tsx:444:  const executeTask = useExecuteTask();
+artifacts/dashboard/src/pages/Tasks.tsx:445:  const retryTask   = useRetryTask();
+artifacts/dashboard/src/pages/Tasks.tsx:446:  const rollbackTask = useRollbackTask();
+artifacts/dashboard/src/pages/Tasks.tsx:454:  const handleAction = (action: 'execute' | 'retry' | 'rollback', taskId: string) => {
+artifacts/dashboard/src/pages/Tasks.tsx:465:    if (action === 'rollback') rollbackTask.mutate({ taskId }, options);
+artifacts/dashboard/src/pages/Tasks.tsx:575:            onRetry={() => void refetch()}
+artifacts/dashboard/src/pages/Tasks.tsx:644:                      title="Execute"
+artifacts/dashboard/src/pages/Tasks.tsx:654:                      title="Retry"
+artifacts/dashboard/src/pages/Tasks.tsx:661:                      onClick={(e) => { e.stopPropagation(); handleAction('rollback', task.id); }}
+artifacts/dashboard/src/pages/Tasks.tsx:662:                      disabled={rollbackTask.isPending}
+artifacts/dashboard/src/pages/Tasks.tsx:704:                          {task.remediationPlan && (
+artifacts/dashboard/src/pages/Tasks.tsx:706:                              aria-labelledby={`remediation-${task.id}`}
+artifacts/dashboard/src/pages/Tasks.tsx:710:                                <h5 id={`remediation-${task.id}`} className="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+artifacts/dashboard/src/pages/Tasks.tsx:715:                                  task.remediationPlan.status === 'verified'
+artifacts/dashboard/src/pages/Tasks.tsx:717:                                    : task.remediationPlan.status === 'ready'
+artifacts/dashboard/src/pages/Tasks.tsx:721:                                  {task.remediationPlan.status === 'verified'
+artifacts/dashboard/src/pages/Tasks.tsx:723:                                    : task.remediationPlan.status === 'ready'
+artifacts/dashboard/src/pages/Tasks.tsx:725:                                      : 'Needs review'}
+artifacts/dashboard/src/pages/Tasks.tsx:729:                                <span className="font-mono font-semibold">{task.remediationPlan.ruleCode}</span>
+artifacts/dashboard/src/pages/Tasks.tsx:731:                                <span>{task.remediationPlan.ruleTitle}</span>
+artifacts/dashboard/src/pages/Tasks.tsx:732:                                <span className="rounded border border-border px-1.5 py-0.5 uppercase">{task.remediationPlan.severity}</span>
+artifacts/dashboard/src/pages/Tasks.tsx:733:                                <span className="text-muted-foreground">{task.remediationPlan.occurrenceCount} occurrence(s)</span>
+artifacts/dashboard/src/pages/Tasks.tsx:735:                              {task.remediationPlan.fixDescription ? (
+artifacts/dashboard/src/pages/Tasks.tsx:738:                                  {task.remediationPlan.fixDescription}
+artifacts/dashboard/src/pages/Tasks.tsx:742:                                  Fix guidance is missing; review the rule before execution.
+artifacts/dashboard/src/pages/Tasks.tsx:748:                                  {task.remediationPlan.evidence.length > 0 ? (
+artifacts/dashboard/src/pages/Tasks.tsx:750:                                      {task.remediationPlan.evidence.slice(0, 5).map((match, index) => (
+artifacts/dashboard/src/pages/Tasks.tsx:756:                                      {task.remediationPlan.evidence.length > 5 && (
+artifacts/dashboard/src/pages/Tasks.tsx:757:                                        <div className="text-[11px] text-muted-foreground">+{task.remediationPlan.evidence.length - 5} more evidence items</div>
+artifacts/dashboard/src/pages/Tasks.tsx:765:                                  <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">Required verification</div>
+artifacts/dashboard/src/pages/Tasks.tsx:766:                                  {task.remediationPlan.verificationSteps.length > 0 ? (
+artifacts/dashboard/src/pages/Tasks.tsx:768:                                      {task.remediationPlan.verificationSteps.map((step, index) => (
+artifacts/dashboard/src/pages/Tasks.tsx:773:                                    <div className="text-xs text-amber-600 dark:text-amber-400">No verification steps supplied.</div>
+artifacts/dashboard/src/pages/Tasks.tsx:778:                                Source: {task.remediationPlan.source.type}
+artifacts/dashboard/src/pages/Tasks.tsx:779:                                {task.remediationPlan.source.revision
+artifacts/dashboard/src/pages/Tasks.tsx:780:                                  ? ` · revision ${task.remediationPlan.source.revision.slice(0, 12)}`
+artifacts/dashboard/src/pages/Tasks.tsx:818:                            <div className="text-sm">The agent can report activity and verification here. Internal prompts and provider diagnostics are not shown.</div>
+artifacts/dashboard/src/pages/Tasks.tsx:845:                          {task.verificationResult && (
+artifacts/dashboard/src/pages/Tasks.tsx:851:                                {task.verificationResult.steps.map((step, i) => (
+artifacts/dashboard/src/pages/Rules.tsx:357:          <RequestError message={error instanceof Error ? error.message : 'Unable to load rules.'} onRetry={() => void refetch()} />
+artifacts/dashboard/src/pages/Landing.tsx:6:  { icon: GitMerge, label: 'Workflow orchestration across scan, review, and release' },
+artifacts/dashboard/src/pages/FlightDeck.tsx:31:  { label: 'Review', states: ['READY_FOR_REVIEW'] },
+artifacts/dashboard/src/pages/FlightDeck.tsx:135:    return 'Review the blocked receipt, then rerun the approved validation before applying or delivering.';
+artifacts/dashboard/src/pages/FlightDeck.tsx:354:        ? 'Retry budget exhausted'
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:106:    remediationPlan?: {
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:107:      status: 'needs_review' | 'ready' | 'verified';
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:865:            <p className="text-sm text-muted-foreground">EngineeringOS has analyzed your repository. Review and confirm.</p>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:994:                    <span>{v.remediationPlan?.status === 'ready' ? 'Ready to execute' : 'Needs review'}</span>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:995:                    {v.remediationPlan?.relatedFiles?.length ? (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:996:                      <span>{v.remediationPlan.relatedFiles.length} affected file(s)</span>
+artifacts/dashboard/src/pages/Workflows.test.tsx:14:  useRetryWorkflowPhase: vi.fn(),
+artifacts/dashboard/src/pages/Workflows.test.tsx:28:  useRetryWorkflowPhase,
+artifacts/dashboard/src/pages/Workflows.test.tsx:80:        operatorAction: 'Retry in a moment; configure another provider if the issue persists.',
+artifacts/dashboard/src/pages/Workflows.test.tsx:96:    useRetryWorkflowPhase,
+artifacts/dashboard/src/pages/Workflows.test.tsx:111:    expect(within(card).getByText('Next step: Retry in a moment; configure another provider if the issue persists.')).toBeInTheDocument();
+artifacts/dashboard/src/pages/ProjectDetail.tsx:125:        onRetry={() => void Promise.all([refetchProject(), refetchSummary()])}
+artifacts/dashboard/src/pages/Workflows.tsx:10:  useRetryWorkflowPhase,
+artifacts/dashboard/src/pages/Workflows.tsx:274:  const retryPhase = useRetryWorkflowPhase();
+artifacts/dashboard/src/pages/Workflows.tsx:275:  const rollbackPhase = useRollbackWorkflowPhase();
+artifacts/dashboard/src/pages/Workflows.tsx:286:    return <RequestError message={error instanceof Error ? error.message : 'Unable to load executions.'} onRetry={() => void refetch()} />;
+artifacts/dashboard/src/pages/Workflows.tsx:363:              <RotateCcw className="w-3 h-3" /> Retry
+artifacts/dashboard/src/pages/Workflows.tsx:373:              const rollbackTargets = (exec.completedPhases ?? []).filter((phaseName) => {
+artifacts/dashboard/src/pages/Workflows.tsx:377:              if (rollbackTargets.length === 0) return null;
+artifacts/dashboard/src/pages/Workflows.tsx:380:                  {rollbackTargets.map((targetPhase) => (
+artifacts/dashboard/src/pages/Workflows.tsx:389:                          rollbackPhase.mutate(
+artifacts/dashboard/src/pages/Workflows.tsx:395:                      disabled={rollbackPhase.isPending}
+artifacts/dashboard/src/pages/Workflows.tsx:471:          <RequestError message={error instanceof Error ? error.message : 'Unable to load workflows.'} onRetry={() => void refetch()} />
+artifacts/dashboard/src/pages/Workflows.tsx:551:                        <Play className="w-4 h-4" /> Execute
+artifacts/dashboard/src/pages/Projects.test.tsx:10:  isRetryableProjectError: () => false,
+artifacts/dashboard/src/pages/MissionControl.test.tsx:412:        { id: 'archived-1', state: 'COMPLETED', objective: 'Archived first', attempts: 1, eventCount: 2, evidence: { verdict: 'VERIFIED' }, recoveryAction: 'Retry' },
+artifacts/dashboard/src/pages/MissionControl.test.tsx:453:          { type: 'retry', timestamp: '2026-08-22T10:02:00.000Z', detail: 'Retry bounded' },
+artifacts/dashboard/src/pages/MissionControl.test.tsx:529:        recovery: { attempt: 2, provider: 'openrouter', note: 'Retry,\nthen verify' },
+artifacts/dashboard/src/pages/MissionControl.test.tsx:533:          { type: 'retry', timestamp: '2026-08-22T10:02:00.000Z', detail: 'Retry bounded' },
+artifacts/dashboard/src/pages/Graph.tsx:306:        <RequestError message="Unable to load projects for the graph." onRetry={() => void refetchProjects()} />
+artifacts/dashboard/src/pages/Graph.tsx:316:          onRetry={() => void Promise.all([refetchEntities(), refetchRelationships(), refetchSummary()])}
+artifacts/dashboard/src/pages/Events.tsx:189:                Retry
+artifacts/dashboard/src/pages/AiChat.tsx:17:  isRetryableProjectError,
+artifacts/dashboard/src/pages/AiChat.tsx:58:  AiCodeReview,
+artifacts/dashboard/src/pages/AiChat.tsx:138:  structuredTask?: 'analyze' | 'review';
+artifacts/dashboard/src/pages/AiChat.tsx:194:          : 'Review required';
+artifacts/dashboard/src/pages/AiChat.tsx:197:    : statusLabel === 'Blocked' || statusLabel === 'Review required'
+artifacts/dashboard/src/pages/AiChat.tsx:269:        title: 'The browser check exceeds the Preview resource limits.',
+artifacts/dashboard/src/pages/AiChat.tsx:599:      ? ` Retry in ${Math.ceil(metric.cooldownRemainingMs / 1000)}s.`
+artifacts/dashboard/src/pages/AiChat.tsx:724:    guidance = 'The provider is temporarily unavailable. Retry in a moment; choose another provider if the issue persists.';
+artifacts/dashboard/src/pages/AiChat.tsx:2384:              Searches, directory listings, previews, failed reads, and diagnostics are tracked separately and cannot prove a Finding.
+artifacts/dashboard/src/pages/AiChat.tsx:2671:    const verification = (event.payload as { behavioralVerification?: unknown } | undefined)?.behavioralVerification;
+artifacts/dashboard/src/pages/AiChat.tsx:2672:    return Array.isArray(verification) && verification.length > 0 &&
+artifacts/dashboard/src/pages/AiChat.tsx:2673:      verification.every((item) => (item as { status?: unknown })?.status === 'passed');
+artifacts/dashboard/src/pages/AiChat.tsx:2687:  const rollbackFailures = Array.isArray(applyPayload.rollbackFailures)
+artifacts/dashboard/src/pages/AiChat.tsx:2688:    ? applyPayload.rollbackFailures
+artifacts/dashboard/src/pages/AiChat.tsx:2699:    || rollbackFailures.length > 0
+artifacts/dashboard/src/pages/AiChat.tsx:2929:          ? 'The validation failure remains unresolved; another bounded repair or manual review is required.'
+artifacts/dashboard/src/pages/AiChat.tsx:2949:      return 'Ready for review';
+artifacts/dashboard/src/pages/AiChat.tsx:3112:  verificationResults,
+artifacts/dashboard/src/pages/AiChat.tsx:3126:  verificationResults: Record<string, BehavioralVerification>;
+artifacts/dashboard/src/pages/AiChat.tsx:3141:  const hasPatchConflict = changes.some((change) => Boolean(verificationResults[change.path]?.conflict));
+artifacts/dashboard/src/pages/AiChat.tsx:3206:                   ? 'Isolated workspace ready for review'
+artifacts/dashboard/src/pages/AiChat.tsx:3207:                   : approvalRequired ? 'Review and approve this rebased diff' : 'Waiting for your approval'}
+artifacts/dashboard/src/pages/AiChat.tsx:3275:                    {verificationResults[change.path] && (
+artifacts/dashboard/src/pages/AiChat.tsx:3277:                        verificationResults[change.path].status === 'failed' ||
+artifacts/dashboard/src/pages/AiChat.tsx:3278:                        verificationResults[change.path].status === 'unavailable'
+artifacts/dashboard/src/pages/AiChat.tsx:3280:                          : verificationResults[change.path].status === 'passed'
+artifacts/dashboard/src/pages/AiChat.tsx:3284:                        Behavioral verification: {verificationResults[change.path].status}
+artifacts/dashboard/src/pages/AiChat.tsx:3285:                        {verificationResults[change.path].detail
+artifacts/dashboard/src/pages/AiChat.tsx:3286:                          ? ` — ${verificationResults[change.path].detail}`
+artifacts/dashboard/src/pages/AiChat.tsx:3290:                    {verificationResults[change.path]?.conflict && (
+artifacts/dashboard/src/pages/AiChat.tsx:3292:                        Patch conflict: {verificationResults[change.path].conflict?.kind === 'hunk_mismatch'
+artifacts/dashboard/src/pages/AiChat.tsx:3293:                          ? `hunk ${((verificationResults[change.path].conflict?.hunkIndex ?? 0) + 1)} no longer matches`
+artifacts/dashboard/src/pages/AiChat.tsx:3466:            Apply and behavioral verification passed for {paths.length} file{paths.length !== 1 ? 's' : ''}.
+artifacts/dashboard/src/pages/AiChat.tsx:3971:            <span>{result.kind === 'WORKSPACE_REVIEW_RESULT' ? 'Workspace review' : 'Forensic report'}</span>
+artifacts/dashboard/src/pages/AiChat.tsx:4160:              This plan has no verified file scope. Retry the plan after the relevant source files are discovered; no Build Mode or write access is available.
+artifacts/dashboard/src/pages/AiChat.tsx:4196:              <span className="mr-auto text-[10px] text-muted-foreground">Approved for Build. Changes will remain in a reviewable diff until you apply them.</span>
+artifacts/dashboard/src/pages/AiChat.tsx:4244:  onRetryStructuredTask,
+artifacts/dashboard/src/pages/AiChat.tsx:4257:  onRetryStructuredTask?: (task: 'analyze' | 'review', messageId: string) => void;
+artifacts/dashboard/src/pages/AiChat.tsx:4375:                {msg.structuredTask && onRetryStructuredTask && (
+artifacts/dashboard/src/pages/AiChat.tsx:4381:                    onClick={() => onRetryStructuredTask(msg.structuredTask!, msg.id)}
+artifacts/dashboard/src/pages/AiChat.tsx:4383:                    aria-label={`Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
+artifacts/dashboard/src/pages/AiChat.tsx:4386:                    {retryPending ? 'Retrying…' : `Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
+artifacts/dashboard/src/pages/AiChat.tsx:4990:/** Format a code review result as a markdown chat message. */
+artifacts/dashboard/src/pages/AiChat.tsx:4991:function formatCodeReview(data: AiCodeReview): string {
+artifacts/dashboard/src/pages/AiChat.tsx:5001:    `## Code Review — ${data.overallScore}/10  ${verdictLabel}\n`,
+artifacts/dashboard/src/pages/AiChat.tsx:5030:  { id: 'review', label: 'Code Review', icon: Code2, prompt: 'Review the codebase and identify the most critical quality issues.' },
+artifacts/dashboard/src/pages/AiChat.tsx:5061:  execute: 'Execute',
+artifacts/dashboard/src/pages/AiChat.tsx:5080:      return 'Reviewing recent changes';
+artifacts/dashboard/src/pages/AiChat.tsx:5237:              ? 'Ready for review'
+artifacts/dashboard/src/pages/AiChat.tsx:5614:    git_diff: 'Review recent changes',
+artifacts/dashboard/src/pages/AiChat.tsx:5615:    git_log: 'Review repository history',
+artifacts/dashboard/src/pages/AiChat.tsx:6201:      return 'Ready for review';
+artifacts/dashboard/src/pages/AiChat.tsx:6467:type AuditPreview = ExportAiExecutionAudit200;
+artifacts/dashboard/src/pages/AiChat.tsx:6487:  onPreview,
+artifacts/dashboard/src/pages/AiChat.tsx:6489:  previewPending,
+artifacts/dashboard/src/pages/AiChat.tsx:6490:  auditPreview,
+artifacts/dashboard/src/pages/AiChat.tsx:6491:  auditPreviewError,
+artifacts/dashboard/src/pages/AiChat.tsx:6492:  onRetryPreview,
+artifacts/dashboard/src/pages/AiChat.tsx:6493:  onClosePreview,
+artifacts/dashboard/src/pages/AiChat.tsx:6524:  onPreview?: () => void;
+artifacts/dashboard/src/pages/AiChat.tsx:6526:  previewPending?: boolean;
+artifacts/dashboard/src/pages/AiChat.tsx:6527:  auditPreview?: AuditPreview | null;
+artifacts/dashboard/src/pages/AiChat.tsx:6528:  auditPreviewError?: string | null;
+artifacts/dashboard/src/pages/AiChat.tsx:6529:  onRetryPreview?: () => void;
+artifacts/dashboard/src/pages/AiChat.tsx:6530:  onClosePreview?: () => void;
+artifacts/dashboard/src/pages/AiChat.tsx:6676:                      onClick={onPreview}
+artifacts/dashboard/src/pages/AiChat.tsx:6677:                      disabled={controlPending || exportPending || previewPending}
+artifacts/dashboard/src/pages/AiChat.tsx:6678:                      aria-busy={previewPending}
+artifacts/dashboard/src/pages/AiChat.tsx:6679:                      title="Preview the redacted execution audit"
+artifacts/dashboard/src/pages/AiChat.tsx:6681:                      {previewPending
+artifacts/dashboard/src/pages/AiChat.tsx:6684:                      {previewPending ? 'Loading…' : 'Preview audit'}
+artifacts/dashboard/src/pages/AiChat.tsx:6691:                      disabled={controlPending || exportPending || previewPending}
+artifacts/dashboard/src/pages/AiChat.tsx:6765:      {(auditPreview || auditPreviewError) && (
+artifacts/dashboard/src/pages/AiChat.tsx:6766:        <div className="border-b border-border/40 bg-background/30 px-3 py-3" aria-label="Redacted audit preview">
+artifacts/dashboard/src/pages/AiChat.tsx:6767:          {auditPreviewError ? (
+artifacts/dashboard/src/pages/AiChat.tsx:6771:                <div className="text-[11px] font-semibold text-foreground">Audit preview temporarily unavailable</div>
+artifacts/dashboard/src/pages/AiChat.tsx:6780:                    onClick={onRetryPreview}
+artifacts/dashboard/src/pages/AiChat.tsx:6781:                    disabled={previewPending}
+artifacts/dashboard/src/pages/AiChat.tsx:6782:                    aria-busy={previewPending}
+artifacts/dashboard/src/pages/AiChat.tsx:6784:                    {previewPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+artifacts/dashboard/src/pages/AiChat.tsx:6785:                    {previewPending ? 'Retrying…' : 'Retry preview'}
+artifacts/dashboard/src/pages/AiChat.tsx:6789:                    onClick={onClosePreview}
+artifacts/dashboard/src/pages/AiChat.tsx:6791:                    aria-label="Close audit preview"
+artifacts/dashboard/src/pages/AiChat.tsx:6798:          ) : auditPreview && (
+artifacts/dashboard/src/pages/AiChat.tsx:6804:                Redacted audit preview
+artifacts/dashboard/src/pages/AiChat.tsx:6812:              onClick={onClosePreview}
+artifacts/dashboard/src/pages/AiChat.tsx:6814:              aria-label="Close audit preview"
+artifacts/dashboard/src/pages/AiChat.tsx:6820:            {((auditPreview.redaction?.excluded ?? []) as unknown[]).map((category) => (
+artifacts/dashboard/src/pages/AiChat.tsx:6830:            {JSON.stringify(auditPreview, null, 2)}
+artifacts/dashboard/src/pages/AiChat.tsx:6859:                    ? 'Collected evidence and the redacted audit are available for review, but cancellation leaves the audit incomplete. Start a new run before relying on a complete finding.'
+artifacts/dashboard/src/pages/AiChat.tsx:6860:                    : 'Collected evidence is retained and the redacted audit is available for review.'
+artifacts/dashboard/src/pages/AiChat.tsx:7011:  const [auditPreviewPending, setAuditPreviewPending] = useState(false);
+artifacts/dashboard/src/pages/AiChat.tsx:7012:  const [auditPreview, setAuditPreview] = useState<AuditPreview | null>(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7013:  const [auditPreviewError, setAuditPreviewError] = useState<string | null>(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7027:  const [verificationResults, setVerificationResults] = useState<Record<string, BehavioralVerification>>({});
+artifacts/dashboard/src/pages/AiChat.tsx:7078:  const [structuredRetryMessageId, setStructuredRetryMessageId] = useState<string | null>(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7079:  const structuredTaskRunRef = useRef<{ task: 'analyze' | 'review'; prompt: string; placeholderId: string } | null>(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7185:    setAuditPreview(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7186:    setAuditPreviewError(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7189:  async function fetchExecutionAudit(): Promise<{ audit: AuditPreview; filename: string }> {
+artifacts/dashboard/src/pages/AiChat.tsx:7201:      audit: await response.json() as AuditPreview,
+artifacts/dashboard/src/pages/AiChat.tsx:7209:  async function previewExecutionAudit() {
+artifacts/dashboard/src/pages/AiChat.tsx:7210:    if (!activeExecution?.id || auditPreviewPending || auditExportPending) return;
+artifacts/dashboard/src/pages/AiChat.tsx:7211:    setAuditPreviewPending(true);
+artifacts/dashboard/src/pages/AiChat.tsx:7212:    setAuditPreviewError(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7215:      setAuditPreview(audit);
+artifacts/dashboard/src/pages/AiChat.tsx:7217:      setAuditPreviewError('temporary_network_failure');
+artifacts/dashboard/src/pages/AiChat.tsx:7219:        title: 'Audit preview temporarily unavailable',
+artifacts/dashboard/src/pages/AiChat.tsx:7224:      setAuditPreviewPending(false);
+artifacts/dashboard/src/pages/AiChat.tsx:7229:    if (!activeExecution?.id || auditExportPending || auditPreviewPending) return;
+artifacts/dashboard/src/pages/AiChat.tsx:7486:  function startStructuredTask(task: 'analyze' | 'review', prompt: string, retryMessageId?: string) {
+artifacts/dashboard/src/pages/AiChat.tsx:7489:    const title = task === 'analyze' ? 'Analyzing scan…' : 'Reviewing code…';
+artifacts/dashboard/src/pages/AiChat.tsx:7490:    const startLabel = task === 'analyze' ? 'Starting scan analysis' : 'Starting code review';
+artifacts/dashboard/src/pages/AiChat.tsx:7517:          label: `${event.task === 'analyze' ? 'Analysis' : 'Review'} task accepted`,
+artifacts/dashboard/src/pages/AiChat.tsx:7551:          label: task === 'analyze' ? 'Analysis result received' : 'Review result received',
+artifacts/dashboard/src/pages/AiChat.tsx:7555:        setStructuredRetryMessageId(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7565:              : formatCodeReview(event.result as unknown as AiCodeReview),
+artifacts/dashboard/src/pages/AiChat.tsx:7576:        setStructuredRetryMessageId(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7597:        setStructuredRetryMessageId(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7617:  function retryStructuredTask(task: 'analyze' | 'review', messageId: string) {
+artifacts/dashboard/src/pages/AiChat.tsx:7619:    if (structuredRetryMessageId || isTaskSending || !run || run.task !== task) return;
+artifacts/dashboard/src/pages/AiChat.tsx:7620:    setStructuredRetryMessageId(messageId);
+artifacts/dashboard/src/pages/AiChat.tsx:7651:  const verificationKey = sessionId ? `eos_verification_${sessionId}` : undefined;
+artifacts/dashboard/src/pages/AiChat.tsx:7654:    if (!pendingKey || !verificationKey) return;
+  };
+}
+
+async function createReleaseSignInUrl(page: Page) {
+  const secretKey = process.env.CLERK_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error(
+      "CLERK_SECRET_KEY is required for the release-only programmatic Clerk handoff.",
+    );
+  }
+
+  const headers = {
+    Authorization: `Bearer ${secretKey}`,
+    "Content-Type": "application/json",
+  };
+  const userResponse = await page.request.get(
+    `https://api.clerk.com/v1/users?email_address=${encodeURIComponent(TEST_USER.email)}`,
+    { headers },
+  );
+  let userId = parseClerkUserLookupResponse(await userResponse.json());
+
+  if (!userId) {
+    const createdResponse = await page.request.post(
+      "https://api.clerk.com/v1/users",
+      {
+        headers,
+        data: {
+          email_address: [TEST_USER.email],
+          first_name: TEST_USER.firstName,
+          last_name: TEST_USER.lastName,
+          skip_password_checks: true,
+          skip_password_requirement: true,
+        },
+      },
+    );
+    userId = parseCreatedClerkUserResponse(await createdResponse.json());
+  }
+
+  if (!userId) {
+    throw new Error(
+      "The isolated Clerk release user could not be provisioned.",
+    );
+  }
+
+  const tokenResponse = await page.request.post(
+    "https://api.clerk.com/v1/sign_in_tokens",
+    { headers, data: { user_id: userId } },
+  );
+  const token = parseClerkSignInTokenResponse(await tokenResponse.json());
+
+  return `${new URL(DASHBOARD_PATH, page.url()).toString()}sign-in?__clerk_ticket=${encodeURIComponent(token)}`;
+}
+
+async function programmaticSignIn(page: Page) {
+  await page.goto(DASHBOARD_PATH);
+  await expect(
+    page.getByRole("link", { name: "Sign In", exact: true }),
+  ).toBeVisible();
+
+  const helper =
+    globalThis.signInClerkUser ??
+    globalThis.__ENGINEERINGOS_SIGN_IN_CLERK_USER__;
+  if (!helper) {
+    if (process.env.RUN_CONTROLLED_RELEASE_VALIDATION !== "1") {
+      throw new Error(
+        "Clerk browser helper is unavailable. Run this journey in the Replit browser runner, which injects signInClerkUser.",
+      );
+    }
+    await page.goto(await createReleaseSignInUrl(page));
+    await expect(page).toHaveURL(
+      new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
+    );
+    return;
+  }
+  const signInUrl = await helper({
+    ...TEST_USER,
+    ttl: 900,
+    basePath: DASHBOARD_PATH,
+  });
+  await page.goto(signInUrl);
+  await expect(page).toHaveURL(
+    new RegExp(`${DASHBOARD_PATH.replaceAll("/", "\\/")}$`),
+  );
+}
+
+async function openNavigation(page: Page, label: string, path: string) {
+  await page.getByRole("link", { name: label, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`${path.replaceAll("/", "\\/")}$`));
+}
+
+function apiUrl(page: Page, path: string): string {
+  const apiBaseUrl = process.env.DASHBOARD_E2E_API_BASE_URL;
+  return new URL(path, apiBaseUrl ? apiBaseUrl : page.url()).toString();
+}
+
+async function liveRequest(
+  page: Page,
+  path: string,
+  options?: { method?: string; body?: unknown; timeout?: number },
+): Promise<{ status: number; body: string }> {
+  return page.evaluate(
+    async ({ url, method, body, timeout }) => {
+      const response = await fetch(url, {
+        method,
+        credentials: "include",
+        headers:
+          body === undefined
+            ? undefined
+            : { "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: timeout ? AbortSignal.timeout(timeout) : undefined,
+      });
+      return { status: response.status, body: await response.text() };
+    },
+    {
+      url: apiUrl(page, path),
+      method: options?.method ?? "GET",
+      body: options?.body,
+      timeout: options?.timeout,
+    },
+  );
+}
+
+type OriginDiagnostic = {
+  origin: string;
+  phase: "GET" | "preflight" | "mutation" | "rejection";
+  status?: number;
+  headers?: Record<string, string>;
+  error?: string;
+};
+const recordedOriginDiagnostics: OriginDiagnostic[] = [];
+
+function originDiagnosticPath(): string | undefined {
+  return process.env.DASHBOARD_E2E_ORIGIN_DIAGNOSTICS_PATH;
+}
+
+function relevantOriginHeaders(
+  headers: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    ORIGIN_DIAGNOSTIC_HEADERS.flatMap((name) =>
+      headers[name] ? [[name, headers[name]]] : [],
+    ),
+  );
+}
+
+async function writeOriginDiagnostics() {
+  const outputPath = originDiagnosticPath();
+  if (!outputPath) return;
+  await mkdir(dirname(outputPath), { recursive: true });
+  await writeFile(
+    outputPath,
+    `${JSON.stringify({ diagnostics: recordedOriginDiagnostics }, null, 2)}\n`,
+    "utf8",
+  );
+}
+
+async function expectOriginCanUseApi(page: Page, origin: string) {
+  const apiBaseUrl = process.env.DASHBOARD_E2E_API_BASE_URL;
+  if (!apiBaseUrl) {
+    throw new Error(
+      "DASHBOARD_E2E_API_BASE_URL is required for origin checks.",
+    );
+  }
+  const healthUrl = new URL("/api/healthz", apiBaseUrl).toString();
+  const mutationUrl = new URL("/api/ai/chat", apiBaseUrl).toString();
+  const commonHeaders = { Origin: origin };
+
+  const diagnostics: OriginDiagnostic[] = [];
+  const check = async (
+    phase: OriginDiagnostic["phase"],
+    request: () => Promise<import("@playwright/test").APIResponse>,
+    assertion: (
+      response: import("@playwright/test").APIResponse,
+    ) => Promise<void>,
+  ) => {
+    try {
+      const response = await request();
+      diagnostics.push({
+        origin,
+        phase,
+        status: response.status(),
+        headers: relevantOriginHeaders(response.headers()),
+      });
+      recordedOriginDiagnostics.push(diagnostics.at(-1)!);
+      await assertion(response);
+    } catch (error) {
+      const current = diagnostics.at(-1);
+      if (current?.phase !== phase) {
+        diagnostics.push({ origin, phase });
+      }
+      diagnostics.at(-1)!.error = "origin check failed";
+      await writeOriginDiagnostics();
+      throw error;
+    }
+  };
+
+  await check(
+    "GET",
+    () => page.request.get(healthUrl, { headers: commonHeaders }),
+    async (response) => {
+      expect(response.status(), `${origin} credentialed GET status`).toBe(200);
+      expect(response.headers()["access-control-allow-origin"]).toBe(origin);
+      expect(response.headers()["access-control-allow-credentials"]).toBe(
+        "true",
+      );
+    },
+  );
+  await check(
+    "preflight",
+    () =>
+      page.request.fetch(mutationUrl, {
+        method: "OPTIONS",
+        headers: {
+          ...commonHeaders,
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "content-type",
+        },
+      }),
+    async (response) => {
+      expect(response.status(), `${origin} mutation preflight status`).toBe(
+        204,
+      );
+      expect(response.headers()["access-control-allow-origin"]).toBe(origin);
+      expect(
+        response.headers()["access-control-allow-credentials"],
+        `${origin} mutation preflight credentials`,
+      ).toBe("true");
+      expect(
+        response
+          .headers()
+          ["access-control-allow-methods"]?.split(",")
+          .map((method) => method.trim().toUpperCase()),
+        `${origin} mutation preflight methods`,
+      ).toContain("POST");
+      expect(
+        response
+          .headers()
+          ["access-control-allow-headers"]?.split(",")
+          .map((header) => header.trim().toLowerCase()),
+        `${origin} mutation preflight headers`,
+      ).toContain("content-type");
+    },
+  );
+  await check(
+    "mutation",
+    () =>
+      page.request.post(mutationUrl, {
+        headers: { ...commonHeaders, "Content-Type": "application/json" },
+        data: { message: "origin contract" },
+      }),
+    async (response) => {
+      expect(
+        response.status(),
+        `${origin} state-changing request must pass origin protection`,
+      ).not.toBe(403);
+      expect(response.headers()["access-control-allow-origin"]).toBe(origin);
+      expect(response.headers()["access-control-allow-credentials"]).toBe(
+        "true",
+      );
+    },
+  );
+  await writeOriginDiagnostics();
+}
+
+async function expectHostileOriginRejected(page: Page) {
+  const apiBaseUrl = process.env.DASHBOARD_E2E_API_BASE_URL;
+  if (!apiBaseUrl)
+    throw new Error(
+      "DASHBOARD_E2E_API_BASE_URL is required for origin checks.",
+    );
+  const mutationUrl = new URL("/api/ai/chat", apiBaseUrl).toString();
+  const uploadUrl = new URL("/api/upload/archive", apiBaseUrl).toString();
+  const liveUpdateUrl = new URL("/api/ai/chat/stream", apiBaseUrl).toString();
+  const diagnostic: OriginDiagnostic = {
+    origin: HOSTILE_ORIGIN,
+    phase: "rejection",
+  };
+  recordedOriginDiagnostics.push(diagnostic);
+  try {
+    const response = await page.request.post(mutationUrl, {
+      headers: {
+        Origin: HOSTILE_ORIGIN,
+        "Content-Type": "application/json",
+      },
+      data: { message: "hostile origin contract" },
+    });
+    diagnostic.status = response.status();
+    diagnostic.headers = relevantOriginHeaders(response.headers());
+    expect(response.status()).toBe(403);
+    expect(response.headers()["access-control-allow-origin"]).toBeUndefined();
+    expect(
+      response.headers()["access-control-allow-credentials"],
+    ).toBeUndefined();
+
+    const hostileUpload = await page.request.post(uploadUrl, {
+      headers: { Origin: HOSTILE_ORIGIN },
+      multipart: {
+        archive: {
+          name: "hostile-dashboard-journey.zip",
+          mimeType: "application/zip",
+          buffer: Buffer.from("not an archive"),
+        },
+      },
+    });
+    expect(hostileUpload.status()).toBe(403);
+    expect(
+      hostileUpload.headers()["access-control-allow-origin"],
+    ).toBeUndefined();
+
+    const hostileLiveUpdate = await page.request.post(liveUpdateUrl, {
+      headers: {
+        Origin: HOSTILE_ORIGIN,
+        "Content-Type": "application/json",
+      },
+      data: {},
+    });
+    expect(hostileLiveUpdate.status()).toBe(403);
+    expect(
+      hostileLiveUpdate.headers()["access-control-allow-origin"],
+    ).toBeUndefined();
+  } catch (error) {
+    diagnostic.error = "origin rejection check failed";
+    await writeOriginDiagnostics();
+    throw error;
+  }
+  await writeOriginDiagnostics();
+}
+
+function parseSse(body: string): Array<Record<string, unknown>> {
+  return body.split(/\n\n+/).flatMap((chunk) => {
+    const data = chunk
+      .split("\n")
+      .find((line) => line.startsWith("data: "))
+      ?.slice("data: ".length);
+    if (!data) return [];
+    try {
+      const value = JSON.parse(data) as unknown;
+      return value && typeof value === "object"
+        ? [value as Record<string, unknown>]
+        : [];
+    } catch {
+      return [];
+    }
+  });
+}
+
+async function liveJson(
+  page: Page,
+  path: string,
+): Promise<Record<string, any>> {
+  const response = await liveRequest(page, path);
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(
+      `Live correlation request failed: ${path} (${response.status})`,
+    );
+  }
+  return JSON.parse(response.body) as Record<string, any>;
+}
+
+async function liveArray(
+  page: Page,
+  path: string,
+): Promise<Array<Record<string, any>>> {
+  const response = await liveRequest(page, path);
+  if (response.status === 404) return [];
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(
+      `Live correlation request failed: ${path} (${response.status})`,
+    );
+  }
+  const value = JSON.parse(response.body);
+  return Array.isArray(value) ? value : [];
+}
+
+async function liveOptionalRecord(
+  page: Page,
+  path: string,
+): Promise<Record<string, any> | undefined> {
+  const response = await liveRequest(page, path);
+  if (response.status === 404) return undefined;
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(
+      `Live correlation request failed: ${path} (${response.status})`,
+    );
+  }
+  const value = JSON.parse(response.body);
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, any>)
+    : undefined;
+}
+
+test.describe("EngineeringOS dashboard browser journey", () => {
+  test("exports one redacted live-provider mission correlation report", async ({
+    page,
+  }) => {
+    await expect(preview).toContainText("private runtime paths");
+    await expect(proof).toContainText("Cancelled");
+    await expect(proof).toContainText("Revision: e2e-revision-42");
+    await expect(proof).toContainText("Terminal reason: cancel_requested");
+    expect(auditRequests).toHaveLength(2);
+
+    await preview.getByRole("button", { name: "Close audit preview" }).click();
+    const downloadPromise = page.waitForEvent("download");
+    await proof.getByRole("button", { name: "Export audit" }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("cancelled-server-audit.json");
+    expect(auditRequests).toHaveLength(3);
+
+    await page.reload();
+    const reloadedProof = page.getByLabel("Agent execution proof");
+    await expect(reloadedProof).toBeVisible();
+    await expect(reloadedProof).toContainText("Cancelled");
+    await expect(reloadedProof).toContainText("Revision: e2e-revision-42");
+    await expect(page.getByLabel("Redacted audit preview")).toBeHidden();
+    expect(auditRequests).toHaveLength(3);
+  });
+
+  test("uploads an archive and renders a live task update", async ({
+    page,
+  }) => {
+    const taskId = "e2e-live-task";
+    const liveLog = {
+      id: "e2e-live-log",
+      taskId,
+      level: "info",
+      message: "Live update received from the server",
+      timestamp: "2026-01-01T00:00:02.000Z",
+    };
+    await installApiFixtures(page, {
+      archiveUpload: {
+        uploadId: "e2e-upload",
+        originalName: "dashboard-journey.zip",
+      },
+      liveTask: {
+        id: taskId,
+        title: "Verify live dashboard updates",
+        projectId: "e2e-project",
+        log: liveLog,
+      },
+    });
+    await programmaticSignIn(page);
+
+    // This is a valid, empty ZIP archive. Keeping it inline makes the browser
+    // test self-contained while still exercising FormData and multipart bytes.
+    const uploadResult = await page.evaluate(async (apiBaseUrl) => {
+      const bytes = Uint8Array.from(
+        atob("UEsFBgAAAAAAAAAAAAAAAAAAAAAAAA=="),
+        (character) => character.charCodeAt(0),
+      );
+      const body = new FormData();
+      body.append(
+        "archive",
+        new Blob([bytes], { type: "application/zip" }),
+        "dashboard-journey.zip",
+      );
+      const response = await fetch(
+        new URL("/api/upload/archive", apiBaseUrl).toString(),
+        { method: "POST", credentials: "include", body },
+      );
+      return {
+        status: response.status,
+        body: (await response.json()) as Record<string, unknown>,
+      };
+    }, process.env.DASHBOARD_E2E_API_BASE_URL ?? page.url());
+    expect(uploadResult.status).toBe(201);
+    expect(uploadResult.body).toEqual({
+      uploadId: "e2e-upload",
+      originalName: "dashboard-journey.zip",
+    });
+
+    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+    const taskRow = page.getByLabel(
+      "Expand task Verify live dashboard updates",
+    );
+    await expect(taskRow).toBeVisible();
+    await taskRow.click();
+    await page.getByRole("button", { name: "Logs" }).click();
+    await expect(page.getByRole("region", { name: "Activity" })).toContainText(
+      "Live update received from the server",
+    );
+  });
+
+  test("recovers a live task update after a temporary stream failure", async ({
+    page,
+  }) => {
+    const taskId = "e2e-reconnecting-live-task";
+    const liveLog = {
+      id: "e2e-reconnecting-live-log",
+      taskId,
+      level: "info",
+      message: "Authoritative update received after reconnect",
+      timestamp: "2026-01-01T00:00:02.000Z",
+      metadata: {
+        operationId: "e2e-reconnecting-operation",
+        checkpointVersion: 3,
+      },
+    };
+    const streamRequests: string[] = [];
+    await installApiFixtures(page, {
+      liveTask: {
+        id: taskId,
+        title: "Recover live task updates",
+        projectId: "e2e-project",
+        log: liveLog,
+        streamRequests,
+        failFirstStream: true,
+      },
+    });
+    await programmaticSignIn(page);
+
+    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+    const taskRow = page.getByLabel("Expand task Recover live task updates");
+    await expect(taskRow).toBeVisible();
+    await taskRow.click();
+    await page.getByRole("button", { name: "Logs" }).click();
+
+    const activity = page.getByRole("region", { name: "Activity" });
+    await expect(activity).toContainText(liveLog.message);
+    await expect
+      .poll(() => streamRequests.length, {
+        message: "the task log stream should reconnect exactly once",
+      })
+      .toBe(2);
+    expect(streamRequests).toHaveLength(2);
+    expect(streamRequests[0]).toBe(streamRequests[1]);
+    expect(new URL(streamRequests[1]).pathname).toBe(
+      `/api/tasks/${taskId}/logs/stream`,
+    );
+    await expect(
+      activity.locator("summary").filter({ hasText: liveLog.message }),
+    ).toHaveCount(1);
+  });
+
+  test("shows an actionable terminal state when live task reconnects are exhausted", async ({
+    page,
+  }) => {
+    const taskId = "e2e-exhausted-live-task";
+    const operationId = "e2e-exhausted-operation";
+    const liveLog = {
+      id: "e2e-exhausted-live-log",
+      taskId,
+      level: "info",
+      message: "The only confirmed task update",
+      timestamp: "2026-01-01T00:00:02.000Z",
+      metadata: { operationId },
+    };
+    const streamRequests: string[] = [];
+    const nonStreamRequests: string[] = [];
+    page.on("request", (request) => {
+      if (!request.url().includes("/api/tasks/")) return;
+      if (!request.url().includes("/logs/stream")) nonStreamRequests.push(request.method());
+    });
+    await installApiFixtures(page, {
+      liveTask: {
+        id: taskId,
+        title: "Recover exhausted live task updates",
+        projectId: "e2e-project",
+        log: liveLog,
+        initialLogs: [liveLog],
+        streamRequests,
+        failStreamAttempts: 6,
+      },
+    });
+    await programmaticSignIn(page);
+
+    await openNavigation(page, "Tasks", `${DASHBOARD_PATH}tasks`);
+    await page.getByLabel("Expand task Recover exhausted live task updates").click();
+    await page.getByRole("button", { name: "Logs" }).click();
+
+    const activity = page.getByRole("region", { name: "Activity" });
+    await expect(activity).toContainText(liveLog.message);
+    await expect(page.getByText("Temporary stream failure.", { exact: false })).toBeVisible();
+    await expect
+      .poll(() => streamRequests.length, {
+        message: "the task log stream should exhaust its bounded reconnect budget",
+        timeout: 35_000,
+      })
+      .toBe(6);
+    const exhausted = page.getByRole("alert");
+    await expect(exhausted).toContainText("Live task updates could not reconnect");
+    await expect(exhausted).toContainText("Reconnect attempts are exhausted");
+    await expect(exhausted).toContainText(operationId);
+    await expect(exhausted).toContainText("task has not been marked failed");
+    await expect(exhausted.getByRole("button", { name: "Retry live updates" })).toBeVisible();
+    await expect(exhausted.getByRole("button", { name: "Refresh task logs" })).toBeVisible();
+
+    await exhausted.getByRole("button", { name: "Retry live updates" }).click();
+    await expect(activity).toContainText("The only confirmed task update");
+    await expect.poll(() => streamRequests.length).toBe(7);
+    expect(new Set(streamRequests).size).toBe(1);
+    expect(nonStreamRequests).not.toContain("POST");
+    await expect(
+      activity.locator("summary").filter({ hasText: liveLog.message }),
+    ).toHaveCount(1);
+  });
+
+  test("pages and reloads the filtered event stream without losing its window", async ({
+    page,
+  }) => {
+    const events = Array.from({ length: 51 }, (_, index) => ({
+      id: `e2e-event-${index}`,
