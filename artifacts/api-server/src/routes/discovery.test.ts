@@ -754,9 +754,9 @@ describe("POST /projects/import — transaction integrity", () => {
 
     const tasks = await db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId!));
     const byTitle = Object.fromEntries(tasks.map((t) => [t.title, t]));
-    expect(byTitle["Fix: Crit"]?.priority).toBe("p0");
-    expect(byTitle["Fix: High"]?.priority).toBe("p1");
-    expect(byTitle["Fix: Med"]?.priority).toBe("p2");
+    expect(byTitle["Remediate A: Crit"]?.priority).toBe("p0");
+    expect(byTitle["Remediate B: High"]?.priority).toBe("p1");
+    expect(byTitle["Remediate C: Med"]?.priority).toBe("p2");
   });
 
   // ── No partial writes on failure ──────────────────────────────────────────

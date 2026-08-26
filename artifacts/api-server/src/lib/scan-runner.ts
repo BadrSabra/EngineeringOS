@@ -36,6 +36,10 @@ import {
   SCAN_LEASE_MS,
   SCAN_HEARTBEAT_INTERVAL_MS,
 } from "./job-lease.js";
+import {
+  buildRemediationPlan,
+  buildRemediationPrompt,
+} from "./remediation-plan.js";
 
 /**
  * Thrown by performScan when the persisted project root cannot be
@@ -317,31 +321,72 @@ export async function performScan(projectId: string, signal?: AbortSignal): Prom
   checkCancelled();
   return await db.transaction(async (tx) => {
     checkCancelled();
-    const existingRuleTasks = await tx
-      .select({ ruleId: tasksTable.ruleId })
+    const existingTasks = await tx
+      .select({
+        id: tasksTable.id,
+        ruleId: tasksTable.ruleId,
+        status: tasksTable.status,
+      })
       .from(tasksTable)
       .where(eq(tasksTable.projectId, projectId));
-    const existingRuleTaskIds = new Set(existingRuleTasks.map((t) => t.ruleId).filter(Boolean));
+    const activeRuleTasks = new Map(
+      existingTasks
+        .filter((task) => task.ruleId && ["pending", "queued", "running", "verifying"].includes(task.status))
+        .map((task) => [task.ruleId as string, task]),
+    );
 
     const newTaskIds: string[] = [];
     for (const result of ruleResults) {
       if (!result.matched) continue;
-      if (existingRuleTaskIds.has(result.ruleId)) continue;
 
       const rule = projectRules.find((r) => r.id === result.ruleId);
       if (!rule) continue;
 
-      const taskId = randomUUID();
-      const topFiles = result.matches.slice(0, 5).map((m) => m.file);
+      const remediationPlan = buildRemediationPlan({
+        ruleId: rule.id,
+        ruleCode: rule.code,
+        ruleTitle: rule.title,
+        severity: rule.severity,
+        occurrenceCount: result.matchCount,
+        matches: result.matches,
+        fixDescription: rule.fixDescription,
+        verificationSteps: rule.verifySteps ?? [],
+        source: {
+          type: "scan",
+          correlationId,
+          revision: walkResult.revision,
+          completeness: walkResult.truncated ? "PARTIAL" : "COMPLETE",
+        },
+      });
+      const remediationPrompt = buildRemediationPrompt(remediationPlan);
+      const description =
+        remediationPlan.fixDescription ??
+        `${remediationPlan.occurrenceCount} occurrence(s) detected for ${rule.code}. Review the bounded evidence before execution.`;
+      const activeTask = activeRuleTasks.get(rule.id);
 
+      if (activeTask) {
+        await tx
+          .update(tasksTable)
+          .set({
+            description,
+            relatedFiles: remediationPlan.relatedFiles,
+            prompt: remediationPrompt,
+            phase: "remediation",
+            remediationPlan,
+            correlationId,
+            updatedAt: now,
+          })
+          .where(eq(tasksTable.id, activeTask.id));
+        continue;
+      }
+
+      const taskId = randomUUID();
       await tx.insert(tasksTable).values({
         id: taskId,
         projectId,
         ruleId: rule.id,
-        title: `Fix: ${rule.title}`,
-        description:
-          rule.fixDescription ??
-          `${result.matchCount} occurrence(s) detected. Top file: ${topFiles[0] ?? "unknown"}`,
+        title: `Remediate ${rule.code}: ${rule.title}`,
+        description,
         status: "pending",
         priority:
           rule.severity === "critical"
@@ -351,7 +396,10 @@ export async function performScan(projectId: string, signal?: AbortSignal): Prom
               : rule.severity === "medium"
                 ? "p2"
                 : "p3",
-        relatedFiles: topFiles,
+        relatedFiles: remediationPlan.relatedFiles,
+        prompt: remediationPrompt,
+        phase: "remediation",
+        remediationPlan,
         createdAt: now,
         updatedAt: now,
         correlationId,

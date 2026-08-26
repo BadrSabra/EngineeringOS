@@ -11,6 +11,40 @@ import { projectsTable } from "./projects.js";
 import { rulesTable } from "./rules.js";
 import { workflowsTable } from "./workflows.js";
 
+export type RemediationPlanStatus = "needs_review" | "ready" | "verified";
+
+export interface RemediationEvidence {
+  file: string;
+  line: number;
+  snippet: string;
+  occurrences: number;
+}
+
+/**
+ * Evidence-backed remediation context produced by a scan or discovery run.
+ * This is intentionally optional on Task so pre-existing generic tasks remain
+ * valid and readable.
+ */
+export interface RemediationPlan {
+  version: 1;
+  ruleId: string | null;
+  ruleCode: string;
+  ruleTitle: string;
+  severity: string;
+  occurrenceCount: number;
+  evidence: RemediationEvidence[];
+  relatedFiles: string[];
+  fixDescription: string | null;
+  verificationSteps: string[];
+  source: {
+    type: "scan" | "discovery";
+    correlationId: string | null;
+    revision: string | null;
+    completeness: "COMPLETE" | "PARTIAL" | null;
+  };
+  status: RemediationPlanStatus;
+}
+
 export const taskStatusEnum = pgEnum("task_status", [
   "pending",
   "queued",
@@ -52,6 +86,8 @@ export const tasksTable = pgTable("tasks", {
     passed: boolean;
     steps: Array<{ name: string; passed: boolean; output?: string }>;
   }>(),
+  /** Optional structured context for tasks created from rule violations. */
+  remediationPlan: jsonb("remediation_plan").$type<RemediationPlan>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),

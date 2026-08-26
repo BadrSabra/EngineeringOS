@@ -5464,6 +5464,74 @@ components:
           $ref: "#/components/schemas/MetricRecord"
 
     # ─── Task ──────────────────────────────────────────────────────────────────
+    RemediationEvidence:
+      type: object
+      required: [file, line, snippet, occurrences]
+      properties:
+        file:
+          type: string
+        line:
+          type: integer
+          minimum: 1
+        snippet:
+          type: string
+        occurrences:
+          type: integer
+          minimum: 0
+
+    RemediationPlan:
+      type: object
+      required: [version, ruleCode, ruleTitle, severity, occurrenceCount, evidence, relatedFiles, verificationSteps, source, status]
+      properties:
+        version:
+          type: integer
+          enum: [1]
+        ruleId:
+          type: ["string", "null"]
+        ruleCode:
+          type: string
+        ruleTitle:
+          type: string
+        severity:
+          type: string
+        occurrenceCount:
+          type: integer
+          minimum: 0
+        evidence:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/RemediationEvidence"
+        relatedFiles:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+        fixDescription:
+          type: ["string", "null"]
+        verificationSteps:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+        source:
+          type: object
+          required: [type, correlationId, revision, completeness]
+          properties:
+            type:
+              type: string
+              enum: [scan, discovery]
+            correlationId:
+              type: ["string", "null"]
+            revision:
+              type: ["string", "null"]
+            completeness:
+              type: ["string", "null"]
+              enum: [COMPLETE, PARTIAL, null]
+        status:
+          type: string
+          enum: [needs_review, ready, verified]
+
     Task:
       type: object
       required: [id, projectId, title, status, priority, createdAt, updatedAt]
@@ -5504,6 +5572,9 @@ components:
           type: string
         verificationResult:
           $ref: "#/components/schemas/VerificationResult"
+        remediationPlan:
+          $ref: "#/components/schemas/RemediationPlan"
+          nullable: true
         createdAt:
           type: string
           format: date-time
@@ -6530,6 +6601,8 @@ components:
       type: object
       required: [code, title, severity, count]
       properties:
+        ruleId:
+          type: string
         code:
           type: string
         title:
@@ -6538,6 +6611,21 @@ components:
           type: string
         count:
           type: integer
+        matches:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/RemediationEvidence"
+        fixDescription:
+          type: ["string", "null"]
+        verifySteps:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+        remediationPlan:
+          $ref: "#/components/schemas/RemediationPlan"
+          nullable: true
 
     DiscoveryGraphSummaryData:
       type: object
@@ -6634,6 +6722,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DiscoveryRuleViolationItem"
+        sourceRevision:
+          type: string
+        sourceProvenance:
+          type: string
+        sourceCorrelationId:
+          type: string
 
     # ─── Dashboard ─────────────────────────────────────────────────────────────
     DashboardOverview:

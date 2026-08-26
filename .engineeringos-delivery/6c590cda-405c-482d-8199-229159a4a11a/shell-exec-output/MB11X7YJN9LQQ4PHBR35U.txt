@@ -1,0 +1,388 @@
+/**
+ * Task Agent — reads a task's prompt and description, executes it via LLM,
+ * and returns a structured response that gets written back as agentResponse.
+ */
+import type { ProjectContext } from "../context-builder.js";
+import { buildTaskAgentSystemPrompt, buildTaskAgentUserPrompt } from "../prompts/task.prompt.js";
+import { TaskRecommendationSchema, type TaskAgentOutput } from "../schemas/task.schema.js";
+import type { Message } from "../groq-client.js";
+import { BaseAgent, type AgentRunResult } from "./base-agent.js";
+import type { ProviderId, AgentCompleteOpts } from "../agent-complete.js";
+
+export type TaskAgentInput = {
+  taskTitle: string;
+  taskDescription: string | null;
+  taskPrompt: string | null;
+  taskPriority: string;
+  relatedFiles: string[];
+  projectContext: ProjectContext;
+  /** Optional per-user API key. Falls back to GROQ_API_KEY env for Groq; required for DeepSeek. */
+  apiKey?: string;
+  /** AI provider to use. Defaults to "groq". */
+  provider?: ProviderId;
+};
+
+export type { TaskAgentOutput };
+
+/**
+ * PR-E: Extended return type that carries an optional parse-failure marker.
+ * When the model output cannot be parsed, the route surfaces `_parseError`
+ * as HTTP 422 instead of a silent 200 with degraded fallback content.
+ */
+export type TaskAgentResult = AgentRunResult<TaskAgentOutput>;
+
+function fallbackTaskOutput(raw: string): TaskAgentOutput {
+  return {
+    summary: "Task analyzed by AI agent",
+    steps: ["Analysis completed"],
+    result: raw.trim() || "The model did not return a structured result.",
+    confidence: "medium",
+    needsHumanReview: true,
+  };
+}
+
+class TaskAgent extends BaseAgent<TaskAgentInput, TaskAgentOutput> {
+  protected readonly scope = "task-agent";
+  protected readonly schema = TaskRecommendationSchema;
+
+  protected buildMessages(input: TaskAgentInput): Message[] {
+    return [
+      { role: "system", content: buildTaskAgentSystemPrompt(input.projectContext) },
+      { role: "user", content: buildTaskAgentUserPrompt(input) },
+    ];
+  }
+
+  protected fallbackOutput(raw: string): TaskAgentOutput {
+    return fallbackTaskOutput(raw);
+  }
+}
+
+const taskAgent = new TaskAgent();
+
+export async function executeTask(
+  input: TaskAgentInput,
+  opts?: Pick<AgentCompleteOpts, "onProgress" | "signal">,
+): Promise<TaskAgentResult> {
+  return taskAgent.run(input, opts);
+}
+/**
+ * AI task execution routes + auto-trigger scheduler.
+ *
+ * POST /api/ai/tasks/:taskId/execute
+ * export scheduleAiTaskExecution
+ */
+import { Router } from "express";
+import { randomUUID } from "crypto";
+import { db } from "@workspace/db";
+import {
+  tasksTable,
+  taskLogsTable,
+  eventsTable,
+} from "@workspace/db";
+import { eq, and } from "drizzle-orm";
+import {
+  buildProjectContext,
+  invalidateContextCache,
+  executeTask,
+} from "@workspace/ai-orchestrator";
+import { recordAudit } from "../../lib/audit.js";
+import { logger } from "../../lib/logger.js";
+import { loadProjectByIdForUser } from "../../middlewares/requireProjectAccess.js";
+import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
+import { heavyJobQueue } from "../../lib/job-queue.js";
+import {
+  requireProvider,
+  resolveProvider,
+  handleOrchestratorError,
+  runAgentWithFallback,
+} from "../../lib/ai-route-helpers.js";
+import { executeTaskLifecycle } from "../../lib/task-execution-service.js";
+
+const router = Router();
+
+class TaskStateConflictError extends Error {}
+
+// ── POST /api/ai/tasks/:taskId/execute ───────────────────────────────────────
+
+router.post("/ai/tasks/:taskId/execute", async (req, res) => {
+  const { taskId } = req.params;
+
+  const [task] = await db
+    .select()
+    .from(tasksTable)
+    .where(eq(tasksTable.id, taskId))
+    .limit(1);
+  if (!task) return res.status(404).json({ error: "Task not found" });
+
+  const ownerProject = await loadProjectByIdForUser(task.projectId, req.userId, res);
+  if (!ownerProject) return;
+
+  if (!["pending", "queued", "verifying"].includes(task.status)) {
+    return res
+      .status(409)
+      .json({ error: `Cannot AI-execute task with status "${task.status}"` });
+  }
+
+  const providerResolved = await requireProvider(req.userId, res, {
+    qualityProfile: "task_execution",
+  });
+  if (!providerResolved) return;
+  const { provider, apiKey } = providerResolved;
+
+  const rlExecute = await checkProjectRateLimitDb(task.projectId);
+  if (!rlExecute.allowed) {
+    return res.status(429).json({
+      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlExecute.retryAfterSec}s.`,
+    });
+  }
+
+  let lifecycle: Awaited<ReturnType<typeof executeTaskLifecycle>>;
+  try {
+    lifecycle = await executeTaskLifecycle({
+      taskId,
+      userId: req.userId,
+      provider: { provider, apiKey },
+      trigger: "manual",
+      expectedStatuses: [task.status as "pending" | "queued" | "verifying"],
+      workspaceRevision: ownerProject.updatedAt?.toISOString(),
+    });
+  } catch (error) {
+    const [currentTask] = await db
+      .select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId))
+      .limit(1);
+    if (
+      currentTask?.status !== task.status ||
+      (error instanceof Error && /state changed|concurrent|claim/i.test(error.message))
+    ) {
+      return res.status(409).json({
+        error: "task_state_changed_concurrently",
+        code: "TASK_STATE_CHANGED_CONCURRENTLY",
+        hint: "The task changed while this execution was finishing; refresh the task before retrying.",
+      });
+    }
+    throw error;
+  }
+  if (lifecycle.status === "conflict") {
+    return res.status(409).json({
+      error: "task_state_changed_concurrently",
+      code: "TASK_STATE_CHANGED_CONCURRENTLY",
+      hint: "The task changed while this execution was starting; refresh the task and retry if needed.",
+    });
+  }
+  if (!lifecycle.ok) {
+    const [currentTask] = await db
+      .select({ status: tasksTable.status })
+      .from(tasksTable)
+      .where(eq(tasksTable.id, taskId))
+      .limit(1);
+    if (currentTask?.status !== task.status) {
+      return res.status(409).json({
+        error: "task_state_changed_concurrently",
+        code: "TASK_STATE_CHANGED_CONCURRENTLY",
+        hint: "The task changed while this execution was finishing; refresh the task before retrying.",
+      });
+    }
+    if (lifecycle.errorCode === "model_output_invalid") {
+      return res.status(422).json({
+        error: "model_output_invalid",
+        code: "model_output_invalid",
+        parseCode: lifecycle.parseCode,
+        hint: "The AI model returned an unexpected response — try executing the task again.",
+      });
+    }
+    if (handleOrchestratorError(lifecycle.error, res, {
+      projectId: task.projectId,
+      operation: "task-execution",
+      } catch (execErr) {
+        logger.error({ err: execErr, taskId, correlationId }, "AI auto-execution failed while building context");
+        const [ctxRolledBack] = await db
+          .update(tasksTable)
+          .set({ status: "verifying", updatedAt: new Date() })
+          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+          .returning();
+        if (!ctxRolledBack) {
+          logger.warn({ taskId, correlationId }, "AI auto-execution failed, but task state changed concurrently — rollback skipped");
+        }
+        await db.insert(taskLogsTable).values({
+          id: randomUUID(),
+          taskId,
+          level: "error",
+          message: "AI auto-execution failed while building context",
+          correlationId,
+        });
+        throw execErr;
+      }
+
+      await db.insert(taskLogsTable).values({
+        id: randomUUID(),
+        taskId,
+        level: "info",
+        message: "Built project context — calling AI agent…",
+        correlationId,
+      });
+
+      const writeAutoProgress = async (msg: string) => {
+        try {
+          await db.insert(taskLogsTable).values({
+            id: randomUUID(),
+            taskId,
+            level: "info",
+            message: msg,
+            metadata: { stage: "progress", correlationId },
+            correlationId,
+          });
+        } catch { /* best-effort */ }
+      };
+
+      let agentResult: Awaited<ReturnType<typeof executeTask>>;
+      try {
+        ({ result: agentResult } = await runAgentWithFallback(
+          userId,
+          { provider, apiKey },
+          (opts) => executeTask({
+            taskTitle: task.title,
+            taskDescription: task.description,
+            taskPrompt: task.prompt,
+            taskPriority: task.priority,
+            relatedFiles: (task.relatedFiles as string[]) ?? [],
+            projectContext,
+            ...opts,
+          }, { onProgress: writeAutoProgress }),
+          { qualityProfile: "task_execution" },
+        ));
+      } catch (execErr) {
+        logger.error({ err: execErr, taskId, correlationId }, "AI auto-execution failed");
+
+        const [autoRolledBack] = await db
+          .update(tasksTable)
+          .set({ status: "verifying", updatedAt: new Date() })
+          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+          .returning();
+        if (!autoRolledBack) {
+          logger.warn({ taskId, correlationId }, "AI auto-execution failed, but task state changed concurrently — rollback skipped");
+        }
+
+        await db.insert(taskLogsTable).values({
+          id: randomUUID(),
+          taskId,
+          level: "error",
+          message: "AI auto-execution failed",
+          correlationId,
+        });
+
+        await db.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "TaskAutoExecutionFailed",
+          projectId: task.projectId,
+          taskId,
+          severity: "error",
+          message: `AI auto-execution of "${task.title}" failed`,
+          correlationId,
+          payload: { status: "verifying" },
+        });
+
+        await recordAudit({
+          entityType: "task",
+          entityId: taskId,
+          action: "ai_auto_execution_failed",
+          projectId: task.projectId,
+          stateBefore: { status: "running" },
+          stateAfter: { status: "verifying" },
+          correlationId,
+        });
+
+        invalidateContextCache(task.projectId);
+        throw execErr;
+      }
+
+      if (agentResult._parseError) {
+        const parseError = agentResult._parseError;
+        const [parseRolledBack] = await db
+          .update(tasksTable)
+          .set({ status: "verifying", updatedAt: new Date() })
+          .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+          .returning();
+        if (!parseRolledBack) {
+          logger.warn({ taskId, correlationId }, "AI auto-execution parse failure occurred, but task state changed concurrently — rollback skipped");
+        }
+
+        await db.insert(taskLogsTable).values({
+          id: randomUUID(),
+          taskId,
+          level: "error",
+          message: `AI auto-execution parse failure [${parseError!.code}]`,
+          metadata: { parseCode: parseError!.code, correlationId },
+          correlationId,
+        });
+        logger.error(
+          { err: agentResult._parseError, taskId, correlationId },
+          "AI auto-execution output parsing failed",
+        );
+        await db.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "TaskAutoExecutionFailed",
+          projectId: task.projectId,
+          taskId,
+          severity: "error",
+          message: `AI auto-execution of "${task.title}" failed`,
+          correlationId,
+          payload: { status: "verifying", code: "model_output_invalid" },
+        });
+        await recordAudit({
+          entityType: "task",
+          entityId: taskId,
+          action: "ai_auto_execution_failed",
+          projectId: task.projectId,
+          stateBefore: { status: "running" },
+          stateAfter: { status: "verifying" },
+          correlationId,
+        });
+        invalidateContextCache(task.projectId);
+        return;
+      }
+
+      invalidateContextCache(task.projectId);
+
+      const autoFinalStatus = agentResult.needsHumanReview ? "verifying" : "completed";
+
+      const [finalized] = await db
+        .update(tasksTable)
+        .set({
+          status: autoFinalStatus,
+          agentResponse: JSON.stringify(agentResult, null, 2),
+          verificationResult: {
+            passed: !agentResult.needsHumanReview,
+            steps: agentResult.steps.map((s: string) => ({
+              name: s,
+              passed: !agentResult.needsHumanReview,
+            })),
+          },
+          updatedAt: new Date(),
+          completedAt: autoFinalStatus === "completed" ? new Date() : null,
+        })
+        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+        .returning();
+
+      if (!finalized) {
+        logger.warn({ taskId, correlationId }, "AI auto-execution finished but task state changed concurrently — skipping final write");
+        await db.insert(taskLogsTable).values({
+          id: randomUUID(),
+          taskId,
+          level: "warn",
+          message: "AI auto-execution finished but the task changed concurrently; final result was not persisted",
+          metadata: { agentResult, correlationId },
+          correlationId,
+        });
+        await db.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "TaskExecutionConflict",
+          projectId: task.projectId,
+          taskId,
+          severity: "warning",
+          message: `AI auto-execution finished for "${task.title}" but the task state changed concurrently`,
+          correlationId,
+          payload: { expectedStatus: "running", attemptedStatus: autoFinalStatus },
+        });
+        return;

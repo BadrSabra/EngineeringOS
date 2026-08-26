@@ -1,0 +1,422 @@
+17:  aiChatSessionsTable,
+891:    await tx.update(aiChatSessionsTable)
+892:      .set({ updatedAt: params.assistantAt })
+893:      .where(eq(aiChatSessionsTable.id, params.sessionId));
+1810:  const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
+1831:  let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
+1835:      .from(aiChatSessionsTable)
+1836:      .where(eq(aiChatSessionsTable.id, sessionId))
+1880:  const persistedActiveTaskState = resolveSessionTaskState(existingSession?.activeTaskState, projectId);
+1918:    projectRevision: project.updatedAt.toISOString(),
+2013:          activeTaskState: resumableStateForTurn,
+2106:    const activeTaskState = nextSessionTaskState({
+2113:      now: msgNow,
+2121:          .select({ id: aiChatSessionsTable.id })
+2122:          .from(aiChatSessionsTable)
+2123:          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+2128:          .insert(aiChatSessionsTable)
+2134:            activeTaskState,
+2146:            updatedAt: now,
+2178:          createdAt: msgNow,
+2191:          createdAt: msgNow,
+2205:        .update(aiChatSessionsTable)
+2207:          activeTaskState: sql`CASE WHEN ${aiChatSessionsTable.updatedAt} <= ${msgNow} THEN ${activeTaskState} ELSE ${aiChatSessionsTable.activeTaskState} END`,
+2208:          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+2210:        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+2315:  const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
+2368:        session: aiChatSessionsTable,
+2372:        aiChatSessionsTable,
+2373:        eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+2426:      project.updatedAt.toISOString(),
+2473:  let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
+2477:      .from(aiChatSessionsTable)
+2478:      .where(eq(aiChatSessionsTable.id, sessionId))
+2490:    existingSession?.activeTaskState,
+2527:    projectRevision: project.updatedAt.toISOString(),
+2612:        .insert(aiChatSessionsTable)
+2625:          updatedAt: now,
+2638:        updatedAt: createdSession.updatedAt.toISOString(),
+2869:    const persistExecutionCheckpoint = (checkpoint: Omit<AiExecutionCheckpoint, "sequence" | "updatedAt">): void => {
+2888:                updatedAt: new Date().toISOString(),
+2908:        updatedAt: new Date().toISOString(),
+3556:          activeTaskState: streamResumableStateForTurn,
+3641:          assistantAt: msgNow,
+3880:        assistantAt: msgNow,
+3905:          assistantAt: msgNow,
+3962:    const activeTaskState = nextSessionTaskState({
+3969:      now: msgNow,
+3997:          .select({ id: aiChatSessionsTable.id })
+3998:          .from(aiChatSessionsTable)
+3999:          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+4004:          .insert(aiChatSessionsTable)
+4010:            activeTaskState,
+4022:            updatedAt: now,
+4060:          createdAt: msgNow,
+4075:          createdAt: msgNow,
+4079:          .set({ proposalId, updatedAt: msgNow })
+4098:        .update(aiChatSessionsTable)
+4105:          activeTaskState: sql`CASE
+4106:            WHEN CAST(${activeTaskState} AS text) IS NULL THEN NULL
+4107:            WHEN ${aiChatSessionsTable.activeTaskState} IS NULL THEN ${activeTaskState}
+4109:              NULLIF(${aiChatSessionsTable.activeTaskState}::jsonb->>'lastProgressAt', '')::timestamptz,
+4110:              ${aiChatSessionsTable.updatedAt}
+4111:            ) <= ${msgNow} THEN ${activeTaskState}
+4112:            ELSE ${aiChatSessionsTable.activeTaskState}
+4114:          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+4116:        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+4165:        updatedAt: new Date().toISOString(),
+4361:    .orderBy(desc(aiExecutionsTable.updatedAt))
+4415:      updatedAt: execution.updatedAt,
+4514:    updatedAt: execution.updatedAt,
+4770:    .from(aiChatSessionsTable)
+4771:    .where(eq(aiChatSessionsTable.projectId, project.id))
+4772:    .orderBy(desc(aiChatSessionsTable.updatedAt))
+4841:    .from(aiChatSessionsTable)
+4842:    .where(eq(aiChatSessionsTable.id, sessionId))
+4927:      projectUpdatedAt: project.updatedAt,
+4962:    .from(aiChatSessionsTable)
+4963:    .where(eq(aiChatSessionsTable.id, sessionId))
+5031:      session: aiChatSessionsTable,
+5035:      aiChatSessionsTable,
+5036:      eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+5088:      project.updatedAt.toISOString(),
+5145:    .update(aiChatSessionsTable)
+5146:    .set({ updatedAt: new Date() })
+5147:    .where(eq(aiChatSessionsTable.id, row.session.id));
+5260:    .from(aiChatSessionsTable)
+5261:    .where(eq(aiChatSessionsTable.id, req.params.sessionId))
+5288:    .orderBy(desc(aiExecutionsTable.updatedAt))
+6121:      .orderBy(desc(aiExecutionsTable.updatedAt))
+6142:      baseRevision: proposal.baseRevision ?? project.updatedAt.toISOString(),
+
+    const storedPlan = parseTaskResult(planRow.message.taskResult);
+    if (!storedPlan || storedPlan.kind !== "IMPLEMENTATION_PLAN_RESULT") {
+      return res.status(400).json({ error: "The selected message is not an implementation plan", code: "PLAN_INVALID" });
+    }
+    if (storedPlan.approvalStatus !== "APPROVED" || storedPlan.writeAccess !== "APPROVED_FOR_BUILD") {
+      return res.status(409).json({
+        error: "Approve the implementation plan before starting Build Mode",
+        code: "PLAN_APPROVAL_REQUIRED",
+        approvalStatus: storedPlan.approvalStatus,
+      });
+    }
+    approvedImplementationPlan = storedPlan;
+    implementationPlanScope = getImplementationPlanScope(storedPlan, validRootPath);
+    if (implementationPlanScope.size === 0) {
+      return res.status(409).json({
+        error: "This implementation plan has no safe file scope and cannot enter Build Mode",
+        code: "PLAN_FILE_SCOPE_REQUIRED",
+      });
+    }
+    // Plans created before the context-manifest contract remain valid when
+    // their approved file scope is present; newer plans are checked against
+    // the immutable scan context before execution.
+    if (storedPlan.contextManifest) {
+      const contextFailure = await validatePlanContextForExecution(
+        storedPlan,
+        projectId,
+        validRootPath,
+      );
+      if (contextFailure) {
+        logger.warn({ projectId, code: contextFailure.code }, "Build handoff context blocked");
+        return res.status(409).json(contextFailure);
+      }
+    }
+    const browserProfileFailure = await validateBrowserProfileForDelivery(
+      projectId,
+      project.updatedAt.toISOString(),
+      storedPlan.browserValidationProfile,
+    );
+    if (browserProfileFailure) return res.status(409).json(browserProfileFailure);
+    approvedImplementationExecutionPlan = buildActiveTaskExecutionPlan({
+      implementationPlan: storedPlan,
+      objective,
+      projectId,
+      rootPath: validRootPath,
+    }) ?? undefined;
+    if (
+      !approvedImplementationExecutionPlan ||
+      approvedImplementationExecutionPlan.readiness !== "READY" ||
+      approvedImplementationExecutionPlan.nodes.length === 0
+    ) {
+      logger.warn({
+        projectId,
+        readiness: approvedImplementationExecutionPlan?.readiness,
+        nodeCount: approvedImplementationExecutionPlan?.nodes.length,
+      }, "Build handoff plan blocked");
+      return res.status(409).json({
+        error: "This implementation plan is not executable by the server-owned Build coordinator",
+        code: "PLAN_BUILD_BLOCKED",
+        readiness: approvedImplementationExecutionPlan?.readiness ?? "BLOCKED",
+      });
+    }
+    await db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "AiBuildStarted",
+      projectId,
+      severity: "info",
+      message: "Build Mode started from the approved implementation plan",
+      correlationId: effectiveBuildPlanMessageId,
+      payload: { messageId: effectiveBuildPlanMessageId, approvedFiles: [...implementationPlanScope] },
+    });
+    modelMessage = [
+      message,
+      "",
+      "BUILD HANDOFF — execute only the approved implementation plan below.",
+      `Objective: ${storedPlan.objective}`,
+      `Approved files: ${[...implementationPlanScope].join(", ") || "(none)"}`,
+      "Use the existing read and deferred-write flow. Prepare pending changes only; do not claim that files were applied, committed, or published.",
+      "Do not read, write, or propose changes for files outside the approved file list.",
+      `Approved plan JSON: ${JSON.stringify(storedPlan)}`,
+    ].join("\n");
+  }
+
+  let existingSession: (typeof aiChatSessionsTable.$inferSelect) | undefined;
+  if (sessionId) {
+    const [found] = await db
+      .select()
+      .from(aiChatSessionsTable)
+      .where(eq(aiChatSessionsTable.id, sessionId))
+      .limit(1);
+    if (found && found.projectId !== projectId) {
+      return res.status(403).json({ error: "Session does not belong to this project" });
+    }
+    if (!found) {
+      return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+    }
+    existingSession = found;
+  }
+
+  const persistedActiveTaskState = resolveSessionTaskState(
+    existingSession?.activeTaskState,
+    projectId,
+  );
+  const streamResumableStateForTurn = isolatedConversationTurn
+    ? null
+    : persistedActiveTaskState;
+  const streamClassificationResolution = resumeActiveTaskClassification(
+    message,
+    rawTurnClassification,
+    streamResumableStateForTurn,
+  );
+  const streamImplementationPlanResume = isImplementationPlanContinuation(
+    message,
+    streamResumableStateForTurn,
+  );
+  const streamClassification = streamClassificationResolution.classification;
+  const streamTurnIntent = resolveTurnIntent(message, {
+    classification: streamClassification,
+    resumed: streamClassificationResolution.resumed,
+    implementationPlanResume: streamImplementationPlanResume,
+    buildHandoff: Boolean(approvedImplementationPlan && effectiveBuildPlanMessageId),
+  });
+  // Keep this compatible with consumers that still resolve the pre-scope
+  // TurnIntent declaration while the workspace packages are being rebuilt.
+  const streamAuditScopeDescription = (streamTurnIntent as unknown as {
+    auditScopeDescription?: string;
+  }).auditScopeDescription;
+  const streamModelHasTools = streamTurnIntent.requiresTools;
+  let analysisCorrelation: {
+    operationId: string;
+    projectId: string;
+    projectRevision: string;
+    rootAvailable: boolean;
+    evidenceProvenance: string;
+  } = {
+    operationId: randomUUID(),
+    projectId,
+    projectRevision: project.updatedAt.toISOString(),
+    rootAvailable: Boolean(validRootPath),
+    evidenceProvenance: "project-analysis",
+  };
+  const analysisToolRunner = validRootPath
+    ? createProjectAnalysisToolRunner(projectId, validRootPath)
+    : undefined;
+
+  // Provider/model routing must use the same authoritative intent as the
+  // downstream agent. In particular, a terse continuation can inherit a
+  // persisted forensic task and must not be routed from its raw text alone.
+  const providerResolved = await requireProvider(req.userId, res, {
+    requireTools: streamModelHasTools,
+    qualityProfile: streamTurnIntent.executionTaskType,
+  });
+  if (!providerResolved) return;
+  const { provider, apiKey } = providerResolved;
+
+  const applyLock = streamModelHasTools
+    ? await tryAdvisoryLock(LockNamespace.APPLY, projectId)
+    : { acquired: true, release: async () => undefined };
+  if (!applyLock.acquired) {
+    return res.status(409).json({
+      error: "apply_in_progress",
+      hint: "File changes are still being written for this project — wait a moment, then retry.",
+    });
+  }
+
+  let executionWorkerId: string | undefined;
+  let aiExecution: Awaited<ReturnType<typeof getAiExecutionForUser>>;
+  let executionAbortController: AbortController | undefined;
+  let executionTerminal = false;
+  let executionNodeStates: ActiveTaskExecutionPlan["nodes"] = [];
+  let resumeCheckpoint: AiExecutionCheckpoint | undefined;
+  let autonomousOperation: ReturnType<typeof createAutonomousOperationContract> | undefined;
+
+  try {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders();
+
+    function sse(data: Record<string, unknown>): void {
+      readFiles: collectReadEvidencePaths(traceSteps),
+      executionPlan,
+    });
+
+    const aiExecutionId = aiExecution.id;
+    let missionCorrelationReport: string | null;
+    try {
+      missionCorrelationReport = serializeMissionCorrelationReport(
+        (result as { missionCorrelationReport?: unknown }).missionCorrelationReport,
+      );
+    } catch (error) {
+      if (error instanceof MissionCorrelationReportValidationError) {
+        sse({
+          type: "error",
+          code: error.code,
+          message: error.message,
+          suggestedFix: "Retry the mission so the server can generate a supported report.",
+        });
+        res.end();
+        return;
+      }
+      throw error;
+    }
+    let assistantOperationId: string | undefined = aiExecution.operationId ?? effectiveBuildPlanMessageId;
+    const assistantMsg = await db.transaction(async (tx) => {
+      if (existingSession) {
+        await tx
+          .select({ id: aiChatSessionsTable.id })
+          .from(aiChatSessionsTable)
+          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+          .for("update");
+      }
+      if (!existingSession) {
+        const [created] = await tx
+          .insert(aiChatSessionsTable)
+          .values({
+            id: sessionIdToUse,
+            projectId,
+            // AI-TASK-001: persist task linkage so re-opened sessions remain task-aware.
+            linkedTaskId: effectiveLinkedTaskId ?? null,
+            activeTaskState,
+            // BUG-5 fix: don't use a bare greeting as the session title.
+            // "مرحبا", "Hello", "Hi" etc. give no context in the sessions list.
+            // Use the first 60 chars only when the opener is substantive.
+            title: (() => {
+              const trimmed = message.trim();
+              const isGreeting = /^(مرحبا|مرحبً?ا|أهلاً?|سلام|هلا|hi|hello|hey|greetings|سلاماً?|صباح الخير|مساء الخير|good (morning|afternoon|evening))[\s!.،,]*$/i.test(trimmed);
+              return (!isGreeting && trimmed.length > 10)
+                ? trimmed.slice(0, 60)
+                : `Session ${now.toISOString().slice(0, 16).replace("T", " ")}`;
+            })(),
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning();
+        if (!created) {
+          throw new Error("Failed to create chat session");
+        }
+      }
+      // A resumed execution already owns its original user turn. Only a new
+      // execution appends a user message; otherwise reconnecting duplicates
+      // the prompt in conversation history.
+      if (!effectiveExecutionId) {
+        await tx.insert(aiChatMessagesTable).values({
+          id: randomUUID(),
+          sessionId: sessionIdToUse,
+          role: "user",
+          content: message,
+          turnIntent: streamTurnIntent.kind,
+          executionId: aiExecutionId,
+          outcome: "SUCCEEDED",
+          createdAt: now,
+        });
+      }
+      const [msg] = await tx
+        .insert(aiChatMessagesTable)
+        .values({
+          id: randomUUID(),
+          sessionId: sessionIdToUse,
+          role: "assistant",
+          content: sanitizeResponseText(result.response),
+          turnIntent: streamTurnIntent.kind,
+          executionId: aiExecutionId,
+          outcome: "SUCCEEDED",
+          sources: JSON.stringify(redactUserFacingValue(result.sources)),
+          toolTrace: serializeToolTrace(traceSteps, true, streamAuditScopeDescription),
+          repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
+          behaviorEvidence: serializeBehaviorEvidence(result.behaviorEvidence),
+          missionCorrelationReport,
+          taskResult: serializeTaskResult(result.taskResult),
+          createdAt: msgNow,
+        })
+        .returning();
+      if (proposalId || result.repairPlan || result.taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT") {
+        const proposalMessageId = effectiveBuildPlanMessageId ?? msg.id;
+        const operationId = assistantOperationId ?? proposalMessageId;
+        assistantOperationId = operationId;
+        if (proposalId) {
+        await tx.insert(aiChangeProposalsTable).values({
+          id: proposalId,
+          projectId,
+          sessionId: sessionIdToUse,
+          messageId: proposalMessageId,
+          changes: serializeServerPendingChanges(proposalChanges),
+          status: "pending",
+          createdAt: msgNow,
+        });
+        await tx
+          .update(aiExecutionsTable)
+          .set({ proposalId, updatedAt: msgNow })
+          .where(eq(aiExecutionsTable.id, aiExecutionId));
+        }
+        await tx.insert(eventsTable).values({
+          id: randomUUID(),
+          type: "AiPlanCreated",
+          projectId,
+          severity: "info",
+          message: "AI implementation plan created and is awaiting approval",
+          correlationId: operationId,
+          payload: {
+            messageId: proposalMessageId,
+            operationId,
+            proposalId: proposalId ?? null,
+            buildPlanMessageId: effectiveBuildPlanMessageId ?? null,
+          },
+        });
+      }
+      await tx
+        .update(aiChatSessionsTable)
+        .set({
+          // The session row lock serializes concurrent completions, but the
+          // older turn may acquire it after the newer turn. Compare against
+          // the state-owned progress timestamp, not only the session
+          // timestamp, so a late completion cannot resurrect stale evidence
+          // or an older execution plan.
+          activeTaskState: sql`CASE
+            WHEN CAST(${activeTaskState} AS text) IS NULL THEN NULL
+            WHEN ${aiChatSessionsTable.activeTaskState} IS NULL THEN ${activeTaskState}
+            WHEN COALESCE(
+              NULLIF(${aiChatSessionsTable.activeTaskState}::jsonb->>'lastProgressAt', '')::timestamptz,
+              ${aiChatSessionsTable.updatedAt}
+            ) <= ${msgNow} THEN ${activeTaskState}
+            ELSE ${aiChatSessionsTable.activeTaskState}
+          END`,
+          updatedAt: sql`GREATEST(${aiChatSessionsTable.updatedAt}, ${msgNow})`,
+        })
+        .where(eq(aiChatSessionsTable.id, sessionIdToUse));
+      return msg;
+    });
+
+    persistExecutionCheckpoint({

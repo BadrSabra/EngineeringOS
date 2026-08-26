@@ -1,0 +1,300 @@
+lib/db/src/schema/tasks.ts:31:export const tasksTable = pgTable("tasks", {
+lib/db/src/schema/tasks.ts:76:  index("idx_tasks_project_id").on(t.projectId),
+lib/db/src/schema/tasks.ts:78:  index("idx_tasks_project_id_created_at").on(t.projectId, t.createdAt),
+lib/db/src/schema/tasks.ts:79:  index("idx_tasks_status").on(t.status),
+lib/db/src/schema/tasks.ts:80:  index("idx_tasks_priority").on(t.priority),
+lib/db/src/schema/tasks.ts:81:  index("idx_tasks_correlation_id").on(t.correlationId),
+lib/db/src/schema/tasks.ts:83:  index("idx_tasks_status_lease_until").on(t.status, t.leaseUntil),
+lib/db/src/schema/tasks.ts:86:export type InsertTask = typeof tasksTable.$inferInsert;
+lib/db/src/schema/tasks.ts:87:export type Task = typeof tasksTable.$inferSelect;
+lib/db/src/schema/rules.ts:29:  fixDescription: text("fix_description"),
+lib/db/src/schema/rules.ts:59:export type Rule = typeof rulesTable.$inferSelect;
+lib/db/src/schema/discovery.ts:104:  ruleViolations: DiscoveryRuleViolation[];
+lib/api-client-react/src/generated/api.schemas.ts:1830:export type RuleSeverity = typeof RuleSeverity[keyof typeof RuleSeverity];
+lib/api-client-react/src/generated/api.schemas.ts:1921:  tasksCreated: number;
+lib/api-client-react/src/generated/api.schemas.ts:2091:export interface Rule {
+lib/api-client-react/src/generated/api.schemas.ts:2099:  fixDescription?: string;
+lib/api-client-react/src/generated/api.schemas.ts:2114:  fixDescription?: string;
+lib/api-client-react/src/generated/api.schemas.ts:2123:  fixDescription?: string;
+lib/api-client-react/src/generated/api.schemas.ts:2127:export type RuleEvaluationResultMatchesItem = {
+lib/api-client-react/src/generated/api.schemas.ts:2133:export interface RuleEvaluationResult {
+lib/api-client-react/src/generated/api.schemas.ts:2674:  ruleViolations: DiscoveryRuleViolationItem[];
+artifacts/api-server/src/middlewares/requireProjectAccess.ts:111: * body rather than `:projectId` in the URL path (tasks, rules, events,
+artifacts/api-server/src/lib/task-execution-service.ts:8:  tasksTable,
+artifacts/api-server/src/lib/task-execution-service.ts:32:const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationships", "events"] as const;
+artifacts/api-server/src/lib/task-execution-service.ts:38:  task?: typeof tasksTable.$inferSelect;
+artifacts/api-server/src/lib/task-execution-service.ts:167:  const [before] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.taskId)).limit(1);
+artifacts/api-server/src/lib/task-execution-service.ts:208:  const [claimedTask] = await db.update(tasksTable)
+artifacts/api-server/src/lib/task-execution-service.ts:218:    .where(and(eq(tasksTable.id, before.id), inArray(tasksTable.status, allowed)))
+artifacts/api-server/src/lib/task-execution-service.ts:253:    await db.update(tasksTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:256:    }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running")));
+artifacts/api-server/src/lib/task-execution-service.ts:261:    void db.update(tasksTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:266:      eq(tasksTable.id, before.id),
+artifacts/api-server/src/lib/task-execution-service.ts:267:      eq(tasksTable.workerId, workerId),
+artifacts/api-server/src/lib/task-execution-service.ts:268:      eq(tasksTable.status, "running"),
+artifacts/api-server/src/lib/task-execution-service.ts:317:      await db.update(tasksTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:320:      }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running")));
+artifacts/api-server/src/lib/task-execution-service.ts:340:      await db.update(tasksTable).set({ agentResponse: JSON.stringify(parseReceipt) })
+artifacts/api-server/src/lib/task-execution-service.ts:341:        .where(and(eq(tasksTable.id, before.id), eq(tasksTable.correlationId, correlationId)));
+artifacts/api-server/src/lib/task-execution-service.ts:377:      const [row] = await tx.update(tasksTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:392:      }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running"))).returning();
+artifacts/api-server/src/lib/task-execution-service.ts:464:    await db.update(tasksTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:467:    }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running")));
+artifacts/api-server/src/services/task-service.ts:2: * Task domain service — extracted from routes/tasks.ts (audit finding W-003).
+artifacts/api-server/src/services/task-service.ts:9: *   1. `db.select().from(rulesTable)` — to resolve the rule pattern for tasks
+artifacts/api-server/src/routes/ai.test.ts:17:  tasksTable,
+artifacts/api-server/src/routes/ai.test.ts:36:import { scheduleAiTaskExecution } from "./ai/tasks.js";
+artifacts/api-server/src/routes/ai.test.ts:292:    sources: ["metrics", "tasks"],
+artifacts/api-server/src/routes/ai.test.ts:522:  await db.insert(tasksTable).values({
+artifacts/api-server/src/routes/ai.test.ts:646:    await db.delete(tasksTable).where(eq(tasksTable.projectId, pid)).catch(() => undefined);
+artifacts/api-server/src/routes/ai.test.ts:2506:// ─── POST /api/ai/tasks/:taskId/execute ──────────────────────────────────────
+artifacts/api-server/src/routes/ai.test.ts:3861:describe("POST /api/ai/tasks/:taskId/execute", () => {
+artifacts/api-server/src/routes/ai.test.ts:3879:    const res = await request(app).post(`/api/ai/tasks/${randomUUID()}/execute`);
+artifacts/api-server/src/routes/ai.test.ts:3889:    const res = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/ai.test.ts:3899:    const res = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/ai.test.ts:3909:    const res = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/ai.test.ts:3930:    const res = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/ai.test.ts:3940:    await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/ai.test.ts:3962:    await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/ai.test.ts:3992:    const res = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/ai.test.ts:4008:      .from(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4009:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai.test.ts:4032:    const res = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/ai.test.ts:4038:      .from(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4039:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai.test.ts:4062:    const res = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/ai.test.ts:4087:    await db.update(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4089:      .where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/ai.test.ts:4127:    await db.update(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4129:      .where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/ai.test.ts:4170:      const res = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/ai.test.ts:4177:        .from(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4178:        .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai.test.ts:4221:    const requestPromise = request(app).post(`/api/ai/tasks/${taskId}/execute`).then((res) => res);
+artifacts/api-server/src/routes/ai.test.ts:4229:    await db.update(tasksTable).set({ status: "verifying", updatedAt: new Date() }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/ai.test.ts:4245:      .from(tasksTable)
+artifacts/api-server/src/routes/ai.test.ts:4246:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/ai.test.ts:4396:      const response = await request(app).post(`/api/ai/tasks/${taskId}/execute`);
+artifacts/api-server/src/lib/task-execution-retention.ts:67:    // Delete logs only for terminal tasks with no active or resumable run.
+artifacts/api-server/src/lib/task-execution-retention.ts:71:       JOIN tasks t ON t.id = l.task_id
+artifacts/api-server/src/lib/task-execution-retention.ts:87:         USING tasks t
+artifacts/api-server/src/lib/task-execution-retention.test.ts:9:  tasksTable,
+artifacts/api-server/src/lib/task-execution-retention.test.ts:91:    await db.insert(tasksTable).values([
+artifacts/api-server/src/lib/task-execution-retention.test.ts:209:    await db.insert(tasksTable).values([
+artifacts/api-server/src/lib/scan-runner.ts:10:  tasksTable,
+artifacts/api-server/src/lib/scan-runner.ts:19:import { walkProject, matchRules, extractGraph, computeMetrics, SCANNER_VERSION, type RuleInput } from "@workspace/scanner";
+artifacts/api-server/src/lib/scan-runner.ts:25:  type RuleViolationSummary,
+artifacts/api-server/src/lib/scan-runner.ts:66:  tasksCreated: number;
+artifacts/api-server/src/lib/scan-runner.ts:311:  // committed — that would create tasks with no corresponding metrics row,
+artifacts/api-server/src/lib/scan-runner.ts:321:      .select({ ruleId: tasksTable.ruleId })
+artifacts/api-server/src/lib/scan-runner.ts:322:      .from(tasksTable)
+artifacts/api-server/src/lib/scan-runner.ts:323:      .where(eq(tasksTable.projectId, projectId));
+artifacts/api-server/src/lib/scan-runner.ts:337:      await tx.insert(tasksTable).values({
+artifacts/api-server/src/lib/scan-runner.ts:343:          rule.fixDescription ??
+artifacts/api-server/src/lib/scan-runner.ts:583:        tasksCreated: newTaskIds.length,
+artifacts/api-server/src/lib/scan-runner.ts:601:      tasksCreated: newTaskIds.length,
+artifacts/api-server/src/lib/scan-runner.ts:604:      summary: `Scanned ${walkResult.totalFiles} files. Found ${issuesDetected} issues. Created ${newTaskIds.length} tasks. Quality score: ${metrics.overallScore}/100.`,
+artifacts/api-server/src/lib/scan-runner.ts:635:        tasksCreated: scanResult.tasksCreated,
+artifacts/api-server/src/lib/scan-runner.ts:659:      tasksCreated: scanResult.tasksCreated,
+artifacts/api-server/src/lib/scan-runner.ts:662:      ruleViolations: ruleResults
+artifacts/api-server/src/routes/tasks.ts:4:  tasksTable,
+artifacts/api-server/src/routes/tasks.ts:40:// List tasks
+artifacts/api-server/src/routes/tasks.ts:41:router.get("/tasks", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:47:  const conditions: ReturnType<typeof eq>[] = [eq(tasksTable.projectId, project.id)];
+artifacts/api-server/src/routes/tasks.ts:48:  if (params.status) conditions.push(eq(tasksTable.status, params.status));
+artifacts/api-server/src/routes/tasks.ts:50:    conditions.push(eq(tasksTable.priority, params.priority));
+artifacts/api-server/src/routes/tasks.ts:52:  const tasks = await db
+artifacts/api-server/src/routes/tasks.ts:54:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:56:    .orderBy(desc(tasksTable.createdAt), desc(tasksTable.id))
+artifacts/api-server/src/routes/tasks.ts:59:  return res.json(tasks);
+artifacts/api-server/src/routes/tasks.ts:63:router.post("/tasks", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:71:    const rows = await tx.insert(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:93:router.get("/tasks/:taskId", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:97:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:98:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:107:router.patch("/tasks/:taskId", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:111:  const before = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+artifacts/api-server/src/routes/tasks.ts:154:    const rows = await tx.update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:157:        eq(tasksTable.id, taskId),
+artifacts/api-server/src/routes/tasks.ts:158:        eq(tasksTable.status, before[0].status),
+artifacts/api-server/src/routes/tasks.ts:159:        isNull(tasksTable.workerId),
+artifacts/api-server/src/routes/tasks.ts:202:router.delete("/tasks/:taskId", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:205:  const before = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+artifacts/api-server/src/routes/tasks.ts:213:    const [lockedTask] = await tx.select().from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:214:      .where(eq(tasksTable.id, taskId)).for("update");
+artifacts/api-server/src/routes/tasks.ts:242:    await tx.delete(tasksTable).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/tasks.ts:267:router.post("/tasks/:taskId/execute", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:271:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:272:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:286:    .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:288:    .where(and(eq(tasksTable.id, taskId), inArray(tasksTable.status, ["pending", "queued"])))
+artifacts/api-server/src/routes/tasks.ts:332:      .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:334:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")));
+artifacts/api-server/src/routes/tasks.ts:384:  let updated: typeof tasksTable.$inferSelect | undefined;
+artifacts/api-server/src/routes/tasks.ts:388:      .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:390:      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+artifacts/api-server/src/routes/tasks.ts:454:router.post("/tasks/:taskId/retry", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:458:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:459:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:479:  let updated: typeof tasksTable.$inferSelect;
+artifacts/api-server/src/routes/tasks.ts:487:        .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:491:            eq(tasksTable.id, taskId),
+artifacts/api-server/src/routes/tasks.ts:492:            inArray(tasksTable.status, ["failed", "cancelled"]),
+artifacts/api-server/src/routes/tasks.ts:493:            eq(tasksTable.retryCount, retryCount),
+artifacts/api-server/src/routes/tasks.ts:540:router.post("/tasks/:taskId/rollback", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:544:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:545:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:583:  let updated: typeof tasksTable.$inferSelect;
+artifacts/api-server/src/routes/tasks.ts:591:        .update(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:593:        .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, task[0].status)))
+artifacts/api-server/src/routes/tasks.ts:640:router.get("/tasks/:taskId/logs", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:644:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:645:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:660:// GET /tasks/:taskId/logs/stream
+artifacts/api-server/src/routes/tasks.ts:661:router.get("/tasks/:taskId/logs/stream", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:666:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:667:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:729:        .select({ status: tasksTable.status })
+artifacts/api-server/src/routes/tasks.ts:730:        .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:731:        .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.test.ts:8:  tasksTable,
+artifacts/api-server/src/routes/tasks.test.ts:44:  const tasks = await db.select().from(tasksTable).where(eq(tasksTable.projectId, id));
+artifacts/api-server/src/routes/tasks.test.ts:45:  for (const task of tasks) {
+artifacts/api-server/src/routes/tasks.test.ts:50:  await db.delete(tasksTable).where(eq(tasksTable.projectId, id));
+artifacts/api-server/src/routes/tasks.test.ts:69:      .post("/api/tasks")
+artifacts/api-server/src/routes/tasks.test.ts:83:    const list = await request(app).get("/api/tasks").query({ projectId });
+artifacts/api-server/src/routes/tasks.test.ts:91:    const res = await request(app).post(`/api/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/tasks.test.ts:96:    const logs = await request(app).get(`/api/tasks/${taskId}/logs`);
+artifacts/api-server/src/routes/tasks.test.ts:103:    const first = await request(app).post(`/api/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/tasks.test.ts:106:    const second = await request(app).post(`/api/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/tasks.test.ts:112:    await db.update(tasksTable).set({ status: "failed", maxRetries: 1 }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/tasks.test.ts:114:    const retried = await request(app).post(`/api/tasks/${taskId}/retry`);
+artifacts/api-server/src/routes/tasks.test.ts:119:    await db.update(tasksTable).set({ status: "failed" }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/tasks.test.ts:120:    const secondRetry = await request(app).post(`/api/tasks/${taskId}/retry`);
+artifacts/api-server/src/routes/tasks.test.ts:127:    const rolledBack = await request(app).post(`/api/tasks/${taskId}/rollback`);
+artifacts/api-server/src/routes/tasks.test.ts:136:      .patch(`/api/tasks/${taskId}`)
+artifacts/api-server/src/routes/tasks.test.ts:141:    const deleted = await request(app).delete(`/api/tasks/${taskId}`);
+artifacts/api-server/src/routes/tasks.test.ts:144:    const fetched = await request(app).get(`/api/tasks/${taskId}`);
+artifacts/api-server/src/routes/tasks.test.ts:165:      .patch(`/api/tasks/${taskId}`)
+artifacts/api-server/src/routes/tasks.test.ts:181:    await request(app).delete(`/api/tasks/${taskId}`);
+artifacts/api-server/src/routes/tasks.test.ts:203:      .patch(`/api/tasks/${taskId}`)
+artifacts/api-server/src/routes/tasks.test.ts:218:    await request(app).post(`/api/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/tasks.test.ts:233:    await db.update(tasksTable).set({ status: "failed" }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/tasks.test.ts:235:    await request(app).post(`/api/tasks/${taskId}/retry`);
+artifacts/api-server/src/routes/tasks.test.ts:247:    await request(app).post(`/api/tasks/${taskId}/rollback`);
+artifacts/api-server/src/routes/tasks.test.ts:259:describe("Ownership isolation — tasks", () => {
+artifacts/api-server/src/routes/tasks.test.ts:276:      rootPath: "/tmp/other-user-tasks",
+artifacts/api-server/src/routes/tasks.test.ts:285:  it("GET /tasks returns 403 when projectId belongs to another user", async () => {
+artifacts/api-server/src/routes/tasks.test.ts:289:    const res = await request(app).get("/api/tasks").query({ projectId: otherProjectId });
+artifacts/api-server/src/routes/tasks.test.ts:293:  it("POST /tasks returns 403 when projectId belongs to another user", async () => {
+artifacts/api-server/src/routes/tasks.test.ts:297:    const res = await request(app).post("/api/tasks").send({
+artifacts/api-server/src/routes/tasks.test.ts:305:  it("GET /tasks/:taskId returns 403 when the task belongs to another user's project", async () => {
+artifacts/api-server/src/routes/tasks.test.ts:311:    await db.insert(tasksTable).values({
+artifacts/api-server/src/routes/tasks.test.ts:321:    const res = await request(app).get(`/api/tasks/${taskId}`);
+artifacts/api-server/src/routes/tasks.test.ts:346:      .post("/api/tasks")
+artifacts/api-server/src/routes/tasks.test.ts:351:      await db.update(tasksTable).set({ prompt }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/tasks.test.ts:359:    const res = await request(app).post(`/api/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/tasks.test.ts:370:    const res = await request(app).post(`/api/tasks/${taskId}/execute`);
+artifacts/api-server/src/routes/tasks.test.ts:381:      .patch(`/api/tasks/${taskId}`)
+artifacts/api-server/src/routes/tasks.test.ts:394:      .patch(`/api/tasks/${taskId}`)
+artifacts/api-server/src/routes/tasks.test.ts:405:      .patch(`/api/tasks/${taskId}`)
+artifacts/api-server/src/routes/rules.ts:19:import { walkProject, matchRule, type RuleInput } from "@workspace/scanner";
+artifacts/api-server/src/lib/plugin-runtime.ts:30:export interface RuleViolationSummary {
+artifacts/api-server/src/lib/plugin-runtime.ts:44:  tasksCreated: number;
+artifacts/api-server/src/lib/plugin-runtime.ts:47:  ruleViolations: RuleViolationSummary[];
+artifacts/api-server/src/lib/plugin-runtime.ts:172:      const criticalViolations = ctx.ruleViolations.filter(
+artifacts/api-server/src/lib/plugin-runtime.test.ts:25:    tasksCreated: 0,
+artifacts/api-server/src/lib/plugin-runtime.test.ts:28:    ruleViolations: [],
+artifacts/api-server/src/lib/plugin-runtime.test.ts:155:      ruleViolations: [
+artifacts/api-server/src/lib/plugin-runtime.test.ts:181:      ruleViolations: [
+artifacts/api-server/src/routes/projects.ts:6:  tasksTable,
+artifacts/api-server/src/routes/projects.ts:446:    db.select().from(tasksTable).where(eq(tasksTable.projectId, projectId)),
+artifacts/api-server/src/routes/projects.test.ts:10:  tasksTable,
+artifacts/api-server/src/routes/projects.test.ts:74:  await db.delete(tasksTable).where(eq(tasksTable.projectId, id));
+artifacts/api-server/src/routes/index.ts:4:import tasksRouter from "./tasks.js";
+artifacts/api-server/src/routes/index.ts:22:router.use(tasksRouter);
+artifacts/api-server/src/routes/discovery.ts:9:  tasksTable,
+artifacts/api-server/src/routes/discovery.ts:473:          result.ruleViolations.filter(
+artifacts/api-server/src/routes/discovery.ts:481:        lintIssues: result.ruleViolations.reduce((s, r) => s + r.count, 0),
+artifacts/api-server/src/routes/discovery.ts:507:      for (const violation of result.ruleViolations.slice(0, 20)) {
+artifacts/api-server/src/routes/discovery.ts:508:        await tx.insert(tasksTable).values({
+artifacts/api-server/src/lib/job-reconciliation.ts:21: *   tasks "running"             → reset to "verifying" if retryCount < maxRetries
+artifacts/api-server/src/lib/job-reconciliation.ts:32: * For interrupted AI tasks, resetting to "verifying" makes the task visible
+artifacts/api-server/src/lib/job-reconciliation.ts:54:  tasksTable,
+artifacts/api-server/src/lib/job-reconciliation.ts:606:      id: tasksTable.id,
+artifacts/api-server/src/lib/job-reconciliation.ts:607:      projectId: tasksTable.projectId,
+artifacts/api-server/src/lib/job-reconciliation.ts:608:      retryCount: tasksTable.retryCount,
+artifacts/api-server/src/lib/job-reconciliation.ts:609:      maxRetries: tasksTable.maxRetries,
+artifacts/api-server/src/lib/job-reconciliation.ts:610:    }).from(tasksTable).where(and(
+artifacts/api-server/src/lib/job-reconciliation.ts:611:      eq(tasksTable.status, "running"),
+artifacts/api-server/src/lib/job-reconciliation.ts:612:      lt(tasksTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:616:      const [updated] = await db.update(tasksTable).set({
+artifacts/api-server/src/lib/job-reconciliation.ts:625:        eq(tasksTable.id, task.id),
+artifacts/api-server/src/lib/job-reconciliation.ts:626:        eq(tasksTable.status, "running"),
+artifacts/api-server/src/lib/job-reconciliation.ts:627:        lt(tasksTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:628:      )).returning({ id: tasksTable.id });
+artifacts/api-server/src/lib/job-reconciliation.ts:809:      db.select({ value: count() }).from(tasksTable).where(and(eq(tasksTable.status, "running"), lt(tasksTable.leaseUntil, now))),
+artifacts/api-server/src/lib/job-reconciliation.ts:811:      db.select({ value: count() }).from(tasksTable).where(and(eq(tasksTable.status, "failed"), eq(tasksTable.retryCount, tasksTable.maxRetries))),
+artifacts/api-server/src/lib/job-reconciliation.ts:895: * Handles tasks left in "running" state after a process crash.
+artifacts/api-server/src/lib/job-reconciliation.ts:916:    lt(tasksTable.leaseUntil, now),
+artifacts/api-server/src/lib/job-reconciliation.ts:917:    isNull(tasksTable.leaseUntil),
+artifacts/api-server/src/lib/job-reconciliation.ts:922:      id: tasksTable.id,
+artifacts/api-server/src/lib/job-reconciliation.ts:923:      projectId: tasksTable.projectId,
+artifacts/api-server/src/lib/job-reconciliation.ts:924:      title: tasksTable.title,
+artifacts/api-server/src/lib/job-reconciliation.ts:925:      retryCount: tasksTable.retryCount,
+artifacts/api-server/src/lib/job-reconciliation.ts:926:      maxRetries: tasksTable.maxRetries,
+artifacts/api-server/src/lib/job-reconciliation.ts:928:    .from(tasksTable)
+artifacts/api-server/src/lib/job-reconciliation.ts:929:    .where(and(eq(tasksTable.status, "running"), abandonedTask));
+artifacts/api-server/src/lib/job-reconciliation.ts:943:        .update(tasksTable)
+artifacts/api-server/src/lib/job-reconciliation.ts:953:        .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running"), abandonedTask))
+artifacts/api-server/src/lib/job-reconciliation.ts:954:        .returning({ id: tasksTable.id });
+artifacts/api-server/src/lib/job-reconciliation.ts:983:        .update(tasksTable)
+artifacts/api-server/src/lib/job-reconciliation.ts:993:        .where(and(eq(tasksTable.id, task.id), eq(tasksTable.status, "running"), abandonedTask))
+artifacts/api-server/src/lib/job-reconciliation.ts:994:        .returning({ id: tasksTable.id });
+artifacts/api-server/src/lib/job-reconciliation.ts:1030:    "reconciled interrupted AI tasks after restart: reset to verifying or failed",
+artifacts/api-server/src/lib/job-reconciliation.test.ts:4:import { db, projectsTable, scanJobsTable, discoverySessionsTable, tasksTable, taskLogsTable } from "@workspace/db";
+artifacts/api-server/src/lib/job-reconciliation.test.ts:319:    await db.insert(tasksTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:333:    const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:417:  // ── AI tasks: running → verifying (retryable) ─────────────────────────────
+artifacts/api-server/src/lib/job-reconciliation.test.ts:419:  it("resets running AI tasks to verifying when retryCount < maxRetries", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:427:    await db.insert(tasksTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:443:      .from(tasksTable)
+artifacts/api-server/src/lib/job-reconciliation.test.ts:444:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/lib/job-reconciliation.test.ts:462:    await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:465:  // ── AI tasks: running → failed (retry limit exceeded) ─────────────────────
+artifacts/api-server/src/lib/job-reconciliation.test.ts:467:  it("marks running AI tasks as failed when retryCount >= maxRetries", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:475:    await db.insert(tasksTable).values({
+artifacts/api-server/src/lib/job-reconciliation.test.ts:491:      .from(tasksTable)
+artifacts/api-server/src/lib/job-reconciliation.test.ts:492:      .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/lib/job-reconciliation.test.ts:510:    await db.delete(tasksTable).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:513:  // ── AI tasks: terminal states untouched ───────────────────────────────────
+artifacts/api-server/src/lib/job-reconciliation.test.ts:515:  it("does not touch AI tasks in terminal states (completed, failed, pending)", async () => {
+artifacts/api-server/src/lib/job-reconciliation.test.ts:524:    await db.insert(tasksTable).values([
+artifacts/api-server/src/lib/job-reconciliation.test.ts:532:    const tasks = await db
+artifacts/api-server/src/lib/job-reconciliation.test.ts:533:      .select({ id: tasksTable.id, status: tasksTable.status })
+artifacts/api-server/src/lib/job-reconciliation.test.ts:534:      .from(tasksTable)
+artifacts/api-server/src/lib/job-reconciliation.test.ts:535:      .where(eq(tasksTable.projectId, projectId));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:537:    const byId = Object.fromEntries(tasks.map((t) => [t.id, t.status]));
+artifacts/api-server/src/lib/job-reconciliation.test.ts:543:    await db.delete(tasksTable).where(eq(tasksTable.projectId, projectId));
+artifacts/api-server/src/lib/job-queue.ts:18: * deduplication. All DB-backed jobs (scan, discovery, AI tasks) should use
+artifacts/api-server/src/lib/job-queue.ts:147:   * Use this for all DB-backed jobs (scan, discovery, AI tasks) where the
+artifacts/api-server/src/lib/job-lease.ts:25:import { scanJobsTable, discoverySessionsTable, tasksTable } from "@workspace/db";
+artifacts/api-server/src/lib/job-lease.ts:242:    .update(tasksTable)
+artifacts/api-server/src/lib/job-lease.ts:244:    .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "verifying")))
+artifacts/api-server/src/lib/job-lease.ts:245:    .returning({ id: tasksTable.id });
+artifacts/api-server/src/lib/job-lease.ts:260:    .update(tasksTable)
+artifacts/api-server/src/lib/job-lease.ts:262:    .where(and(eq(tasksTable.id, taskId), eq(tasksTable.workerId, workerId)));
+artifacts/api-server/src/lib/job-lease.ts:271:    .update(tasksTable)
+artifacts/api-server/src/lib/job-lease.ts:273:    .where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/lib/discovery-runner.ts:29:  type RuleInput,
+artifacts/api-server/src/lib/discovery-runner.ts:489:    const ruleViolations = ruleResults
+artifacts/api-server/src/lib/discovery-runner.ts:527:      ruleViolations,
+artifacts/api-server/src/routes/discovery.test.ts:12:  tasksTable,
+artifacts/api-server/src/routes/discovery.test.ts:57:    ruleViolations: [],
+artifacts/api-server/src/routes/discovery.test.ts:108:    await db.delete(tasksTable).where(eq(tasksTable.projectId, projectId)).catch(() => undefined);
+artifacts/api-server/src/routes/discovery.test.ts:585:  it("creates tasks capped at 20 from rule violations on import", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:592:    const discoveryId = await insertReadySession(fakeResult({ ruleViolations: violations }));
+artifacts/api-server/src/routes/discovery.test.ts:598:    const tasks = await db
+artifacts/api-server/src/routes/discovery.test.ts:600:      .from(tasksTable)
+artifacts/api-server/src/routes/discovery.test.ts:601:      .where(eq(tasksTable.projectId, res.body.id));
+artifacts/api-server/src/routes/discovery.test.ts:602:    expect(tasks.length).toBe(20);

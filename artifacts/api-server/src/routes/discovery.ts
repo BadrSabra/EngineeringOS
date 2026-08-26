@@ -7,6 +7,7 @@ import {
   metricsTable,
   graphEntitiesTable,
   tasksTable,
+  rulesTable,
   type DiscoveryStep,
 } from "@workspace/db";
 import {
@@ -31,6 +32,10 @@ import { validateRootPath, verifyProjectRoot } from "../lib/path-validation.js";
 import { establishProjectRoot } from "../lib/project-root.js";
 import { removeManagedProjectRoot } from "../lib/project-materialization.js";
 import { runDiscovery, STEPS } from "../lib/discovery-runner.js";
+import {
+  buildRemediationPlan,
+  buildRemediationPrompt,
+} from "../lib/remediation-plan.js";
 
 const router = Router();
 
@@ -504,19 +509,62 @@ router.post("/projects/import", async (req, res) => {
       }
 
       // 4. Tasks from rule violations (top 20)
+      const availableRules = await tx
+        .select()
+        .from(rulesTable)
+        .where(isNull(rulesTable.projectId));
+
       for (const violation of result.ruleViolations.slice(0, 20)) {
+        const sourcePlan = violation.remediationPlan;
+        const rule = availableRules.find(
+          (candidate) =>
+            candidate.id === violation.ruleId || candidate.code === violation.code,
+        );
+        const remediationPlan = buildRemediationPlan({
+          // Do not persist a stale discovery rule ID: tasks.rule_id is a
+          // foreign key, so an unavailable rule must become an unlinked plan.
+          ruleId: rule?.id ?? null,
+          ruleCode: violation.code,
+          ruleTitle: violation.title,
+          severity: violation.severity,
+          occurrenceCount: violation.count,
+          matches: violation.matches ?? sourcePlan?.evidence,
+          fixDescription: violation.fixDescription ?? rule?.fixDescription ?? sourcePlan?.fixDescription,
+          verificationSteps:
+            violation.verifySteps ??
+            rule?.verifySteps ??
+            sourcePlan?.verificationSteps ??
+            [],
+          source: {
+            type: "discovery",
+            correlationId: result.sourceCorrelationId ?? body.discoveryId,
+            revision: result.sourceRevision ?? sourcePlan?.source.revision ?? null,
+            completeness: sourcePlan?.source.completeness ?? "COMPLETE",
+          },
+        });
+
         await tx.insert(tasksTable).values({
           id: randomUUID(),
           projectId,
-          title: `Fix: ${violation.title}`,
-          description: `Rule violation detected during discovery. ${violation.count} occurrence(s) found.`,
+          ruleId: remediationPlan.ruleId ?? undefined,
+          title: `Remediate ${remediationPlan.ruleCode}: ${remediationPlan.ruleTitle}`,
+          description:
+            remediationPlan.fixDescription ??
+            `${remediationPlan.occurrenceCount} occurrence(s) detected for ${remediationPlan.ruleCode}. Review the bounded evidence before execution.`,
           status: "pending",
           priority:
-            violation.severity === "critical"
+            remediationPlan.severity === "critical"
               ? "p0"
-              : violation.severity === "high"
+              : remediationPlan.severity === "high"
               ? "p1"
-              : "p2",
+              : remediationPlan.severity === "medium"
+              ? "p2"
+              : "p3",
+          relatedFiles: remediationPlan.relatedFiles,
+          prompt: buildRemediationPrompt(remediationPlan),
+          phase: "remediation",
+          remediationPlan,
+          correlationId: remediationPlan.source.correlationId ?? body.discoveryId,
           createdAt: now,
           updatedAt: now,
         });

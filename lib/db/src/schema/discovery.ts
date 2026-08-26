@@ -1,6 +1,7 @@
 import { pgTable, text, timestamp, integer, jsonb, pgEnum, index, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { projectsTable } from "./projects.js";
+import type { RemediationEvidence, RemediationPlan } from "./tasks.js";
 
 // Session-level status (the discoverySessionsTable.status column below).
 // Distinct from DiscoveryStep["status"], which tracks each individual
@@ -62,10 +63,16 @@ export interface DiscoveryStep {
 }
 
 export interface DiscoveryRuleViolation {
+  ruleId?: string;
   code: string;
   title: string;
   severity: string;
   count: number;
+  /** Bounded match evidence retained for the pre-import report. */
+  matches?: RemediationEvidence[];
+  fixDescription?: string | null;
+  verifySteps?: string[];
+  remediationPlan?: RemediationPlan;
 }
 
 export interface DiscoveryGraphSummary {
@@ -102,6 +109,10 @@ export interface DiscoveryResultData {
   confidenceScore: number;
   graphSummary: DiscoveryGraphSummary;
   ruleViolations: DiscoveryRuleViolation[];
+  /** Server-owned source identity for plans created during import. */
+  sourceRevision?: string;
+  sourceProvenance?: string;
+  sourceCorrelationId?: string;
 }
 
 export const discoverySessionsTable = pgTable("discovery_sessions", {

@@ -1,0 +1,180 @@
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:309:    updatedAt: now,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:328:    updatedAt: now,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:465:        updatedAt: now,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:503:            updatedAt: originalCredential[0].updatedAt,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:528:      updatedAt: now,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:544:      .set({ status: "paused", updatedAt: new Date() })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:569:      .set({ status: "completed", updatedAt: new Date() })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:637:          updatedAt: new Date(),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:882:        updatedAt: new Date().toISOString(),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:978:        .select({ updatedAt: projectsTable.updatedAt })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:981:        .limit(1))[0]!.updatedAt.toISOString(),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1020:        updatedAt: new Date().toISOString(),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1033:      .set({ updatedAt: new Date(new Date(requestEnvelope.workspaceRevision).getTime() + 60_000) })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1242:        updatedAt: new Date().toISOString(),
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1349:      updatedAt: now,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2143:      updatedAt: now,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2353:      updatedAt: now,
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:2992:      activeTaskState?: { taskType?: string; scope?: { projectId?: string } } | null;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3062:      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3065:    expect(JSON.parse(persistedAfterFirst[0]!.activeTaskState!)).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3095:    expect(seenInputs[1]?.activeTaskState).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3105:    expect(seenInputs[2]?.activeTaskState).toBeNull();
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3120:  it("keeps the newest resumable contract when same-session turns finish out of order", async () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3268:      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3271:    expect(JSON.parse(persisted[0]!.activeTaskState!)).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3275:    const continuationInputs: Array<{ activeTaskState?: { executionPlan?: { phases?: Array<{ files?: string[] }> } } | null }> = [];
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:3288:    expect(continuationInputs[0]?.activeTaskState).toMatchObject({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:4624:      updatedAt: now,
+artifacts/api-server/src/routes/discovery.ts:447:          updatedAt: now,
+artifacts/api-server/src/routes/discovery.ts:569:          updatedAt: now,
+artifacts/api-server/src/routes/tasks.ts:73:      .values({ id: randomUUID(), ...body, correlationId, createdAt: now, updatedAt: now })
+artifacts/api-server/src/routes/tasks.ts:156:      .set({ ...body, updatedAt: new Date() })
+artifacts/api-server/src/routes/tasks.ts:288:    .set({ status: "running", updatedAt: now })
+artifacts/api-server/src/routes/tasks.ts:334:      .set({ status: task[0].status, updatedAt: now })
+artifacts/api-server/src/routes/tasks.ts:397:        updatedAt: now,
+artifacts/api-server/src/routes/tasks.ts:498:        .set({ status: "queued", retryCount: retryCount + 1, updatedAt: now })
+artifacts/api-server/src/routes/tasks.ts:602:        .set({ status: "cancelled", updatedAt: now })
+artifacts/api-server/src/routes/ai.test.ts:411:    updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:444:    updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:530:    updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:546:    updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:560:    updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:868:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:1199:      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+artifacts/api-server/src/routes/ai.test.ts:1202:    expect(JSON.parse(persistedAfterFirst[0]!.activeTaskState!)).toMatchObject({
+artifacts/api-server/src/routes/ai.test.ts:1222:      activeTaskState?: { taskType?: string; scope?: { projectId?: string } };
+artifacts/api-server/src/routes/ai.test.ts:1224:    expect(continuationCall?.activeTaskState).toMatchObject({
+artifacts/api-server/src/routes/ai.test.ts:1235:      activeTaskState?: unknown;
+artifacts/api-server/src/routes/ai.test.ts:1243:    expect(neutralCall?.activeTaskState).toBeNull();
+artifacts/api-server/src/routes/ai.test.ts:1361:      .select({ activeTaskState: aiChatSessionsTable.activeTaskState })
+artifacts/api-server/src/routes/ai.test.ts:1364:    expect(JSON.parse(persisted[0]!.activeTaskState!)).toMatchObject({
+artifacts/api-server/src/routes/ai.test.ts:1369:      activeTaskState?: { executionPlan?: { phases?: Array<{ files?: string[] }> } } | null;
+artifacts/api-server/src/routes/ai.test.ts:1379:    expect(continuationInputs[0]?.activeTaskState).toMatchObject({
+artifacts/api-server/src/routes/ai.test.ts:1447:        updatedAt: new Date().toISOString(),
+artifacts/api-server/src/routes/ai.test.ts:1451:      updatedAt: new Date(),
+artifacts/api-server/src/routes/ai.test.ts:1532:          updatedAt: completedAt.toISOString(),
+artifacts/api-server/src/routes/ai.test.ts:1539:        updatedAt: completedAt,
+artifacts/api-server/src/routes/ai.test.ts:1656:        updatedAt: new Date(now.getTime() - 1000),
+artifacts/api-server/src/routes/ai.test.ts:1663:        updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:1670:        updatedAt: new Date(now.getTime() + 1000),
+artifacts/api-server/src/routes/ai.test.ts:1677:        updatedAt: new Date(now.getTime() + 2000),
+artifacts/api-server/src/routes/ai.test.ts:1734:      updatedAt: newer,
+artifacts/api-server/src/routes/ai.test.ts:1772:      updatedAt: timestamp,
+artifacts/api-server/src/routes/ai.test.ts:1840:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:1889:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:1937:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:2001:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:2031:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:2074:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:2108:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:2191:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:2895:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:2942:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:3004:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:3089:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:3141:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:3206:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:3252:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:3302:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:3378:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:3432:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:3523:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:3570:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:3614:      createdAt: now, updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:3664:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:3714:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:3812:      updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:4229:    await db.update(tasksTable).set({ status: "verifying", updatedAt: new Date() }).where(eq(tasksTable.id, taskId));
+artifacts/api-server/src/routes/workflows.ts:63:      .values({ id: randomUUID(), ...body, createdAt: now, updatedAt: now }).returning();
+artifacts/api-server/src/routes/workflows.ts:174:          updatedAt: now,
+artifacts/api-server/src/routes/workflows.ts:242:        revision: workflow[0].updatedAt.toISOString(),
+artifacts/api-server/src/routes/workflows.ts:283:        .set({ status: "stopped", updatedAt: now })
+artifacts/api-server/src/routes/workflows.ts:513:          updatedAt: now,
+artifacts/api-server/src/routes/workflows.ts:567:        revision: workflow[0].updatedAt.toISOString(),
+artifacts/api-server/src/routes/workflows.ts:617:        .set({ status: "failed", updatedAt: now })
+artifacts/api-server/src/routes/workflows.ts:695:        .set({ status: "running", currentPhase: execution.currentPhase, updatedAt: now })
+artifacts/api-server/src/routes/workflows.ts:864:          updatedAt: now,
+artifacts/api-server/src/routes/workflows.test.ts:26:    updatedAt: now,
+artifacts/api-server/src/routes/tasks.test.ts:38:    updatedAt: now,
+artifacts/api-server/src/routes/tasks.test.ts:280:      updatedAt: now,
+artifacts/api-server/src/routes/tasks.test.ts:318:      updatedAt: now,
+artifacts/api-server/src/scripts/seed-provenance.ts:204:        updatedAt: now,
+artifacts/api-server/src/scripts/seed-provenance.ts:208:        set: { updatedAt: now, lastScanAt: now },
+artifacts/api-server/src/routes/rules.ts:74:      .values({ id: randomUUID(), ...body, createdAt: now, updatedAt: now }).returning();
+artifacts/api-server/src/routes/rules.ts:132:      .set({ ...body, updatedAt: new Date() })
+artifacts/api-server/src/routes/rules.ts:255:      updatedAt: new Date(),
+artifacts/api-server/src/routes/rules.test.ts:33:    updatedAt: now,
+artifacts/api-server/src/routes/rules.test.ts:49:    updatedAt: now,
+artifacts/api-server/src/routes/projects.ts:71:    createdAt: profile.createdAt, updatedAt: profile.updatedAt,
+artifacts/api-server/src/routes/projects.ts:129:    .orderBy(desc(browserValidationProfilesTable.updatedAt));
+artifacts/api-server/src/routes/projects.ts:130:  const currentRevision = req.project!.updatedAt.toISOString();
+artifacts/api-server/src/routes/projects.ts:139:    revision: project.updatedAt.toISOString(),
+artifacts/api-server/src/routes/projects.ts:164:    id: randomUUID(), projectId: project.id, ...profile, createdAt: now, updatedAt: now,
+artifacts/api-server/src/routes/projects.ts:167:    set: { revision: profile.revision, permittedOrigin: profile.permittedOrigin, steps: profile.steps, timeoutMs: profile.timeoutMs, updatedAt: now },
+artifacts/api-server/src/routes/projects.ts:169:  return res.json(publicBrowserProfile(saved, project.updatedAt.toISOString()));
+artifacts/api-server/src/routes/projects.ts:206:      createdAt: now, updatedAt: now,
+artifacts/api-server/src/routes/projects.ts:239:      .set({ ...body, updatedAt: new Date() })
+artifacts/api-server/src/routes/projects.ts:354:        .set({ status: "scanning", updatedAt: now })
+artifacts/api-server/src/routes/projects.ts:403:        .set({ status: "active", updatedAt: new Date() })
+artifacts/api-server/src/routes/projects.test.ts:67:    updatedAt: now,
+artifacts/api-server/src/routes/plugins.ts:81:      DEFAULT_PLUGINS.map((p) => ({ ...p, createdAt: now, updatedAt: now })),
+artifacts/api-server/src/routes/plugins.ts:107:    .set({ enabled: true, updatedAt: new Date() })
+artifacts/api-server/src/routes/plugins.ts:136:    .set({ enabled: false, updatedAt: new Date() })
+artifacts/api-server/src/routes/discovery.ts:447:          updatedAt: now,
+artifacts/api-server/src/routes/discovery.ts:569:          updatedAt: now,
+artifacts/api-server/src/routes/metrics.test.ts:19:    updatedAt: now,
+artifacts/api-server/src/routes/metrics.test.ts:107:      updatedAt: now,
+artifacts/api-server/src/routes/tasks.ts:73:      .values({ id: randomUUID(), ...body, correlationId, createdAt: now, updatedAt: now })
+artifacts/api-server/src/routes/tasks.ts:156:      .set({ ...body, updatedAt: new Date() })
+artifacts/api-server/src/routes/tasks.ts:288:    .set({ status: "running", updatedAt: now })
+artifacts/api-server/src/routes/tasks.ts:334:      .set({ status: task[0].status, updatedAt: now })
+artifacts/api-server/src/routes/tasks.ts:397:        updatedAt: now,
+artifacts/api-server/src/routes/tasks.ts:498:        .set({ status: "queued", retryCount: retryCount + 1, updatedAt: now })
+artifacts/api-server/src/routes/tasks.ts:602:        .set({ status: "cancelled", updatedAt: now })
+artifacts/api-server/src/routes/graph.test.ts:24:    updatedAt: now,
+artifacts/api-server/src/routes/graph.test.ts:460:      updatedAt: new Date(),
+artifacts/api-server/src/routes/graph.test.ts:520:      updatedAt: new Date(),
+artifacts/api-server/src/routes/graph.test.ts:598:      updatedAt: new Date(),
+artifacts/api-server/src/routes/graph.test.ts:693:      updatedAt: new Date(),
+artifacts/api-server/src/routes/graph.test.ts:929:      updatedAt: now,
+artifacts/api-server/src/routes/graph.test.ts:979:      updatedAt: now,
+artifacts/api-server/src/routes/git.ts:123:    .select({ last4: aiProviderCredentialsTable.last4, updatedAt: aiProviderCredentialsTable.updatedAt })
+artifacts/api-server/src/routes/git.ts:133:  return res.json({ configured: true, last4: rows[0].last4, updatedAt: rows[0].updatedAt });
+artifacts/api-server/src/routes/git.ts:154:      updatedAt: now,
+artifacts/api-server/src/routes/git.ts:158:      set: { encryptedApiKey, last4, updatedAt: now },
+artifacts/api-server/src/routes/git.ts:161:  return res.json({ configured: true, last4, updatedAt: now });
+artifacts/api-server/src/routes/git.ts:194:    updatedAt: new Date(),
+artifacts/api-server/src/routes/git.ts:711:          await tx.update(projectsTable).set({ status: "scanning", updatedAt: scanNow }).where(eq(projectsTable.id, project.id));
+artifacts/api-server/src/routes/git.ts:744:            .set({ status: "active", updatedAt: new Date() })
+artifacts/api-server/src/routes/git.ts:123:    .select({ last4: aiProviderCredentialsTable.last4, updatedAt: aiProviderCredentialsTable.updatedAt })
+artifacts/api-server/src/routes/git.ts:133:  return res.json({ configured: true, last4: rows[0].last4, updatedAt: rows[0].updatedAt });
+artifacts/api-server/src/routes/git.ts:154:      updatedAt: now,
+artifacts/api-server/src/routes/git.ts:158:      set: { encryptedApiKey, last4, updatedAt: now },
+artifacts/api-server/src/routes/git.ts:161:  return res.json({ configured: true, last4, updatedAt: now });
+artifacts/api-server/src/routes/git.ts:194:    updatedAt: new Date(),
+artifacts/api-server/src/routes/git.ts:711:          await tx.update(projectsTable).set({ status: "scanning", updatedAt: scanNow }).where(eq(projectsTable.id, project.id));
+artifacts/api-server/src/routes/git.ts:744:            .set({ status: "active", updatedAt: new Date() })
+artifacts/api-server/src/routes/git.test.ts:53:    updatedAt: now,
+artifacts/api-server/src/routes/git.test.ts:60:    updatedAt: now,
+artifacts/api-server/src/routes/git.test.ts:235:      updatedAt: now,
+artifacts/api-server/src/routes/git.test.ts:241:        updatedAt: now,
+artifacts/api-server/src/routes/git.test.ts:53:    updatedAt: now,
+artifacts/api-server/src/routes/git.test.ts:60:    updatedAt: now,
+artifacts/api-server/src/routes/git.test.ts:235:      updatedAt: now,
+artifacts/api-server/src/routes/git.test.ts:241:        updatedAt: now,
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:210:    updatedAt: now,
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:224:    updatedAt: now,
+artifacts/api-server/src/routes/events.test.ts:24:    updatedAt: now,
+artifacts/api-server/src/routes/events.test.ts:269:      updatedAt: now,
+artifacts/api-server/src/routes/events.test.ts:290:      updatedAt: now,
+artifacts/api-server/src/routes/events.test.ts:24:    updatedAt: now,
+artifacts/api-server/src/routes/events.test.ts:269:      updatedAt: now,
+artifacts/api-server/src/routes/events.test.ts:290:      updatedAt: now,
+artifacts/api-server/src/routes/dashboard.ts:148:    ...projects.map((p) => p.updatedAt),
+artifacts/api-server/src/routes/dashboard.ts:149:    ...tasks.map((t) => t.updatedAt),
+artifacts/api-server/src/routes/dashboard.ts:152:    ...allRules.map((rule) => rule.updatedAt),
+artifacts/api-server/src/routes/dashboard.test.ts:43:    updatedAt: now,
+artifacts/api-server/src/routes/dashboard.test.ts:58:    updatedAt: now,
+artifacts/api-server/src/routes/dashboard.test.ts:107:    updatedAt: now,
+artifacts/api-server/src/routes/ai.test.ts:411:    updatedAt: now,

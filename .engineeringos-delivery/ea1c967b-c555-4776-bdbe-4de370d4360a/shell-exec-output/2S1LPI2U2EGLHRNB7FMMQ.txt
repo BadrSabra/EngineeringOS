@@ -1,0 +1,240 @@
+lib/api-client-react/src/generated/api.schemas.ts:349:  'task-log': 'task-log',
+lib/api-client-react/src/generated/api.schemas.ts:367:  taskLogs: number;
+lib/api-client-react/src/generated/api.schemas.ts:548:export type TaskExecutionRetentionHealthStatus = typeof TaskExecutionRetentionHealthStatus[keyof typeof TaskExecutionRetentionHealthStatus];
+lib/api-client-react/src/generated/api.schemas.ts:551:export const TaskExecutionRetentionHealthStatus = {
+lib/api-client-react/src/generated/api.schemas.ts:557: * Content-free status of the bounded task-log and terminal execution receipt retention sweep. Active and resumable executions are retained.
+lib/api-client-react/src/generated/api.schemas.ts:559:export interface TaskExecutionRetentionHealth {
+lib/api-client-react/src/generated/api.schemas.ts:560:  status: TaskExecutionRetentionHealthStatus;
+lib/api-client-react/src/generated/api.schemas.ts:563:  taskLogRowsScanned: number;
+lib/api-client-react/src/generated/api.schemas.ts:564:  taskLogRowsRemoved: number;
+lib/api-client-react/src/generated/api.schemas.ts:586:  expiredTaskLeases: number;
+lib/api-client-react/src/generated/api.schemas.ts:588:  retryExhaustedTasks: number;
+lib/api-client-react/src/generated/api.schemas.ts:596:  taskExecutionRetention?: TaskExecutionRetentionHealth;
+lib/api-client-react/src/generated/api.schemas.ts:726:  /** True when recent loop rate exceeds the task-execution demotion threshold */
+lib/api-client-react/src/generated/api.schemas.ts:807:  correlationId: string;
+lib/api-client-react/src/generated/api.schemas.ts:828:  correlationId: string;
+lib/api-client-react/src/generated/api.schemas.ts:839:  /** Optional task to associate with the chat session */
+lib/api-client-react/src/generated/api.schemas.ts:840:  linkedTaskId?: string;
+lib/api-client-react/src/generated/api.schemas.ts:876:  /** Task associated with this chat session, when present */
+lib/api-client-react/src/generated/api.schemas.ts:877:  linkedTaskId?: string | null;
+lib/api-client-react/src/generated/api.schemas.ts:1134:  /** AI-008 — persisted per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns. */
+lib/api-client-react/src/generated/api.schemas.ts:1135:  taskResult?: AiCodeExtractionResult | AiBehaviorAnswerResult | AiFindingResult | AiForensicReportResult | AiWorkspaceReviewResult | AiRepairResult;
+lib/api-client-react/src/generated/api.schemas.ts:1515: * `not_written` also covers a guarded rollback when mandatory behavioral verification does not pass.
+lib/api-client-react/src/generated/api.schemas.ts:1537: * Registered behavioral verification runs after the guarded write. Any status other than `passed` rolls the change back and leaves its approval proposal pending.
+lib/api-client-react/src/generated/api.schemas.ts:1552:  /** `not_written` also covers a guarded rollback when mandatory behavioral verification does not pass. */
+lib/api-client-react/src/generated/api.schemas.ts:1556:  /** Registered behavioral verification runs after the guarded write. Any status other than `passed` rolls the change back and leaves its approval proposal pending. */
+lib/api-client-react/src/generated/api.schemas.ts:1562:  correlationId: string;
+lib/api-client-react/src/generated/api.schemas.ts:1671:  /** AI-008 — per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns. */
+lib/api-client-react/src/generated/api.schemas.ts:1672:  taskResult?: AiCodeExtractionResult | AiBehaviorAnswerResult | AiFindingResult | AiForensicReportResult | AiWorkspaceReviewResult | AiRepairResult;
+lib/api-client-react/src/generated/api.schemas.ts:1807:export type TaskStatus = typeof TaskStatus[keyof typeof TaskStatus];
+lib/api-client-react/src/generated/api.schemas.ts:1810:export const TaskStatus = {
+lib/api-client-react/src/generated/api.schemas.ts:1820:export type TaskPriority = typeof TaskPriority[keyof typeof TaskPriority];
+lib/api-client-react/src/generated/api.schemas.ts:1823:export const TaskPriority = {
+lib/api-client-react/src/generated/api.schemas.ts:1860:  task: 'task',
+lib/api-client-react/src/generated/api.schemas.ts:1921:  tasksCreated: number;
+lib/api-client-react/src/generated/api.schemas.ts:1949:export type ProjectSummaryTaskCounts = {
+lib/api-client-react/src/generated/api.schemas.ts:1973:  taskId?: string;
+lib/api-client-react/src/generated/api.schemas.ts:1979:  /** Ties this event to a logical operation (scan, task execute, workflow advance). All records sharing the same correlationId were produced by a single call — filter by this to see the full trace. */
+lib/api-client-react/src/generated/api.schemas.ts:1980:  correlationId?: string;
+lib/api-client-react/src/generated/api.schemas.ts:2013:  taskCounts: ProjectSummaryTaskCounts;
+lib/api-client-react/src/generated/api.schemas.ts:2029:export interface Task {
+lib/api-client-react/src/generated/api.schemas.ts:2032:  ruleId?: string;
+lib/api-client-react/src/generated/api.schemas.ts:2036:  status: TaskStatus;
+lib/api-client-react/src/generated/api.schemas.ts:2037:  priority: TaskPriority;
+lib/api-client-react/src/generated/api.schemas.ts:2043:  prompt?: string;
+lib/api-client-react/src/generated/api.schemas.ts:2045:  verificationResult?: VerificationResult;
+lib/api-client-react/src/generated/api.schemas.ts:2051:export interface CreateTaskInput {
+lib/api-client-react/src/generated/api.schemas.ts:2053:  ruleId?: string;
+lib/api-client-react/src/generated/api.schemas.ts:2057:  priority: TaskPriority;
+lib/api-client-react/src/generated/api.schemas.ts:2063:export interface UpdateTaskInput {
+lib/api-client-react/src/generated/api.schemas.ts:2066:  status?: TaskStatus;
+lib/api-client-react/src/generated/api.schemas.ts:2067:  priority?: TaskPriority;
+lib/api-client-react/src/generated/api.schemas.ts:2070:export type TaskLogLevel = typeof TaskLogLevel[keyof typeof TaskLogLevel];
+lib/api-client-react/src/generated/api.schemas.ts:2073:export const TaskLogLevel = {
+lib/api-client-react/src/generated/api.schemas.ts:2080:export type TaskLogMetadata = { [key: string]: unknown };
+lib/api-client-react/src/generated/api.schemas.ts:2082:export interface TaskLog {
+lib/api-client-react/src/generated/api.schemas.ts:2084:  taskId: string;
+lib/api-client-react/src/generated/api.schemas.ts:2085:  level: TaskLogLevel;
+lib/api-client-react/src/generated/api.schemas.ts:2087:  metadata?: TaskLogMetadata;
+lib/api-client-react/src/generated/api.schemas.ts:2134:  ruleId: string;
+lib/api-client-react/src/generated/api.schemas.ts:2486:  prompts: 'prompts',
+lib/api-client-react/src/generated/api.schemas.ts:2693:export type DashboardOverviewTaskStatusBreakdown = {[key: string]: number};
+lib/api-client-react/src/generated/api.schemas.ts:2696:  ruleId: string;
+lib/api-client-react/src/generated/api.schemas.ts:2706:  activeTaskCount: number;
+lib/api-client-react/src/generated/api.schemas.ts:2707:  completedTaskCount: number;
+lib/api-client-react/src/generated/api.schemas.ts:2708:  failedTaskCount: number;
+lib/api-client-react/src/generated/api.schemas.ts:2711:  taskStatusBreakdown?: DashboardOverviewTaskStatusBreakdown;
+lib/api-client-react/src/generated/api.schemas.ts:2727:export type ListTasksParams = {
+lib/api-client-react/src/generated/api.schemas.ts:2729:status?: TaskStatus;
+lib/api-client-react/src/generated/api.schemas.ts:2730:priority?: TaskPriority;
+lib/api-client-react/src/generated/api.schemas.ts:2777:correlationId?: string;
+lib/api-client-react/src/generated/api.schemas.ts:2973:  linkedTaskId?: string | null;
+lib/api-client-react/src/generated/api.schemas.ts:3143:export type DecideAiImplementationPlan200TaskResult = { [key: string]: unknown };
+lib/api-client-react/src/generated/api.schemas.ts:3146:  taskResult: DecideAiImplementationPlan200TaskResult;
+artifacts/api-server/src/lib/task-execution-service.ts:7:  taskLogsTable,
+artifacts/api-server/src/lib/task-execution-service.ts:8:  tasksTable,
+artifacts/api-server/src/lib/task-execution-service.ts:12:  executeTask,
+artifacts/api-server/src/lib/task-execution-service.ts:30:import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
+artifacts/api-server/src/lib/task-execution-service.ts:32:const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationships", "events"] as const;
+artifacts/api-server/src/lib/task-execution-service.ts:34:export type TaskExecutionTrigger = "manual" | "automatic" | "reconciliation";
+artifacts/api-server/src/lib/task-execution-service.ts:35:export type TaskExecutionOutcome = {
+artifacts/api-server/src/lib/task-execution-service.ts:38:  task?: typeof tasksTable.$inferSelect;
+artifacts/api-server/src/lib/task-execution-service.ts:52:export type AiTaskExecutionReceipt = {
+artifacts/api-server/src/lib/task-execution-service.ts:55:  correlationId: string;
+artifacts/api-server/src/lib/task-execution-service.ts:78:function boundedReceipt(receiptValue: AiTaskExecutionReceipt): AiTaskExecutionReceipt {
+artifacts/api-server/src/lib/task-execution-service.ts:94:export function buildAiTaskExecutionReceipt(params: {
+artifacts/api-server/src/lib/task-execution-service.ts:96:  correlationId: string;
+artifacts/api-server/src/lib/task-execution-service.ts:103:  result: Awaited<ReturnType<typeof executeTask>>;
+artifacts/api-server/src/lib/task-execution-service.ts:104:}): AiTaskExecutionReceipt {
+artifacts/api-server/src/lib/task-execution-service.ts:108:    correlationId: params.correlationId,
+artifacts/api-server/src/lib/task-execution-service.ts:127:  correlationId: string;
+artifacts/api-server/src/lib/task-execution-service.ts:135:}): AiTaskExecutionReceipt {
+artifacts/api-server/src/lib/task-execution-service.ts:140:    correlationId: params.correlationId,
+artifacts/api-server/src/lib/task-execution-service.ts:155: * The single task execution state machine used by HTTP and queue callers.
+artifacts/api-server/src/lib/task-execution-service.ts:156: * The queue is only a concurrency limiter; ai_executions and the task lease
+artifacts/api-server/src/lib/task-execution-service.ts:159:export async function executeTaskLifecycle(params: {
+artifacts/api-server/src/lib/task-execution-service.ts:160:  taskId: string;
+artifacts/api-server/src/lib/task-execution-service.ts:163:  trigger: TaskExecutionTrigger;
+artifacts/api-server/src/lib/task-execution-service.ts:166:}): Promise<TaskExecutionOutcome> {
+artifacts/api-server/src/lib/task-execution-service.ts:167:  const [before] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.taskId)).limit(1);
+artifacts/api-server/src/lib/task-execution-service.ts:168:  if (!before) return { ok: false, status: "conflict", errorCode: "task_not_found" };
+artifacts/api-server/src/lib/task-execution-service.ts:170:  const initialStatus = before.status as TaskStatus;
+artifacts/api-server/src/lib/task-execution-service.ts:171:  const correlationId = randomUUID();
+artifacts/api-server/src/lib/task-execution-service.ts:172:  const workerId = `task-worker:${randomUUID()}`;
+artifacts/api-server/src/lib/task-execution-service.ts:176:    message: before.prompt ?? before.title,
+artifacts/api-server/src/lib/task-execution-service.ts:177:    modelMessage: before.prompt ?? before.title,
+artifacts/api-server/src/lib/task-execution-service.ts:179:    linkedTaskId: before.id,
+artifacts/api-server/src/lib/task-execution-service.ts:180:    correlationId,
+artifacts/api-server/src/lib/task-execution-service.ts:193:    correlationId,
+artifacts/api-server/src/lib/task-execution-service.ts:196:    linkedTaskId: before.id,
+artifacts/api-server/src/lib/task-execution-service.ts:208:  const [claimedTask] = await db.update(tasksTable)
+artifacts/api-server/src/lib/task-execution-service.ts:214:      correlationId,
+artifacts/api-server/src/lib/task-execution-service.ts:218:    .where(and(eq(tasksTable.id, before.id), inArray(tasksTable.status, allowed)))
+artifacts/api-server/src/lib/task-execution-service.ts:220:  if (!claimedTask) {
+artifacts/api-server/src/lib/task-execution-service.ts:221:    await failAiExecution({ executionId, workerId, error: "Task state changed before claim." });
+artifacts/api-server/src/lib/task-execution-service.ts:222:    return { ok: false, status: "conflict", executionId, errorCode: "task_state_changed" };
+artifacts/api-server/src/lib/task-execution-service.ts:224:  const claimConflict = taskTransitionConflict(initialStatus, "running", "execution");
+artifacts/api-server/src/lib/task-execution-service.ts:227:    return { ok: false, status: "conflict", executionId, errorCode: "invalid_task_transition" };
+artifacts/api-server/src/lib/task-execution-service.ts:236:    await db.insert(taskLogsTable).values({
+artifacts/api-server/src/lib/task-execution-service.ts:237:      id: randomUUID(), taskId: before.id, level, message: safeText(message, 500),
+artifacts/api-server/src/lib/task-execution-service.ts:239:      correlationId,
+artifacts/api-server/src/lib/task-execution-service.ts:240:    }).catch((error) => logger.warn({ error, taskId: before.id }, "task execution log write failed"));
+artifacts/api-server/src/lib/task-execution-service.ts:242:  await log("info", "AI task execution claimed", { stage: "claim", workerId });
+artifacts/api-server/src/lib/task-execution-service.ts:245:    checkpoint: { stage: "running", sequence: 1, detail: "Task claimed.", updatedAt: new Date().toISOString() },
+artifacts/api-server/src/lib/task-execution-service.ts:253:    await db.update(tasksTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:256:    }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running")));
+artifacts/api-server/src/lib/task-execution-service.ts:261:    void db.update(tasksTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:266:      eq(tasksTable.id, before.id),
+artifacts/api-server/src/lib/task-execution-service.ts:267:      eq(tasksTable.workerId, workerId),
+artifacts/api-server/src/lib/task-execution-service.ts:268:      eq(tasksTable.status, "running"),
+artifacts/api-server/src/lib/task-execution-service.ts:287:    const { result, effectiveProvider } = await runAgentWithFallback<Awaited<ReturnType<typeof executeTask>>>(
+artifacts/api-server/src/lib/task-execution-service.ts:290:      (opts) => executeTask({
+artifacts/api-server/src/lib/task-execution-service.ts:291:        taskTitle: before.title,
+artifacts/api-server/src/lib/task-execution-service.ts:292:        taskDescription: before.description,
+artifacts/api-server/src/lib/task-execution-service.ts:293:        taskPrompt: before.prompt,
+artifacts/api-server/src/lib/task-execution-service.ts:294:        taskPriority: before.priority,
+artifacts/api-server/src/lib/task-execution-service.ts:299:      { qualityProfile: "task_execution", signal: executionAbortController.signal },
+artifacts/api-server/src/lib/task-execution-service.ts:311:        executionId, correlationId, revision: params.workspaceRevision,
+artifacts/api-server/src/lib/task-execution-service.ts:317:      await db.update(tasksTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:320:      }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running")));
+artifacts/api-server/src/lib/task-execution-service.ts:321:      await log("error", "AI task output was invalid", { stage: "parse", code: result._parseError.code });
+artifacts/api-server/src/lib/task-execution-service.ts:324:        type: params.trigger === "automatic" ? "TaskAutoExecutionFailed" : "TaskExecutionFailed",
+artifacts/api-server/src/lib/task-execution-service.ts:326:        taskId: before.id,
+artifacts/api-server/src/lib/task-execution-service.ts:329:        correlationId,
+artifacts/api-server/src/lib/task-execution-service.ts:339:      }).catch((eventError) => logger.warn({ eventError, taskId: before.id }, "task parse failure event write failed"));
+artifacts/api-server/src/lib/task-execution-service.ts:340:      await db.update(tasksTable).set({ agentResponse: JSON.stringify(parseReceipt) })
+artifacts/api-server/src/lib/task-execution-service.ts:341:        .where(and(eq(tasksTable.id, before.id), eq(tasksTable.correlationId, correlationId)));
+artifacts/api-server/src/lib/task-execution-service.ts:352:    const finalConflict = taskTransitionConflict("running", finalStatus, "execution");
+artifacts/api-server/src/lib/task-execution-service.ts:356:    const taskReceipt = buildAiTaskExecutionReceipt({
+artifacts/api-server/src/lib/task-execution-service.ts:357:      executionId, correlationId, revision: params.workspaceRevision,
+artifacts/api-server/src/lib/task-execution-service.ts:363:      // Lock the durable execution before touching the task. Cancellation
+artifacts/api-server/src/lib/task-execution-service.ts:377:      const [row] = await tx.update(tasksTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:382:        agentResponse: JSON.stringify(taskReceipt),
+artifacts/api-server/src/lib/task-execution-service.ts:383:        verificationResult: {
+artifacts/api-server/src/lib/task-execution-service.ts:384:          passed: taskReceipt.terminalStatus === "SUCCEEDED",
+artifacts/api-server/src/lib/task-execution-service.ts:385:          steps: (taskReceipt.steps ?? []).map((name) => ({
+artifacts/api-server/src/lib/task-execution-service.ts:387:            passed: taskReceipt.terminalStatus === "SUCCEEDED",
+artifacts/api-server/src/lib/task-execution-service.ts:392:      }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running"))).returning();
+artifacts/api-server/src/lib/task-execution-service.ts:393:      if (!row) throw new Error("task_state_changed_during_finalize");
+artifacts/api-server/src/lib/task-execution-service.ts:394:      await tx.insert(taskLogsTable).values({
+artifacts/api-server/src/lib/task-execution-service.ts:395:        id: randomUUID(), taskId: before.id,
+artifacts/api-server/src/lib/task-execution-service.ts:397:        message: `AI task ${finalStatus}: ${taskReceipt.summary}`,
+artifacts/api-server/src/lib/task-execution-service.ts:398:        metadata: { receipt: taskReceipt, executionId, trigger: params.trigger }, correlationId,
+artifacts/api-server/src/lib/task-execution-service.ts:401:        id: randomUUID(), type: finalStatus === "completed" ? "TaskCompleted" : "TaskVerifying",
+artifacts/api-server/src/lib/task-execution-service.ts:402:        projectId: before.projectId, taskId: before.id,
+artifacts/api-server/src/lib/task-execution-service.ts:405:        correlationId,
+artifacts/api-server/src/lib/task-execution-service.ts:409:          revision: taskReceipt.revision,
+artifacts/api-server/src/lib/task-execution-service.ts:410:          provider: taskReceipt.provider,
+artifacts/api-server/src/lib/task-execution-service.ts:411:          model: taskReceipt.model,
+artifacts/api-server/src/lib/task-execution-service.ts:412:          attempt: taskReceipt.attempt,
+artifacts/api-server/src/lib/task-execution-service.ts:413:          attempts: taskReceipt.attempts,
+artifacts/api-server/src/lib/task-execution-service.ts:414:          durationMs: taskReceipt.durationMs,
+artifacts/api-server/src/lib/task-execution-service.ts:415:          terminalStatus: taskReceipt.terminalStatus,
+artifacts/api-server/src/lib/task-execution-service.ts:416:          terminalReason: taskReceipt.terminalReason,
+artifacts/api-server/src/lib/task-execution-service.ts:421:        entityType: "task", entityId: before.id, action: "ai_executed",
+artifacts/api-server/src/lib/task-execution-service.ts:425:          revision: taskReceipt.revision, terminalStatus: taskReceipt.terminalStatus,
+artifacts/api-server/src/lib/task-execution-service.ts:426:          terminalReason: taskReceipt.terminalReason,
+artifacts/api-server/src/lib/task-execution-service.ts:428:        correlationId,
+artifacts/api-server/src/lib/task-execution-service.ts:441:          evidenceReason: finalStatus === "completed" ? "Structured task receipt verified." : "Human review remains required.",
+artifacts/api-server/src/lib/task-execution-service.ts:452:    return { ok: true, status: finalStatus, task: updated, executionId };
+artifacts/api-server/src/lib/task-execution-service.ts:456:    const code = cancelled ? "cancelled" : stage === "context" ? "context_build_failed" : "task_execution_failed";
+artifacts/api-server/src/lib/task-execution-service.ts:458:      executionId, correlationId, revision: params.workspaceRevision,
+artifacts/api-server/src/lib/task-execution-service.ts:464:    await db.update(tasksTable).set({
+artifacts/api-server/src/lib/task-execution-service.ts:467:    }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running")));
+artifacts/api-server/src/lib/task-execution-service.ts:470:      : "AI task execution failed", { stage, code: "provider_or_context_failure" });
+artifacts/api-server/src/lib/task-execution-service.ts:473:      type: params.trigger === "automatic" ? "TaskAutoExecutionFailed" : "TaskExecutionFailed",
+artifacts/api-server/src/lib/task-execution-service.ts:475:      taskId: before.id,
+artifacts/api-server/src/lib/task-execution-service.ts:478:      correlationId,
+artifacts/api-server/src/lib/task-execution-service.ts:492:    }).catch((eventError) => logger.warn({ eventError, taskId: before.id }, "task failure event write failed"));
+artifacts/api-server/src/lib/task-execution-service.ts:494:      entityType: "task", entityId: before.id, action: "execution_failed",
+artifacts/api-server/src/lib/task-execution-service.ts:503:      }, correlationId,
+artifacts/api-server/src/routes/tasks.ts:4:  tasksTable,
+artifacts/api-server/src/routes/tasks.ts:6:  taskLogsTable,
+artifacts/api-server/src/routes/tasks.ts:10:  CreateTaskBody,
+artifacts/api-server/src/routes/tasks.ts:11:  UpdateTaskBody,
+artifacts/api-server/src/routes/tasks.ts:12:  UpdateTaskParams,
+artifacts/api-server/src/routes/tasks.ts:13:  DeleteTaskParams,
+artifacts/api-server/src/routes/tasks.ts:14:  GetTaskParams,
+artifacts/api-server/src/routes/tasks.ts:15:  ExecuteTaskParams,
+artifacts/api-server/src/routes/tasks.ts:16:  RetryTaskParams,
+artifacts/api-server/src/routes/tasks.ts:17:  RollbackTaskParams,
+artifacts/api-server/src/routes/tasks.ts:18:  GetTaskLogsParams,
+artifacts/api-server/src/routes/tasks.ts:19:  ListTasksQueryParams,
+artifacts/api-server/src/routes/tasks.ts:25:import { runTaskVerification } from "../services/task-service.js";
+artifacts/api-server/src/routes/tasks.ts:28:import { scheduleAiTaskExecution } from "./ai.js";
+artifacts/api-server/src/routes/tasks.ts:30:import { taskTransitionConflict, type TaskStatus } from "../lib/task-state.js";
+artifacts/api-server/src/routes/tasks.ts:38:class TaskStateConflictError extends Error {}
+artifacts/api-server/src/routes/tasks.ts:40:// List tasks
+artifacts/api-server/src/routes/tasks.ts:41:router.get("/tasks", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:42:  const params = ListTasksQueryParams.parse(req.query);
+artifacts/api-server/src/routes/tasks.ts:47:  const conditions: ReturnType<typeof eq>[] = [eq(tasksTable.projectId, project.id)];
+artifacts/api-server/src/routes/tasks.ts:48:  if (params.status) conditions.push(eq(tasksTable.status, params.status));
+artifacts/api-server/src/routes/tasks.ts:50:    conditions.push(eq(tasksTable.priority, params.priority));
+artifacts/api-server/src/routes/tasks.ts:52:  const tasks = await db
+artifacts/api-server/src/routes/tasks.ts:54:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:56:    .orderBy(desc(tasksTable.createdAt), desc(tasksTable.id))
+artifacts/api-server/src/routes/tasks.ts:59:  return res.json(tasks);
+artifacts/api-server/src/routes/tasks.ts:62:// Create task
+artifacts/api-server/src/routes/tasks.ts:63:router.post("/tasks", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:64:  const body = CreateTaskBody.parse(req.body);
+artifacts/api-server/src/routes/tasks.ts:69:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/tasks.ts:70:  const task = await db.transaction(async (tx) => {
+artifacts/api-server/src/routes/tasks.ts:71:    const rows = await tx.insert(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:72:      .values({ id: randomUUID(), ...body, correlationId, createdAt: now, updatedAt: now })
+artifacts/api-server/src/routes/tasks.ts:75:      id: randomUUID(), type: "TaskCreated", projectId: body.projectId,
+artifacts/api-server/src/routes/tasks.ts:76:      taskId: rows[0].id, severity: "info",
+artifacts/api-server/src/routes/tasks.ts:77:      message: `Task "${body.title}" created (${body.priority})`, correlationId,
+artifacts/api-server/src/routes/tasks.ts:80:      entityType: "task", entityId: rows[0].id, action: "created",
+artifacts/api-server/src/routes/tasks.ts:81:      projectId: body.projectId, actor: req.userId, correlationId,
+artifacts/api-server/src/routes/tasks.ts:89:  return res.status(201).json(task[0]);
+artifacts/api-server/src/routes/tasks.ts:92:// Get task
+artifacts/api-server/src/routes/tasks.ts:93:router.get("/tasks/:taskId", async (req, res) => {
+artifacts/api-server/src/routes/tasks.ts:94:  const { taskId } = GetTaskParams.parse(req.params);
+artifacts/api-server/src/routes/tasks.ts:95:  const task = await db
+artifacts/api-server/src/routes/tasks.ts:97:    .from(tasksTable)
+artifacts/api-server/src/routes/tasks.ts:98:    .where(eq(tasksTable.id, taskId))
+artifacts/api-server/src/routes/tasks.ts:100:  if (!task[0]) return res.status(404).json({ error: "Task not found" });
+artifacts/api-server/src/routes/tasks.ts:101:  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+artifacts/api-server/src/routes/tasks.ts:103:  return res.json(task[0]);
+artifacts/api-server/src/routes/tasks.ts:106:// Update task
+artifacts/api-server/src/routes/tasks.ts:107:router.patch("/tasks/:taskId", async (req, res) => {

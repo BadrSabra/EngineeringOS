@@ -28,6 +28,7 @@ import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
 import { scheduleAiTaskExecution } from "./ai.js";
 import { parsePagination } from "../lib/pagination.js";
 import { taskTransitionConflict, type TaskStatus } from "../lib/task-state.js";
+import { markRemediationPlanVerified } from "../lib/remediation-plan.js";
 
 const router = Router();
 
@@ -386,7 +387,16 @@ router.post("/tasks/:taskId/execute", async (req, res) => {
     [updated] = await db.transaction(async (tx) => {
     const [row] = await tx
       .update(tasksTable)
-      .set({ status: finalStatus, verificationResult, updatedAt: now, completedAt })
+      .set({
+        status: finalStatus,
+        verificationResult,
+        remediationPlan: markRemediationPlanVerified(
+          task[0].remediationPlan,
+          finalStatus === "completed",
+        ),
+        updatedAt: now,
+        completedAt,
+      })
       .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
       .returning();
     if (!row) {

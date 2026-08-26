@@ -1,0 +1,372 @@
+    // the chat() call runs the Objective Completion Gate on the real entry point
+    // and refuses finalization while any required claim/edge is unproven.
+    objective:    ObjectiveContractSchema.optional(),
+  });
+  const chatBody = ChatBodySchema.safeParse(req.body);
+  if (!chatBody.success) {
+    const issue = chatBody.error.issues[0];
+    const raw   = issue?.message ?? "Invalid request body";
+    const field = String(issue?.path[0] ?? "");
+    const error = raw === "Required" && field ? `${field} is required` : raw;
+    return res.status(400).json({ error });
+  }
+  const {
+    projectId,
+    message,
+    sessionId,
+    linkedTaskId,
+    objective,
+    buildPlanMessageId,
+    executionId,
+    resumeToken,
+    idempotencyKey,
+  } = chatBody.data;
+  const rawTurnClassification = classifyRequest(message);
+  const rawTurnIntent = resolveTurnIntent(message, {
+    classification: rawTurnClassification,
+  });
+  const isolatedConversationTurn =
+    rawTurnIntent.kind === "CHAT" && !isTaskContinuationRequest(message);
+  const effectiveExecutionId = isolatedConversationTurn ? undefined : executionId;
+  const effectiveResumeToken = isolatedConversationTurn ? undefined : resumeToken;
+
+  const project = await loadProjectByIdForUser(projectId, req.userId, res);
+  if (!project) return;
+
+  const { startedAt: now, assistantAt: msgNow } = allocateTurnTimestamps();
+
+  // Keep execution handoff fail-closed in the streaming route too. This check
+  // happens before provider resolution and before SSE headers are committed.
+  if (!sessionId && isImmediateExecutionRequest(message)) {
+    return res.status(409).json({
+      error: "execution_session_required",
+      message: "Repair Plan execution requires the original audit session.",
+    });
+  }
+  if (effectiveExecutionId && !sessionId) {
+    return res.status(400).json({
+      error: "executionId requires the original chat session",
+      code: "EXECUTION_SESSION_REQUIRED",
+    });
+  }
+
+  const rlChat = await checkProjectRateLimitDb(projectId);
+  if (!rlChat.allowed) {
+    return res.status(429).json({
+      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlChat.retryAfterSec}s.`,
+    });
+  }
+
+  const { validRootPath, fallbackUsed: rootFallbackUsed, originalPath: rootOriginalPath } =
+    await resolveRootPath(project.rootPath, projectId);
+
+  let approvedImplementationPlan: ApprovedImplementationPlan | undefined;
+  let approvedImplementationExecutionPlan: ActiveTaskExecutionPlan | undefined;
+  let implementationPlanScope: Set<string> | undefined;
+  let modelMessage = message;
+  // Decide this from the validated user text before any Build handoff
+  // augmentation. A greeting must never inherit Build Mode state, even when
+  // the client retries with stale buildPlanMessageId metadata.
+  const greetingTurnForExecution = isolatedConversationTurn;
+  const effectiveBuildPlanMessageId = isolatedConversationTurn ? undefined : buildPlanMessageId;
+  if (effectiveBuildPlanMessageId) {
+    if (!sessionId) {
+      return res.status(400).json({
+        error: "Build handoff requires the original chat session",
+        code: "BUILD_SESSION_REQUIRED",
+      });
+    }
+    if (!validRootPath) {
+      return res.status(409).json({
+        error: "The project root is unavailable for Build Mode",
+        code: "BUILD_ROOT_UNAVAILABLE",
+      });
+    }
+
+    const [planRow] = await db
+      .select({
+        message: aiChatMessagesTable,
+        session: aiChatSessionsTable,
+      })
+      .from(aiChatMessagesTable)
+      .innerJoin(
+        aiChatSessionsTable,
+        eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+      )
+      .where(eq(aiChatMessagesTable.id, effectiveBuildPlanMessageId))
+      .limit(1);
+
+    if (!planRow) {
+      return res.status(404).json({ error: "Implementation plan not found", code: "PLAN_NOT_FOUND" });
+    }
+    if (planRow.session.projectId !== projectId) {
+      return res.status(403).json({ error: "Implementation plan does not belong to this project" });
+    }
+    if (planRow.session.id !== sessionId) {
+      return res.status(409).json({
+        error: "Build Mode must use the session that produced the approved plan",
+        code: "BUILD_SESSION_MISMATCH",
+      });
+    }
+
+          case "NETWORK_ERROR":
+            sse({
+              ...base,
+              message: "AI provider is temporarily unreachable — try again in a moment.",
+              retryable: true,
+              suggestedFix: "Check your network connection and retry.",
+            });
+            break;
+          default:
+            // Never echo provider-owned text on the stream. It may contain
+            // request diagnostics, paths, or credentials even after the
+            // provider-specific branches above have been handled.
+            sse({
+              ...base,
+              message: "The AI provider could not complete the request.",
+              retryable: false,
+              suggestedFix: "Check the provider configuration and retry, or configure another provider.",
+            });
+        }
+      } else {
+        logger.error({ err }, "chat stream: unexpected non-GroqClientError");
+        sse({
+          type: "error",
+          code: "unknown",
+          message: "The AI provider could not complete the request. Retry in a moment or configure another provider.",
+          availabilityState: "provider_outage",
+          operatorAction: "Retry in a moment; configure another provider if the issue persists.",
+          correlationId: randomUUID(),
+        });
+      }
+      await persistFailedChatTurn({
+        sessionId: sessionIdToUse,
+        projectId,
+        message,
+        turnIntent: streamTurnIntent.kind,
+        executionId: aiExecution?.id,
+        outcome: executionAbortController?.signal.aborted ? "INTERRUPTED" : "FAILED",
+        errorCode: err instanceof GroqClientError ? err.code : "UNKNOWN",
+        errorMessage: err instanceof Error ? err.message : String(err),
+        createdAt: now,
+        assistantAt: msgNow,
+        toolTrace: traceSteps,
+      }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure"));
+      res.end();
+      return;
+    }
+
+    if (result._parseError) {
+      if (!result.response) {
+        sse({
+          type: "error",
+          code: "model_output_invalid",
+          message: "The AI model returned an unexpected response — try rephrasing your message.",
+          parseCode: result._parseError.code,
+        });
+        await persistFailedChatTurn({
+          sessionId: sessionIdToUse,
+          projectId,
+          message,
+          turnIntent: streamTurnIntent.kind,
+          executionId: aiExecution?.id,
+          outcome: "FAILED",
+          errorCode: "MODEL_OUTPUT_INVALID",
+          errorMessage: "The AI model returned an unexpected response.",
+          createdAt: now,
+          assistantAt: msgNow,
+          toolTrace: traceSteps,
+        }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure"));
+        res.end();
+        return;
+      }
+      logger.warn(
+        { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
+        "AI parse failure — using fallback response",
+      );
+    }
+
+    invalidateContextCache(projectId);
+
+    // BUG-6: log language anomalies in AI responses.
+    // If a response to an Arabic message contains Thai-range characters
+    // (U+0E00–U+0E7F) or other unexpected scripts, record it for monitoring.
+    // This catches hallucinations like "ภาษته" appearing inside Arabic prose.
+    (() => {
+      const hasArabic = /[\u0600-\u06FF]/.test(message);
+      const thaiBidiRange = /[\u0E00-\u0E7F]/.test(result.response);
+      if (hasArabic && thaiBidiRange) {
+        logger.warn(
+          { scope: "chat-route", action: "language_anomaly", projectId, provider,
+            responsePreview: result.response.slice(0, 200) },
+          "AI-06: response to Arabic message contains Thai-range characters — possible model hallucination",
+        );
+      }
+    })();
+
+    // Atomic: session creation (when needed) + user message + assistant message
+    // + session timestamp update in one transaction — prevents a half-saved
+    // conversation if one insert fails.
+    const proposalChanges = bindPendingChangesToImplementationPlan(
+      bindPendingChangesToRepairPlan(
+        (result.pendingChanges ?? []) as ServerPendingChange[],
+        result.repairPlan,
+      ),
+      Boolean(approvedImplementationPlan),
+    );
+    const proposalId = canCreateProposal(
+      proposalChanges,
+      result.repairPlan,
+      hasPassedLatestValidation(traceSteps),
+      traceSteps,
+    )
+      ? randomUUID()
+      : undefined;
+    const executionPlan = buildActiveTaskExecutionPlan({
+      repairPlan: result.repairPlan,
+      implementationPlan: approvedImplementationPlan
+        ?? (result.taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT" ? result.taskResult : undefined),
+      objective: result.objective ?? objective,
+      evidence: result.behaviorEvidence,
+      projectId,
+      rootPath: validRootPath,
+    });
+    const activeTaskState = nextSessionTaskState({
+      persisted: streamResumableStateForTurn,
+      classification: streamClassification,
+      resumed: streamClassificationResolution.resumed,
+      projectId,
+      rootPath: validRootPath,
+      linkedTaskId: effectiveLinkedTaskId,
+      now: msgNow,
+      readFiles: collectReadEvidencePaths(traceSteps),
+      executionPlan,
+    });
+
+    const aiExecutionId = aiExecution.id;
+    let missionCorrelationReport: string | null;
+    try {
+      missionCorrelationReport = serializeMissionCorrelationReport(
+        (result as { missionCorrelationReport?: unknown }).missionCorrelationReport,
+      );
+    } catch (error) {
+import { z } from "zod";
+import { createHash } from "node:crypto";
+import {
+  routeTask,
+  type ForensicTaskType,
+  type OutputContract,
+} from "./task-contracts.js";
+import type { ClassifiedRequest } from "./prompts/profile-classifier.js";
+import {
+  RepairPlanMetadataSchema,
+  ValidationProfileSchema,
+  type ObjectiveContract,
+  type RepairPlanMetadata,
+} from "./schemas/chat.schema.js";
+import {
+  ImplementationPlanSchema,
+  type ImplementationPlan,
+} from "./schemas/implementation-plan.schema.js";
+
+const RESUMABLE_TASK_TYPES = [
+  "FINDING_ANALYSIS",
+  "FULL_FORENSIC_AUDIT",
+  "WORKSPACE_REVIEW",
+  "REPAIR_ANALYSIS",
+] as const satisfies readonly ForensicTaskType[];
+
+const ACTIVE_TASK_TYPES = [
+  "BEHAVIOR_QUERY",
+  "CODE_EXTRACTION",
+  "FINDING_ANALYSIS",
+  "FULL_FORENSIC_AUDIT",
+  "WORKSPACE_REVIEW",
+  "REPAIR_ANALYSIS",
+] as const satisfies readonly ForensicTaskType[];
+
+const ACTIVE_OUTPUT_CONTRACTS = [
+  "GENERIC_RESPONSE",
+  "BEHAVIOR_ANSWER",
+  "EXTRACTED_CODE",
+  "FINDING_ANALYSIS",
+  "FORENSIC_REPORT",
+  "REPAIR_PLAN",
+] as const satisfies readonly OutputContract[];
+
+const ExecutionPlanEvidenceAnchorSchema = z.object({
+  source: z.string().min(1).max(500),
+  startLine: z.number().int().min(1).optional(),
+  endLine: z.number().int().min(1).optional(),
+  supportsClaim: z.boolean(),
+  evidenceClass: z.enum(["READ_CONFIRMED", "BEHAVIOR_PROVEN", "FINDING_PROVEN"]),
+}).strict();
+
+export const ExecutionPlanClaimSchema = z.object({
+  claimId: z.string().min(1).max(160),
+  findingId: z.string().regex(/^F-\d+$/).optional(),
+  text: z.string().min(1).max(1000).optional(),
+  status: z.enum(["PROVEN", "UNPROVEN", "BLOCKED", "PENDING"]),
+  evidence: z.array(ExecutionPlanEvidenceAnchorSchema).max(8).default([]),
+}).strict();
+
+export type ExecutionPlanClaim = z.infer<typeof ExecutionPlanClaimSchema>;
+
+export const ExecutionPlanBoundariesSchema = z.object({
+  projectId: z.string().min(1),
+  rootPath: z.string().min(1).nullable(),
+  allowedWriteFiles: z.array(z.string().min(1).max(500)).max(48),
+  sourceRoots: z.array(z.string().min(1).max(500)).max(24),
+  verdictScopes: z.array(
+    z.enum(["PRODUCTION", "FIXTURE_LOCAL", "TEST_LOCAL", "SPEC_LOCAL", "MIXED", "NOT_PROVEN"]),
+  ).max(12),
+}).strict();
+
+export type ExecutionPlanBoundaries = z.infer<typeof ExecutionPlanBoundariesSchema>;
+
+export const ExecutionNodeSchema = z.object({
+  id: z.string().min(1).max(160),
+  title: z.string().min(1).max(240),
+  status: z.enum(["queued", "running", "passed", "failed", "blocked"]),
+  allowedFiles: z.array(z.string().min(1).max(500)).max(48),
+  dependencies: z.array(z.string().min(1).max(160)).max(12),
+  validationProfile: ValidationProfileSchema,
+  attempts: z.number().int().min(0).max(3),
+  validationAttempts: z.number().int().min(0).max(3).default(0),
+  lastFailure: z.object({
+    status: z.enum(["failed", "blocked"]),
+    attempt: z.number().int().min(1).max(3),
+    validationAttempts: z.number().int().min(0).max(3),
+    detail: z.string().max(4_000),
+  }).strict().optional(),
+}).strict();
+
+export type ExecutionNode = z.infer<typeof ExecutionNodeSchema>;
+
+export const ActiveTaskExecutionPlanSchema = z.object({
+  phases: z.array(RepairPlanMetadataSchema).max(12),
+  claims: z.array(ExecutionPlanClaimSchema).max(24),
+  boundaries: ExecutionPlanBoundariesSchema,
+  nodes: z.array(ExecutionNodeSchema).max(24).default([]),
+  readiness: z.enum(["READY", "BLOCKED", "NOT_PROVEN"]),
+  /** The original implementation contract is server-owned and resumable. */
+  implementationPlan: ImplementationPlanSchema.nullable().default(null),
+  currentStepIndex: z.number().int().min(0).max(12).default(0),
+  planFingerprint: z.string().regex(/^[a-f0-9]{64}$/).nullable().default(null),
+  stepFingerprint: z.string().regex(/^[a-f0-9]{64}$/).nullable().default(null),
+  planningAttempts: z.number().int().min(0).max(2).default(0),
+}).strict();
+
+export type ActiveTaskExecutionPlan = z.infer<typeof ActiveTaskExecutionPlanSchema>;
+
+export const ActiveTaskStateSchema = z.object({
+  version: z.literal(1),
+  taskType: z.enum(ACTIVE_TASK_TYPES),
+  outputContract: z.enum(ACTIVE_OUTPUT_CONTRACTS),
+  contextProfile: z.enum(["chat-lite", "chat-normal", "chat-deep"]),
+  scope: z.object({
+    projectId: z.string().min(1),
+    rootPath: z.string().min(1).nullable(),
+    linkedTaskId: z.string().min(1).nullable(),
+  }).strict(),
+  evidence: z.object({

@@ -1,0 +1,276 @@
+diff --git a/artifacts/api-server/src/lib/discovery-runner.ts b/artifacts/api-server/src/lib/discovery-runner.ts
+index 2eea3f5..c477aea 100644
+--- a/artifacts/api-server/src/lib/discovery-runner.ts
++++ b/artifacts/api-server/src/lib/discovery-runner.ts
+@@ -39,6 +39,7 @@ import {
+   DISCOVERY_LEASE_MS,
+   DISCOVERY_HEARTBEAT_INTERVAL_MS,
+ } from "./job-lease.js";
++import { buildRemediationPlan } from "./remediation-plan.js";
+ 
+ // ─── Step names ────────────────────────────────────────────────────────────────
+ 
+@@ -488,12 +489,36 @@ export async function runDiscovery(sessionId: string, rootPath: string): Promise
+     const detectedRisks = detectRisks(allDeps, files, detectedTestFramework, detectedCi);
+     const ruleViolations = ruleResults
+       .filter((r) => r.matched)
+-      .map((r) => ({
+-        code: r.ruleCode,
+-        title: globalRules.find((g) => g.id === r.ruleId)?.title ?? r.ruleCode,
+-        severity: r.severity,
+-        count: r.matchCount,
+-      }));
++      .map((r) => {
++        const rule = globalRules.find((g) => g.id === r.ruleId);
++        const remediationPlan = buildRemediationPlan({
++          ruleId: r.ruleId,
++          ruleCode: r.ruleCode,
++          ruleTitle: rule?.title ?? r.ruleCode,
++          severity: r.severity,
++          occurrenceCount: r.matchCount,
++          matches: r.matches,
++          fixDescription: rule?.fixDescription,
++          verificationSteps: rule?.verifySteps ?? [],
++          source: {
++            type: "discovery",
++            correlationId: sessionId,
++            revision: walkResult.revision,
++            completeness: walkResult.truncated ? "PARTIAL" : "COMPLETE",
++          },
++        });
++        return {
++          ruleId: r.ruleId,
++          code: r.ruleCode,
++          title: rule?.title ?? r.ruleCode,
++          severity: r.severity,
++          count: r.matchCount,
++          matches: remediationPlan.evidence,
++          fixDescription: remediationPlan.fixDescription,
++          verifySteps: remediationPlan.verificationSteps,
++          remediationPlan,
++        };
++      });
+ 
+     const partial: DiscoveryResultData = {
+       detectedName,
+@@ -525,6 +550,9 @@ export async function runDiscovery(sessionId: string, rootPath: string): Promise
+         filesByLanguage: countBy(files, (f) => f.language),
+       },
+       ruleViolations,
++      sourceRevision: walkResult.revision,
++      sourceProvenance: "discovery",
++      sourceCorrelationId: sessionId,
+     };
+     await setStep(8, "done", Date.now() - t8);
+ 
+diff --git a/artifacts/api-server/src/lib/scan-runner.ts b/artifacts/api-server/src/lib/scan-runner.ts
+index ca77088..f3affd7 100644
+--- a/artifacts/api-server/src/lib/scan-runner.ts
++++ b/artifacts/api-server/src/lib/scan-runner.ts
+@@ -36,6 +36,10 @@ import {
+   SCAN_LEASE_MS,
+   SCAN_HEARTBEAT_INTERVAL_MS,
+ } from "./job-lease.js";
++import {
++  buildRemediationPlan,
++  buildRemediationPrompt,
++} from "./remediation-plan.js";
+ 
+ /**
+  * Thrown by performScan when the persisted project root cannot be
+@@ -317,31 +321,72 @@ export async function performScan(projectId: string, signal?: AbortSignal): Prom
+   checkCancelled();
+   return await db.transaction(async (tx) => {
+     checkCancelled();
+-    const existingRuleTasks = await tx
+-      .select({ ruleId: tasksTable.ruleId })
++    const existingTasks = await tx
++      .select({
++        id: tasksTable.id,
++        ruleId: tasksTable.ruleId,
++        status: tasksTable.status,
++      })
+       .from(tasksTable)
+       .where(eq(tasksTable.projectId, projectId));
+-    const existingRuleTaskIds = new Set(existingRuleTasks.map((t) => t.ruleId).filter(Boolean));
++    const activeRuleTasks = new Map(
++      existingTasks
++        .filter((task) => task.ruleId && ["pending", "queued", "running", "verifying"].includes(task.status))
++        .map((task) => [task.ruleId as string, task]),
++    );
+ 
+     const newTaskIds: string[] = [];
+     for (const result of ruleResults) {
+       if (!result.matched) continue;
+-      if (existingRuleTaskIds.has(result.ruleId)) continue;
+ 
+       const rule = projectRules.find((r) => r.id === result.ruleId);
+       if (!rule) continue;
+ 
+-      const taskId = randomUUID();
+-      const topFiles = result.matches.slice(0, 5).map((m) => m.file);
++      const remediationPlan = buildRemediationPlan({
++        ruleId: rule.id,
++        ruleCode: rule.code,
++        ruleTitle: rule.title,
++        severity: rule.severity,
++        occurrenceCount: result.matchCount,
++        matches: result.matches,
++        fixDescription: rule.fixDescription,
++        verificationSteps: rule.verifySteps ?? [],
++        source: {
++          type: "scan",
++          correlationId,
++          revision: walkResult.revision,
++          completeness: walkResult.truncated ? "PARTIAL" : "COMPLETE",
++        },
++      });
++      const remediationPrompt = buildRemediationPrompt(remediationPlan);
++      const description =
++        remediationPlan.fixDescription ??
++        `${remediationPlan.occurrenceCount} occurrence(s) detected for ${rule.code}. Review the bounded evidence before execution.`;
++      const activeTask = activeRuleTasks.get(rule.id);
++
++      if (activeTask) {
++        await tx
++          .update(tasksTable)
++          .set({
++            description,
++            relatedFiles: remediationPlan.relatedFiles,
++            prompt: remediationPrompt,
++            phase: "remediation",
++            remediationPlan,
++            correlationId,
++            updatedAt: now,
++          })
++          .where(eq(tasksTable.id, activeTask.id));
++        continue;
++      }
+ 
++      const taskId = randomUUID();
+       await tx.insert(tasksTable).values({
+         id: taskId,
+         projectId,
+         ruleId: rule.id,
+-        title: `Fix: ${rule.title}`,
+-        description:
+-          rule.fixDescription ??
+-          `${result.matchCount} occurrence(s) detected. Top file: ${topFiles[0] ?? "unknown"}`,
++        title: `Remediate ${rule.code}: ${rule.title}`,
++        description,
+         status: "pending",
+         priority:
+           rule.severity === "critical"
+@@ -351,7 +396,10 @@ export async function performScan(projectId: string, signal?: AbortSignal): Prom
+               : rule.severity === "medium"
+                 ? "p2"
+                 : "p3",
+-        relatedFiles: topFiles,
++        relatedFiles: remediationPlan.relatedFiles,
++        prompt: remediationPrompt,
++        phase: "remediation",
++        remediationPlan,
+         createdAt: now,
+         updatedAt: now,
+         correlationId,
+diff --git a/artifacts/api-server/src/routes/discovery.ts b/artifacts/api-server/src/routes/discovery.ts
+index 4c6b60d..a3a7356 100644
+--- a/artifacts/api-server/src/routes/discovery.ts
++++ b/artifacts/api-server/src/routes/discovery.ts
+@@ -7,6 +7,7 @@ import {
+   metricsTable,
+   graphEntitiesTable,
+   tasksTable,
++  rulesTable,
+   type DiscoveryStep,
+ } from "@workspace/db";
+ import {
+@@ -15,7 +16,7 @@ import {
+   GetDiscoverySessionParams,
+   GetDiscoverySummaryParams,
+ } from "@workspace/api-zod";
+-import { eq, and, isNull, isNotNull, lt } from "drizzle-orm";
++import { eq, and, isNull, isNotNull, lt, inArray } from "drizzle-orm";
+ import { randomUUID } from "crypto";
+ import { logger } from "../lib/logger.js";
+ import { recordAudit } from "../lib/audit.js";
+@@ -31,6 +32,10 @@ import { validateRootPath, verifyProjectRoot } from "../lib/path-validation.js";
+ import { establishProjectRoot } from "../lib/project-root.js";
+ import { removeManagedProjectRoot } from "../lib/project-materialization.js";
+ import { runDiscovery, STEPS } from "../lib/discovery-runner.js";
++import {
++  buildRemediationPlan,
++  buildRemediationPrompt,
++} from "../lib/remediation-plan.js";
+ 
+ const router = Router();
+ 
+@@ -504,19 +509,63 @@ router.post("/projects/import", async (req, res) => {
+       }
+ 
+       // 4. Tasks from rule violations (top 20)
++      const ruleIds = result.ruleViolations
++        .map((violation) => violation.ruleId)
++        .filter((ruleId): ruleId is string => Boolean(ruleId));
++      const availableRules =
++        ruleIds.length > 0
++          ? await tx
++              .select()
++              .from(rulesTable)
++              .where(inArray(rulesTable.id, ruleIds))
++          : [];
++
+       for (const violation of result.ruleViolations.slice(0, 20)) {
++        const sourcePlan = violation.remediationPlan;
++        const rule = availableRules.find((candidate) => candidate.id === violation.ruleId);
++        const remediationPlan = buildRemediationPlan({
++          ruleId: rule?.id ?? violation.ruleId ?? sourcePlan?.ruleId,
++          ruleCode: violation.code,
++          ruleTitle: violation.title,
++          severity: violation.severity,
++          occurrenceCount: violation.count,
++          matches: violation.matches ?? sourcePlan?.evidence,
++          fixDescription: violation.fixDescription ?? rule?.fixDescription ?? sourcePlan?.fixDescription,
++          verificationSteps:
++            violation.verifySteps ??
++            rule?.verifySteps ??
++            sourcePlan?.verificationSteps ??
++            [],
++          source: {
++            type: "discovery",
++            correlationId: result.sourceCorrelationId ?? body.discoveryId,
++            revision: result.sourceRevision ?? sourcePlan?.source.revision ?? null,
++            completeness: sourcePlan?.source.completeness ?? "COMPLETE",
++          },
++        });
++
+         await tx.insert(tasksTable).values({
+           id: randomUUID(),
+           projectId,
+-          title: `Fix: ${violation.title}`,
+-          description: `Rule violation detected during discovery. ${violation.count} occurrence(s) found.`,
++          ruleId: remediationPlan.ruleId ?? undefined,
++          title: `Remediate ${remediationPlan.ruleCode}: ${remediationPlan.ruleTitle}`,
++          description:
++            remediationPlan.fixDescription ??
++            `${remediationPlan.occurrenceCount} occurrence(s) detected for ${remediationPlan.ruleCode}. Review the bounded evidence before execution.`,
+           status: "pending",
+           priority:
+-            violation.severity === "critical"
++            remediationPlan.severity === "critical"
+               ? "p0"
+-              : violation.severity === "high"
++              : remediationPlan.severity === "high"
+               ? "p1"
+-              : "p2",
++              : remediationPlan.severity === "medium"
++              ? "p2"
++              : "p3",
++          relatedFiles: remediationPlan.relatedFiles,
++          prompt: buildRemediationPrompt(remediationPlan),
++          phase: "remediation",
++          remediationPlan,
++          correlationId: remediationPlan.source.correlationId ?? body.discoveryId,
+           createdAt: now,
+           updatedAt: now,
+         });

@@ -1,6 +1,19 @@
 import type { ProjectContext } from "../context-builder.js";
 import { composePrompt, promptCodeBlock, promptContextOverview, promptList } from "./prompt-composer.js";
 
+export interface TaskRemediationContext {
+  ruleCode: string;
+  ruleTitle: string;
+  severity: string;
+  occurrenceCount: number;
+  evidence: Array<{ file: string; line: number; snippet: string; occurrences: number }>;
+  relatedFiles: string[];
+  fixDescription: string | null;
+  verificationSteps: string[];
+  source: { type: string; revision: string | null };
+  status: string;
+}
+
 export function buildTaskAgentSystemPrompt(context: ProjectContext): string {
   return composePrompt(
     "You are an autonomous engineering task executor for EngineeringOS.",
@@ -33,12 +46,34 @@ export function buildTaskAgentUserPrompt(input: {
   taskPrompt: string | null;
   taskPriority: string;
   relatedFiles: string[];
+  remediationPlan?: TaskRemediationContext | null;
   projectContext: ProjectContext;
 }): string {
   const filesSection =
     input.relatedFiles.length > 0
       ? input.relatedFiles.map((f) => `  - ${f}`).join("\n")
       : "  (none — use the knowledge graph to identify relevant entities)";
+
+  const planSection = input.remediationPlan
+    ? [
+        `**Remediation plan:** ${input.remediationPlan.ruleCode} — ${input.remediationPlan.ruleTitle}`,
+        `**Severity / occurrences:** ${input.remediationPlan.severity} / ${input.remediationPlan.occurrenceCount}`,
+        `**Plan status:** ${input.remediationPlan.status}`,
+        `**Recommended fix:** ${input.remediationPlan.fixDescription ?? "Not supplied; do not invent one."}`,
+        `**Plan files:** ${input.remediationPlan.relatedFiles.length ? input.remediationPlan.relatedFiles.join(", ") : "none recorded"}`,
+        "**Plan evidence:**",
+        input.remediationPlan.evidence.length
+          ? input.remediationPlan.evidence
+              .map((match) => `  - ${match.file}:${match.line}: ${match.snippet}`)
+              .join("\n")
+          : "  - unavailable; request human review rather than guessing",
+        "**Required verification:**",
+        input.remediationPlan.verificationSteps.length
+          ? input.remediationPlan.verificationSteps.map((step) => `  - ${step}`).join("\n")
+          : "  - unavailable; request human review before claiming success",
+        `**Plan source:** ${input.remediationPlan.source.type}; revision ${input.remediationPlan.source.revision ?? "not available"}`,
+      ].join("\n")
+    : "";
 
   return composePrompt(
     `Execute this engineering task. Cite entity names, file paths, and metric values from the context in every step and finding.`,
@@ -48,5 +83,6 @@ export function buildTaskAgentUserPrompt(input: {
 **Prompt / Instructions:** ${input.taskPrompt ?? "(none)"}
 **Related files:**
 ${filesSection}`,
+    planSection,
   );
 }

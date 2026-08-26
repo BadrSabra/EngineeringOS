@@ -1,0 +1,251 @@
+artifacts/dashboard/src/pages/Landing.tsx:33:              Scan projects, extract dependency graphs, enforce rules, and trace
+artifacts/dashboard/src/App.tsx:12:import Tasks from '@/pages/Tasks';
+artifacts/dashboard/src/App.tsx:13:import Rules from '@/pages/Rules';
+artifacts/dashboard/src/App.tsx:108:      <Route path="/tasks">
+artifacts/dashboard/src/App.tsx:109:        <ProtectedRoute component={Tasks} />
+artifacts/dashboard/src/App.tsx:111:      <Route path="/rules">
+artifacts/dashboard/src/App.tsx:112:        <ProtectedRoute component={Rules} />
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:4:  useStartDiscovery,
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:5:  useGetDiscoverySession,
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:6:  useGetDiscoverySummary,
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:11:  getGetDiscoverySessionQueryKey,
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:12:  getGetDiscoverySummaryQueryKey,
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:52:interface DiscoveryStep {
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:58:interface DiscoverySession {
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:63:  steps: DiscoveryStep[];
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:69:interface DiscoveryReport {
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:94:  ruleViolations: Array<{ code: string; title: string; severity: string; count: number }>;
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:230:  resolution_failed: 'Discovery did not complete successfully. Try starting over.',
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:231:  not_found: 'The discovery session could not be found.',
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:232:  permission_denied: 'You do not have access to this discovery session.',
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:252:function StepIcon({ status }: { status: DiscoveryStep['status'] }) {
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:331:// ─── Main wizard ───────────────────────────────────────────────────────────────
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:333:export function DiscoverProjectWizard({ onClose }: Props) {
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:337:  // Wizard state
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:348:  const [discoveryId, setDiscoveryId] = useState<string | null>(null);
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:349:  const [session, setSession] = useState<DiscoverySession | null>(null);
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:350:  const [report, setReport] = useState<DiscoveryReport | null>(null);
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:358:  const startDiscovery = useStartDiscovery();
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:363:  // Polling via react-query (enabled only when discoveryId set and not done)
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:364:  const { data: sessionData } = useGetDiscoverySession(discoveryId ?? '', {
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:366:      queryKey: getGetDiscoverySessionQueryKey(discoveryId ?? ''),
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:367:      enabled: !!discoveryId && step === 2,
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:369:        const s = query.state.data as DiscoverySession | undefined;
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:376:  const { data: summaryData, error: summaryError } = useGetDiscoverySummary(discoveryId ?? '', {
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:378:      queryKey: getGetDiscoverySummaryQueryKey(discoveryId ?? ''),
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:379:      enabled: !!discoveryId && (session?.status === 'ready' || sessionData?.status === 'ready'),
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:386:    const s = sessionData as unknown as DiscoverySession;
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:395:    setReport(summaryData as unknown as DiscoveryReport);
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:437:      const result = await startDiscovery.mutateAsync({
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:438:        data: { sourceType, sourceConfig } as Parameters<typeof startDiscovery.mutateAsync>[0]['data'],
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:440:      const s = result as unknown as DiscoverySession;
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:441:      setDiscoveryId(s.id);
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:445:      setStartError(extractApiError(err, 'Failed to start discovery. Check your configuration and try again.'));
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:450:    if (!discoveryId || !report) return;
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:454:        data: { discoveryId, overrides: Object.keys(overrides).length > 0 ? overrides : undefined },
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:709:          disabled={startDiscovery.isPending}
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:712:          {startDiscovery.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:713:          Start Discovery
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:735:            <span>{isError ? 'Discovery failed' : progress < 100 ? 'Discovering…' : 'Complete'}</span>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:771:                  <div className="font-medium">Discovery failed</div>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:777:                        setDiscoveryId(null);
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:793:                  onClick={() => { setStep(1); setDiscoveryId(null); setSession(null); }}
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:815:                <div className="font-medium mb-0.5">Failed to load discovery report</div>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:824:                onClick={() => { setStep(1); setDiscoveryId(null); setSession(null); setReport(null); }}
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:848:            <h2 className="text-xl font-bold tracking-tight mb-0.5">Discovery Report</h2>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:959:        {/* Rule violations */}
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:960:        {report.ruleViolations.length > 0 && (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:964:                Rule Violations ({report.ruleViolations.length})
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:968:              {report.ruleViolations.slice(0, 5).map((v, i) => (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:976:              {report.ruleViolations.length > 5 && (
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:977:                <div className="px-4 py-2 text-xs text-muted-foreground/50">+{report.ruleViolations.length - 5} more violations…</div>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1023:          'Default rules initialized',
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1026:          `Tasks created (${report?.ruleViolations.length ?? 0} from rule violations)`,
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:1066:  const stepLabels = ['Select Source', 'Analyzing', 'Discovery Report', 'Importing'];
+artifacts/dashboard/src/pages/Dashboard.tsx:177:            <span className="text-primary">{dashboard.taskStatusBreakdown?.['pending'] ?? 0}</span>{' '}
+artifacts/dashboard/src/pages/Dashboard.tsx:178:            tasks pending
+artifacts/dashboard/src/pages/Dashboard.tsx:184:            <h3 className="font-medium text-sm text-muted-foreground">Active Tasks</h3>
+artifacts/dashboard/src/pages/Dashboard.tsx:191:            <span className="text-primary">{dashboard.taskStatusBreakdown?.['running'] || 0}</span>{' '}
+artifacts/dashboard/src/pages/Dashboard.tsx:198:            <h3 className="font-medium text-sm text-muted-foreground">Tasks Completed</h3>
+artifacts/dashboard/src/pages/Dashboard.tsx:220:            <h3 className="font-medium text-sm text-muted-foreground">Failed Tasks</h3>
+artifacts/dashboard/src/pages/Dashboard.tsx:372:      {/* Top rules */}
+artifacts/dashboard/src/pages/Dashboard.tsx:373:      {dashboard.topRules && dashboard.topRules.length > 0 && (
+artifacts/dashboard/src/pages/Dashboard.tsx:376:            <h2 className="font-semibold">Top Triggered Rules</h2>
+artifacts/dashboard/src/pages/Dashboard.tsx:377:            <Link href="/rules" className="text-xs text-primary hover:underline">
+artifacts/dashboard/src/pages/Dashboard.tsx:378:              Manage Rules
+artifacts/dashboard/src/pages/Dashboard.tsx:382:            {dashboard.topRules.map((rule) => (
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:123:    taskStreamCallbacks: undefined as Record<string, unknown> | undefined,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:124:    taskSentParams: undefined as { projectId: string; task: string } | undefined,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:188:    useAiTaskStream: vi.fn(() => ({
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:190:        mocks.taskStreamCallbacks = callbacks;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:192:          mocks.taskSentParams = params as { projectId: string; task: string };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:354:  mocks.taskStreamCallbacks = undefined;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:355:  mocks.taskSentParams = undefined;
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1200:  it('renders the EI-012 telemetry reconciliation block with violations', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1213:        violations: ['claimed evidence with no backing completed read: src/routes/ai/chat.ts'],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1274:        violations: [],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1341:        violations: [],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1405:        violations: [],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1476:        violations: [],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2169:        violations: [],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2982:    expect(mocks.taskSentParams).toEqual({ projectId: 'project-1', task: 'analyze' });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2985:      (mocks.taskStreamCallbacks as Record<string, unknown> & {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2991:      (mocks.taskStreamCallbacks as Record<string, unknown> & {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2998:      (mocks.taskStreamCallbacks as Record<string, unknown> & {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3005:      (mocks.taskStreamCallbacks as Record<string, unknown> & {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3127:  it('surfaces first concrete contract violation from diagnosticDetails in rejection reason', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3128:    mocks.serverProposal = { proposalId: 'contract-violation-detail', changes: [] };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3166:    // The first operational meta-string is skipped; the concrete violation is shown
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3172:    // The generic fallback sentence must NOT appear when a violation is available.
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3176:  it('falls back to generic rejection sentence when diagnosticDetails has no concrete violation', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3177:    mocks.serverProposal = { proposalId: 'no-violation-detail', changes: [] };
+artifacts/dashboard/src/pages/Rules.tsx:3:  useListRules,
+artifacts/dashboard/src/pages/Rules.tsx:5:  getListRulesQueryKey,
+artifacts/dashboard/src/pages/Rules.tsx:23:type RuleSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+artifacts/dashboard/src/pages/Rules.tsx:33:export default function Rules() {
+artifacts/dashboard/src/pages/Rules.tsx:35:  const [filterSeverity, setFilterSeverity] = useState<RuleSeverity | ''>('');
+artifacts/dashboard/src/pages/Rules.tsx:45:    severity: 'high' as RuleSeverity,
+artifacts/dashboard/src/pages/Rules.tsx:49:  const { data: rules, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListRules(
+artifacts/dashboard/src/pages/Rules.tsx:53:        queryKey: getListRulesQueryKey({ severity: filterSeverity || undefined }),
+artifacts/dashboard/src/pages/Rules.tsx:61:  const visibleRules = useMemo(() => {
+artifacts/dashboard/src/pages/Rules.tsx:62:    if (!rules) return [];
+artifacts/dashboard/src/pages/Rules.tsx:64:    return rules
+artifacts/dashboard/src/pages/Rules.tsx:73:  }, [rules, searchTerm]);
+artifacts/dashboard/src/pages/Rules.tsx:76:  const totalHits = rules?.reduce((sum, r) => sum + (r.hitCount ?? 0), 0) ?? 0;
+artifacts/dashboard/src/pages/Rules.tsx:77:  const enabledCount = rules?.filter((r) => r.enabled).length ?? 0;
+artifacts/dashboard/src/pages/Rules.tsx:78:  const criticalCount = rules?.filter((r) => r.severity === 'critical' || r.severity === 'high').length ?? 0;
+artifacts/dashboard/src/pages/Rules.tsx:87:          queryClient.invalidateQueries({ queryKey: getListRulesQueryKey() });
+artifacts/dashboard/src/pages/Rules.tsx:117:            <ShieldAlert className="w-6 h-6 text-primary" /> Rules Engine
+artifacts/dashboard/src/pages/Rules.tsx:127:            onChange={(e) => setFilterSeverity(e.target.value as RuleSeverity | '')}
+artifacts/dashboard/src/pages/Rules.tsx:144:              placeholder="Filter rules..."
+artifacts/dashboard/src/pages/Rules.tsx:156:          <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="Refresh rules" />
+artifacts/dashboard/src/pages/Rules.tsx:167:      {rules && rules.length > 0 && (
+artifacts/dashboard/src/pages/Rules.tsx:175:              <div className="text-xs text-muted-foreground">Active rules</div>
+artifacts/dashboard/src/pages/Rules.tsx:193:              <div className="text-xs text-muted-foreground">Total violations</div>
+artifacts/dashboard/src/pages/Rules.tsx:200:      {(searchTerm || filterSeverity) && rules && (
+artifacts/dashboard/src/pages/Rules.tsx:202:          <span>Showing <strong className="text-foreground">{visibleRules.length}</strong> of {rules.length} rules</span>
+artifacts/dashboard/src/pages/Rules.tsx:271:                  onChange={(e) => setNewRule({ ...newRule, severity: e.target.value as RuleSeverity })}
+artifacts/dashboard/src/pages/Rules.tsx:357:          <RequestError message={error instanceof Error ? error.message : 'Unable to load rules.'} onRetry={() => void refetch()} />
+artifacts/dashboard/src/pages/Rules.tsx:358:        ) : visibleRules.length === 0 ? (
+artifacts/dashboard/src/pages/Rules.tsx:362:              {searchTerm || filterSeverity ? 'No rules match your filters' : 'No rules defined'}
+artifacts/dashboard/src/pages/Rules.tsx:367:                : 'Create rules to detect patterns, enforce standards, and trigger automated fixes.'}
+artifacts/dashboard/src/pages/Rules.tsx:379:          visibleRules.map((rule) => (
+artifacts/dashboard/src/pages/Projects.tsx:17:import { DiscoverProjectWizard } from './DiscoverProjectWizard';
+artifacts/dashboard/src/pages/Projects.tsx:45:      {showDiscover && <DiscoverProjectWizard onClose={() => setShowDiscover(false)} />}
+artifacts/dashboard/src/pages/Projects.test.tsx:21:// Mock DiscoverProjectWizard — integration tested separately
+artifacts/dashboard/src/pages/Projects.test.tsx:22:vi.mock("./DiscoverProjectWizard", () => ({
+artifacts/dashboard/src/pages/Projects.test.tsx:23:  DiscoverProjectWizard: ({ onClose }: { onClose: () => void }) => (
+artifacts/dashboard/src/pages/Projects.test.tsx:24:    <div data-testid="discover-wizard">
+artifacts/dashboard/src/pages/Projects.test.tsx:83:  it("opens discover wizard when Discover Project button is clicked", () => {
+artifacts/dashboard/src/pages/Projects.test.tsx:86:    expect(screen.getByTestId("discover-wizard")).toBeInTheDocument();
+artifacts/dashboard/src/pages/Projects.test.tsx:89:  it("closes discover wizard when onClose is called", () => {
+artifacts/dashboard/src/pages/Projects.test.tsx:92:    expect(screen.getByTestId("discover-wizard")).toBeInTheDocument();
+artifacts/dashboard/src/pages/Projects.test.tsx:94:    expect(screen.queryByTestId("discover-wizard")).not.toBeInTheDocument();
+artifacts/dashboard/src/pages/ProjectDetail.tsx:8:  useListTasks,
+artifacts/dashboard/src/pages/ProjectDetail.tsx:11:  getListTasksQueryKey,
+artifacts/dashboard/src/pages/ProjectDetail.tsx:71:  // Prefetch tasks into the query cache for the Tasks tab (result not used directly here).
+artifacts/dashboard/src/pages/ProjectDetail.tsx:72:  useListTasks(
+artifacts/dashboard/src/pages/ProjectDetail.tsx:74:    { query: { enabled: !!projectId, queryKey: getListTasksQueryKey({ projectId }) } },
+artifacts/dashboard/src/pages/ProjectDetail.tsx:364:      {/* Metrics + tasks grid */}
+artifacts/dashboard/src/pages/AiChat.tsx:20:  useAiTaskStream,
+artifacts/dashboard/src/pages/AiChat.tsx:862:  violations?: string[];
+artifacts/dashboard/src/pages/AiChat.tsx:1285:   * chats). `consistent: false` means the verdict failed closed, and violations
+artifacts/dashboard/src/pages/AiChat.tsx:1291:    violations: string[];
+artifacts/dashboard/src/pages/AiChat.tsx:1482:      violations: Array.isArray(entry.violations)
+artifacts/dashboard/src/pages/AiChat.tsx:1483:        ? entry.violations.filter((v): v is string => typeof v === 'string')
+artifacts/dashboard/src/pages/AiChat.tsx:1649: * contract or recovery violation rather than an internal operational note.
+artifacts/dashboard/src/pages/AiChat.tsx:1651: * violation messages reach the UI.
+artifacts/dashboard/src/pages/AiChat.tsx:1653:function firstConcreteViolationDetail(details: string[]): string | undefined {
+artifacts/dashboard/src/pages/AiChat.tsx:1655:  // than bounded contract violations surfaceable to the user.
+artifacts/dashboard/src/pages/AiChat.tsx:1718:    const violation = firstConcreteViolationDetail(summary.diagnosticDetails);
+artifacts/dashboard/src/pages/AiChat.tsx:1719:    return violation
+artifacts/dashboard/src/pages/AiChat.tsx:1720:      ? `The recovery response could not be parsed into the required six-section forensic report: ${violation}.`
+artifacts/dashboard/src/pages/AiChat.tsx:1724:    const violation = firstConcreteViolationDetail(summary.diagnosticDetails);
+artifacts/dashboard/src/pages/AiChat.tsx:1725:    return violation
+artifacts/dashboard/src/pages/AiChat.tsx:1726:      ? `The bounded recovery attempt failed: ${violation}.`
+artifacts/dashboard/src/pages/AiChat.tsx:1730:    const violation = firstConcreteViolationDetail(summary.diagnosticDetails);
+artifacts/dashboard/src/pages/AiChat.tsx:1731:    return violation
+artifacts/dashboard/src/pages/AiChat.tsx:1732:      ? `The model response was rejected: ${violation}.`
+artifacts/dashboard/src/pages/AiChat.tsx:1735:  const violation = firstConcreteViolationDetail(summary.diagnosticDetails);
+artifacts/dashboard/src/pages/AiChat.tsx:1736:  return violation
+artifacts/dashboard/src/pages/AiChat.tsx:1737:    ? `The forensic response did not satisfy the evidence contract: ${violation}.`
+artifacts/dashboard/src/pages/AiChat.tsx:2031:              {evidence.evidenceIntegrity.violations.length > 0 && (() => {
+artifacts/dashboard/src/pages/AiChat.tsx:2032:                const violatingFiles = evidence.evidenceIntegrity.violations
+artifacts/dashboard/src/pages/AiChat.tsx:2625:              : `Telemetry reconciliation blocked ${integrity.violations.length || 1} unsupported claim${integrity.violations.length === 1 ? '' : 's'}`}
+artifacts/dashboard/src/pages/AiChat.tsx:5031:  { id: 'tasks', label: 'Task Status', icon: Zap, prompt: 'Summarize the current task backlog and what I should focus on next.' },
+artifacts/dashboard/src/pages/AiChat.tsx:6509:    violations: string[];
+artifacts/dashboard/src/pages/AiChat.tsx:6573:      : `${evidenceIntegrity.violations.length || 1} evidence violation${evidenceIntegrity.violations.length === 1 ? '' : 's'}`
+artifacts/dashboard/src/pages/AiChat.tsx:6977:      {(execution?.checkpointVersion !== undefined || execution?.resumable || evidenceIntegrity?.violations.length) && (
+artifacts/dashboard/src/pages/AiChat.tsx:7003:  // AI-TASK-006: task linkage — read from URL search params so the Tasks page
+artifacts/dashboard/src/pages/AiChat.tsx:7042:  const { send: taskStreamSend, cancel: cancelTaskStream, isPending: isTaskSending } = useAiTaskStream();
+artifacts/dashboard/src/pages/AiChat.tsx:7063:      cancelTaskStream();
+artifacts/dashboard/src/pages/AiChat.tsx:7065:  }, [cancelStream, cancelTaskStream]);
+artifacts/dashboard/src/pages/AiChat.tsx:7103:    violations: string[];
+artifacts/dashboard/src/pages/AiChat.tsx:7162:        refetchInterval: isSending || isTaskSending ? 5_000 : 15_000,
+artifacts/dashboard/src/pages/AiChat.tsx:7317:    } else if (activeExecutionStatus.status === 'running' && !isSending && !isTaskSending) {
+artifacts/dashboard/src/pages/AiChat.tsx:7325:    isTaskSending,
+artifacts/dashboard/src/pages/AiChat.tsx:7446:  function resetStructuredTaskState() {
+artifacts/dashboard/src/pages/AiChat.tsx:7471:  function structuredTaskStageLabel(stage: string): string {
+artifacts/dashboard/src/pages/AiChat.tsx:7487:    if (!selectedProjectId || isTaskSending) return;
+artifacts/dashboard/src/pages/AiChat.tsx:7513:    void taskStreamSend({ projectId: selectedProjectId, task }, {
+artifacts/dashboard/src/pages/AiChat.tsx:7514:      onTaskStarted: (event) => {
+artifacts/dashboard/src/pages/AiChat.tsx:7522:        const label = structuredTaskStageLabel(stage);
+artifacts/dashboard/src/pages/AiChat.tsx:7557:        resetStructuredTaskState();
+artifacts/dashboard/src/pages/AiChat.tsx:7575:        resetStructuredTaskState();
+artifacts/dashboard/src/pages/AiChat.tsx:7596:        resetStructuredTaskState();
+artifacts/dashboard/src/pages/AiChat.tsx:7619:    if (structuredRetryMessageId || isTaskSending || !run || run.task !== task) return;
+artifacts/dashboard/src/pages/AiChat.tsx:8698:            violations: event.violations,
+artifacts/dashboard/src/pages/AiChat.tsx:8859:      cancelTaskStream();
+artifacts/dashboard/src/pages/AiChat.tsx:8963:    // 'tasks' and 'workflow' — route through chat agent, send immediately.
+artifacts/dashboard/src/pages/AiChat.tsx:9013:    return 'Ask about your codebase, tasks, metrics, or workflows. I have full context.';
+artifacts/dashboard/src/pages/AiChat.tsx:9021:    return 'Ask about your codebase, tasks, or metrics\u2026 (Enter to send)';
+artifacts/dashboard/src/pages/AiChat.tsx:9034:  const isAgentBusy = isSending || isTaskSending;
+artifacts/dashboard/src/pages/AiChat.tsx:9221:                          cancelTaskStream();
+artifacts/dashboard/src/pages/AiChat.tsx:9428:                    disabled={!isLoaded || projectsLoading || !selectedProjectId || (action.id === 'analyze' && isTaskSending) || (action.id === 'review' && isTaskSending)}
+artifacts/dashboard/src/pages/AiChat.tsx:9530:                         {liveEvidenceIntegrity.violations.length > 0 && (
+artifacts/dashboard/src/pages/AiChat.tsx:9531:                           <span className="truncate text-muted-foreground">· {liveEvidenceIntegrity.violations.length} violation{liveEvidenceIntegrity.violations.length === 1 ? '' : 's'}</span>
+artifacts/dashboard/src/pages/Tasks.tsx:3:  useListTasks,
+artifacts/dashboard/src/pages/Tasks.tsx:8:  getListTasksQueryKey,
+artifacts/dashboard/src/pages/Tasks.tsx:168:function TaskLogsPanel({ task, taskStatus }: { task: TaskView; taskStatus: string }) {
+artifacts/dashboard/src/pages/Tasks.tsx:170:  const isRunning = taskStatus === 'running';
+artifacts/dashboard/src/pages/Tasks.tsx:189:    const es = new EventSource(`/api/tasks/${taskId}/logs/stream`);
+artifacts/dashboard/src/pages/Tasks.tsx:255:  const final = ['completed', 'failed', 'cancelled'].includes(taskStatus);
+artifacts/dashboard/src/pages/Tasks.tsx:267:          ['Status', taskStatus],
+artifacts/dashboard/src/pages/Tasks.tsx:372:             {taskStatus === 'completed' && task.verificationResult?.passed
+artifacts/dashboard/src/pages/Tasks.tsx:374:               : taskStatus === 'completed'
+artifacts/dashboard/src/pages/Tasks.tsx:376:                 : taskStatus === 'cancelled'
+artifacts/dashboard/src/pages/Tasks.tsx:397:type TaskStatusFilter = 'pending' | 'queued' | 'running' | 'verifying' | 'completed' | 'failed' | 'cancelled';
+artifacts/dashboard/src/pages/Tasks.tsx:402:export default function Tasks() {
+artifacts/dashboard/src/pages/Tasks.tsx:404:  const [filterStatus, setFilterStatus] = useState<TaskStatusFilter | ''>('');
+artifacts/dashboard/src/pages/Tasks.tsx:410:  const { data: rawTasks, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListTasks(
+artifacts/dashboard/src/pages/Tasks.tsx:414:        queryKey: getListTasksQueryKey({
+artifacts/dashboard/src/pages/Tasks.tsx:421:  const tasks = useMonotonicData(rawTasks, newestUpdatedAt(rawTasks));
+artifacts/dashboard/src/pages/Tasks.tsx:428:  const visibleTasks = tasks?.filter((t) =>
+artifacts/dashboard/src/pages/Tasks.tsx:437:      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() }),
+artifacts/dashboard/src/pages/Tasks.tsx:482:            Orchestrate and monitor autonomous agent tasks.
+artifacts/dashboard/src/pages/Tasks.tsx:486:          <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="Refresh tasks" />
+artifacts/dashboard/src/pages/Tasks.tsx:490:              onChange={(e) => setFilterStatus(e.target.value as TaskStatusFilter | '')}
+artifacts/dashboard/src/pages/Tasks.tsx:518:              placeholder="Search tasks..."
+artifacts/dashboard/src/pages/Tasks.tsx:537:          <span className="font-semibold">{visibleTasks.length}</span>
+artifacts/dashboard/src/pages/Tasks.tsx:538:          <span className="text-muted-foreground">of {tasks?.length ?? 0} tasks matching</span>
+artifacts/dashboard/src/pages/Tasks.tsx:554:            message={error instanceof Error ? error.message : 'Unable to load tasks.'}
+artifacts/dashboard/src/pages/Tasks.tsx:557:        ) : visibleTasks.length === 0 ? (
+artifacts/dashboard/src/pages/Tasks.tsx:561:              {searchTerm ? 'No tasks match your search' : 'No tasks found'}
+artifacts/dashboard/src/pages/Tasks.tsx:566:                : 'Tasks are created automatically when a project scan detects issues.'}
+artifacts/dashboard/src/pages/Tasks.tsx:570:          visibleTasks.map((task) => (
+artifacts/dashboard/src/pages/Tasks.tsx:769:                      <TaskLogsPanel task={task} taskStatus={task.status} />
+artifacts/dashboard/src/pages/Tasks.test.tsx:4:import Tasks from './Tasks';
+artifacts/dashboard/src/pages/Tasks.test.tsx:7:  useListTasks: vi.fn(),
+artifacts/dashboard/src/pages/Tasks.test.tsx:12:  getListTasksQueryKey: vi.fn(() => ['tasks']),
+artifacts/dashboard/src/pages/Tasks.test.tsx:23:  useListTasks,
+artifacts/dashboard/src/pages/Tasks.test.tsx:61:      <Tasks />
+artifacts/dashboard/src/pages/Tasks.test.tsx:68:  vi.mocked(useListTasks).mockReturnValue({
+artifacts/dashboard/src/pages/Tasks.test.tsx:100:  } as ReturnType<typeof useListTasks>);
+artifacts/dashboard/src/pages/Tasks.test.tsx:113:describe('Tasks recovery rendering', () => {
+artifacts/dashboard/src/pages/Workflows.tsx:477:              Create a pipeline to orchestrate tasks across multiple agents automatically.
+artifacts/dashboard/src/components/layout/Sidebar.tsx:24:  { href: '/tasks', label: 'Tasks', icon: ListTodo },
+artifacts/dashboard/src/components/layout/Sidebar.tsx:25:  { href: '/rules', label: 'Rules Engine', icon: ShieldAlert },
+artifacts/dashboard/src/components/layout/Shell.tsx:34:              placeholder="Search projects, tasks, rules... (Press '/')"
+artifacts/dashboard/src/components/OperatorResilience.test.tsx:16:    render(<RefreshButton onRefresh={refresh} label="Refresh tasks" />);
+artifacts/dashboard/src/components/OperatorResilience.test.tsx:17:    const button = screen.getByRole('button', { name: 'Refresh tasks' });
+artifacts/dashboard/src/components/OperatorResilience.test.tsx:18:    expect(button).toHaveAttribute('title', 'Refresh tasks');

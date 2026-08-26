@@ -5,6 +5,7 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { RemediationPlan } from './remediationPlan';
 import type { TaskPriority } from './taskPriority';
 import type { TaskStatus } from './taskStatus';
 import type { VerificationResult } from './verificationResult';
@@ -26,6 +27,7 @@ export interface Task {
   prompt?: string;
   agentResponse?: string;
   verificationResult?: VerificationResult;
+  remediationPlan?: RemediationPlan | null;
   createdAt: Date;
   updatedAt: Date;
   completedAt?: Date;

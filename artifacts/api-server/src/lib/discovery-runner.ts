@@ -39,6 +39,7 @@ import {
   DISCOVERY_LEASE_MS,
   DISCOVERY_HEARTBEAT_INTERVAL_MS,
 } from "./job-lease.js";
+import { buildRemediationPlan } from "./remediation-plan.js";
 
 // ─── Step names ────────────────────────────────────────────────────────────────
 
@@ -488,12 +489,36 @@ export async function runDiscovery(sessionId: string, rootPath: string): Promise
     const detectedRisks = detectRisks(allDeps, files, detectedTestFramework, detectedCi);
     const ruleViolations = ruleResults
       .filter((r) => r.matched)
-      .map((r) => ({
-        code: r.ruleCode,
-        title: globalRules.find((g) => g.id === r.ruleId)?.title ?? r.ruleCode,
-        severity: r.severity,
-        count: r.matchCount,
-      }));
+      .map((r) => {
+        const rule = globalRules.find((g) => g.id === r.ruleId);
+        const remediationPlan = buildRemediationPlan({
+          ruleId: r.ruleId,
+          ruleCode: r.ruleCode,
+          ruleTitle: rule?.title ?? r.ruleCode,
+          severity: r.severity,
+          occurrenceCount: r.matchCount,
+          matches: r.matches,
+          fixDescription: rule?.fixDescription,
+          verificationSteps: rule?.verifySteps ?? [],
+          source: {
+            type: "discovery",
+            correlationId: sessionId,
+            revision: walkResult.revision,
+            completeness: walkResult.truncated ? "PARTIAL" : "COMPLETE",
+          },
+        });
+        return {
+          ruleId: r.ruleId,
+          code: r.ruleCode,
+          title: rule?.title ?? r.ruleCode,
+          severity: r.severity,
+          count: r.matchCount,
+          matches: remediationPlan.evidence,
+          fixDescription: remediationPlan.fixDescription,
+          verifySteps: remediationPlan.verificationSteps,
+          remediationPlan,
+        };
+      });
 
     const partial: DiscoveryResultData = {
       detectedName,
@@ -525,6 +550,9 @@ export async function runDiscovery(sessionId: string, rootPath: string): Promise
         filesByLanguage: countBy(files, (f) => f.language),
       },
       ruleViolations,
+      sourceRevision: walkResult.revision,
+      sourceProvenance: "discovery",
+      sourceCorrelationId: sessionId,
     };
     await setStep(8, "done", Date.now() - t8);
 

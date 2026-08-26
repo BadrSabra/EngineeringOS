@@ -5,10 +5,20 @@
  * EngineeringOS - Autonomous AI Engineering Platform API
  * OpenAPI spec version: 1.0.0
  */
+import type { RemediationEvidence } from './remediationEvidence';
+import type { RemediationPlan } from './remediationPlan';
 
 export interface DiscoveryRuleViolationItem {
+  ruleId?: string;
   code: string;
   title: string;
   severity: string;
   count: number;
+  /** @maxItems 100 */
+  matches?: RemediationEvidence[];
+  /** @nullable */
+  fixDescription?: string | null;
+  /** @maxItems 20 */
+  verifySteps?: string[];
+  remediationPlan?: RemediationPlan | null;
 }

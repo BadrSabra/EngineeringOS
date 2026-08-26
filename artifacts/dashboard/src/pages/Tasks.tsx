@@ -72,6 +72,26 @@ type TaskView = {
     passed: boolean;
     steps: Array<{ name: string; passed: boolean; output?: string }>;
   };
+  ruleId?: string;
+  remediationPlan?: {
+    version: number;
+    ruleId?: string | null;
+    ruleCode: string;
+    ruleTitle: string;
+    severity: string;
+    occurrenceCount: number;
+    evidence: Array<{ file: string; line: number; snippet: string; occurrences: number }>;
+    relatedFiles: string[];
+    fixDescription?: string | null;
+    verificationSteps: string[];
+    source: {
+      type: string;
+      correlationId?: string | null;
+      revision?: string | null;
+      completeness?: string | null;
+    };
+    status: 'needs_review' | 'ready' | 'verified';
+  } | null;
 };
 
 type TaskExecutionReceipt = {
@@ -681,6 +701,87 @@ export default function Tasks() {
                           <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
                             Task Details
                           </h4>
+                          {task.remediationPlan && (
+                            <section
+                              aria-labelledby={`remediation-${task.id}`}
+                              className="mb-4 rounded-lg border border-primary/25 bg-primary/5 p-3"
+                            >
+                              <div className="flex items-center justify-between gap-2 mb-3">
+                                <h5 id={`remediation-${task.id}`} className="text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                                  <ShieldCheck className="w-3.5 h-3.5 text-primary" />
+                                  Remediation plan
+                                </h5>
+                                <span className={`text-[10px] rounded-full border px-2 py-0.5 font-semibold ${
+                                  task.remediationPlan.status === 'verified'
+                                    ? 'border-emerald-500/30 text-emerald-500'
+                                    : task.remediationPlan.status === 'ready'
+                                      ? 'border-primary/30 text-primary'
+                                      : 'border-amber-500/30 text-amber-500'
+                                }`}>
+                                  {task.remediationPlan.status === 'verified'
+                                    ? 'Verified'
+                                    : task.remediationPlan.status === 'ready'
+                                      ? 'Ready to execute'
+                                      : 'Needs review'}
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2 text-xs mb-3">
+                                <span className="font-mono font-semibold">{task.remediationPlan.ruleCode}</span>
+                                <span className="text-muted-foreground">·</span>
+                                <span>{task.remediationPlan.ruleTitle}</span>
+                                <span className="rounded border border-border px-1.5 py-0.5 uppercase">{task.remediationPlan.severity}</span>
+                                <span className="text-muted-foreground">{task.remediationPlan.occurrenceCount} occurrence(s)</span>
+                              </div>
+                              {task.remediationPlan.fixDescription ? (
+                                <p className="text-xs text-muted-foreground mb-3">
+                                  <span className="font-semibold text-foreground">Recommended fix: </span>
+                                  {task.remediationPlan.fixDescription}
+                                </p>
+                              ) : (
+                                <p className="text-xs text-amber-600 dark:text-amber-400 mb-3">
+                                  Fix guidance is missing; review the rule before execution.
+                                </p>
+                              )}
+                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                <div>
+                                  <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">Evidence</div>
+                                  {task.remediationPlan.evidence.length > 0 ? (
+                                    <div className="space-y-1.5">
+                                      {task.remediationPlan.evidence.slice(0, 5).map((match, index) => (
+                                        <div key={`${match.file}:${match.line}:${index}`} className="rounded border border-border bg-background px-2 py-1.5 text-[11px]">
+                                          <div className="font-mono">{match.file}:{match.line}</div>
+                                          <div className="text-muted-foreground truncate">{match.snippet}</div>
+                                        </div>
+                                      ))}
+                                      {task.remediationPlan.evidence.length > 5 && (
+                                        <div className="text-[11px] text-muted-foreground">+{task.remediationPlan.evidence.length - 5} more evidence items</div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="text-xs text-amber-600 dark:text-amber-400">No bounded evidence was retained.</div>
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="text-[11px] font-semibold text-muted-foreground mb-1.5">Required verification</div>
+                                  {task.remediationPlan.verificationSteps.length > 0 ? (
+                                    <ol className="space-y-1 text-xs text-muted-foreground list-decimal list-inside">
+                                      {task.remediationPlan.verificationSteps.map((step, index) => (
+                                        <li key={`${step}:${index}`}>{step}</li>
+                                      ))}
+                                    </ol>
+                                  ) : (
+                                    <div className="text-xs text-amber-600 dark:text-amber-400">No verification steps supplied.</div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="mt-3 text-[11px] text-muted-foreground font-mono">
+                                Source: {task.remediationPlan.source.type}
+                                {task.remediationPlan.source.revision
+                                  ? ` · revision ${task.remediationPlan.source.revision.slice(0, 12)}`
+                                  : ' · revision unavailable'}
+                              </div>
+                            </section>
+                          )}
                           {task.description && (
                             <p className="text-muted-foreground mb-3">{task.description}</p>
                           )}

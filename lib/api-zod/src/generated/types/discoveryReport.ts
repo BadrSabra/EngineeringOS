@@ -43,4 +43,7 @@ export interface DiscoveryReport {
   confidenceScore: number;
   graphSummary: DiscoveryGraphSummaryData;
   ruleViolations: DiscoveryRuleViolationItem[];
+  sourceRevision?: string;
+  sourceProvenance?: string;
+  sourceCorrelationId?: string;
 }

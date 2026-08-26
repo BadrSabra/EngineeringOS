@@ -91,7 +91,23 @@ interface DiscoveryReport {
   qualityScore: number;
   confidenceScore: number;
   graphSummary: { entityCount: number; relationshipCount: number };
-  ruleViolations: Array<{ code: string; title: string; severity: string; count: number }>;
+  sourceRevision?: string;
+  sourceProvenance?: string;
+  sourceCorrelationId?: string;
+  ruleViolations: Array<{
+    ruleId?: string;
+    code: string;
+    title: string;
+    severity: string;
+    count: number;
+    matches?: Array<{ file: string; line: number; snippet: string; occurrences: number }>;
+    fixDescription?: string | null;
+    verifySteps?: string[];
+    remediationPlan?: {
+      status: 'needs_review' | 'ready' | 'verified';
+      relatedFiles: string[];
+    };
+  }>;
 }
 
 interface Props {
@@ -961,17 +977,37 @@ export function DiscoverProjectWizard({ onClose }: Props) {
           <div className="bg-card border border-border/50 rounded-xl overflow-hidden">
             <div className="px-4 py-2.5 border-b border-border/50 bg-secondary/30">
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Rule Violations ({report.ruleViolations.length})
+                Remediation Plans ({report.ruleViolations.length})
               </span>
             </div>
             <div className="divide-y divide-border/30">
               {report.ruleViolations.slice(0, 5).map((v, i) => (
-                <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+                <React.Fragment key={i}>
+                <div className="flex items-center gap-3 px-4 py-2.5">
                   <span className={`text-[10px] border px-1.5 py-0.5 rounded font-mono ${severityBadge(v.severity)}`}>{v.severity}</span>
                   <span className="text-xs font-mono text-muted-foreground">{v.code}</span>
                   <span className="text-xs text-muted-foreground flex-1 truncate">{v.title}</span>
                   <span className="text-xs font-mono text-muted-foreground/60 shrink-0">{v.count}×</span>
                 </div>
+                <div className="px-4 pb-3 -mt-1 text-[11px] text-muted-foreground">
+                  <div className="flex flex-wrap gap-x-3 gap-y-1">
+                    <span>{v.remediationPlan?.status === 'ready' ? 'Ready to execute' : 'Needs review'}</span>
+                    {v.remediationPlan?.relatedFiles?.length ? (
+                      <span>{v.remediationPlan.relatedFiles.length} affected file(s)</span>
+                    ) : null}
+                    {v.fixDescription ? <span>Fix guidance available</span> : <span>Fix guidance missing</span>}
+                  </div>
+                  {v.fixDescription && <p className="mt-1 truncate">Recommended fix: {v.fixDescription}</p>}
+                  {v.matches?.slice(0, 2).map((match, matchIndex) => (
+                    <div key={`${match.file}:${match.line}:${matchIndex}`} className="font-mono truncate">
+                      {match.file}:{match.line} — {match.snippet}
+                    </div>
+                  ))}
+                  {v.verifySteps?.length ? (
+                    <div className="mt-1">Verification: {v.verifySteps.length} step(s)</div>
+                  ) : null}
+                </div>
+                </React.Fragment>
               ))}
               {report.ruleViolations.length > 5 && (
                 <div className="px-4 py-2 text-xs text-muted-foreground/50">+{report.ruleViolations.length - 5} more violations…</div>

@@ -3,7 +3,11 @@
  * and returns a structured response that gets written back as agentResponse.
  */
 import type { ProjectContext } from "../context-builder.js";
-import { buildTaskAgentSystemPrompt, buildTaskAgentUserPrompt } from "../prompts/task.prompt.js";
+import {
+  buildTaskAgentSystemPrompt,
+  buildTaskAgentUserPrompt,
+  type TaskRemediationContext,
+} from "../prompts/task.prompt.js";
 import { TaskRecommendationSchema, type TaskAgentOutput } from "../schemas/task.schema.js";
 import type { Message } from "../groq-client.js";
 import { BaseAgent, type AgentRunResult } from "./base-agent.js";
@@ -15,6 +19,7 @@ export type TaskAgentInput = {
   taskPrompt: string | null;
   taskPriority: string;
   relatedFiles: string[];
+  remediationPlan?: TaskRemediationContext | null;
   projectContext: ProjectContext;
   /** Optional per-user API key. Falls back to GROQ_API_KEY env for Groq; required for DeepSeek. */
   apiKey?: string;

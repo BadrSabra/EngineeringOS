@@ -1,0 +1,292 @@
+  if (!task[0]) return res.status(404).json({ error: "Task not found" });
+  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+  if (!project) return;
+  return res.json(task[0]);
+});
+
+// Update task
+router.patch("/tasks/:taskId", async (req, res) => {
+  const { taskId } = UpdateTaskParams.parse(req.params);
+  const body = UpdateTaskBody.parse(req.body);
+
+  const before = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+  if (!before[0]) return res.status(404).json({ error: "Task not found" });
+  const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+  if (!project) return;
+
+  // GAP-B3: reject edits while the AI agent is actively executing the task.
+  // Allowing a PATCH on a running task could corrupt the agent's in-flight
+  // state (e.g. overwriting the status it's about to transition away from).
+  if (before[0].status === "running") {
+    return res.status(409).json({
+      error: "task_running",
+      hint: "This task is currently being executed by the AI — wait for it to finish (or cancel it) before making changes.",
+    });
+  }
+  if (body.status && body.status !== before[0].status) {
+    const conflict = taskTransitionConflict(
+      before[0].status as TaskStatus,
+      body.status as TaskStatus,
+      "manual",
+    );
+    if (conflict) {
+      await recordAudit({
+        entityType: "task",
+        entityId: taskId,
+        action: "updated",
+        reason: `Rejected task status transition: ${conflict}`,
+        projectId: before[0].projectId,
+        actor: req.userId,
+        correlationId: randomUUID(),
+        changedFields: body,
+        stateBefore: before[0],
+      });
+      return res.status(409).json({
+        error: "invalid_task_transition",
+        reason: conflict,
+        from: before[0].status,
+        to: body.status,
+      });
+    }
+  }
+
+  const correlationId = randomUUID();
+  const updated = await db.transaction(async (tx) => {
+    const rows = await tx.update(tasksTable)
+      .set({ ...body, updatedAt: new Date() })
+      .where(and(
+        eq(tasksTable.id, taskId),
+        eq(tasksTable.status, before[0].status),
+        isNull(tasksTable.workerId),
+      )).returning();
+    if (rows[0]) {
+      const changes: string[] = [];
+      if (body.status && body.status !== before[0].status) changes.push(`status: ${before[0].status} → ${body.status}`);
+      if (body.priority && body.priority !== before[0].priority) changes.push(`priority: ${before[0].priority} → ${body.priority}`);
+      if (body.title && body.title !== before[0].title) changes.push("title updated");
+      if (changes.length) {
+        const isStatusChange = body.status !== undefined && body.status !== before[0].status;
+        await tx.insert(eventsTable).values({
+          id: randomUUID(), type: isStatusChange ? "TaskStatusChanged" : "TaskUpdated",
+          projectId: before[0].projectId, taskId, severity: "info",
+          message: `Task "${rows[0].title}" updated — ${changes.join(", ")}`, correlationId,
+          ...(isStatusChange ? { payload: { before: { status: before[0].status }, after: { status: body.status } } } : {}),
+        });
+      }
+      await recordAuditInTransaction(tx, {
+        entityType: "task", entityId: taskId, action: "updated",
+        projectId: before[0].projectId, actor: req.userId, correlationId,
+        changedFields: body, stateBefore: before[0], stateAfter: rows[0],
+      });
+    }
+    return rows;
+  });
+  if (!updated[0]) {
+    return res.status(409).json({
+      error: "task_state_changed_concurrently",
+      reason: "The task changed while this update was being applied.",
+    });
+  }
+
+  // PR-C: auto-trigger AI execution when a manual PATCH sets status → verifying
+  // and the task has a generated prompt.  Fire-and-forget — never blocks response.
+  if (body.status === "verifying" && updated[0].prompt) {
+    scheduleAiTaskExecution(taskId, req.userId);
+  }
+
+  invalidateContextCache(project.id);
+
+  return res.json(updated[0]);
+});
+
+// Delete task
+router.delete("/tasks/:taskId", async (req, res) => {
+  const { taskId } = DeleteTaskParams.parse(req.params);
+
+  const before = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId)).limit(1);
+  if (!before[0]) return res.status(404).json({ error: "Task not found" });
+  const project = await loadProjectByIdForUser(before[0].projectId, req.userId, res);
+  if (!project) return;
+
+  const correlationId = randomUUID();
+  try {
+    await db.transaction(async (tx) => {
+    const [lockedTask] = await tx.select().from(tasksTable)
+      .where(eq(tasksTable.id, taskId)).for("update");
+    const activeExecutions = await tx.select({ id: aiExecutionsTable.id })
+      .from(aiExecutionsTable)
+      .where(and(
+        eq(aiExecutionsTable.linkedTaskId, taskId),
+        inArray(aiExecutionsTable.status, ["queued", "running", "paused", "cancelling"]),
+      ))
+      .limit(1);
+    if (!lockedTask || lockedTask.status === "running" || lockedTask.workerId || lockedTask.leaseUntil || activeExecutions.length > 0) {
+      throw new TaskStateConflictError("Cancel and terminalize the task execution before deleting this task.");
+    }
+    // Insert before the delete so the task FK is valid; ON DELETE SET NULL
+    // preserves this operation event after the task row is removed.
+    await tx.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "TaskDeleted",
+      projectId: before[0].projectId,
+      taskId,
+      severity: "info",
+      message: `Task "${before[0].title}" deleted`,
+      correlationId,
+      payload: { before: { status: before[0].status } },
+    });
+    await recordAuditInTransaction(tx, {
+      entityType: "task", entityId: taskId, action: "deleted",
+      projectId: before[0].projectId, actor: req.userId, correlationId,
+      stateBefore: before[0],
+      stateBefore: before[0],
+    });
+    await tx.delete(tasksTable).where(eq(tasksTable.id, taskId));
+    });
+  } catch (error) {
+    if (error instanceof TaskStateConflictError) {
+      return res.status(409).json({ error: "task_active_work", reason: error.message });
+    }
+    throw error;
+  }
+
+  invalidateContextCache(project.id);
+
+  return res.status(204).send();
+});
+
+/**
+ * Execute task — real verification state machine.
+ *
+ * State transition: pending | queued → running → completed | failed | verifying
+ *
+ * Verification logic:
+ * 1. If task has a ruleId with a pattern → scan the project's rootPath and
+ *    check whether the pattern still appears in the task's relatedFiles.
+ * 2. If task has relatedFiles but no rule pattern → verify files exist.
+ * 3. Neither → verifying (awaiting AI/human step).
+ */
+router.post("/tasks/:taskId/execute", async (req, res) => {
+  const { taskId } = ExecuteTaskParams.parse(req.params);
+  const task = await db
+    .select()
+    .from(tasksTable)
+    .where(eq(tasksTable.id, taskId))
+    .limit(1);
+  if (!task[0]) return res.status(404).json({ error: "Task not found" });
+
+  const project = await loadProjectByIdForUser(task[0].projectId, req.userId, res);
+  if (!project) return;
+
+  const now = new Date();
+
+  // Atomic claim: only one concurrent /execute call can move a task out of
+  // pending/queued. A conditional UPDATE with a status guard means a second
+  // request racing on the same task sees 0 rows affected and gets a clean
+  // 409 instead of both requests running verification concurrently.
+  const claimed = await db
+    .update(tasksTable)
+    .set({ status: "running", updatedAt: now })
+    .where(and(eq(tasksTable.id, taskId), inArray(tasksTable.status, ["pending", "queued"])))
+    .returning();
+  if (claimed.length === 0) {
+    return res
+      .status(409)
+      .json({ error: `Cannot execute task with status "${task[0].status}"` });
+  }
+
+  // One ID for this entire execute operation — threads through the
+  // "started" log line, the verification log/event, and the audit entry so
+  // the full execution trace can be retrieved with a single filter.
+  const correlationId = randomUUID();
+
+  await db.insert(taskLogsTable).values({
+    id: randomUUID(),
+    taskId,
+    level: "info",
+    message: "Task execution started — running verification against project root",
+    metadata: {
+      initiatedAt: now.toISOString(),
+      projectRoot: project.rootPath,
+    },
+    correlationId,
+  });
+
+  await db.insert(eventsTable).values({
+    id: randomUUID(),
+    type: "TaskExecutionStarted",
+    projectId: task[0].projectId,
+    taskId,
+    severity: "info",
+    message: `Executing task "${task[0].title}"`,
+    correlationId,
+    payload: { before: { status: task[0].status }, after: { status: "running" } },
+  });
+
+  // Delegate to the task service (business logic extracted from route — audit W-003/PR-03).
+  let verification;
+  try {
+    verification = await runTaskVerification(task[0], project.rootPath);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+
+    await db
+      .update(tasksTable)
+      .set({ status: task[0].status, updatedAt: now })
+      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")));
+
+    await db.insert(taskLogsTable).values({
+      id: randomUUID(),
+      taskId,
+      level: "error",
+      message: `Task execution failed: ${message}`,
+      metadata: { error: message, correlationId },
+      correlationId,
+    });
+
+    await db.insert(eventsTable).values({
+      id: randomUUID(),
+      type: "TaskExecutionFailed",
+      projectId: task[0].projectId,
+      taskId,
+      severity: "error",
+      message: `Executing task "${task[0].title}" failed: ${message}`,
+      correlationId,
+      payload: { before: { status: "running" }, after: { status: task[0].status } },
+    });
+
+    await recordAudit({
+      entityType: "task",
+      entityId: taskId,
+      action: "execution_failed",
+      projectId: task[0].projectId,
+      stateBefore: { status: "running" },
+      stateAfter: { status: task[0].status },
+      changedFields: { error: message },
+      correlationId,
+    });
+
+    invalidateContextCache(project.id);
+
+    return res.status(500).json({
+      error: "task_execution_failed",
+      reason: message,
+    });
+  }
+
+  const { finalStatus, steps: verificationSteps } = verification;
+
+  const verificationResult = { passed: finalStatus === "completed", steps: verificationSteps };
+  const completedAt = finalStatus === "completed" ? now : null;
+
+  // The verification outcome, its log line, and its event are one logical
+  // effect of this execution — persist them atomically so a crash between
+  // steps can't leave a task marked "completed" with no corresponding log
+  // or event (or vice versa).
+  let updated: typeof tasksTable.$inferSelect | undefined;
+  try {
+    [updated] = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(tasksTable)
+      .set({ status: finalStatus, verificationResult, updatedAt: now, completedAt })
+      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))

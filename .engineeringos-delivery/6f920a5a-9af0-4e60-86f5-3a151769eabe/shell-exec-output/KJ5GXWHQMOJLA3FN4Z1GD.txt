@@ -1,0 +1,519 @@
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import Tasks from './Tasks';
+
+vi.mock('@workspace/api-client-react', () => ({
+  useListTasks: vi.fn(),
+  useExecuteTask: vi.fn(),
+  useRetryTask: vi.fn(),
+  useRollbackTask: vi.fn(),
+  useGetTaskLogs: vi.fn(),
+  getListTasksQueryKey: vi.fn(() => ['tasks']),
+  getGetTaskLogsQueryKey: vi.fn((taskId: string) => ['task-logs', taskId]),
+}));
+
+vi.mock('@/hooks/use-toast', () => ({
+  useToast: () => ({ toast: vi.fn() }),
+}));
+
+import {
+  useExecuteTask,
+  useGetTaskLogs,
+  useListTasks,
+  useRetryTask,
+  useRollbackTask,
+} from '@workspace/api-client-react';
+
+const mutation = () => ({ mutate: vi.fn(), isPending: false });
+
+const recoveryCases = [
+  {
+    id: 'task-auth',
+    title: 'Repair provider authentication',
+    availabilityState: 'authentication_failed',
+    heading: 'Provider authentication failed',
+    action: 'Replace the provider API key with a valid key, then retry.',
+    correlationId: 'task-auth-support',
+  },
+  {
+    id: 'task-quota',
+    title: 'Recover from provider quota',
+    availabilityState: 'quota_exhausted',
+    heading: 'Provider quota is exhausted',
+    action: 'Add provider credits or configure another provider.',
+    correlationId: 'task-quota-support',
+  },
+  {
+    id: 'task-outage',
+    title: 'Recover from provider outage',
+    availabilityState: 'provider_outage',
+    heading: 'The provider is temporarily unavailable',
+    action: 'Retry in a moment; configure another provider if the issue persists.',
+    correlationId: 'task-outage-support',
+  },
+] as const;
+
+function renderPage() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <Tasks />
+    </QueryClientProvider>,
+  );
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(useListTasks).mockReturnValue({
+    data: recoveryCases.map((item) => ({
+      ...item,
+      projectId: 'project-1',
+      description: 'A failed task with a provider recovery receipt.',
+      status: 'failed',
+      priority: 'p1',
+      phase: 'execute',
+      createdAt: '2026-08-25T10:00:00.000Z',
+      updatedAt: '2026-08-25T10:01:00.000Z',
+      retryCount: 0,
+      maxRetries: 3,
+      agentResponse: JSON.stringify({
+        kind: 'AI_TASK_EXECUTION_RECEIPT',
+        terminalStatus: 'FAILED',
+        provider: 'safe-provider-label',
+        model: 'safe-model-label',
+        attempts: 2,
+        durationMs: 1200,
+        availabilityState: item.availabilityState,
+        operatorAction: item.action,
+        correlationId: item.correlationId,
+        upstreamMessage: 'raw provider diagnostic: provider-secret-token-123456789',
+        apiKey: 'sk-provider-secret-123456789',
+      }),
+    })),
+    isLoading: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+    isRefetching: false,
+    dataUpdatedAt: 0,
+  } as ReturnType<typeof useListTasks>);
+  vi.mocked(useGetTaskLogs).mockReturnValue({
+    data: [],
+    isLoading: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+  } as ReturnType<typeof useGetTaskLogs>);
+  vi.mocked(useExecuteTask).mockReturnValue(mutation() as ReturnType<typeof useExecuteTask>);
+  vi.mocked(useRetryTask).mockReturnValue(mutation() as ReturnType<typeof useRetryTask>);
+  vi.mocked(useRollbackTask).mockReturnValue(mutation() as ReturnType<typeof useRollbackTask>);
+});
+
+describe('Tasks recovery rendering', () => {
+  it('preserves authentication, quota, and outage guidance from failed receipts', () => {
+    renderPage();
+
+    for (const item of recoveryCases) {
+      fireEvent.click(screen.getByRole('button', { name: `Expand task ${item.title}` }));
+      const card = screen.getByRole('region', { name: 'Provider recovery actions' });
+      expect(within(card).getByRole('heading', { name: item.heading })).toBeInTheDocument();
+      expect(within(card).getByText(`Availability: ${item.availabilityState.replaceAll('_', ' ')}`)).toBeInTheDocument();
+      expect(within(card).getByText(`Next step: ${item.action}`)).toBeInTheDocument();
+      expect(within(card).getByText(`Support reference: ${item.correlationId}`)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: `Collapse task ${item.title}` }));
+    }
+  });
+
+  it('does not expose raw provider diagnostics or credentials in task details', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand task Repair provider authentication' }));
+
+    expect(screen.queryByText(/raw provider diagnostic/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/provider-secret-token/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sk-provider-secret/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Internal prompts and provider diagnostics are not shown/i)).toBeInTheDocument();
+  });
+});// ─── Main component ───────────────────────────────────────────────────────────
+
+export default function Tasks() {
+  const queryClient = useQueryClient();
+  const [filterStatus, setFilterStatus] = useState<TaskStatusFilter | ''>('');
+  const [filterPriority, setFilterPriority] = useState<TaskPriorityFilter | ''>('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [expandedTask, setExpandedTask] = useState<string | null>(null);
+  const [logsTab, setLogsTab] = useState<Record<string, 'details' | 'logs'>>({});
+
+  const { data: rawTasks, isLoading, isError, error, refetch, isRefetching, dataUpdatedAt } = useListTasks(
+    { status: filterStatus || undefined, priority: filterPriority || undefined },
+    {
+      query: {
+        queryKey: getListTasksQueryKey({
+          status: filterStatus || undefined,
+          priority: filterPriority || undefined,
+        }),
+      },
+    },
+  );
+  const tasks = useMonotonicData(rawTasks, newestUpdatedAt(rawTasks));
+
+  const { toast } = useToast();
+  const executeTask = useExecuteTask();
+  const retryTask   = useRetryTask();
+  const rollbackTask = useRollbackTask();
+
+  const visibleTasks = tasks?.filter((t) =>
+    !searchTerm ||
+    t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (t.description ?? '').toLowerCase().includes(searchTerm.toLowerCase()),
+  ) ?? [];
+
+  const handleAction = (action: 'execute' | 'retry' | 'rollback', taskId: string) => {
+    const label = action.charAt(0).toUpperCase() + action.slice(1);
+    const options = {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() }),
+      onError: (err: unknown) => {
+        const description = err instanceof Error ? err.message : 'Request failed — check the API server logs.';
+        toast({ title: `${label} failed`, description, variant: 'destructive' });
+      },
+    };
+    if (action === 'execute') executeTask.mutate({ taskId }, options);
+    if (action === 'retry')   retryTask.mutate({ taskId }, options);
+    if (action === 'rollback') rollbackTask.mutate({ taskId }, options);
+  };
+
+  const getDetailTab = (taskId: string) => logsTab[taskId] ?? 'details';
+  const setDetailTab = (taskId: string, tab: 'details' | 'logs') =>
+    setLogsTab((prev) => ({ ...prev, [taskId]: tab }));
+
+  const StatusIcon = ({ status }: { status: string }) => {
+    switch (status) {
+      case 'completed':         return <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
+      case 'failed':            return <AlertTriangle className="w-4 h-4 text-destructive" />;
+      case 'running':
+      case 'verifying':         return <Activity className="w-4 h-4 text-primary animate-pulse" />;
+      default:                  return <Clock className="w-4 h-4 text-muted-foreground" />;
+    }
+  };
+
+  const PriorityBadge = ({ priority }: { priority: string }) => {
+    const colors: Record<string, string> = {
+      p0: 'bg-destructive/20 text-destructive border-destructive/30',
+      p1: 'bg-orange-500/20 text-orange-500 border-orange-500/30',
+      p2: 'bg-blue-500/20 text-blue-500 border-blue-500/30',
+      p3: 'bg-secondary text-muted-foreground border-border',
+    };
+    return (
+      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${colors[priority] ?? colors.p3}`}>
+        {priority}
+      </span>
+    );
+  };
+
+  return (
+    <div className="space-y-6 h-full flex flex-col">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Task Backlog</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Orchestrate and monitor autonomous agent tasks.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <RefreshButton onRefresh={refetch} isRefreshing={isRefetching} lastUpdated={dataUpdatedAt} label="Refresh tasks" />
+          <div className="flex items-center gap-2 bg-secondary p-1 rounded-md border border-border">
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value as TaskStatusFilter | '')}
+              className="bg-transparent text-sm px-2 py-1 outline-none text-foreground border-r border-border min-w-[120px]"
+            >
+              <option value="">All Statuses</option>
+              <option value="pending">Pending</option>
+              <option value="running">Running</option>
+              <option value="verifying">Verifying</option>
+              <option value="completed">Completed</option>
+              <option value="failed">Failed</option>
+            </select>
+            <select
+              value={filterPriority}
+              onChange={(e) => setFilterPriority(e.target.value as TaskPriorityFilter | '')}
+              className="bg-transparent text-sm px-2 py-1 outline-none text-foreground min-w-[100px]"
+            >
+              <option value="">All Priorities</option>
+              <option value="p0">P0 — Critical</option>
+              <option value="p1">P1 — High</option>
+              <option value="p2">P2 — Medium</option>
+              <option value="p3">P3 — Low</option>
+            </select>
+          </div>
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search tasks..."
+              className="bg-card border border-border rounded-md pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary w-64"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Active filter badge */}
+      {searchTerm && (
+        <div className="shrink-0 flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Showing</span>
+          <span className="font-semibold">{visibleTasks.length}</span>
+          <span className="text-muted-foreground">of {tasks?.length ?? 0} tasks matching</span>
+          <span className="bg-primary/10 border border-primary/30 text-primary px-2 py-0.5 rounded font-mono">
+            {searchTerm}
+          </span>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto space-y-2">
+        {isLoading ? (
+          <div className="space-y-2">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="h-20 bg-card border border-border rounded-xl animate-pulse" />
+            ))}
+          </div>
+        ) : isError ? (
+          <RequestError
+            message={error instanceof Error ? error.message : 'Unable to load tasks.'}
+            onRetry={() => void refetch()}
+          />
+        ) : visibleTasks.length === 0 ? (
+          <div className="border-2 border-dashed border-border rounded-xl p-16 text-center flex flex-col items-center">
+            <TerminalSquare className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
+            <h3 className="text-lg font-semibold mb-2">
+              {searchTerm ? 'No tasks match your search' : 'No tasks found'}
+            </h3>
+            <p className="text-muted-foreground text-sm">
+              {searchTerm
+                ? 'Try a different search term or clear the filter.'
+                : 'Tasks are created automatically when a project scan detects issues.'}
+            </p>
+          </div>
+        ) : (
+          visibleTasks.map((task) => (
+            <div
+              key={task.id}
+              className="bg-card border border-border rounded-xl overflow-hidden transition-all"
+            >
+              <div
+                role="button"
+                tabIndex={0}
+                className="p-4 flex items-center gap-4 cursor-pointer hover:bg-secondary/30"
+                onClick={() => setExpandedTask(expandedTask === task.id ? null : task.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    setExpandedTask(expandedTask === task.id ? null : task.id);
+                  }
+                }}
+                aria-expanded={expandedTask === task.id}
+                aria-controls={`task-details-${task.id}`}
+                aria-label={`${expandedTask === task.id ? 'Collapse' : 'Expand'} task ${task.title}`}
+              >
+                <StatusIcon status={task.status} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-medium text-sm truncate">{task.title}</span>
+                    <PriorityBadge priority={task.priority} />
+                  </div>
+                  <div className="text-xs text-muted-foreground font-mono flex items-center gap-3">
+                    <span
+                      className={`uppercase font-bold ${
+                        task.status === 'completed' ? 'text-emerald-500'
+                        : task.status === 'failed'  ? 'text-destructive'
+                        : task.status === 'running' ? 'text-primary'
+                        : 'text-muted-foreground'
+                      }`}
+                    >
+                      {task.status}
+                    </span>
+                    <span>•</span>
+                    <span>{new Date(task.createdAt).toLocaleString()}</span>
+                    {task.phase && (
+                      <>
+                        <span>•</span>
+                        <span className="opacity-70">{task.phase}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {(task.status === 'pending' || task.status === 'queued') && (
+                    <button
+  id: string;
+  detectedName: string;
+  detectedLanguage: string;
+  detectedLanguages: string[];
+  detectedFramework: string | null;
+  detectedRuntime: string | null;
+  detectedPackageManager: string | null;
+  detectedArchitecture: string | null;
+  detectedDb: string | null;
+  detectedOrm: string | null;
+  detectedTestFramework: string | null;
+  detectedBuildTool: string | null;
+  detectedCi: string | null;
+  isMonorepo: boolean;
+  hasDocker: boolean;
+  hasOpenApi: boolean;
+  packageCount: number;
+  moduleCount: number;
+  repoSizeBytes: number;
+  detectedApis: string[];
+  detectedRisks: string[];
+  qualityScore: number;
+  confidenceScore: number;
+  graphSummary: { entityCount: number; relationshipCount: number };
+  ruleViolations: Array<{ code: string; title: string; severity: string; count: number }>;
+}
+
+interface Props {
+  onClose: () => void;
+}
+
+// ─── Source type definitions ────────────────────────────────────────────────────
+
+interface SourceDef {
+  type: SourceType;
+  label: string;
+  description: string;
+  icon: React.ElementType;
+  available: boolean;
+  badge?: string;
+  /** Human-readable explanation shown on disabled cards so the user knows *why* the option is unavailable. */
+  disabledReason?: string;
+}
+
+const SOURCE_DEFS: SourceDef[] = [
+  {
+    type: 'GIT_REPOSITORY',
+    label: 'Git Repository',
+    description: 'Clone a remote repo and scan it',
+    icon: GitBranch,
+    available: true,
+        {/* Flags */}
+        <div className="flex flex-wrap gap-2">
+          {report.isMonorepo && (
+            <span className="text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2.5 py-1 rounded-full flex items-center gap-1.5">
+              <GitBranch className="w-3 h-3" /> Monorepo
+            </span>
+          )}
+          {report.hasDocker && (
+            <span className="text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 px-2.5 py-1 rounded-full flex items-center gap-1.5">
+              <Box className="w-3 h-3" /> Docker
+            </span>
+          )}
+          {report.hasOpenApi && (
+            <span className="text-xs bg-purple-500/10 text-purple-400 border border-purple-500/20 px-2.5 py-1 rounded-full flex items-center gap-1.5">
+              <FileCode2 className="w-3 h-3" /> OpenAPI
+            </span>
+          )}
+          {report.detectedLanguages.slice(0, 4).map((l) => (
+            <span key={l} className="text-xs bg-secondary text-muted-foreground border border-border/50 px-2.5 py-1 rounded-full">{l}</span>
+          ))}
+        </div>
+
+        {/* Risks */}
+        {report.detectedRisks.length > 0 && (
+          <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl px-4 py-3 space-y-1.5">
+            <div className="flex items-center gap-2 mb-2">
+              <ShieldAlert className="w-4 h-4 text-yellow-400" />
+              <span className="text-xs font-semibold text-yellow-400 uppercase tracking-wider">
+                {report.detectedRisks.length} Risk{report.detectedRisks.length !== 1 ? 's' : ''} Detected
+              </span>
+            </div>
+            {report.detectedRisks.map((r, i) => (
+              <div key={i} className="text-xs text-yellow-300/80 flex items-start gap-2">
+                <span className="text-yellow-500 mt-0.5">▸</span>{r}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Rule violations */}
+        {report.ruleViolations.length > 0 && (
+          <div className="bg-card border border-border/50 rounded-xl overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-border/50 bg-secondary/30">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Rule Violations ({report.ruleViolations.length})
+              </span>
+            </div>
+            <div className="divide-y divide-border/30">
+              {report.ruleViolations.slice(0, 5).map((v, i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+                  <span className={`text-[10px] border px-1.5 py-0.5 rounded font-mono ${severityBadge(v.severity)}`}>{v.severity}</span>
+                  <span className="text-xs font-mono text-muted-foreground">{v.code}</span>
+                  <span className="text-xs text-muted-foreground flex-1 truncate">{v.title}</span>
+                  <span className="text-xs font-mono text-muted-foreground/60 shrink-0">{v.count}×</span>
+                </div>
+              ))}
+              {report.ruleViolations.length > 5 && (
+                <div className="px-4 py-2 text-xs text-muted-foreground/50">+{report.ruleViolations.length - 5} more violations…</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {importError && (
+          <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3">
+            <AlertTriangle className="w-4 h-4 shrink-0" />{importError}
+          </div>
+        )}
+
+        <div className="flex justify-between gap-3 pt-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-border hover:border-primary/40 text-muted-foreground hover:text-foreground transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={handleImport}
+            disabled={importProject.isPending}
+            className="px-6 py-2 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-semibold rounded-lg flex items-center gap-2 disabled:opacity-50 transition-colors"
+          >
+            {importProject.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
+            Confirm & Import Project
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Step 4 ──────────────────────────────────────────────────────────────────
+  const renderStep4 = () => (
+    <div className="space-y-6 py-4">
+      <div className="text-center">
+        <div className="w-14 h-14 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto mb-4">
+          <CheckCircle2 className="w-7 h-7 text-emerald-400" />
+        </div>
+        <h2 className="text-xl font-bold tracking-tight mb-1">Project Imported</h2>
+        <p className="text-sm text-muted-foreground">
+          <span className="font-semibold text-foreground">{overrides['name'] ?? report?.detectedName}</span>{' '}
+          is now under autonomous observation.
+        </p>
+      </div>
+
+      <div className="bg-card border border-emerald-500/20 rounded-xl divide-y divide-border/30">
+        {[
+          'Project record created',
+          'Default rules initialized',
+          'Initial metrics calculated',
+          `Knowledge graph built (${report?.graphSummary.entityCount ?? 0} entities)`,
+          `Tasks created (${report?.ruleViolations.length ?? 0} from rule violations)`,
+          'Audit log entry written',
+        ].map((item, i) => (
+          <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />

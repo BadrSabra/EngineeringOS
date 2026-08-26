@@ -300,6 +300,19 @@ export const ListTasksQueryParams = zod.object({
   "pageSize": zod.coerce.number().min(1).max(listTasksQueryPageSizeMax).default(listTasksQueryPageSizeDefault)
 })
 
+export const listTasksResponseRemediationPlanOccurrenceCountMin = 0;
+
+
+export const listTasksResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+
+export const listTasksResponseRemediationPlanEvidenceMax = 100;
+
+export const listTasksResponseRemediationPlanRelatedFilesMax = 20;
+
+export const listTasksResponseRemediationPlanVerificationStepsMax = 20;
+
+
+
 export const ListTasksResponseItem = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
@@ -324,6 +337,30 @@ export const ListTasksResponseItem = zod.object({
   "output": zod.string().optional()
 }))
 }).optional(),
+  "remediationPlan": zod.object({
+  "version": zod.literal(1),
+  "ruleId": zod.string().nullish(),
+  "ruleCode": zod.string(),
+  "ruleTitle": zod.string(),
+  "severity": zod.string(),
+  "occurrenceCount": zod.number().min(listTasksResponseRemediationPlanOccurrenceCountMin),
+  "evidence": zod.array(zod.object({
+  "file": zod.string(),
+  "line": zod.number().min(1),
+  "snippet": zod.string(),
+  "occurrences": zod.number().min(listTasksResponseRemediationPlanEvidenceItemOccurrencesMin)
+})).max(listTasksResponseRemediationPlanEvidenceMax),
+  "relatedFiles": zod.array(zod.string()).max(listTasksResponseRemediationPlanRelatedFilesMax),
+  "fixDescription": zod.string().nullish(),
+  "verificationSteps": zod.array(zod.string()).max(listTasksResponseRemediationPlanVerificationStepsMax),
+  "source": zod.object({
+  "type": zod.enum(['scan', 'discovery']),
+  "correlationId": zod.string().nullable(),
+  "revision": zod.string().nullable(),
+  "completeness": zod.union([zod.literal('COMPLETE'),zod.literal('PARTIAL'),zod.literal(null)]).nullable()
+}),
+  "status": zod.enum(['needs_review', 'ready', 'verified'])
+}).nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()
@@ -345,6 +382,19 @@ export const CreateTaskBody = zod.object({
   "dependsOn": zod.array(zod.string()).optional(),
   "phase": zod.string().optional()
 })
+
+export const createTaskResponseRemediationPlanOccurrenceCountMin = 0;
+
+
+export const createTaskResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+
+export const createTaskResponseRemediationPlanEvidenceMax = 100;
+
+export const createTaskResponseRemediationPlanRelatedFilesMax = 20;
+
+export const createTaskResponseRemediationPlanVerificationStepsMax = 20;
+
+
 
 export const CreateTaskResponse = zod.object({
   "id": zod.string(),
@@ -370,6 +420,30 @@ export const CreateTaskResponse = zod.object({
   "output": zod.string().optional()
 }))
 }).optional(),
+  "remediationPlan": zod.object({
+  "version": zod.literal(1),
+  "ruleId": zod.string().nullish(),
+  "ruleCode": zod.string(),
+  "ruleTitle": zod.string(),
+  "severity": zod.string(),
+  "occurrenceCount": zod.number().min(createTaskResponseRemediationPlanOccurrenceCountMin),
+  "evidence": zod.array(zod.object({
+  "file": zod.string(),
+  "line": zod.number().min(1),
+  "snippet": zod.string(),
+  "occurrences": zod.number().min(createTaskResponseRemediationPlanEvidenceItemOccurrencesMin)
+})).max(createTaskResponseRemediationPlanEvidenceMax),
+  "relatedFiles": zod.array(zod.string()).max(createTaskResponseRemediationPlanRelatedFilesMax),
+  "fixDescription": zod.string().nullish(),
+  "verificationSteps": zod.array(zod.string()).max(createTaskResponseRemediationPlanVerificationStepsMax),
+  "source": zod.object({
+  "type": zod.enum(['scan', 'discovery']),
+  "correlationId": zod.string().nullable(),
+  "revision": zod.string().nullable(),
+  "completeness": zod.union([zod.literal('COMPLETE'),zod.literal('PARTIAL'),zod.literal(null)]).nullable()
+}),
+  "status": zod.enum(['needs_review', 'ready', 'verified'])
+}).nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()
@@ -382,6 +456,19 @@ export const CreateTaskResponse = zod.object({
 export const GetTaskParams = zod.object({
   "taskId": zod.coerce.string()
 })
+
+export const getTaskResponseRemediationPlanOccurrenceCountMin = 0;
+
+
+export const getTaskResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+
+export const getTaskResponseRemediationPlanEvidenceMax = 100;
+
+export const getTaskResponseRemediationPlanRelatedFilesMax = 20;
+
+export const getTaskResponseRemediationPlanVerificationStepsMax = 20;
+
+
 
 export const GetTaskResponse = zod.object({
   "id": zod.string(),
@@ -407,6 +494,30 @@ export const GetTaskResponse = zod.object({
   "output": zod.string().optional()
 }))
 }).optional(),
+  "remediationPlan": zod.object({
+  "version": zod.literal(1),
+  "ruleId": zod.string().nullish(),
+  "ruleCode": zod.string(),
+  "ruleTitle": zod.string(),
+  "severity": zod.string(),
+  "occurrenceCount": zod.number().min(getTaskResponseRemediationPlanOccurrenceCountMin),
+  "evidence": zod.array(zod.object({
+  "file": zod.string(),
+  "line": zod.number().min(1),
+  "snippet": zod.string(),
+  "occurrences": zod.number().min(getTaskResponseRemediationPlanEvidenceItemOccurrencesMin)
+})).max(getTaskResponseRemediationPlanEvidenceMax),
+  "relatedFiles": zod.array(zod.string()).max(getTaskResponseRemediationPlanRelatedFilesMax),
+  "fixDescription": zod.string().nullish(),
+  "verificationSteps": zod.array(zod.string()).max(getTaskResponseRemediationPlanVerificationStepsMax),
+  "source": zod.object({
+  "type": zod.enum(['scan', 'discovery']),
+  "correlationId": zod.string().nullable(),
+  "revision": zod.string().nullable(),
+  "completeness": zod.union([zod.literal('COMPLETE'),zod.literal('PARTIAL'),zod.literal(null)]).nullable()
+}),
+  "status": zod.enum(['needs_review', 'ready', 'verified'])
+}).nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()
@@ -426,6 +537,19 @@ export const UpdateTaskBody = zod.object({
   "status": zod.enum(['pending', 'queued', 'running', 'verifying', 'completed', 'failed', 'cancelled']).optional(),
   "priority": zod.enum(['p0', 'p1', 'p2', 'p3']).optional()
 })
+
+export const updateTaskResponseRemediationPlanOccurrenceCountMin = 0;
+
+
+export const updateTaskResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+
+export const updateTaskResponseRemediationPlanEvidenceMax = 100;
+
+export const updateTaskResponseRemediationPlanRelatedFilesMax = 20;
+
+export const updateTaskResponseRemediationPlanVerificationStepsMax = 20;
+
+
 
 export const UpdateTaskResponse = zod.object({
   "id": zod.string(),
@@ -451,6 +575,30 @@ export const UpdateTaskResponse = zod.object({
   "output": zod.string().optional()
 }))
 }).optional(),
+  "remediationPlan": zod.object({
+  "version": zod.literal(1),
+  "ruleId": zod.string().nullish(),
+  "ruleCode": zod.string(),
+  "ruleTitle": zod.string(),
+  "severity": zod.string(),
+  "occurrenceCount": zod.number().min(updateTaskResponseRemediationPlanOccurrenceCountMin),
+  "evidence": zod.array(zod.object({
+  "file": zod.string(),
+  "line": zod.number().min(1),
+  "snippet": zod.string(),
+  "occurrences": zod.number().min(updateTaskResponseRemediationPlanEvidenceItemOccurrencesMin)
+})).max(updateTaskResponseRemediationPlanEvidenceMax),
+  "relatedFiles": zod.array(zod.string()).max(updateTaskResponseRemediationPlanRelatedFilesMax),
+  "fixDescription": zod.string().nullish(),
+  "verificationSteps": zod.array(zod.string()).max(updateTaskResponseRemediationPlanVerificationStepsMax),
+  "source": zod.object({
+  "type": zod.enum(['scan', 'discovery']),
+  "correlationId": zod.string().nullable(),
+  "revision": zod.string().nullable(),
+  "completeness": zod.union([zod.literal('COMPLETE'),zod.literal('PARTIAL'),zod.literal(null)]).nullable()
+}),
+  "status": zod.enum(['needs_review', 'ready', 'verified'])
+}).nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()
@@ -473,6 +621,19 @@ export const DeleteTaskResponse = zod.void()
 export const ExecuteTaskParams = zod.object({
   "taskId": zod.coerce.string()
 })
+
+export const executeTaskResponseRemediationPlanOccurrenceCountMin = 0;
+
+
+export const executeTaskResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+
+export const executeTaskResponseRemediationPlanEvidenceMax = 100;
+
+export const executeTaskResponseRemediationPlanRelatedFilesMax = 20;
+
+export const executeTaskResponseRemediationPlanVerificationStepsMax = 20;
+
+
 
 export const ExecuteTaskResponse = zod.object({
   "id": zod.string(),
@@ -498,6 +659,30 @@ export const ExecuteTaskResponse = zod.object({
   "output": zod.string().optional()
 }))
 }).optional(),
+  "remediationPlan": zod.object({
+  "version": zod.literal(1),
+  "ruleId": zod.string().nullish(),
+  "ruleCode": zod.string(),
+  "ruleTitle": zod.string(),
+  "severity": zod.string(),
+  "occurrenceCount": zod.number().min(executeTaskResponseRemediationPlanOccurrenceCountMin),
+  "evidence": zod.array(zod.object({
+  "file": zod.string(),
+  "line": zod.number().min(1),
+  "snippet": zod.string(),
+  "occurrences": zod.number().min(executeTaskResponseRemediationPlanEvidenceItemOccurrencesMin)
+})).max(executeTaskResponseRemediationPlanEvidenceMax),
+  "relatedFiles": zod.array(zod.string()).max(executeTaskResponseRemediationPlanRelatedFilesMax),
+  "fixDescription": zod.string().nullish(),
+  "verificationSteps": zod.array(zod.string()).max(executeTaskResponseRemediationPlanVerificationStepsMax),
+  "source": zod.object({
+  "type": zod.enum(['scan', 'discovery']),
+  "correlationId": zod.string().nullable(),
+  "revision": zod.string().nullable(),
+  "completeness": zod.union([zod.literal('COMPLETE'),zod.literal('PARTIAL'),zod.literal(null)]).nullable()
+}),
+  "status": zod.enum(['needs_review', 'ready', 'verified'])
+}).nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()
@@ -510,6 +695,19 @@ export const ExecuteTaskResponse = zod.object({
 export const RetryTaskParams = zod.object({
   "taskId": zod.coerce.string()
 })
+
+export const retryTaskResponseRemediationPlanOccurrenceCountMin = 0;
+
+
+export const retryTaskResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+
+export const retryTaskResponseRemediationPlanEvidenceMax = 100;
+
+export const retryTaskResponseRemediationPlanRelatedFilesMax = 20;
+
+export const retryTaskResponseRemediationPlanVerificationStepsMax = 20;
+
+
 
 export const RetryTaskResponse = zod.object({
   "id": zod.string(),
@@ -535,6 +733,30 @@ export const RetryTaskResponse = zod.object({
   "output": zod.string().optional()
 }))
 }).optional(),
+  "remediationPlan": zod.object({
+  "version": zod.literal(1),
+  "ruleId": zod.string().nullish(),
+  "ruleCode": zod.string(),
+  "ruleTitle": zod.string(),
+  "severity": zod.string(),
+  "occurrenceCount": zod.number().min(retryTaskResponseRemediationPlanOccurrenceCountMin),
+  "evidence": zod.array(zod.object({
+  "file": zod.string(),
+  "line": zod.number().min(1),
+  "snippet": zod.string(),
+  "occurrences": zod.number().min(retryTaskResponseRemediationPlanEvidenceItemOccurrencesMin)
+})).max(retryTaskResponseRemediationPlanEvidenceMax),
+  "relatedFiles": zod.array(zod.string()).max(retryTaskResponseRemediationPlanRelatedFilesMax),
+  "fixDescription": zod.string().nullish(),
+  "verificationSteps": zod.array(zod.string()).max(retryTaskResponseRemediationPlanVerificationStepsMax),
+  "source": zod.object({
+  "type": zod.enum(['scan', 'discovery']),
+  "correlationId": zod.string().nullable(),
+  "revision": zod.string().nullable(),
+  "completeness": zod.union([zod.literal('COMPLETE'),zod.literal('PARTIAL'),zod.literal(null)]).nullable()
+}),
+  "status": zod.enum(['needs_review', 'ready', 'verified'])
+}).nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()
@@ -547,6 +769,19 @@ export const RetryTaskResponse = zod.object({
 export const RollbackTaskParams = zod.object({
   "taskId": zod.coerce.string()
 })
+
+export const rollbackTaskResponseRemediationPlanOccurrenceCountMin = 0;
+
+
+export const rollbackTaskResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+
+export const rollbackTaskResponseRemediationPlanEvidenceMax = 100;
+
+export const rollbackTaskResponseRemediationPlanRelatedFilesMax = 20;
+
+export const rollbackTaskResponseRemediationPlanVerificationStepsMax = 20;
+
+
 
 export const RollbackTaskResponse = zod.object({
   "id": zod.string(),
@@ -572,6 +807,30 @@ export const RollbackTaskResponse = zod.object({
   "output": zod.string().optional()
 }))
 }).optional(),
+  "remediationPlan": zod.object({
+  "version": zod.literal(1),
+  "ruleId": zod.string().nullish(),
+  "ruleCode": zod.string(),
+  "ruleTitle": zod.string(),
+  "severity": zod.string(),
+  "occurrenceCount": zod.number().min(rollbackTaskResponseRemediationPlanOccurrenceCountMin),
+  "evidence": zod.array(zod.object({
+  "file": zod.string(),
+  "line": zod.number().min(1),
+  "snippet": zod.string(),
+  "occurrences": zod.number().min(rollbackTaskResponseRemediationPlanEvidenceItemOccurrencesMin)
+})).max(rollbackTaskResponseRemediationPlanEvidenceMax),
+  "relatedFiles": zod.array(zod.string()).max(rollbackTaskResponseRemediationPlanRelatedFilesMax),
+  "fixDescription": zod.string().nullish(),
+  "verificationSteps": zod.array(zod.string()).max(rollbackTaskResponseRemediationPlanVerificationStepsMax),
+  "source": zod.object({
+  "type": zod.enum(['scan', 'discovery']),
+  "correlationId": zod.string().nullable(),
+  "revision": zod.string().nullable(),
+  "completeness": zod.union([zod.literal('COMPLETE'),zod.literal('PARTIAL'),zod.literal(null)]).nullable()
+}),
+  "status": zod.enum(['needs_review', 'ready', 'verified'])
+}).nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()
@@ -2346,6 +2605,26 @@ export const GetDiscoverySummaryParams = zod.object({
   "discoveryId": zod.coerce.string()
 })
 
+
+export const getDiscoverySummaryResponseRuleViolationsItemMatchesItemOccurrencesMin = 0;
+
+export const getDiscoverySummaryResponseRuleViolationsItemMatchesMax = 100;
+
+export const getDiscoverySummaryResponseRuleViolationsItemVerifyStepsMax = 20;
+
+export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanOccurrenceCountMin = 0;
+
+
+export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanEvidenceItemOccurrencesMin = 0;
+
+export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanEvidenceMax = 100;
+
+export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanRelatedFilesMax = 20;
+
+export const getDiscoverySummaryResponseRuleViolationsItemRemediationPlanVerificationStepsMax = 20;
+
+
+
 export const GetDiscoverySummaryResponse = zod.object({
   "id": zod.string(),
   "detectedName": zod.string(),
@@ -2377,11 +2656,47 @@ export const GetDiscoverySummaryResponse = zod.object({
   "filesByLanguage": zod.record(zod.string(), zod.number())
 }),
   "ruleViolations": zod.array(zod.object({
+  "ruleId": zod.string().optional(),
   "code": zod.string(),
   "title": zod.string(),
   "severity": zod.string(),
-  "count": zod.number()
-}))
+  "count": zod.number(),
+  "matches": zod.array(zod.object({
+  "file": zod.string(),
+  "line": zod.number().min(1),
+  "snippet": zod.string(),
+  "occurrences": zod.number().min(getDiscoverySummaryResponseRuleViolationsItemMatchesItemOccurrencesMin)
+})).max(getDiscoverySummaryResponseRuleViolationsItemMatchesMax).optional(),
+  "fixDescription": zod.string().nullish(),
+  "verifySteps": zod.array(zod.string()).max(getDiscoverySummaryResponseRuleViolationsItemVerifyStepsMax).optional(),
+  "remediationPlan": zod.object({
+  "version": zod.literal(1),
+  "ruleId": zod.string().nullish(),
+  "ruleCode": zod.string(),
+  "ruleTitle": zod.string(),
+  "severity": zod.string(),
+  "occurrenceCount": zod.number().min(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanOccurrenceCountMin),
+  "evidence": zod.array(zod.object({
+  "file": zod.string(),
+  "line": zod.number().min(1),
+  "snippet": zod.string(),
+  "occurrences": zod.number().min(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanEvidenceItemOccurrencesMin)
+})).max(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanEvidenceMax),
+  "relatedFiles": zod.array(zod.string()).max(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanRelatedFilesMax),
+  "fixDescription": zod.string().nullish(),
+  "verificationSteps": zod.array(zod.string()).max(getDiscoverySummaryResponseRuleViolationsItemRemediationPlanVerificationStepsMax),
+  "source": zod.object({
+  "type": zod.enum(['scan', 'discovery']),
+  "correlationId": zod.string().nullable(),
+  "revision": zod.string().nullable(),
+  "completeness": zod.union([zod.literal('COMPLETE'),zod.literal('PARTIAL'),zod.literal(null)]).nullable()
+}),
+  "status": zod.enum(['needs_review', 'ready', 'verified'])
+}).nullish()
+})),
+  "sourceRevision": zod.string().optional(),
+  "sourceProvenance": zod.string().optional(),
+  "sourceCorrelationId": zod.string().optional()
 })
 
 
@@ -4247,6 +4562,19 @@ export const AiExecuteTaskParams = zod.object({
   "taskId": zod.coerce.string()
 })
 
+export const aiExecuteTaskResponseRemediationPlanOccurrenceCountMin = 0;
+
+
+export const aiExecuteTaskResponseRemediationPlanEvidenceItemOccurrencesMin = 0;
+
+export const aiExecuteTaskResponseRemediationPlanEvidenceMax = 100;
+
+export const aiExecuteTaskResponseRemediationPlanRelatedFilesMax = 20;
+
+export const aiExecuteTaskResponseRemediationPlanVerificationStepsMax = 20;
+
+
+
 export const AiExecuteTaskResponse = zod.object({
   "id": zod.string(),
   "projectId": zod.string(),
@@ -4271,6 +4599,30 @@ export const AiExecuteTaskResponse = zod.object({
   "output": zod.string().optional()
 }))
 }).optional(),
+  "remediationPlan": zod.object({
+  "version": zod.literal(1),
+  "ruleId": zod.string().nullish(),
+  "ruleCode": zod.string(),
+  "ruleTitle": zod.string(),
+  "severity": zod.string(),
+  "occurrenceCount": zod.number().min(aiExecuteTaskResponseRemediationPlanOccurrenceCountMin),
+  "evidence": zod.array(zod.object({
+  "file": zod.string(),
+  "line": zod.number().min(1),
+  "snippet": zod.string(),
+  "occurrences": zod.number().min(aiExecuteTaskResponseRemediationPlanEvidenceItemOccurrencesMin)
+})).max(aiExecuteTaskResponseRemediationPlanEvidenceMax),
+  "relatedFiles": zod.array(zod.string()).max(aiExecuteTaskResponseRemediationPlanRelatedFilesMax),
+  "fixDescription": zod.string().nullish(),
+  "verificationSteps": zod.array(zod.string()).max(aiExecuteTaskResponseRemediationPlanVerificationStepsMax),
+  "source": zod.object({
+  "type": zod.enum(['scan', 'discovery']),
+  "correlationId": zod.string().nullable(),
+  "revision": zod.string().nullable(),
+  "completeness": zod.union([zod.literal('COMPLETE'),zod.literal('PARTIAL'),zod.literal(null)]).nullable()
+}),
+  "status": zod.enum(['needs_review', 'ready', 'verified'])
+}).nullish(),
   "createdAt": zod.coerce.date(),
   "updatedAt": zod.coerce.date(),
   "completedAt": zod.coerce.date().optional()

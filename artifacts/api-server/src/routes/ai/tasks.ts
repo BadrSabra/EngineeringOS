@@ -231,6 +231,7 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
         taskPrompt: task.prompt,
         taskPriority: task.priority,
         relatedFiles: (task.relatedFiles as string[]) ?? [],
+        remediationPlan: task.remediationPlan ?? null,
         projectContext,
         ...opts,
       }, { onProgress: writeProgress }),
@@ -319,7 +320,10 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
 
   invalidateContextCache(task.projectId);
 
-  const finalStatus = agentResult.needsHumanReview ? "verifying" : "completed";
+  // A model response is not explicit remediation verification. Keep
+  // rule-backed tasks reviewable until the verification endpoint passes.
+  const finalStatus =
+    agentResult.needsHumanReview || task.remediationPlan ? "verifying" : "completed";
   const agentResponseText = JSON.stringify(agentResult, null, 2);
 
   let updated: typeof tasksTable.$inferSelect;
@@ -331,10 +335,10 @@ router.post("/ai/tasks/:taskId/execute", async (req, res) => {
           status: finalStatus,
           agentResponse: agentResponseText,
           verificationResult: {
-            passed: !agentResult.needsHumanReview,
+            passed: !agentResult.needsHumanReview && !task.remediationPlan,
             steps: agentResult.steps.map((s: string) => ({
               name: s,
-              passed: !agentResult.needsHumanReview,
+              passed: !agentResult.needsHumanReview && !task.remediationPlan,
             })),
           },
           updatedAt: new Date(),
@@ -549,6 +553,7 @@ export function scheduleAiTaskExecution(taskId: string, userId: string): void {
             taskPrompt: task.prompt,
             taskPriority: task.priority,
             relatedFiles: (task.relatedFiles as string[]) ?? [],
+            remediationPlan: task.remediationPlan ?? null,
             projectContext,
             ...opts,
           }, { onProgress: writeAutoProgress }),

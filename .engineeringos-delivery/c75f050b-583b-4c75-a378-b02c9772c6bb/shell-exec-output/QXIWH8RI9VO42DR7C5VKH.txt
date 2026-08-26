@@ -1,0 +1,269 @@
+/**
+ * Task domain service — extracted from routes/tasks.ts (audit finding W-003).
+ *
+ * Contains the verification logic that determines task completion status.
+ * No HTTP concerns live here; the route handler owns request parsing,
+ * authentication, DB claim/update, event/audit emission, and HTTP response.
+ *
+ * ⚠️  This module is NOT purely functional — it reads from the database:
+ *   1. `db.select().from(rulesTable)` — to resolve the rule pattern for tasks
+ *      that have a `ruleId`.
+ *   2. `walkProject(projectRootPath)` — which performs filesystem I/O.
+ *
+ * PR-05 fix: the original header incorrectly described this as "pure
+ * verification logic". Callers and unit tests must account for both the DB
+ * dependency (inject/mock `db`) and the filesystem dependency (`projectRootPath`
+ * must exist on disk or walkProject will throw).
+ */
+import { walkProject, checkPatternInFiles } from "@workspace/scanner";
+import { db, rulesTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
+
+export interface VerificationStep {
+  name: string;
+  passed: boolean;
+  output?: string;
+}
+
+export type TaskFinalStatus = "completed" | "failed" | "verifying";
+
+export interface VerificationOutcome {
+  finalStatus: TaskFinalStatus;
+  steps: VerificationStep[];
+  /** Human-readable summary for the task log and verification result column. */
+  summary: string;
+}
+
+/**
+ * Task shape expected by `runTaskVerification`.
+ * Matches the columns used by the execute handler.
+ */
+export interface VerifiableTask {
+  id: string;
+  ruleId: string | null;
+  relatedFiles: unknown; // stored as JSON; cast inside
+  remediationPlan?: {
+    status: "needs_review" | "ready" | "verified";
+    evidence: unknown;
+    verificationSteps: unknown;
+  } | null;
+}
+
+/**
+ * Run the verification pipeline for a task:
+ *
+ *   1. If the task has a `ruleId` with a pattern → scan the project rootPath
+ *      and check whether the rule pattern is still present in related files.
+ *   2. If the task has `relatedFiles` but no rule pattern → verify the files exist.
+ *   3. Neither → land on `verifying` (awaiting AI / human confirmation step).
+ *
+ * Returns a `VerificationOutcome` that the route handler persists as
+ * `verificationResult` and uses to set the final task status.
+ *
+ * Does **not** mutate DB state — that is the route handler's responsibility.
+ */
+export async function runTaskVerification(
+  task: VerifiableTask,
+  projectRootPath: string,
+): Promise<VerificationOutcome> {
+  const steps: VerificationStep[] = [];
+  const relatedFiles = (task.relatedFiles as string[] | null) ?? [];
+
+  // A plan with incomplete evidence or no supplied checks can be reviewed,
+  // but it cannot be promoted to a verified task by pattern disappearance
+  // alone. This preserves the distinction between an analysis suggestion and
+  // explicit remediation verification.
+  if (
+    task.remediationPlan &&
+    (task.remediationPlan.status === "needs_review" ||
+      !Array.isArray(task.remediationPlan.evidence) ||
+      task.remediationPlan.evidence.length === 0 ||
+      !Array.isArray(task.remediationPlan.verificationSteps) ||
+      task.remediationPlan.verificationSteps.length === 0)
+  ) {
+    steps.push({
+      name: "Remediation plan review",
+      passed: false,
+      output: "Plan evidence or verification guidance is incomplete — human review is required",
+    });
+    return {
+      finalStatus: "verifying",
+      steps,
+      summary: "Verification blocked — remediation plan requires human review",
+    };
+  }
+
+  // ── Resolve rule pattern (if any) ────────────────────────────────────────
+  let rulePattern: string | null = null;
+  if (task.ruleId) {
+    const rule = await db
+      .select()
+      .from(rulesTable)
+      .where(eq(rulesTable.id, task.ruleId))
+      .limit(1);
+    rulePattern = rule[0]?.pattern ?? null;
+  }
+
+  // ── Branch 1: rule pattern present → scan + pattern check ────────────────
+  if (rulePattern) {
+    const { files: projectFiles } = await walkProject(projectRootPath);
+
+    let targetFiles = projectFiles;
+    if (relatedFiles.length > 0) {
+      targetFiles = projectFiles.filter((f) =>
+        relatedFiles.some(
+          (rf) => f.path === rf || f.path.endsWith("/" + rf) || f.path.endsWith(rf),
+        ),
+      );
+
+      if (targetFiles.length === 0 && projectFiles.length > 0) {
+        steps.push({
+          name: "File scan",
+          passed: false,
+          output: "relatedFiles specified but none found in project tree — cannot confirm fix",
+        });
+        return {
+          finalStatus: "verifying",
+          steps,
+          summary: "Verification inconclusive — related files not found in project tree",
+        };
+      }
+    }
+
+    if (targetFiles.length > 0 || relatedFiles.length === 0) {
+      const patternStillPresent = checkPatternInFiles(rulePattern, targetFiles);
+      steps.push({
+        name: "Pattern check",
+        passed: !patternStillPresent,
+        output: patternStillPresent
+          ? `Pattern still found in ${targetFiles.length > 0 ? "target" : "project"} files`
+          : "Pattern no longer detected — fix confirmed",
+      });
+      const finalStatus: TaskFinalStatus = patternStillPresent ? "failed" : "completed";
+      return {
+        finalStatus,
+        steps,
+        summary: patternStillPresent
+          ? "Task incomplete — rule pattern still present in codebase"
+          : "Task verified — rule pattern no longer detected",
+      };
+    }
+artifacts/api-server/src/services/task-service.ts:4: * Contains the verification logic that determines task completion status.
+artifacts/api-server/src/services/task-service.ts:14: * verification logic". Callers and unit tests must account for both the DB
+artifacts/api-server/src/services/task-service.ts:33:  /** Human-readable summary for the task log and verification result column. */
+artifacts/api-server/src/services/task-service.ts:38: * Task shape expected by `runTaskVerification`.
+artifacts/api-server/src/services/task-service.ts:48:    verificationSteps: unknown;
+artifacts/api-server/src/services/task-service.ts:53: * Run the verification pipeline for a task:
+artifacts/api-server/src/services/task-service.ts:61: * `verificationResult` and uses to set the final task status.
+artifacts/api-server/src/services/task-service.ts:65:export async function runTaskVerification(
+artifacts/api-server/src/services/task-service.ts:75:  // explicit remediation verification.
+artifacts/api-server/src/services/task-service.ts:81:      !Array.isArray(task.remediationPlan.verificationSteps) ||
+artifacts/api-server/src/services/task-service.ts:82:      task.remediationPlan.verificationSteps.length === 0)
+artifacts/api-server/src/services/task-service.ts:87:      output: "Plan evidence or verification guidance is incomplete — human review is required",
+artifacts/api-server/src/services/task-service.ts:186:    name: "Manual verification required",
+artifacts/api-server/src/services/task-service.ts:188:    output: "No rule pattern or related files — task requires AI or human verification",
+artifacts/api-server/src/services/task-service.ts:193:    summary: "No automated verification signal — awaiting AI or human confirmation",
+artifacts/api-server/src/routes/tasks.test.ts:94:    expect(res.body.verificationResult.passed).toBe(false);
+3:export interface RuleMatch {
+10:export interface RuleMatchResult {
+
+  // ── 2. Match scoped rules against scanned files ─────────────────────────
+  const ruleInputs: RuleInput[] = projectRules.map((r) => ({
+    id: r.id,
+    code: r.code,
+    pattern: r.pattern,
+    severity: r.severity,
+    enabled: r.enabled ?? true,
+  }));
+  const ruleResults = matchRules(ruleInputs, files);
+
+  // ── 3. Compute quality metrics ──────────────────────────────────────────
+  const metrics = computeMetrics(files, ruleResults);
+
+  // ── 4. Extract knowledge graph (outside transaction) ─────────────────────
+  // SR-003: extractGraph is pure CPU work with no DB dependency. Running it
+  // inside the transaction held a connection (and its associated locks) for
+  // the full duration of the AST parse + graph build — often seconds — even
+  // though no DB writes were happening. Moving it here shortens the critical
+  // section to inserts/updates only, reducing lock contention and connection
+  // pool pressure.
+  const graph = await extractGraph(files);
+  checkCancelled();
+  const capturedEntities: ExtractedEntity[] = graph.entities.map((e) => ({
+    type: e.type,
+    name: e.name,
+    path: e.path,
+    isDocumented: e.isDocumented,
+  }));
+
+  // ── 5-9. Persist everything derived from this scan atomically ───────────
+  // Tasks, rule hit counts, graph entities/relationships, the metrics row,
+  // the project status/score update, the audit record, and the scan event
+  // are all effects of the *same* scan. If any one of them fails partway
+  // through (e.g. graph insert throws), we must not leave the others
+  // committed — that would create tasks with no corresponding metrics row,
+  // or a "completed" scan event for a scan that actually failed. Wrapping
+  // the whole block in one transaction makes the scan atomic: either all of
+  // it lands, or none of it does, and the outer catch in runScanJob marks
+  // the job failed with a clean, fully-rolled-back DB state.
+
+  checkCancelled();
+  return await db.transaction(async (tx) => {
+    checkCancelled();
+    const existingTasks = await tx
+      .select({
+        id: tasksTable.id,
+        ruleId: tasksTable.ruleId,
+        status: tasksTable.status,
+      })
+      .from(tasksTable)
+      .where(eq(tasksTable.projectId, projectId));
+    const activeRuleTasks = new Map(
+      existingTasks
+        .filter((task) => task.ruleId && ["pending", "queued", "running", "verifying"].includes(task.status))
+        .map((task) => [task.ruleId as string, task]),
+    );
+
+    const newTaskIds: string[] = [];
+    for (const result of ruleResults) {
+      if (!result.matched) continue;
+
+      const rule = projectRules.find((r) => r.id === result.ruleId);
+      if (!rule) continue;
+
+      const remediationPlan = buildRemediationPlan({
+        ruleId: rule.id,
+        ruleCode: rule.code,
+        ruleTitle: rule.title,
+        severity: rule.severity,
+        occurrenceCount: result.matchCount,
+        matches: result.matches,
+        fixDescription: rule.fixDescription,
+        verificationSteps: rule.verifySteps ?? [],
+        source: {
+          type: "scan",
+          correlationId,
+          revision: walkResult.revision,
+          completeness: walkResult.truncated ? "PARTIAL" : "COMPLETE",
+        },
+      });
+      const remediationPrompt = buildRemediationPrompt(remediationPlan);
+      const description =
+        remediationPlan.fixDescription ??
+        `${remediationPlan.occurrenceCount} occurrence(s) detected for ${rule.code}. Review the bounded evidence before execution.`;
+      const activeTask = activeRuleTasks.get(rule.id);
+
+      if (activeTask) {
+        await tx
+          .update(tasksTable)
+          .set({
+            description,
+            relatedFiles: remediationPlan.relatedFiles,
+            prompt: remediationPrompt,
+            phase: "remediation",
+            remediationPlan,
+            correlationId,
+            updatedAt: now,
+          })
+          .where(eq(tasksTable.id, activeTask.id));
+        continue;

@@ -42,6 +42,11 @@ export interface VerifiableTask {
   id: string;
   ruleId: string | null;
   relatedFiles: unknown; // stored as JSON; cast inside
+  remediationPlan?: {
+    status: "needs_review" | "ready" | "verified";
+    evidence: unknown;
+    verificationSteps: unknown;
+  } | null;
 }
 
 /**
@@ -63,6 +68,30 @@ export async function runTaskVerification(
 ): Promise<VerificationOutcome> {
   const steps: VerificationStep[] = [];
   const relatedFiles = (task.relatedFiles as string[] | null) ?? [];
+
+  // A plan with incomplete evidence or no supplied checks can be reviewed,
+  // but it cannot be promoted to a verified task by pattern disappearance
+  // alone. This preserves the distinction between an analysis suggestion and
+  // explicit remediation verification.
+  if (
+    task.remediationPlan &&
+    (task.remediationPlan.status === "needs_review" ||
+      !Array.isArray(task.remediationPlan.evidence) ||
+      task.remediationPlan.evidence.length === 0 ||
+      !Array.isArray(task.remediationPlan.verificationSteps) ||
+      task.remediationPlan.verificationSteps.length === 0)
+  ) {
+    steps.push({
+      name: "Remediation plan review",
+      passed: false,
+      output: "Plan evidence or verification guidance is incomplete — human review is required",
+    });
+    return {
+      finalStatus: "verifying",
+      steps,
+      summary: "Verification blocked — remediation plan requires human review",
+    };
+  }
 
   // ── Resolve rule pattern (if any) ────────────────────────────────────────
   let rulePattern: string | null = null;

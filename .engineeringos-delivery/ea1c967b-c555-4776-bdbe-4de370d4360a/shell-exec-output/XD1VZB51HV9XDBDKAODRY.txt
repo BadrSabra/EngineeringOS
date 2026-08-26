@@ -1,0 +1,689 @@
+      detectedLanguage,
+      detectedLanguages,
+      detectedFramework,
+      detectedRuntime,
+      detectedPackageManager,
+      detectedArchitecture,
+      detectedDb: detectedDb.db,
+      detectedOrm: detectedDb.orm,
+      detectedTestFramework,
+      detectedBuildTool,
+      detectedCi,
+      isMonorepo,
+      hasDocker,
+      hasOpenApi,
+      packageCount,
+      moduleCount,
+      repoSizeBytes,
+      detectedApis,
+      detectedRisks,
+      qualityScore: metrics.overallScore,
+      confidenceScore: computeConfidence({ detectedName, detectedLanguage, detectedFramework, detectedRuntime, detectedPackageManager, detectedArchitecture }, files.length),
+      graphSummary: {
+        entityCount: graphResult.entities.length,
+        relationshipCount: graphResult.relationships.length,
+        entitiesByType: countBy(graphResult.entities, (e) => e.type),
+        filesByLanguage: countBy(files, (f) => f.language),
+      },
+      ruleViolations,
+    };
+    await setStep(8, "done", Date.now() - t8);
+
+    await updateSession(sessionId, {
+      status: "ready",
+      progress: 100,
+      currentStep: null,
+      steps,
+      result: partial,
+      completedAt: new Date(),
+    });
+    // PR-01: release lease fields now that the session has reached a
+    // terminal state. Clears workerId/leaseUntil/lastHeartbeatAt atomically.
+    await releaseDiscoverySessionLease(sessionId);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error({ err, sessionId }, "Discovery pipeline error");
+    await updateSession(sessionId, {
+      status: "error",
+      error: message,
+      completedAt: new Date(),
+    }).catch(() => undefined);
+    await releaseDiscoverySessionLease(sessionId).catch(() => undefined);
+  }
+  } finally {
+    // Safety net: clear heartbeat even if an unexpected path skips the
+    // explicit clears in the success/error branches above.
+    if (heartbeatInterval !== undefined) clearInterval(heartbeatInterval);
+    // PR-3: Release the advisory lock so other instances (or a subsequent
+    // reconciliation run) can acquire it for a fresh attempt if needed.
+    if (lock?.acquired) {
+      await lock.release().catch((releaseErr) => {
+        logger.warn({ releaseErr, sessionId }, "discovery-runner: failed to release advisory lock");
+      });
+    }
+  }
+}
+        performanceScore: result.qualityScore,
+        lintIssues: result.ruleViolations.reduce((s, r) => s + r.count, 0),
+        buildStatus: "unknown",
+      });
+
+      // 3. Graph entity stubs from detected API routes
+      // Every stub carries a full provenance record so downstream consumers
+      // can always tell these rows came from discovery, not from a full AST scan.
+      for (const apiRoute of result.detectedApis) {
+        await tx.insert(graphEntitiesTable).values({
+          id: randomUUID(),
+          projectId,
+          type: "api",
+          name: apiRoute,
+          sourceType: "discovery-import",
+          confidence: 0.8,
+          provenance: {
+            sourceType: "discovery-import",
+            method: "api-route-detection",
+            extractedAt: now.toISOString(),
+            evidence: [{ file: "discovery-session", kind: "heuristic" as const }],
+          },
+          createdAt: now,
+        });
+      }
+
+      // 4. Tasks from rule violations (top 20)
+      for (const violation of result.ruleViolations.slice(0, 20)) {
+        await tx.insert(tasksTable).values({
+          id: randomUUID(),
+          projectId,
+          title: `Fix: ${violation.title}`,
+          description: `Rule violation detected during discovery. ${violation.count} occurrence(s) found.`,
+          status: "pending",
+          priority:
+            violation.severity === "critical"
+              ? "p0"
+              : violation.severity === "high"
+              ? "p1"
+              : "p2",
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      // 5. ProjectImported event
+      await tx.insert(eventsTable).values({
+        id: randomUUID(),
+        type: "ProjectImported",
+        projectId,
+        severity: "success",
+        message: `Project "${projectName}" imported via autonomous discovery (confidence: ${result.confidenceScore}%)`,
+        timestamp: now,
+      });
+
+      return inserted;
+    });
+  } catch (txErr) {
+    if (txErr instanceof SessionAlreadyImportedError) {
+      // The transaction (including the project insert) rolled back cleanly;
+      // the session is untouched and still "ready" or was claimed by the
+      // concurrent winner — nothing to revert.
+      return res.status(409).json({ error: txErr.message, reason: "invalid_source" });
+    }
+    // `projects.root_path` has a DB-level UNIQUE constraint (data-integrity
+    // hardening: two projects should never point at the same filesystem
+    // root). Two concurrent imports of the *same* discovery session race to
+    // insert a project row with that session's root_path before either
+    // reaches the atomic claim step below — the loser hits this unique
+    // violation instead of the claim's conditional-UPDATE check. That's the
+    // same "already imported" conflict, just detected one step earlier, so
+    // it gets the same 409 treatment rather than surfacing as a raw 500.
+    if (isUniqueViolation(txErr, "projects_root_path_unique")) {
+      return res.status(409).json({
+        error: "A project for this root path already exists (or is being imported concurrently).",
+        reason: "invalid_source",
+      });
+    }
+    // Transaction rolled back — session status is already back to its
+    // pre-attempt value automatically. No manual revert needed since the
+    // claim update itself was part of the rolled-back transaction.
+    const message = txErr instanceof Error ? txErr.message : "Import transaction failed";
+    logger.error({ txErr, discoveryId: body.discoveryId }, message);
+    return res.status(500).json({ error: message, reason: "import_failed" });
+  }
+
+  // Best-effort audit: the import transaction has already committed and the
+  // project is live, so a failing audit must never suppress the 201 response.
+  invalidateContextCache(projectId);
+
+  recordAudit({
+    entityType: "discovery_session",
+    entityId: body.discoveryId,
+    action: "imported",
+    projectId,
+    actor: req.userId,
+    stateBefore: { status: "ready" },
+    stateAfter: { status: "imported", importedProjectId: projectId },
+    changedFields: { projectId, confidenceScore: result.confidenceScore },
+  }).catch((auditErr) =>
+    logger.warn({ auditErr, discoveryId: body.discoveryId }, "recordAudit failed after import — audit entry missing but import succeeded"),
+  );
+
+  return res.status(201).json(project);
+});
+
+// ─── Response helpers ──────────────────────────────────────────────────────────
+
+function toSessionResponse(session: {
+  id: string;
+  status: string;
+  progress: number;
+  currentStep: string | null;
+  steps: DiscoveryStep[] | null;
+  startedAt: Date;
+  completedAt: Date | null;
+  error: string | null;
+  importedProjectId: string | null;
+}) {
+  return {
+    id: session.id,
+    status: session.status,
+    progress: session.progress,
+    currentStep: session.currentStep ?? null,
+    steps: session.steps ?? [],
+    startedAt: session.startedAt.toISOString(),
+    completedAt: session.completedAt?.toISOString() ?? null,
+    error: session.error ?? null,
+    importedProjectId: session.importedProjectId ?? null,
+  };
+}
+
+export default router;
+        entityCount:
+          type: integer
+        relationshipCount:
+          type: integer
+        entitiesByType:
+          type: object
+          additionalProperties:
+            type: integer
+        relationsByType:
+          type: object
+          additionalProperties:
+            type: integer
+        topConnected:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphCentralityScore"
+        avgDegree:
+          type: number
+          format: float
+        isolatedCount:
+          type: integer
+        clusterCount:
+          type: integer
+        # KG-03: provenance-layered breakdown — always present on GET /graph/summary
+        layered:
+          $ref: "#/components/schemas/LayeredGraphSummary"
+
+    # ─── Knowledge Graph 2.0 — layered/neighborhood/evidence schemas ──────────
+
+    GraphSubgraphFilters:
+      type: object
+      properties:
+        edgeTypes:
+          type: array
+          items:
+            type: string
+        minConfidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+        sourceTypes:
+          type: array
+          items:
+            type: string
+        semanticTags:
+          type: array
+          items:
+            type: string
+        observedOnly:
+          type: boolean
+        heuristicOnly:
+          type: boolean
+
+    GraphLayerCounts:
+      type: object
+      required: [entityCount, relationshipCount]
+      properties:
+        entityCount:
+          type: integer
+        relationshipCount:
+          type: integer
+
+    GraphSubgraph:
+      type: object
+      required: [entities, relationships, filters, layered]
+      properties:
+        entities:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEntity"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphRelationship"
+        filters:
+          $ref: "#/components/schemas/GraphSubgraphFilters"
+        layered:
+          type: object
+          required: [structural, heuristic, runtime]
+          properties:
+            structural:
+              $ref: "#/components/schemas/GraphLayerCounts"
+            heuristic:
+              $ref: "#/components/schemas/GraphLayerCounts"
+            runtime:
+              $ref: "#/components/schemas/GraphLayerCounts"
+
+    GraphSemanticNeighborhood:
+      type: object
+      required: [root, entities, relationships]
+      properties:
+        root:
+          $ref: "#/components/schemas/GraphEntity"
+        entities:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEntity"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphRelationship"
+
+    GraphEvidenceBundle:
+      type: object
+      required: [relationship, evidence]
+      properties:
+        relationship:
+          $ref: "#/components/schemas/GraphRelationship"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEvidence"
+
+    GraphEvidenceResponse:
+      type: object
+      required: [entity, evidence]
+      properties:
+        entity:
+          $ref: "#/components/schemas/GraphEntity"
+        evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEvidenceBundle"
+
+    GraphRuntimeSubgraph:
+      type: object
+      required: [entities, relationships]
+      properties:
+        entities:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEntity"
+        relationships:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphRelationship"
+
+    # ─── Plugin request bodies ─────────────────────────────────────────────────
+    PluginProjectRequest:
+      type: object
+      required: [projectId]
+      properties:
+        projectId:
+          type: string
+
+    EvaluateRuleRequest:
+      type: object
+      required: [projectId]
+      properties:
+        projectId:
+          type: string
+
+    # ─── Plugin ────────────────────────────────────────────────────────────────
+    Plugin:
+      type: object
+      required: [id, name, version, enabled, capabilities]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        version:
+          type: string
+        enabled:
+          type: boolean
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum: [analyzer, rules, prompts, verifier, reporter]
+        supportedLanguages:
+          type: array
+          items:
+            type: string
+
+    # ─── Discovery ─────────────────────────────────────────────────────────────
+    SourceType:
+      type: string
+      enum:
+        - LOCAL_FOLDER
+        - WORKSPACE_PROJECT
+        - GIT_REPOSITORY
+        - ARCHIVE_UPLOAD
+        - REMOTE_FILESYSTEM
+        - DOCKER_VOLUME
+
+    DiscoverySourceConfig:
+      type: object
+      description: Source-specific configuration. Required fields depend on sourceType.
+      properties:
+        path:
+          type: string
+          description: Absolute path to the project directory (LOCAL_FOLDER)
+        url:
+          type: string
+          description: Git repository URL (GIT_REPOSITORY)
+        branch:
+          type: string
+          description: Branch to checkout; defaults to the remote HEAD (GIT_REPOSITORY)
+        credentials:
+          type: object
+          description: Repository credentials for private repos (GIT_REPOSITORY)
+          required:
+            - username
+            - token
+          properties:
+            username:
+              type: string
+            token:
+              type: string
+        uploadId:
+          type: string
+          description: Upload session ID from a prior file upload (ARCHIVE_UPLOAD)
+        projectId:
+          type: string
+          description: ID of an existing registered project (WORKSPACE_PROJECT)
+
+    DiscoveryOptions:
+      type: object
+      properties:
+        skipRules:
+          type: boolean
+          default: false
+        skipGraph:
+          type: boolean
+          default: false
+        maxDepth:
+          type: integer
+          minimum: 1
+          maximum: 20
+        includeTests:
+          type: boolean
+          default: true
+
+    DiscoverySourceCapability:
+      type: object
+      required: [sourceType, label, description, available]
+      properties:
+        sourceType:
+          $ref: "#/components/schemas/SourceType"
+        label:
+          type: string
+        description:
+          type: string
+        available:
+          type: boolean
+        icon:
+          type: string
+        requiredConfig:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+
+    StartDiscoveryInput:
+      type: object
+      required: [sourceType, sourceConfig]
+      additionalProperties: false
+      properties:
+        sourceType:
+          $ref: "#/components/schemas/SourceType"
+        sourceConfig:
+          $ref: "#/components/schemas/DiscoverySourceConfig"
+        options:
+          $ref: "#/components/schemas/DiscoveryOptions"
+
+    ImportProjectInput:
+      type: object
+      required: [discoveryId]
+      additionalProperties: false
+      properties:
+        discoveryId:
+          type: string
+        overrides:
+          type: object
+          properties:
+            name:
+              type: string
+            language:
+              type: string
+            framework:
+              type: string
+            description:
+              type: string
+
+    DiscoveryStepItem:
+      type: object
+      required: [name, status]
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, done, error]
+        durationMs:
+          type: ["integer", "null"]
+
+    DiscoverySessionStatus:
+      type: object
+      required: [id, status, progress, steps, startedAt]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [pending, discovering, ready, imported, error]
+        progress:
+          type: integer
+        currentStep:
+          type: ["string", "null"]
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoveryStepItem"
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: ["string", "null"]
+          format: date-time
+        error:
+          type: ["string", "null"]
+        importedProjectId:
+          type: ["string", "null"]
+
+    DiscoveryRuleViolationItem:
+      type: object
+      required: [code, title, severity, count]
+      properties:
+        code:
+          type: string
+        title:
+          type: string
+        severity:
+          type: string
+        count:
+          type: integer
+
+    DiscoveryGraphSummaryData:
+      type: object
+      required: [entityCount, relationshipCount, entitiesByType, filesByLanguage]
+      properties:
+        entityCount:
+          type: integer
+        relationshipCount:
+          type: integer
+        entitiesByType:
+          type: object
+          additionalProperties:
+            type: integer
+        filesByLanguage:
+          type: object
+          additionalProperties:
+            type: integer
+
+    DiscoveryReport:
+      type: object
+      required:
+        - id
+        - detectedName
+        - detectedLanguage
+        - detectedLanguages
+        - isMonorepo
+        - hasDocker
+        - hasOpenApi
+        - packageCount
+        - moduleCount
+        - repoSizeBytes
+        - detectedApis
+        - detectedRisks
+        - qualityScore
+        - confidenceScore
+        - graphSummary
+        - ruleViolations
+      properties:
+        id:
+          type: string
+        detectedName:
+          type: string
+        detectedLanguage:
+          type: string
+        detectedLanguages:
+          type: array
+          items:
+            type: string
+        detectedFramework:
+          type: ["string", "null"]
+        detectedRuntime:
+          type: ["string", "null"]
+        detectedPackageManager:
+          type: ["string", "null"]
+        detectedArchitecture:
+          type: ["string", "null"]
+        detectedDb:
+          type: ["string", "null"]
+        detectedOrm:
+          type: ["string", "null"]
+        detectedTestFramework:
+          type: ["string", "null"]
+        detectedBuildTool:
+          type: ["string", "null"]
+        detectedCi:
+          type: ["string", "null"]
+        isMonorepo:
+          type: boolean
+        hasDocker:
+          type: boolean
+        hasOpenApi:
+          type: boolean
+        packageCount:
+          type: integer
+        moduleCount:
+          type: integer
+        repoSizeBytes:
+          type: integer
+        detectedApis:
+          type: array
+          items:
+            type: string
+        detectedRisks:
+          type: array
+          items:
+            type: string
+        qualityScore:
+          type: number
+        confidenceScore:
+          type: number
+        graphSummary:
+          $ref: "#/components/schemas/DiscoveryGraphSummaryData"
+        ruleViolations:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoveryRuleViolationItem"
+
+    # ─── Dashboard ─────────────────────────────────────────────────────────────
+    DashboardOverview:
+      type: object
+      required: [freshnessRevision, projectCount, activeTaskCount, completedTaskCount, failedTaskCount, recentEvents, projectScores]
+      properties:
+        freshnessRevision:
+          type: string
+          description: Monotonic server-owned revision for the authenticated dashboard snapshot.
+        projectCount:
+          type: integer
+        activeTaskCount:
+          type: integer
+        completedTaskCount:
+          type: integer
+        failedTaskCount:
+          type: integer
+        recentEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Event"
+        projectScores:
+          type: array
+          items:
+            type: object
+            required: [projectId, projectName, score, trend]
+            properties:
+              projectId:
+                type: string
+              projectName:
+                type: string
+              score:
+                type: number
+              trend:
+                type: string
+                enum: [improving, stable, declining]
+        taskStatusBreakdown:
+          type: object
+          additionalProperties:
+            type: integer
+        topRules:
+          type: array
+          items:
+            type: object
+            required: [ruleId, code, title, hitCount]
+            properties:
+              ruleId:
+                type: string
+              code:
+                type: string
+              title:
+                type: string
+              hitCount:
+                type: integer

@@ -28,6 +28,7 @@ import type { ProviderId } from "./ai-route-helpers.js";
 import { recordAudit, recordAuditInTransaction } from "./audit.js";
 import { logger } from "./logger.js";
 import { taskTransitionConflict, type TaskStatus } from "./task-state.js";
+import { markRemediationPlanVerified } from "./remediation-plan.js";
 
 const CONTEXT_SECTIONS = ["tasks", "metrics", "graphEntities", "graphRelationships", "events"] as const;
 
@@ -293,6 +294,7 @@ export async function executeTaskLifecycle(params: {
         taskPrompt: before.prompt,
         taskPriority: before.priority,
         relatedFiles: before.relatedFiles ?? [],
+        remediationPlan: before.remediationPlan ?? null,
         projectContext,
         ...opts,
       }, { onProgress: progress, signal: executionAbortController.signal }),
@@ -348,7 +350,10 @@ export async function executeTaskLifecycle(params: {
       };
     }
 
-    const finalStatus = result.needsHumanReview ? "verifying" : "completed";
+    // An AI report is not proof that a remediation was applied. Rule-backed
+    // tasks remain in verification until the explicit verification path passes.
+    const finalStatus =
+      result.needsHumanReview || before.remediationPlan ? "verifying" : "completed";
     const finalConflict = taskTransitionConflict("running", finalStatus, "execution");
     if (finalConflict) throw new Error(finalConflict);
     stage = "finalize";
@@ -381,12 +386,16 @@ export async function executeTaskLifecycle(params: {
         lastHeartbeatAt: null,
         agentResponse: JSON.stringify(taskReceipt),
         verificationResult: {
-          passed: taskReceipt.terminalStatus === "SUCCEEDED",
+          passed: taskReceipt.terminalStatus === "SUCCEEDED" && !before.remediationPlan,
           steps: (taskReceipt.steps ?? []).map((name) => ({
             name,
-            passed: taskReceipt.terminalStatus === "SUCCEEDED",
+            passed: taskReceipt.terminalStatus === "SUCCEEDED" && !before.remediationPlan,
           })),
         },
+        remediationPlan: markRemediationPlanVerified(
+          before.remediationPlan,
+          false,
+        ),
         completedAt: finalStatus === "completed" ? new Date() : null,
         updatedAt: new Date(),
       }).where(and(eq(tasksTable.id, before.id), eq(tasksTable.workerId, workerId), eq(tasksTable.status, "running"))).returning();

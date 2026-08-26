@@ -1,0 +1,500 @@
+./tsconfig.json:16:      "path": "./lib/scanner"
+./lib/scanner/src/rule-matcher.ts:1:import type { ScannedFile } from "./file-walker.js";
+./lib/scanner/src/rule-matcher.ts:68: * Match a single rule's pattern against a list of scanned files.
+./lib/scanner/src/rule-matcher.ts:70:export function matchRule(rule: RuleInput, files: ScannedFile[]): RuleMatchResult {
+./lib/scanner/src/rule-matcher.ts:133: * Run all enabled rules (with patterns) against the scanned files.
+./lib/scanner/src/rule-matcher.ts:135:export function matchRules(rules: RuleInput[], files: ScannedFile[]): RuleMatchResult[] {
+./lib/scanner/src/rule-matcher.ts:142: * Check whether a specific pattern still appears in a given set of scanned files.
+./lib/scanner/src/rule-matcher.ts:145:export function checkPatternInFiles(pattern: string, files: ScannedFile[]): boolean {
+./lib/scanner/src/python-extractor.ts:41:  const dir = mkdtempSync(path.join(tmpdir(), "scanner-py-"));
+./lib/scanner/src/python-extractor.ts:50: * scan, using the interpreter's own `ast` module for real structural
+./lib/scanner/src/python-extractor.ts:53: * keeps subprocess-spawn overhead to O(1) per scan rather than O(files).
+./lib/scanner/src/python-extractor.ts:57: * degraded extraction path rather than aborting the whole scan.
+./lib/scanner/src/python-ast-script.ts:9:    export const PYTHON_AST_SCRIPT = "\"\"\"\nBatched Python AST extractor used by the scanner's graph-extractor.\n\nReads a JSON array of {\"path\": str, \"content\": str} objects from stdin,\nparses each with the stdlib `ast` module (real structural parsing — no\nregex heuristics), and writes a JSON array of results to stdout:\n\n  [{\"path\": str, \"entities\": [...], \"imports\": [...], \"error\"?: str}, ...]\n\nentities: {\"type\": \"function\"|\"class\", \"name\": str, \"className\"?: str}\n  - Module-level function/class defs, plus methods nested directly under a\n    module-level (or class-nested, e.g. a `Meta` inner class) class\n    (recorded as \"ClassName.method\").\n  - Names starting with \"_\" are skipped (private-by-convention, mirroring\n    the TS/JS extractor's private-member skip).\n  - Deliberately scope-aware: only module-level and class-nested defs are\n    collected. A class or function defined *inside a function body* (a\n    local helper) is implementation detail, not part of the module's\n    externally-visible surface, so it is not walked into or reported —\n    mirroring how the TS/JS extractor only looks at top-level exports.\n\nimports: {\"module\": str|null, \"level\": int, \"names\": [str]}\n  - `import a.b` -> {\"module\": \"a.b\", \"level\": 0, \"names\": []}\n  - `from a.b import c` -> {\"module\": \"a.b\", \"level\": 0, \"names\": [\"c\"]}\n  - `from . import c` -> {\"module\": null, \"level\": 1, \"names\": [\"c\"]}\n  - `from ..pkg import c` -> {\"module\": \"pkg\", \"level\": 2, \"names\": [\"c\"]}\n  `names` matters because `from . import utils` and `from pkg import utils`\n  commonly refer to a *submodule* named `utils`, not an attribute — the\n  Node side tries both the module path itself and module+each name as\n  candidate file paths. Resolution against actual project file paths\n  happens on the Node side, which knows the full set of scanned paths;\n  this script only reports the raw import shape.\n\nA syntax error (or any other per-file exception) is captured on that\nfile's result as \"error\" rather than aborting the whole batch, so one\nmalformed file never loses coverage for the rest of the scan.\n\"\"\"\n\nimport ast\nimport json\nimport sys\n\n\ndef collect_class_entities(class_node, entities):\n    \"\"\"Record a ClassDef (unless private-by-convention) plus its directly\n    nested method/class defs.\n\n    Recurses into nested `ClassDef`s within the class body (e.g. a Django-\n    style inner `Meta` class) so those are captured too, but deliberately\n    does NOT descend into method bodies — a class or function defined\n    inside a method is local implementation detail, not part of the\n    module's surface. If the class itself is private-by-convention, its\n    methods are skipped too rather than surfacing as orphaned\n    `_PrivateClass.method` entities for an otherwise-excluded class.\n    \"\"\"\n    is_private = class_node.name.startswith(\"_\")\n    if not is_private:\n        entities.append({\"type\": \"class\", \"name\": class_node.name})\n    for item in class_node.body:\n        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):\n            if not is_private and not item.name.startswith(\"_\"):\n                entities.append({\n                    \"type\": \"function\",\n                    \"name\": \"{}.{}\".format(class_node.name, item.name),\n                    \"className\": class_node.name,\n                })\n        elif isinstance(item, ast.ClassDef) and not is_private:\n            collect_class_entities(item, entities)\n\n\ndef parse_file(path, content):\n    entities = []\n    imports = []\n\n    try:\n        tree = ast.parse(content, filename=path)\n    except SyntaxError as exc:\n        return {\"path\": path, \"entities\": entities, \"imports\": imports, \"error\": str(exc)}\n\n    for node in tree.body:\n        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith(\"_\"):\n            entities.append({\"type\": \"function\", \"name\": node.name})\n        elif isinstance(node, ast.ClassDef):\n            collect_class_entities(node, entities)\n        elif isinstance(node, ast.Import):\n            for alias in node.names:\n                imports.append({\"module\": alias.name, \"level\": 0, \"names\": []})\n        elif isinstance(node, ast.ImportFrom):\n            imports.append({\n                \"module\": node.module,\n                \"level\": node.level or 0,\n                \"names\": [alias.name for alias in node.names],\n            })\n\n    return {\"path\": path, \"entities\": entities, \"imports\": imports}\n\n\ndef main():\n    raw = sys.stdin.read()\n    try:\n        files = json.loads(raw)\n    except json.JSONDecodeError as exc:\n        sys.stderr.write(\"invalid input: {}\\n\".format(exc))\n        sys.exit(1)\n\n    results = []\n    for f in files:\n        path = f.get(\"path\", \"?\")\n        try:\n            results.append(parse_file(path, f.get(\"content\", \"\")))\n        except Exception as exc:  # never let one bad file kill the batch\n            results.append({\"path\": path, \"entities\": [], \"imports\": [], \"error\": str(exc)})\n\n    sys.stdout.write(json.dumps(results))\n\n\nif __name__ == \"__main__\":\n    main()\n";
+./lib/scanner/src/python-ast-script.py:2:Batched Python AST extractor used by the scanner's graph-extractor.
+./lib/scanner/src/python-ast-script.py:31:  happens on the Node side, which knows the full set of scanned paths;
+./lib/scanner/src/python-ast-script.py:36:malformed file never loses coverage for the rest of the scan.
+./lib/scanner/src/metrics-calc.ts:2:import type { ScannedFile } from "./file-walker.js";
+./lib/scanner/src/metrics-calc.ts:31: * Technical debt hours per violation, keyed by severity.
+./lib/scanner/src/metrics-calc.ts:85:function computeTestCoverage(files: ScannedFile[]): number {
+./lib/scanner/src/metrics-calc.ts:114:function computeArchitectureScore(files: ScannedFile[]): number {
+./lib/scanner/src/metrics-calc.ts:145: * Compute quality metrics from scan results.
+./lib/scanner/src/metrics-calc.ts:148:  files: ScannedFile[],
+./lib/scanner/src/index.ts:2:export type { ScannedFile, WalkResult, RevisionManifest, RevisionManifestFile } from "./file-walker.js";
+./lib/scanner/src/index.ts:24: * GAP-2 fix: Semver of the scanner's extraction logic.
+./lib/scanner/src/index.ts:25: * Bump this constant (and lib/scanner/package.json) whenever AST extraction
+./lib/scanner/src/index.ts:29:export const SCANNER_VERSION = "1.0.0";
+./lib/scanner/src/graph-extractor.ts:2:import type { ScannedFile } from "./file-walker.js";
+./lib/scanner/src/graph-extractor.ts:58:  | "regex-heuristic"       // Regex line scan — approximate, may miss edge cases
+./lib/scanner/src/graph-extractor.ts:166: * package.json files present in the scanned file list.
+./lib/scanner/src/graph-extractor.ts:176:function buildWorkspaceAliasMap(files: ScannedFile[]): Map<string, string> {
+./lib/scanner/src/graph-extractor.ts:575:  file: ScannedFile,
+./lib/scanner/src/graph-extractor.ts:955:function extractFromPythonRegex(file: ScannedFile): PartialResult {
+./lib/scanner/src/graph-extractor.ts:1002:function toPartialResult(file: ScannedFile, parsed: PythonFileResult, knownPaths: Set<string>): PartialResult {
+./lib/scanner/src/graph-extractor.ts:1048:async function extractPythonEntities(pythonFiles: ScannedFile[], knownPaths: Set<string>): Promise<PartialResult[]> {
+./lib/scanner/src/graph-extractor.ts:1055:    // than losing Python coverage for the whole scan.
+./lib/scanner/src/graph-extractor.ts:1075: * Extract knowledge-graph entities and relationships from a list of scanned files.
+./lib/scanner/src/graph-extractor.ts:1081:export async function extractGraph(files: ScannedFile[]): Promise<GraphExtractionResult> {
+./lib/scanner/src/graph-extractor.ts:1148:  const pythonFiles: ScannedFile[] = [];
+./pnpm-lock.yaml:191:      '@workspace/scanner':
+./pnpm-lock.yaml:193:        version: link:../../lib/scanner
+./pnpm-lock.yaml:786:  lib/scanner:
+./pnpm-lock.yaml:1086:  '@nodelib/fs.scandir@2.1.5':
+./pnpm-lock.yaml:1800:  '@scalar/openapi-parser@0.28.8':
+./pnpm-lock.yaml:1804:  '@scalar/openapi-types@0.8.0':
+./pnpm-lock.yaml:1808:  '@scalar/openapi-types@0.9.1':
+./pnpm-lock.yaml:1812:  '@scalar/openapi-upgrader@0.2.9':
+./pnpm-lock.yaml:4533:  '@nodelib/fs.scandir@2.1.5':
+./pnpm-lock.yaml:4542:      '@nodelib/fs.scandir': 2.1.5
+./pnpm-lock.yaml:4563:      '@scalar/openapi-types': 0.8.0
+./pnpm-lock.yaml:5365:  '@scalar/openapi-parser@0.28.8':
+./pnpm-lock.yaml:5369:      '@scalar/openapi-types': 0.9.1
+./pnpm-lock.yaml:5370:      '@scalar/openapi-upgrader': 0.2.9
+./pnpm-lock.yaml:5378:  '@scalar/openapi-types@0.8.0': {}
+./pnpm-lock.yaml:5380:  '@scalar/openapi-types@0.9.1': {}
+./pnpm-lock.yaml:5382:  '@scalar/openapi-upgrader@0.2.9':
+./pnpm-lock.yaml:5384:      '@scalar/openapi-types': 0.9.1
+./pnpm-lock.yaml:6967:      '@scalar/openapi-parser': 0.28.8
+./pnpm-lock.yaml:6968:      '@scalar/openapi-types': 0.8.0
+./lib/scanner/src/file-walker.ts:16: * (if incomplete) scan result instead of a failed job.
+./lib/scanner/src/file-walker.ts:23:/** Directories always excluded from scanning. */
+./lib/scanner/src/file-walker.ts:70:export interface ScannedFile {
+./lib/scanner/src/file-walker.ts:93:/** Server-owned snapshot identity shared by scan-derived artifacts. */
+./lib/scanner/src/file-walker.ts:102:  files: ScannedFile[];
+./lib/scanner/src/file-walker.ts:111:   * scan result is incomplete rather than assuming full coverage.
+./lib/scanner/src/file-walker.ts:122:   * (scan was aborted before all skipped files were counted).
+./lib/scanner/src/file-walker.ts:127:  /** Exact file inventory used to derive scanner, graph, and metric results. */
+./lib/scanner/src/file-walker.ts:140:  files: ScannedFile[],
+./lib/scanner/src/file-walker.ts:225: * fallback would cause scanners to walk the wrong directory and report
+./lib/scanner/src/file-walker.ts:245:  const files: ScannedFile[] = [];
+./lib/scanner/src/file-walker.ts:252:  // here ensures two scans of identical code yield identical entity sequences,
+./lib/scanner/src/__tests__/rule-matcher.test.ts:3:import type { ScannedFile } from "../file-walker.js";
+./lib/scanner/src/__tests__/rule-matcher.test.ts:6:const makeFile = (path: string, content: string, language = "typescript"): ScannedFile => ({
+./lib/db/src/schema/uploads.ts:7: * causing ARCHIVE_UPLOAD discovery to fail with a misleading "Upload not found
+./lib/scanner/src/__tests__/metrics-calc.test.ts:3:import type { ScannedFile } from "../file-walker.js";
+./lib/scanner/src/__tests__/metrics-calc.test.ts:6:const makeFile = (path: string, language = "typescript", oversized = false, sizeBytes = 100): ScannedFile => ({
+./lib/scanner/src/__tests__/metrics-calc.test.ts:16:const makeViolation = (ruleCode: string, severity: string, count: number): RuleMatchResult => ({
+./lib/scanner/src/__tests__/metrics-calc.test.ts:27:  it("returns perfect scores for a clean project with no violations", () => {
+./lib/scanner/src/__tests__/metrics-calc.test.ts:43:  it("reduces securityScore for security-related violations", () => {
+./lib/scanner/src/__tests__/metrics-calc.test.ts:45:    const violations = [makeViolation("SEC-001", "critical", 3)];
+./lib/scanner/src/__tests__/metrics-calc.test.ts:46:    const result = computeMetrics(files, violations);
+./lib/scanner/src/__tests__/metrics-calc.test.ts:52:  it("reduces maintainabilityScore for general violations", () => {
+./lib/scanner/src/__tests__/metrics-calc.test.ts:54:    const violations = [makeViolation("STYLE-001", "medium", 5)];
+./lib/scanner/src/__tests__/metrics-calc.test.ts:55:    const result = computeMetrics(files, violations);
+./lib/scanner/src/__tests__/metrics-calc.test.ts:62:    const violations = [
+./lib/scanner/src/__tests__/metrics-calc.test.ts:63:      makeViolation("SEC-CRITICAL", "critical", 100),
+./lib/scanner/src/__tests__/metrics-calc.test.ts:64:      makeViolation("SEC-HIGH", "high", 100),
+./lib/scanner/src/__tests__/metrics-calc.test.ts:66:    const result = computeMetrics(files, violations);
+./lib/scanner/src/__tests__/metrics-calc.test.ts:73:  it("counts lintIssues as the sum across all violations", () => {
+./lib/scanner/src/__tests__/metrics-calc.test.ts:75:    const violations = [
+./lib/scanner/src/__tests__/metrics-calc.test.ts:76:      makeViolation("A-001", "low", 3),
+./lib/scanner/src/__tests__/metrics-calc.test.ts:77:      makeViolation("B-002", "medium", 7),
+./lib/scanner/src/__tests__/metrics-calc.test.ts:79:    const result = computeMetrics(files, violations);
+./lib/scanner/src/__tests__/metrics-calc.test.ts:86:    const violations = [makeViolation("X-001", "low", 4)]; // 4 × 0.25h = 1.0h
+./lib/scanner/src/__tests__/metrics-calc.test.ts:87:    const result = computeMetrics(files, violations);
+./lib/scanner/src/__tests__/metrics-calc.test.ts:94:    const violations = [makeViolation("X-002", "medium", 2)]; // 2 × 0.5h = 1.0h
+./lib/scanner/src/__tests__/metrics-calc.test.ts:95:    const result = computeMetrics(files, violations);
+./lib/scanner/src/__tests__/metrics-calc.test.ts:102:    const violations = [makeViolation("X-003", "high", 1)]; // 1 × 2.0h = 2.0h
+./lib/scanner/src/__tests__/metrics-calc.test.ts:103:    const result = computeMetrics(files, violations);
+./lib/scanner/src/__tests__/metrics-calc.test.ts:110:    const violations = [makeViolation("SEC-001", "critical", 1)]; // 1 × 4.0h = 4.0h
+./lib/scanner/src/__tests__/metrics-calc.test.ts:111:    const result = computeMetrics(files, violations);
+./lib/scanner/src/__tests__/metrics-calc.test.ts:118:    const violations = [
+./lib/scanner/src/__tests__/metrics-calc.test.ts:119:      makeViolation("A-001", "critical", 1), // 4.0h
+./lib/scanner/src/__tests__/metrics-calc.test.ts:120:      makeViolation("A-002", "high", 2),     // 4.0h
+./lib/scanner/src/__tests__/metrics-calc.test.ts:121:      makeViolation("A-003", "medium", 4),   // 2.0h
+./lib/scanner/src/__tests__/metrics-calc.test.ts:122:      makeViolation("A-004", "low", 8),      // 2.0h
+./lib/scanner/src/__tests__/metrics-calc.test.ts:124:    const result = computeMetrics(files, violations);
+./lib/scanner/src/__tests__/metrics-calc.test.ts:129:  it("returns technicalDebt = 0 when there are no violations", () => {
+./lib/db/src/schema/tasks.ts:58:  /** Ties a task created by a scan/discovery run to that operation's trace
+./lib/scanner/src/__tests__/graph-extractor.test.ts:3:import type { ScannedFile } from "../file-walker.js";
+./lib/scanner/src/__tests__/graph-extractor.test.ts:6:const makeFile = (path: string, content: string, language = "typescript"): ScannedFile => ({
+./lib/scanner/src/__tests__/graph-extractor.test.ts:92:    const files: ScannedFile[] = [
+./lib/scanner/src/__tests__/graph-extractor.test.ts:359:    const makePyFile = (p: string, content: string): ScannedFile => ({
+./lib/scanner/src/__tests__/graph-extractor.test.ts:411:    const makePyFile = (p: string, content: string): ScannedFile => ({
+./lib/scanner/src/__tests__/graph-extractor.test.ts:564:    it("resolves ./utils.js to utils.ts when only utils.ts exists in the scan", async () => {
+./lib/scanner/src/__tests__/graph-extractor.test.ts:628:    it("does not create an edge when the target file does not exist in the scan", async () => {
+./lib/scanner/src/__tests__/graph-extractor.test.ts:673:    const makePyFile = (path: string, content: string): ScannedFile => ({
+./lib/scanner/src/__tests__/file-walker.test.ts:7:const TEST_DIR = join(tmpdir(), `scanner-test-${process.pid}`);
+./lib/scanner/src/__tests__/file-walker.test.ts:28:  it("returns scanned files from a valid directory", async () => {
+./lib/scanner/src/__tests__/file-walker.test.ts:47:  it("excludes node_modules from scan results", async () => {
+./lib/scanner/src/__tests__/file-walker.test.ts:104:    // walkProject hard-fails on a missing path so callers (scan-runner, discovery)
+./lib/scanner/src/__tests__/file-walker.test.ts:106:    // scanning the wrong directory and producing plausible-but-wrong results.
+./lib/scanner/package.json:2:  "name": "@workspace/scanner",
+./lib/db/src/schema/scan_jobs.ts:2: * Background scan jobs.
+./lib/db/src/schema/scan_jobs.ts:4: * Project scans (file walk + rule matching + graph extraction + metrics) are
+./lib/db/src/schema/scan_jobs.ts:6: * response until the whole project was processed. This table lets the scan
+./lib/db/src/schema/scan_jobs.ts:13:export const scanJobStatusEnum = pgEnum("scan_job_status", [
+./lib/db/src/schema/scan_jobs.ts:20:export const scanJobsTable = pgTable("scan_jobs", {
+./lib/db/src/schema/scan_jobs.ts:25:  status: scanJobStatusEnum("status").notNull().default("queued"),
+./lib/db/src/schema/scan_jobs.ts:26:  /** Populated once the job finishes successfully — same shape as the old synchronous ScanResult. */
+./lib/db/src/schema/scan_jobs.ts:38:   * permanently marked failed. Default is 2 — a scan should succeed within
+./lib/db/src/schema/scan_jobs.ts:70:  index("idx_scan_jobs_project_id").on(t.projectId),
+./lib/db/src/schema/scan_jobs.ts:71:  index("idx_scan_jobs_status").on(t.status),
+./lib/db/src/schema/scan_jobs.ts:75:   * Without this, the sweep degrades to a full-table scan as the job table grows.
+./lib/db/src/schema/scan_jobs.ts:77:  index("idx_scan_jobs_status_started_at").on(t.status, t.startedAt),
+./lib/db/src/schema/scan_jobs.ts:81:   * Also covers startup reconciliation: WHERE status = 'queued' (leftmost-prefix scan).
+./lib/db/src/schema/scan_jobs.ts:83:  index("idx_scan_jobs_status_created_at").on(t.status, t.createdAt),
+./lib/db/src/schema/scan_jobs.ts:88:  index("idx_scan_jobs_status_lease_until").on(t.status, t.leaseUntil),
+./lib/db/src/schema/scan_jobs.ts:91:export type InsertScanJob = typeof scanJobsTable.$inferInsert;
+./lib/db/src/schema/scan_jobs.ts:92:export type ScanJob = typeof scanJobsTable.$inferSelect;
+./scripts/validate-truth-flow.ts:24: *   RUNTIME   — live graph/scan output (informs future baseline updates; not validated here)
+./scripts/patch-generated-zod.ts:4: * client. Orval currently emits zod.looseObject for OpenAPI 3.1, while this
+./lib/knowledge-engine/src/types.ts:8: * Typed edge category. Mirrors the scanner's `GraphEdgeType` so consumers of
+./lib/knowledge-engine/src/types.ts:9: * the knowledge-engine do not need to import from the scanner package.
+./lib/knowledge-engine/src/types.ts:28: * and `GraphEvidence.kind` in lib/scanner/src/graph-extractor.ts.
+./lib/knowledge-engine/src/types.ts:95:  /** Broad extraction category (e.g. "typescript-ast", "discovery-import"). */
+./lib/db/src/schema/rules.ts:42:   * The three-column composite lets PostgreSQL index-scan the (project, severity)
+./scripts/parse-check-spec.ts:3: * PR-01: OpenAPI spec parse-check — CI gate against a broken source-of-truth.
+./scripts/parse-check-spec.ts:5: * Validates that `lib/api-spec/openapi.yaml` can be parsed cleanly *before*
+./scripts/parse-check-spec.ts:14: *   0 — openapi.yaml parses and validates as a minimal OpenAPI 3.x document
+./scripts/parse-check-spec.ts:15: *   1 — parse or structure error; fix openapi.yaml before running codegen
+./scripts/parse-check-spec.ts:21:const SPEC_PATH = resolve(import.meta.dirname, "..", "lib", "api-spec", "openapi.yaml");
+./scripts/parse-check-spec.ts:35:  console.error("❌  openapi.yaml is empty.");
+./scripts/parse-check-spec.ts:51:  console.error("❌  openapi.yaml failed to parse as YAML:");
+./scripts/parse-check-spec.ts:57:    "\n    Fix the YAML syntax error in lib/api-spec/openapi.yaml before running codegen.\n",
+./scripts/parse-check-spec.ts:70:if (!doc?.openapi || !String(doc.openapi).startsWith("3.")) {
+./scripts/parse-check-spec.ts:71:  issues.push(`Missing or unsupported 'openapi' version: ${JSON.stringify(doc?.openapi)}`);
+./scripts/parse-check-spec.ts:115:  console.error("❌  openapi.yaml has structural issues:");
+./scripts/parse-check-spec.ts:120:    "\n    Fix these issues in lib/api-spec/openapi.yaml before running codegen.\n",
+./scripts/parse-check-spec.ts:135:console.log(`✅  openapi.yaml parses cleanly.`);
+./scripts/parse-check-spec.ts:136:console.log(`    Version : ${doc.openapi}`);
+./lib/db/src/schema/projects.ts:5:  "scanning",
+./lib/db/src/schema/projects.ts:27:  lastScanAt: timestamp("last_scan_at"),
+./scripts/validate-dashboard-client-contract.mjs:5:    label: "OpenAPI and generated client drift",
+./scripts/validate-dashboard-client-contract.mjs:57:        "The OpenAPI source, generated React client declarations, and dashboard are out of sync.",
+./scripts/validate-dashboard-client-contract.mjs:64:  "\n[dashboard-client-contract] OpenAPI, client declarations, and dashboard are in sync.",
+./lib/knowledge-engine/src/__tests__/inference.test.ts:14:    scanJobId: null,
+./lib/knowledge-engine/src/__tests__/inference.test.ts:34:    scanJobId: null,
+./lib/knowledge-engine/src/__tests__/inference.test.ts:195:      scanJobId: null,
+./scripts/check-codegen-drift.ts:3: * Codegen drift check — CI guard against OpenAPI contract drift.
+./scripts/check-codegen-drift.ts:7: * forgot to regenerate after editing openapi.yaml, and this script fails
+./scripts/check-codegen-drift.ts:14: *   0 — generated files are in sync with openapi.yaml
+./scripts/check-codegen-drift.ts:40:// Fail immediately with a clear message if openapi.yaml has YAML syntax errors
+./scripts/check-codegen-drift.ts:44:console.log("🔎  Checking openapi.yaml parseability …");
+./scripts/check-codegen-drift.ts:55:// ─── 1. Regenerate from the current openapi.yaml ─────────────────────────────
+./scripts/check-codegen-drift.ts:165:console.log("⏳  Running codegen from lib/api-spec/openapi.yaml …");
+./scripts/check-codegen-drift.ts:177:  console.error("❌  Codegen failed — fix the OpenAPI spec first:");
+./scripts/check-codegen-drift.ts:204:  console.log("✅  Generated files are in sync with openapi.yaml.");
+./scripts/check-codegen-drift.ts:208:  console.error("\n❌  Generated files are out of sync with openapi.yaml.");
+./replit.md:3:An engineering operations platform — one console for how your code actually moves. Scan projects, extract dependency graphs, enforce rules, and trace every workflow end-to-end.
+./replit.md:11:- **Scanner**: TS compiler API AST extraction, Python AST subprocess for Python files
+./scripts/dashboard-journey-contract.test.mjs:209:    // upload flow without creating a durable upload or invoking discovery.
+./scripts/dashboard-contract-trigger.test.mjs:77:    [["lib/api-spec/openapi.yaml"], true],
+./lib/db/src/schema/metrics.ts:22: * record. Every scan produces a new row for that project. This is intentional:
+./lib/db/src/schema/metrics.ts:30: * possible if two scans finish in the same millisecond, but that is harmless
+./lib/db/src/schema/metrics.ts:59:  /** Ties this metrics snapshot to the scan operation that produced it. */
+./scripts/trigger-scan.mts:2: * SCAN-01 + SCAN-02 + SCAN-03: Manual scan trigger that delegates to the
+./scripts/trigger-scan.mts:3: * production `runScanJob` path instead of re-implementing scan logic.
+./scripts/trigger-scan.mts:6: *   • Same rule-loading path as the production runner (SCAN-02: no more
+./scripts/trigger-scan.mts:8: *   • Same graph extraction and metrics computation (SCAN-01).
+./scripts/trigger-scan.mts:9: *   • No `buildStatus: "unknown"` placeholder stored by this script (SCAN-03);
+./scripts/trigger-scan.mts:14: *   pnpm tsx --conditions workspace scripts/trigger-scan.mts
+./scripts/trigger-scan.mts:17:import { projectsTable, scanJobsTable } from "@workspace/db";
+./scripts/trigger-scan.mts:18:import { runScanJob } from "../artifacts/api-server/src/lib/scan-runner.js";
+./scripts/trigger-scan.mts:24:  console.log("=== EngineeringOS Scan Trigger ===");
+./scripts/trigger-scan.mts:25:  console.log("ℹ️  Using production runScanJob path — same rules, graph, and metrics as the API.\n");
+./scripts/trigger-scan.mts:49:  // ── 2. Create a scan job row (same pre-condition as the production queue) ─
+./scripts/trigger-scan.mts:51:  await db.insert(scanJobsTable).values({
+./scripts/trigger-scan.mts:58:  console.log(`Created scan job: ${jobId}`);
+./scripts/trigger-scan.mts:59:  console.log("Delegating to production runScanJob (rules loaded from DB, same extractGraph, same metrics)...\n");
+./scripts/trigger-scan.mts:62:  // runScanJob never throws — it writes success/failure into the job row.
+./scripts/trigger-scan.mts:63:  await runScanJob(jobId, project.id);
+./scripts/trigger-scan.mts:68:    .from(scanJobsTable)
+./scripts/trigger-scan.mts:69:    .where(eq(scanJobsTable.id, jobId))
+./scripts/trigger-scan.mts:79:    console.log(`✅ Scan complete!`);
+./scripts/trigger-scan.mts:90:    console.error(`❌ Scan failed: ${job.error ?? "unknown error"}`);
+./lib/db/src/schema/index.ts:12:export * from "./discovery.js";
+./lib/db/src/schema/index.ts:13:export * from "./scan_jobs.js";
+./lib/db/src/schema/graph.ts:15:import { scanJobsTable } from "./scan_jobs.js";
+./lib/db/src/schema/graph.ts:38: *   discovery-import         — imported via discovery pipeline
+./lib/db/src/schema/graph.ts:46:  "discovery-import",
+./lib/db/src/schema/graph.ts:52: * Matches GraphEdgeType in lib/scanner/src/graph-extractor.ts exactly —
+./lib/db/src/schema/graph.ts:72: * Keep this in sync with `GraphEvidence` in lib/scanner/src/graph-extractor.ts.
+./lib/db/src/schema/graph.ts:91: * Covers both automated scanner extractors and manual/import paths so the
+./lib/db/src/schema/graph.ts:114:   * GAP-3 fix: The correlationId of the scan job that produced this element.
+./lib/db/src/schema/graph.ts:115:   * Allows querying "all entities from scan session X" and detecting which
+./lib/db/src/schema/graph.ts:118:  scanSessionId?: string;
+./lib/db/src/schema/graph.ts:120:   * GAP-2 fix: The semver of lib/scanner that extracted this element.
+./lib/db/src/schema/graph.ts:121:   * Bump lib/scanner's SCANNER_VERSION constant whenever extraction logic
+./lib/db/src/schema/graph.ts:136:    /** The scan job that produced this entity — null for manually inserted entities. */
+./lib/db/src/schema/graph.ts:137:    scanJobId: text("scan_job_id").references(() => scanJobsTable.id, {
+./lib/db/src/schema/graph.ts:212:    /** The scan job that produced this relationship. */
+./lib/db/src/schema/graph.ts:213:    scanJobId: text("scan_job_id").references(() => scanJobsTable.id, {
+./lib/db/src/schema/graph.ts:221:     * Mirrors GraphEdgeType in lib/scanner/src/graph-extractor.ts.
+./lib/db/src/audit-schema-check.test.ts:9:const remediation =
+./lib/db/src/audit-schema-check.test.ts:59:      assert.match(error.message, new RegExp(remediation.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+./lib/db/src/audit-schema-check.test.ts:67:  it("reports a missing table with an actionable remediation", async () => {
+./lib/db/src/audit-schema-check.test.ts:74:  it("reports missing required columns with an actionable remediation", async () => {
+./lib/db/src/audit-schema-check.test.ts:81:  it("reports a missing required index with an actionable remediation", async () => {
+./lib/db/src/schema/events.ts:26:   * Soft link to a logical operation (scan, task execute, workflow advance,
+./lib/db/src/schema/events.ts:39:   * PostgreSQL uses a backward index scan on timestamp, so DESC ordering is
+./lib/db/src/schema/ai_chats.ts:97: * from each chat session so subsequent sessions can skip re-discovery.
+./lib/db/src/schema/discovery.ts:5:// Session-level status (the discoverySessionsTable.status column below).
+./lib/db/src/schema/discovery.ts:6:// Distinct from DiscoveryStep["status"], which tracks each individual
+./lib/db/src/schema/discovery.ts:8:export const discoverySessionStatusEnum = pgEnum("discovery_session_status", [
+./lib/db/src/schema/discovery.ts:17: * Source types for project discovery.
+./lib/db/src/schema/discovery.ts:20: * LOCAL_FOLDER      — scan a directory already on the server filesystem
+./lib/db/src/schema/discovery.ts:21: * WORKSPACE_PROJECT — scan an existing registered project's rootPath
+./lib/db/src/schema/discovery.ts:22: * GIT_REPOSITORY    — clone a remote Git repo, then scan the clone
+./lib/db/src/schema/discovery.ts:23: * ARCHIVE_UPLOAD    — unpack a previously uploaded .zip/.tar.gz, then scan
+./lib/db/src/schema/discovery.ts:38:export interface DiscoverySourceConfig {
+./lib/db/src/schema/discovery.ts:51:export interface DiscoveryOptions {
+./lib/db/src/schema/discovery.ts:58:export interface DiscoveryStep {
+./lib/db/src/schema/discovery.ts:64:export interface DiscoveryRuleViolation {
+./lib/db/src/schema/discovery.ts:71:export interface DiscoveryGraphSummary {
+./lib/db/src/schema/discovery.ts:76:  /** Scanned source-file count broken down by detected language. */
+./lib/db/src/schema/discovery.ts:80:export interface DiscoveryResultData {
+./lib/db/src/schema/discovery.ts:95:  hasOpenApi: boolean;
+./lib/db/src/schema/discovery.ts:103:  graphSummary: DiscoveryGraphSummary;
+./lib/db/src/schema/discovery.ts:104:  ruleViolations: DiscoveryRuleViolation[];
+./lib/db/src/schema/discovery.ts:107:export const discoverySessionsTable = pgTable("discovery_sessions", {
+./lib/db/src/schema/discovery.ts:110:   * The user who started this discovery session. Sessions can surface
+./lib/db/src/schema/discovery.ts:112:   * whatever rootPath they scanned, so — like projects — they must be
+./lib/db/src/schema/discovery.ts:114:   * session by id enforces `ownerId === req.userId` (see routes/discovery.ts).
+./lib/db/src/schema/discovery.ts:117:  status: discoverySessionStatusEnum("status").notNull().default("discovering"),
+./lib/db/src/schema/discovery.ts:118:  /** Resolved filesystem path used by the scanner pipeline. */
+./lib/db/src/schema/discovery.ts:123:  sourceConfig: jsonb("source_config").$type<DiscoverySourceConfig>(),
+./lib/db/src/schema/discovery.ts:128:    .$type<DiscoveryStep[]>()
+./lib/db/src/schema/discovery.ts:131:  result: jsonb("result").$type<DiscoveryResultData>(),
+./lib/db/src/schema/discovery.ts:154:  index("idx_discovery_sessions_status").on(t.status),
+./lib/db/src/schema/discovery.ts:156:  index("idx_discovery_sessions_started_at").on(t.startedAt),
+./lib/db/src/schema/discovery.ts:158:  index("idx_discovery_sessions_owner_id").on(t.ownerId),
+./lib/db/src/schema/discovery.ts:160:  index("idx_discovery_sessions_status_lease_until").on(t.status, t.leaseUntil),
+./lib/db/src/schema/discovery.ts:170:    "chk_discovery_session_completed_at",
+./lib/db/src/schema/discovery.ts:175:export type InsertDiscoverySession = typeof discoverySessionsTable.$inferInsert;
+./lib/db/src/schema/discovery.ts:176:export type DiscoverySession = typeof discoverySessionsTable.$inferSelect;
+./lib/api-client-react/src/use-ai-chat-stream.ts:8: *   1. `lib/api-spec/openapi.yaml`  — the `AiStreamEvent` event shapes in the
+./lib/api-client-react/src/use-ai-chat-stream.ts:13: *      first extending `AiStreamEvent` here and updating the openapi.yaml
+./lib/api-client-react/src/use-ai-chat-stream.ts:17: *   Orval does not support Server-Sent Events (text/event-stream). OpenAPI 3.1
+./lib/api-client-react/src/use-ai-chat-stream.ts:143:   * Do NOT add server-side event changes without extending this union and updating openapi.yaml.
+./lib/api-client-react/src/use-ai-chat-stream.ts:611: * TELEMETRY_INCONSISTENT, and `violations` are the bounded, content-free reason
+./lib/api-client-react/src/use-ai-chat-stream.ts:619:  /** Bounded, content-free violation labels (never source contents). */
+./lib/api-client-react/src/use-ai-chat-stream.ts:620:  violations: string[];
+./lib/api-client-react/src/use-ai-chat-stream.ts:754:   * surface EI-011/012 consistency + violations for the run as they happen.
+./lib/api-client-react/src/use-ai-chat-stream.test.ts:83:  violations: [],
+./lib/api-client-react/src/use-ai-chat-stream.test.ts:94:  violations: ['claimed evidence not backed by a completed source read'],
+./lib/api-client-react/src/use-ai-chat-stream.test.ts:302:  it('preserves consistent:false + violations on a TELEMETRY_INCONSISTENT frame', async () => {
+./lib/api-client-react/src/use-ai-chat-stream.test.ts:311:    expect(received.violations).toContain('claimed evidence not backed by a completed source read');
+./lib/api-client-react/src/use-ai-chat-stream.test.ts:353:      violations: [],
+./lib/api-client-react/src/use-ai-chat-stream.test.ts:367:      violations: [],
+./lib/db/src/schema/audit_logs.ts:5: * Every significant state change (task execute, project scan, rule evaluate,
+./lib/db/src/schema/audit_logs.ts:18:  "discovery_session",
+./lib/db/src/schema/audit_logs.ts:38:  "scanned",
+./lib/ai-orchestrator/src/turn-intent.ts:44:  /** Broad forensic requests must declare a scope before expensive discovery. */
+./lib/api-client-react/src/index.ts:53:export * from './generated/api.schemas';
+./lib/api-zod/src/truth-flow-matrix.schema.ts:26: * RUNTIME   — What the live graph/scan/provenance pipeline actually produces during
+./lib/api-zod/src/truth-flow-matrix.schema.ts:27: *             execution (DB rows, scan-job outputs, discovery sessions). Runtime data
+./lib/api-zod/src/truth-flow-matrix.schema.ts:120:    nextAction: "Add mandatory contract drift checks between OpenAPI, DB schema, and runtime routes.",
+./lib/api-zod/src/truth-flow-matrix.schema.ts:122:      "lib/api-spec/openapi.yaml",
+./lib/api-zod/src/truth-flow-matrix.schema.ts:176:    node: "Discovery / Scan",
+./lib/api-zod/src/truth-flow-matrix.schema.ts:179:    nextAction: "Make discovery replayable and measure completeness/classification drift.",
+./lib/api-zod/src/truth-flow-matrix.schema.ts:181:      "artifacts/api-server/src/routes/discovery.ts",
+./lib/api-zod/src/truth-flow-matrix.schema.ts:182:      "artifacts/api-server/src/lib/scan-runner.ts",
+./lib/api-zod/src/truth-flow-matrix.schema.ts:183:      "lib/scanner/src/*"
+./lib/ai-orchestrator/src/tools/file-tools.ts:314: * Returns the canonical absolute path on success, null on any violation.
+./lib/api-spec/orval.config.ts:35:// Orval 8.x generates `z.looseObject(...)` when targeting OpenAPI 3.1 because
+./lib/api-spec/orval.config.ts:49://     is set in openapi.yaml (PR-04), which is the contract-level signal that
+./lib/api-spec/orval.config.ts:51://     added per-schema by calling `.strict()` on the generated schema if
+./lib/api-spec/orval.config.ts:63:      target: path.resolve(__dirname, "openapi.yaml"),
+./lib/api-spec/orval.config.ts:91:      target: path.resolve(__dirname, "openapi.yaml"),
+./lib/api-spec/openapi.yaml:1:openapi: 3.1.0
+./lib/api-spec/openapi.yaml:126:  /api/projects/{projectId}/scan:
+./lib/api-spec/openapi.yaml:128:      operationId: scanProject
+./lib/api-spec/openapi.yaml:129:      summary: Enqueue a project scan (runs in the background; poll the returned job)
+./lib/api-spec/openapi.yaml:139:          description: Scan job queued
+./lib/api-spec/openapi.yaml:143:                $ref: "#/components/schemas/ScanJob"
+./lib/api-spec/openapi.yaml:145:  /api/projects/{projectId}/scan-jobs/{jobId}:
+./lib/api-spec/openapi.yaml:147:      operationId: getScanJob
+./lib/api-spec/openapi.yaml:148:      summary: Get the status/result of a background scan job
+./lib/api-spec/openapi.yaml:163:          description: Scan job
+./lib/api-spec/openapi.yaml:167:                $ref: "#/components/schemas/ScanJob"
+./lib/api-spec/openapi.yaml:1319:  # ─── Discovery ───────────────────────────────────────────────────────────────
+./lib/api-spec/openapi.yaml:1320:  /api/discovery/sources:
+./lib/api-spec/openapi.yaml:1322:      operationId: listDiscoverySources
+./lib/api-spec/openapi.yaml:1323:      summary: List supported discovery source types and their capabilities
+./lib/api-spec/openapi.yaml:1324:      tags: [Discovery]
+./lib/api-spec/openapi.yaml:1333:                  $ref: "#/components/schemas/DiscoverySourceCapability"
+./lib/api-spec/openapi.yaml:1337:      operationId: startDiscovery
+./lib/api-spec/openapi.yaml:1338:      summary: Start autonomous project discovery
+./lib/api-spec/openapi.yaml:1339:      tags: [Discovery]
+./lib/api-spec/openapi.yaml:1345:              $ref: "#/components/schemas/StartDiscoveryInput"
+./lib/api-spec/openapi.yaml:1348:          description: Discovery session created
+./lib/api-spec/openapi.yaml:1352:                $ref: "#/components/schemas/DiscoverySessionStatus"
+./lib/api-spec/openapi.yaml:1354:  /api/projects/discover/{discoveryId}:
+./lib/api-spec/openapi.yaml:1356:      operationId: getDiscoverySession
+./lib/api-spec/openapi.yaml:1357:      summary: Get discovery session status and progress
+./lib/api-spec/openapi.yaml:1358:      tags: [Discovery]
+./lib/api-spec/openapi.yaml:1360:        - name: discoveryId
+./lib/api-spec/openapi.yaml:1367:          description: Discovery session
+./lib/api-spec/openapi.yaml:1371:                $ref: "#/components/schemas/DiscoverySessionStatus"
+./lib/api-spec/openapi.yaml:1375:  /api/projects/discover/{discoveryId}/summary:
+./lib/api-spec/openapi.yaml:1377:      operationId: getDiscoverySummary
+./lib/api-spec/openapi.yaml:1378:      summary: Get full discovery report (only when status=ready)
+./lib/api-spec/openapi.yaml:1379:      tags: [Discovery]
+./lib/api-spec/openapi.yaml:1381:        - name: discoveryId
+./lib/api-spec/openapi.yaml:1388:          description: Full discovery report
+./lib/api-spec/openapi.yaml:1392:                $ref: "#/components/schemas/DiscoveryReport"
+./lib/api-spec/openapi.yaml:1396:          description: Discovery not yet complete
+./lib/api-spec/openapi.yaml:1401:      summary: Import a project from a completed discovery session
+./lib/api-spec/openapi.yaml:1402:      tags: [Discovery]
+./lib/api-spec/openapi.yaml:1421:      summary: Upload a .zip or .tar.gz archive for ARCHIVE_UPLOAD discovery
+./lib/api-spec/openapi.yaml:1901:        by Orval — SSE responses cannot be represented in standard OpenAPI.
+./lib/api-spec/openapi.yaml:2028:             "consistent": true | false, "violations": ["bounded content-free reason"],
+./lib/api-spec/openapi.yaml:2037:               the verdict failed closed on TELEMETRY_INCONSISTENT; violations are
+./lib/api-spec/openapi.yaml:2065:              "details"?: ["bounded contract violation"] }
+./lib/api-spec/openapi.yaml:2109:             "diagnosticDetails"?: ["bounded contract violation"],
+./lib/api-spec/openapi.yaml:2466:      summary: Run AI scan analysis on a project
+./lib/api-spec/openapi.yaml:2476:          description: Scan analysis result
+./lib/api-spec/openapi.yaml:2480:                $ref: "#/components/schemas/AiScanAnalysis"
+./lib/api-spec/openapi.yaml:2509:      summary: Stream AI scan analysis progress and result
+./lib/api-spec/openapi.yaml:2511:        Handwritten SSE variant of the structured scan-analysis endpoint.
+./lib/api-spec/openapi.yaml:2515:          `AiScanAnalysis` object. Every task event carries the operationId,
+./lib/api-spec/openapi.yaml:2532:          description: Structured scan-analysis SSE stream
+./lib/api-spec/openapi.yaml:3461:            required: [operationId, caseId, outcome, verifiedCompletion, recovered, scopeViolation, repeatedSideEffect]
+./lib/api-spec/openapi.yaml:3468:              scopeViolation: { type: boolean }
+./lib/api-spec/openapi.yaml:3773:            `sourceConfig.uploadId` when starting an ARCHIVE_UPLOAD discovery session.
+./lib/api-spec/openapi.yaml:3800:        - queuedScanJobs
+./lib/api-spec/openapi.yaml:3801:        - pendingDiscoverySessions
+./lib/api-spec/openapi.yaml:3802:        - expiredScanLeases
+./lib/api-spec/openapi.yaml:3803:        - expiredDiscoveryLeases
+./lib/api-spec/openapi.yaml:3805:        - retryExhaustedScanJobs
+./lib/api-spec/openapi.yaml:3814:        queuedScanJobs:
+./lib/api-spec/openapi.yaml:3816:        pendingDiscoverySessions:
+./lib/api-spec/openapi.yaml:3818:        expiredScanLeases:
+./lib/api-spec/openapi.yaml:3820:        expiredDiscoveryLeases:
+./lib/api-spec/openapi.yaml:3824:        retryExhaustedScanJobs:
+./lib/api-spec/openapi.yaml:3835:        - taskLogRowsScanned
+./lib/api-spec/openapi.yaml:3837:        - receiptRowsScanned
+./lib/api-spec/openapi.yaml:3854:        taskLogRowsScanned:
+./lib/api-spec/openapi.yaml:3858:        receiptRowsScanned:
+./lib/api-spec/openapi.yaml:3869:        - chatRowsScanned
+./lib/api-spec/openapi.yaml:3871:        - executionRowsScanned
+./lib/api-spec/openapi.yaml:3888:        chatRowsScanned:
+./lib/api-spec/openapi.yaml:3892:        executionRowsScanned:
+./lib/api-spec/openapi.yaml:3901:        Current state of the in-process job queue (scan + discovery jobs).
+./lib/api-spec/openapi.yaml:5162:    AiScanInsight:
+./lib/api-spec/openapi.yaml:5179:    AiScanAnalysis:
+./lib/api-spec/openapi.yaml:5190:            $ref: "#/components/schemas/AiScanInsight"
+./lib/api-spec/openapi.yaml:5348:          enum: [active, scanning, paused, archived]
+./lib/api-spec/openapi.yaml:5351:        lastScanAt:
+./lib/api-spec/openapi.yaml:5387:          enum: [active, scanning, paused, archived]
+./lib/api-spec/openapi.yaml:5389:    ScanResult:
+./lib/api-spec/openapi.yaml:5391:      required: [projectId, scannedAt, filesFound, issuesDetected, tasksCreated]
+./lib/api-spec/openapi.yaml:5395:        scannedAt:
+./lib/api-spec/openapi.yaml:5407:    ScanJob:
+./lib/api-spec/openapi.yaml:5410:        Background scan job. Scanning a project (file walk + rule matching +
+./lib/api-spec/openapi.yaml:5411:        graph extraction + metrics) is heavy, so POST .../scan only enqueues
+./lib/api-spec/openapi.yaml:5413:        GET .../scan-jobs/{jobId} until status is "completed" or "failed".
+./lib/api-spec/openapi.yaml:5424:          $ref: "#/components/schemas/ScanResult"
+./lib/api-spec/openapi.yaml:5828:            Ties this event to a logical operation (scan, task execute, workflow
+./lib/api-spec/openapi.yaml:5884:            regex-fallback | manual | discovery-import |
+./lib/api-spec/openapi.yaml:5938:        scanJobId:
+./lib/api-spec/openapi.yaml:5940:          description: The scan job that produced this entity, if any
+./lib/api-spec/openapi.yaml:6001:        scanJobId:
+./lib/api-spec/openapi.yaml:6003:          description: The scan job that produced this relationship, if any
+./lib/api-spec/openapi.yaml:6378:    # ─── Discovery ─────────────────────────────────────────────────────────────
+./lib/api-spec/openapi.yaml:6389:    DiscoverySourceConfig:
+./lib/api-spec/openapi.yaml:6420:    DiscoveryOptions:
+./lib/api-spec/openapi.yaml:6437:    DiscoverySourceCapability:
+./lib/api-spec/openapi.yaml:6458:    StartDiscoveryInput:
+./lib/api-spec/openapi.yaml:6466:          $ref: "#/components/schemas/DiscoverySourceConfig"
+./lib/api-spec/openapi.yaml:6468:          $ref: "#/components/schemas/DiscoveryOptions"
+./lib/api-spec/openapi.yaml:6472:      required: [discoveryId]
+./lib/api-spec/openapi.yaml:6475:        discoveryId:
+./lib/api-spec/openapi.yaml:6489:    DiscoveryStepItem:
+./lib/api-spec/openapi.yaml:6501:    DiscoverySessionStatus:
+./lib/api-spec/openapi.yaml:6517:            $ref: "#/components/schemas/DiscoveryStepItem"
+./lib/api-spec/openapi.yaml:6529:    DiscoveryRuleViolationItem:
+./lib/api-spec/openapi.yaml:6542:    DiscoveryGraphSummaryData:
+./lib/api-spec/openapi.yaml:6559:    DiscoveryReport:
+./lib/api-spec/openapi.yaml:6568:        - hasOpenApi
+./lib/api-spec/openapi.yaml:6577:        - ruleViolations
+./lib/api-spec/openapi.yaml:6611:        hasOpenApi:
+./lib/api-spec/openapi.yaml:6632:          $ref: "#/components/schemas/DiscoveryGraphSummaryData"
+./lib/api-spec/openapi.yaml:6633:        ruleViolations:
+./lib/api-spec/openapi.yaml:6636:            $ref: "#/components/schemas/DiscoveryRuleViolationItem"
+./lib/ai-orchestrator/src/tools/analysis-tools.ts:31:      name: "refresh_project_scan",
+./lib/ai-orchestrator/src/tools/analysis-tools.ts:33:        "Refresh the persisted project scanner and return bounded, current scan evidence. Read-only for the agent; never invent a scan result when the refresh is unavailable or fails.",
+./lib/api-client-react/src/generated/api.ts:6: * OpenAPI spec version: 1.0.0
+./lib/api-client-react/src/generated/api.ts:44:  AiScanAnalysis,
+./lib/api-client-react/src/generated/api.ts:61:  DiscoveryReport,
+./lib/api-client-react/src/generated/api.ts:62:  DiscoverySessionStatus,
+./lib/api-client-react/src/generated/api.ts:63:  DiscoverySourceCapability,
+./lib/api-client-react/src/generated/api.ts:130:  ScanJob,
+./lib/api-client-react/src/generated/api.ts:131:  StartDiscoveryInput,
+./lib/api-client-react/src/generated/api.ts:621:export const getScanProjectUrl = (projectId: string,) => {
+./lib/api-client-react/src/generated/api.ts:626:  return `/api/projects/${projectId}/scan`
+./lib/api-client-react/src/generated/api.ts:630: * @summary Enqueue a project scan (runs in the background; poll the returned job)
+./lib/api-client-react/src/generated/api.ts:632:export const scanProject = async (projectId: string, options?: RequestInit): Promise<ScanJob> => {
+./lib/api-client-react/src/generated/api.ts:634:  return customFetch<ScanJob>(getScanProjectUrl(projectId),
+./lib/api-client-react/src/generated/api.ts:647:export const getScanProjectMutationOptions = <TError = ErrorType<unknown>,
+./lib/api-client-react/src/generated/api.ts:648:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof scanProject>>, TError,{projectId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+./lib/api-client-react/src/generated/api.ts:649:): UseMutationOptions<Awaited<ReturnType<typeof scanProject>>, TError,{projectId: string}, TContext> => {
+./lib/api-client-react/src/generated/api.ts:651:const mutationKey = ['scanProject'];
+./lib/api-client-react/src/generated/api.ts:661:      const mutationFn: MutationFunction<Awaited<ReturnType<typeof scanProject>>, {projectId: string}> = (props) => {
+./lib/api-client-react/src/generated/api.ts:664:          return  scanProject(projectId,requestOptions)
+./lib/api-client-react/src/generated/api.ts:674:    export type ScanProjectMutationResult = NonNullable<Awaited<ReturnType<typeof scanProject>>>
+./lib/api-client-react/src/generated/api.ts:676:    export type ScanProjectMutationError = ErrorType<unknown>
+./lib/api-client-react/src/generated/api.ts:679: * @summary Enqueue a project scan (runs in the background; poll the returned job)
+./lib/api-client-react/src/generated/api.ts:681:export const useScanProject = <TError = ErrorType<unknown>,
+./lib/api-client-react/src/generated/api.ts:682:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof scanProject>>, TError,{projectId: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+./lib/api-client-react/src/generated/api.ts:684:        Awaited<ReturnType<typeof scanProject>>,
+./lib/api-client-react/src/generated/api.ts:689:      return useMutation(getScanProjectMutationOptions(options));
+./lib/api-client-react/src/generated/api.ts:692:export const getGetScanJobUrl = (projectId: string,
+./lib/api-client-react/src/generated/api.ts:698:  return `/api/projects/${projectId}/scan-jobs/${jobId}`
+./lib/api-client-react/src/generated/api.ts:702: * @summary Get the status/result of a background scan job
+./lib/api-client-react/src/generated/api.ts:704:export const getScanJob = async (projectId: string,
+./lib/api-client-react/src/generated/api.ts:705:    jobId: string, options?: RequestInit): Promise<ScanJob> => {
+./lib/api-client-react/src/generated/api.ts:707:  return customFetch<ScanJob>(getGetScanJobUrl(projectId,jobId),
+./lib/api-client-react/src/generated/api.ts:720:export const getGetScanJobQueryKey = (projectId: string,
+./lib/api-client-react/src/generated/api.ts:723:    `/api/projects/${projectId}/scan-jobs/${jobId}`
+./lib/api-client-react/src/generated/api.ts:728:export const getGetScanJobQueryOptions = <TData = Awaited<ReturnType<typeof getScanJob>>, TError = ErrorType<unknown>>(projectId: string,
+./lib/api-client-react/src/generated/api.ts:729:    jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getScanJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+./lib/api-client-react/src/generated/api.ts:734:  const queryKey =  queryOptions?.queryKey ?? getGetScanJobQueryKey(projectId,jobId);
+./lib/api-client-react/src/generated/api.ts:738:    const queryFn: QueryFunction<Awaited<ReturnType<typeof getScanJob>>> = ({ signal }) => getScanJob(projectId,jobId, { signal, ...requestOptions });
+./lib/api-client-react/src/generated/api.ts:744:   return  { queryKey, queryFn, enabled: projectId !== null && projectId !== undefined && jobId !== null && jobId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getScanJob>>, TError, TData> & { queryKey: QueryKey }
+./lib/api-client-react/src/generated/api.ts:747:export type GetScanJobQueryResult = NonNullable<Awaited<ReturnType<typeof getScanJob>>>
+./lib/api-client-react/src/generated/api.ts:748:export type GetScanJobQueryError = ErrorType<unknown>
+./lib/api-client-react/src/generated/api.ts:752: * @summary Get the status/result of a background scan job
+./lib/api-client-react/src/generated/api.ts:755:export function useGetScanJob<TData = Awaited<ReturnType<typeof getScanJob>>, TError = ErrorType<unknown>>(
+./lib/api-client-react/src/generated/api.ts:757:    jobId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getScanJob>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+./lib/api-client-react/src/generated/api.ts:761:  const queryOptions = getGetScanJobQueryOptions(projectId,jobId,options)
+./lib/api-client-react/src/generated/api.ts:4060:export const getListDiscoverySourcesUrl = () => {
+./lib/api-client-react/src/generated/api.ts:4065:  return `/api/discovery/sources`
+./lib/api-client-react/src/generated/api.ts:4069: * @summary List supported discovery source types and their capabilities
+./lib/api-client-react/src/generated/api.ts:4071:export const listDiscoverySources = async ( options?: RequestInit): Promise<DiscoverySourceCapability[]> => {
+./lib/api-client-react/src/generated/api.ts:4073:  return customFetch<DiscoverySourceCapability[]>(getListDiscoverySourcesUrl(),
+./lib/api-client-react/src/generated/api.ts:4086:export const getListDiscoverySourcesQueryKey = () => {
+./lib/api-client-react/src/generated/api.ts:4088:    `/api/discovery/sources`
+./lib/api-client-react/src/generated/api.ts:4093:export const getListDiscoverySourcesQueryOptions = <TData = Awaited<ReturnType<typeof listDiscoverySources>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDiscoverySources>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+./lib/api-client-react/src/generated/api.ts:4098:  const queryKey =  queryOptions?.queryKey ?? getListDiscoverySourcesQueryKey();
+./lib/api-client-react/src/generated/api.ts:4102:    const queryFn: QueryFunction<Awaited<ReturnType<typeof listDiscoverySources>>> = ({ signal }) => listDiscoverySources({ signal, ...requestOptions });
+./lib/api-client-react/src/generated/api.ts:4108:   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listDiscoverySources>>, TError, TData> & { queryKey: QueryKey }
+./lib/api-client-react/src/generated/api.ts:4111:export type ListDiscoverySourcesQueryResult = NonNullable<Awaited<ReturnType<typeof listDiscoverySources>>>
+./lib/api-client-react/src/generated/api.ts:4112:export type ListDiscoverySourcesQueryError = ErrorType<unknown>
+./lib/api-client-react/src/generated/api.ts:4116: * @summary List supported discovery source types and their capabilities
+./lib/api-client-react/src/generated/api.ts:4119:export function useListDiscoverySources<TData = Awaited<ReturnType<typeof listDiscoverySources>>, TError = ErrorType<unknown>>(
+./lib/api-client-react/src/generated/api.ts:4120:  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDiscoverySources>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+./lib/api-client-react/src/generated/api.ts:4124:  const queryOptions = getListDiscoverySourcesQueryOptions(options)
+./lib/api-client-react/src/generated/api.ts:4137:export const getStartDiscoveryUrl = () => {
+./lib/api-client-react/src/generated/api.ts:4146: * @summary Start autonomous project discovery
+./lib/api-client-react/src/generated/api.ts:4148:export const startDiscovery = async (startDiscoveryInput: StartDiscoveryInput, options?: RequestInit): Promise<DiscoverySessionStatus> => {
+./lib/api-client-react/src/generated/api.ts:4150:  return customFetch<DiscoverySessionStatus>(getStartDiscoveryUrl(),
+./lib/api-client-react/src/generated/api.ts:4155:    body: JSON.stringify(startDiscoveryInput)
+./lib/api-client-react/src/generated/api.ts:4163:export const getStartDiscoveryMutationOptions = <TError = ErrorType<unknown>,
+./lib/api-client-react/src/generated/api.ts:4164:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startDiscovery>>, TError,{data: BodyType<StartDiscoveryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+./lib/api-client-react/src/generated/api.ts:4165:): UseMutationOptions<Awaited<ReturnType<typeof startDiscovery>>, TError,{data: BodyType<StartDiscoveryInput>}, TContext> => {
+./lib/api-client-react/src/generated/api.ts:4167:const mutationKey = ['startDiscovery'];
+./lib/api-client-react/src/generated/api.ts:4177:      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startDiscovery>>, {data: BodyType<StartDiscoveryInput>}> = (props) => {
+./lib/api-client-react/src/generated/api.ts:4180:          return  startDiscovery(data,requestOptions)
+./lib/api-client-react/src/generated/api.ts:4190:    export type StartDiscoveryMutationResult = NonNullable<Awaited<ReturnType<typeof startDiscovery>>>
+./lib/api-client-react/src/generated/api.ts:4191:    export type StartDiscoveryMutationBody = BodyType<StartDiscoveryInput>
+./lib/api-client-react/src/generated/api.ts:4192:    export type StartDiscoveryMutationError = ErrorType<unknown>
+./lib/api-client-react/src/generated/api.ts:4195: * @summary Start autonomous project discovery
+./lib/api-client-react/src/generated/api.ts:4197:export const useStartDiscovery = <TError = ErrorType<unknown>,
+./lib/api-client-react/src/generated/api.ts:4198:    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startDiscovery>>, TError,{data: BodyType<StartDiscoveryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+./lib/api-client-react/src/generated/api.ts:4200:        Awaited<ReturnType<typeof startDiscovery>>,
+./lib/api-client-react/src/generated/api.ts:4202:        {data: BodyType<StartDiscoveryInput>},
+./lib/api-client-react/src/generated/api.ts:4205:      return useMutation(getStartDiscoveryMutationOptions(options));
+./lib/api-client-react/src/generated/api.ts:4208:export const getGetDiscoverySessionUrl = (discoveryId: string,) => {
+./lib/api-client-react/src/generated/api.ts:4213:  return `/api/projects/discover/${discoveryId}`

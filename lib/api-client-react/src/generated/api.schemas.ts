@@ -2015,6 +2015,81 @@ export interface ProjectSummary {
   latestMetrics: MetricRecord;
 }
 
+export interface RemediationEvidence {
+  file: string;
+  /** @minimum 1 */
+  line: number;
+  snippet: string;
+  /** @minimum 0 */
+  occurrences: number;
+}
+
+export type RemediationPlanVersion = typeof RemediationPlanVersion[keyof typeof RemediationPlanVersion];
+
+
+export const RemediationPlanVersion = {
+  NUMBER_1: 1,
+} as const;
+
+export type RemediationPlanSourceType = typeof RemediationPlanSourceType[keyof typeof RemediationPlanSourceType];
+
+
+export const RemediationPlanSourceType = {
+  scan: 'scan',
+  discovery: 'discovery',
+} as const;
+
+/**
+ * @nullable
+ */
+export type RemediationPlanSourceCompleteness = typeof RemediationPlanSourceCompleteness[keyof typeof RemediationPlanSourceCompleteness] | null;
+
+
+export const RemediationPlanSourceCompleteness = {
+  COMPLETE: 'COMPLETE',
+  PARTIAL: 'PARTIAL',
+} as const;
+
+export type RemediationPlanSource = {
+  type: RemediationPlanSourceType;
+  /** @nullable */
+  correlationId: string | null;
+  /** @nullable */
+  revision: string | null;
+  /** @nullable */
+  completeness: RemediationPlanSourceCompleteness;
+};
+
+export type RemediationPlanStatus = typeof RemediationPlanStatus[keyof typeof RemediationPlanStatus];
+
+
+export const RemediationPlanStatus = {
+  needs_review: 'needs_review',
+  ready: 'ready',
+  verified: 'verified',
+} as const;
+
+export interface RemediationPlan {
+  version: RemediationPlanVersion;
+  /** @nullable */
+  ruleId?: string | null;
+  ruleCode: string;
+  ruleTitle: string;
+  severity: string;
+  /** @minimum 0 */
+  occurrenceCount: number;
+  /** @maxItems 100 */
+  evidence: RemediationEvidence[];
+  /** @maxItems 20 */
+  relatedFiles: string[];
+  /** @nullable */
+  fixDescription?: string | null;
+  /** @maxItems 20 */
+  verificationSteps: string[];
+  source: RemediationPlanSource;
+  status: RemediationPlanStatus;
+}
+
 export type VerificationResultStepsItem = {
   name: string;
   passed: boolean;
@@ -2043,6 +2118,7 @@ export interface Task {
   prompt?: string;
   agentResponse?: string;
   verificationResult?: VerificationResult;
+  remediationPlan?: RemediationPlan | null;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
@@ -2620,10 +2696,18 @@ export interface DiscoverySessionStatus {
 }
 
 export interface DiscoveryRuleViolationItem {
+  ruleId?: string;
   code: string;
   title: string;
   severity: string;
   count: number;
+  /** @maxItems 100 */
+  matches?: RemediationEvidence[];
+  /** @nullable */
+  fixDescription?: string | null;
+  /** @maxItems 20 */
+  verifySteps?: string[];
+  remediationPlan?: RemediationPlan | null;
 }
 
 export type DiscoveryGraphSummaryDataEntitiesByType = {[key: string]: number};
@@ -2672,6 +2756,9 @@ export interface DiscoveryReport {
   confidenceScore: number;
   graphSummary: DiscoveryGraphSummaryData;
   ruleViolations: DiscoveryRuleViolationItem[];
+  sourceRevision?: string;
+  sourceProvenance?: string;
+  sourceCorrelationId?: string;
 }
 
 export type DashboardOverviewProjectScoresItemTrend = typeof DashboardOverviewProjectScoresItemTrend[keyof typeof DashboardOverviewProjectScoresItemTrend];

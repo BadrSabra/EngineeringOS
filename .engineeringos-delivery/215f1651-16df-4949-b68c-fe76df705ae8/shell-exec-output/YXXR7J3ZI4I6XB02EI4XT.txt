@@ -1,0 +1,188 @@
+  }, Math.max(1_000, Math.floor(AI_EXECUTION_LEASE_MS / 3)));
+  const executionAbortController = new AbortController();
+  registerAiExecutionController(executionId, executionAbortController);
+
+  try {
+    stage = "context";
+    stages.push("context");
+    await log("info", "Building project context", { stage: "context" });
+    if (executionAbortController.signal.aborted) throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+    const projectContext = await buildProjectContext(before.projectId, { sections: [...CONTEXT_SECTIONS] });
+    await checkpointAiExecution({
+      executionId, workerId,
+      checkpoint: { stage: "model_call", sequence: 2, detail: "Project context built.", updatedAt: new Date().toISOString() },
+    });
+    const progress = async (message: string) => log("info", message, { stage: "progress" });
+    stage = "provider_call";
+    stages.push("provider_call");
+    const { result, effectiveProvider } = await runAgentWithFallback<Awaited<ReturnType<typeof executeTask>>>(
+      params.userId,
+      params.provider,
+      (opts) => executeTask({
+        taskTitle: before.title,
+        taskDescription: before.description,
+        taskPrompt: before.prompt,
+        taskPriority: before.priority,
+        relatedFiles: before.relatedFiles ?? [],
+        projectContext,
+        ...opts,
+      }, { onProgress: progress, signal: executionAbortController.signal }),
+      { qualityProfile: "task_execution", signal: executionAbortController.signal },
+    );
+    executionProvider = effectiveProvider;
+    if (effectiveProvider !== params.provider.provider) stages.push("provider_fallback");
+    if (executionAbortController.signal.aborted) {
+      throw Object.assign(new Error("Execution cancelled"), { name: "AbortError" });
+    }
+
+    if (result._parseError) {
+      stage = "parse";
+      stages.push("parse");
+      const parseReceipt = failureReceipt({
+        executionId, correlationId, revision: params.workspaceRevision,
+        provider: effectiveProvider, attempt: before.retryCount,
+        durationMs: Date.now() - startedAt, stages, code: "model_output_invalid",
+      });
+      const error = `model_output_invalid:${result._parseError.code}`;
+        message: msg,
+        metadata: { stage: "progress", correlationId },
+        correlationId,
+      });
+    } catch { /* swallow — progress logs are best-effort */ }
+  };
+
+  let agentResult: Awaited<ReturnType<typeof executeTask>>;
+  let effectiveProvider = provider;
+  try {
+    ({ result: agentResult, effectiveProvider } = await runAgentWithFallback(
+      req.userId,
+      { provider, apiKey },
+      (opts) => executeTask({
+        taskTitle: task.title,
+        taskDescription: task.description,
+        taskPrompt: task.prompt,
+        taskPriority: task.priority,
+        relatedFiles: (task.relatedFiles as string[]) ?? [],
+        projectContext,
+        ...opts,
+      }, { onProgress: writeProgress }),
+      { qualityProfile: "task_execution" },
+    ));
+  } catch (err) {
+    logger.error({ err, taskId, correlationId }, "AI execution failed while running agent");
+
+    const [execRolledBack] = await db
+      .update(tasksTable)
+      .set({ status: task.status, updatedAt: new Date() })
+      .where(and(eq(tasksTable.id, taskId), eq(tasksTable.status, "running")))
+            metadata: { stage: "progress", correlationId },
+            correlationId,
+          });
+        } catch { /* best-effort */ }
+      };
+
+      let agentResult: Awaited<ReturnType<typeof executeTask>>;
+      try {
+        ({ result: agentResult } = await runAgentWithFallback(
+          userId,
+          { provider, apiKey },
+          (opts) => executeTask({
+            taskTitle: task.title,
+            taskDescription: task.description,
+            taskPrompt: task.prompt,
+            taskPriority: task.priority,
+            relatedFiles: (task.relatedFiles as string[]) ?? [],
+            projectContext,
+            ...opts,
+          }, { onProgress: writeAutoProgress }),
+          { qualityProfile: "task_execution" },
+        ));
+      } catch (execErr) {
+        logger.error({ err: execErr, taskId, correlationId }, "AI auto-execution failed");
+
+        const [autoRolledBack] = await db
+          .update(tasksTable)
+          .set({ status: "verifying", updatedAt: new Date() })
+artifacts/api-server/src/routes/ai/tasks.ts:228:      (opts) => executeTask({
+artifacts/api-server/src/routes/ai/tasks.ts:546:          (opts) => executeTask({
+artifacts/api-server/src/lib/task-execution-service.ts:290:      (opts) => executeTask({
+export { complete, completeRaw, completeStream, MODEL_POWERFUL, MODEL_FAST } from "./groq-client.js";
+export type { AgentStep, AgentDiagnosticCode, SourceRetrievalTelemetry, ReadStatus } from "./tool-execution-engine.js";
+export {
+  buildProjectFileManifest,
+  buildProjectFileSources,
+  formatProjectFileManifest,
+  formatProjectFileSources,
+  ProjectFileManifestSchema,
+  ProjectFileSourceSchema,
+  ProjectFileSourcesSchema,
+} from "./filesystem-manifest.js";
+export type {
+  ProjectFileManifest,
+  ProjectFileSource,
+  ProjectFileSources,
+} from "./filesystem-manifest.js";
+export { classifyReadStatus, EMPTY_SOURCE_RETRIEVAL_TELEMETRY, ReadStatusSchema } from "./tool-execution-engine.js";
+export {
+  ContextManifestSchema,
+  RepositoryRevisionManifestSchema,
+  ScanCompletenessSchema,
+  contextManifestMatches,
+  contextManifestAllowsExecution,
+} from "./context-manifest.js";
+export type { ContextManifest, ScanCompleteness, RepositoryRevisionManifest } from "./context-manifest.js";
+export { buildForensicEvidencePackets } from "./forensic-evidence-packets.js";
+export type { ForensicEvidencePacket } from "./forensic-evidence-packets.js";
+export { mergeForensicRecoveryEnvelopes } from "./forensic-recovery.js";
+export type { ForensicRecoveryEnvelope } from "./forensic-recovery.js";
+export { agentComplete, validateProviderKey } from "./agent-complete.js";
+export type { AgentCompleteOpts, ProviderId } from "./agent-complete.js";
+export { PROVIDER_REGISTRY, PROVIDER_PRIORITY, getProvider, loadProvider, discoverProvider, discoverProviders, registerProvider, getProviderCapabilities, getStrategy } from "./provider-registry.js";
+export {
+  probeProviderHealth,
+  PROBE_TOOL_NAME,
+  type ProviderHealthProbeOptions,
+  type ProviderHealthProbeResult,
+  type ProviderHealthReport,
+  type ProviderHealthFailureCategory,
+  type ProviderHealthStatus,
+  type ProviderHealthFailureCode,
+} from "./benchmark/provider-health-probe.js";
+export {
+  BENCHMARK_AIRLOCK_VERSION,
+  runCodeAgentBenchmarkAirlock,
+  type BenchmarkAirlockProvider,
+  type BenchmarkAirlockObservation,
+  type BenchmarkAirlockRun,
+} from "./benchmark/benchmark-airlock.js";
+export {
+  getBenchmarkCampaignStatus,
+  getBenchmarkRecoveryCaseIds,
+  isCleanWitnessScorecard,
+  summarizeBenchmarkCampaign,
+  type BenchmarkCampaignCaseRecord,
+  type BenchmarkCampaignMode,
+  type BenchmarkCampaignSummary,
+} from "./benchmark/benchmark-campaign.js";
+export {
+  BENCHMARK_PARITY_REPORT_VERSION,
+  buildBenchmarkParityReport,
+  benchmarkParityReportToMarkdown,
+  type BenchmarkParityGap,
+  type BenchmarkParityReport,
+} from "./benchmark/benchmark-parity-report.js";
+export type { ProviderConfig } from "./provider-registry.js";
+export type { ProviderStrategy, StrategyCallOptions, StrategyStreamOptions } from "./provider-strategy.js";
+export type { ProviderCapabilityHints, ProviderCapabilitySummary, ProviderCostTier } from "./provider-capabilities.js";
+export type { Message, GroqResponse, CompleteOptions, RawMessage, ToolCall, ToolDefinition, RawGroqResponse } from "./groq-client.js";
+
+export type { PendingChange } from "./tools/file-tools.js";
+export { buildPatchHunks, hashPatchBase, rebasePatchHunks } from "./patch-contract.js";
+export type { FilePatchHunk, PatchRebaseResult } from "./patch-contract.js";
+export {
+  deriveFlightDeckState,
+  type FlightDeckState,
+  type FlightDeckStateInput,
+  type FlightDeckEvidenceVerdict,
+} from "./flight-deck-state.js";
+export {

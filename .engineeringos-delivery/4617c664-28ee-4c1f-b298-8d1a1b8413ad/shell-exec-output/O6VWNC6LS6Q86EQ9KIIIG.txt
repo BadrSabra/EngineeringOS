@@ -1,0 +1,152 @@
+docs/replit-agent-parity-gaps.md:73:| Conversational planning | Implementation planning requires a verified manifest and source excerpts and returns an explicit pending-approval/not-authorized outcome when grounding is missing ([chat planning guards](../artifacts/api-server/src/routes/ai/chat.ts#L605-L738); [baseline row](actual-capability-baseline-v1.md#user-visible-capability-map)). | **Specialized stronger** | The safe plan boundary is stronger than implicit “agent edits.” The missing proof is provider-backed generation and browser confirmation, not the authorization model. |
+docs/objective-claim-completion-gate-plan.md:1:# Objective / Claim Completion Gate + Production Reachability — Implementation Plan
+docs/governance/discovery-scanner-origin-of-truth.md:121:| **Drift** | `checkPatternInFiles` allows verifying if a specific violation still exists (used for task auto-closure) |
+docs/gap-analysis-2026-07-27.md:49:### Remediation order
+docs/gap-analysis-2026-07-27.md:84:### Remediation order
+docs/gap-analysis-2026-07-27.md:115:### Remediation order
+docs/gap-analysis-2026-07-27.md:143:### Remediation
+docs/gap-analysis-2026-07-27.md:163:### Remediation
+artifacts/api-server/src/services/task-service.ts:9: *   1. `db.select().from(rulesTable)` — to resolve the rule pattern for tasks
+artifacts/api-server/src/services/task-service.ts:73:      .where(eq(rulesTable.id, task.ruleId))
+artifacts/api-server/src/services/task-service.ts:159:    output: "No rule pattern or related files — task requires AI or human verification",
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:33:`buildProjectContext` is called from chat, analysis, workflow, and task routes. The current context sections include tasks, metrics, graph entities/relationships, events, and workflows where relevant. The scanner (`lib/scanner/src/file-walker.ts`) bounds depth, file count, per-file bytes, and ignored directories; `graph-extractor.ts` produces entities, relationships, extraction evidence, and provenance. `scan-runner.ts` re-establishes the persisted root through `establishProjectRoot`, walks it, computes rules/metrics, extracts the graph outside the DB transaction, and atomically persists tasks, graph, metrics, project status, audit, and event effects.
+docs/forensic-gap-analysis-engineeringos-vs-replit-agent.md:74:2. The agent reads/searches files and may run read-only Git tools. The model can produce a multi-file implementation plan with bounded file scope.
+docs/fact-record.md:8:_آخر تحقق: 2026-07-14 (تحديث ثالث) — إغلاق خطة الـ 14-PR للتصلّب الأمني الشامل. الملخص التنفيذي: كل route في api-server يتحقق الآن من ملكية المشروع قبل إعادة أي بيانات أو تنفيذ أي عملية؛ كل استدعاء `recordAudit` يُمرّر `actor: req.userId` الحقيقي بدل "system". تفصيل التغييرات: (1) `requireProjectAccess.ts` — أُضيف `loadProjectByIdForUser(projectId, userId, res)` كتصدير مُسمّى للاستخدام في routes يأتي فيها projectId من query/body لا من params؛ (2) `routes/tasks.ts` — إلزامية projectId في GET /tasks (لا fallback لكل المهام)، فحص ملكية على كل العمليات العشر (list/create/get/patch/delete/execute/retry/rollback/logs)، إضافة actor+correlationId لـ audit؛ (3) `routes/rules.ts` — GET /rules بلا projectId يعيد القواعد العالمية فقط (`isNull`، لا تسريب لقواعد المشاريع الأخرى)، فحص ملكية على project-scoped rules، DELETE بقي idempotent (204 حتى عند عدم الوجود)؛ (4) `routes/workflows.ts` — projectId إلزامي في GET /workflows (400 بلا filter)، فحص ملكية على 11 endpoint، actor على كل audit؛ (5) `routes/events.ts` — إعادة كتابة كاملة: projectId إلزامي + فحص ملكية + حد أقصى 500 نتيجة؛ (6) `routes/metrics.ts` — إعادة كتابة: GET /metrics يتحقق من الملكية، GET /metrics/latest بلا filter يعيد مشاريع المستخدم فقط (لا كل المشاريع)؛ (7) `routes/graph.ts` — projectId إلزامي على list endpoints + فحص ملكية، حد 1000 كيان/علاقة، neighbors/impact/path تُحمّل الـ entity أولًا للتحقق من ملكية مشروعها؛ (8) `routes/ai.ts` — chat/sessions تتحقق من ملكية، analyze/review يضمّان `requireProjectAccess` كوسيط مسار، orchestrate/execute يُحمّلان workflow/task للتحقق من مشروعهما؛ (9) `routes/discovery.ts` — audit import يحمل `actor: req.userId`؛ (10) `lib/job-reconciliation.ts` — يُسجّل الآن job IDs وproject IDs (scan) وsession IDs (discovery) الفعلية في رسائل التحذير، لا مجرد العدد. النتيجة: 219/219 اختبار يمر (لا انحدار). لا أخطاء TypeScript جديدة (الأخطاء المتبقية TS7006 على tx/f/t/m في الـ lambda callbacks موجودة مسبقًا بسبب dist غير مبني لحزم workspace).
+lib/db/src/schema/rules.ts:29:  fixDescription: text("fix_description"),
+artifacts/api-server/src/routes/ai.test.ts:558:    title: "Implementation plan",
+artifacts/api-server/src/routes/ai.test.ts:566:    content: "Implementation plan",
+lib/db/src/audit-schema-check.test.ts:9:const remediation =
+lib/db/src/audit-schema-check.test.ts:59:      assert.match(error.message, new RegExp(remediation.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+lib/db/src/audit-schema-check.test.ts:67:  it("reports a missing table with an actionable remediation", async () => {
+lib/db/src/audit-schema-check.test.ts:74:  it("reports missing required columns with an actionable remediation", async () => {
+lib/db/src/audit-schema-check.test.ts:81:  it("reports a missing required index with an actionable remediation", async () => {
+artifacts/api-server/src/routes/discovery.test.ts:744:  it("maps rule violation severity to task priority: critical→p0, high→p1, other→p2", async () => {
+lib/api-zod/src/generated/types/updateRuleInput.ts:15:  fixDescription?: string;
+docs/ai-orchestrator-forensic-analysis.md:316:- **Structure:** System (Persona/Rules/Output Schema) and User (Context: Metrics, Tasks, Files).
+artifacts/api-server/src/routes/ai/chat.ts:2199:          message: "AI implementation plan created and is awaiting approval",
+artifacts/api-server/src/routes/ai/chat.ts:2268:     * Build handoff from a previously approved implementation plan. The
+artifacts/api-server/src/routes/ai/chat.ts:2379:      return res.status(404).json({ error: "Implementation plan not found", code: "PLAN_NOT_FOUND" });
+artifacts/api-server/src/routes/ai/chat.ts:2382:      return res.status(403).json({ error: "Implementation plan does not belong to this project" });
+artifacts/api-server/src/routes/ai/chat.ts:2393:      return res.status(400).json({ error: "The selected message is not an implementation plan", code: "PLAN_INVALID" });
+artifacts/api-server/src/routes/ai/chat.ts:2397:        error: "Approve the implementation plan before starting Build Mode",
+artifacts/api-server/src/routes/ai/chat.ts:2406:        error: "This implementation plan has no safe file scope and cannot enter Build Mode",
+artifacts/api-server/src/routes/ai/chat.ts:2447:        error: "This implementation plan is not executable by the server-owned Build coordinator",
+artifacts/api-server/src/routes/ai/chat.ts:2457:      message: "Build Mode started from the approved implementation plan",
+artifacts/api-server/src/routes/ai/chat.ts:2464:      "BUILD HANDOFF — execute only the approved implementation plan below.",
+artifacts/api-server/src/routes/ai/chat.ts:3687:            "Build Mode proposed a file outside the approved implementation plan",
+artifacts/api-server/src/routes/ai/chat.ts:3692:            message: "Build Mode proposed changes outside the approved implementation plan. No proposal was created.",
+artifacts/api-server/src/routes/ai/chat.ts:4087:          message: "AI implementation plan created and is awaiting approval",
+artifacts/api-server/src/routes/ai/chat.ts:5042:    return res.status(404).json({ error: "Implementation plan not found", code: "PLAN_NOT_FOUND" });
+artifacts/api-server/src/routes/ai/chat.ts:5051:      error: "The selected message does not contain an implementation plan",
+artifacts/api-server/src/routes/ai/chat.ts:5058:      error: "The selected message does not contain an implementation plan",
+artifacts/api-server/src/routes/ai/chat.ts:5064:      error: "This implementation plan already has a decision",
+artifacts/api-server/src/routes/ai/chat.ts:5095:        error: "This implementation plan has no verified file scope and cannot enter Build Mode",
+artifacts/api-server/src/routes/ai/chat.ts:5127:      error: "This implementation plan was decided by another request",
+artifacts/api-server/src/routes/ai/chat.ts:5138:      ? "AI implementation plan approved for build"
+artifacts/api-server/src/routes/ai/chat.ts:5139:      : "AI implementation plan rejected",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:788:      message: "Create an implementation plan for feature X.",
+lib/api-zod/src/generated/types/rule.ts:18:  fixDescription?: string;
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:326:    title: "Implementation plan",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:334:    content: "Implementation plan",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1336:describe("Implementation Plan Build handoff", () => {
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1474:        message: "Build the approved implementation plan.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1494:        message: "Build the approved implementation plan.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1516:        message: "Build the approved implementation plan.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1553:        message: "Build the approved implementation plan.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1596:        message: "Build the approved implementation plan.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1677:          "Build the approved implementation plan.",
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:1796:        message: "Build the approved implementation plan.",
+docs/actual-capability-baseline-v1.md:101:| Implementation planning | `implementation-planner.ts` requires verified filesystem manifest/source excerpts, validates provider paths, and returns `PENDING_APPROVAL`/`NOT_AUTHORIZED` fallback when grounding is absent | **Verified by code** | No provider-backed plan generation was run |
+docs/actual-capability-baseline-v1.md:116:   request is ordinary chat, behavior/forensic work, implementation planning,
+docs/RUNTIME_EXECUTION_MATRIX.md:26:aiChatMessagesTable, aiChatSessionsTable, aiProviderCredentialsTable, auditLogsTable, discoverySessionsTable, eventsTable, graphEntitiesTable, graphRelationshipsTable, metricsTable, pluginsTable, projectsTable, rulesTable, scanJobsTable, taskLogsTable, tasksTable, workflowExecutionsTable, workflowsTable
+docs/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md:240:- remediation step
+docs/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md:257:- remediation priorities
+artifacts/api-server/src/lib/ai-route-helpers.ts:389:    /** Enabled only after the route validates an approved implementation plan. */
+artifacts/api-server/src/lib/ai-route-helpers.ts:403:    /** Server-owned files covered by the approved implementation plan. */
+lib/api-zod/src/generated/types/createRuleInput.ts:17:  fixDescription?: string;
+artifacts/api-server/src/lib/scan-runner.ts:320:    const existingRuleTasks = await tx
+artifacts/api-server/src/lib/scan-runner.ts:321:      .select({ ruleId: tasksTable.ruleId })
+artifacts/api-server/src/lib/scan-runner.ts:324:    const existingRuleTaskIds = new Set(existingRuleTasks.map((t) => t.ruleId).filter(Boolean));
+artifacts/api-server/src/lib/scan-runner.ts:329:      if (existingRuleTaskIds.has(result.ruleId)) continue;
+artifacts/api-server/src/lib/scan-runner.ts:343:          rule.fixDescription ??
+lib/api-zod/src/generated/api.ts:626:  "fixDescription": zod.string().optional(),
+lib/api-zod/src/generated/api.ts:646:  "fixDescription": zod.string().optional(),
+lib/api-zod/src/generated/api.ts:658:  "fixDescription": zod.string().optional(),
+lib/api-zod/src/generated/api.ts:682:  "fixDescription": zod.string().optional(),
+lib/api-zod/src/generated/api.ts:703:  "fixDescription": zod.string().optional(),
+lib/api-zod/src/generated/api.ts:715:  "fixDescription": zod.string().optional(),
+lib/api-zod/src/generated/api.ts:3876: * @summary Approve or reject an AI implementation plan
+lib/api-spec/openapi.yaml:2305:      summary: Approve or reject an AI implementation plan
+lib/api-spec/openapi.yaml:2324:          description: Updated implementation plan
+lib/api-spec/openapi.yaml:5615:        fixDescription:
+lib/api-spec/openapi.yaml:5649:        fixDescription:
+lib/api-spec/openapi.yaml:5668:        fixDescription:
+lib/api-client-react/src/generated/api.ts:6143: * @summary Approve or reject an AI implementation plan
+lib/api-client-react/src/generated/api.ts:6193: * @summary Approve or reject an AI implementation plan
+lib/api-client-react/src/generated/api.schemas.ts:2099:  fixDescription?: string;
+lib/api-client-react/src/generated/api.schemas.ts:2114:  fixDescription?: string;
+lib/api-client-react/src/generated/api.schemas.ts:2123:  fixDescription?: string;
+artifacts/api-server/src/lib/plugin-runtime.ts:11: * Future hooks: onEntityExtracted, onRuleViolation, onTaskCreated.
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-parity-report.md:21:| Priority | Dimension | Status | Evidence | Remediation |
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-parity-report.md:26:## Prioritized remediation
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-parity-report.json:96:      "remediation": "Keep bounded read/plan acceptance coverage green before mutation."
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-parity-report.json:103:      "remediation": "Retry only in an explicitly opted-in disposable campaign; do not convert U into quality evidence."
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-parity-report.json:106:  "prioritizedRemediation": [
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.md:118:| Priority | Dimension | Status | Evidence | Remediation |
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.md:123:## Prioritized remediation
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:2311:        "remediation": "Keep bounded read/plan acceptance coverage green before mutation."
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:2318:        "remediation": "Retry only in an explicitly opted-in disposable campaign; do not convert U into quality evidence."
+lib/ai-orchestrator/benchmark-results/live-quality-20260826/code-agent-benchmark-airlock.run.json:2321:    "prioritizedRemediation": [
+lib/ai-orchestrator/src/tools/execution-tools.ts:159:        "Run one registered project validation against the server-approved implementation files. Choose only a profile that matches the current implementation plan. Do not invent command names, paths, or test arguments.",
+lib/ai-orchestrator/src/tools/execution-tools.ts:179:        "Run the server-registered browser validation contract for the approved implementation plan. The server owns the preview origin, selectors, navigation, screenshots, revision, and resource limits.",
+lib/ai-orchestrator/src/tool-execution-engine.ts:435:  /** Files covered by the approved implementation plan. */
+lib/ai-orchestrator/src/tool-execution-engine.ts:1124:  /** Files covered by the approved implementation plan. */
+lib/ai-orchestrator/src/task-session-state.ts:160: * Convert an approved implementation plan into the same server-owned node
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:15:  remediation: string;
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:32:  prioritizedRemediation: Array<{
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:97:        remediation: DIMENSIONS.find((item) => item.name === dimension.dimension)!.action,
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:105:        remediation: DIMENSIONS.find((item) => item.name === dimension.dimension)!.action,
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:115:      remediation: "Stop rollout and add a deterministic regression fixture for every unsafe outcome.",
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:124:      remediation: "Retry only in an explicitly opted-in disposable campaign; do not convert U into quality evidence.",
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:127:  const prioritizedRemediation = gaps.map((gap) => ({
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:130:    action: gap.remediation,
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:140:    prioritizedRemediation,
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:163:    "| Priority | Dimension | Status | Evidence | Remediation |",
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:166:      ? report.gaps.map((gap) => `| ${gap.priority} | ${gap.dimension} | ${gap.status} | ${gap.evidence} | ${gap.remediation} |`)
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:169:    "## Prioritized remediation",
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:171:    ...(report.prioritizedRemediation.length > 0
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:172:      ? report.prioritizedRemediation.map((item, index) => `${index + 1}. **${item.priority} — ${item.dimension}:** ${item.action}`)
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.ts:173:      : ["No remediation items were generated."]),
+lib/ai-orchestrator/src/agents/implementation-planner.ts:23:    summary: "A safe implementation plan could not be structured by the provider. Review the request and retry before granting write access.",
+lib/ai-orchestrator/src/agents/implementation-planner.ts:123:    `## Implementation plan`,
+lib/ai-orchestrator/src/agents/chat-agent.ts:3301:   * in root-cause analysis and a concrete implementation plan for that task.
+lib/ai-orchestrator/src/agents/chat-agent.ts:3352:  /** Server-owned files covered by the approved implementation plan. */
+lib/ai-orchestrator/src/agents/chat-agent.ts:3486:    const response = "Implementation plan ready for review.";
+lib/ai-orchestrator/src/agents/chat-agent.ts:3599:        "\n\n**RESUMED IMPLEMENTATION PLAN — SERVER-OWNED:**",
+lib/ai-orchestrator/src/agents/chat-agent.ts:7001:              ? { plans: [], violations: ["partial forensic scope blocks repair execution"] }
+lib/ai-orchestrator/src/agents/chat-agent.ts:7372:                  ? { plans: [], violations: ["partial forensic scope blocks repair execution"] }
+lib/ai-orchestrator/src/schemas/context.schema.ts:37:     /** Optional verified filesystem inventory used only by implementation planning. */
+lib/ai-orchestrator/src/schemas/context.schema.ts:39:    /** Optional bounded source excerpts read specifically for implementation planning. */
+lib/ai-orchestrator/src/forensic-recovery.ts:356:): { plans: RepairPlanMetadata[]; violations: string[] } {
+lib/ai-orchestrator/src/forensic-recovery.ts:432:  return { plans, violations };
+lib/ai-orchestrator/src/forensic-recovery.ts:767:    const repairViolations = [...executablePlan.violations];
+lib/ai-orchestrator/src/forensic-output-guard.ts:854:function repairPlanContractViolations(response: string): string[] {
+lib/ai-orchestrator/src/forensic-output-guard.ts:1183:        `* Fix: ${oneLine(labeled(repairBody, ["Fix", "Recommendation", "Remediation"]))}`,
+lib/ai-orchestrator/src/forensic-output-guard.ts:1331:  violations.push(...repairPlanContractViolations(response));
+lib/ai-orchestrator/src/filesystem-manifest.ts:190: * Reads a bounded, ranked set of source excerpts for implementation planning.
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:165:    `**Behavioural rules when ACTIVE TASK is present:**
+lib/ai-orchestrator/src/prompts/chat.prompt.ts:169:- Produce a concrete, ordered implementation plan as the primary deliverable.
+lib/ai-orchestrator/src/__tests__/turn-intent.test.ts:167:    const intent = resolveTurnIntent("Build the approved implementation plan.", {
+lib/ai-orchestrator/src/__tests__/turn-intent.test.ts:183:      "Create an implementation plan for feature X.",
+lib/ai-orchestrator/src/prompts/profile-classifier.ts:183:  // "implementation plan" wording.
+lib/ai-orchestrator/src/prompts/implementation-plan.prompt.ts:28:      content: `You are an implementation planning agent for EngineeringOS.
+lib/ai-orchestrator/src/prompts/implementation-plan.prompt.ts:50:      content: `Create an implementation plan for this request:
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:273:  it("does not re-enter implementation planning for an approved Build handoff", async () => {
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:309:                  reason: "Apply the approved implementation plan",
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:335:          "Build the approved implementation plan.",
+lib/ai-orchestrator/src/__tests__/chat-agent-execution-handoff.test.ts:336:          "BUILD HANDOFF — execute only the approved implementation plan below.",
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts:15: *      evidence claim is unverifiable (empty Repair Plan → contract violation),
+lib/ai-orchestrator/src/__tests__/task-session-state.test.ts:297:  it("resumes a stored implementation plan and advances only after its inspect read", () => {
+lib/ai-orchestrator/src/__tests__/profile-classifier.test.ts:313:    const result = classifyRequest("Create an implementation plan to build the project activity timeline dashboard.");
+lib/ai-orchestrator/src/__tests__/profile-classifier.test.ts:356:  it("does not force an open Arabic implementation plan into BEHAVIOR_QUERY", () => {
+lib/ai-orchestrator/src/__tests__/task-contracts.test.ts:134:    expect(classifyForensicTask("Create an implementation plan for the AI layer")).toBe(

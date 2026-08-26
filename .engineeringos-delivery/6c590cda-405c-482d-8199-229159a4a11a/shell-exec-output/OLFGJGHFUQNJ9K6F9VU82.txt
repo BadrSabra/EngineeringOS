@@ -1,0 +1,218 @@
+artifacts/api-server/src/lib/scan-runner.ts:70:  projectRevision: string;
+artifacts/api-server/src/lib/scan-runner.ts:72:  sourceProvenance: string;
+artifacts/api-server/src/lib/scan-runner.ts:75:  repositoryManifest: {
+artifacts/api-server/src/lib/scan-runner.ts:76:    revision: string;
+artifacts/api-server/src/lib/scan-runner.ts:605:      projectRevision: walkResult.revision,
+artifacts/api-server/src/lib/scan-runner.ts:607:      sourceProvenance: "filesystem-scan",
+artifacts/api-server/src/lib/scan-runner.ts:610:      repositoryManifest: {
+artifacts/api-server/src/lib/scan-runner.ts:611:        ...walkResult.revisionManifest,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:28: * guard, and this function records the inspected revision, policy, attempt,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:42:  revision: string;
+artifacts/api-server/src/lib/workflow-phase-execution.ts:55:    workspaceRevision: params.revision,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:106:      revisionManifest: params.revision,
+artifacts/api-server/src/lib/workflow-phase-execution.ts:137:        detail: `Workflow phase "${params.phaseName}" claimed at revision ${params.revision}; `
+artifacts/api-server/src/lib/workflow-phase-execution.ts:175:      evidenceReason: `Server-owned workflow phase boundary recorded at revision ${params.revision}.`,
+artifacts/api-server/src/lib/task-execution-service.ts:56:  revision: string | null;
+artifacts/api-server/src/lib/task-execution-service.ts:97:  revision?: string;
+artifacts/api-server/src/lib/task-execution-service.ts:109:    revision: params.revision ?? null,
+artifacts/api-server/src/lib/task-execution-service.ts:128:  revision?: string;
+artifacts/api-server/src/lib/task-execution-service.ts:141:    revision: params.revision ?? null,
+artifacts/api-server/src/lib/task-execution-service.ts:311:        executionId, correlationId, revision: params.workspaceRevision,
+artifacts/api-server/src/lib/task-execution-service.ts:333:          revision: params.workspaceRevision ?? null,
+artifacts/api-server/src/lib/task-execution-service.ts:357:      executionId, correlationId, revision: params.workspaceRevision,
+artifacts/api-server/src/lib/task-execution-service.ts:409:          revision: taskReceipt.revision,
+artifacts/api-server/src/lib/task-execution-service.ts:425:          revision: taskReceipt.revision, terminalStatus: taskReceipt.terminalStatus,
+artifacts/api-server/src/lib/task-execution-service.ts:458:      executionId, correlationId, revision: params.workspaceRevision,
+artifacts/api-server/src/lib/task-execution-service.ts:482:        revision: params.workspaceRevision ?? null,
+artifacts/api-server/src/lib/task-execution-service.ts:500:        revision: params.workspaceRevision ?? null,
+artifacts/api-server/src/lib/task-execution-service.test.ts:21:      revision: "2026-08-23T00:00:00.000Z",
+artifacts/api-server/src/lib/scan-runner.ts:70:  projectRevision: string;
+artifacts/api-server/src/lib/scan-runner.ts:72:  sourceProvenance: string;
+artifacts/api-server/src/lib/scan-runner.ts:75:  repositoryManifest: {
+artifacts/api-server/src/lib/scan-runner.ts:76:    revision: string;
+artifacts/api-server/src/lib/scan-runner.ts:605:      projectRevision: walkResult.revision,
+artifacts/api-server/src/lib/scan-runner.ts:607:      sourceProvenance: "filesystem-scan",
+artifacts/api-server/src/lib/scan-runner.ts:610:      repositoryManifest: {
+artifacts/api-server/src/lib/scan-runner.ts:611:        ...walkResult.revisionManifest,
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:56:  const revision = stdout.trim();
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:57:  if (!/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(revision)) {
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:58:    throw new Error("SOURCE_REVISION_INVALID: server-observed main revision is malformed.");
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:60:  if (revision !== APPROVED_SOURCE_REVISION) {
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:61:    throw new Error("SOURCE_REVISION_STALE: server-observed main revision is not the approved benchmark source.");
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:63:  return revision;
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts:453:      "SOURCE_REVISION_MISMATCH: persisted benchmark observations do not match the server-owned campaign source revision.",
+artifacts/api-server/src/lib/operational-readiness-gate.ts:26:  projectRevision: string | null;
+artifacts/api-server/src/lib/operational-readiness-gate.ts:37:    revision: string | null;
+artifacts/api-server/src/lib/operational-readiness-gate.ts:60:  revision: "Refresh the operation and candidate from the current project revision.",
+artifacts/api-server/src/lib/operational-readiness-gate.ts:87:  checks.push(check("project-revision", Boolean(input.projectRevision),
+artifacts/api-server/src/lib/operational-readiness-gate.ts:88:    input.projectRevision ? "Project revision is retained." : "Project revision is missing.", true, ACTIONS.revision));
+artifacts/api-server/src/lib/operational-readiness-gate.ts:90:    input.candidateRevision && input.candidateIdentity && input.candidateRevision === input.projectRevision,
+artifacts/api-server/src/lib/operational-readiness-gate.ts:92:  checks.push(check("candidate-revision", candidateMatchesProject,
+artifacts/api-server/src/lib/operational-readiness-gate.ts:95:        ? "Candidate identity and revision match the project."
+artifacts/api-server/src/lib/operational-readiness-gate.ts:96:        : "Candidate revision does not match the project revision."
+artifacts/api-server/src/lib/operational-readiness-gate.ts:97:      : "Candidate identity or revision is missing.", true, ACTIONS.candidate));
+artifacts/api-server/src/lib/operational-readiness-gate.ts:110:    const bound = input.campaign.operationId === input.operationId && input.campaign.revision === input.projectRevision;
+artifacts/api-server/src/lib/operational-readiness-gate.ts:111:    checks.push(check("campaign-binding", bound, bound ? "Campaign findings match operation and revision." : "Campaign findings are stale or bound to another operation.", true, ACTIONS.campaign));
+artifacts/api-server/src/lib/operational-readiness-gate.ts:158:    projectRevision: evidence.revision,
+artifacts/api-server/src/lib/operational-readiness-gate.test.ts:5:  operationId: "op-1", projectId: "project-1", projectRevision: "rev-1", candidateRevision: "rev-1",
+artifacts/api-server/src/lib/operational-readiness-gate.test.ts:32:        operationId: "op-1", revision: "rev-1",
+artifacts/api-server/src/lib/operation-evidence.ts:34:  source: "execution" | "checkpoint" | "event" | "audit" | "task-log" | "journal" | "proposal" | "revision";
+artifacts/api-server/src/lib/operation-evidence.ts:52:  revision: string | null;
+artifacts/api-server/src/lib/operation-evidence.ts:82:  proposal?: { revision: number; baseRevision: string | null; changeSetHash: string | null; committedHash: string | null } | null;
+artifacts/api-server/src/lib/operation-evidence.ts:165:  const revision = text(request.workspaceRevision, 200) ?? text(input.proposal?.baseRevision, 200) ?? text(execution.baseRevision, 200) ?? null;
+artifacts/api-server/src/lib/operation-evidence.ts:166:  if (!revision) addGap(gaps, { kind: "unrecorded", source: "revision", detail: "The operation revision was not retained." });
+artifacts/api-server/src/lib/operation-evidence.ts:177:  if (input.proposal?.baseRevision && revision && input.proposal.baseRevision !== revision) {
+artifacts/api-server/src/lib/operation-evidence.ts:178:    addGap(gaps, { kind: "mismatch", source: "revision", detail: "Evidence revisions do not agree." });
+artifacts/api-server/src/lib/operation-evidence.ts:187:  else if (execution.status === "completed" && gaps.some((gap) => gap.kind === "mismatch" || gap.source === "revision")) completeness = "uncertain";
+artifacts/api-server/src/lib/operation-evidence.ts:197:    revision,
+artifacts/api-server/src/lib/operation-evidence.ts:267:          revision: aiChangeProposalsTable.revision, baseRevision: aiChangeProposalsTable.baseRevision,
+artifacts/api-server/src/lib/operation-evidence.test.ts:19:      request: JSON.stringify({ workspaceRevision: "revision-1", objective: "Ship the change" }),
+artifacts/api-server/src/lib/operation-evidence.test.ts:20:      baseRevision: "revision-1",
+artifacts/api-server/src/lib/operation-evidence.test.ts:48:      revision: "revision-1",
+artifacts/api-server/src/lib/operation-evidence.test.ts:73:  it("preserves cancellation and revision mismatch as non-success states", () => {
+artifacts/api-server/src/lib/operation-evidence.test.ts:81:        revision: 2,
+artifacts/api-server/src/lib/operation-evidence.test.ts:82:        baseRevision: "revision-2",
+artifacts/api-server/src/lib/browser-preview-verification.ts:21:  revision: string;
+artifacts/api-server/src/lib/browser-preview-verification.ts:33:  revision: string;
+artifacts/api-server/src/lib/browser-preview-verification.ts:46:  revision: string;
+artifacts/api-server/src/lib/browser-preview-verification.ts:54:  revision: string;
+artifacts/api-server/src/lib/browser-preview-verification.ts:197:  if (contract.revision !== session.revision) throw new Error("Preview validation contract is stale.");
+artifacts/api-server/src/lib/browser-preview-verification.ts:260:    revision: string;
+artifacts/api-server/src/lib/browser-preview-verification.ts:273:      revision: input.revision,
+artifacts/api-server/src/lib/browser-preview-verification.ts:351:        revision: input.session.revision, sessionId: input.session.id, status: "failed",
+artifacts/api-server/src/lib/browser-preview-verification.ts:357:  if (input.expectedRevision !== undefined && input.expectedRevision !== input.session.revision) {
+artifacts/api-server/src/lib/browser-preview-verification.ts:360:      revision: input.session.revision, sessionId: input.session.id, status: "failed",
+artifacts/api-server/src/lib/browser-preview-verification.ts:361:      summary: "Preview revision is stale and cannot be used as validation evidence.",
+artifacts/api-server/src/lib/browser-preview-verification.ts:368:      revision: input.session.revision, sessionId: input.session.id, status: "unavailable",
+artifacts/api-server/src/lib/browser-preview-verification.ts:423:        revision: input.session.revision, sessionId: input.session.id, status: "failed",
+artifacts/api-server/src/lib/browser-preview-verification.ts:429:      revision: input.session.revision, sessionId: input.session.id, status: "passed",
+artifacts/api-server/src/lib/browser-preview-verification.ts:437:      revision: input.session.revision, sessionId: input.session.id, status: "failed",
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:52:      revision: "rev-a",
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:68:      projectRoot: process.cwd(), revision: "rev-a", port: 4313, lifetimeMs: 5_000,
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:77:  it("rejects stale revisions and external navigation", async () => {
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:79:      id: "session-a", projectRoot: process.cwd(), revision: "rev-a", port: 4312,
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:100:      id: "session-b", projectRoot: process.cwd(), revision: "rev-a", port: 4312,
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:126:  it("rejects a contract whose revision or origin is not server-approved", async () => {
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:128:      id: "session-contract", projectRoot: process.cwd(), revision: "rev-a", port: 4312,
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:135:        revision: "rev-b",
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:147:        revision: "rev-a",
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:159:      id: "session-bounds", projectRoot: process.cwd(), revision: "rev-a", port: 4312,
+artifacts/api-server/src/lib/browser-preview-verification.test.ts:166:        revision: "rev-a",
+import { defineConfig, InputTransformerFn } from "orval";
+import path from "path";
+
+const root = path.resolve(__dirname, "..", "..");
+// The drift check points codegen at a temporary output root so validation
+// never mutates the working tree. Normal codegen keeps the repository root.
+const outputRoot = process.env.CODEGEN_OUTPUT_ROOT
+  ? path.resolve(process.env.CODEGEN_OUTPUT_ROOT)
+  : root;
+const apiClientReactSrc = path.resolve(
+  outputRoot,
+  "lib",
+  "api-client-react",
+  "src",
+);
+const apiZodSrc = path.resolve(outputRoot, "lib", "api-zod", "src");
+const apiClientReactMutator = path.resolve(
+  outputRoot,
+  "lib",
+  "api-client-react",
+  "src",
+  "custom-fetch.ts",
+);
+
+// Our exports make assumptions about the title of the API being "Api" (i.e. generated output is `api.ts`).
+const titleTransformer: InputTransformerFn = (config) => {
+  config.info ??= {};
+  config.info.title = "Api";
+
+  return config;
+};
+
+// ── Zod post-processing rationale ────────────────────────────────────────────
+//
+// Orval 8.x generates `z.looseObject(...)` when targeting OpenAPI 3.1 because
+// the spec allows additional properties by default in that version. However,
+// this codebase uses Zod v3, which has no `looseObject` constructor — it was
+// introduced in Zod v4. The `sed` step in package.json replaces every
+// `z.looseObject(` with `z.object(` so the generated code compiles cleanly
+// against Zod v3. The checked transform lives in
+// scripts/patch-generated-zod.ts and fails if Orval no longer emits the
+// expected marker.
+//
+// Important behavioural notes:
+//   • `z.object()` in Zod v3 strips unknown keys (strip mode) — extra fields
+//     are silently removed, not rejected. This is intentional for response
+//     parsing where forward-compatibility matters.
+//   • For request bodies on mutation endpoints, `additionalProperties: false`
+//     is set in openapi.yaml (PR-04), which is the contract-level signal that
+//     extra keys must not be sent. Runtime enforcement (strict mode) can be
+//     added per-schema by calling `.strict()` on the generated schema if
+//     needed.
+//   • The post-processing command verifies that at least one expected
+//     `looseObject` marker was transformed, so a future Orval upgrade that
+//     changes the output format cannot silently make this step a no-op.
+//
+// If you upgrade Orval or switch to Zod v4, evaluate whether this sed step
+// (and the matching checked transform) can be removed.
+
+export default defineConfig({
+  "api-client-react": {
+    input: {
+      target: path.resolve(__dirname, "openapi.yaml"),
+      override: {
+        transformer: titleTransformer,
+      },
+    },
+    output: {
+      workspace: apiClientReactSrc,
+      target: "generated",
+      client: "react-query",
+      mode: "split",
+      clean: true,
+      prettier: true,
+      override: {
+        fetch: {
+          includeHttpResponseReturnType: false,
+        },
+        mutator: {
+          // The mutator is source code, not generated output, so it always
+          // remains available at the same relative path when output is
+          // redirected for the non-mutating drift check.
+          path: apiClientReactMutator,
+          name: "customFetch",
+        },
+      },
+    },
+  },
+  zod: {
+    input: {
+      target: path.resolve(__dirname, "openapi.yaml"),
+      override: {
+        transformer: titleTransformer,
+      },
+    },
+    output: {
+      workspace: apiZodSrc,
+      client: "zod",
+      target: "generated",
+      schemas: { path: "generated/types", type: "typescript" },
+      mode: "split",
+      clean: true,
+      prettier: true,
+      override: {
+        zod: {
+          coerce: {
+            query: ["boolean", "number", "string"],
+            param: ["boolean", "number", "string"],
+            body: ["bigint", "date"],
+            response: ["bigint", "date"],
+          },
+        },
+        useDates: true,
+        useBigInt: true,
+      },
+    },
+  },
+});

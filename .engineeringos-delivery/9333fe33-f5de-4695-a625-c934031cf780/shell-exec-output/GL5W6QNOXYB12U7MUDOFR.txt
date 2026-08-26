@@ -1,0 +1,339 @@
+/home/runner/workspace
+
+Top-level:
+total 348
+-rw-r--r-- 1 runner runner    419 Aug 26 02:44 ''$'\r'
+-rw-r--r-- 1 runner runner    419 Aug 26 02:44 ''$'\r\r'
+drwxr-xr-x 1 runner runner    618 Aug 26 03:04  .
+drwxr-xr-x 1 runner runner     60 Aug 26 16:24  ..
+drwxr-xr-x 1 runner runner     76 Aug 26 02:45  .agents
+drwxr-xr-x 1 runner runner     66 Aug 26 02:44  artifacts
+drwxr-xr-x 1 runner runner    100 Aug 26 02:44  attached_assets
+drwxr-xr-x 1 runner runner     40 Aug 26 03:05  .cache
+drwx------ 1 runner runner     32 Aug 26 03:05  .config
+drwxr-xr-x 1 runner runner   1698 Aug 26 02:44  docs
+drwxr-xr-x 1 runner runner  27792 Aug 26 16:11  .engineeringos-delivery
+drwxr-xr-x 1 runner runner    140 Aug 26 16:24  .git
+-rw-r--r-- 1 runner runner    170 Aug 26 02:44  .gitattributes
+drwxr-xr-x 1 runner runner     94 Aug 26 02:44  .github
+-rw-r--r-- 1 runner runner   1143 Aug 26 02:44  .gitignore
+drwxr-xr-x 1 runner runner    142 Aug 26 02:44  lib
+drwxr-xr-x 1 runner runner    160 Aug 26 03:04  .local
+drwxr-xr-x 1 runner runner  12516 Aug 26 02:49  node_modules
+-rw-r--r-- 1 runner runner     78 Aug 26 02:44  .npmrc
+-rw-r--r-- 1 runner runner   3646 Aug 26 02:44  package.json
+-rw-r--r-- 1 runner runner 287279 Aug 26 02:44  pnpm-lock.yaml
+-rw-r--r-- 1 runner runner   6579 Aug 26 02:44  pnpm-workspace.yaml
+-rw-r--r-- 1 runner runner    105 Aug 26 02:44 ''$'\r\r''.pub'
+-rw-r--r-- 1 runner runner    105 Aug 26 02:44 ''$'\r''.pub'
+drwxr-xr-x 1 runner runner     58 Aug 26 02:44  release-evidence
+-rw-r--r-- 1 runner runner   3392 Aug 26 02:49  .replit
+-rw-r--r-- 1 runner runner    201 Aug 26 02:44  .replitignore
+-rw-r--r-- 1 runner runner   1689 Aug 26 02:44  replit.md
+drwxr-xr-x 1 runner runner   1304 Aug 26 02:48  scripts
+drwxr-xr-x 1 runner runner      0 Aug 26 16:18  test-results
+-rw-r--r-- 1 runner runner    691 Aug 26 02:44  tsconfig.base.json
+-rw-r--r-- 1 runner runner    692 Aug 26 02:44  tsconfig.base.json.bak
+-rw-r--r-- 1 runner runner    382 Aug 26 02:44  tsconfig.json
+
+Files:
+tsconfig.json
+tsconfig.base.json.bak
+tsconfig.base.json
+pnpm-lock.yaml
+package.json
+release-evidence/live-mission-correlation.json
+lib/scanner/vitest.config.ts
+lib/scanner/tsconfig.json
+pnpm-workspace.yaml
+lib/scanner/src/rule-matcher.ts
+lib/scanner/src/python-extractor.ts
+lib/scanner/src/python-ast-script.ts
+lib/scanner/src/python-ast-script.py
+lib/scanner/src/metrics-calc.ts
+lib/scanner/src/index.ts
+lib/scanner/src/graph-extractor.ts
+lib/scanner/src/file-walker.ts
+lib/scanner/src/__tests__/rule-matcher.test.ts
+lib/scanner/src/__tests__/metrics-calc.test.ts
+lib/scanner/src/__tests__/graph-extractor.test.ts
+lib/scanner/src/__tests__/file-walker.test.ts
+lib/scanner/package.json
+lib/api-zod/tsconfig.json
+lib/knowledge-engine/tsconfig.json
+lib/api-zod/src/truth-flow-matrix.schema.ts
+lib/api-zod/src/index.ts
+lib/knowledge-engine/src/types.ts
+lib/knowledge-engine/src/queries.ts
+lib/knowledge-engine/src/inference.ts
+lib/knowledge-engine/src/index.ts
+lib/knowledge-engine/src/graph-limits.ts
+lib/knowledge-engine/src/__tests__/queries.test.ts
+lib/knowledge-engine/src/__tests__/inference.test.ts
+lib/knowledge-engine/package.json
+lib/db/tsconfig.json
+scripts/verify-setup.sh
+docs/truth-flow-pr-review-plan.md
+scripts/verify-benchmark-rollout.test.mjs
+scripts/verify-benchmark-rollout.mjs
+scripts/validate-truth-flow.ts
+scripts/validate-github-workflows.test.mjs
+scripts/validate-github-workflows.mjs
+scripts/validate-dashboard-client-contract.mjs
+scripts/validate-benchmark-baseline.ts
+scripts/validate-app-origins.mjs
+scripts/tsconfig.json
+scripts/trigger-scan.mts
+docs/truth-flow-pr-checklist.md
+docs/single-file-status-acceptance-prompt.md
+docs/runtime-coverage-matrix.md
+docs/replit-agent-parity-gaps.md
+docs/pr-backlog-ai-orchestrator.md
+docs/objective-claim-completion-gate-plan.md
+lib/db/src/schema/workflows.ts
+lib/db/src/schema/uploads.ts
+lib/db/src/schema/tasks.ts
+lib/db/src/schema/task_logs.ts
+lib/db/src/schema/scan_jobs.ts
+lib/db/src/schema/rules.ts
+lib/db/src/schema/rate_limits.ts
+lib/db/src/schema/projects.ts
+lib/db/src/schema/plugins.ts
+lib/db/src/schema/pending_audit_logs.ts
+lib/db/src/schema/metrics.ts
+lib/db/src/schema/index.ts
+lib/db/src/schema/graph.ts
+lib/db/src/schema/events.ts
+lib/db/src/schema/discovery.ts
+lib/db/src/schema/browser_validation_profiles.ts
+lib/db/src/schema/audit_logs.ts
+lib/db/src/schema/ai_provider_credentials.ts
+lib/db/src/schema/ai_executions.ts
+lib/db/src/schema/ai_chats.ts
+lib/db/src/schema/ai_change_proposals.ts
+lib/db/src/schema/ai_apply_journal.ts
+lib/db/src/index.ts
+lib/db/src/check-audit-schema.ts
+lib/db/src/audit-schema-check.ts
+lib/db/src/audit-schema-check.test.ts
+lib/db/package.json
+lib/db/drizzle.config.ts
+scripts/package.json
+scripts/mission-correlation-report.test.mjs
+scripts/mission-correlation-report.mjs
+scripts/generate-truth-flow.ts
+scripts/dashboard-journey-contract.test.mjs
+scripts/dashboard-contract-trigger.test.mjs
+scripts/check-codegen-drift.ts
+replit.md
+scripts/post-merge.sh
+scripts/patch-generated-zod.ts
+scripts/patch-generated-zod.test.ts
+scripts/parse-check-spec.ts
+scripts/release-port-cleanup.test.mjs
+scripts/release-configuration.test.ts
+scripts/run-dashboard-journey.mjs
+docs/ai-model-capability-probe-prompt.md
+docs/ai-agent-improvement-plan.md
+docs/actual-capability-baseline-v1.md
+docs/RUNTIME_EXECUTION_MATRIX.md
+docs/PR_BACKLOG.md
+docs/PLACEHOLDER_REGISTER.md
+docs/EXECUTION_ALIGNMENT_REPORT.md
+docs/ENGINEERINGOS_MASTER_EXECUTION_CONSTITUTION.md
+lib/api-zod/src/generated/types/workflowStatus.ts
+lib/api-zod/src/generated/types/workflowPhase.ts
+lib/api-zod/src/generated/types/workflowExecution.ts
+lib/api-zod/src/generated/types/workflow.ts
+lib/api-zod/src/generated/types/verificationResultStepsItem.ts
+lib/api-zod/src/generated/types/verificationResult.ts
+lib/api-zod/src/generated/types/validationResultTerminalState.ts
+lib/api-zod/src/generated/types/validationResultStatus.ts
+lib/api-zod/src/generated/types/validationResult.ts
+lib/api-zod/src/generated/types/validationFailure.ts
+lib/api-zod/src/generated/types/validationEvidence.ts
+lib/api-zod/src/generated/types/validationErrorIssuesItem.ts
+lib/api-zod/src/generated/types/validationError.ts
+lib/api-zod/src/generated/types/updateTaskInput.ts
+lib/api-zod/src/generated/types/updateRuleInput.ts
+lib/api-zod/src/generated/types/updateProjectInputStatus.ts
+lib/api-zod/src/generated/types/updateProjectInput.ts
+lib/api-zod/src/generated/types/updateGitConfigInput.ts
+lib/api-zod/src/generated/types/taskStatus.ts
+lib/api-zod/src/generated/types/taskPriority.ts
+lib/api-zod/src/generated/types/taskLogMetadata.ts
+lib/api-zod/src/generated/types/taskLogLevel.ts
+lib/api-zod/src/generated/types/taskLog.ts
+lib/api-zod/src/generated/types/taskExecutionRetentionHealthStatus.ts
+lib/api-zod/src/generated/types/taskExecutionRetentionHealth.ts
+lib/api-zod/src/generated/types/task.ts
+lib/api-zod/src/generated/types/startDiscoveryInput.ts
+lib/api-zod/src/generated/types/sourceType.ts
+lib/api-zod/src/generated/types/sourceSpan.ts
+lib/api-zod/src/generated/types/semanticTraceSourceSpan.ts
+lib/api-zod/src/generated/types/semanticTraceNodeStage.ts
+lib/api-zod/src/generated/types/semanticTraceNode.ts
+lib/api-zod/src/generated/types/semanticTraceEdgeStatus.ts
+lib/api-zod/src/generated/types/semanticTraceEdge.ts
+lib/api-zod/src/generated/types/scanResult.ts
+lib/api-zod/src/generated/types/scanJobStatus.ts
+lib/api-zod/src/generated/types/scanJob.ts
+lib/api-zod/src/generated/types/saveOpenRouterKeyInput.ts
+lib/api-zod/src/generated/types/saveGroqKeyInput.ts
+lib/api-zod/src/generated/types/saveGitHubTokenInput.ts
+lib/api-zod/src/generated/types/saveGeminiKeyInput.ts
+lib/api-zod/src/generated/types/saveDeepSeekKeyInput.ts
+lib/api-zod/src/generated/types/ruleSeverity.ts
+lib/api-zod/src/generated/types/ruleEvaluationResultMatchesItem.ts
+lib/api-zod/src/generated/types/ruleEvaluationResult.ts
+lib/api-zod/src/generated/types/rule.ts
+lib/api-zod/src/generated/types/rollbackWorkflowPhaseInput.ts
+lib/api-zod/src/generated/types/resumeAiDeliveryValidation200.ts
+lib/api-zod/src/generated/types/regenerateMissionCorrelationReport200.ts
+lib/api-zod/src/generated/types/recoverAiExecutionResumeCapability200.ts
+lib/api-zod/src/generated/types/recoverAiExecution200Outcome.ts
+lib/api-zod/src/generated/types/recoverAiExecution200.ts
+lib/api-zod/src/generated/types/publicValidationResultTerminalState.ts
+lib/api-zod/src/generated/types/publicValidationResultStatus.ts
+lib/api-zod/src/generated/types/publicValidationResultReasonCode.ts
+lib/api-zod/src/generated/types/publicValidationResult.ts
+lib/api-zod/src/generated/types/providerKeyStatus.ts
+lib/api-zod/src/generated/types/projectSummaryTaskCounts.ts
+lib/api-zod/src/generated/types/projectSummary.ts
+lib/api-zod/src/generated/types/projectStatus.ts
+lib/api-zod/src/generated/types/project.ts
+lib/api-zod/src/generated/types/productionReachabilityTraceStatus.ts
+lib/api-zod/src/generated/types/productionReachabilityTrace.ts
+lib/api-zod/src/generated/types/pluginProjectRequest.ts
+lib/api-zod/src/generated/types/pluginCapabilitiesItem.ts
+lib/api-zod/src/generated/types/plugin.ts
+lib/api-zod/src/generated/types/operationalCounters.ts
+lib/api-zod/src/generated/types/operationEvidenceProjectionVersion.ts
+lib/api-zod/src/generated/types/operationEvidenceProjectionReceiptsItem.ts
+lib/api-zod/src/generated/types/operationEvidenceProjectionHashes.ts
+lib/api-zod/src/generated/types/operationEvidenceProjectionGapsItemSource.ts
+lib/api-zod/src/generated/types/operationEvidenceProjectionGapsItemKind.ts
+lib/api-zod/src/generated/types/operationEvidenceProjectionGapsItem.ts
+lib/api-zod/src/generated/types/operationEvidenceProjectionCounts.ts
+lib/api-zod/src/generated/types/operationEvidenceProjectionCompleteness.ts
+lib/api-zod/src/generated/types/operationEvidenceProjection.ts
+lib/api-zod/src/generated/types/openRouterKeyStatus.ts
+lib/api-zod/src/generated/types/objectiveContractScopePolicy.ts
+lib/api-zod/src/generated/types/objectiveContractRequiredEvidenceEdgesItem.ts
+lib/api-zod/src/generated/types/objectiveContractRequiredClaimsItem.ts
+lib/api-zod/src/generated/types/objectiveContract.ts
+lib/api-zod/src/generated/types/missionCorrelationReportVersion.ts
+lib/api-zod/src/generated/types/missionCorrelationReportTerminalState.ts
+lib/api-zod/src/generated/types/missionCorrelationReportKind.ts
+lib/api-zod/src/generated/types/missionCorrelationReportCounts.ts
+lib/api-zod/src/generated/types/missionCorrelationReportAgreement.ts
+lib/api-zod/src/generated/types/missionCorrelationReport.ts
+lib/api-zod/src/generated/types/metricRecordBuildStatus.ts
+lib/api-zod/src/generated/types/metricRecord.ts
+lib/api-zod/src/generated/types/listWorkflowsParams.ts
+lib/api-zod/src/generated/types/listTasksParams.ts
+lib/api-zod/src/generated/types/listRulesParams.ts
+lib/api-zod/src/generated/types/listRecoverableAiDeliveriesParams.ts
+lib/api-zod/src/generated/types/listRecoverableAiDeliveries200OperationsItem.ts
+lib/api-zod/src/generated/types/listRecoverableAiDeliveries200.ts
+lib/api-zod/src/generated/types/listProjectsParams.ts
+lib/api-zod/src/generated/types/listMetricsParams.ts
+lib/api-zod/src/generated/types/listGraphRelationshipsParams.ts
+lib/api-zod/src/generated/types/listGraphEntitiesParams.ts
+lib/api-zod/src/generated/types/listEventsSeverity.ts
+lib/api-zod/src/generated/types/listEventsParams.ts
+lib/api-zod/src/generated/types/listEvents200.ts
+lib/api-zod/src/generated/types/listAiExecutionHistoryParams.ts
+lib/api-zod/src/generated/types/listAiExecutionHistory200ItemStatus.ts
+lib/api-zod/src/generated/types/listAiExecutionHistory200ItemRecommendedAction.ts
+lib/api-zod/src/generated/types/listAiExecutionHistory200ItemEvidenceVerdict.ts
+lib/api-zod/src/generated/types/listAiExecutionHistory200ItemDisposition.ts
+lib/api-zod/src/generated/types/listAiExecutionHistory200Item.ts
+lib/api-zod/src/generated/types/listAiChatSessionsParams.ts
+lib/api-zod/src/generated/types/layeredGraphSummaryByLayer.ts
+lib/api-zod/src/generated/types/layeredGraphSummaryByEdgeType.ts
+lib/api-zod/src/generated/types/layeredGraphSummary.ts
+lib/api-zod/src/generated/types/jobRecoveryHealthStatus.ts
+lib/api-zod/src/generated/types/jobRecoveryHealth.ts
+lib/api-zod/src/generated/types/jobQueueStats.ts
+lib/api-zod/src/generated/types/index.ts
+lib/api-zod/src/generated/types/importProjectInputOverrides.ts
+lib/api-zod/src/generated/types/importProjectInput.ts
+lib/api-zod/src/generated/types/healthStatusStatus.ts
+lib/api-zod/src/generated/types/healthStatus.ts
+lib/api-zod/src/generated/types/groqKeyStatus.ts
+lib/api-zod/src/generated/types/graphSummaryRelationsByType.ts
+lib/api-zod/src/generated/types/graphSummaryLayer.ts
+lib/api-zod/src/generated/types/graphSummaryEntitiesByType.ts
+lib/api-zod/src/generated/types/graphSummary.ts
+lib/api-zod/src/generated/types/graphSubgraphLayered.ts
+lib/api-zod/src/generated/types/graphSubgraphFilters.ts
+lib/api-zod/src/generated/types/graphSubgraph.ts
+lib/api-zod/src/generated/types/graphSemanticNeighborhood.ts
+lib/api-zod/src/generated/types/graphRuntimeSubgraph.ts
+lib/api-zod/src/generated/types/graphRelationshipMetadata.ts
+lib/api-zod/src/generated/types/graphRelationshipList.ts
+lib/api-zod/src/generated/types/graphRelationship.ts
+lib/api-zod/src/generated/types/graphProvenance.ts
+lib/api-zod/src/generated/types/graphPathStep.ts
+lib/api-zod/src/generated/types/graphPathResult.ts
+lib/api-zod/src/generated/types/graphListMeta.ts
+lib/api-zod/src/generated/types/graphLayerCounts.ts
+lib/api-zod/src/generated/types/graphImpactResult.ts
+lib/api-zod/src/generated/types/graphImpactHop.ts
+lib/api-zod/src/generated/types/graphEvidenceResponse.ts
+lib/api-zod/src/generated/types/graphEvidenceKind.ts
+lib/api-zod/src/generated/types/graphEvidenceBundle.ts
+lib/api-zod/src/generated/types/graphEvidence.ts
+lib/api-zod/src/generated/types/graphEntityMetadata.ts
+lib/api-zod/src/generated/types/graphEntityList.ts
+lib/api-zod/src/generated/types/graphEntity.ts
+lib/api-zod/src/generated/types/graphEdgeType.ts
+lib/api-zod/src/generated/types/graphCentralityScore.ts
+lib/api-zod/src/generated/types/gitStatusFile.ts
+lib/api-zod/src/generated/types/gitStatus.ts
+lib/api-zod/src/generated/types/gitPushResult.ts
+lib/api-zod/src/generated/types/gitPushInput.ts
+lib/api-zod/src/generated/types/gitOperationResult.ts
+lib/api-zod/src/generated/types/gitLog.ts
+lib/api-zod/src/generated/types/gitHubTokenStatus.ts
+lib/api-zod/src/generated/types/gitConfig.ts
+lib/api-zod/src/generated/types/gitCommitInput.ts
+lib/api-zod/src/generated/types/gitCommitEntry.ts
+lib/api-zod/src/generated/types/getLatestMetricsParams.ts
+lib/api-zod/src/generated/types/getGraphSubgraphParams.ts
+lib/api-zod/src/generated/types/getGraphSemanticNeighborhoodParams.ts
+lib/api-zod/src/generated/types/getGraphPathParams.ts
+lib/api-zod/src/generated/types/getGraphEntityNeighbors200.ts
+lib/api-zod/src/generated/types/getGraphEntityImpactParams.ts
+lib/api-zod/src/generated/types/getAiMetrics200MetricsItem.ts
+lib/api-zod/src/generated/types/getAiMetrics200.ts
+lib/api-zod/src/generated/types/getAiExecution200Status.ts
+lib/api-zod/src/generated/types/getAiExecution200Recovery.ts
+lib/api-zod/src/generated/types/getAiExecution200Objective.ts
+lib/api-zod/src/generated/types/getAiExecution200FlightState.ts
+lib/api-zod/src/generated/types/getAiExecution200EvidenceVerdict.ts
+lib/api-zod/src/generated/types/getAiExecution200Checkpoint.ts
+lib/api-zod/src/generated/types/getAiExecution200.ts
+lib/api-zod/src/generated/types/getAiChatFileContentParams.ts
+lib/api-zod/src/generated/types/geminiKeyStatus.ts
+lib/api-zod/src/generated/types/failWorkflowPhaseInput.ts
+lib/api-zod/src/generated/types/exportAiExecutionAudit200ValidationsItem.ts
+lib/api-zod/src/generated/types/exportAiExecutionAudit200TimelineItem.ts
+lib/api-zod/src/generated/types/exportAiExecutionAudit200Redaction.ts
+lib/api-zod/src/generated/types/exportAiExecutionAudit200Execution.ts
+lib/api-zod/src/generated/types/exportAiExecutionAudit200.ts
+lib/api-zod/src/generated/types/eventSeverity.ts
+lib/api-zod/src/generated/types/eventPayload.ts
+lib/api-zod/src/generated/types/event.ts
+lib/api-zod/src/generated/types/evaluateRuleRequest.ts
+lib/api-zod/src/generated/types/entityType.ts
+lib/api-zod/src/generated/types/discoveryStepItemStatus.ts
+lib/api-zod/src/generated/types/discoveryStepItem.ts
+lib/api-zod/src/generated/types/discoverySourceConfigCredentials.ts
+lib/api-zod/src/generated/types/discoverySourceConfig.ts
+lib/api-zod/src/generated/types/discoverySourceCapability.ts
+lib/api-zod/src/generated/types/discoverySessionStatusStatus.ts
+lib/api-zod/src/generated/types/discoverySessionStatus.ts
+lib/api-zod/src/generated/types/discoveryRuleViolationItem.ts
+lib/api-zod/src/generated/types/discoveryReport.ts
