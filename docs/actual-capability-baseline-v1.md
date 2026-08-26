@@ -4,8 +4,9 @@
 **Observed date:** 2026-08-26
 **Scope:** repository source, merged provider-free release checks, and recorded
 controlled-operation prerequisites available in this workspace
-**Status:** evidence report; no live-provider campaign or live Git delivery smoke
-was run for this update
+**Status:** evidence report; controlled authenticated browser/API checks were run
+on 2026-08-26, but the complete live-provider delivery campaign remains blocked
+and no production deployment was used
 
 ## 1. Reading this report
 
@@ -70,9 +71,13 @@ operationally proven as a complete Agent replacement:
 2. The deterministic benchmark contract and release decision pass, but its
    approved baseline intentionally remains `qualityEligible: false` and
    `rolloutAllowed: false`; that artifact is not live quality evidence.
-3. No authenticated browser/API campaign completed the full discovery → Git
-   delivery journey. Preview validation is explicitly skipped, and the
-   recorded live Git proof prerequisite remains open.
+3. The controlled campaign proved Clerk authentication, origin enforcement,
+   authenticated shell navigation, audit preview/download, and the isolated
+   Git route's approved Apply → commit → push behavior. It did not complete the
+   full discovery → provider-backed work → promotion → Git journey: discovery's
+   real Git fixture is rejected by the credential-free GitHub URL policy, and
+   the full browser campaign hit readiness/fixture failures before delivery.
+   Preview validation and live-provider delivery remain explicitly blocked.
 4. Provider-free contract, SSE/redaction, operational-safety, and deterministic
    benchmark checks now pass. This supersedes the earlier targeted failures for
    those gates, but does not prove every broad API suite or a live provider.
@@ -99,7 +104,7 @@ operationally proven as a complete Agent replacement:
 | Validation and repair | `ai-repair-validation.ts` provides server-owned profiles, isolated validation/runtime/preview runners and scope checks; public validation receipts are redacted at route boundary | **Verified by automated test; live journey partial** | Bounded validation and repair-loop checks pass; no live delivery workspace campaign |
 | Rebase/conflict handling | Chat route `rebase-changes` and apply path hash base content, rebase hunks, reject conflicts, and preserve conflict metadata | **Verified by code** | Route tests cover conflict-shaped responses; no full user journey |
 | Promotion/apply | Apply route checks owner/proposal state, root containment, duplicate paths, base hashes and validation receipts before atomically promoting files | **Verified by code** | `ai.test.ts` and delivery workspace tests cover portions; not E2E proven |
-| Git commit and push | `routes/git.ts` exposes status/log/commit/push/export with write/access middleware; commit/push are proposal/operation-aware and release identity is source-bound | **Partial** | The live Git delivery path is implemented and route-tested, but the recorded controlled smoke prerequisite is blocked; push was not live-tested |
+| Git commit and push | `routes/git.ts` exposes status/log/commit/push/export with write/access middleware; commit/push are proposal/operation-aware and release identity is source-bound | **Partial** | Isolated route proof passed the approved Apply → commit → push flow with one operation trace and matching commit hash; Clerk-authenticated live delivery and push against a real GitHub remote remain unrun |
 | Audit export | Execution audit export and project export routes project allowlisted/redacted durable evidence | **Verified by code** | Export path is present; no downloaded artifact/API smoke check in this baseline |
 | Direct arbitrary model shell execution | Tool policy and execution tools accept server-owned command profiles; the model does not supply arbitrary executable/argv | **Not implemented by design** | `tool-execution-engine.ts` and execution-tools contract enforce the safer profile boundary |
 
@@ -152,9 +157,38 @@ The source backs the major gates:
 - Git commit/push are separate API transitions and require project write access
   (`routes/git.ts`).
 
-The entire sequence is **partial operationally** because no authenticated
-browser/API journey completed it in this audit, and the isolated validation
-fixtures timed out.
+The entire sequence is **partial operationally** because the authenticated
+browser campaign did not reach a complete delivery terminal state. The isolated
+Git route proof passed, while real Git discovery and live-provider promotion
+remain blocked by their explicit prerequisites and fixture boundaries.
+
+### Controlled authenticated journey evidence (2026-08-26)
+
+The following checks were run against the current workspace without a
+production deployment or broad provider campaign:
+
+- **Passed:** Clerk handoff contract (8 tests), release CORS contract (17
+  checks), and the authenticated browser shell's sign-in/navigation path.
+- **Passed:** redacted execution-audit preview/download and reload coverage in
+  the browser fixture suite.
+- **Passed:** `src/routes/git.test.ts` (4 tests), including scoped Apply →
+  commit → push, rejection of a mismatched operation, and matching local and
+  remote commit identity.
+- **Blocked:** the real Git discovery fixture in
+  `src/routes/discovery.test.ts` uses a localhost smart-HTTP repository, while
+  the production adapter intentionally accepts only credential-free HTTPS
+  `github.com` URLs. The route returned the expected `400` policy response
+  instead of starting a discovery session.
+- **Incomplete:** the full Playwright campaign reached the running Clerk
+  services but timed out in later fixture-backed AI/citation tests and exposed a
+  restart/readiness failure before any live delivery receipt could be retained.
+- **Not run by design:** `DASHBOARD_E2E_LIVE_PROVIDER=1` and
+  `DASHBOARD_E2E_LIVE_CAMPAIGN=1`; no provider-backed project, production
+  deployment, or broad campaign was used.
+
+Therefore this is authenticated operational evidence plus isolated Git route
+evidence, not a complete end-to-end discovery-to-push receipt. The missing
+receipt must remain an explicit release blocker.
 
 ## 6. Safety and durability inventory
 

@@ -26,10 +26,12 @@ feature-for-feature parity with a hosted IDE.
 The evidence baseline is [`actual-capability-baseline-v1.md`](actual-capability-baseline-v1.md).
 The latest provider-free release decision passed its enabled AI contracts
 (9 passed, 0 blocking failures), and the deterministic runtime-oracle blocker
-is closed. This is still not a production claim: preview and live-provider
-checks are disabled, no authenticated end-to-end journey is recorded, and the
-approved benchmark baseline retains `qualityEligible: false` and
-`rolloutAllowed: false` ([baseline §2](actual-capability-baseline-v1.md#2-executive-result),
+is closed. A controlled run on 2026-08-26 also recorded authenticated Clerk
+shell/audit browser evidence and isolated Git route evidence, but not a
+complete discovery-to-push journey. This is still not a production claim:
+preview and live-provider checks remain disabled, and the approved benchmark
+baseline retains `qualityEligible: false` and `rolloutAllowed: false`
+([baseline §2](actual-capability-baseline-v1.md#2-executive-result),
 [§7](actual-capability-baseline-v1.md#7-provider-free-verification-matrix)).
 
 ### Decision summary
@@ -39,8 +41,9 @@ approved benchmark baseline retains `qualityEligible: false` and
   JSON/SSE/redaction contracts, bounded validation, recovery checks, and
   deterministic benchmark scenario coverage.
 - **Needs more evidence:** authenticated provider-backed chat/analysis, the
-  discovery async contract, browser reload/restart behavior, full approval →
-  promotion, and a safe Git commit/push smoke. The last recorded live Git
+  real Git discovery async contract, browser readiness through reload/restart,
+  full approval → promotion, and Clerk-authenticated commit/push against a
+  disposable remote. The isolated Git route smoke passed, but the live Git
   delivery proof prerequisite is still blocked.
 - **Intentional difference:** EngineeringOS requires explicit approval,
   candidate isolation, server-owned command profiles, evidence verdicts, and
@@ -63,7 +66,7 @@ approved benchmark baseline retains `qualityEligible: false` and
 
 | Observable outcome | Current EngineeringOS behavior and evidence | Assessment | Failure mode / user experience |
 |---|---|---|---|
-| Project understanding | Discovery/import has durable, owner-scoped materialization and the dashboard wizard; source discovery, scan, and import are separate stages ([discovery route](../artifacts/api-server/src/routes/discovery.ts), [baseline row](actual-capability-baseline-v1.md#user-visible-capability-map)). | **Partial** | The documented async Git fixture contract still lacks a current controlled smoke proof. This is an onboarding evidence gap, not evidence that discovery is absent. |
+| Project understanding | Discovery/import has durable, owner-scoped materialization and the dashboard wizard; source discovery, scan, and import are separate stages ([discovery route](../artifacts/api-server/src/routes/discovery.ts), [baseline row](actual-capability-baseline-v1.md#user-visible-capability-map)). | **Partial** | The controlled Git discovery fixture is rejected by the production GitHub-only URL policy before the async session starts. This remains an onboarding evidence gap, not evidence that discovery is absent. |
 | Grounded ordinary chat | Chat and SSE routes build context, classify intent, persist history, and expose read/list/search tools. `chat-agent.ts` records actual tool sources, caches repeated calls, and bounds iterations/calls ([chat agent](../lib/ai-orchestrator/src/agents/chat-agent.ts#L4-L40)). | **Specialized stronger, provider/browser partial** | Provider-free JSON/SSE, redaction, and false-success contracts pass. A configured-provider chat journey and authenticated browser proof are still absent. |
 | Broad multi-file analysis | Hierarchical execution gives subtasks bounded loops, disjoint write scopes, preserved partial results, and a no-tools synthesis pass ([hierarchical executor](../lib/ai-orchestrator/src/agents/hierarchical-executor.ts#L4-L22)). | **Specialized stronger** | Broad analysis is deliberately bounded and evidence-checked. Recursive nesting and per-subquery SSE are explicitly out of scope ([same source](../lib/ai-orchestrator/src/agents/hierarchical-executor.ts#L19-L22)); long or highly interactive investigations may feel less fluid than a general Agent. |
 | Structured scan/review | Analyze and review each have JSON and stream endpoints, context construction, fallback, parse/error handling, audit/event persistence ([analysis routes](../artifacts/api-server/src/routes/ai/analysis.ts#L174-L583)). | **Partial** | Provider prerequisite blocks live execution; no authenticated E2E result proves the full stream-to-history experience. |
@@ -76,7 +79,7 @@ approved benchmark baseline retains `qualityEligible: false` and
 | Workflow execution | AI orchestration has a route; the broader workflow API supports start/stop/advance/fail/retry/rollback ([workflow route](../artifacts/api-server/src/routes/ai/workflows.ts#L47-L117)). | **Partial** | Workflow mechanics are present, but provider-backed orchestration and terminal E2E states remain unproven. |
 | Cancellation, resume, and restart recovery | Durable execution rows, leases, checkpoints, hashed resume tokens, cancellation terminalization, ownership fences, and recovery endpoints exist ([execution state](../artifacts/api-server/src/lib/ai-execution-state.ts#L8-L205); [chat routes](../artifacts/api-server/src/routes/ai/chat.ts#L4632-L4700)). | **Specialized stronger, browser partial** | Provider-free SSE and operational-safety checks pass. Reload-after-restart and live transport evidence remain open; incomplete results must continue to be shown as incomplete. |
 | Validation/evidence UX | Flight Deck renders operation, checkpoint, evidence, and validation state; Mission Control renders recovery actions and completeness; chat exposes validation attempts and proof details ([Flight Deck](../artifacts/dashboard/src/pages/FlightDeck.tsx#L1-L180); [Mission Control](../artifacts/dashboard/src/pages/MissionControl.tsx#L1-L225); [AiChat](../artifacts/dashboard/src/pages/AiChat.tsx#L2743-L2795)). | **Specialized stronger, browser partial** | The UI can explain blocked, incomplete, and unverified states rather than flattening them to success. No authenticated browser journey validated SSE rendering and refresh behavior. |
-| Git delivery | Status/log/commit/push/export endpoints are separate and protected by project access/write middleware; release artifacts bind candidate evidence to a server-observed source revision ([Git routes](../artifacts/api-server/src/routes/git.ts#L180-L786)). | **Partial** | The live Git delivery path is implemented and route-tested, but the recorded controlled commit/push prerequisite is blocked. This is an operational proof gap, not a missing Git capability. |
+| Git delivery | Status/log/commit/push/export endpoints are separate and protected by project access/write middleware; release artifacts bind candidate evidence to a server-observed source revision ([Git routes](../artifacts/api-server/src/routes/git.ts#L180-L786)). | **Partial** | Isolated route tests prove scoped Apply → commit → push and operation/commit binding. Clerk-authenticated live delivery against a disposable remote is still blocked, so this is an operational proof gap, not a missing Git capability. |
 | Audit/export | Operation evidence projects allowlisted events, receipts, revisions, proposals, commit, and push data; audit export is exposed by API ([operation evidence](../artifacts/api-server/src/lib/operation-evidence.ts#L118-L282); [chat audit route](../artifacts/api-server/src/routes/ai/chat.ts#L4481-L4500)). | **Parity for scoped product goal** | It is intentionally an audit artifact, not an IDE transcript or arbitrary workspace export. No download smoke check was run. |
 | Provider resilience | OpenRouter has capability-aware fallback, dynamic free-model filtering, circuit breaking, error classification, and reliability tests ([model resolver](../lib/ai-orchestrator/src/openrouter/model-resolver.ts#L112-L187); [dynamic catalog](../lib/ai-orchestrator/src/openrouter/dynamic-catalog.ts#L77-L197); [reliability tests](../lib/ai-orchestrator/src/__tests__/openrouter-reliability.test.ts#L1-L14)). | **Specialized stronger, provider-free verified** | Safe classification and recovery guidance are covered without credentials. Catalog freshness and live availability remain unproven; this is not a live-provider parity claim. |
 | Arbitrary shell execution | Tool policy accepts server-owned command profiles; the model cannot provide shell text or arbitrary argv ([baseline row](actual-capability-baseline-v1.md#user-visible-capability-map)). | **Not a gap; intentional safer difference** | Some Replit-like workflows may be faster with broad shell access, but adding it would violate the product safety boundary and is a non-goal. |
