@@ -22,7 +22,7 @@
  *   giving up.
  */
 import { FREE_MODELS, type ModelCapability, type OpenRouterFreeModel } from "./model-catalog.js";
-import { getUsableDynamicModelIds, isDynamicCatalogLoaded } from "./dynamic-catalog.js";
+import { getUsableDynamicModelIds } from "./dynamic-catalog.js";
 import { isModelBehaviorallyDemoted } from "../behavioral-scorecard.js";
 import type { TaskType } from "../quality/task-profile.js";
 
@@ -276,7 +276,10 @@ export function buildFallbackChainFromId(
   // catalog hasn't loaded yet (best-effort static list on first request).
   const { live: sameLive } = partitionByLiveCatalog(sameQualityRaw);
   const { live: otherLive } = partitionByLiveCatalog(otherQualityRaw);
-  const catalogLoaded = isDynamicCatalogLoaded();
+  // A refresh attempt is only telemetry. A failed or expired refresh is not
+  // an authoritative boundary, so retain the static peer fallback until a
+  // successful usable snapshot exists.
+  const catalogLoaded = getUsableDynamicModelIds() !== null;
 
   const sameQuality = (sameLive.length > 0 ? sameLive : (catalogLoaded ? [] : sameQualityRaw)).map((m) => m.id);
   const otherQuality = (otherLive.length > 0 ? otherLive : (catalogLoaded ? [] : otherQualityRaw)).map((m) => m.id);

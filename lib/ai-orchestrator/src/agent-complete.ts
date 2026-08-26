@@ -17,6 +17,7 @@ import type { ProviderCapabilityHints } from "./provider-capabilities.js";
 import { resolveExecutionDecision } from "./model-selection/decision-engine.js";
 import { resolveExecutionProvider } from "./model-selection/provider-strategy.js";
 import { resolveExecutionModel } from "./model-selection/model-resolver.js";
+import { refreshDynamicCatalog } from "./openrouter/dynamic-catalog.js";
 
 export type { ProviderId };
 
@@ -41,6 +42,14 @@ export type AgentCompleteOpts = {
    * pipeline stable.
    */
   onProgress?: (msg: string) => void | Promise<void>;
+  /**
+   * Maximum number of OpenRouter models to try for this request. Structured
+   * agents use this to keep a provider outage bounded instead of walking the
+   * entire free catalog.
+   */
+  maxFallbackModels?: number;
+  /** For OpenRouter, advance to another model instead of retrying transient errors. */
+  retryTransient?: boolean;
 };
 
 function requireApiKey(provider: ProviderConfig, apiKey?: string): string {
@@ -159,42 +168,59 @@ export async function agentComplete(
   const providerDecision = resolveExecutionProvider(executionPlan, opts.provider);
   const providerId = providerDecision.providerId;
   const provider = loadProvider(providerId);
-  const modelDecision = resolveExecutionModel(providerId, executionPlan);
   const apiKey = requireApiKey(provider, opts.apiKey);
 
   switch (provider.providerId) {
     case "deepseek": {
+      const modelDecision = resolveExecutionModel(providerId, executionPlan);
       const result = await deepseekCompleteRaw(messages, {
         model: modelDecision.model,
         apiKey,
+        responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
         signal: opts.signal,
       });
       return { content: assertContent(provider, result.content) };
     }
 
     case "openrouter": {
+      // Refresh before resolving the first model, not only inside the
+      // transport. This keeps the initial model and its bounded fallback
+      // chain aligned with the currently usable free catalog.
+      await refreshDynamicCatalog(apiKey);
+      const modelDecision = resolveExecutionModel(providerId, executionPlan);
       const result = await openrouterCompleteWithFallback(messages, {
         model: modelDecision.model,
         apiKey,
         capability: modelDecision.capability,
         quality: modelDecision.quality,
         requireTools: qualityHints?.requireTools ?? false,
+        maxFallbackModels: opts.maxFallbackModels,
+        retryTransient: opts.retryTransient,
+        responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
         signal: opts.signal,
       });
       return { content: assertContent(provider, result.content) };
     }
 
     case "gemini": {
+      const modelDecision = resolveExecutionModel(providerId, executionPlan);
       const result = await geminiCompleteRaw(messages, {
         model: modelDecision.model,
         apiKey,
+        responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
         signal: opts.signal,
       });
       return { content: assertContent(provider, result.content) };
     }
 
     default: {
-      const result = await complete(messages, { model: modelDecision.model, apiKey: apiKey || undefined, signal: opts.signal });
+      const modelDecision = resolveExecutionModel(providerId, executionPlan);
+      const result = await complete(messages, {
+        model: modelDecision.model,
+        apiKey: apiKey || undefined,
+        responseFormat: qualityHints?.requireJsonMode ? { type: "json_object" } : undefined,
+        signal: opts.signal,
+      });
       return { content: assertContent(provider, result.content) };
     }
   }

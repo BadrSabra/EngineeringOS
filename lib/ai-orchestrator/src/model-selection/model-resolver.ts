@@ -57,9 +57,18 @@ function selectCapability(plan: ExecutionPlan): ModelCapability {
   if (plan.strictHints.requireTools || plan.taskProfile.useTools) {
     return "tool_calling";
   }
+  // Structured single-shot reviewers need a model that can reliably emit the
+  // declared JSON contract. Requiring a reasoning-capable model here is
+  // counterproductive on OpenRouter: several free reasoning models place the
+  // useful work in reasoning_content and leave message.content empty.
+  if (
+    plan.taskProfile.taskType === "code_review" ||
+    plan.strictHints.requireJsonMode
+  ) {
+    return "json";
+  }
   if (
     plan.taskProfile.taskType === "analysis" ||
-    plan.taskProfile.taskType === "code_review" ||
     plan.taskProfile.taskType === "workflow" ||
     plan.strictHints.requireThinking ||
     plan.strictHints.requireReasoning
@@ -99,12 +108,29 @@ export function resolveExecutionModel(
     // this override environment-only so ordinary provider-free validation and
     // normal free-tier routing retain the catalog-driven fallback chain.
     const configuredModel = process.env.OPENROUTER_MODEL?.trim() || undefined;
-    const liveModel = configuredModel
-      ? resolveFreeModelOverride(configuredModel, {
+    let liveModel: string | undefined;
+    if (configuredModel) {
+      try {
+        liveModel = resolveFreeModelOverride(configuredModel, {
           capability,
           requireTools: plan.strictHints.requireTools ?? false,
-        })
-      : undefined;
+        });
+      } catch (error) {
+        // An environment-pinned model can become paid, retired, or lose the
+        // requested capability between deploys. Treat it as a stale hint and
+        // use the already-resolved live fallback chain instead of making a
+        // review fail before the provider is contacted.
+        console.warn(
+          JSON.stringify({
+            scope: "model-resolver",
+            action: "ignore_unusable_configured_model",
+            configuredModel,
+            capability,
+            reason: error instanceof Error ? error.message : "model is not currently usable",
+          }),
+        );
+      }
+    }
     if (fallbackChain.length === 0 && !liveModel) {
       const catalog = getDynamicCatalogStatus();
       throw new GroqClientError(

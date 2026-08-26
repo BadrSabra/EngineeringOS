@@ -96,13 +96,10 @@ function buildBasePlans(profile: QualityProfile): Pick<QualityPlan, "strictHints
       return {
         strictHints: {
           requireJsonMode: true,
-          requireReasoning: true,
-          requireThinking: true,
           minimumContext: 12_000,
         },
         relaxedHints: {
           requireJsonMode: true,
-          requireReasoning: true,
           minimumContext: 6_000,
         },
       };

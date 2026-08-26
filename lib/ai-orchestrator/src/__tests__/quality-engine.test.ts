@@ -65,3 +65,15 @@ describe("chat quality profile", () => {
     expect(plan.strictHints.requireThinking).toBeUndefined();
   });
 });
+
+describe("code_review quality profile", () => {
+  it("requires structured JSON without forcing reasoning-only output", () => {
+    const plan = buildQualityPlan("code_review");
+
+    expect(plan.strictHints.requireJsonMode).toBe(true);
+    expect(plan.strictHints.requireReasoning).toBeUndefined();
+    expect(plan.strictHints.requireThinking).toBeUndefined();
+    expect(plan.relaxedHints.requireJsonMode).toBe(true);
+    expect(plan.relaxedHints.requireReasoning).toBeUndefined();
+  });
+});

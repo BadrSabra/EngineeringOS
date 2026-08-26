@@ -45,6 +45,16 @@ class CodeReviewAgent extends BaseAgent<ProjectContext, CodeReviewOutput> {
     ];
   }
 
+  protected buildCompleteOpts(): AgentCompleteOpts {
+    // A review should try a small number of currently usable JSON models and
+    // then fail visibly. Walking the full free catalog can turn one bad
+    // reasoning-only or rate-limited model into a very long request.
+    // Let transient model-level failures advance immediately; OpenRouter can
+    // rate-limit one upstream provider while other free candidates remain
+    // usable.
+    return { maxFallbackModels: 3, retryTransient: false };
+  }
+
   protected fallbackOutput(): CodeReviewOutput {
     return fallbackCodeReview();
   }
@@ -55,5 +65,24 @@ export async function reviewCode(
   fileContents?: Record<string, string>,
   opts?: AgentCompleteOpts,
 ): Promise<CodeReviewResult> {
-  return new CodeReviewAgent(fileContents).run(projectContext, opts);
+  const result = await new CodeReviewAgent(fileContents).run(projectContext, opts);
+  const selectedPaths = Object.keys(fileContents ?? {}).slice(0, 5);
+  if (
+    !result._parseError &&
+    selectedPaths.length > 0 &&
+    !result.issues.some((issue) => typeof issue.file === "string" && selectedPaths.includes(issue.file))
+  ) {
+    // A syntactically valid approval without a cited selected-file finding is
+    // not trustworthy for file-gap analysis. Surface it as incomplete rather
+    // than letting an empty issues array look like a verified review.
+    return {
+      ...result,
+      _parseError: {
+        code: "SCHEMA_VALIDATION_FAILED",
+        message: "The review did not return a finding cited to a selected file.",
+        raw: JSON.stringify(result),
+      },
+    };
+  }
+  return result;
 }

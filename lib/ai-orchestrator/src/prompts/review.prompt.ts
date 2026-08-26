@@ -60,6 +60,9 @@ export function buildCodeReviewUserPrompt(context: ProjectContext, fileContents?
 
   return composePrompt(
     "Review this project. Cite specific entity names, file paths, and metric values in every finding.",
+    fileContents && Object.keys(fileContents).length > 0
+      ? "This is a file-gap review. Because selected source files are provided, the structured result must include at least one issue with an exact selected file path in its file field; do not claim an approved review with an empty issues array."
+      : "",
     promptContextOverview(context, "review"),
     fileSection,
   );

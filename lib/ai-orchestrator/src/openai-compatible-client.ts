@@ -400,6 +400,11 @@ function looksLikeRecoverableOpenRouterRequestError(body: string, providerCode?:
     normalizedBody.includes("request parameter") ||
     normalizedBody.includes("invalid request") ||
     normalizedBody.includes("not supported") ||
+    normalizedBody.includes("agent harness") ||
+    normalizedBody.includes("requires an agent") ||
+    normalizedBody.includes("only available through an agent") ||
+    normalizedBody.includes("agent-only") ||
+    normalizedBody.includes("agentic") ||
     (providerCode?.includes("invalid_request") ?? false) ||
     (providerCode?.includes("unsupported") ?? false)
   );

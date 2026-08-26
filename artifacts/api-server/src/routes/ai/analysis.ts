@@ -142,6 +142,7 @@ function emitTaskFailure(
   const code = typeof candidate.code === "string" ? candidate.code : "task_failed";
   const failureKind =
     code === "model_output_invalid" || code === "INVALID_MODEL_OUTPUT" ? "PROVIDER_FORMAT" :
+    code === "EMPTY_RESPONSE" ? "PROVIDER_FORMAT" :
     code === "RATE_LIMITED" ? "RATE_LIMIT" :
     code === "INVALID_CONFIG" || code === "AUTH_ERROR" || code === "MODEL_NOT_FOUND" || code === "PLAN_RESTRICTED" ? "CONFIGURATION" :
     code === "TIMEOUT" || code === "NETWORK_ERROR" || code === "NON_200" || code === "SERVER_ERROR" ? "PROVIDER_FAILURE" :
