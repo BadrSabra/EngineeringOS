@@ -546,6 +546,11 @@ async function installApiFixtures(
         ),
       );
     }
+    if (aiFixtures.length > 0 && path === "/api/ai/active-provider") {
+      return route.fulfill(
+        jsonResponse({ provider: "openrouter", configured: true }),
+      );
+    }
     if (
       overrides?.deliveryRecovery &&
       path === "/api/ai/delivery/recoverable"
