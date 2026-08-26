@@ -260,6 +260,9 @@ async function installApiFixtures(
     const aiFixtures = [arabicAi, alternateAi, disconnectAi].filter(
       (fixture): fixture is ArabicAiFixture => Boolean(fixture),
     );
+    const hasConfiguredAiFixture =
+      aiFixtures.length > 0 ||
+      Boolean(overrides?.resumeFailure || overrides?.interruptedResume);
 
     if (aiFixtures.length > 0 && path.endsWith("/api/ai/chat/sessions")) {
       const projectId = url.searchParams.get("projectId");
@@ -546,7 +549,7 @@ async function installApiFixtures(
         ),
       );
     }
-    if (aiFixtures.length > 0 && path === "/api/ai/active-provider") {
+    if (hasConfiguredAiFixture && path === "/api/ai/active-provider") {
       return route.fulfill(
         jsonResponse({ provider: "openrouter", configured: true }),
       );
