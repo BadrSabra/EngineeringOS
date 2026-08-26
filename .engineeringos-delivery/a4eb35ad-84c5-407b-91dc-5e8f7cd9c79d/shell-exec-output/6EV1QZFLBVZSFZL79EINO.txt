@@ -1,0 +1,195 @@
+   150  });
+   151
+   152  return {
+   153    useListProjects: vi.fn(() => ({
+   154      data: mocks.projects,
+   155      isLoading: false,
+   156      isError: false,
+   157      error: null,
+   158    })),
+   159    useListEvents: vi.fn(() => ({
+   160      data: { events: mocks.operationEvents, total: mocks.operationEvents.length },
+   161      isLoading: false,
+   162      isError: false,
+   163      error: null,
+   164    })),
+   165    getListProjectsQueryKey: () => ['projects'],
+   166    classifyProjectError: () => null,
+   167    isRetryableProjectError: () => false,
+   168    emitProjectLoadFailed: vi.fn(),
+   169    useAiChatStream: vi.fn(() => ({
+   170      send: vi.fn((params: unknown, callbacks?: Record<string, unknown>) => {
+   171        mocks.streamCallbacks = callbacks;
+   172        if (params && typeof params === 'object') {
+   173          mocks.sentParams = params as {
+   174            projectId: string;
+   175            message: string;
+   176            sessionId?: string;
+   177            executionId?: string;
+   178            resumeToken?: string;
+   179          };
+   180        }
+   181        return Promise.resolve();
+   182      }),
+   183      cancel: vi.fn(() => {
+   184        mocks.streamIsPending = false;
+   185      }),
+   186      isPending: mocks.streamIsPending,
+   187    })),
+   188    useAiTaskStream: vi.fn(() => ({
+   189      send: vi.fn((params: unknown, callbacks?: Record<string, unknown>) => {
+   190        mocks.taskStreamCallbacks = callbacks;
+   191        if (params && typeof params === 'object') {
+   192          mocks.taskSentParams = params as { projectId: string; task: string };
+   193        }
+   194        return Promise.resolve();
+   195      }),
+   196      cancel: vi.fn(),
+   197      isPending: false,
+   198    })),
+   199    useAiAnalyzeProject: vi.fn(() => emptyMutation()),
+   200    useAiReviewCode: vi.fn(() => emptyMutation()),
+   201    useGetDeepSeekKeyStatus: vi.fn(status),
+   202    useGetGroqKeyStatus: vi.fn(status),
+   203    useGetProviderKeyStatus: vi.fn(status),
+   204    useGetOpenRouterKeyStatus: vi.fn(status),
+   205    useGetActiveProvider: vi.fn(() => ({ data: { provider: 'groq', configured: true }, isLoading: false, isError: false, error: null })),
+   206    useGetAiMetrics: vi.fn(() => ({ data: { metrics: [], behavioralScorecards: [] }, isLoading: false, isError: false, error: null })),
+   207    useGetAiExecution: vi.fn(() => ({
+   208      data: mocks.activeExecutionStatus,
+   209      isLoading: false,
+   210      isError: false,
+   211      error: null,
+   212    })),
+   213    useListAiExecutionHistory: vi.fn(() => ({
+   214      data: mocks.historicalAudits,
+   215      isLoading: false,
+   216      isError: false,
+   217      error: null,
+   218    })),
+   219    useListAiChatSessions: vi.fn(() => ({
+   220      data: mocks.sessions,
+   221      isFetched: true,
+   222      isError: false,
+   223      error: null,
+   224    })),
+   225    useListAiChatMessages: vi.fn((sessionId: string) => ({
+  2940
+  2941    // The run fails: the live verdict scope must be cleared, not retained for the next run.
+  2942    act(() => {
+  2943      (mocks.streamCallbacks as Record<string, unknown> & {
+  2944        onError?: (e: unknown) => void;
+  2945      }).onError?.(new Error('provider failed'));
+  2946    });
+  2947    expect(screen.queryByText('FIXTURE LOCAL')).not.toBeInTheDocument();
+  2948
+  2949    // A brand-new stream starts: no decision trace has arrived yet, so the stale
+  2950    // FIXTURE LOCAL badge must not reappear before the next run emits its own trace.
+  2951    await act(async () => {
+  2952      mocks.streamIsPending = true;
+  2953    });
+  2954    expect(screen.queryByText('FIXTURE LOCAL')).not.toBeInTheDocument();
+  2955  });
+  2956
+  2957  it('renders the Capability Probe quick action and, on click, sends the canonical probe message', async () => {
+  2958    renderAiChat();
+  2959
+  2960    // Empty-state quick actions include the one-click probe runner.
+  2961    const probeButton = await screen.findByRole('button', { name: 'Capability Probe' });
+  2962    expect(probeButton).toBeInTheDocument();
+  2963
+  2964    fireEvent.click(probeButton);
+  2965
+  2966    // The stream receives the CANONICAL probe body (not a hand-typed prompt)
+  2967    // for the auto-selected project — no manual paste required.
+  2968    await waitFor(() => {
+  2969      expect(mocks.sentParams?.message ?? '').toContain('# AI Model Capability Probe');
+  2970      expect(mocks.sentParams?.message ?? '').toContain('C7');
+  2971      expect(mocks.sentParams?.message ?? '').toContain(
+  2972        'lib/ai-orchestrator/src/prompts/profile-classifier.ts',
+  2973      );
+  2974    });
+  2975    expect(mocks.sentParams?.projectId).toBe('project-1');
+  2976  });
+  2977
+  2978  it('streams Analyze progress and renders its structured result with the activity timeline', async () => {
+  2979    renderAiChat();
+  2980
+  2981    fireEvent.click(await screen.findByRole('button', { name: 'Analyze Scan' }));
+  2982    expect(mocks.taskSentParams).toEqual({ projectId: 'project-1', task: 'analyze' });
+  2983
+  2984    act(() => {
+  2985      (mocks.taskStreamCallbacks as Record<string, unknown> & {
+  2986        onStage?: (stage: string) => void;
+  2987        onTaskProgress?: (event: Record<string, unknown>) => void;
+  2988        onModelCall?: (event: Record<string, unknown>) => void;
+  2989        onTaskDone?: (event: Record<string, unknown>) => void;
+  2990      }).onStage?.('building-context');
+  2991      (mocks.taskStreamCallbacks as Record<string, unknown> & {
+  2992        onTaskProgress?: (event: Record<string, unknown>) => void;
+  2993      }).onTaskProgress?.({
+  2994        type: 'task_progress',
+  2995        task: 'analyze',
+  2996        message: 'Calling AI model…',
+  2997      });
+  2998      (mocks.taskStreamCallbacks as Record<string, unknown> & {
+  2999        onModelCall?: (event: Record<string, unknown>) => void;
+  3000      }).onModelCall?.({
+  3001        type: 'model_call',
+  3002        model: 'analysis-model',
+  3003        provider: 'test-provider',
+  3004      });
+  3005      (mocks.taskStreamCallbacks as Record<string, unknown> & {
+  3006        onTaskDone?: (event: Record<string, unknown>) => void;
+  3007      }).onTaskDone?.({
+  3008        type: 'task_done',
+  3009        task: 'analyze',
+  3010        result: {
+  3011          summary: 'Analysis complete',
+  3012          overallAssessment: 'Healthy',
+  3013          insights: [],
+  3014          topPriority: 'Keep shipping',
+  3015          estimatedImpact: 'Low risk',
+  3016        },
+  3017      });
+  3018    });
+  3019
+  3020    expect(screen.getByText(/Analysis complete/)).toBeInTheDocument();
+  3021    expect(screen.getByText('Agent activity')).toBeInTheDocument();
+  3022    expect(screen.getByText(/Calling AI model/)).toBeInTheDocument();
+  3023    expect(screen.getByText(/analysis-model/)).toBeInTheDocument();
+  3024  });
+  3025
+  3026  it('shows "Why this file?" panel with agent reasoning when a read tool step is expanded', async () => {
+  3027    mocks.serverProposal = { proposalId: 'flight-recorder-reasoning', changes: [] };
+  3028    mocks.proposalMessages[0].toolTrace = JSON.stringify([
+  3029      {
+  3030        kind: 'tool_call',
+  3031        tool: 'read_file',
+  3032        args: { path: 'src/auth/verify-token.ts' },
+  3033        cached: false,
+  3034        reasoning: 'I need to inspect the authentication module to understand how tokens are validated.',
+  3035      },
+  3036      {
+  3037        kind: 'tool_result',
+  3038        tool: 'read_file',
+  3039        source: 'src/auth/verify-token.ts',
+  3040        cached: false,
+  3041        outputLength: 512,
+  3042      },
+  3043    ]);
+  3044
+  3045    renderAiChat();
+140:  createdAt: string;
+155:  createdAt: string;
+7014:  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+7496:        { id: placeholderId, role: 'user' as const, content: prompt, createdAt: new Date().toISOString() },
+7568:            createdAt: new Date().toISOString(),
+7589:            createdAt: new Date().toISOString(),
+7610:            createdAt: new Date().toISOString(),
+7993:  }, [localMessages]);
+8367:        createdAt: new Date().toISOString(),
+8742:                  updatedAt: data.message.createdAt,
+8925:    const planMessage = localMessages.find((message) => message.id === messageId);
+9032:  const messages = localMessages;
+9357:                      <span className="text-muted-foreground">{new Date(delivery.createdAt).toLocaleString()}</span>

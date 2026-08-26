@@ -1,0 +1,392 @@
+  7830      query: {
+  7831        queryKey: ['ai-sessions', selectedProjectId],
+  7832        enabled: isLoaded && !!selectedProjectId,
+  7833      },
+  7834    },
+  7835  );
+  7836
+  7837  const { data: serverMessages = [], isFetched: messagesFetched } = useListAiChatMessages<ChatMessage[]>(
+  7838    sessionId ?? '',
+  7839    {
+  7840      query: {
+  7841        queryKey: ['ai-messages', sessionId],
+  7842        enabled: isLoaded && !!sessionId,
+  7843      },
+  7844    },
+  7845  );
+  7846
+  7847  const { data: serverProposal } = useGetAiPendingProposal<{
+  7848    proposalId: string | null;
+  7849    operationId: string | null;
+  7850    changes: PendingChange[];
+  7851    approvalRequired: boolean;
+  7852    revision: number | null;
+  7853    lifecycle?: DeliveryLifecycle | null;
+  7854    workspaceRoot?: string | null;
+  7855    baseRevision?: string | null;
+  7856    changeSetHash?: string | null;
+  7857    conflictReason?: string | null;
+  7858    validationEvidence?: PublicValidationResult[] | null;
+  7859  }>(
+  7860    sessionId ?? '',
+  7861    {
+  7862      query: {
+  7863        queryKey: ['ai-pending-proposal', sessionId],
+  7864        enabled: isLoaded && !!sessionId,
+  7865      },
+  7866    },
+  7867  );
+  7868
+  7869  const { data: recoverableDeliveries } = useQuery<{ operations: RecoverableDelivery[] }>({
+  7870    queryKey: ['ai-delivery-recoverable', selectedProjectId],
+  7871    enabled: isLoaded && !!selectedProjectId,
+  7872    queryFn: async () => {
+  7873      const response = await fetch(`/api/ai/delivery/recoverable?projectId=${encodeURIComponent(selectedProjectId)}`, {
+  7874        credentials: 'include',
+  7875        headers: { Accept: 'application/json' },
+  7876      });
+  7877      if (!response.ok) throw new Error('Recoverable delivery operations could not be loaded.');
+  7878      return response.json();
+  7879    },
+  7880    refetchInterval: 30_000,
+  7881  });
+  7882  const [deliveryRecoveryPending, setDeliveryRecoveryPending] = useState<string | null>(null);
+  7883
+  7884  async function recoverDelivery(proposal: RecoverableDelivery, action: 'resume-validation' | 'discard') {
+  7885    if (deliveryRecoveryPending || proposal.recoveryState !== 'recoverable') return;
+  7886    setDeliveryRecoveryPending(proposal.proposalId);
+  7887    try {
+  7888      const response = await fetch(`/api/ai/delivery/${encodeURIComponent(proposal.proposalId)}/${action}`, {
+  7889        method: 'POST',
+  7890        credentials: 'include',
+  7891        headers: { Accept: 'application/json' },
+  7892        body: '{}',
+  7893      });
+  7894      const payload = await response.json().catch(() => ({})) as {
+  7895        error?: string;
+  7896        code?: string;
+  7897        lifecycle?: DeliveryLifecycle;
+  7898      };
+  7899      if (!response.ok) {
+  7900        if (response.status === 404 && payload.code === 'DELIVERY_NOT_FOUND') {
+  7901          void qc.invalidateQueries({ queryKey: ['ai-delivery-recoverable', selectedProjectId] });
+  7902          toast({
+  7903            title: 'Recovery link expired',
+  7904            description: 'This recovery operation no longer exists. The recovery list was refreshed.',
+  7905            variant: 'destructive',
+  7906          });
+  7907          return;
+  7908        }
+  7909        if (response.status === 409 && (
+  7910          payload.code === 'DELIVERY_ALREADY_DISCARDED' ||
+  7911          payload.code === 'DELIVERY_NOT_RECOVERABLE'
+  7912        )) {
+  7913          void qc.invalidateQueries({ queryKey: ['ai-delivery-recoverable', selectedProjectId] });
+  7914          toast({
+  7915            title: 'Recovery state changed',
+  7916            description: payload.code === 'DELIVERY_ALREADY_DISCARDED'
+  7917              ? 'This recovery was already discarded. The recovery list was refreshed.'
+  7918              : 'This recovery workspace is no longer available. The recovery list was refreshed.',
+  7919            variant: 'destructive',
+  7920          });
+  7921          return;
+  7922        }
+  7923        throw new Error(payload.error || 'Delivery recovery could not be completed.');
+  7924      }
+  7925      void qc.invalidateQueries({ queryKey: ['ai-delivery-recoverable', selectedProjectId] });
+  7926      if (action === 'resume-validation') {
+  7927        setSessionId(proposal.sessionId);
+  7928        void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', proposal.sessionId] });
+  7929        toast({
+  7930          title: payload.lifecycle === 'validated' ? 'Validation recovered' : 'Validation remains blocked',
+  7931          description: payload.lifecycle === 'validated'
+  7932            ? 'The retained operation workspace passed its registered validation checks.'
+  7933            : 'The retained evidence was preserved and the operation remains blocked.',
+  7934        });
+  7935      } else {
+  7936        toast({ title: 'Delivery workspace discarded', description: 'Only this operation-owned workspace was removed.' });
+  7937        if (sessionId === proposal.sessionId) {
+  7938          setPendingChanges([]);
+  7939          setProposalId(undefined);
+  7940        }
+  7941      }
+  7942    } catch (error) {
+  7943      toast({
+  7944        title: 'Delivery recovery failed',
+  7945        description: error instanceof Error ? error.message : 'The operation was not changed.',
+  7946        variant: 'destructive',
+  7947      });
+  7948    } finally {
+  7949      setDeliveryRecoveryPending(null);
+  7950    }
+  7951  }
+  7952
+  7953  const regenerateReportMutation = useMutation({
+  7954    mutationFn: async (messageId: string) => {
+  7955      const response = await fetch(
+  7956        `/api/ai/chat/${encodeURIComponent(sessionId ?? '')}/messages/${encodeURIComponent(messageId)}/mission-correlation-report/regenerate`,
+  7957        { method: 'POST', credentials: 'include' },
+  7958      );
+  7959      const payload = await response.json().catch(() => ({}));
+  7960      if (!response.ok) {
+  7961        throw new Error(typeof payload?.error === 'string' ? payload.error : 'The historical report could not be regenerated.');
+  7962      }
+  7963      return payload;
+  7964    },
+  7965    onSuccess: () => {
+  7966      if (sessionId) void qc.invalidateQueries({ queryKey: ['ai-messages', sessionId] });
+  7967      void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+  7968      toast({ title: 'Historical report regenerated', description: 'The report is now available from the retained run evidence.' });
+  7969    },
+  7970    onError: (error) => {
+  7971      toast({
+  7972        title: 'Report regeneration failed',
+  7973        description: error instanceof Error ? error.message : 'The conversation was not changed.',
+  7974        variant: 'destructive',
+  7975      });
+  7976    },
+  7977  });
+  7978
+  7979  useEffect(() => {
+  7980    if (!messagesFetched) return;
+  7981
+  7982    // A mission report is optional enrichment on an otherwise useful message.
+  7983    // Validate each one independently so one old/corrupt report cannot discard
+  7984    // the complete conversation or expose parser details in the UI.
+  7985    let hasUnavailableReport = false;
+  7986    const safeMessages = serverMessages.map((message) => {
+  7987      if (message.missionCorrelationReportError) {
+  7988        hasUnavailableReport = true;
+  7989        return { ...message, missionCorrelationReport: undefined };
+  7990      }
+  7991      if (message.missionCorrelationReport === undefined || message.missionCorrelationReport === null) {
+  7992        return message;
+  7993      }
+  7994      try {
+  7995        readStoredMissionCorrelationReport(message.missionCorrelationReport);
+  7996        return message;
+  7997      } catch {
+  7998        hasUnavailableReport = true;
+  7999        return { ...message, missionCorrelationReport: undefined };
+  8000      }
+  8001    });
+  8002    setHistoricalReportError(
+  8003      hasUnavailableReport
+  8004        ? 'A historical mission report could not be loaded. Your conversation is still available.'
+  8005        : null,
+  8006    );
+  8007    setLocalMessages(safeMessages);
+  8008  }, [messagesFetched, serverMessages]);
+  8009
+  8010  useEffect(() => {
+  8011    if (!serverProposal) return;
+  8012    setProposalId(serverProposal.proposalId ?? undefined);
+  8013    setOperationId(serverProposal.operationId ?? undefined);
+  8014    setOperationMode(serverProposal.proposalId ? 'DELIVERY' : undefined);
+  8015    setProposalRequiresApproval(serverProposal.approvalRequired === true);
+  8016    setProposalRevision(serverProposal.revision ?? undefined);
+  8017    setDeliveryLifecycle(serverProposal.lifecycle ?? (serverProposal.changes.length > 0 ? 'proposed' : undefined));
+  8018    setValidationEvidence(serverProposal.validationEvidence ?? []);
+  8019    // The server is authoritative after a session reload. An empty response
+  8020    // means the proposal was rejected/consumed (or never existed), so clear
+  8021    // any stale localStorage-backed changes instead of showing an unapprovable
+  8022    // card that would submit without a valid proposalId.
+  8023    setPendingChanges(serverProposal.changes);
+  8024    if (serverProposal.changes.length === 0 && pendingKey && verificationKey) {
+  8025      localStorage.removeItem(pendingKey);
+  8026      localStorage.removeItem(verificationKey);
+  8027      setVerificationResults({});
+  8028    }
+  8029  }, [serverProposal]);
+  8030
+  8031  // A session belongs to exactly one project. If the selected project's
+  8032  // session list has been fetched and no longer contains the active session,
+  8033  // fail closed instead of sending that session ID with a different project.
+  8034  useEffect(() => {
+  8035    const sessionOwnsRecoveredExecution = Boolean(
+  8036      activeExecution
+  8037      && activeExecution.projectId === selectedProjectId
+  8038      && activeExecution.sessionId === sessionId,
+  8039    );
+  8040    if (
+  8041      !sessionsFetched ||
+  8042      sessionsError ||
+  8043      !sessionId ||
+  8044      sessionOwnsRecoveredExecution ||
+  8045      sessions.some((session) => session.id === sessionId)
+  8046    ) {
+  8047      return;
+  8048    }
+  8049    setSessionId(undefined);
+  8050    setLocalMessages([]);
+  8051    setPendingChanges([]);
+  8052    setProposalId(undefined);
+  8053    setProposalRequiresApproval(false);
+  8054    setProposalRevision(undefined);
+  8055    setVerificationResults({});
+  8056    clearExecutionScopedState();
+  8057  }, [
+  8058    activeExecution?.projectId,
+  8059    activeExecution?.sessionId,
+  8060    selectedProjectId,
+  8061    sessions,
+  8062    sessionsError,
+  8063    sessionsFetched,
+  8064    sessionId,
+  8065  ]);
+  8066
+  8067  useEffect(() => {
+  8068    if (projects.length > 0 && !selectedProjectId) {
+  8069      setSelectedProjectId(projects[0].id);
+  8070    }
+  8071  }, [projects, selectedProjectId]);
+  8072
+  8073  useEffect(() => {
+  8074    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  8075  }, [localMessages]);
+  8076
+  8077  /** Map server-side stage identifiers to user-facing labels. */
+  8078  const STAGE_LABELS: Record<string, string> = {
+  8079    'building-context': 'Building context…',
+  8080    'calling-model':    'Calling AI model…',
+  8081    'streaming':        'Writing response…',
+  8082  };
+  8083
+  8084  /** Translate an AiStreamErrorEvent to a user-facing error description. */
+  8085  function describeStreamError(err: AiStreamErrorEvent): string {
+  8720               : 'Execution diagnostic',
+  8721             detail: event.code === 'EXECUTION_PHASE_TOOL_REJECTED' && event.phase && event.tool
+  8722               ? `${event.tool} rejected during ${event.phase} phase`
+  8723               : detail ? `${diagnostic} — ${detail}` : diagnostic,
+  8724            status: 'info',
+  8725          });
+  8726        },
+  8727        onForensicStatus: (event) => {
+  8728          if (generation !== streamGenerationRef.current) return;
+  8729          if (event.isFixtureLocal === true || event.auditScope === 'FIXTURE_LOCAL') {
+  8730            setLiveFixtureLocal(true);
+  8731          }
+  8732          const scopeDescription = (event as typeof event & { scopeDescription?: string }).scopeDescription;
+  8733          if (scopeDescription) {
+  8734            setLiveAuditScopeDescription(scopeDescription);
+  8735          }
+  8736        },
+  8737         onIntent: (event) => {
+  8738           if (generation !== streamGenerationRef.current) return;
+  8739           setOperationMode(event.operationMode);
+  8740           setAgentStage(
+  8741             event.requiresEvidence
+  8742               ? `Evidence mode: ${event.intent.replace(/_/g, ' ')}`
+  8743               : `Request mode: ${event.intent.replace(/_/g, ' ')}`,
+  8744           );
+  8745         },
+  8746         onAuditState: (event) => {
+  8747           if (generation !== streamGenerationRef.current) return;
+  8748           const state = event.sourceCoverage === 'COMPLETE' && event.findingStatus === 'PROVEN'
+  8749             ? 'Evidence verified'
+  8750             : event.sourceCoverage === 'NONE'
+  8751               ? 'Evidence unavailable — audit incomplete'
+  8752               : event.findingStatus === 'NOT_PROVEN' || event.repairReadiness === 'BLOCKED'
+  8753                 ? 'Audit remains incomplete'
+  8754                 : 'Evidence state updated';
+  8755           setAgentStage(state);
+  8756           appendLiveActivityEvent({
+  8757             kind: 'stage',
+  8758             label: 'Audit state',
+  8759             detail: state,
+  8760             status: state === 'Evidence verified' ? 'done' : 'info',
+  8761           });
+  8762         },
+  8763         onVerification: (event) => {
+  8764           if (generation !== streamGenerationRef.current) return;
+  8765           const status = event.acceptedEvidenceCount > 0
+  8766             ? 'Evidence verification completed'
+  8767             : 'Verification incomplete — no accepted evidence';
+  8768           setAgentStage(status);
+  8769           appendLiveActivityEvent({
+  8770             kind: 'validation',
+  8771             label: 'Response verification',
+  8772             detail: `${status} (${event.acceptedEvidenceCount}/${event.evidenceCount} accepted)`,
+  8773             status: event.acceptedEvidenceCount > 0 ? 'done' : 'info',
+  8774           });
+  8775         },
+  8776        onEvidenceIntegrity: (event) => {
+  8777          if (generation !== streamGenerationRef.current) return;
+  8778          setLiveEvidenceIntegrity({
+  8779            consistent: event.consistent,
+  8780            violations: event.violations,
+  8781            objectiveType: event.objectiveType,
+  8782            requiredEdges: event.requiredEdges ?? [],
+  8783            provenEdges: event.provenEdges ?? [],
+  8784            completionGateResult: event.completionGateResult,
+  8785            finalAnswerType: event.finalAnswerType,
+  8786          });
+  8787        },
+  8788        // Task #58: surface the verdict's proof scope live in the audit panel
+  8789        // as soon as the task router decides it — before the report lands.
+  8790        onDecisionTrace: (event) => {
+  8791          if (generation !== streamGenerationRef.current) return;
+  8792          setLiveVerdictScope({
+  8793            scope: event.verdictScope,
+  8794            findingStatus: event.scopedFindingStatus,
+  8795          });
+  8796        },
+  8797        onDone: (data) => {
+  8798          if (!ownsStream({ sessionId: data.sessionId })) return;
+  8799           const activityEvents = agentActivityEventsRef.current;
+  8800          setAgentStage(null);
+  8801          setStreamingContent('');
+  8802          setAgentSteps([]);
+  8803          setAgentIter(null);
+  8804          setAgentModel(null);
+  8805          setAgentStartedAt(null);
+  8806          setAgentElapsedSeconds(0);
+  8807          setAgentModelHistory([]);
+  8808          setAgentDiagnostics([]);
+  8809          setLiveFixtureLocal(false);
+  8810          setLiveEvidenceIntegrity(null);
+  8811          setLiveVerdictScope(null);
+  8812           setLiveAuditScopeDescription(null);
+  8813           activeExecutionRef.current = null;
+  8814           setActiveExecution(null);
+  8815          setSessionId(data.sessionId);
+  8816          qc.setQueryData<Session[]>(
+  8817            ['ai-sessions', requestProjectId],
+  8818            (previous = []) => {
+  8819              const existing = previous.find((session) => session.id === data.sessionId);
+  8820              return [
+  8821                {
+  8822                  id: data.sessionId,
+  8823                  title: existing?.title ?? data.message.content.slice(0, 60),
+  8824                  updatedAt: data.message.createdAt,
+  8825                },
+  8826                ...previous.filter((session) => session.id !== data.sessionId),
+  8827              ];
+  8828            },
+  8829          );
+  8830          setLocalMessages((prev) => {
+  8831            const withoutOpt = prev.filter((m) => !m.id.startsWith('opt-'));
+  8832            const base = data.message as ChatMessage;
+  8833            return [...withoutOpt, {
+  8834              ...base,
+  8835               activityEvents,
+  8836              behaviorEvidence: data.behaviorEvidence ?? base.behaviorEvidence ?? null,
+  8837              taskResult: (data.taskResult as AiTaskResult | undefined) ?? null,
+  8838              operationMode: inferOperationMode({
+  8839                operationMode: data.operationMode,
+  8840                taskResult: data.taskResult as AiTaskResult | undefined,
+  8841                proposalId: data.proposalId,
+  8842              }),
+  8843            }];
+  8844          });
+  8845          setPendingChanges(data.pendingChanges ?? []);
+  8846          setProposalId(data.proposalId ?? undefined);
+  8847           const nextOperationMode = inferOperationMode({
+  8848             operationMode: data.operationMode,
+  8849             taskResult: data.taskResult as AiTaskResult | undefined,
+  8850             proposalId: data.proposalId,
+  8851           });
+  8852           setOperationMode(nextOperationMode);
+  8853           setOperationId(
+  8854             nextOperationMode === 'DELIVERY'
+  8855               ? data.operationId ?? (data.proposalId ? data.message.id : undefined)

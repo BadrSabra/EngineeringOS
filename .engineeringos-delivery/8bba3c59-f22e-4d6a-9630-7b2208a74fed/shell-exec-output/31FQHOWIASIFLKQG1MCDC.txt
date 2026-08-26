@@ -1,0 +1,114 @@
+dist   node_modules  srctsconfig.tsbuildinfo
+drizzle.config.ts  package.json  tsconfig.json
+lib/db/dist/audit-schema-check.d.ts
+lib/db/dist/audit-schema-check.d.ts.map
+lib/db/dist/audit-schema-check.test.d.ts
+lib/db/dist/audit-schema-check.test.d.ts.map
+lib/db/dist/check-audit-schema.d.ts
+lib/db/dist/check-audit-schema.d.ts.map
+lib/db/dist/index.d.ts
+lib/db/dist/index.d.ts.map
+lib/db/drizzle.config.ts
+lib/db/package.json
+lib/db/src/audit-schema-check.test.ts
+lib/db/src/audit-schema-check.ts
+lib/db/src/check-audit-schema.ts
+lib/db/src/index.ts
+lib/db/tsconfig.json
+lib/db/tsconfig.tsbuildinfo
+lib/db/src/schema/tasks.ts:9:} from "drizzle-orm/pg-core";
+lib/db/src/schema/rules.ts:10:} from "drizzle-orm/pg-core";
+lib/db/src/schema/discovery.ts:1:import { pgTable, text, timestamp, integer, jsonb, pgEnum, index, check } from "drizzle-orm/pg-core";
+lib/db/src/schema/discovery.ts:2:import { sql } from "drizzle-orm";
+lib/db/src/schema/workflows.ts:9:} from "drizzle-orm/pg-core";
+lib/db/src/schema/uploads.ts:17:import { pgTable, text, timestamp, index } from "drizzle-orm/pg-core";
+lib/db/src/schema/task_logs.ts:1:import { pgTable, text, timestamp, jsonb, pgEnum, index } from "drizzle-orm/pg-core";
+lib/db/src/schema/scan_jobs.ts:10:import { pgTable, text, timestamp, jsonb, integer, pgEnum, index } from "drizzle-orm/pg-core";
+lib/db/src/schema/rate_limits.ts:16:import { pgTable, text, integer, bigint, timestamp, primaryKey } from "drizzle-orm/pg-core";
+lib/db/src/schema/projects.ts:1:import { pgTable, text, timestamp, real, pgEnum, index } from "drizzle-orm/pg-core";
+lib/db/src/schema/ai_executions.ts:1:import { pgEnum, pgTable, text, timestamp, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
+lib/db/src/schema/plugins.ts:1:import { pgTable, text, timestamp, boolean, jsonb } from "drizzle-orm/pg-core";
+lib/db/src/schema/ai_chats.ts:1:import { pgTable, text, timestamp, pgEnum, index, real } from "drizzle-orm/pg-core";
+lib/db/src/schema/pending_audit_logs.ts:7:import { pgTable, integer, jsonb, timestamp, index, text } from "drizzle-orm/pg-core";
+lib/db/src/schema/ai_change_proposals.ts:1:import { pgEnum, pgTable, text, timestamp, integer, boolean, index } from "drizzle-orm/pg-core";
+lib/db/src/schema/ai_apply_journal.ts:1:import { pgTable, text, timestamp, integer, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+lib/db/src/schema/metrics.ts:9:} from "drizzle-orm/pg-core";
+lib/db/src/index.ts:1:import { drizzle } from "drizzle-orm/node-postgres";
+lib/db/src/index.ts:14:export const db = drizzle(pool, { schema });
+lib/db/src/schema/graph.ts:12:} from "drizzle-orm/pg-core";
+lib/db/src/schema/graph.ts:13:import { sql } from "drizzle-orm";
+lib/db/package.json:11:    "push": "drizzle-kit push --config ./drizzle.config.ts",
+lib/db/package.json:12:    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
+lib/db/package.json:17:    "drizzle-orm": "catalog:",
+lib/db/package.json:18:    "drizzle-zod": "^0.8.3",
+lib/db/package.json:25:    "drizzle-kit": "^0.31.10",
+lib/db/src/schema/events.ts:1:import { pgTable, text, timestamp, jsonb, pgEnum, index } from "drizzle-orm/pg-core";
+lib/db/drizzle.config.ts:1:import { defineConfig } from "drizzle-kit";
+lib/db/src/schema/ai_provider_credentials.ts:1:import { pgTable, text, timestamp, unique } from "drizzle-orm/pg-core";
+lib/db/src/schema/browser_validation_profiles.ts:1:import { pgTable, text, timestamp, integer, jsonb, uniqueIndex, index } from "drizzle-orm/pg-core";
+lib/db/src/schema/audit_logs.ts:9:import { pgTable, text, timestamp, jsonb, pgEnum, index } from "drizzle-orm/pg-core";
+artifacts/api-server/src/services/task-service.ts:20:import { eq } from "drizzle-orm";
+artifacts/api-server/src/scripts/seed-provenance.ts:28:import { eq, and } from "drizzle-orm";
+artifacts/api-server/src/routes/tasks.ts:23:import { eq, and, desc, gt, asc, inArray, or, isNull } from "drizzle-orm";
+artifacts/api-server/src/routes/tasks.test.ts:3:import { eq } from "drizzle-orm";
+artifacts/api-server/src/routes/discovery.ts:19:import { eq, and, isNull, isNotNull, lt } from "drizzle-orm";
+artifacts/api-server/src/routes/discovery.ts:47: * `.constraint` fields; drizzle passes them through unchanged.
+artifacts/api-server/src/routes/discovery.ts:51:  // drizzle-orm wraps the raw node-postgres error in a DrizzleQueryError,
+artifacts/api-server/package.json:39:    "drizzle-orm": "catalog:",
+artifacts/api-server/src/routes/discovery.test.ts:3:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/task-execution-service.ts:2:import { and, eq, inArray } from "drizzle-orm";
+artifacts/api-server/src/lib/discovery-runner.test.ts:102:    // drizzle-orm is in allDeps → Drizzle ORM should win; a TS file with
+artifacts/api-server/src/lib/discovery-runner.test.ts:112:    const { orm } = detectDb({ "drizzle-orm": "^0.45.0" }, files);
+artifacts/api-server/src/lib/discovery-runner.test.ts:120:    const { orm } = detectDb({ "drizzle-orm": "^0.45.0" }, []);
+artifacts/api-server/src/routes/ai.test.ts:10:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/scan-runner.ts:17:import { eq, and, or, isNull, inArray } from "drizzle-orm";
+artifacts/api-server/src/routes/workflows.ts:13:import { eq, desc, and, isNull } from "drizzle-orm";
+artifacts/api-server/src/lib/discovery-runner.ts:32:import { eq, and, isNull } from "drizzle-orm";
+artifacts/api-server/src/lib/discovery-runner.ts:245:  if (allDeps["drizzle-orm"]) orm = "Drizzle ORM";
+artifacts/api-server/src/routes/workflows.test.ts:3:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/discovery-adapters.ts:24:import { eq } from "drizzle-orm";
+artifacts/api-server/src/routes/rules.ts:15:import { eq, and, desc, isNull, sql } from "drizzle-orm";
+artifacts/api-server/src/routes/rules.test.ts:6:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/upload-store.ts:37:import { and, eq, lt } from "drizzle-orm";
+artifacts/api-server/src/routes/projects.ts:26:import { eq, desc, and, inArray } from "drizzle-orm";
+artifacts/api-server/src/lib/ai-route-helpers.ts:13:import { eq, and } from "drizzle-orm";
+artifacts/api-server/src/routes/projects.test.ts:3:import { eq, or } from "drizzle-orm";
+artifacts/api-server/src/routes/plugins.ts:5:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/task-execution-retention.test.ts:2:import { eq } from "drizzle-orm";
+artifacts/api-server/src/routes/metrics.ts:5:import { eq, and, gte, lte, desc, inArray } from "drizzle-orm";
+artifacts/api-server/src/routes/metrics.test.ts:3:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/ai-execution-state.ts:2:import { and, eq, inArray, lt, sql } from "drizzle-orm";
+artifacts/api-server/src/lib/discovery-adapters.test.ts:11:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/ai-analysis-tools.ts:2:import { and, eq, ilike } from "drizzle-orm";
+artifacts/api-server/src/routes/health.ts:5:import { getAiDiagnosticsRetentionHealth } from "../lib/startup-migrations.js";
+artifacts/api-server/src/lib/startup-migrations.ts:2: * Startup migrations — lightweight data corrections that run once per process
+artifacts/api-server/src/lib/startup-migrations.ts:15:import { like } from "drizzle-orm";
+artifacts/api-server/src/lib/startup-migrations.ts:50:      logger.info({ scope: "startup-migrations", fn: "ensureEncryptionKey" },
+artifacts/api-server/src/lib/startup-migrations.ts:54:    logger.warn({ scope: "startup-migrations", fn: "ensureEncryptionKey", storedLength: stored.length },
+artifacts/api-server/src/lib/startup-migrations.ts:66:    logger.info({ scope: "startup-migrations", fn: "ensureEncryptionKey", keyFile: ENCRYPTION_KEY_FILE },
+artifacts/api-server/src/lib/startup-migrations.ts:69:    logger.error({ scope: "startup-migrations", fn: "ensureEncryptionKey", err },
+artifacts/api-server/src/lib/startup-migrations.ts:111:        scope: "startup-migrations",
+artifacts/api-server/src/lib/startup-migrations.ts:119:    logger.error({ scope: "startup-migrations", fn: "reportDeadRootPaths", err },
+artifacts/api-server/src/lib/startup-migrations.ts:330:    logger.error({ scope: "startup-migrations", fn: "scrubHistoricalValidationDetails", err },
+artifacts/api-server/src/lib/startup-migrations.ts:421:    logger.error({ scope: "startup-migrations", fn: "pruneHistoricalAiDiagnostics", err },
+artifacts/api-server/src/index.ts:15:} from "./lib/startup-migrations";
+artifacts/api-server/src/lib/startup-migrations.test.ts:2:import { eq } from "drizzle-orm";
+artifacts/api-server/src/lib/startup-migrations.test.ts:12:} from "./startup-migrations";
+artifacts/api-server/src/routes/graph.ts:10:import { eq, and, inArray, gte, isNull, or, asc, count } from "drizzle-orm";
+artifacts/api-server/src/lib/audit.ts:2:import { eq } from "drizzle-orm";
+/**
+ * Generated by orval v8.20.0 🍺
+ * Do not edit manually.
+ * Api
+ * EngineeringOS - Autonomous AI Engineering Platform API
+ * OpenAPI spec version: 1.0.0
+ */
+
+export type AiChatMessageOutcome = typeof AiChatMessageOutcome[keyof typeof AiChatMessageOutcome] | null;
+
+
+export const AiChatMessageOutcome = {
+  SUCCEEDED: 'SUCCEEDED',
+  FAILED: 'FAILED',
+  INTERRUPTED: 'INTERRUPTED',
+} as const;

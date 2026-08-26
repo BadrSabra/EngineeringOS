@@ -1,0 +1,180 @@
+     1import { pgTable, text, timestamp, pgEnum, index, real } from "drizzle-orm/pg-core";
+     2import { projectsTable } from "./projects.js";
+     3import { tasksTable } from "./tasks.js";
+     4
+     5export const aiMessageRoleEnum = pgEnum("ai_message_role", [
+     6  "user",
+     7  "assistant",
+     8  "system",
+     9]);
+    10
+    11export const aiChatSessionsTable = pgTable("ai_chat_sessions", {
+    12  id: text("id").primaryKey(),
+    13  projectId: text("project_id")
+    14    .notNull()
+    15    .references(() => projectsTable.id, { onDelete: "cascade" }),
+    16  title: text("title").notNull().default("New Chat"),
+    17  /**
+    18   * AI-TASK-001: Optional permanent link to a task so the chat agent operates
+    19   * in task-aware mode. Nullable FK — cleared automatically when the task is
+    20   * deleted; remains valid as long as the task exists.
+    21   */
+    22  linkedTaskId: text("linked_task_id")
+    23    .references(() => tasksTable.id, { onDelete: "set null" }),
+    24  /**
+    25   * Verified resumable task contract for short continuation messages such as
+    26   * "أكمل" or "ابدأ". Stored as validated JSON so the next request can resume
+    27   * the task contract without trusting prose from the conversation history.
+    28   */
+    29  activeTaskState: text("active_task_state"),
+    30  createdAt: timestamp("created_at").notNull().defaultNow(),
+    31  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    32}, (t) => [
+    33  // Covers: WHERE project_id = ? (session list for a project)
+    34  index("idx_ai_chat_sessions_project_id").on(t.projectId),
+    35  // Covers: WHERE project_id = ? ORDER BY updated_at DESC (most-recent sessions)
+    36  index("idx_ai_chat_sessions_project_id_updated_at").on(t.projectId, t.updatedAt),
+    37  // Covers: WHERE linked_task_id = ? (find all sessions for a task)
+    38  index("idx_ai_chat_sessions_linked_task_id").on(t.linkedTaskId),
+    39]);
+    40
+    41export const aiChatMessagesTable = pgTable("ai_chat_messages", {
+    42  id: text("id").primaryKey(),
+    43  sessionId: text("session_id")
+    44    .notNull()
+    45    .references(() => aiChatSessionsTable.id, { onDelete: "cascade" }),
+    46  role: aiMessageRoleEnum("role").notNull(),
+    47  content: text("content").notNull(),
+    48  /** JSON array of source strings (file paths, node names, etc.) */
+    49  sources: text("sources"),
+    50  /** JSON array of bounded execution-trace metadata; never part of report content. */
+    51  toolTrace: text("tool_trace"),
+    52  /** JSON array of server-verified executable Repair Plan phases. */
+    53  repairPlanMetadata: text("repair_plan_metadata"),
+    54  /** JSON array of accepted behavior-evidence references, each with an optional exact source line span. */
+    55  behaviorEvidence: text("behavior_evidence"),
+    56  /** Versioned, redacted mission correlation report for historical run messages. */
+    57  missionCorrelationReport: text("mission_correlation_report"),
+    58  /** Server-authoritative routing decision for this conversational turn. */
+    59  turnIntent: text("turn_intent"),
+    60  /** Durable execution linked to this turn, when the turn used one. */
+    61  executionId: text("execution_id"),
+    62  /** Terminal outcome; failed/interrupted turns are retained without an answer. */
+    63  outcome: text("outcome"),
+    64  /** Bounded provider/execution failure code for an auditable failed turn. */
+    65  errorCode: text("error_code"),
+    66  errorMessage: text("error_message"),
+    67  /**
+    68   * Serialized AI-008 per-task typed result (discriminated on `kind` by
+    69   * forensicTaskType). Persisted so a reloaded/history session can re-render the
+    70   * structured panel; null for generic chat turns that map to no typed contract.
+    71   */
+    72  taskResult: text("task_result"),
+    73  createdAt: timestamp("created_at").notNull().defaultNow(),
+    74}, (t) => [
+    75  // Covers: WHERE session_id = ? (load all messages for a session)
+    76  index("idx_ai_chat_messages_session_id").on(t.sessionId),
+    77  // Covers: WHERE session_id = ? ORDER BY created_at ASC (chronological thread)
+    78  index("idx_ai_chat_messages_session_id_created_at").on(t.sessionId, t.createdAt),
+    79]);
+    80
+    81export type InsertAiChatSession = typeof aiChatSessionsTable.$inferInsert;
+    82export type AiChatSession = typeof aiChatSessionsTable.$inferSelect;
+    83export type InsertAiChatMessage = typeof aiChatMessagesTable.$inferInsert;
+    84export type AiChatMessage = typeof aiChatMessagesTable.$inferSelect;
+    85
+    86// ── AI Session Memories ───────────────────────────────────────────────────────
+    87
+    88export const aiMemoryTypeEnum = pgEnum("ai_memory_type", [
+    89  "file_summary",
+    90  "entity_fact",
+    91  "session_summary",
+    92  "key_finding",
+    93]);
+    94
+    95/**
+    96 * Cross-session memory: stores summaries of files accessed and key findings
+    97 * from each chat session so subsequent sessions can skip re-discovery.
+    98 *
+    99 * Populated at the end of every successful chat exchange; injected into the
+   100 * system prompt at the start of the next session for the same project.
+     1/**
+     2 * Generated by orval v8.20.0 🍺
+     3 * Do not edit manually.
+     4 * Api
+     5 * EngineeringOS - Autonomous AI Engineering Platform API
+     6 * OpenAPI spec version: 1.0.0
+     7 */
+     8import type { AiBehaviorAnswerResult } from './aiBehaviorAnswerResult';
+     9import type { AiChatMessageOutcome } from './aiChatMessageOutcome';
+    10import type { AiChatMessageRole } from './aiChatMessageRole';
+    11import type { AiCodeExtractionResult } from './aiCodeExtractionResult';
+    12import type { AiFindingResult } from './aiFindingResult';
+    13import type { AiForensicReportResult } from './aiForensicReportResult';
+    14import type { AiRepairResult } from './aiRepairResult';
+    15import type { AiWorkspaceReviewResult } from './aiWorkspaceReviewResult';
+    16import type { BehaviorEvidence } from './behaviorEvidence';
+    17import type { MissionCorrelationReport } from './missionCorrelationReport';
+    18
+    19export interface AiChatMessage {
+    20  id: string;
+    21  sessionId: string;
+    22  role: AiChatMessageRole;
+    23  content: string;
+    24  sources?: string | null;
+    25  toolTrace?: string | null;
+    26  /** Server-authoritative intent used to route this turn */
+    27  turnIntent?: string | null;
+    28  /** Durable execution linked to this conversational turn */
+    29  executionId?: string | null;
+    30  outcome?: AiChatMessageOutcome;
+    31  errorCode?: string | null;
+    32  errorMessage?: string | null;
+    33  /**
+    34     * Parsed accepted behavior-evidence references, each with an optional exact source line span
+    35     * @maxItems 8
+    36     */
+    37  behaviorEvidence?: BehaviorEvidence[];
+    38  /** Versioned, redacted correlation report retained with a historical mission message */
+    39  missionCorrelationReport?: MissionCorrelationReport | null;
+    40  /** AI-008 — persisted per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns. */
+    41  taskResult?: AiCodeExtractionResult | AiBehaviorAnswerResult | AiFindingResult | AiForensicReportResult | AiWorkspaceReviewResult | AiRepairResult;
+    42  createdAt: Date;
+    43}
+     1/**
+     2 * Generated by orval v8.20.0 🍺
+     3 * Do not edit manually.
+     4 * Api
+     5 * EngineeringOS - Autonomous AI Engineering Platform API
+     6 * OpenAPI spec version: 1.0.0
+     7 */
+     8import type { AiBehaviorAnswerResult } from './aiBehaviorAnswerResult';
+     9import type { AiChatMessage } from './aiChatMessage';
+    10import type { AiChatOutputRepairPlanItem } from './aiChatOutputRepairPlanItem';
+    11import type { AiCodeExtractionResult } from './aiCodeExtractionResult';
+    12import type { AiFindingResult } from './aiFindingResult';
+    13import type { AiForensicReportResult } from './aiForensicReportResult';
+    14import type { AiPendingChange } from './aiPendingChange';
+    15import type { AiRepairResult } from './aiRepairResult';
+    16import type { AiWorkspaceReviewResult } from './aiWorkspaceReviewResult';
+    17import type { CrossFileSemanticTrace } from './crossFileSemanticTrace';
+    18import type { ProductionReachabilityTrace } from './productionReachabilityTrace';
+    19
+    20export interface AiChatOutput {
+    21  sessionId: string;
+    22  message: AiChatMessage;
+    23  sources: string[];
+    24  /** File changes proposed by the AI agent; populated only when a server-owned approval proposal was created */
+    25  pendingChanges: AiPendingChange[];
+    26  /** Server-owned approval proposal ID, when the pending changes are eligible for approval */
+    27  proposalId?: string;
+    28  /** Bounded explanation when proposed changes could not receive an approval proposal */
+    29  proposalUnavailable?: string;
+    30  /** Server-verified structured Repair Plan metadata */
+    31  repairPlan?: AiChatOutputRepairPlanItem[];
+    32  productionReachability?: ProductionReachabilityTrace;
+    33  /** @maxItems 12 */
+    34  crossFileTraces?: CrossFileSemanticTrace[];
+    35  /** AI-008 — per-task typed result discriminated on `kind` by forensicTaskType. Absent for generic chat turns. */
+    36  taskResult?: AiCodeExtractionResult | AiBehaviorAnswerResult | AiFindingResult | AiForensicReportResult | AiWorkspaceReviewResult | AiRepairResult;
+    37}

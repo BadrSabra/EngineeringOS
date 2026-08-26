@@ -328,6 +328,7 @@ beforeEach(() => {
     operationMode: undefined,
     outcome: undefined,
     failureKind: undefined,
+    retryable: undefined,
     executionId: undefined,
     errorCode: undefined,
     errorMessage: undefined,
@@ -3021,6 +3022,75 @@ describe('AiChat authenticated generated mutations', () => {
     expect(screen.getByText('Agent activity')).toBeInTheDocument();
     expect(screen.getByText(/Calling AI model/)).toBeInTheDocument();
     expect(screen.getByText(/analysis-model/)).toBeInTheDocument();
+  });
+
+  it('shows a retryable incomplete code review and preserves the failed attempt after retry', async () => {
+    renderAiChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Code Review' }));
+    act(() => {
+      (mocks.taskStreamCallbacks as Record<string, unknown> & {
+        onError?: (event: Record<string, unknown>) => void;
+      }).onError?.({
+        type: 'error',
+        code: 'model_output_invalid',
+        message: 'The AI model returned an unexpected response.',
+        failureKind: 'PROVIDER_FORMAT',
+        retryable: true,
+        outcome: 'FAILED',
+      });
+    });
+
+    expect(await screen.findByText('Code review incomplete')).toBeInTheDocument();
+    expect(screen.getByText(/could not be verified/i)).toBeInTheDocument();
+    expect(screen.getByText('Retry available')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry code review' }));
+    expect(mocks.taskSentParams).toEqual({ projectId: 'project-1', task: 'review' });
+
+    act(() => {
+      (mocks.taskStreamCallbacks as Record<string, unknown> & {
+        onTaskDone?: (event: Record<string, unknown>) => void;
+      }).onTaskDone?.({
+        type: 'task_done',
+        task: 'review',
+        result: {
+          summary: 'Review completed after retry',
+          overallScore: 92,
+          strengths: ['Clear boundaries'],
+          issues: [],
+          refactoringOpportunities: [],
+          securityConcerns: [],
+          verdict: 'approved',
+        },
+      });
+    });
+
+    expect(screen.getByText('Code review incomplete')).toBeInTheDocument();
+    expect(screen.getByText(/Review completed after retry/)).toBeInTheDocument();
+  });
+
+  it('marks a setup-blocked code review as not retryable', async () => {
+    renderAiChat();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Code Review' }));
+    act(() => {
+      (mocks.taskStreamCallbacks as Record<string, unknown> & {
+        onError?: (event: Record<string, unknown>) => void;
+      }).onError?.({
+        type: 'error',
+        code: 'INVALID_CONFIG',
+        message: 'The AI provider configuration needs attention before this can run.',
+        failureKind: 'CONFIGURATION',
+        retryable: false,
+        outcome: 'FAILED',
+      });
+    });
+
+    expect(await screen.findByText('Code review unavailable')).toBeInTheDocument();
+    expect(screen.getByText('Retry unavailable')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry code review' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Update the AI setup/)).toBeInTheDocument();
   });
 
   it('shows "Why this file?" panel with agent reasoning when a read tool step is expanded', async () => {

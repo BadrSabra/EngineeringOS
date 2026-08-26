@@ -1,0 +1,355 @@
+   860            eq(aiChatMessagesTable.role, "user"),
+   861          ))
+   862          .limit(1)
+   863      : [];
+   864    if (existingUserTurn.length === 0) {
+   865      await tx.insert(aiChatMessagesTable).values({
+   866        id: randomUUID(),
+   867        sessionId: params.sessionId,
+   868        role: "user",
+   869        content: params.message,
+   870        turnIntent: params.turnIntent,
+   871        executionId: params.executionId ?? null,
+   872        outcome: "SUCCEEDED",
+   873        createdAt: params.createdAt,
+   874      });
+   875    }
+   876    await tx.insert(aiChatMessagesTable).values({
+   877      id: randomUUID(),
+   878      sessionId: params.sessionId,
+   879      role: "assistant",
+   880      // Empty content is intentional: a failed provider turn is not an
+   881      // assistant answer and must not be rendered as one.
+   882      content: "",
+   883      turnIntent: params.turnIntent,
+   884      executionId: params.executionId ?? null,
+   885      outcome: params.outcome,
+   886      errorCode: params.errorCode,
+   887      errorMessage: redactUserFacingText(params.errorMessage).slice(0, 500),
+   888      toolTrace: params.toolTrace ? serializeToolTrace(params.toolTrace, true) : null,
+   889      createdAt: params.assistantAt,
+   890    });
+   891    await tx.update(aiChatSessionsTable)
+   892      .set({ updatedAt: params.assistantAt })
+   893      .where(eq(aiChatSessionsTable.id, params.sessionId));
+   894  });
+   895}
+   896
+   897type ApplySnapshot = {
+   898  path: string;
+   899  realPath: string;
+   900  before: Buffer | null;
+   901};
+   902
+   903type ApplyRollbackFailure = {
+   904  path: string;
+   905  error: string;
+   906};
+   907
+   908type ApplyJournalStage =
+   909  | "STARTED"
+   910  | "PREFLIGHT_STARTED"
+   911  | "PREFLIGHT_PASSED"
+   912  | "PREFLIGHT_FAILED"
+   913  | "WRITING_STARTED"
+   914  | "WRITTEN"
+   915  | "WRITE_FAILED"
+   916  | "VALIDATING"
+   917  | "BLOCKED"
+   918  | "APPLIED"
+   919  | "ROLLED_BACK"
+   920  | "ROLLBACK_FAILED"
+   921  | "PROMOTION_INTENT"
+   922  | "PROMOTED"
+   923  | "RECOVERY_REQUIRED";
+   924
+   925async function restoreApplySnapshots(
+  2100        : undefined,
+  2101      objective: result.objective ?? objective,
+  2102      evidence: result.behaviorEvidence,
+  2103      projectId,
+  2104      rootPath: validRootPath,
+  2105    });
+  2106    const activeTaskState = nextSessionTaskState({
+  2107      persisted: resumableStateForTurn,
+  2108      classification: chatClassification,
+  2109      resumed: classificationResolution.resumed,
+  2110      projectId,
+  2111      rootPath: validRootPath,
+  2112      linkedTaskId: effectiveLinkedTaskId,
+  2113      now: msgNow,
+  2114      readFiles: collectReadEvidencePaths(traceSteps),
+  2115      executionPlan,
+  2116    });
+  2117
+  2118    const assistantMsg = await db.transaction(async (tx) => {
+  2119      if (existingSession) {
+  2120        await tx
+  2121          .select({ id: aiChatSessionsTable.id })
+  2122          .from(aiChatSessionsTable)
+  2123          .where(eq(aiChatSessionsTable.id, sessionIdToUse))
+  2124          .for("update");
+  2125      }
+  2126      if (!existingSession) {
+  2127        const [created] = await tx
+  2128          .insert(aiChatSessionsTable)
+  2129          .values({
+  2130            id: sessionIdToUse,
+  2131            projectId,
+  2132            // AI-TASK-001: persist task linkage so re-opened sessions remain task-aware.
+  2133            linkedTaskId: effectiveLinkedTaskId ?? null,
+  2134            activeTaskState,
+  2135            // BUG-5 fix: don't use a bare greeting as the session title.
+  2136            // "مرحبا", "Hello", "Hi" etc. give no context in the sessions list.
+  2137            // Use the first 60 chars only when the opener is substantive.
+  2138            title: (() => {
+  2139              const trimmed = message.trim();
+  2140              const isGreeting = /^(مرحبا|مرحبً?ا|أهلاً?|سلام|هلا|hi|hello|hey|greetings|سلاماً?|صباح الخير|مساء الخير|good (morning|afternoon|evening))[\s!.،,]*$/i.test(trimmed);
+  2141              return (!isGreeting && trimmed.length > 10)
+  2142                ? trimmed.slice(0, 60)
+  2143                : `Session ${now.toISOString().slice(0, 16).replace("T", " ")}`;
+  2144            })(),
+  2145            createdAt: now,
+  2146            updatedAt: now,
+  2147          })
+  2148          .returning();
+  2149        if (!created) {
+  2150          throw new Error("Failed to create chat session");
+  2151        }
+  2152      }
+  2153      await tx.insert(aiChatMessagesTable).values({
+  2154        id: randomUUID(),
+  2155        sessionId: sessionIdToUse,
+  2156        role: "user",
+  2157        content: message,
+  2158        turnIntent: turnIntent.kind,
+  2159        outcome: "SUCCEEDED",
+  2160        createdAt: now,
+  2161      });
+  2162      const [msg] = await tx
+  2163        .insert(aiChatMessagesTable)
+  2164        .values({
+  2165          id: randomUUID(),
+  2166          sessionId: sessionIdToUse,
+  2167          role: "assistant",
+  2168          content: sanitizeResponseText(result.response),
+  2169          turnIntent: turnIntent.kind,
+  2170          outcome: "SUCCEEDED",
+  2171          sources: JSON.stringify(redactUserFacingValue(result.sources)),
+  2172          toolTrace: serializeToolTrace(traceSteps),
+  2173          repairPlanMetadata: serializeRepairPlanMetadata(result.repairPlan),
+  2174          behaviorEvidence: serializeBehaviorEvidence(result.behaviorEvidence),
+  2175          missionCorrelationReport,
+  2176          taskResult: serializeTaskResult(result.taskResult),
+  2177          executionId: null,
+  2178          createdAt: msgNow,
+  2179        })
+  2180        .returning();
+7121-  // so the badge always reflects what the model that actually ran the request.
+7122-  const [lastResolvedModel, setLastResolvedModel] = useState<{ id: string; provider: string; free: boolean } | undefined>(undefined);
+7123-  const { send: streamSend, cancel: cancelStream, isPending: isSending } = useAiChatStream();
+7124:  const { send: taskStreamSend, cancel: cancelTaskStream, isPending: isTaskSending } = useAiTaskStream();
+7125-  const streamGenerationRef = useRef(0);
+7126-  const streamOwnerRef = useRef<StreamOwner | null>(null);
+7127-  const { data: operationEventsPage, isLoading: operationEventsLoading } = useListEvents(
+7128-    {
+7129-      projectId: selectedProjectId,
+7130-      ...(operationId ? { correlationId: operationId } : {}),
+7131-      limit: 100,
+7132-    },
+--
+7590-    setAgentModelHistory([]);
+7591-    setAgentDiagnostics([]);
+7592-
+7593:    void taskStreamSend({ projectId: selectedProjectId, task }, {
+7594-      onTaskStarted: (event) => {
+7595-        appendLiveActivityEvent({
+7596-          kind: 'stage',
+7597-          label: `${event.task === 'analyze' ? 'Analysis' : 'Review'} task accepted`,
+7598-          status: 'done',
+7599-        });
+7600-      },
+7601-      onStage: (stage) => {
+467:export type AiStreamTaskStartedEvent = {
+468-  type: 'task_started';
+469-  task: 'analyze' | 'review';
+470-  projectId: string;
+471-  operationId: string;
+472-  projectRevision: string;
+473-  rootAvailable: boolean;
+474-  incomplete: boolean;
+475-  operationalTrace: AiStructuredAuditTraceEntry[];
+476-};
+477-
+478-export type AiStructuredAuditTraceEntry = {
+479-  stage: string;
+480-  status: 'started' | 'completed' | 'failed' | 'incomplete';
+481-  provider?: string;
+482-};
+483-
+484-export type AiStructuredAuditMetadata = {
+485-  operationId: string;
+486-  projectId: string;
+487-  projectRevision: string;
+488-  rootAvailable: boolean;
+489-  incomplete: boolean;
+490-  operationalTrace: AiStructuredAuditTraceEntry[];
+491-};
+492-
+493-export type AiStreamTaskProgressEvent = {
+494-  type: 'task_progress';
+495-  task: 'analyze' | 'review';
+496-  message: string;
+497-  provider?: string;
+498-  operationId: string;
+499-  projectId: string;
+500-  projectRevision: string;
+501-  rootAvailable: boolean;
+502-  incomplete: boolean;
+503-  operationalTrace: AiStructuredAuditTraceEntry[];
+504-};
+505-
+506:export type AiStreamTaskDoneEvent = {
+507-  type: 'task_done';
+508-  task: 'analyze' | 'review';
+509-  result: Record<string, unknown>;
+510-  operationId: string;
+511-  projectId: string;
+512-  projectRevision: string;
+513-  rootAvailable: boolean;
+514-  incomplete: boolean;
+515-  operationalTrace: AiStructuredAuditTraceEntry[];
+516-};
+517-
+518-export type AiStreamExecutionDiagnosticEvent = {
+519-  type: 'execution_diagnostic';
+520-  code:
+521-    | 'FORENSIC_CONTRACT_RECOVERY_REJECTED'
+522-    | 'FORENSIC_CONTRACT_RECOVERY_PARSE_FAILED'
+523-    | 'FORENSIC_CONTRACT_RECOVERY_FAILED'
+524-    | 'FORENSIC_STRUCTURED_RECOVERY_ACCEPTED'
+525-    | 'FORENSIC_STRUCTURED_RECOVERY_REJECTED'
+526-    | 'FORENSIC_STRUCTURED_RECOVERY_PARSE_FAILED'
+527-    | 'FORENSIC_STRUCTURED_RECOVERY_NO_FINDING'
+528-    | 'FORENSIC_EVIDENCE_ONLY_FALLBACK'
+529-    | 'FORENSIC_CONTRACT_RECOVERY_SKIPPED_NO_EVIDENCE'
+530-    | 'EXECUTION_RESPONSE_FORMAT_INVALID'
+531-    | 'EXECUTION_JSON_CORRECTION_FAILED'
+532-    | 'EXECUTION_JSON_CORRECTION_RETRY_FAILED'
+533-    | 'EXECUTION_PROVIDER_FAILURE'
+534-    | 'EXECUTION_NO_EDIT_TOOL'
+535-    | 'EXECUTION_PHASE_TOOL_REJECTED';
+536-  /** Bounded contract metadata only; never source contents or model text. */
+537-  details?: string[];
+538-  /** Present only for a server-owned phase-policy rejection. */
+539-  phase?: 'localization' | 'evidence' | 'patch_proposal' | 'validation' | 'repair_recovery' | 'report';
+540-  tool?: string;
+541-};
+542-
+543-export type AiStreamExecutionSummary = {
+544-  iterations: number;
+545-  maxIterations: number;
+546-  /** Total tool-call events, including prefetch and cached loop calls. */
+547-  toolCalls: number;
+548-  prefetchToolCalls: number;
+549-  loopToolCalls: number;
+550-  stopReason: 'response' | 'iteration_budget' | 'soft_limit' | 'repeated_tool_call' | 'empty_response' | 'provider_timeout' | 'cancelled';
+551-  synthesisStarted: boolean;
+--
+679:  | AiStreamTaskStartedEvent
+680-  | AiStreamTaskProgressEvent
+681:  | AiStreamTaskDoneEvent;
+682-
+683-// ── Hook params ───────────────────────────────────────────────────────────────
+684-
+685-export type AiChatStreamParams = {
+686-  projectId: string;
+687-  message: string;
+688-  sessionId?: string;
+689-  /** AI-TASK-006: When set, the backend loads this task and builds a task-aware prompt. */
+690-  linkedTaskId?: string;
+691-  /** Build handoff from an approved implementation-plan message. */
+692-  buildPlanMessageId?: string;
+693-  /** Resume an existing paused execution instead of starting a duplicate. */
+694-  executionId?: string;
+695-  /** Opaque token returned in execution_started for explicit resume. */
+696-  resumeToken?: string;
+697-  /** Stable retry key for the first request. */
+698-  idempotencyKey?: string;
+699-};
+700-
+701-export type AiChatStreamCallbacks = {
+702-  /** Durable execution identity emitted before model work starts. */
+703-  onExecutionStarted?: (event: AiStreamExecutionStartedEvent) => void;
+704-  /** Bounded execution tree snapshot used by Mission Control. */
+705-  onExecutionNodes?: (event: AiStreamExecutionNodesEvent) => void;
+706-  /** Called once the server has reserved a new session before model work starts. */
+707-  onSessionStarted?: (event: AiStreamSessionStartedEvent) => void;
+708-  onStage?: (stage: string) => void;
+709-  /** Called once the server has resolved the authoritative turn routing contract. */
+710-  onIntent?: (event: AiStreamIntentEvent) => void;
+711-  /** Called when the forensic evidence ledger publishes its bounded state. */
+712-  onAuditState?: (event: AiStreamAuditStateEvent) => void;
+713-  /** Called when the server verifies the model response/evidence boundary. */
+714-  onVerification?: (event: AiStreamVerificationEvent) => void;
+715-  /** Called for each incremental text token from the model's streaming response. */
+716-  onDelta?: (delta: string) => void;
+717-  /** Called when the SSE stream breaks mid-flight so callers can clear partial state. */
+718-  onStreamReset?: () => void;
+719-  onDone?: (data: AiStreamDoneEvent) => void;
+720-  onError?: (err: AiStreamErrorEvent) => void;
+721-  /** Called when the agent starts executing a tool (before the actual call). */
+722-  onToolCall?: (event: AiStreamToolCallEvent) => void;
+723-  /** Called when a tool call completes and a result has been received. */
+724-  onToolResult?: (event: AiStreamToolResultEvent) => void;
+725-  onPlanActivity?: (event: AiStreamPlanActivityEvent) => void;
+726-  /** Called after a server-owned validation profile completes or is blocked. */
+--
+763:  onTaskStarted?: (event: AiStreamTaskStartedEvent) => void;
+764-  onTaskProgress?: (event: AiStreamTaskProgressEvent) => void;
+765:  onTaskDone?: (event: AiStreamTaskDoneEvent) => void;
+766-};
+767-
+768-// ── Stream processor ──────────────────────────────────────────────────────────
+769-
+770-/**
+771- * Reads a server-sent-events `body` to completion, parses each `data: {...}\n\n`
+772- * frame, and dispatches the typed event to the matching callback in `callbacks`.
+773- *
+774- * Extracted from `useAiChatStream` so the routing logic can be tested directly
+775- * without a React / fetch runtime.  The hook calls this function internally;
+776- * the behaviour is identical to what it was before extraction.
+777- *
+778- * @internal Exported for testing — not part of the public API contract.
+779- */
+780-export async function processAiStream(
+781-  body: ReadableStream<Uint8Array>,
+782-  callbacks: AiChatStreamCallbacks,
+783-): Promise<void> {
+784-  const reader = body.getReader();
+785-  const decoder = new TextDecoder();
+786-  let buffer = '';
+787-  let executionStarted = false;
+788-  let taskStarted = false;
+789-  let terminalEventReceived = false;
+790-
+791-  // eslint-disable-next-line no-constant-condition
+792-  while (true) {
+793-    const { done, value } = await reader.read();
+794-    if (done) {
+795-      // A proxy/provider can close a healthy-looking SSE response without
+796-      // sending either `done` or `error`. Once the server has issued an
+797-      // execution identity, surface that EOF as a recoverable interruption so
+798-      // callers can resume the same operation instead of silently dropping it.
+799-      if ((executionStarted || taskStarted) && !terminalEventReceived) {
+800-        callbacks.onStreamReset?.();
+801-      }
+802-      break;
+803-    }
+804-
+805-    buffer += decoder.decode(value, { stream: true });
+806-
+807-    // SSE events are separated by double newlines: "data: {...}\n\n"
+808-    const chunks = buffer.split('\n\n');
+809-    // Last element is the incomplete chunk — keep it for the next read
+810-    buffer = chunks.pop() ?? '';

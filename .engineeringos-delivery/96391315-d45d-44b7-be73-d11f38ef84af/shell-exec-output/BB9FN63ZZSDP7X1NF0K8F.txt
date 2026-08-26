@@ -1,0 +1,318 @@
+  7400  }, [
+  7401    activeExecution?.id,
+  7402    activeExecution?.resumeToken,
+  7403    activeExecutionStatus?.status,
+  7404    executionPointerKey,
+  7405    executionStorageKey,
+  7406    executionStorageSessionId,
+  7407    resumeRecoveryAttempt,
+  7408    selectedProjectId,
+  7409  ]);
+  7410
+  7411  function clearLiveActivityEvents() {
+  7412    agentActivityIdRef.current = 0;
+  7413    agentActivityEventsRef.current = [];
+  7414    setAgentActivityEvents([]);
+  7415  }
+  7416
+  7417  function clearExecutionScopedState(options?: { preserveBuildPending?: boolean }) {
+  7418    streamOwnerRef.current = null;
+  7419    activeExecutionRef.current = null;
+  7420    setActiveExecution(null);
+  7421    setExecutionNodes([]);
+  7422    setOperationId(undefined);
+  7423    setOperationMode(undefined);
+  7424    setCommitReadyPaths([]);
+  7425    setCommitProposalId(undefined);
+  7426    setPushReady(false);
+  7427    if (!options?.preserveBuildPending) {
+  7428      setPlanBuildPending(null);
+  7429      setPlanDecisionPending(null);
+  7430    }
+  7431  }
+  7432
+  7433  function appendLiveActivityEvent(
+  7434    event: Omit<LiveAgentActivityEvent, 'id'>,
+  7435  ): number {
+  7436    const id = agentActivityIdRef.current++;
+  7437    const next = [
+  7438      ...agentActivityEventsRef.current,
+  7439      { ...event, id },
+  7440    ].slice(-160);
+  7441    agentActivityEventsRef.current = next;
+  7442    setAgentActivityEvents(() => next);
+  7443    return id;
+  7444  }
+  7445
+  7446  function resetStructuredTaskState() {
+  7447    setAgentStage(null);
+  7448    setAgentSteps([]);
+  7449    setAgentIter(null);
+  7450    setAgentModel(null);
+  7451    setAgentStartedAt(null);
+  7452    setAgentElapsedSeconds(0);
+  7453    setAgentModelHistory([]);
+  7454    setAgentDiagnostics([]);
+  7455    setExecutionNodes([]);
+  7456    setLiveFixtureLocal(false);
+  7457    setLiveEvidenceIntegrity(null);
+  7458    setLiveVerdictScope(null);
+  7459  }
+  7460
+  7461  function safeStructuredFailure(err: AiStreamErrorEvent): { title: string; reason: string } {
+  7462    switch (err.failureKind) {
+  7463      case 'PROVIDER_FORMAT': return { title: 'Incomplete analysis', reason: 'The AI returned an unexpected response format. No scan result was created.' };
+  7464      case 'RATE_LIMIT': return { title: 'Analysis paused by rate limit', reason: 'The AI provider is rate-limited. Wait a moment, then retry.' };
+  7465      case 'CONFIGURATION': return { title: 'Analysis needs provider configuration', reason: 'The configured AI provider could not run this task. Check its key or choose another provider.' };
+  7466      case 'TRANSPORT': return { title: 'Analysis interrupted', reason: 'The connection ended before the analysis finished. No scan result was created.' };
+  7467      default: return { title: 'Analysis failed', reason: 'The AI provider could not complete this task. No scan result was created.' };
+  7468    }
+  7469  }
+  7470
+  7471  function structuredTaskStageLabel(stage: string): string {
+  7472    switch (stage) {
+  7473      case 'building-context':
+  7474        return 'Building project context';
+  7475      case 'calling-model':
+  7476        return 'Calling AI model';
+  7477      case 'persisting-result':
+  7478        return 'Saving result';
+  7479      case 'completed':
+  7480        return 'Task completed';
+  7481      default:
+  7482        return stage.replace(/[-_]/g, ' ');
+  7483    }
+  7484  }
+  7485
+  7486  function startStructuredTask(task: 'analyze' | 'review', prompt: string, retryMessageId?: string) {
+  7487    if (!selectedProjectId || isTaskSending) return;
+  7488    const placeholderId = `${task}-placeholder`;
+  7489    const title = task === 'analyze' ? 'Analyzing scan…' : 'Reviewing code…';
+  7490    const startLabel = task === 'analyze' ? 'Starting scan analysis' : 'Starting code review';
+  7491
+  7492    structuredTaskRunRef.current = { task, prompt, placeholderId };
+  7493    if (!retryMessageId) {
+  7494      setLocalMessages((prev) => [
+  7495        ...prev,
+  7496        { id: placeholderId, role: 'user' as const, content: prompt, createdAt: new Date().toISOString() },
+  7497      ]);
+  7498    } else {
+  7499      setLocalMessages((prev) => prev.filter((message) => message.id !== retryMessageId));
+  7500    }
+  7501    setAgentStage(title);
+  7502    setAgentSteps([]);
+  7503    clearLiveActivityEvents();
+  7504    appendLiveActivityEvent({ kind: 'stage', label: startLabel, status: 'info' });
+  7505    setAgentIter(null);
+  7506    setAgentModel(null);
+  7507    setStreamingContent('');
+  7508    setAgentStartedAt(Date.now());
+  7509    setAgentElapsedSeconds(0);
+  7510    setAgentModelHistory([]);
+  7511    setAgentDiagnostics([]);
+  7512
+  7513    void taskStreamSend({ projectId: selectedProjectId, task }, {
+  7514      onTaskStarted: (event) => {
+  7515        appendLiveActivityEvent({
+  7516          kind: 'stage',
+  7517          label: `${event.task === 'analyze' ? 'Analysis' : 'Review'} task accepted`,
+  7518          status: 'done',
+  7519        });
+  7520      },
+  7521      onStage: (stage) => {
+  7522        const label = structuredTaskStageLabel(stage);
+  7523        setAgentStage(label);
+  7524        appendLiveActivityEvent({ kind: 'stage', label, status: stage === 'completed' ? 'done' : 'active' });
+  7525      },
+  7526      onTaskProgress: (event) => {
+  7527        appendLiveActivityEvent({
+  7528          kind: 'stage',
+  7529          label: event.message,
+  7530          detail: event.provider,
+  7531          status: 'info',
+  7532        });
+  7533      },
+  7534      onModelCall: (event) => {
+  7535        setAgentModel(event.model);
+  7640  const metricsMap = new Map(
+  7641    (metricsData?.metrics ?? []).map((m) => [m.provider, m]),
+  7642  );
+  7643
+  7644  // G-06 fix: pending changes are stored with a timestamp so stale entries
+  7645  // (from a crashed/closed tab after the server wrote the files but before
+  7646  // onSuccess could clear them) expire automatically after 24 hours instead
+  7647  // of becoming permanent phantom items.
+  7648  const PENDING_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+  7649  type StoredPending = { changes: PendingChange[]; savedAt: number };
+  7650  const pendingKey = sessionId ? `eos_pending_${sessionId}` : undefined;
+  7651  const verificationKey = sessionId ? `eos_verification_${sessionId}` : undefined;
+  7652
+  7653  useEffect(() => {
+  7654    if (!pendingKey || !verificationKey) return;
+  7655    if (pendingChanges.length > 0) {
+  7656      const payload: StoredPending = { changes: pendingChanges, savedAt: Date.now() };
+  7657      localStorage.setItem(pendingKey, JSON.stringify(payload));
+  7658    } else {
+  7659      localStorage.removeItem(pendingKey);
+  7660    }
+  7661    if (Object.keys(verificationResults).length > 0) {
+  7662      localStorage.setItem(verificationKey, JSON.stringify(verificationResults));
+  7663    } else {
+  7664      localStorage.removeItem(verificationKey);
+  7665    }
+  7666  }, [pendingChanges, pendingKey, verificationKey, verificationResults]);
+  7667
+  7668  useEffect(() => {
+  7669    if (!sessionId) {
+  7670      setPendingChanges([]);
+  7671      setVerificationResults({});
+  7672      return;
+  7673    }
+  7674    if (!pendingKey || !verificationKey) return;
+  7675    const storedVerification = localStorage.getItem(verificationKey);
+  7676    if (storedVerification) {
+  7677      try {
+  7678        setVerificationResults(JSON.parse(storedVerification) as Record<string, BehavioralVerification>);
+  7679      } catch {
+  7680        localStorage.removeItem(verificationKey);
+  7681        setVerificationResults({});
+  7682      }
+  7683    } else {
+  7684      setVerificationResults({});
+  7685    }
+  7686    const raw = localStorage.getItem(pendingKey);
+  7687    if (!raw) { setPendingChanges([]); return; }
+  7688    try {
+  7689      const stored = JSON.parse(raw) as StoredPending | PendingChange[];
+  7690      // Handle both the old format (plain array) and the new format ({ changes, savedAt }).
+  7691      const changes = Array.isArray(stored) ? stored : stored.changes;
+  7692      const savedAt  = Array.isArray(stored) ? 0       : stored.savedAt;
+  7693      if (Date.now() - savedAt > PENDING_TTL_MS) {
+  7694        // Entry is older than 24 h — the server almost certainly already wrote
+  7695        // those files.  Remove the ghost entry rather than confusing the user.
+  7696        localStorage.removeItem(pendingKey);
+  7697        setPendingChanges([]);
+  7698        return;
+  7699      }
+  7700      if (changes.length > 0) setPendingChanges(changes);
+  7701    } catch {
+  7702      localStorage.removeItem(pendingKey);
+  7703    }
+  7704  }, [pendingKey, sessionId, verificationKey]);
+  7705
+  7900    // A mission report is optional enrichment on an otherwise useful message.
+  7901    // Validate each one independently so one old/corrupt report cannot discard
+  7902    // the complete conversation or expose parser details in the UI.
+  7903    let hasUnavailableReport = false;
+  7904    const safeMessages = serverMessages.map((message) => {
+  7905      if (message.missionCorrelationReportError) {
+  7906        hasUnavailableReport = true;
+  7907        return { ...message, missionCorrelationReport: undefined };
+  7908      }
+  7909      if (message.missionCorrelationReport === undefined || message.missionCorrelationReport === null) {
+  7910        return message;
+  7911      }
+  7912      try {
+  7913        readStoredMissionCorrelationReport(message.missionCorrelationReport);
+  7914        return message;
+  7915      } catch {
+  7916        hasUnavailableReport = true;
+  7917        return { ...message, missionCorrelationReport: undefined };
+  7918      }
+  7919    });
+  7920    setHistoricalReportError(
+  7921      hasUnavailableReport
+  7922        ? 'A historical mission report could not be loaded. Your conversation is still available.'
+  7923        : null,
+  7924    );
+  7925    setLocalMessages(safeMessages);
+  7926  }, [messagesFetched, serverMessages]);
+  7927
+  7928  useEffect(() => {
+  7929    if (!serverProposal) return;
+  7930    setProposalId(serverProposal.proposalId ?? undefined);
+  7931    setOperationId(serverProposal.operationId ?? undefined);
+  7932    setOperationMode(serverProposal.proposalId ? 'DELIVERY' : undefined);
+  7933    setProposalRequiresApproval(serverProposal.approvalRequired === true);
+  7934    setProposalRevision(serverProposal.revision ?? undefined);
+  7935    setDeliveryLifecycle(serverProposal.lifecycle ?? (serverProposal.changes.length > 0 ? 'proposed' : undefined));
+  7936    setValidationEvidence(serverProposal.validationEvidence ?? []);
+  7937    // The server is authoritative after a session reload. An empty response
+  7938    // means the proposal was rejected/consumed (or never existed), so clear
+  7939    // any stale localStorage-backed changes instead of showing an unapprovable
+  7940    // card that would submit without a valid proposalId.
+  7941    setPendingChanges(serverProposal.changes);
+  7942    if (serverProposal.changes.length === 0 && pendingKey && verificationKey) {
+  7943      localStorage.removeItem(pendingKey);
+  7944      localStorage.removeItem(verificationKey);
+  7945      setVerificationResults({});
+  7946    }
+  7947  }, [serverProposal]);
+  7948
+  7949  // A session belongs to exactly one project. If the selected project's
+  7950  // session list has been fetched and no longer contains the active session,
+  7951  // fail closed instead of sending that session ID with a different project.
+  7952  useEffect(() => {
+  7953    const sessionOwnsRecoveredExecution = Boolean(
+  7954      activeExecution
+  7955      && activeExecution.projectId === selectedProjectId
+  7956      && activeExecution.sessionId === sessionId,
+  7957    );
+  7958    if (
+  7959      !sessionsFetched ||
+  7960      sessionsError ||
+  7961      !sessionId ||
+  7962      sessionOwnsRecoveredExecution ||
+  7963      sessions.some((session) => session.id === sessionId)
+  7964    ) {
+  7965      return;
+  7966    }
+  7967    setSessionId(undefined);
+  7968    setLocalMessages([]);
+  7969    setPendingChanges([]);
+  7970    setProposalId(undefined);
+  7971    setProposalRequiresApproval(false);
+  7972    setProposalRevision(undefined);
+  7973    setVerificationResults({});
+  7974    clearExecutionScopedState();
+  7975  }, [
+  7976    activeExecution?.projectId,
+  7977    activeExecution?.sessionId,
+  7978    selectedProjectId,
+  7979    sessions,
+  7980    sessionsError,
+  7981    sessionsFetched,
+  7982    sessionId,
+  7983  ]);
+  7984
+  7985  useEffect(() => {
+  7986    if (projects.length > 0 && !selectedProjectId) {
+  7987      setSelectedProjectId(projects[0].id);
+  7988    }
+  7989  }, [projects, selectedProjectId]);
+  7990
+  7991  useEffect(() => {
+  7992    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  7993  }, [localMessages]);
+  7994
+  7995  /** Map server-side stage identifiers to user-facing labels. */
+  7996  const STAGE_LABELS: Record<string, string> = {
+  7997    'building-context': 'Building context…',
+  7998    'calling-model':    'Calling AI model…',
+  7999    'streaming':        'Writing response…',
+  8000  };
+  8001
+  8002  /** Translate an AiStreamErrorEvent to a user-facing error description. */
+  8003  function describeStreamError(err: AiStreamErrorEvent): string {
+  8004    // Reuse describeAiError by constructing a temporary AiApiError from
+  8005    // the SSE error event's code → HTTP status mapping.
+  8006    const statusForCode: Record<string, number> = {
+  8007      RATE_LIMITED: 429,
+  8008      model_output_invalid: 422,
+  8009      AUTH_ERROR: 401,
+  8010      request_failed: 400,
+  8011    };
+  8012    const tmpErr = new AiApiError(
+  8013      statusForCode[err.code] ?? 502,
+  8014      err.message,
+  8015      err.hint,

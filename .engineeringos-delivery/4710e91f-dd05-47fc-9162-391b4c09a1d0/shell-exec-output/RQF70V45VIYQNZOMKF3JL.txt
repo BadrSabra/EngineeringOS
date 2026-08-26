@@ -1,0 +1,284 @@
+   410      failureKind: "RATE_LIMIT",
+   411    });
+   412  }
+   413
+   414  const providerResolved = await requireProvider(req.userId, res, {
+   415    qualityProfile: "code_review",
+   416  });
+   417  if (!providerResolved) return;
+   418  const { provider, apiKey } = providerResolved;
+   419
+   420  const projectContext = await buildProjectContext(projectId, {
+   421    sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+   422  });
+   423  let result: Awaited<ReturnType<typeof reviewCode>>;
+   424  let effectiveProvider = provider;
+   425  try {
+   426    ({ result, effectiveProvider } = await runAgentWithFallback(
+   427      req.userId,
+   428      { provider, apiKey },
+   429      (opts) => reviewCode(projectContext, fileContents, opts),
+   430      { qualityProfile: "code_review" },
+   431    ));
+   432  } catch (err) {
+   433    metadata.incomplete = true;
+   434    recordTrace(metadata, "review", "failed", effectiveProvider);
+   435    if (handleOrchestratorError(err, res, { projectId, operation: "code-review", provider: effectiveProvider })) return;
+   436    throw err;
+   437  }
+   438
+   439  // When the model output failed to parse, we still have the fallback data.
+   440  // Serve it with a warning header so the UI can display something useful.
+   441  if (result._parseError) {
+   442    metadata.incomplete = true;
+   443    recordTrace(metadata, "review", "incomplete", effectiveProvider);
+   444    logger.warn(
+   445      { projectId, parseCode: result._parseError.code, message: result._parseError.message, provider: effectiveProvider },
+   446      "code-reviewer: parse error",
+   447    );
+   448    return res.status(422).json({
+   449      ...auditEnvelope(metadata),
+   450      error: "model_output_invalid",
+   451      code: "model_output_invalid",
+   452      hint: "The AI model returned an unexpected response — try again in a moment.",
+   453      parseCode: result._parseError.code,
+   454    });
+   455  }
+   456
+   457  invalidateContextCache(projectId);
+   458
+   459  await db.transaction(async (tx) => {
+   460    await tx.insert(auditLogsTable).values({
+   461      id: randomUUID(),
+   462      entityType: "project",
+   463      entityId: projectId,
+   464      action: "ai_reviewed",
+   465      projectId,
+   466      actor: req.userId,
+   467      stateBefore: {},
+   468      stateAfter: { verdict: result.verdict, overallScore: result.overallScore },
+   469    });
+   470    await tx.insert(eventsTable).values({
+   471      id: randomUUID(),
+   472      type: "AiCodeReviewCompleted",
+   473      projectId,
+   474      severity: result.verdict === "approved" ? "success" : "warning",
+   475      message: `AI code review: ${result.verdict} (score: ${result.overallScore}/100)`,
+   476    });
+   477  });
+   478
+   479  recordTrace(metadata, "review", "completed", effectiveProvider);
+   480  return res.json({ ...redactUserFacingValue(result) as Record<string, unknown>, ...auditEnvelope(metadata) });
+   481});
+   482
+   483// ── POST /api/ai/projects/:projectId/analyze/stream ──────────────────────────
+   484
+   485router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, async (req, res) => {
+   540      }),
+   541      { qualityProfile: "analysis" },
+   542    ).then((output) => {
+   543      effectiveProvider = output.effectiveProvider;
+   544      return output;
+   545    });
+   546
+   547    if (result._parseError) {
+   548      metadata.incomplete = true;
+   549      recordTrace(metadata, "calling-model", "incomplete", effectiveProvider);
+   550      const sessionId = await persistStructuredFailure({
+   551        projectId,
+   552        userId: req.userId,
+   553        task: "analyze",
+   554        sessionId: requestedSessionId,
+   555        failureKind: "PROVIDER_FORMAT",
+   556        retryable: true,
+   557        errorCode: "model_output_invalid",
+   558        errorMessage: "The AI returned an unexpected response format.",
+   559      });
+   560      emit({
+   561        type: "error",
+   562        code: "model_output_invalid",
+   563        message: "The AI model returned an unexpected response.",
+   564        hint: "The response could not be verified as a structured result. You can retry this task.",
+   565        retryable: true,
+   566        failureKind: "PROVIDER_FORMAT",
+   567        outcome: "FAILED",
+   568        sessionId,
+   569      });
+   570      close();
+   571      return;
+   572    }
+   573
+   574    emit({ type: "stage", stage: "persisting-result" });
+   575    recordTrace(metadata, "persisting-result", "completed", effectiveProvider);
+   576    invalidateContextCache(projectId);
+   577    await db.transaction(async (tx) => {
+   578      await tx.insert(auditLogsTable).values({
+   579        id: randomUUID(),
+   580        entityType: "project",
+   581        entityId: projectId,
+   582        action: "ai_analyzed",
+   583        projectId,
+   584        actor: req.userId,
+   585        stateBefore: {},
+   586        stateAfter: { summary: result.summary, overallAssessment: result.overallAssessment },
+   587      });
+   588      await tx.insert(eventsTable).values({
+   589        id: randomUUID(),
+   590        type: "AiScanAnalysisCompleted",
+   591        projectId,
+   592        severity: "info",
+   593        message: `AI scan analysis completed: ${result.summary}`,
+   594      });
+   595    });
+   596
+   597    emit({ type: "stage", stage: "completed" });
+   598    recordTrace(metadata, "analyze", "completed", effectiveProvider);
+   599    emit({
+   600      type: "task_done",
+   601      task: "analyze",
+   602      result: {
+   603        ...redactUserFacingValue(result) as Record<string, unknown>,
+   604        ...auditEnvelope(metadata),
+   605      },
+   606    });
+   607    close();
+   608    logger.info({ projectId, provider: effectiveProvider }, "AI scan analysis stream completed");
+   609  } catch (err) {
+   610    logger.error({ err, projectId }, "AI scan analysis stream failed");
+   611    emitTaskFailure(emit, close, err, metadata, {
+   612      projectId,
+   613      userId: req.userId,
+   614      task: "analyze",
+   615      sessionId: requestedSessionId,
+   616    });
+   617  }
+   618  return;
+   619});
+   620
+   621// ── POST /api/ai/projects/:projectId/review/stream ───────────────────────────
+   622
+   623router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async (req, res) => {
+   624  const projectId = req.params.projectId as string;
+   625  const project = req.project;
+   626  if (!project) return res.status(500).json({ error: "Project context unavailable" });
+   627  const { fileContents, sessionId: requestedSessionId } = req.body as {
+   628    fileContents?: Record<string, string>;
+   629    sessionId?: string;
+   630  };
+   631  const MAX_FILE_CONTENTS_BYTES = 50_000;
+   632
+   633  if (fileContents) {
+   634    const invalidKey = Object.keys(fileContents).find(
+   635      (key) => path.isAbsolute(key) || key.includes(".."),
+   636    );
+   637    if (invalidKey) {
+   638      return res.status(400).json({
+   639        error: `fileContents key "${invalidKey}" must be a relative path without traversal (no ".." segments)`,
+   640      });
+   641    }
+   642    const totalSize = Object.values(fileContents).reduce((sum, value) => sum + value.length, 0);
+   643    if (totalSize > MAX_FILE_CONTENTS_BYTES) {
+   644      return res.status(413).json({
+   645        error: `fileContents total size (${Math.round(totalSize / 1_000)} KB) exceeds the ${MAX_FILE_CONTENTS_BYTES / 1_000} KB limit — send fewer or smaller files`,
+  5050  if (data.securityConcerns?.length) {
+  5051    lines.push('### Security Concerns');
+  5052    data.securityConcerns.forEach((s) => lines.push(`- ${s}`));
+  5053    lines.push('');
+  5054  }
+  5055  lines.push(`**Verdict:** ${data.verdict.replace('_', ' ')}`);
+  5056  return lines.join('\n');
+  5057}
+  5058
+  5059function structuredTaskLabel(task: 'analyze' | 'review'): string {
+  5060  return task === 'analyze' ? 'scan analysis' : 'code review';
+  5061}
+  5062
+  5063function parseStructuredFailureMetadata(toolTrace: string | null | undefined): {
+  5064  task: 'analyze' | 'review';
+  5065  failureKind?: AiStreamErrorEvent['failureKind'];
+  5066  retryable?: boolean;
+  5067} | undefined {
+  5068  if (!toolTrace) return undefined;
+  5069  try {
+  5070    const parsed: unknown = JSON.parse(toolTrace);
+  5071    if (!Array.isArray(parsed)) return undefined;
+  5072    const marker = parsed.find((entry) => (
+  5073      entry
+  5074      && typeof entry === 'object'
+  5075      && (entry as Record<string, unknown>).kind === 'structured_task_failure'
+  5076    )) as Record<string, unknown> | undefined;
+  5077    if (marker?.task !== 'analyze' && marker?.task !== 'review') return undefined;
+  5078    const failureKinds: AiStreamErrorEvent['failureKind'][] = [
+  5079      'PROVIDER_FORMAT', 'RATE_LIMIT', 'CONFIGURATION', 'PROVIDER_FAILURE', 'TRANSPORT',
+  5080    ];
+  5081    return {
+  5082      task: marker.task,
+  5083      failureKind: failureKinds.includes(marker.failureKind as AiStreamErrorEvent['failureKind'])
+  5084        ? marker.failureKind as AiStreamErrorEvent['failureKind']
+  5085        : undefined,
+  5086      retryable: typeof marker.retryable === 'boolean' ? marker.retryable : undefined,
+  5087    };
+  5088  } catch {
+  5089    return undefined;
+  5090  }
+  5091}
+  5092
+  5093function structuredFailurePresentation(
+  5094  task: 'analyze' | 'review',
+  5095  failureKind: AiStreamErrorEvent['failureKind'],
+  5096  retryable?: boolean,
+  5097): {
+  5098  title: string;
+  5099  description: string;
+  5100  retryable: boolean;
+  5101} {
+  5102  const name = structuredTaskLabel(task);
+  5103  const defaultRetryable = failureKind !== 'CONFIGURATION';
+  5104  const canRetry = retryable ?? defaultRetryable;
+  5105
+  8010        variant: 'destructive',
+  8011      });
+  8012    },
+  8013  });
+  8014
+  8015  useEffect(() => {
+  8016    if (!messagesFetched) return;
+  8017
+  8018    // A mission report is optional enrichment on an otherwise useful message.
+  8019    // Validate each one independently so one old/corrupt report cannot discard
+  8020    // the complete conversation or expose parser details in the UI.
+  8021    let hasUnavailableReport = false;
+  8022    const safeMessages = serverMessages.map((message) => {
+  8023      const structuredFailure = parseStructuredFailureMetadata(message.toolTrace);
+  8024      const withStructuredFailure = structuredFailure
+  8025        ? {
+  8026            ...message,
+  8027            structuredTask: structuredFailure.task,
+  8028            failureKind: structuredFailure.failureKind ?? message.failureKind,
+  8029            retryable: structuredFailure.retryable ?? message.retryable,
+  8030          }
+  8031        : message;
+  8032      if (message.missionCorrelationReportError) {
+  8033        hasUnavailableReport = true;
+  8034        return { ...withStructuredFailure, missionCorrelationReport: undefined };
+  8035      }
+  8036      if (message.missionCorrelationReport === undefined || message.missionCorrelationReport === null) {
+  8037        return withStructuredFailure;
+  8038      }
+  8039      try {
+  8040        readStoredMissionCorrelationReport(message.missionCorrelationReport);
+  8041        return withStructuredFailure;
+  8042      } catch {
+  8043        hasUnavailableReport = true;
+  8044        return { ...withStructuredFailure, missionCorrelationReport: undefined };
+  8045      }
+  8046    });
+  8047    setHistoricalReportError(
+  8048      hasUnavailableReport
+  8049        ? 'A historical mission report could not be loaded. Your conversation is still available.'
+  8050        : null,
+  8051    );
+  8052    setLocalMessages(safeMessages);
+  8053  }, [messagesFetched, serverMessages]);
+  8054
+  8055  useEffect(() => {

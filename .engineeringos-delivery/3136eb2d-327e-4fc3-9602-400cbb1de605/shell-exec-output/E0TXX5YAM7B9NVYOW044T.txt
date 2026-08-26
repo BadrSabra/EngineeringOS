@@ -1,0 +1,257 @@
+     1import { pgTable, text, timestamp, jsonb, pgEnum, index } from "drizzle-orm/pg-core";
+     2import { projectsTable } from "./projects.js";
+     3import { tasksTable } from "./tasks.js";
+     4import { workflowsTable } from "./workflows.js";
+     5
+     6export const eventSeverityEnum = pgEnum("event_severity", [
+     7  "info",
+     8  "warning",
+     9  "error",
+    10  "success",
+    11]);
+    12
+    13export const eventsTable = pgTable("events", {
+    14  id: text("id").primaryKey(),
+    15  type: text("type").notNull(),
+    16  projectId: text("project_id")
+    17    .notNull()
+    18    .references(() => projectsTable.id, { onDelete: "cascade" }),
+    19  taskId: text("task_id").references(() => tasksTable.id, { onDelete: "set null" }),
+    20  workflowId: text("workflow_id").references(() => workflowsTable.id, { onDelete: "set null" }),
+    21  payload: jsonb("payload").$type<Record<string, unknown>>(),
+    22  severity: eventSeverityEnum("severity").notNull().default("info"),
+    23  message: text("message").notNull().default(""),
+    24  timestamp: timestamp("timestamp").notNull().defaultNow(),
+    25  /**
+    26   * Soft link to a logical operation (scan, task execute, workflow advance,
+    27   * etc.). All records sharing the same correlationId were produced by one
+    28   * call. Nullable: older rows and operations that span no secondary tables
+    29   * (e.g. a plain project update) carry no correlationId.
+    30   */
+    31  correlationId: text("correlation_id"),
+    32}, (t) => [
+    33  index("idx_events_project_id").on(t.projectId),
+    34  // Covers: WHERE project_id = ? ORDER BY timestamp DESC LIMIT n  (no type filter)
+    35  index("idx_events_project_id_timestamp").on(t.projectId, t.timestamp),
+    36  /**
+    37   * DB-17: Covers the most common filtered query in events.ts:
+    38   *   WHERE project_id = ? AND type = ? ORDER BY timestamp DESC
+    39   * PostgreSQL uses a backward index scan on timestamp, so DESC ordering is
+    40   * served efficiently without a separate sort step.
+    41   */
+    42  index("idx_events_project_id_type_timestamp").on(t.projectId, t.type, t.timestamp),
+    43  /**
+    44   * DB-17: Covers the correlationId scoped lookup in events.ts:
+    45   *   WHERE project_id = ? AND correlation_id = ?
+    46   * The project_id leading column means this index is scoped — a correlationId
+    47   * from a different project cannot accidentally match.
+    48   */
+    49  index("idx_events_project_id_correlation_id").on(t.projectId, t.correlationId),
+    50  // Global timestamp index — kept for admin/dashboard time-range queries
+    51  // that do not have a project_id filter (e.g. system-wide event feed).
+    52  index("idx_events_timestamp").on(t.timestamp),
+    53  // Single-column correlationId index — kept for cross-project audit trail
+    54  // lookups (e.g. "show me everything from correlation X regardless of project").
+    55  index("idx_events_correlation_id").on(t.correlationId),
+    56]);
+    57
+    58export type InsertEvent = typeof eventsTable.$inferInsert;
+    59export type Event = typeof eventsTable.$inferSelect;
+artifacts/api-server/src/routes/tasks.ts:98:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/tasks.ts:101:      .values({ id: randomUUID(), ...body, correlationId, createdAt: now, updatedAt: now })
+artifacts/api-server/src/routes/tasks.ts:106:      message: `Task "${body.title}" created (${body.priority})`, correlationId,
+artifacts/api-server/src/routes/tasks.ts:110:      projectId: body.projectId, actor: req.userId, correlationId,
+artifacts/api-server/src/routes/tasks.ts:168:        correlationId: randomUUID(),
+artifacts/api-server/src/routes/tasks.ts:181:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/tasks.ts:200:          message: `Task "${rows[0].title}" updated — ${changes.join(", ")}`, correlationId,
+artifacts/api-server/src/routes/tasks.ts:201:          ...(isStatusChange ? { payload: { before: { status: before[0].status }, after: { status: body.status } } } : {}),
+artifacts/api-server/src/routes/tasks.ts:206:        projectId: before[0].projectId, actor: req.userId, correlationId,
+artifacts/api-server/src/routes/tasks.ts:239:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/tasks.ts:263:      correlationId,
+artifacts/api-server/src/routes/tasks.ts:264:      payload: { before: { status: before[0].status } },
+artifacts/api-server/src/routes/tasks.ts:268:      projectId: before[0].projectId, actor: req.userId, correlationId,
+artifacts/api-server/src/routes/tasks.ts:328:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/tasks.ts:339:    correlationId,
+artifacts/api-server/src/routes/tasks.ts:349:    correlationId,
+artifacts/api-server/src/routes/tasks.ts:350:    payload: { before: { status: task[0].status }, after: { status: "running" } },
+artifacts/api-server/src/routes/tasks.ts:370:      metadata: { error: message, correlationId },
+artifacts/api-server/src/routes/tasks.ts:371:      correlationId,
+artifacts/api-server/src/routes/tasks.ts:381:      correlationId,
+artifacts/api-server/src/routes/tasks.ts:382:      payload: { before: { status: "running" }, after: { status: task[0].status } },
+artifacts/api-server/src/routes/tasks.ts:393:      correlationId,
+artifacts/api-server/src/routes/tasks.ts:452:      correlationId,
+artifacts/api-server/src/routes/tasks.ts:472:      correlationId,
+artifacts/api-server/src/routes/tasks.ts:473:      payload: { before: { status: "running" }, after: { status: finalStatus } },
+artifacts/api-server/src/routes/tasks.ts:479:        changedFields: { verificationResult }, correlationId,
+artifacts/api-server/src/routes/tasks.ts:538:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/tasks.ts:664:        correlationId,
+artifacts/api-server/src/routes/tasks.ts:673:        correlationId,
+artifacts/api-server/src/routes/tasks.ts:674:        payload: {
+artifacts/api-server/src/routes/tasks.ts:687:        correlationId,
+artifacts/api-server/src/routes/tasks.ts:743:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/tasks.ts:771:        correlationId,
+artifacts/api-server/src/routes/tasks.ts:781:        correlationId,
+artifacts/api-server/src/routes/tasks.ts:782:        payload: { before: { status: task[0].status, retryCount }, after: { status: "queued", retryCount: retryCount + 1 } },
+artifacts/api-server/src/routes/tasks.ts:787:        stateAfter: { status: "queued", retryCount: retryCount + 1 }, correlationId,
+artifacts/api-server/src/routes/tasks.ts:847:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/tasks.ts:871:        correlationId,
+artifacts/api-server/src/routes/tasks.ts:881:        correlationId,
+artifacts/api-server/src/routes/tasks.ts:882:        payload: { before: { status: task[0].status }, after: { status: "cancelled" } },
+artifacts/api-server/src/routes/tasks.ts:887:        stateAfter: { status: "cancelled" }, correlationId,
+artifacts/api-server/src/routes/tasks.test.ts:115:        source: { type: "scan", correlationId: null, revision: null, completeness: "COMPLETE" },
+artifacts/api-server/src/routes/tasks.test.ts:202:        source: { type: "scan", correlationId: null, revision: null, completeness: "COMPLETE" },
+artifacts/api-server/src/routes/tasks.test.ts:278:    expect(createdEvent?.correlationId).toBeTruthy();
+artifacts/api-server/src/routes/tasks.test.ts:279:    expect(createdAudit?.correlationId).toBe(createdEvent?.correlationId);
+artifacts/api-server/src/routes/tasks.test.ts:294:    expect(updatedEvent?.correlationId).toBeTruthy();
+artifacts/api-server/src/routes/tasks.test.ts:295:    expect(updatedAudit?.correlationId).toBe(updatedEvent?.correlationId);
+artifacts/api-server/src/routes/tasks.test.ts:296:    expect(updatedEvent?.correlationId).not.toBe(createdEvent?.correlationId);
+artifacts/api-server/src/routes/tasks.test.ts:309:    expect(deletedEvent?.correlationId).toBeTruthy();
+artifacts/api-server/src/routes/tasks.test.ts:310:    expect(deletedAudit?.correlationId).toBe(deletedEvent?.correlationId);
+artifacts/api-server/src/routes/discovery.ts:540:            correlationId: result.sourceCorrelationId ?? body.discoveryId,
+artifacts/api-server/src/routes/discovery.ts:567:          correlationId: remediationPlan.source.correlationId ?? body.discoveryId,
+artifacts/api-server/src/routes/ai.test.ts:1485:      correlationId: operationId,
+artifacts/api-server/src/routes/ai.test.ts:1547:      correlationId: operationId,
+artifacts/api-server/src/routes/ai.test.ts:1550:      payload: {
+artifacts/api-server/src/routes/ai.test.ts:2046:        missionCorrelationReport: JSON.stringify({ version: 99, payload: "private" }),
+artifacts/api-server/src/routes/ai.test.ts:4354:    expect(typeof response.body.correlationId).toBe("string");
+artifacts/api-server/src/routes/ai.test.ts:4355:    expect(response.body.correlationId).toMatch(/^[0-9a-f-]{36}$/i);
+artifacts/api-server/src/routes/workflows.ts:155:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/workflows.ts:204:        correlationId,
+artifacts/api-server/src/routes/workflows.ts:205:        payload: {
+artifacts/api-server/src/routes/workflows.ts:226:    correlationId,
+artifacts/api-server/src/routes/workflows.ts:271:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/workflows.ts:334:        correlationId,
+artifacts/api-server/src/routes/workflows.ts:353:    correlationId,
+artifacts/api-server/src/routes/workflows.ts:479:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/workflows.ts:526:        correlationId,
+artifacts/api-server/src/routes/workflows.ts:527:        payload: {
+artifacts/api-server/src/routes/workflows.ts:549:    correlationId,
+artifacts/api-server/src/routes/workflows.ts:602:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/workflows.ts:627:        correlationId,
+artifacts/api-server/src/routes/workflows.ts:628:        payload: {
+artifacts/api-server/src/routes/workflows.ts:650:    correlationId,
+artifacts/api-server/src/routes/workflows.ts:680:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/workflows.ts:705:        correlationId,
+artifacts/api-server/src/routes/workflows.ts:706:        payload: {
+artifacts/api-server/src/routes/workflows.ts:728:    correlationId,
+artifacts/api-server/src/routes/workflows.ts:824:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/workflows.ts:875:        correlationId,
+artifacts/api-server/src/routes/workflows.ts:876:        payload: {
+artifacts/api-server/src/routes/workflows.ts:914:    correlationId,
+artifacts/api-server/src/routes/workflows.test.ts:222:    expect(rollbackEvent?.correlationId).toBeTruthy();
+artifacts/api-server/src/routes/workflows.test.ts:229:    expect(rollbackAudit?.correlationId).toBe(rollbackEvent?.correlationId);
+artifacts/api-server/src/routes/workflows.test.ts:404:    expect(advanceAudits[0].correlationId).toBe(transitions[0].correlationId);
+artifacts/api-server/src/routes/rules.ts:71:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/rules.ts:78:      correlationId, payload: { ruleId: rows[0].id },
+artifacts/api-server/src/routes/rules.ts:90:    correlationId,
+artifacts/api-server/src/routes/rules.ts:129:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/rules.ts:138:        correlationId, payload: { changedFields: body },
+artifacts/api-server/src/routes/rules.ts:154:    correlationId,
+artifacts/api-server/src/routes/rules.ts:175:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/rules.ts:179:      severity: "info", message: `Rule "${before[0].title}" deleted`, correlationId,
+artifacts/api-server/src/routes/rules.ts:191:    correlationId,
+artifacts/api-server/src/routes/projects.ts:197:  // One correlationId per mutation request — same convention as scans (see
+artifacts/api-server/src/routes/projects.ts:201:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/projects.ts:210:      severity: "info", message: `Project "${body.name}" registered`, correlationId,
+artifacts/api-server/src/routes/projects.ts:214:      projectId: created.id, stateAfter: created, correlationId,
+artifacts/api-server/src/routes/projects.ts:235:  const correlationId = randomUUID();
+artifacts/api-server/src/routes/projects.ts:244:        severity: "info", message: `Project "${rows[0].name}" updated`, correlationId,
+artifacts/api-server/src/routes/projects.ts:245:        payload: { changedFields: body },
+     1import { Router } from "express";
+     2import { db, eventsTable, projectsTable } from "@workspace/db";
+     3import { eq, and, desc, inArray, ilike, or, count } from "drizzle-orm";
+     4import { requireAuth } from "../middlewares/requireAuth.js";
+     5import { loadProjectByIdForUser } from "../middlewares/requireProjectAccess.js";
+     6
+     7const router = Router();
+     8
+     9// Defense-in-depth: requireAuth is already applied globally in app.ts, but
+    10// adding it here too means this router is safe even if mounted without it.
+    11router.use(requireAuth);
+    12
+    13/**
+    14 * GET /events
+    15 *
+    16 * Returns events scoped to a single project, or across all projects owned by
+    17 * the authenticated user when projectId is omitted. Ownership is verified
+    18 * before returning any rows — a user cannot read events from a project they
+    19 * don't own.
+    20 *
+    21 * Optional filters: type, correlationId, severity, search, page, limit
+    22 * (default 50, max 200). Pagination is applied after all filters.
+    23 * Results are ordered newest-first.
+    24 */
+    25router.get("/events", async (req, res) => {
+    26  const rawLimit = req.query.limit === undefined ? 50 : Number(req.query.limit);
+    27  const rawPage = req.query.page === undefined ? 1 : Number(req.query.page);
+    28  if (!Number.isSafeInteger(rawLimit) || rawLimit < 1 || rawLimit > 200) {
+    29    return res.status(400).json({ error: "limit must be an integer between 1 and 200" });
+    30  }
+    31  if (!Number.isSafeInteger(rawPage) || rawPage < 1) {
+    32    return res.status(400).json({ error: "page must be at least 1" });
+    33  }
+    34  const limit = rawLimit;
+    35  const page = rawPage;
+    36
+    37  // Parse optional filters at the boundary so blank values do not become
+    38  // restrictive database predicates.
+    39  const correlationIdFilter = typeof req.query.correlationId === "string" ? req.query.correlationId.trim() || undefined : undefined;
+    40  const typeFilter = typeof req.query.type === "string" ? req.query.type.trim() || undefined : undefined;
+    41  const severityFilter = typeof req.query.severity === "string" ? req.query.severity : undefined;
+    42  const searchFilter = typeof req.query.search === "string" ? req.query.search.trim() || undefined : undefined;
+    43
+    44  const projectId =
+    45    typeof req.query.projectId === "string" ? req.query.projectId : undefined;
+    46  let projectIds: string[];
+    47  if (projectId) {
+    48    // Explicit project requests retain the existing 404/403 ownership semantics.
+    49    const project = await loadProjectByIdForUser(projectId, req.userId, res);
+    50    if (!project) return; // response already sent
+    51    projectIds = [project.id];
+    52  } else {
+    53    // Resolve ownership first, then constrain the event query to those IDs.
+    54    // This avoids exposing events from projects owned by another user.
+    55    const ownedProjects = await db
+    56      .select({ id: projectsTable.id })
+    57      .from(projectsTable)
+    58      .where(eq(projectsTable.ownerId, req.userId));
+    59    projectIds = ownedProjects.map(({ id }) => id);
+    60     if (projectIds.length === 0) return res.json({ events: [], total: 0 });
+    61  }
+    62
+    63  const conditions: ReturnType<typeof eq>[] = [inArray(eventsTable.projectId, projectIds)];
+    64  if (typeFilter) conditions.push(eq(eventsTable.type, typeFilter));
+    65  if (correlationIdFilter)
+    66    conditions.push(eq(eventsTable.correlationId, correlationIdFilter));
+    67  if (severityFilter) conditions.push(eq(eventsTable.severity, severityFilter as "info" | "warning" | "error" | "success"));
+    68  if (searchFilter) {
+    69    const pattern = `%${searchFilter}%`;
+    70    conditions.push(
+    71      or(
+    72        ilike(eventsTable.message, pattern),
+    73        ilike(eventsTable.type, pattern),
+    74        ilike(eventsTable.correlationId, pattern),
+    75      )!,
+    76    );
+    77  }
+    78
+    79  const matchingEvents = db
+    80    .select()
+    81    .from(eventsTable)
+    82    .where(and(...conditions));
+    83  const [events, totalResult] = await Promise.all([
+    84    matchingEvents
+    85      // Keep page boundaries stable when several events share a timestamp.
+    86      .orderBy(desc(eventsTable.timestamp), desc(eventsTable.id))
+    87      .limit(limit)
+    88      .offset((page - 1) * limit),
+    89    db
+    90      .select({ total: count() })
+    91      .from(eventsTable)
+    92      .where(and(...conditions)),
+    93  ]);
+    94
+    95  return res.json({ events, total: Number(totalResult[0]?.total ?? 0) });
+    96});
+    97
+    98export default router;

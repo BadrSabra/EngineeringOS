@@ -1,0 +1,258 @@
+  4235  projectId,
+  4236  proposalId,
+  4237  onPlanDecision,
+  4238  planDecisionPending,
+  4239  onPlanBuild,
+  4240  planBuildPending,
+  4241  browserProfileFreshness,
+  4242  onRegenerateReport,
+  4243  reportRegenerationPending,
+  4244  onRetryStructuredTask,
+  4245  retryPending,
+  4246}: {
+  4247  msg: ChatMessage;
+  4248  projectId?: string;
+  4249  proposalId?: string;
+  4250  onPlanDecision?: (messageId: string, decision: PlanDecision) => void;
+  4251  planDecisionPending?: boolean;
+  4252  onPlanBuild?: (messageId: string) => void;
+  4253  planBuildPending?: boolean;
+  4254  browserProfileFreshness?: BrowserValidationProfileFreshness | null;
+  4255  onRegenerateReport?: (messageId: string) => void;
+  4256  reportRegenerationPending?: boolean;
+  4257  onRetryStructuredTask?: (task: 'analyze' | 'review', messageId: string) => void;
+  4258  retryPending?: boolean;
+  4259}) {
+  4260  const isUser = msg.role === 'user';
+  4261  const [technicalDetailsExpanded, setTechnicalDetailsExpanded] = useState(false);
+  4262  const sources = parseSources(msg.sources);
+  4263  const toolTrace = parseToolTrace(msg.toolTrace);
+  4264  const activityEvents = msg.activityEvents ?? activityEventsFromToolTrace(toolTrace);
+  4265  const executionSummary = !isUser ? parseExecutionSummary(toolTrace) : null;
+  4266  const repairRadar = !isUser ? parseRepairRadar(toolTrace) : null;
+  4267  // UI-01: strip any accidental JSON envelope before rendering.
+  4268  const displayContent = extractDisplayText(msg.content);
+  4269  const redactedDisplayContent = redactInternalDetails(displayContent);
+  4270  const internalTechnicalDump = !isUser && isInternalTechnicalDump(displayContent);
+  4271  const isStructuredPlan = !isUser && msg.taskResult?.kind === 'IMPLEMENTATION_PLAN_RESULT';
+  4272  const failedTurn = !isUser && (msg.outcome === 'FAILED' || msg.outcome === 'INTERRUPTED');
+  4273  const failureKindLabel = msg.failureKind === 'PROVIDER_FORMAT'
+  4274    ? 'Provider format issue'
+  4275    : msg.failureKind === 'RATE_LIMIT'
+  4276      ? 'Rate limit'
+  4277      : msg.failureKind === 'CONFIGURATION'
+  4278        ? 'Configuration issue'
+  4279        : msg.failureKind === 'TRANSPORT'
+  4280          ? 'Connection interrupted'
+  4281          : 'Provider failure';
+  4282  const userFacingContent = internalTechnicalDump
+  4283    ? 'The agent produced internal technical details for this run.'
+  4284    : redactedDisplayContent;
+  4285  const persistedForensicStatus = !isUser
+  4286    ? [...toolTrace].reverse().find((entry) => entry.kind === 'forensic_status')
+  4287    : undefined;
+  4288  const finalVerdict = !isUser
+  4289    ? getFinalForensicVerdict(displayContent, persistedForensicStatus?.findingStatus)
+  4290    : null;
+  4291  const productionTrace = !isUser
+  4292    ? [...toolTrace].reverse().find(
+  4293        (entry) => entry.kind === 'production_trace' && entry.productionTrace,
+  4294      )?.productionTrace
+  4295    : undefined;
+  4296  const crossFileTraces = !isUser
+  4297    ? toolTrace
+  4298        .filter((entry) => entry.kind === 'cross_file_trace' && entry.crossFileTrace)
+  4299        .map((entry) => entry.crossFileTrace as AiCrossFileSemanticTrace)
+  4300    : [];
+  4301  const isForensicFallback = !isUser && isForensicFallbackMessage(displayContent);
+  4302  const isEvidenceOnlyFallback = isForensicFallback && isEvidenceOnlyFallbackMessage(displayContent);
+  4303  const incompleteBeforeEvidence = !isUser && isIncompleteBeforeEvidenceSummary(executionSummary);
+  4304  const isNoFindingFallback = !isUser && Boolean(
+  4305    finalVerdict === 'NO FINDING' ||
+  4306    (
+  4307      !finalVerdict &&
+  4308      executionSummary?.diagnosticCodes.some((code) => code.includes('FORENSIC_NO_FINDING')) &&
+  4309      !executionSummary.diagnosticCodes.some((code) =>
+  4310        code.includes('FORENSIC_DETERMINISTIC_FINDING') ||
+  4311        code.includes('STRUCTURED_RECOVERY_ACCEPTED'),
+  4312      )
+  4313    ),
+  4314  );
+  4315  const inferredOperationMode = !isUser
+  4316    ? inferOperationMode({
+  4317        operationMode: msg.operationMode,
+  4318        taskResult: msg.taskResult,
+  4319        proposalId,
+  4320      })
+  4321    : undefined;
+  4322  const isForensicRun = !isUser && (
+  4323    inferredOperationMode === 'FORENSIC_AUDIT'
+  4324    || isForensicFallback
+  4325    || finalVerdict !== null
+  4326    || Boolean(msg.taskResult && ['FINDING_RESULT', 'FORENSIC_REPORT_RESULT', 'WORKSPACE_REVIEW_RESULT', 'BEHAVIOR_ANSWER_RESULT', 'REPAIR_RESULT'].includes(msg.taskResult.kind))
+  4327  );
+  4328  const isEngineeringExecution = !isUser && !isForensicRun && (
+  4329    inferredOperationMode === 'DELIVERY'
+  4330    || Boolean(repairRadar)
+  4331    || toolTrace.some((entry) => entry.kind === 'validation' || entry.kind === 'repair_state')
+  4332  );
+  4333  const forensicEvidence = !isUser &&
+  4334    (isForensicFallback || finalVerdict !== null || isForensicRejection(executionSummary, finalVerdict))
+  4335    ? parseForensicEvidence(toolTrace, executionSummary)
+  4336    : null;
+  4337  const reportGeneratedAt = !isUser
+  4338    ? readMissionCorrelationReportGeneratedAt(msg.missionCorrelationReport)
+  4339    : null;
+  4340  const safeFailureMessage = failedTurn ? safeChatRecoveryMessage(msg) : null;
+  4341
+  4342  return (
+  4343    <div className={`chat-message flex min-w-0 max-w-full gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'} mb-4`}>
+  4344      <div
+  4345        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+  4346          isUser ? 'bg-primary text-primary-foreground' : 'bg-secondary border border-border'
+  4347        }`}
+  4348      >
+  4349        {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4 text-primary" />}
+  4350      </div>
+  4350      </div>
+  4351      <div className={`chat-message-content flex min-w-0 max-w-[calc(100%-2.75rem)] flex-col gap-1 ${isUser ? 'items-end' : 'items-start'} sm:max-w-[75%]`}>
+  4352        {!isStructuredPlan && <div
+  4353          className={`chat-message-bubble min-w-0 max-w-full overflow-hidden rounded-xl px-4 py-3 text-sm leading-relaxed [overflow-wrap:anywhere] ${
+  4354            isUser
+  4355              ? 'bg-primary text-primary-foreground rounded-tr-sm whitespace-pre-wrap'
+  4356              : 'bg-secondary border border-border rounded-tl-sm prose prose-sm prose-invert'
+  4357          }`}
+  4358        >
+  4359          {failedTurn ? (
+  4360            <>
+  4361              {!internalTechnicalDump && redactedDisplayContent.trim() && (
+  4362                <div className="mb-2 whitespace-pre-wrap">
+  4363                  {redactedDisplayContent}
+  4364                </div>
+  4365              )}
+  4366              <div className="mb-2 whitespace-pre-wrap">{safeFailureMessage}</div>
+  4367              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-200">
+  4368                <div className="font-medium">
+  4369                  {msg.outcome === 'INTERRUPTED' ? 'Execution interrupted' : 'Execution failed'}
+  4370                </div>
+  4371                <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-300/80">{failureKindLabel}</div>
+  4372                {msg.executionId && (
+  4373                  <div className="mt-1 text-[10px] opacity-70">Durable execution: {msg.executionId}</div>
+  4374                )}
+  4375                {msg.structuredTask && onRetryStructuredTask && (
+  4376                  <Button
+  4377                    type="button"
+  4378                    size="sm"
+  4379                    variant="outline"
+  4380                    className="mt-2 h-8 w-full justify-center text-xs sm:w-auto"
+  4381                    onClick={() => onRetryStructuredTask(msg.structuredTask!, msg.id)}
+  4382                    disabled={retryPending}
+  4383                    aria-label={`Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
+  4384                  >
+  4385                    {retryPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
+  4386                    {retryPending ? 'Retrying…' : `Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
+  4387                  </Button>
+  4388                )}
+  4389              </div>
+  4390            </>
+  4391          ) : isUser ? userFacingContent : (
+  4392            <ReactMarkdown
+  4393              components={{
+  4394                p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+  4395                ul: ({ children }) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
+  4396                ol: ({ children }) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
+  4397                li: ({ children }) => <li className="mb-0.5">{children}</li>,
+  4398                strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+  4399                code: ({ children, className }) => (
+  4400                  <code className={`${className ?? ''} ${className ? '' : 'break-all'} bg-black/20 rounded px-1 py-0.5 text-xs font-mono`}>
+  4401                    {children}
+  4402                  </code>
+  4403                ),
+  4404                pre: ({ children }) => <pre className="mb-2 max-w-full overflow-x-auto rounded bg-black/20 p-2 text-xs font-mono whitespace-pre">{children}</pre>,
+  4405                h1: ({ children }) => <h1 className="text-base font-bold mb-1">{children}</h1>,
+  4406                h2: ({ children }) => <h2 className="text-sm font-bold mb-1">{children}</h2>,
+  4407                h3: ({ children }) => <h3 className="text-sm font-semibold mb-1">{children}</h3>,
+  4408              }}
+  4409            >
+  4410              {userFacingContent}
+  4411            </ReactMarkdown>
+  4412          )}
+  4413        </div>}
+  4414        {internalTechnicalDump && (
+  4415          <div className="w-full rounded-lg border border-border/40 bg-background/20">
+  4416            <button
+  4417              type="button"
+  4418              onClick={() => setTechnicalDetailsExpanded((expanded) => !expanded)}
+  4419              className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[11px] text-muted-foreground hover:text-foreground"
+  4420              aria-expanded={technicalDetailsExpanded}
+  4421            >
+  4422              <ChevronRight className={`h-3 w-3 transition-transform ${technicalDetailsExpanded ? 'rotate-90' : ''}`} />
+  4423              Technical details
+  4424            </button>
+  4425            {technicalDetailsExpanded && (
+  4426              <pre className="max-h-80 overflow-auto border-t border-border/40 p-3 text-[10px] leading-relaxed font-mono whitespace-pre-wrap break-words">{redactedDisplayContent}</pre>
+  4427            )}
+  4428          </div>
+  4429        )}
+  4430        {sources.length > 0 && (
+  9000    setLiveVerdictScope(null);
+  9001  }
+  9002
+  9003  function newSession() {
+  9004    resetConversationView({ forgetCurrentExecution: true });
+  9005  }
+  9006
+  9007  // Derive the subtitle shown in the empty-chat state. Each case maps to a
+  9008  // specific root cause — no more "session may have expired" for 500 errors.
+  9009  function getStatusSubtitle(): string {
+  9010    if (!isLoaded || projectsLoading) return 'Loading your projects\u2026';
+  9011    if (projectLoadFailure) return projectLoadFailure.message;
+  9012    if (!selectedProjectId) return 'Create or select a project first to start chatting.';
+  9013    return 'Ask about your codebase, tasks, metrics, or workflows. I have full context.';
+  9014  }
+  9015
+  9016  // Textarea placeholder follows the same classification.
+  9017  function getPlaceholder(): string {
+  9018    if (!isLoaded || projectsLoading) return 'Loading your projects\u2026';
+  9019    if (projectLoadFailure) return `${projectLoadFailure.message} Try refreshing\u2026`;
+  9020    if (!selectedProjectId) return 'Create a project first to start chatting\u2026';
+  9021    return 'Ask about your codebase, tasks, or metrics\u2026 (Enter to send)';
+  9022  }
+  9023
+  9024  // Send-button title follows the same classification.
+  9025  function getSendTitle(): string | undefined {
+  9026    if (!isLoaded || projectsLoading) return 'Loading your projects\u2026';
+  9027    if (projectLoadFailure) return projectLoadFailure.message;
+  9028    if (!selectedProjectId) return 'Select a project first';
+  9029    return undefined;
+  9030  }
+  9031
+  9032  const messages = localMessages;
+  9033  const isEmpty = messages.length === 0;
+  9034  const isAgentBusy = isSending || isTaskSending;
+  9035  const showExecutionProof = Boolean(
+  9036    activeExecution ||
+  9037    pendingChanges.length > 0 ||
+  9038    commitReadyPaths.length > 0 ||
+  9039    pushReady ||
+  9040    operationMode === 'DELIVERY' ||
+  9041    agentSteps.length > 0 ||
+  9042    liveEvidenceIntegrity ||
+  9043    liveFixtureLocal,
+  9044  );
+  9045
+  9046  useEffect(() => {
+  9047    if (!isAgentBusy || agentStartedAt === null) return;
+  9048    const updateElapsed = () => {
+  9049      setAgentElapsedSeconds(Math.max(0, Math.floor((Date.now() - agentStartedAt) / 1000)));
+  9050    };
+  9051    updateElapsed();
+  9052    const timer = window.setInterval(updateElapsed, 1000);
+  9053    return () => window.clearInterval(timer);
+  9054  }, [agentStartedAt, isAgentBusy]);
+  9055
+  9056  function stopActiveRequest() {
+  9057    if (!isSending) return;
+  9058    streamGenerationRef.current += 1;
+  9059    cancelStream();
+  9060    setStreamingContent('');

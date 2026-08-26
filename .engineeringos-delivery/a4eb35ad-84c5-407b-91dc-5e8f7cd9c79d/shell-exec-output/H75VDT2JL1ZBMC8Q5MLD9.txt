@@ -1,0 +1,239 @@
+   260        title: 'This browser check is not available for the selected project.',
+   261        action: 'Choose a project you own or ask its owner to register the check.',
+   262      };
+   263    case 'invalid_profile':
+   264      return {
+   265        title: 'The browser check profile is not valid for this run.',
+   266        action: 'Use the approved browser profile instead of retrying the same request.',
+   267      };
+   268    case 'resource_limit':
+   269      return {
+   270        title: 'The browser check exceeds the Preview resource limits.',
+   271        action: 'Use a smaller approved check or update the profile before rerunning validation.',
+   272      };
+   273    case 'stale_revision':
+   274      return {
+   275        title: 'The browser check belongs to an older project revision.',
+   276        action: 'Refresh the project and create a new approved validation run before retrying.',
+   277      };
+   278    default:
+   279      return null;
+   280  }
+   281}
+   282
+   283function inferOperationMode(params: {
+   284  operationMode?: unknown;
+   285  taskResult?: AiTaskResult | null;
+   286  proposalId?: string | null;
+   287}): OperationMode | undefined {
+   288  if (
+   289    params.operationMode === 'FORENSIC_AUDIT'
+   290    || params.operationMode === 'DELIVERY'
+   291    || params.operationMode === 'CHAT'
+   292  ) {
+   293    return params.operationMode;
+   294  }
+   295  if (params.proposalId) return 'DELIVERY';
+   296  if (params.taskResult?.kind === 'IMPLEMENTATION_PLAN_RESULT') return 'DELIVERY';
+   297  if (
+   298    params.taskResult?.kind === 'FORENSIC_REPORT_RESULT'
+   299    || params.taskResult?.kind === 'WORKSPACE_REVIEW_RESULT'
+   300    || params.taskResult?.kind === 'FINDING_RESULT'
+   301    || params.taskResult?.kind === 'BEHAVIOR_ANSWER_RESULT'
+   302    || params.taskResult?.kind === 'REPAIR_RESULT'
+   303  ) {
+   304    return 'FORENSIC_AUDIT';
+   305  }
+   306  return undefined;
+   307}
+   308
+   309type ActiveExecution = {
+   310  id: string;
+   311  projectId: string;
+   312  sessionId?: string;
+   313  resumeToken?: string;
+   314  message: string;
+   315  buildPlanMessageId?: string;
+   316};
+   317
+   318type StreamOwner = {
+   319  generation: number;
+   320  projectId: string;
+   321  sessionId?: string;
+   322  executionId?: string;
+   323};
+   324
+   325/**
+  8080  // session list has been fetched and no longer contains the active session,
+  8081  // fail closed instead of sending that session ID with a different project.
+  8082  useEffect(() => {
+  8083    const sessionOwnsRecoveredExecution = Boolean(
+  8084      activeExecution
+  8085      && activeExecution.projectId === selectedProjectId
+  8086      && activeExecution.sessionId === sessionId,
+  8087    );
+  8088    if (
+  8089      !sessionsFetched ||
+  8090      sessionsError ||
+  8091      !sessionId ||
+  8092      sessionOwnsRecoveredExecution ||
+  8093      sessions.some((session) => session.id === sessionId)
+  8094    ) {
+  8095      return;
+  8096    }
+  8097    setSessionId(undefined);
+  8098    setLocalMessages([]);
+  8099    setPendingChanges([]);
+  8100    setProposalId(undefined);
+  8101    setProposalRequiresApproval(false);
+  8102    setProposalRevision(undefined);
+  8103    setVerificationResults({});
+  8104    clearExecutionScopedState();
+  8105  }, [
+  8106    activeExecution?.projectId,
+  8107    activeExecution?.sessionId,
+  8108    selectedProjectId,
+  8109    sessions,
+  8110    sessionsError,
+  8111    sessionsFetched,
+  8112    sessionId,
+  8113  ]);
+  8114
+  8115  useEffect(() => {
+  8116    if (projects.length > 0 && !selectedProjectId) {
+  8117      setSelectedProjectId(projects[0].id);
+  8118    }
+  8119  }, [projects, selectedProjectId]);
+  8120
+  7650        setAgentModel(event.model);
+  7651        setAgentModelHistory((previous) => (
+  7652          previous.some((model) => model.id === event.model && model.provider === event.provider)
+  7653            ? previous
+  7654            : [...previous, { id: event.model, provider: event.provider }]
+  7655        ));
+  7656        appendLiveActivityEvent({
+  7657          kind: 'model',
+  7658          label: 'Model response',
+  7659          detail: `${event.model} · ${event.provider}`,
+  7660          status: 'info',
+  7661        });
+  7662      },
+  7663      onTaskDone: (event) => {
+  7664        appendLiveActivityEvent({
+  7665          kind: 'stage',
+  7666          label: task === 'analyze' ? 'Analysis result received' : 'Review result received',
+  7667          status: 'done',
+  7668        });
+  7669        const activityEvents = agentActivityEventsRef.current;
+  7670        setStructuredRetryMessageId(null);
+  7671        structuredTaskRunRef.current = null;
+  7672        resetStructuredTaskState();
+  7673        setLocalMessages((prev) => [
+  7674          ...prev.filter((message) => message.id !== placeholderId),
+  7675          {
+  7676            id: `${task}-${Date.now()}`,
+  7677            role: 'assistant' as const,
+  7678            content: task === 'analyze'
+  7679              ? formatScanAnalysis(event.result as unknown as AiScanAnalysis)
+  7680              : formatCodeReview(event.result as unknown as AiCodeReview),
+  7681            activityEvents,
+  7682            structuredTask: task,
+  7683            createdAt: new Date().toISOString(),
+  7684          },
+  7685        ]);
+  7686      },
+  7687      onError: (err) => {
+  7688        const failureEvents = agentActivityEventsRef.current;
+  7689        const failure = safeStructuredFailure(err, task);
+  7690        if (err.sessionId) setSessionId(err.sessionId);
+  7691        resetStructuredTaskState();
+  7692        setStructuredRetryMessageId(null);
+  7693        setLocalMessages((prev) => [
+  7694          ...prev.filter((message) => message.id !== placeholderId),
+  7695          {
+  7696            id: `${task}-failed-${Date.now()}`,
+  7697            role: 'assistant' as const,
+  7698            content: failure.reason,
+  7699            outcome: err.outcome ?? 'FAILED',
+  7700            errorCode: err.code,
+  7701            errorMessage: failure.reason,
+  7702            failureKind: err.failureKind,
+  7703            retryable: err.retryable ?? err.failureKind !== 'CONFIGURATION',
+  7704            structuredTask: task,
+  7705            activityEvents: failureEvents,
+  7706            createdAt: new Date().toISOString(),
+  7707          },
+  7708        ]);
+  7709      },
+  7710      onStreamReset: () => {
+  7711        const failureEvents = agentActivityEventsRef.current;
+  7712        const failure = safeStructuredFailure(
+  7713          { type: 'error', code: 'transport_interrupted', message: '', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' },
+  7714          task,
+  7715        );
+  7716        resetStructuredTaskState();
+  7717        setStructuredRetryMessageId(null);
+  7718        setLocalMessages((prev) => [
+  7719          ...prev.filter((message) => message.id !== placeholderId),
+  7720          {
+  7721            id: `${task}-interrupted-${Date.now()}`,
+  7722            role: 'assistant' as const,
+  7723            content: failure.reason,
+  7724            outcome: 'INTERRUPTED',
+  7725            errorCode: 'transport_interrupted',
+  7726            errorMessage: failure.reason,
+  7727            failureKind: 'TRANSPORT',
+  7728            retryable: true,
+  7729            structuredTask: task,
+  7730            activityEvents: failureEvents,
+  7731            createdAt: new Date().toISOString(),
+  7732          },
+  7733        ]);
+  7734      },
+  7735    });
+   170      send: vi.fn((params: unknown, callbacks?: Record<string, unknown>) => {
+   171        mocks.streamCallbacks = callbacks;
+   172        if (params && typeof params === 'object') {
+   173          mocks.sentParams = params as {
+   174            projectId: string;
+   175            message: string;
+   176            sessionId?: string;
+   177            executionId?: string;
+   178            resumeToken?: string;
+   179          };
+   180        }
+   181        return Promise.resolve();
+   182      }),
+   183      cancel: vi.fn(() => {
+   184        mocks.streamIsPending = false;
+   185      }),
+   186      isPending: mocks.streamIsPending,
+   187    })),
+   188    useAiTaskStream: vi.fn(() => ({
+   189      send: vi.fn((params: unknown, callbacks?: Record<string, unknown>) => {
+   190        mocks.taskStreamCallbacks = callbacks;
+   191        if (params && typeof params === 'object') {
+   192          mocks.taskSentParams = params as { projectId: string; task: string };
+   193        }
+   194        return Promise.resolve();
+   195      }),
+   196      cancel: vi.fn(),
+   197      isPending: false,
+   198    })),
+   199    useAiAnalyzeProject: vi.fn(() => emptyMutation()),
+   200    useAiReviewCode: vi.fn(() => emptyMutation()),
+   201    useGetDeepSeekKeyStatus: vi.fn(status),
+   202    useGetGroqKeyStatus: vi.fn(status),
+   203    useGetProviderKeyStatus: vi.fn(status),
+   204    useGetOpenRouterKeyStatus: vi.fn(status),
+   205    useGetActiveProvider: vi.fn(() => ({ data: { provider: 'groq', configured: true }, isLoading: false, isError: false, error: null })),
+   206    useGetAiMetrics: vi.fn(() => ({ data: { metrics: [], behavioralScorecards: [] }, isLoading: false, isError: false, error: null })),
+   207    useGetAiExecution: vi.fn(() => ({
+   208      data: mocks.activeExecutionStatus,
+   209      isLoading: false,
+   210      isError: false,
+   211      error: null,
+   212    })),
+   213    useListAiExecutionHistory: vi.fn(() => ({
+   214      data: mocks.historicalAudits,
+   215      isLoading: false,

@@ -1,0 +1,129 @@
+643:function redactInternalDetails(value: string): string {
+708:function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'errorCode' | 'errorMessage' | 'content'>): string {
+   630  "mistralai/mistral-7b-instruct:free":      "Mistral 7B",
+   631  "google/gemma-3-27b-it:free":              "Gemma 3 27B",
+   632  "google/gemma-3-12b-it:free":              "Gemma 3 12B",
+   633};
+   634function fmtModelId(id: string): string {
+   635  return OR_MODEL_LABELS[id] ?? (id.split("/").pop()?.replace(/:free$/, "") ?? id);
+   636}
+   637
+   638/**
+   639 * Keep implementation details useful to the agent out of the normal chat
+   640 * transcript. Absolute runtime paths and opaque UUIDs can disclose deployment
+   641 * internals without helping the user understand the result.
+   642 */
+   643function redactInternalDetails(value: string): string {
+   644  return value
+   645    .replace(/\/home\/runner\/workspace(?:\/[^\s`"'<>),;]+)*/g, '[project path]')
+   646    .replace(/(?:\/tmp|\/workspace)\/[^\s`"'<>),;]+/g, '[runtime path]')
+   647    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi, '[internal id]');
+   648}
+   649
+   650/** Build a provider context suffix for error messages, showing model/status/raw hint. */
+   651function providerContextSuffix(err: ApiError): string {
+   652  const parts: string[] = [];
+   653  const ctx = err.providerContext as Record<string, unknown> | undefined;
+   654  if (ctx) {
+   655    if (ctx['providerName']) parts.push(`Provider: ${ctx['providerName']}`);
+   656    if (ctx['providerModel']) parts.push(`Model: ${fmtModelId(String(ctx['providerModel']))}`);
+   657    if (ctx['providerStatus']) parts.push(`Status: ${ctx['providerStatus']}`);
+   658  }
+   659  return parts.length > 0 ? ` (${parts.join(' · ')})` : '';
+   660}
+   661
+   662function availabilitySuffix(err: unknown): string {
+   663  const value = err as { data?: unknown; availabilityState?: unknown; operatorAction?: unknown; correlationId?: unknown };
+   664  const data = value.data && typeof value.data === 'object' ? value.data as Record<string, unknown> : {};
+   665  const state = data.availabilityState ?? value.availabilityState;
+   666  const action = data.operatorAction ?? value.operatorAction;
+   667  const correlationId = data.correlationId ?? value.correlationId;
+   668  const parts = [
+   669    typeof state === 'string' ? `Status: ${state.replace(/_/g, ' ')}` : '',
+   670    typeof action === 'string' ? `Next step: ${action}` : '',
+   671    typeof correlationId === 'string' ? `Reference: ${correlationId}` : '',
+   672  ].filter(Boolean);
+   673  return parts.length > 0 ? ` (${parts.join(' · ')})` : '';
+   674}
+   675
+   676function describeAiError(err: unknown): string {
+   677  if (err instanceof AiApiError) {
+   678    const suffix = providerContextSuffix(err) + availabilitySuffix(err);
+   679    switch (err.status) {
+   680      case 400: return err.errorMessage + suffix;
+   681      case 401: return (err.errorMessage || err.hint || 'AI API key is invalid — delete it and save a valid key from your provider\'s dashboard.') + suffix;
+   682      case 403: return 'Access denied — you may not have permission on this project.';
+   683      case 429: return (err.errorMessage || err.hint || 'AI rate limit reached — wait 30–60 seconds before retrying.') + suffix;
+   684      case 422:
+   685        if (err.code === 'model_output_invalid') {
+   686          return 'The AI returned an unexpected response format — try rephrasing your message.';
+   687        }
+   688        if (err.code === 'MODEL_NOT_FOUND') {
+   689          return (err.errorMessage || err.hint || 'The selected AI model is unavailable — try again or switch providers.') + suffix;
+   690        }
+   691        return (err.errorMessage || err.hint || 'AI provider configuration is invalid. Re-save your API key.') + suffix;
+   692      case 428: return (err.errorMessage || err.hint || 'No AI key configured — save an OpenRouter, DeepSeek, or Groq API key first.') + suffix;
+   693      case 502: return (err.errorMessage || err.hint || 'AI provider returned an error. Check your API key or try again.') + suffix;
+   694      case 503: return (err.errorMessage || err.hint || 'AI provider is temporarily unreachable — try again in a moment.') + suffix;
+   695      default:  return (err.errorMessage || `Request failed (${err.status}).`) + suffix;
+   696    }
+   697  }
+   698  if (err instanceof Error) return err.message + availabilitySuffix(err);
+   699  return String(err);
+   700}
+   701
+   702/**
+   703 * Chat history can contain provider-shaped diagnostics from older API
+   704 * versions. Failed turns must render stable recovery guidance rather than
+   705 * replaying that persisted payload. Support references are deliberately
+   706 * allowlisted because they are safe for operators to search.
+   707 */
+   708function safeChatRecoveryMessage(message: Pick<ChatMessage, 'failureKind' | 'errorCode' | 'errorMessage' | 'content'>): string {
+   709  const raw = [
+   710    message.failureKind,
+   711    message.errorCode,
+   712    message.errorMessage,
+   713    message.content,
+   714  ].filter(Boolean).join(' ').toLowerCase();
+   715  const supportReference = [message.errorMessage, message.content]
+   716    .map((value) => value?.match(/\bsupport reference:\s*([a-z0-9][a-z0-9_-]{2,80})\b/i)?.[1])
+   717    .find(Boolean);
+   718
+   719  let guidance = 'The AI provider could not complete this request. Try again in a moment.';
+   720  if (message.failureKind === 'CONFIGURATION' || /authentication|unauthori[sz]|invalid.*key|credential/.test(raw)) {
+   721    guidance = 'Authentication failed. Check the provider configuration or choose another provider, then retry.';
+   722  } else if (message.failureKind === 'RATE_LIMIT' || /rate.?limit|quota|429/.test(raw)) {
+   723    guidance = 'The provider quota or rate limit was reached. Wait a moment, then retry or choose another provider.';
+   724  } else if (message.failureKind === 'TRANSPORT' || /outage|timeout|temporarily unavailable|disconnected|502|503/.test(raw)) {
+   725    guidance = 'The provider is temporarily unavailable. Retry in a moment; choose another provider if the issue persists.';
+  4258  onRetryStructuredTask?: (task: 'analyze' | 'review', messageId: string) => void;
+  4259  retryPending?: boolean;
+  4260}) {
+  4261  const isUser = msg.role === 'user';
+  4262  const [technicalDetailsExpanded, setTechnicalDetailsExpanded] = useState(false);
+  4263  const sources = parseSources(msg.sources);
+  4264  const toolTrace = parseToolTrace(msg.toolTrace);
+  4265  const activityEvents = msg.activityEvents ?? activityEventsFromToolTrace(toolTrace);
+  4266  const executionSummary = !isUser ? parseExecutionSummary(toolTrace) : null;
+  4267  const repairRadar = !isUser ? parseRepairRadar(toolTrace) : null;
+  4268  // UI-01: strip any accidental JSON envelope before rendering.
+  4269  const displayContent = extractDisplayText(msg.content);
+  4270  const redactedDisplayContent = redactInternalDetails(displayContent);
+  4271  const internalTechnicalDump = !isUser && isInternalTechnicalDump(displayContent);
+  4272  const isStructuredPlan = !isUser && msg.taskResult?.kind === 'IMPLEMENTATION_PLAN_RESULT';
+  4273  const failedTurn = !isUser && (msg.outcome === 'FAILED' || msg.outcome === 'INTERRUPTED');
+  4274  const structuredFailure = !isUser && failedTurn && msg.structuredTask
+  4275    ? structuredFailurePresentation(msg.structuredTask, msg.failureKind, msg.retryable)
+  4276    : null;
+  4277  const failureKindLabel = msg.failureKind === 'PROVIDER_FORMAT'
+  4278    ? 'Provider format issue'
+  4279    : msg.failureKind === 'RATE_LIMIT'
+  4280      ? 'Rate limit'
+  4281      : msg.failureKind === 'CONFIGURATION'
+  4282        ? 'Configuration issue'
+  4283        : msg.failureKind === 'TRANSPORT'
+  4284          ? 'Connection interrupted'
+  4285          : 'Provider failure';
+  4286  const userFacingContent = internalTechnicalDump
+  4287    ? 'The agent produced internal technical details for this run.'
+  4288    : redactedDisplayContent;

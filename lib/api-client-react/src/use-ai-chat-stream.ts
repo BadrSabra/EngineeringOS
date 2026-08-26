@@ -1073,6 +1073,7 @@ export type AiTaskStreamParams = {
   projectId: string;
   task: 'analyze' | 'review';
   fileContents?: Record<string, string>;
+  sessionId?: string;
 };
 
 export type AiTaskStreamCallbacks = Pick<
@@ -1117,24 +1118,39 @@ export function useAiTaskStream() {
       const res = await fetch(`/api/ai/projects/${params.projectId}/${params.task}/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params.task === 'review' ? { fileContents: params.fileContents } : {}),
+        body: JSON.stringify({
+          ...(params.task === 'review' ? { fileContents: params.fileContents } : {}),
+          ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+        }),
         signal: controller.signal,
       });
 
       if (!res.ok) {
-        let parsed: { code?: string; error?: string; hint?: string } = {};
+        let parsed: {
+          code?: string;
+          error?: string;
+          hint?: string;
+          retryable?: boolean;
+          failureKind?: AiStreamErrorEvent['failureKind'];
+          sessionId?: string;
+        } = {};
         try { parsed = await res.json() as typeof parsed; } catch { /* ignore */ }
+        const failureKind = parsed.failureKind ?? (
+          res.status === 429
+            ? 'RATE_LIMIT'
+            : res.status === 401 || res.status === 402 || res.status === 422 || res.status === 428
+              ? parsed.code === 'model_output_invalid' ? 'PROVIDER_FORMAT' : 'CONFIGURATION'
+              : 'PROVIDER_FAILURE'
+        );
         guardedCallbacks.onError?.({
           type: 'error',
           code: parsed.code ?? 'request_failed',
           message: parsed.error ?? `Request failed (${res.status})`,
           hint: parsed.hint,
-          failureKind: res.status === 429
-            ? 'RATE_LIMIT'
-            : res.status === 401 || res.status === 402 || res.status === 422 || res.status === 428
-              ? 'CONFIGURATION'
-              : 'PROVIDER_FAILURE',
+          retryable: parsed.retryable ?? failureKind !== 'CONFIGURATION',
+          failureKind,
           outcome: 'FAILED',
+          sessionId: parsed.sessionId,
         });
         return;
       }

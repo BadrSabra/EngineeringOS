@@ -1,0 +1,205 @@
+  2210// ─── POST /api/ai/projects/:projectId/analyze ─────────────────────────────────
+  2211
+  2212describe("POST /api/ai/projects/:projectId/analyze", () => {
+  2213  it("returns 200 with analysis result", async () => {
+  2214    const projectId = await insertProject();
+  2215    projectIds.push(projectId);
+  2216
+  2217    const res = await request(app).post(`/api/ai/projects/${projectId}/analyze`);
+  2218    expect(res.status).toBe(200);
+  2219    expect(typeof res.body.summary).toBe("string");
+  2220    expect(Array.isArray(res.body.insights)).toBe(true);
+  2221  });
+  2222
+  2223  it("creates an AiScanAnalysisCompleted event", async () => {
+  2224    const projectId = await insertProject();
+  2225    projectIds.push(projectId);
+  2226
+  2227    await request(app).post(`/api/ai/projects/${projectId}/analyze`);
+  2228
+  2229    const events = await db
+  2230      .select()
+  2231      .from(eventsTable)
+  2232      .where(eq(eventsTable.projectId, projectId));
+  2233    const ev = events.find((e) => e.type === "AiScanAnalysisCompleted");
+  2234    expect(ev).toBeDefined();
+  2235  });
+  2236
+  2237  // PR-E: parse failure surfaced as 422 instead of silent degraded 200.
+  2238  it("returns 422 with model_output_invalid when analyzeScan returns _parseError", async () => {
+  2239    const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");
+  2240    vi.mocked(mockAnalyzeScan).mockResolvedValueOnce({
+  2241      summary: "fallback",
+  2242      overallAssessment: "fallback",
+  2243      insights: [],
+  2244      topPriority: "fallback",
+  2245      estimatedImpact: "fallback",
+  2246      _parseError: {
+  2247        code: "MALFORMED_JSON",
+  2248        message: "JSON parse error from /tmp/parser-output.txt (request req-analysis-123)",
+  2249        raw: "not json",
+  2250      },
+  2251    });
+  2252
+  2253    const projectId = await insertProject();
+  2254    projectIds.push(projectId);
+  2255
+  2256    const res = await request(app).post(`/api/ai/projects/${projectId}/analyze`);
+  2257    expect(res.status).toBe(422);
+  2258    expect(res.body.error).toBe("model_output_invalid");
+  2259    expect(res.body.code).toBe("model_output_invalid");
+  2260    expect(res.body.parseCode).toBe("MALFORMED_JSON");
+  2261    expect(typeof res.body.hint).toBe("string");
+  2262    const serialized = JSON.stringify(res.body);
+  2263    expect(serialized).not.toContain("not json");
+  2264    expect(serialized).not.toContain("JSON parse error");
+  2265    expect(serialized).not.toContain("req-analysis-123");
+  2266    expect(serialized).not.toContain("/tmp/");
+  2267    expect(serialized).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+  2268  });
+  2269
+  2270  it("streams the structured analysis lifecycle and result", async () => {
+  2271    const projectId = await insertProject();
+  2272    projectIds.push(projectId);
+  2273
+  2274    const res = await request(app).post(`/api/ai/projects/${projectId}/analyze/stream`);
+  2275    expect(res.status).toBe(200);
+  2276    expect(res.headers["content-type"]).toMatch(/text\/event-stream/);
+  2277    expect(res.text).toContain('"type":"task_started"');
+  2278    expect(res.text).toContain('"stage":"building-context"');
+  2279    expect(res.text).toContain('"stage":"calling-model"');
+  2280    expect(res.text).toContain('"type":"task_done"');
+  2281    expect(res.text).toContain('"summary":"Analysis complete"');
+  2282  });
+  2283});
+  2284
+  2285// ─── POST /api/ai/projects/:projectId/review ──────────────────────────────────
+  2286
+  2287describe("POST /api/ai/projects/:projectId/review", () => {
+  2288  it("returns 200 with code review result", async () => {
+  2289    const projectId = await insertProject();
+  2290    projectIds.push(projectId);
+  2291
+  2292    const res = await request(app)
+  2293      .post(`/api/ai/projects/${projectId}/review`)
+  2294      .send({ fileContents: { "index.ts": "const x = 1;" } });
+  2295    expect(res.status).toBe(200);
+  2296    expect(res.body.verdict).toBe("approved");
+  2297    expect(typeof res.body.overallScore).toBe("number");
+  2298  });
+  2299
+  2300  it("creates an AiCodeReviewCompleted event", async () => {
+  2301    const projectId = await insertProject();
+  2302    projectIds.push(projectId);
+  2303
+  2304    await request(app).post(`/api/ai/projects/${projectId}/review`).send({});
+  2305
+  2306    const events = await db
+  2307      .select()
+  2308      .from(eventsTable)
+  2309      .where(eq(eventsTable.projectId, projectId));
+  2310    const ev = events.find((e) => e.type === "AiCodeReviewCompleted");
+  2311    expect(ev).toBeDefined();
+  2312    expect(ev?.severity).toBe("success"); // verdict === "approved"
+  2313  });
+  2314
+  2315  // PR-E: parse failure surfaced as 422 instead of silent degraded 200.
+  2316  it("returns 422 with model_output_invalid when reviewCode returns _parseError", async () => {
+  2317    const { reviewCode: mockReviewCode } = await import("@workspace/ai-orchestrator");
+  2318    vi.mocked(mockReviewCode).mockResolvedValueOnce({
+  2319      summary: "fallback",
+  2320      overallScore: 70,
+  2321      strengths: [],
+  2322      issues: [],
+  2323      refactoringOpportunities: [],
+  2324      securityConcerns: [],
+  2325      verdict: "needs_changes",
+  2326      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "missing field", raw: "bad output" },
+  2327    });
+  2328
+  2329    const projectId = await insertProject();
+  2330    projectIds.push(projectId);
+  2331
+  2332    const res = await request(app).post(`/api/ai/projects/${projectId}/review`).send({});
+  2333    expect(res.status).toBe(422);
+  2334    expect(res.body.error).toBe("model_output_invalid");
+  2335    expect(res.body.code).toBe("model_output_invalid");
+  2336    expect(res.body.parseCode).toBe("SCHEMA_VALIDATION_FAILED");
+  2337    expect(typeof res.body.hint).toBe("string");
+  2338  });
+  2339
+  2340  it("streams the structured review lifecycle and result", async () => {
+  2341    const projectId = await insertProject();
+  2342    projectIds.push(projectId);
+  2343
+  2344    const res = await request(app)
+  2345      .post(`/api/ai/projects/${projectId}/review/stream`)
+  2346      .send({ fileContents: { "index.ts": "const x = 1;" } });
+  2347    expect(res.status).toBe(200);
+  2348    expect(res.headers["content-type"]).toMatch(/text\/event-stream/);
+  2349    expect(res.text).toContain('"type":"task_started"');
+  2350    expect(res.text).toContain('"stage":"building-context"');
+  2351    expect(res.text).toContain('"stage":"calling-model"');
+  2352    expect(res.text).toContain('"type":"task_done"');
+  2353    expect(res.text).toContain('"verdict":"approved"');
+  2354  });
+  2355});
+  2356
+  2357// ─── POST /api/ai/workflows/:workflowId/orchestrate ───────────────────────────
+  2358
+   280  }),
+   281  validateProviderKey: vi.fn(async () => ({ valid: true })),
+   282  // ── Context + cache ────────────────────────────────────────────────────────
+   283  buildProjectContext: vi.fn(async () => "mocked project context string"),
+   284  // invalidateContextCache is a synchronous cache-bust helper called after
+   285  // every mutating AI operation (Gap-2 fix). Must be in the mock so routes
+   286  // that call it don't throw "undefined is not a function" in tests.
+   287  invalidateContextCache: vi.fn(),
+   288  // Gap-4 fix: chat mock now includes pendingChanges so the response shape
+   289  // matches ChatOutput and the pendingChanges contract test below passes.
+   290  chat: vi.fn(async () => ({
+   291    response: "AI response text",
+   292    sources: ["metrics", "tasks"],
+   293    pendingChanges: [],
+   294  })),
+   295  // Gap-4 fix: analyzeScan mock updated to match ScanSummarySchema.
+   296  // Removed stale fields: overallHealthAssessment, immediateActions, longTermRecommendations.
+   297  // Added correct fields: overallAssessment, topPriority, estimatedImpact.
+   298  // Insight shape uses `severity` (not `priority`) per ScanInsightSchema.
+   299  analyzeScan: vi.fn(async () => ({
+   300    summary: "Analysis complete",
+   301    overallAssessment: "The codebase is in good overall health",
+   302    insights: [{
+   303      category: "security",
+   304      severity: "high",
+   305      title: "Mock insight",
+   306      description: "desc",
+   307      recommendation: "fix it",
+   308    }],
+   309    topPriority: "Address security vulnerabilities",
+   310    estimatedImpact: "High — reduces attack surface significantly",
+   311  })),
+   312  // Gap-4 fix: reviewCode mock updated to match CodeReviewResultSchema.
+   313  // Removed stale fields: criticalIssues, highIssues, mediumIssues, lowIssues.
+   314  // Added correct fields: refactoringOpportunities, securityConcerns.
+   315  reviewCode: vi.fn(async () => ({
+   316    verdict: "approved",
+   317    overallScore: 85,
+   318    summary: "Looks good",
+   319    issues: [],
+   320    strengths: ["Clean code"],
+   321    refactoringOpportunities: [],
+   322    securityConcerns: [],
+   323  })),
+   324  // Gap-4 fix: orchestrateWorkflow mock updated to match WorkflowDecisionSchema.
+   325  // action "advance" requires nextPhase (enforced by AdvanceDecisionSchema.strict()).
+   326  // Removed stale fields: confidence, suggestedNextPhase, blockers.
+   327  orchestrateWorkflow: vi.fn(async () => ({
+   328    action: "advance",
+   329    reasoning: "All conditions met",
+   330    nextPhase: "Phase 2",
+   331  })),
+   332  // Gap-4 fix: executeTask mock updated to match TaskRecommendationSchema.
+   333  // Removed stale fields: agentResponse, filesModified.
+   334  // Added missing field: result (required by TaskRecommendationSchema.min(1)).
+   335  executeTask: vi.fn(async () => ({

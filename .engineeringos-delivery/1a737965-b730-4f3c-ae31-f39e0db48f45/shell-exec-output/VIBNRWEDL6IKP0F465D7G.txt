@@ -1,0 +1,247 @@
+   340    attempt: event.attempt,
+   341    maxAttempts: event.maxAttempts,
+   342  };
+   343}
+   344
+   345export type AiStreamModelCallEvent = {
+   346  type: 'model_call';
+   347  /** Exact model ID that returned the response for this loop iteration. */
+   348  model: string;
+   349  provider: string;
+   350};
+   351
+   352export type AiStreamThinkingEvent = {
+   353  type: 'thinking';
+   354  /** Current iteration index (0-based). */
+   355  iter: number;
+   356  /** Maximum iterations for this request. */
+   357  max: number;
+   358};
+   359
+   360export type AiStreamExecutionGuardEvent = {
+   361  type: 'execution_guard';
+   362  code: 'REPEATED_TOOL_CALL';
+   363  tool: string;
+   364  message: string;
+   365};
+   366
+   367export type AiStreamSynthesisStartEvent = {
+   368  type: 'synthesis_start';
+   369  /** Zero-based iteration at which tool execution was disabled. */
+   370  iter: number;
+   371  /** Maximum iterations allocated to the request. */
+   372  max: number;
+   373};
+   374
+   375export type AiStreamForensicStatusEvent = {
+   376  type: 'forensic_status';
+   377  /** Structured audit scope emitted live as evidence is gathered. */
+   378  auditScope?: 'PRODUCTION' | 'FIXTURE_LOCAL';
+   379  /** User-readable boundary approved for the active audit. */
+   380  scopeDescription?: string;
+   381  /** Explicit file manifest retained in request order for scoped audits. */
+   382  requestedFiles?: string[];
+   383  /** True when the proven Finding is supported only by fixture/test/spec evidence. */
+   384  isFixtureLocal?: boolean;
+   385  /** EI-036: Repair Scope Gate reason when repair is blocked (e.g. REPAIR_BLOCKED_SCOPE_NOT_PRODUCTION). */
+   386  repairBlockReason?: string;
+   387};
+   388
+   389/** FEG-017: why a forensic investigation's terminal failed (success terminals omit it). */
+   390export type AiStreamForensicTerminalEvent = {
+   391  type: 'forensic_terminal';
+   392  terminalKind:
+   393    | 'INVESTIGATION_NOT_STARTED'
+   394    | 'INVESTIGATION_BUDGET_EXHAUSTED'
+   395    | 'NO_EVIDENCE_FOUND'
+   396    | 'EVIDENCE_AVAILABLE_BUT_CLAIM_UNCLOSED';
+   397};
+   398
+   399export type AiSemanticTraceSourceSpan = {
+   400  file: string;
+   401  line: number;
+   402  column?: number;
+   403  snippet?: string;
+   404};
+   405
+   406export type AiSemanticTraceNode = {
+   407  id: string;
+   408  name: string;
+   409  path?: string;
+   410  stage: 'ENTRY_POINT' | 'API_ROUTE' | 'ORCHESTRATOR' | 'TOOL_PROVIDER' | 'PERSISTENCE_OUTPUT' | 'OTHER';
+   411};
+   412
+   413export type AiSemanticTraceEdge = {
+   414  from: string;
+   415  to: string;
+   416  relation: string;
+   417  status: 'PROVEN' | 'NOT_PROVEN' | 'OUT_OF_SCOPE';
+   418  source?: string;
+   419  evidence?: string;
+   420  sourceSpan?: AiSemanticTraceSourceSpan;
+   421  runtimeObserved: boolean;
+   422};
+   423
+   424export type AiCrossFileSemanticTrace = {
+   425  status: 'PROVEN' | 'NOT_PROVEN' | 'OUT_OF_SCOPE';
+   426  nodes: AiSemanticTraceNode[];
+   427  edges: AiSemanticTraceEdge[];
+   428  maxDepth: number;
+   429  reason?: string;
+   430};
+   800        callbacks.onStreamReset?.();
+   801      }
+   802      break;
+   803    }
+   804
+   805    buffer += decoder.decode(value, { stream: true });
+   806
+   807    // SSE events are separated by double newlines: "data: {...}\n\n"
+   808    const chunks = buffer.split('\n\n');
+   809    // Last element is the incomplete chunk — keep it for the next read
+   810    buffer = chunks.pop() ?? '';
+   811
+   812    for (const chunk of chunks) {
+   813      const dataLine = chunk.split('\n').find((l) => l.startsWith('data: '));
+   814      if (!dataLine) continue;
+   815
+   816      let event: AiStreamEvent;
+   817      try {
+   818        event = JSON.parse(dataLine.slice('data: '.length)) as AiStreamEvent;
+   819      } catch {
+   820        continue; // malformed event — skip
+   821      }
+   822
+   823      if (event.type === 'execution_started') executionStarted = true;
+   824      if (event.type === 'task_started') taskStarted = true;
+   825      if (event.type === 'done' || event.type === 'error') terminalEventReceived = true;
+   826
+   827      switch (event.type) {
+   828        case 'execution_started':
+   829          callbacks.onExecutionStarted?.(event);
+   830          break;
+   831        case 'execution_nodes':
+   832          callbacks.onExecutionNodes?.(event);
+   833          break;
+   834        case 'session_started':
+   835          callbacks.onSessionStarted?.(event);
+   836          break;
+   837        case 'stage':
+   838          callbacks.onStage?.(event.stage);
+   839          break;
+   840        case 'intent':
+   841          callbacks.onIntent?.(event);
+   842          break;
+   843        case 'audit_state':
+   844          callbacks.onAuditState?.(event);
+   845          break;
+   846        case 'verification':
+   847          callbacks.onVerification?.(event);
+   848          break;
+   849        case 'delta':
+   850          callbacks.onDelta?.(event.delta);
+   851          break;
+   852        case 'done':
+   853          callbacks.onDone?.(event);
+   854          break;
+   855        case 'error':
+   856          callbacks.onError?.(event);
+   857          break;
+   858        case 'stream_reset':
+   859          callbacks.onStreamReset?.();
+   860          break;
+   861        case 'tool_call':
+   862          callbacks.onToolCall?.(event);
+   863          break;
+   864        case 'tool_result':
+   865          callbacks.onToolResult?.(event);
+   866          break;
+   867        case 'plan_activity':
+   868          callbacks.onPlanActivity?.(event);
+   869          break;
+   870        case 'validation': {
+   871          const validationEvent = parseValidationEvent(event);
+   872          if (validationEvent) callbacks.onValidation?.(validationEvent);
+   873          break;
+   874        }
+   875        case 'repair_state':
+   876          callbacks.onRepairState?.(event);
+   877          break;
+   878        case 'model_call':
+   879          callbacks.onModelCall?.(event);
+   880          break;
+   881        case 'thinking':
+   882          callbacks.onThinking?.(event);
+   883          break;
+   884        case 'execution_guard':
+   885          callbacks.onExecutionGuard?.(event);
+   886          break;
+   887        case 'synthesis_start':
+   888          callbacks.onSynthesisStart?.(event);
+   889          break;
+   890        case 'execution_diagnostic':
+   891          callbacks.onExecutionDiagnostic?.(event);
+   892          break;
+   893        case 'forensic_status':
+   894          callbacks.onForensicStatus?.(event);
+   895          break;
+   896        case 'forensic_terminal':
+   897          callbacks.onForensicTerminal?.(event);
+   898          break;
+   899        case 'production_trace':
+   900          callbacks.onProductionTrace?.(event);
+   901          break;
+   902        case 'cross_file_trace':
+   903          callbacks.onCrossFileTrace?.(event);
+   904          break;
+   905        case 'evidence_integrity':
+   906          callbacks.onEvidenceIntegrity?.(event);
+   907          break;
+   908        case 'decision_trace':
+   909          callbacks.onDecisionTrace?.(event);
+   910          break;
+   911        case 'task_started':
+   912          callbacks.onTaskStarted?.(event);
+   913          break;
+   914        case 'task_progress':
+   915          callbacks.onTaskProgress?.(event);
+   916          break;
+   917        case 'task_done':
+   918          callbacks.onTaskDone?.(event);
+   919          break;
+   920      }
+   921    }
+   922  }
+   923}
+   924
+   925// ── Hook ──────────────────────────────────────────────────────────────────────
+artifacts/api-server/src/routes/ai.test.ts:446:  await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai.test.ts:562:  await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai.test.ts:1085:  it("returns 422 with model_output_invalid when chat returns _parseError with empty response", async () => {
+artifacts/api-server/src/routes/ai.test.ts:1101:    expect(res.body.error).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts:1102:    expect(res.body.code).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts:1680:    await db.insert(aiChatMessagesTable).values([
+artifacts/api-server/src/routes/ai.test.ts:1736:    await db.insert(aiChatMessagesTable).values([
+artifacts/api-server/src/routes/ai.test.ts:1774:    await db.insert(aiChatMessagesTable).values([
+artifacts/api-server/src/routes/ai.test.ts:1842:    await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai.test.ts:1891:    await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai.test.ts:1939:    await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai.test.ts:2003:    await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai.test.ts:2033:    await db.insert(aiChatMessagesTable).values([
+artifacts/api-server/src/routes/ai.test.ts:2076:    await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai.test.ts:2238:  it("returns 422 with model_output_invalid when analyzeScan returns _parseError", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2258:    expect(res.body.error).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts:2259:    expect(res.body.code).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts:2316:  it("returns 422 with model_output_invalid when reviewCode returns _parseError", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2334:    expect(res.body.error).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts:2335:    expect(res.body.code).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts:2345:      .post(`/api/ai/projects/${projectId}/review/stream`)
+artifacts/api-server/src/routes/ai.test.ts:2399:  it("returns 422 with model_output_invalid when orchestrateWorkflow returns _parseError", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2418:    expect(res.body.error).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts:2419:    expect(res.body.code).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts:3973:  it("returns 422 with model_output_invalid when executeTask returns _parseError, and rolls back task status", async () => {
+artifacts/api-server/src/routes/ai.test.ts:3994:    expect(res.body.error).toBe("model_output_invalid");
+artifacts/api-server/src/routes/ai.test.ts:3995:    expect(res.body.code).toBe("model_output_invalid");
+artifacts/api-server/src/routes/git.test.ts:62:  await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts:226:  await db.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai-stream-integration.test.ts:330:  await db.insert(aiChatMessagesTable).values({

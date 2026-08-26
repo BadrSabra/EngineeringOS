@@ -1,0 +1,493 @@
+lib/db/src/schema/ai_chats.ts:41:export const aiChatMessagesTable = pgTable("ai_chat_messages", {
+lib/db/src/schema/ai_chats.ts:83:export type InsertAiChatMessage = typeof aiChatMessagesTable.$inferInsert;
+lib/db/src/schema/ai_chats.ts:84:export type AiChatMessage = typeof aiChatMessagesTable.$inferSelect;
+artifacts/api-server/src/routes/ai/chat.ts:18:  aiChatMessagesTable,
+artifacts/api-server/src/routes/ai/chat.ts:836:async function persistFailedChatTurn(params: {
+artifacts/api-server/src/routes/ai/chat.ts:855:          .select({ id: aiChatMessagesTable.id })
+artifacts/api-server/src/routes/ai/chat.ts:856:          .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:858:            eq(aiChatMessagesTable.sessionId, params.sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:859:            eq(aiChatMessagesTable.executionId, params.executionId),
+artifacts/api-server/src/routes/ai/chat.ts:860:            eq(aiChatMessagesTable.role, "user"),
+artifacts/api-server/src/routes/ai/chat.ts:865:      await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:876:    await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:1935:          .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:1936:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+artifacts/api-server/src/routes/ai/chat.ts:1937:          .orderBy(desc(aiChatMessagesTable.createdAt))
+artifacts/api-server/src/routes/ai/chat.ts:2128:          .insert(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:2153:      await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:2163:        .insert(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:2184:        await tx.insert(aiChangeProposalsTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:2367:        message: aiChatMessagesTable,
+artifacts/api-server/src/routes/ai/chat.ts:2370:      .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:2373:        eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+artifacts/api-server/src/routes/ai/chat.ts:2375:      .where(eq(aiChatMessagesTable.id, effectiveBuildPlanMessageId))
+artifacts/api-server/src/routes/ai/chat.ts:2612:        .insert(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:2988:          .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:2989:          .where(eq(aiChatMessagesTable.sessionId, existingSession.id))
+artifacts/api-server/src/routes/ai/chat.ts:2990:          .orderBy(desc(aiChatMessagesTable.createdAt))
+artifacts/api-server/src/routes/ai/chat.ts:3631:        await persistFailedChatTurn({
+artifacts/api-server/src/routes/ai/chat.ts:3870:      await persistFailedChatTurn({
+artifacts/api-server/src/routes/ai/chat.ts:3895:        await persistFailedChatTurn({
+artifacts/api-server/src/routes/ai/chat.ts:4004:          .insert(aiChatSessionsTable)
+artifacts/api-server/src/routes/ai/chat.ts:4033:        await tx.insert(aiChatMessagesTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:4045:        .insert(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4068:        await tx.insert(aiChangeProposalsTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:4779:      id: aiChatMessagesTable.id,
+artifacts/api-server/src/routes/ai/chat.ts:4780:      sessionId: aiChatMessagesTable.sessionId,
+artifacts/api-server/src/routes/ai/chat.ts:4781:      role: aiChatMessagesTable.role,
+artifacts/api-server/src/routes/ai/chat.ts:4782:      content: aiChatMessagesTable.content,
+artifacts/api-server/src/routes/ai/chat.ts:4783:      toolTrace: aiChatMessagesTable.toolTrace,
+artifacts/api-server/src/routes/ai/chat.ts:4784:      createdAt: aiChatMessagesTable.createdAt,
+artifacts/api-server/src/routes/ai/chat.ts:4786:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4787:    .where(inArray(aiChatMessagesTable.sessionId, sessions.map((session) => session.id)))
+artifacts/api-server/src/routes/ai/chat.ts:4788:    .orderBy(desc(aiChatMessagesTable.createdAt), desc(aiChatMessagesTable.id));
+artifacts/api-server/src/routes/ai/chat.ts:4851:      id: aiChatMessagesTable.id,
+artifacts/api-server/src/routes/ai/chat.ts:4852:      role: aiChatMessagesTable.role,
+artifacts/api-server/src/routes/ai/chat.ts:4853:      missionCorrelationReport: aiChatMessagesTable.missionCorrelationReport,
+artifacts/api-server/src/routes/ai/chat.ts:4854:      executionId: aiChatMessagesTable.executionId,
+artifacts/api-server/src/routes/ai/chat.ts:4856:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4858:      eq(aiChatMessagesTable.id, messageId),
+artifacts/api-server/src/routes/ai/chat.ts:4859:      eq(aiChatMessagesTable.sessionId, sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:4875:      id: aiChatMessagesTable.id,
+artifacts/api-server/src/routes/ai/chat.ts:4876:      role: aiChatMessagesTable.role,
+artifacts/api-server/src/routes/ai/chat.ts:4877:      sources: aiChatMessagesTable.sources,
+artifacts/api-server/src/routes/ai/chat.ts:4878:      toolTrace: aiChatMessagesTable.toolTrace,
+artifacts/api-server/src/routes/ai/chat.ts:4879:      behaviorEvidence: aiChatMessagesTable.behaviorEvidence,
+artifacts/api-server/src/routes/ai/chat.ts:4880:      taskResult: aiChatMessagesTable.taskResult,
+artifacts/api-server/src/routes/ai/chat.ts:4881:      outcome: aiChatMessagesTable.outcome,
+artifacts/api-server/src/routes/ai/chat.ts:4882:      errorCode: aiChatMessagesTable.errorCode,
+artifacts/api-server/src/routes/ai/chat.ts:4884:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4885:    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:4886:    .orderBy(aiChatMessagesTable.createdAt)
+artifacts/api-server/src/routes/ai/chat.ts:4941:    .update(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4944:      eq(aiChatMessagesTable.id, messageId),
+artifacts/api-server/src/routes/ai/chat.ts:4945:      eq(aiChatMessagesTable.sessionId, sessionId),
+artifacts/api-server/src/routes/ai/chat.ts:4947:    .returning({ id: aiChatMessagesTable.id, missionCorrelationReport: aiChatMessagesTable.missionCorrelationReport });
+artifacts/api-server/src/routes/ai/chat.ts:4975:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:4976:    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+artifacts/api-server/src/routes/ai/chat.ts:4977:    .orderBy(aiChatMessagesTable.createdAt);
+artifacts/api-server/src/routes/ai/chat.ts:5030:      message: aiChatMessagesTable,
+artifacts/api-server/src/routes/ai/chat.ts:5033:    .from(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:5036:      eq(aiChatMessagesTable.sessionId, aiChatSessionsTable.id),
+artifacts/api-server/src/routes/ai/chat.ts:5038:    .where(eq(aiChatMessagesTable.id, req.params.messageId))
+artifacts/api-server/src/routes/ai/chat.ts:5117:    .update(aiChatMessagesTable)
+artifacts/api-server/src/routes/ai/chat.ts:5120:      eq(aiChatMessagesTable.id, row.message.id),
+artifacts/api-server/src/routes/ai/chat.ts:5121:      eq(aiChatMessagesTable.taskResult, originalTaskResult),
+artifacts/api-server/src/routes/ai/chat.ts:5123:    .returning({ id: aiChatMessagesTable.id });
+artifacts/api-server/src/routes/ai/chat.ts:6164:      await db.insert(aiApplyJournalTable).values({
+artifacts/api-server/src/routes/ai/chat.ts:6635:      await tx.insert(aiApplyJournalTable).values({
+     1import { pgTable, text, timestamp, pgEnum, index, real } from "drizzle-orm/pg-core";
+     2import { projectsTable } from "./projects.js";
+     3import { tasksTable } from "./tasks.js";
+     4
+     5export const aiMessageRoleEnum = pgEnum("ai_message_role", [
+     6  "user",
+     7  "assistant",
+     8  "system",
+     9]);
+    10
+    11export const aiChatSessionsTable = pgTable("ai_chat_sessions", {
+    12  id: text("id").primaryKey(),
+    13  projectId: text("project_id")
+    14    .notNull()
+    15    .references(() => projectsTable.id, { onDelete: "cascade" }),
+    16  title: text("title").notNull().default("New Chat"),
+    17  /**
+    18   * AI-TASK-001: Optional permanent link to a task so the chat agent operates
+    19   * in task-aware mode. Nullable FK — cleared automatically when the task is
+    20   * deleted; remains valid as long as the task exists.
+    21   */
+    22  linkedTaskId: text("linked_task_id")
+    23    .references(() => tasksTable.id, { onDelete: "set null" }),
+    24  /**
+    25   * Verified resumable task contract for short continuation messages such as
+    26   * "أكمل" or "ابدأ". Stored as validated JSON so the next request can resume
+    27   * the task contract without trusting prose from the conversation history.
+    28   */
+    29  activeTaskState: text("active_task_state"),
+    30  createdAt: timestamp("created_at").notNull().defaultNow(),
+    31  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    32}, (t) => [
+    33  // Covers: WHERE project_id = ? (session list for a project)
+    34  index("idx_ai_chat_sessions_project_id").on(t.projectId),
+    35  // Covers: WHERE project_id = ? ORDER BY updated_at DESC (most-recent sessions)
+    36  index("idx_ai_chat_sessions_project_id_updated_at").on(t.projectId, t.updatedAt),
+    37  // Covers: WHERE linked_task_id = ? (find all sessions for a task)
+    38  index("idx_ai_chat_sessions_linked_task_id").on(t.linkedTaskId),
+    39]);
+    40
+    41export const aiChatMessagesTable = pgTable("ai_chat_messages", {
+    42  id: text("id").primaryKey(),
+    43  sessionId: text("session_id")
+    44    .notNull()
+    45    .references(() => aiChatSessionsTable.id, { onDelete: "cascade" }),
+    46  role: aiMessageRoleEnum("role").notNull(),
+    47  content: text("content").notNull(),
+    48  /** JSON array of source strings (file paths, node names, etc.) */
+    49  sources: text("sources"),
+    50  /** JSON array of bounded execution-trace metadata; never part of report content. */
+    51  toolTrace: text("tool_trace"),
+    52  /** JSON array of server-verified executable Repair Plan phases. */
+    53  repairPlanMetadata: text("repair_plan_metadata"),
+    54  /** JSON array of accepted behavior-evidence references, each with an optional exact source line span. */
+    55  behaviorEvidence: text("behavior_evidence"),
+    56  /** Versioned, redacted mission correlation report for historical run messages. */
+    57  missionCorrelationReport: text("mission_correlation_report"),
+    58  /** Server-authoritative routing decision for this conversational turn. */
+    59  turnIntent: text("turn_intent"),
+    60  /** Durable execution linked to this turn, when the turn used one. */
+    61  executionId: text("execution_id"),
+    62  /** Terminal outcome; failed/interrupted turns are retained without an answer. */
+    63  outcome: text("outcome"),
+    64  /** Bounded provider/execution failure code for an auditable failed turn. */
+    65  errorCode: text("error_code"),
+    66  errorMessage: text("error_message"),
+    67  /**
+    68   * Serialized AI-008 per-task typed result (discriminated on `kind` by
+    69   * forensicTaskType). Persisted so a reloaded/history session can re-render the
+    70   * structured panel; null for generic chat turns that map to no typed contract.
+    71   */
+    72  taskResult: text("task_result"),
+    73  createdAt: timestamp("created_at").notNull().defaultNow(),
+    74}, (t) => [
+    75  // Covers: WHERE session_id = ? (load all messages for a session)
+    76  index("idx_ai_chat_messages_session_id").on(t.sessionId),
+    77  // Covers: WHERE session_id = ? ORDER BY created_at ASC (chronological thread)
+    78  index("idx_ai_chat_messages_session_id_created_at").on(t.sessionId, t.createdAt),
+    79]);
+    80
+    81export type InsertAiChatSession = typeof aiChatSessionsTable.$inferInsert;
+    82export type AiChatSession = typeof aiChatSessionsTable.$inferSelect;
+    83export type InsertAiChatMessage = typeof aiChatMessagesTable.$inferInsert;
+    84export type AiChatMessage = typeof aiChatMessagesTable.$inferSelect;
+    85
+    86// ── AI Session Memories ───────────────────────────────────────────────────────
+    87
+    88export const aiMemoryTypeEnum = pgEnum("ai_memory_type", [
+    89  "file_summary",
+    90  "entity_fact",
+    91  "session_summary",
+    92  "key_finding",
+    93]);
+    94
+    95/**
+    96 * Cross-session memory: stores summaries of files accessed and key findings
+    97 * from each chat session so subsequent sessions can skip re-discovery.
+    98 *
+    99 * Populated at the end of every successful chat exchange; injected into the
+   100 * system prompt at the start of the next session for the same project.
+   101 *
+   102 * Relevance decays 10% per day on each sweep cycle; rows are pruned when
+   103 * relevance drops below 0.1 or when expires_at passes (default 30 days).
+   104 */
+   105export const aiSessionMemoriesTable = pgTable("ai_session_memories", {
+   106  id: text("id").primaryKey(),
+   107  projectId: text("project_id")
+   108    .notNull()
+   109    .references(() => projectsTable.id, { onDelete: "cascade" }),
+   110  sessionId: text("session_id")
+   111    .notNull()
+   112    .references(() => aiChatSessionsTable.id, { onDelete: "cascade" }),
+   113  memoryType: aiMemoryTypeEnum("memory_type").notNull(),
+   114  content: text("content").notNull(),
+   115  /** Absolute or project-relative path for file_summary / entity_fact rows. */
+   116  sourcePath: text("source_path"),
+   117  /** 0.0 – 1.0: decays over time; rows below 0.1 are pruned on sweep. */
+   118  relevance: real("relevance").notNull().default(1.0),
+   119  createdAt: timestamp("created_at").notNull().defaultNow(),
+   120  /** Hard expiry — null means never expires. Default: createdAt + 30 days. */
+   121  expiresAt: timestamp("expires_at"),
+   122}, (t) => [
+   123  // Covers: WHERE project_id = ? ORDER BY relevance DESC (context fetch)
+   124  index("idx_ai_session_memories_project_rel").on(t.projectId, t.relevance),
+   125  // Covers: WHERE session_id = ? (write-back by session)
+   126  index("idx_ai_session_memories_session_id").on(t.sessionId),
+   127  // Covers: WHERE expires_at < NOW() (daily sweep)
+   128  index("idx_ai_session_memories_expires_at").on(t.expiresAt),
+   129]);
+   130
+836:async function persistFailedChatTurn(params: {
+837-  sessionId: string;
+838-  projectId: string;
+839-  message: string;
+840-  turnIntent: string;
+841-  executionId?: string;
+842-  outcome: "FAILED" | "INTERRUPTED";
+843-  errorCode: string;
+844-  errorMessage: string;
+845-  createdAt: Date;
+846-  assistantAt: Date;
+847-  toolTrace?: AgentStep[];
+848-}): Promise<void> {
+849-  await db.transaction(async (tx) => {
+850-    // A provider/network failure may already have persisted the user turn.
+851-    // Resuming that execution must only add the next assistant outcome, not
+852-    // create a second copy of the user's request.
+853-    const existingUserTurn = params.executionId
+854-      ? await tx
+855-          .select({ id: aiChatMessagesTable.id })
+856-          .from(aiChatMessagesTable)
+857-          .where(and(
+858-            eq(aiChatMessagesTable.sessionId, params.sessionId),
+859-            eq(aiChatMessagesTable.executionId, params.executionId),
+860-            eq(aiChatMessagesTable.role, "user"),
+861-          ))
+862-          .limit(1)
+863-      : [];
+864-    if (existingUserTurn.length === 0) {
+865-      await tx.insert(aiChatMessagesTable).values({
+866-        id: randomUUID(),
+867-        sessionId: params.sessionId,
+868-        role: "user",
+869-        content: params.message,
+870-        turnIntent: params.turnIntent,
+871-        executionId: params.executionId ?? null,
+872-        outcome: "SUCCEEDED",
+873-        createdAt: params.createdAt,
+874-      });
+875-    }
+876-    await tx.insert(aiChatMessagesTable).values({
+877-      id: randomUUID(),
+878-      sessionId: params.sessionId,
+879-      role: "assistant",
+880-      // Empty content is intentional: a failed provider turn is not an
+881-      // assistant answer and must not be rendered as one.
+882-      content: "",
+883-      turnIntent: params.turnIntent,
+884-      executionId: params.executionId ?? null,
+885-      outcome: params.outcome,
+886-      errorCode: params.errorCode,
+887-      errorMessage: redactUserFacingText(params.errorMessage).slice(0, 500),
+888-      toolTrace: params.toolTrace ? serializeToolTrace(params.toolTrace, true) : null,
+889-      createdAt: params.assistantAt,
+890-    });
+891-    await tx.update(aiChatSessionsTable)
+892-      .set({ updatedAt: params.assistantAt })
+893-      .where(eq(aiChatSessionsTable.id, params.sessionId));
+894-  });
+895-}
+896-
+897-type ApplySnapshot = {
+898-  path: string;
+899-  realPath: string;
+900-  before: Buffer | null;
+901-};
+902-
+903-type ApplyRollbackFailure = {
+904-  path: string;
+905-  error: string;
+906-};
+907-
+908-type ApplyJournalStage =
+909-  | "STARTED"
+910-  | "PREFLIGHT_STARTED"
+911-  | "PREFLIGHT_PASSED"
+912-  | "PREFLIGHT_FAILED"
+913-  | "WRITING_STARTED"
+914-  | "WRITTEN"
+915-  | "WRITE_FAILED"
+916-  | "VALIDATING"
+917-  | "BLOCKED"
+918-  | "APPLIED"
+919-  | "ROLLED_BACK"
+920-  | "ROLLBACK_FAILED"
+921-  | "PROMOTION_INTENT"
+--
+3631:        await persistFailedChatTurn({
+3632-          sessionId: sessionIdToUse,
+3633-          projectId,
+3634-          message,
+3635-          turnIntent: streamTurnIntent.kind,
+3636-          executionId: aiExecution?.id,
+3637-          outcome: interrupted ? "INTERRUPTED" : "FAILED",
+3638-          errorCode: diagnosticCode,
+3639-          errorMessage: safeDiagnostic,
+3640-          createdAt: now,
+3641-          assistantAt: msgNow,
+3642-          toolTrace: traceSteps,
+3643-        }).catch((persistError) => logger.error(
+3644-          { persistError, sessionId: sessionIdToUse },
+3645-          "chat stream: failed to persist terminal tool failure",
+3646-        ));
+3647-        if (aiExecution) {
+3648-          await failAiExecution({
+3649-            executionId: aiExecution.id,
+3650-            workerId: executionWorkerId!,
+3651-            error: safeDiagnostic,
+3652-            cancelled: interrupted,
+3653-            nodeStates: executionNodeStates,
+3654-            streamedPreview: streamedContent,
+3655-            recentSteps: serializeExecutionCheckpointSteps(traceSteps),
+3656-          });
+3657-          executionTerminal = true;
+3658-        }
+3659-        res.end();
+3660-        return;
+3661-      }
+3662-      if (endedBeforeEvidence) {
+3663-        result = {
+3664-          ...result,
+3665-          response: failClosedBeforeEvidenceResponse(message),
+3666-          sources: [],
+3667-          pendingChanges: [],
+3668-          repairPlan: undefined,
+3669-          taskResult: undefined,
+3670-          behaviorEvidence: undefined,
+3671-        };
+3672-      }
+3673-      if (approvedImplementationPlan && implementationPlanScope && validRootPath) {
+3674-        const outOfScopeFiles = getOutOfScopeImplementationChanges(
+3675-          (result.pendingChanges ?? []) as ServerPendingChange[],
+3676-          implementationPlanScope,
+3677-          validRootPath,
+3678-        );
+3679-        if (outOfScopeFiles.length > 0) {
+3680-          logger.warn(
+3681-            {
+3682-              scope: "chat-route",
+3683-              code: "IMPLEMENTATION_PLAN_SCOPE_BLOCKED",
+3684-              buildPlanMessageId: effectiveBuildPlanMessageId,
+3685-              outOfScopeFiles: [...new Set(outOfScopeFiles)].slice(0, 12),
+3686-            },
+3687-            "Build Mode proposed a file outside the approved implementation plan",
+3688-          );
+3689-          sse({
+3690-            type: "error",
+3691-            code: "IMPLEMENTATION_PLAN_SCOPE_BLOCKED",
+3692-            message: "Build Mode proposed changes outside the approved implementation plan. No proposal was created.",
+3693-            files: [...new Set(outOfScopeFiles)].slice(0, 12),
+3694-          });
+3695-          res.end();
+3696-          return;
+3697-        }
+3698-      }
+3699-      if (approvedImplementationPlan && effectiveBuildPlanMessageId) {
+3700-        await db.insert(eventsTable).values({
+3701-          id: randomUUID(),
+3702-          type: "AiBuildCompleted",
+3703-          projectId,
+3704-          severity: "success",
+3705-          message: "Build Mode completed and produced a scoped proposal",
+3706-          correlationId: effectiveBuildPlanMessageId,
+3707-          payload: {
+3708-            messageId: effectiveBuildPlanMessageId,
+3709-            proposedChanges: result.pendingChanges?.length ?? 0,
+3710-          },
+3711-        });
+3712-      }
+3713-      // PR-05/PR-011: record successful call latency and health.
+3714-      const callLatency = Date.now() - chatStartMs;
+3715-      const effectiveProvider = chatOut.effectiveProvider ?? provider;
+3716-      recordLatency(effectiveProvider, callLatency);
+--
+3870:      await persistFailedChatTurn({
+3871-        sessionId: sessionIdToUse,
+3872-        projectId,
+3873-        message,
+3874-        turnIntent: streamTurnIntent.kind,
+3875-        executionId: aiExecution?.id,
+3876-        outcome: executionAbortController?.signal.aborted ? "INTERRUPTED" : "FAILED",
+3877-        errorCode: err instanceof GroqClientError ? err.code : "UNKNOWN",
+3878-        errorMessage: err instanceof Error ? err.message : String(err),
+3879-        createdAt: now,
+3880-        assistantAt: msgNow,
+3881-        toolTrace: traceSteps,
+3882-      }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist provider failure"));
+3883-      res.end();
+3884-      return;
+3885-    }
+3886-
+3887-    if (result._parseError) {
+3888-      if (!result.response) {
+3889-        sse({
+3890-          type: "error",
+3891-          code: "model_output_invalid",
+3892-          message: "The AI model returned an unexpected response — try rephrasing your message.",
+3893-          parseCode: result._parseError.code,
+3894-        });
+3895:        await persistFailedChatTurn({
+3896-          sessionId: sessionIdToUse,
+3897-          projectId,
+3898-          message,
+3899-          turnIntent: streamTurnIntent.kind,
+3900-          executionId: aiExecution?.id,
+3901-          outcome: "FAILED",
+3902-          errorCode: "MODEL_OUTPUT_INVALID",
+3903-          errorMessage: "The AI model returned an unexpected response.",
+3904-          createdAt: now,
+3905-          assistantAt: msgNow,
+3906-          toolTrace: traceSteps,
+3907-        }).catch((persistError) => logger.error({ persistError, sessionId: sessionIdToUse }, "chat stream: failed to persist parse failure"));
+3908-        res.end();
+3909-        return;
+3910-      }
+3911-      logger.warn(
+3912-        { parseCode: result._parseError.code, rawPreview: result._parseError.raw.slice(0, 200) },
+3913-        "AI parse failure — using fallback response",
+3914-      );
+3915-    }
+3916-
+3917-    invalidateContextCache(projectId);
+3918-
+3919-    // BUG-6: log language anomalies in AI responses.
+3920-    // If a response to an Arabic message contains Thai-range characters
+3921-    // (U+0E00–U+0E7F) or other unexpected scripts, record it for monitoring.
+3922-    // This catches hallucinations like "ภาษته" appearing inside Arabic prose.
+3923-    (() => {
+3924-      const hasArabic = /[\u0600-\u06FF]/.test(message);
+3925-      const thaiBidiRange = /[\u0E00-\u0E7F]/.test(result.response);
+3926-      if (hasArabic && thaiBidiRange) {
+3927-        logger.warn(
+3928-          { scope: "chat-route", action: "language_anomaly", projectId, provider,
+3929-            responsePreview: result.response.slice(0, 200) },
+3930-          "AI-06: response to Arabic message contains Thai-range characters — possible model hallucination",
+3931-        );
+3932-      }
+3933-    })();
+3934-
+3935-    // Atomic: session creation (when needed) + user message + assistant message
+3936-    // + session timestamp update in one transaction — prevents a half-saved
+3937-    // conversation if one insert fails.
+3938-    const proposalChanges = bindPendingChangesToImplementationPlan(
+3939-      bindPendingChangesToRepairPlan(
+3940-        (result.pendingChanges ?? []) as ServerPendingChange[],
+3941-        result.repairPlan,
+3942-      ),
+3943-      Boolean(approvedImplementationPlan),
+3944-    );
+3945-    const proposalId = canCreateProposal(
+3946-      proposalChanges,
+3947-      result.repairPlan,
+3948-      hasPassedLatestValidation(traceSteps),
+3949-      traceSteps,
+3950-    )
+3951-      ? randomUUID()
+3952-      : undefined;
+3953-    const executionPlan = buildActiveTaskExecutionPlan({
+3954-      repairPlan: result.repairPlan,
+3955-      implementationPlan: approvedImplementationPlan
+3956-        ?? (result.taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT" ? result.taskResult : undefined),
+3957-      objective: result.objective ?? objective,
+3958-      evidence: result.behaviorEvidence,
+3959-      projectId,
+3960-      rootPath: validRootPath,
+3961-    });
+3962-    const activeTaskState = nextSessionTaskState({
+3963-      persisted: streamResumableStateForTurn,
+3964-      classification: streamClassification,
+3965-      resumed: streamClassificationResolution.resumed,
+3966-      projectId,
+3967-      rootPath: validRootPath,
+3968-      linkedTaskId: effectiveLinkedTaskId,
+3969-      now: msgNow,
+3970-      readFiles: collectReadEvidencePaths(traceSteps),
+3971-      executionPlan,
+3972-    });
+3973-
+3974-    const aiExecutionId = aiExecution.id;
+3975-    let missionCorrelationReport: string | null;
+3976-    try {
+3977-      missionCorrelationReport = serializeMissionCorrelationReport(
+3978-        (result as { missionCorrelationReport?: unknown }).missionCorrelationReport,
+3979-      );
+3980-    } catch (error) {

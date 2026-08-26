@@ -1,0 +1,176 @@
+artifacts/dashboard/src/pages/Tasks.tsx:74:    decision?: 'verified' | 'incomplete' | 'failed' | 'cancelled';
+artifacts/dashboard/src/pages/Tasks.tsx:438:            <span className="text-[10px] uppercase text-amber-500 font-semibold shrink-0">Incomplete</span>
+artifacts/dashboard/src/pages/DiscoverProjectWizard.tsx:832:                <div className="text-xs opacity-80">{extractApiError(summaryError, 'Unable to retrieve the analysis results.')}</div>
+artifacts/dashboard/src/pages/Projects.tsx:6:  isRetryableProjectError,
+artifacts/dashboard/src/pages/Projects.tsx:24:      retry: (failureCount, err) => isRetryableProjectError(err, failureCount),
+artifacts/dashboard/src/pages/Projects.tsx:33:  // Emit structured telemetry on first load failure (TanStack Query v5:
+artifacts/dashboard/src/pages/Projects.test.tsx:10:  isRetryableProjectError: () => false,
+artifacts/dashboard/src/pages/Graph.tsx:310:          <p className="text-sm font-medium">No projects are available for graph analysis.</p>
+artifacts/dashboard/src/pages/ProjectDetail.tsx:162:            ? `Analysis reflects the completed scan from ${new Date(project.lastScanAt!).toLocaleString()}.`
+artifacts/dashboard/src/pages/FlightDeck.tsx:120:    case 'cancelled': return 'Incomplete';
+artifacts/dashboard/src/pages/MissionControl.tsx:147:      return 'Structured evidence';
+artifacts/dashboard/src/pages/MissionControl.test.tsx:231:        evidenceStatus: index === 9 ? 'INCOMPLETE' : undefined,
+artifacts/dashboard/src/pages/MissionControl.test.tsx:246:    expect(screen.getByText('Evidence: INCOMPLETE')).toBeInTheDocument();
+artifacts/dashboard/src/pages/MissionControl.test.tsx:271:        evidenceStatus: index === 9 ? 'INCOMPLETE' : undefined,
+artifacts/dashboard/src/pages/MissionControl.test.tsx:448:        evidenceStatus: 'INCOMPLETE',
+artifacts/dashboard/src/pages/MissionControl.test.tsx:524:        evidenceStatus: 'INCOMPLETE',
+artifacts/dashboard/src/pages/MissionControl.test.tsx:577:      '2', '1', '2', 'RATE_LIMIT', 'Bounded, "safe" retry', 'INCOMPLETE',
+artifacts/dashboard/src/pages/Metrics.tsx:60:          <p className="text-muted-foreground text-sm mt-1">Historical quality trends and analysis.</p>
+artifacts/dashboard/src/lib/api-fetch.ts:2: * Structured error from any /api/* endpoint.
+artifacts/dashboard/src/lib/api-fetch.ts:5: * available for translating structured SSE errors into the same UI format.
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:33:  'ANALYSIS_INCOMPLETE — cancellation stopped the audit before evidence coverage was complete.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:42:  'No repair phases are authorized for this incomplete audit.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:45:  'No executable validation scenario is authorized for this incomplete audit.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:48:  'ANALYSIS_INCOMPLETE — no verified defect was established because the audit was cancelled during recovery.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:167:    isRetryableProjectError: () => false,
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:564:  it('shows a retryable non-resumable state when capability recovery is denied', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:585:  it('keeps a resumed analysis failure incomplete and refreshes its durable state', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:593:      message: 'Verify the analysis evidence',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:603:      message: 'Verify the analysis evidence',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:610:        message: 'The required analysis did not complete.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:650:  it('replays a persisted analysis failure after dashboard reload without showing completion', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:651:    mocks.serverProposal = { proposalId: 'failed-analysis-replay', changes: [] };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:656:      executionId: 'execution-failed-analysis',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:658:      errorMessage: 'Analysis tool query_knowledge_graph was unavailable; the operation did not complete.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:665:          resultSummary: 'Analysis tool query_knowledge_graph was unavailable; the operation did not complete.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:843:  it('shows persisted forensic session statuses and distinguishes incomplete audits from no findings', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:849:        forensicStatus: 'INCOMPLETE',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:864:    expect(cancelled).toHaveTextContent('Incomplete');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:868:    expect(clean).not.toHaveTextContent('Incomplete');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1233:        diagnosticCodes: ['FORENSIC_STRUCTURED_RECOVERY_REJECTED'],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1740:  it('renders a cancelled forensic SSE completion as incomplete without leaking diagnostics', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1750:        behavioralAssessment: 'INCOMPLETE',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1798:    expect(screen.getAllByText(/ANALYSIS_INCOMPLETE/).length).toBeGreaterThan(0);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1810:      'ANALYSIS_INCOMPLETE — لم يكتمل التحليل.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1817:      'ANALYSIS_INCOMPLETE — التقرير غير مكتمل.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1840:    expect(screen.getAllByText(/ANALYSIS_INCOMPLETE/).length).toBeGreaterThan(0);
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1919:      summary: 'A safe implementation plan could not be structured by the provider.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2005:    fireEvent.change(textarea, { target: { value: 'Review the declared source files only' } });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2455:        code: 'INCOMPLETE_BEFORE_EVIDENCE',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2467:        diagnosticCodes: ['INCOMPLETE_BEFORE_EVIDENCE'],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2978:  it('streams Analyze progress and renders its structured result with the activity timeline', async () => {
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3002:        model: 'analysis-model',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3011:          summary: 'Analysis complete',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3020:    expect(screen.getByText(/Analysis complete/)).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3023:    expect(screen.getByText(/analysis-model/)).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.tsx:17:  isRetryableProjectError,
+artifacts/dashboard/src/pages/AiChat.tsx:57:  AiScanAnalysis,
+artifacts/dashboard/src/pages/AiChat.tsx:68:// Keep the shared structured error type for translating SSE failures into
+artifacts/dashboard/src/pages/AiChat.tsx:138:  structuredTask?: 'analyze' | 'review';
+artifacts/dashboard/src/pages/AiChat.tsx:385:  forensicStatus?: 'INCOMPLETE' | 'NO_FINDING' | 'FINDING_PROVEN' | 'NOT_PROVEN';
+artifacts/dashboard/src/pages/AiChat.tsx:390:    case 'INCOMPLETE': return 'Incomplete';
+artifacts/dashboard/src/pages/AiChat.tsx:814:  behavioralAssessment?: 'COMPLETE' | 'INCOMPLETE' | 'NOT_STARTED';
+artifacts/dashboard/src/pages/AiChat.tsx:819:  /** Structured audit scope derived by the server from isFixtureLocal. */
+artifacts/dashboard/src/pages/AiChat.tsx:853:  /** Structured, safe context for phase-policy rejection diagnostics. */
+artifacts/dashboard/src/pages/AiChat.tsx:1065:  // summary available after history reload so the incomplete report's
+artifacts/dashboard/src/pages/AiChat.tsx:1153:function isIncompleteBeforeEvidenceSummary(summary: AiStreamExecutionSummary | null): boolean {
+artifacts/dashboard/src/pages/AiChat.tsx:1156:      code.includes('INCOMPLETE_BEFORE_EVIDENCE') ||
+artifacts/dashboard/src/pages/AiChat.tsx:1162:type FinalForensicVerdict = 'FINDING PROVEN' | 'NO FINDING' | 'NOT PROVEN' | 'INCOMPLETE';
+artifacts/dashboard/src/pages/AiChat.tsx:1182:  // NO_FINDING status can never turn an incomplete cancellation into a clean
+artifacts/dashboard/src/pages/AiChat.tsx:1184:  if (/\bANALYSIS_INCOMPLETE\b/i.test(finalJudgment) || /\bANALYSIS_INCOMPLETE\b/i.test(content)) {
+artifacts/dashboard/src/pages/AiChat.tsx:1185:    return 'INCOMPLETE';
+artifacts/dashboard/src/pages/AiChat.tsx:1223:  incompleteReads: string[];
+artifacts/dashboard/src/pages/AiChat.tsx:1243:    behavioralAssessment: 'COMPLETE' | 'INCOMPLETE' | 'NOT_STARTED';
+artifacts/dashboard/src/pages/AiChat.tsx:1365:  const incompleteReads: string[] = unattributedResults === 0
+artifacts/dashboard/src/pages/AiChat.tsx:1410:    incompleteReads,
+artifacts/dashboard/src/pages/AiChat.tsx:1691:  if (!finalReportIsNotProven && summary.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_ACCEPTED'))) {
+artifacts/dashboard/src/pages/AiChat.tsx:1692:    return 'The structured Recovery envelope was accepted and rebuilt into the six-section forensic report.';
+artifacts/dashboard/src/pages/AiChat.tsx:1697:  if (summary.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_REJECTED'))) {
+artifacts/dashboard/src/pages/AiChat.tsx:1698:    return 'Recovery returned a structured envelope, but its Finding evidence or phase linkage failed validation. The candidate was rejected and the next bounded candidate was tried.';
+artifacts/dashboard/src/pages/AiChat.tsx:1700:  if (summary.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_PARSE_FAILED'))) {
+artifacts/dashboard/src/pages/AiChat.tsx:1701:    return 'Recovery returned a response that was not a valid structured Findings envelope. The next bounded candidate was tried without weakening the evidence gate.';
+artifacts/dashboard/src/pages/AiChat.tsx:1705:    code.includes('STRUCTURED_RECOVERY_NO_FINDING'),
+artifacts/dashboard/src/pages/AiChat.tsx:1752:    code.includes('STRUCTURED_RECOVERY_ACCEPTED') ||
+artifacts/dashboard/src/pages/AiChat.tsx:1762:    code.includes('STRUCTURED_RECOVERY_NO_FINDING') ||
+artifacts/dashboard/src/pages/AiChat.tsx:1785:    evidence.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_ACCEPTED')) ||
+artifacts/dashboard/src/pages/AiChat.tsx:2271:                  {evidence.diagnosticCodes.some((code) => code.includes('STRUCTURED_RECOVERY_ACCEPTED'))
+artifacts/dashboard/src/pages/AiChat.tsx:2272:                    ? 'Structured forensic Recovery was accepted and rebuilt deterministically from the verified evidence.'
+artifacts/dashboard/src/pages/AiChat.tsx:2388:          {evidence.incompleteReads.length > 0 && (
+artifacts/dashboard/src/pages/AiChat.tsx:2395:                {evidence.incompleteReads.map((source) => (
+artifacts/dashboard/src/pages/AiChat.tsx:2429:            code.includes('STRUCTURED_RECOVERY_REJECTED') ||
+artifacts/dashboard/src/pages/AiChat.tsx:2481:        <span className="mr-1 font-semibold text-amber-200">INCOMPLETE:</span>
+artifacts/dashboard/src/pages/AiChat.tsx:2490:        <span className="font-semibold text-red-300">required tool did not complete — BLOCKED/INCOMPLETE; no completed operation may be claimed — </span>
+artifacts/dashboard/src/pages/AiChat.tsx:2521:              ANALYSIS_INCOMPLETE details are preserved in the operator trace below
+artifacts/dashboard/src/pages/AiChat.tsx:2566:  const incompleteBeforeEvidence =
+artifacts/dashboard/src/pages/AiChat.tsx:2569:      code.includes('INCOMPLETE_BEFORE_EVIDENCE') || code.includes('INVESTIGATION_START_FAILURE'),
+artifacts/dashboard/src/pages/AiChat.tsx:2575:      : incompleteBeforeEvidence ? 'INCOMPLETE' : 'COMPLETED');
+artifacts/dashboard/src/pages/AiChat.tsx:2576:  const isBlocked = verdict === 'NOT PROVEN' || verdict === 'INCOMPLETE' || integrity?.consistent === false;
+artifacts/dashboard/src/pages/AiChat.tsx:2712:  const deliveryVerdict = deliveryProven ? 'PROVEN' : deliveryBlocked ? 'BLOCKED' : 'INCOMPLETE';
+artifacts/dashboard/src/pages/AiChat.tsx:3567: * came from, or why an otherwise relevant citation stayed incomplete.
+artifacts/dashboard/src/pages/AiChat.tsx:3850: * AI-008: render the per-task typed result as a structured panel instead of a
+artifacts/dashboard/src/pages/AiChat.tsx:4244:  onRetryStructuredTask,
+artifacts/dashboard/src/pages/AiChat.tsx:4257:  onRetryStructuredTask?: (task: 'analyze' | 'review', messageId: string) => void;
+artifacts/dashboard/src/pages/AiChat.tsx:4271:  const isStructuredPlan = !isUser && msg.taskResult?.kind === 'IMPLEMENTATION_PLAN_RESULT';
+artifacts/dashboard/src/pages/AiChat.tsx:4303:  const incompleteBeforeEvidence = !isUser && isIncompleteBeforeEvidenceSummary(executionSummary);
+artifacts/dashboard/src/pages/AiChat.tsx:4311:        code.includes('STRUCTURED_RECOVERY_ACCEPTED'),
+artifacts/dashboard/src/pages/AiChat.tsx:4352:        {!isStructuredPlan && <div
+artifacts/dashboard/src/pages/AiChat.tsx:4375:                {msg.structuredTask && onRetryStructuredTask && (
+artifacts/dashboard/src/pages/AiChat.tsx:4381:                    onClick={() => onRetryStructuredTask(msg.structuredTask!, msg.id)}
+artifacts/dashboard/src/pages/AiChat.tsx:4383:                    aria-label={`Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
+artifacts/dashboard/src/pages/AiChat.tsx:4386:                    {retryPending ? 'Retrying…' : `Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
+artifacts/dashboard/src/pages/AiChat.tsx:4484:          : incompleteBeforeEvidence
+artifacts/dashboard/src/pages/AiChat.tsx:4968:/** Format a scan analysis result as a markdown chat message. */
+artifacts/dashboard/src/pages/AiChat.tsx:4969:function formatScanAnalysis(data: AiScanAnalysis): string {
+artifacts/dashboard/src/pages/AiChat.tsx:4973:    `## Scan Analysis\n`,
+artifacts/dashboard/src/pages/AiChat.tsx:5387:      : stage ?? (phaseIndex === 2 ? 'Preparing the final result' : 'Starting analysis');
+artifacts/dashboard/src/pages/AiChat.tsx:6492:  onRetryPreview,
+artifacts/dashboard/src/pages/AiChat.tsx:6529:  onRetryPreview?: () => void;
+artifacts/dashboard/src/pages/AiChat.tsx:6617:  const isIncompleteAudit = isCancelledAudit
+artifacts/dashboard/src/pages/AiChat.tsx:6620:  const needsNewAuditRun = isIncompleteAudit
+artifacts/dashboard/src/pages/AiChat.tsx:6780:                    onClick={onRetryPreview}
+artifacts/dashboard/src/pages/AiChat.tsx:6785:                    {previewPending ? 'Retrying…' : 'Retry preview'}
+artifacts/dashboard/src/pages/AiChat.tsx:6837:      {isIncompleteAudit && (
+artifacts/dashboard/src/pages/AiChat.tsx:6859:                    ? 'Collected evidence and the redacted audit are available for review, but cancellation leaves the audit incomplete. Start a new run before relying on a complete finding.'
+artifacts/dashboard/src/pages/AiChat.tsx:7078:  const [structuredRetryMessageId, setStructuredRetryMessageId] = useState<string | null>(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7079:  const structuredTaskRunRef = useRef<{ task: 'analyze' | 'review'; prompt: string; placeholderId: string } | null>(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7189:  async function fetchExecutionAudit(): Promise<{ audit: AuditPreview; filename: string }> {
+artifacts/dashboard/src/pages/AiChat.tsx:7446:  function resetStructuredTaskState() {
+artifacts/dashboard/src/pages/AiChat.tsx:7461:  function safeStructuredFailure(err: AiStreamErrorEvent): { title: string; reason: string } {
+artifacts/dashboard/src/pages/AiChat.tsx:7463:      case 'PROVIDER_FORMAT': return { title: 'Incomplete analysis', reason: 'The AI returned an unexpected response format. No scan result was created.' };
+artifacts/dashboard/src/pages/AiChat.tsx:7464:      case 'RATE_LIMIT': return { title: 'Analysis paused by rate limit', reason: 'The AI provider is rate-limited. Wait a moment, then retry.' };
+artifacts/dashboard/src/pages/AiChat.tsx:7465:      case 'CONFIGURATION': return { title: 'Analysis needs provider configuration', reason: 'The configured AI provider could not run this task. Check its key or choose another provider.' };
+artifacts/dashboard/src/pages/AiChat.tsx:7466:      case 'TRANSPORT': return { title: 'Analysis interrupted', reason: 'The connection ended before the analysis finished. No scan result was created.' };
+artifacts/dashboard/src/pages/AiChat.tsx:7467:      default: return { title: 'Analysis failed', reason: 'The AI provider could not complete this task. No scan result was created.' };
+artifacts/dashboard/src/pages/AiChat.tsx:7471:  function structuredTaskStageLabel(stage: string): string {
+artifacts/dashboard/src/pages/AiChat.tsx:7486:  function startStructuredTask(task: 'analyze' | 'review', prompt: string, retryMessageId?: string) {
+artifacts/dashboard/src/pages/AiChat.tsx:7490:    const startLabel = task === 'analyze' ? 'Starting scan analysis' : 'Starting code review';
+artifacts/dashboard/src/pages/AiChat.tsx:7492:    structuredTaskRunRef.current = { task, prompt, placeholderId };
+artifacts/dashboard/src/pages/AiChat.tsx:7517:          label: `${event.task === 'analyze' ? 'Analysis' : 'Review'} task accepted`,
+artifacts/dashboard/src/pages/AiChat.tsx:7522:        const label = structuredTaskStageLabel(stage);
+artifacts/dashboard/src/pages/AiChat.tsx:7551:          label: task === 'analyze' ? 'Analysis result received' : 'Review result received',
+artifacts/dashboard/src/pages/AiChat.tsx:7555:        setStructuredRetryMessageId(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7556:        structuredTaskRunRef.current = null;
+artifacts/dashboard/src/pages/AiChat.tsx:7557:        resetStructuredTaskState();
+artifacts/dashboard/src/pages/AiChat.tsx:7564:              ? formatScanAnalysis(event.result as unknown as AiScanAnalysis)
+artifacts/dashboard/src/pages/AiChat.tsx:7567:            structuredTask: task,
+artifacts/dashboard/src/pages/AiChat.tsx:7574:        const failure = safeStructuredFailure(err);
+artifacts/dashboard/src/pages/AiChat.tsx:7575:        resetStructuredTaskState();
+artifacts/dashboard/src/pages/AiChat.tsx:7576:        setStructuredRetryMessageId(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7587:            structuredTask: task,
+artifacts/dashboard/src/pages/AiChat.tsx:7595:        const failure = safeStructuredFailure({ type: 'error', code: 'transport_interrupted', message: '', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' });
+artifacts/dashboard/src/pages/AiChat.tsx:7596:        resetStructuredTaskState();
+artifacts/dashboard/src/pages/AiChat.tsx:7597:        setStructuredRetryMessageId(null);
+artifacts/dashboard/src/pages/AiChat.tsx:7608:            structuredTask: task,
+artifacts/dashboard/src/pages/AiChat.tsx:7617:  function retryStructuredTask(task: 'analyze' | 'review', messageId: string) {
+artifacts/dashboard/src/pages/AiChat.tsx:7618:    const run = structuredTaskRunRef.current;
+artifacts/dashboard/src/pages/AiChat.tsx:7619:    if (structuredRetryMessageId || isTaskSending || !run || run.task !== task) return;
+artifacts/dashboard/src/pages/AiChat.tsx:7620:    setStructuredRetryMessageId(messageId);
+artifacts/dashboard/src/pages/AiChat.tsx:7621:    startStructuredTask(task, run.prompt, messageId);
+artifacts/dashboard/src/pages/AiChat.tsx:7725:         isRetryableProjectError(err, failureCount, 2, isLoaded && !!user),
+artifacts/dashboard/src/pages/AiChat.tsx:8056:              ? `Persistence verified, but behavioral verification is incomplete.\n${verificationText}`
+artifacts/dashboard/src/pages/AiChat.tsx:8669:               ? 'Evidence unavailable — audit incomplete'
+artifacts/dashboard/src/pages/AiChat.tsx:8671:                 ? 'Audit remains incomplete'
+artifacts/dashboard/src/pages/AiChat.tsx:8685:             : 'Verification incomplete — no accepted evidence';
+artifacts/dashboard/src/pages/AiChat.tsx:8946:   *  - 'analyze' → POST /api/ai/projects/:id/analyze (structured result rendered in chat)
+artifacts/dashboard/src/pages/AiChat.tsx:8947:   *  - 'review'  → POST /api/ai/projects/:id/review  (structured result rendered in chat)
+artifacts/dashboard/src/pages/AiChat.tsx:8954:      startStructuredTask('analyze', action.prompt);
+artifacts/dashboard/src/pages/AiChat.tsx:8959:      startStructuredTask('review', action.prompt);
+artifacts/dashboard/src/pages/AiChat.tsx:9180:                        s.forensicStatus === 'INCOMPLETE'
+artifacts/dashboard/src/pages/AiChat.tsx:9206:                  No cancelled or incomplete audits for this project.
+artifacts/dashboard/src/pages/AiChat.tsx:9250:                                {audit.status === 'cancelled' ? 'Cancelled' : 'Incomplete'}
+artifacts/dashboard/src/pages/AiChat.tsx:9459:                   onRetryPreview={previewExecutionAudit}
+artifacts/dashboard/src/pages/AiChat.tsx:9490:                  onRetryStructuredTask={retryStructuredTask}
+artifacts/dashboard/src/pages/AiChat.tsx:9491:                  retryPending={structuredRetryMessageId === msg.id}
+artifacts/dashboard/src/lib/validation-sse-contract.test.ts:84:          artifactRef: 'browser-preview:profile-unavailable',
+artifacts/dashboard/src/components/GitPanel.test.tsx:160:  it('renders a structured mutation error instead of failing silently', () => {
+artifacts/dashboard/src/components/ProviderRecoveryCard.tsx:29:  catalog_stale: { label: 'The provider model catalog needs to refresh', action: 'Retry shortly; configure another provider if the catalog remains unavailable.' },

@@ -137,6 +137,7 @@ type ChatMessage = {
   operationMode?: OperationMode;
   structuredTask?: 'analyze' | 'review';
   failureKind?: AiStreamErrorEvent['failureKind'];
+  retryable?: boolean;
   createdAt: string;
 };
 
@@ -4270,6 +4271,9 @@ function MessageBubble({
   const internalTechnicalDump = !isUser && isInternalTechnicalDump(displayContent);
   const isStructuredPlan = !isUser && msg.taskResult?.kind === 'IMPLEMENTATION_PLAN_RESULT';
   const failedTurn = !isUser && (msg.outcome === 'FAILED' || msg.outcome === 'INTERRUPTED');
+  const structuredFailure = !isUser && failedTurn && msg.structuredTask
+    ? structuredFailurePresentation(msg.structuredTask, msg.failureKind, msg.retryable)
+    : null;
   const failureKindLabel = msg.failureKind === 'PROVIDER_FORMAT'
     ? 'Provider format issue'
     : msg.failureKind === 'RATE_LIMIT'
@@ -4358,35 +4362,62 @@ function MessageBubble({
         >
           {failedTurn ? (
             <>
-              {!internalTechnicalDump && redactedDisplayContent.trim() && (
-                <div className="mb-2 whitespace-pre-wrap">
-                  {redactedDisplayContent}
+              {structuredFailure ? (
+                <div
+                  className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100"
+                  role="status"
+                  aria-label={`${structuredFailure.title} status`}
+                >
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" aria-hidden="true" />
+                    <div className="min-w-0">
+                      <div className="font-medium">{structuredFailure.title}</div>
+                      <p className="mt-1 text-xs text-amber-100/80">{structuredFailure.description}</p>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                    <span className={`rounded border px-1.5 py-0.5 ${
+                      structuredFailure.retryable
+                        ? 'border-emerald-400/30 text-emerald-200'
+                        : 'border-amber-300/30 text-amber-200'
+                    }`}>
+                      {structuredFailure.retryable ? 'Retry available' : 'Retry unavailable'}
+                    </span>
+                    {structuredFailure.retryable && onRetryStructuredTask && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-8 justify-center text-xs"
+                        onClick={() => onRetryStructuredTask(msg.structuredTask!, msg.id)}
+                        disabled={retryPending}
+                        aria-label={`Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
+                      >
+                        {retryPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
+                        {retryPending ? 'Retrying…' : `Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
+                      </Button>
+                    )}
+                  </div>
+                  {!structuredFailure.retryable && (
+                    <p className="mt-2 text-[11px] text-amber-100/70">
+                      Update the AI setup before starting a new attempt.
+                    </p>
+                  )}
                 </div>
+              ) : (
+                <>
+                  <div className="mb-2 whitespace-pre-wrap">{safeFailureMessage}</div>
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-200">
+                    <div className="font-medium">
+                      {msg.outcome === 'INTERRUPTED' ? 'Execution interrupted' : 'Execution failed'}
+                    </div>
+                    <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-300/80">{failureKindLabel}</div>
+                    {msg.executionId && (
+                      <div className="mt-1 text-[10px] opacity-70">Durable execution: {msg.executionId}</div>
+                    )}
+                  </div>
+                </>
               )}
-              <div className="mb-2 whitespace-pre-wrap">{safeFailureMessage}</div>
-              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-amber-200">
-                <div className="font-medium">
-                  {msg.outcome === 'INTERRUPTED' ? 'Execution interrupted' : 'Execution failed'}
-                </div>
-                <div className="mt-1 text-[10px] uppercase tracking-wide text-amber-300/80">{failureKindLabel}</div>
-                {msg.executionId && (
-                  <div className="mt-1 text-[10px] opacity-70">Durable execution: {msg.executionId}</div>
-                )}
-                {msg.structuredTask && onRetryStructuredTask && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="mt-2 h-8 w-full justify-center text-xs sm:w-auto"
-                    onClick={() => onRetryStructuredTask(msg.structuredTask!, msg.id)}
-                    disabled={retryPending}
-                    aria-label={`Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
-                  >
-                    {retryPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1.5 h-3.5 w-3.5" />}
-                    {retryPending ? 'Retrying…' : `Retry ${msg.structuredTask === 'analyze' ? 'analysis' : 'code review'}`}
-                  </Button>
-                )}
-              </div>
             </>
           ) : isUser ? userFacingContent : (
             <ReactMarkdown
@@ -5023,6 +5054,87 @@ function formatCodeReview(data: AiCodeReview): string {
   }
   lines.push(`**Verdict:** ${data.verdict.replace('_', ' ')}`);
   return lines.join('\n');
+}
+
+function structuredTaskLabel(task: 'analyze' | 'review'): string {
+  return task === 'analyze' ? 'scan analysis' : 'code review';
+}
+
+function parseStructuredFailureMetadata(toolTrace: string | null | undefined): {
+  task: 'analyze' | 'review';
+  failureKind?: AiStreamErrorEvent['failureKind'];
+  retryable?: boolean;
+} | undefined {
+  if (!toolTrace) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(toolTrace);
+    if (!Array.isArray(parsed)) return undefined;
+    const marker = parsed.find((entry) => (
+      entry
+      && typeof entry === 'object'
+      && (entry as Record<string, unknown>).kind === 'structured_task_failure'
+    )) as Record<string, unknown> | undefined;
+    if (marker?.task !== 'analyze' && marker?.task !== 'review') return undefined;
+    const failureKinds: AiStreamErrorEvent['failureKind'][] = [
+      'PROVIDER_FORMAT', 'RATE_LIMIT', 'CONFIGURATION', 'PROVIDER_FAILURE', 'TRANSPORT',
+    ];
+    return {
+      task: marker.task,
+      failureKind: failureKinds.includes(marker.failureKind as AiStreamErrorEvent['failureKind'])
+        ? marker.failureKind as AiStreamErrorEvent['failureKind']
+        : undefined,
+      retryable: typeof marker.retryable === 'boolean' ? marker.retryable : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function structuredFailurePresentation(
+  task: 'analyze' | 'review',
+  failureKind: AiStreamErrorEvent['failureKind'],
+  retryable?: boolean,
+): {
+  title: string;
+  description: string;
+  retryable: boolean;
+} {
+  const name = structuredTaskLabel(task);
+  const defaultRetryable = failureKind !== 'CONFIGURATION';
+  const canRetry = retryable ?? defaultRetryable;
+
+  switch (failureKind) {
+    case 'PROVIDER_FORMAT':
+      return {
+        title: `${name[0].toUpperCase()}${name.slice(1)} incomplete`,
+        description: `The ${name} response could not be verified, so no completed result was saved.`,
+        retryable: canRetry,
+      };
+    case 'RATE_LIMIT':
+      return {
+        title: `${name[0].toUpperCase()}${name.slice(1)} paused`,
+        description: `This ${name} reached a temporary usage limit. Wait a moment, then try again.`,
+        retryable: canRetry,
+      };
+    case 'CONFIGURATION':
+      return {
+        title: `${name[0].toUpperCase()}${name.slice(1)} unavailable`,
+        description: `This ${name} cannot run until the AI setup is updated. Fix the setup, then start a new ${name}.`,
+        retryable: canRetry,
+      };
+    case 'TRANSPORT':
+      return {
+        title: `${name[0].toUpperCase()}${name.slice(1)} interrupted`,
+        description: `The connection ended before the ${name} finished, so no completed result was saved.`,
+        retryable: canRetry,
+      };
+    default:
+      return {
+        title: `${name[0].toUpperCase()}${name.slice(1)} incomplete`,
+        description: `The ${name} could not finish. Try again in a moment.`,
+        retryable: canRetry,
+      };
+  }
 }
 
 const AI_ACTIONS = [
@@ -7458,13 +7570,14 @@ export default function AiChat() {
     setLiveVerdictScope(null);
   }
 
-  function safeStructuredFailure(err: AiStreamErrorEvent): { title: string; reason: string } {
+  function safeStructuredFailure(err: AiStreamErrorEvent, task: 'analyze' | 'review'): { title: string; reason: string } {
+    const name = structuredTaskLabel(task);
     switch (err.failureKind) {
-      case 'PROVIDER_FORMAT': return { title: 'Incomplete analysis', reason: 'The AI returned an unexpected response format. No scan result was created.' };
-      case 'RATE_LIMIT': return { title: 'Analysis paused by rate limit', reason: 'The AI provider is rate-limited. Wait a moment, then retry.' };
-      case 'CONFIGURATION': return { title: 'Analysis needs provider configuration', reason: 'The configured AI provider could not run this task. Check its key or choose another provider.' };
-      case 'TRANSPORT': return { title: 'Analysis interrupted', reason: 'The connection ended before the analysis finished. No scan result was created.' };
-      default: return { title: 'Analysis failed', reason: 'The AI provider could not complete this task. No scan result was created.' };
+      case 'PROVIDER_FORMAT': return { title: `${name} incomplete`, reason: `The ${name} response could not be verified, so no completed result was saved.` };
+      case 'RATE_LIMIT': return { title: `${name} paused`, reason: `This ${name} reached a temporary usage limit. Wait a moment, then try again.` };
+      case 'CONFIGURATION': return { title: `${name} unavailable`, reason: `This ${name} cannot run until the AI setup is updated. Fix the setup, then start a new ${name}.` };
+      case 'TRANSPORT': return { title: `${name} interrupted`, reason: `The connection ended before the ${name} finished, so no completed result was saved.` };
+      default: return { title: `${name} incomplete`, reason: `The ${name} could not finish. Try again in a moment.` };
     }
   }
 
@@ -7495,8 +7608,6 @@ export default function AiChat() {
         ...prev,
         { id: placeholderId, role: 'user' as const, content: prompt, createdAt: new Date().toISOString() },
       ]);
-    } else {
-      setLocalMessages((prev) => prev.filter((message) => message.id !== retryMessageId));
     }
     setAgentStage(title);
     setAgentSteps([]);
@@ -7510,7 +7621,11 @@ export default function AiChat() {
     setAgentModelHistory([]);
     setAgentDiagnostics([]);
 
-    void taskStreamSend({ projectId: selectedProjectId, task }, {
+    void taskStreamSend({
+      projectId: selectedProjectId,
+      task,
+      ...(sessionId ? { sessionId } : {}),
+    }, {
       onTaskStarted: (event) => {
         appendLiveActivityEvent({
           kind: 'stage',
@@ -7571,11 +7686,27 @@ export default function AiChat() {
       },
       onError: (err) => {
         const failureEvents = agentActivityEventsRef.current;
-        const failure = safeStructuredFailure(err);
+        const failure = safeStructuredFailure(err, task);
+        if (err.sessionId) {
+          setSessionId(err.sessionId);
+          qc.setQueryData<Session[]>(
+            ['ai-sessions', selectedProjectId],
+            (previous = []) => previous.some((session) => session.id === err.sessionId)
+              ? previous
+              : [
+                  {
+                    id: err.sessionId!,
+                    title: task === 'review' ? 'Code review' : 'Scan analysis',
+                    updatedAt: new Date().toISOString(),
+                  },
+                  ...previous,
+                ],
+          );
+        }
         resetStructuredTaskState();
         setStructuredRetryMessageId(null);
         setLocalMessages((prev) => [
-          ...prev.filter((message) => message.id !== placeholderId && message.id !== retryMessageId),
+          ...prev.filter((message) => message.id !== placeholderId),
           {
             id: `${task}-failed-${Date.now()}`,
             role: 'assistant' as const,
@@ -7584,6 +7715,7 @@ export default function AiChat() {
             errorCode: err.code,
             errorMessage: failure.reason,
             failureKind: err.failureKind,
+            retryable: err.retryable ?? err.failureKind !== 'CONFIGURATION',
             structuredTask: task,
             activityEvents: failureEvents,
             createdAt: new Date().toISOString(),
@@ -7592,11 +7724,14 @@ export default function AiChat() {
       },
       onStreamReset: () => {
         const failureEvents = agentActivityEventsRef.current;
-        const failure = safeStructuredFailure({ type: 'error', code: 'transport_interrupted', message: '', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' });
+        const failure = safeStructuredFailure(
+          { type: 'error', code: 'transport_interrupted', message: '', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' },
+          task,
+        );
         resetStructuredTaskState();
         setStructuredRetryMessageId(null);
         setLocalMessages((prev) => [
-          ...prev.filter((message) => message.id !== placeholderId && message.id !== retryMessageId),
+          ...prev.filter((message) => message.id !== placeholderId),
           {
             id: `${task}-interrupted-${Date.now()}`,
             role: 'assistant' as const,
@@ -7605,6 +7740,7 @@ export default function AiChat() {
             errorCode: 'transport_interrupted',
             errorMessage: failure.reason,
             failureKind: 'TRANSPORT',
+            retryable: true,
             structuredTask: task,
             activityEvents: failureEvents,
             createdAt: new Date().toISOString(),
@@ -7902,19 +8038,28 @@ export default function AiChat() {
     // the complete conversation or expose parser details in the UI.
     let hasUnavailableReport = false;
     const safeMessages = serverMessages.map((message) => {
+      const structuredFailure = parseStructuredFailureMetadata(message.toolTrace);
+      const withStructuredFailure = structuredFailure
+        ? {
+            ...message,
+            structuredTask: structuredFailure.task,
+            failureKind: structuredFailure.failureKind ?? message.failureKind,
+            retryable: structuredFailure.retryable ?? message.retryable,
+          }
+        : message;
       if (message.missionCorrelationReportError) {
         hasUnavailableReport = true;
-        return { ...message, missionCorrelationReport: undefined };
+        return { ...withStructuredFailure, missionCorrelationReport: undefined };
       }
       if (message.missionCorrelationReport === undefined || message.missionCorrelationReport === null) {
-        return message;
+        return withStructuredFailure;
       }
       try {
         readStoredMissionCorrelationReport(message.missionCorrelationReport);
-        return message;
+        return withStructuredFailure;
       } catch {
         hasUnavailableReport = true;
-        return { ...message, missionCorrelationReport: undefined };
+        return { ...withStructuredFailure, missionCorrelationReport: undefined };
       }
     });
     setHistoricalReportError(

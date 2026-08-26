@@ -1,0 +1,383 @@
+  4240      sanitizeResponseText(result.response),
+  4241    ).catch((err) => {
+  4242      logger.warn({ err, projectId }, "memory-write: failed to persist session memories (stream)");
+  4243    });
+  4244
+  4245    // PR-010: surface latency and model info in done event.
+  4246    const chatLatencyMs = Date.now() - chatStartMs;
+  4247    const operationMode =
+  4248      proposalId
+  4249      || result.repairPlan
+  4250      || result.taskResult?.kind === "IMPLEMENTATION_PLAN_RESULT"
+  4251      || Boolean(effectiveBuildPlanMessageId)
+  4252        ? "DELIVERY"
+  4253        : streamTurnIntent.operationMode;
+  4254
+  4255    const publicToolTrace = streamTurnIntent.requiresEvidence
+  4256        ? serializeToolTrace(traceSteps, false, streamAuditScopeDescription)
+  4257      : assistantMsg.toolTrace;
+  4258    // The database row is intentionally retained with full diagnostics, but
+  4259    // every SSE projection of that row must use the public trace.
+  4260    assistantMsg.toolTrace = publicToolTrace;
+  4261    const publicAssistantMsg = {
+  4262      id: assistantMsg.id,
+  4263      sessionId: assistantMsg.sessionId,
+  4264      role: assistantMsg.role,
+  4265      content: assistantMsg.content,
+  4266      sources: assistantMsg.sources,
+  4267      repairPlanMetadata: assistantMsg.repairPlanMetadata,
+  4268      behaviorEvidence: assistantMsg.behaviorEvidence,
+  4269      createdAt: assistantMsg.createdAt,
+  4270      toolTrace: publicToolTrace,
+  4271      turnIntent: streamTurnIntent.kind,
+  4272      executionId: aiExecutionId,
+  4273      outcome: "SUCCEEDED",
+  4274    };
+  4275    sse({
+  4276      type: "done",
+  4277      sessionId: sessionIdToUse,
+  4278      message: {
+  4279        ...publicAssistantMsg,
+  4280        taskResult: parseTaskResult(assistantMsg.taskResult),
+  4281      },
+  4282      sources: redactUserFacingValue(result.sources),
+  4283      toolTrace: publicToolTrace,
+  4284      pendingChanges: proposalId
+  4285        ? proposalChanges
+  4286        : [],
+  4287      proposalId,
+  4288      operationId: assistantOperationId,
+  4289      operationMode,
+  4290      proposalUnavailable: (result.pendingChanges?.length ?? 0) > 0 && !proposalId
+  4291        ? hasPassedLatestValidation(traceSteps)
+  4292          ? "Repair changes require closed Finding/claim evidence before approval."
+  4293          : "Repair changes require a verified validation profile before approval."
+  4294        : undefined,
+  4295      // STORY-04: surface the actual model used so the UI can display it accurately
+  4296      resolvedModel: result.resolvedModel,
+  4297      repairPlan: redactUserFacingValue(result.repairPlan),
+  4298      productionReachability: result.productionReachability,
+  4299      crossFileTraces: redactUserFacingValue(result.crossFileTraces),
+  4300      // Exact source line spans for each accepted behavior-evidence excerpt so the
+  4301      // dashboard can show where the proof comes from.
+  4302      behaviorEvidence: redactUserFacingValue(result.behaviorEvidence),
+  4303      // AI-008: per-task typed result discriminated on `kind` by forensicTaskType
+  4304      taskResult: redactUserFacingValue(result.taskResult),
+  4305      // PR-010: telemetry fields for client observability
+  4306      telemetry: {
+  4307        latencyMs: chatLatencyMs,
+  4308        provider,
+  4309      },
+  4310      execution: executionSummary,
+  4311      _meta: rootFallbackUsed
+  4312        ? { rootPathFallback: { used: true, original: rootOriginalPath } }
+  4313        : undefined,
+  4314    });
+  4315    res.end();
+  4316    return;
+  4317  } finally {
+  4318    if (aiExecution && !executionTerminal) {
+  4319      await failAiExecution({
+  4320        executionId: aiExecution.id,
+  4840    .select()
+  4841    .from(aiChatSessionsTable)
+  4842    .where(eq(aiChatSessionsTable.id, sessionId))
+  4843    .limit(1);
+  4844  const session = sessionRows[0];
+  4845  if (!session) return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+  4846  const project = await loadProjectByIdForUser(session.projectId, req.userId, res);
+  4847  if (!project) return;
+  4848
+  4849  const [target] = await db
+  4850    .select({
+  4851      id: aiChatMessagesTable.id,
+  4852      role: aiChatMessagesTable.role,
+  4853      missionCorrelationReport: aiChatMessagesTable.missionCorrelationReport,
+  4854      executionId: aiChatMessagesTable.executionId,
+  4855    })
+  4856    .from(aiChatMessagesTable)
+  4857    .where(and(
+  4858      eq(aiChatMessagesTable.id, messageId),
+  4859      eq(aiChatMessagesTable.sessionId, sessionId),
+  4860    ))
+  4861    .limit(1);
+  4862  if (!target) return res.status(404).json({ error: "Chat message not found", code: "MESSAGE_NOT_FOUND" });
+  4863  if (target.role !== "assistant") {
+  4864    return res.status(409).json({ error: "Only assistant run reports can be regenerated.", code: "REPORT_REGENERATION_NOT_ELIGIBLE" });
+  4865  }
+  4866  if (!target.missionCorrelationReport) {
+  4867    return res.status(409).json({ error: "This historical run has no unavailable report to regenerate.", code: "REPORT_REGENERATION_NOT_ELIGIBLE" });
+  4868  }
+  4869  if (!parseMissionCorrelationReportForHistory(target.missionCorrelationReport).unavailable) {
+  4870    return res.status(409).json({ error: "This historical mission report is already available.", code: "REPORT_ALREADY_AVAILABLE" });
+  4871  }
+  4872
+  4873  const messages = await db
+  4874    .select({
+  4875      id: aiChatMessagesTable.id,
+  4876      role: aiChatMessagesTable.role,
+  4877      sources: aiChatMessagesTable.sources,
+  4878      toolTrace: aiChatMessagesTable.toolTrace,
+  4879      behaviorEvidence: aiChatMessagesTable.behaviorEvidence,
+  4880      taskResult: aiChatMessagesTable.taskResult,
+  4881      outcome: aiChatMessagesTable.outcome,
+  4882      errorCode: aiChatMessagesTable.errorCode,
+  4883    })
+  4884    .from(aiChatMessagesTable)
+  4885    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+  4886    .orderBy(aiChatMessagesTable.createdAt)
+  4887    .limit(REPORT_REGENERATION_MAX_MESSAGES);
+  4888  const [execution] = target.executionId
+  4889    ? await db
+  4890      .select({
+  4891        id: aiExecutionsTable.id,
+  4892        operationId: aiExecutionsTable.operationId,
+  4893        request: aiExecutionsTable.request,
+  4894        checkpoint: aiExecutionsTable.checkpoint,
+  4895        checkpointVersion: aiExecutionsTable.checkpointVersion,
+  4896        status: aiExecutionsTable.status,
+  4897      })
+  4898      .from(aiExecutionsTable)
+  4899      .where(and(
+  4900        eq(aiExecutionsTable.id, target.executionId),
+  4901        eq(aiExecutionsTable.sessionId, sessionId),
+  4902        eq(aiExecutionsTable.projectId, session.projectId),
+  4903      ))
+  4904      .limit(1)
+  4905    : [];
+  4906  const proposals = await db
+  4907    .select({ id: aiChangeProposalsTable.id })
+  4908    .from(aiChangeProposalsTable)
+  4909    .where(eq(aiChangeProposalsTable.sessionId, sessionId))
+  4910    .limit(REPORT_REGENERATION_MAX_EVENTS);
+  4911  const operationId = execution?.operationId ?? execution?.id ?? target.executionId ?? messageId;
+  4912  const events = await db
+  4913    .select({ type: eventsTable.type })
+  4914    .from(eventsTable)
+  4915    .where(and(
+  4916      eq(eventsTable.projectId, session.projectId),
+  4917      eq(eventsTable.correlationId, operationId),
+  4918    ))
+  4919    .limit(REPORT_REGENERATION_MAX_EVENTS);
+  4920
+  4921  let report: ReturnType<typeof buildRegeneratedMissionCorrelationReport>;
+  4922  try {
+  4923    report = buildRegeneratedMissionCorrelationReport({
+  4924      projectId: session.projectId,
+  4925      sessionId,
+  4926      messageId,
+  4927      projectUpdatedAt: project.updatedAt,
+  4928      messages,
+  4929      execution,
+  4930      proposals: proposals.length,
+  4931      events,
+  4932    });
+  4933  } catch {
+  4934    return res.status(409).json({
+  4935      error: "The retained evidence is insufficient to regenerate this report.",
+  4936      code: "REPORT_REGENERATION_NOT_ELIGIBLE",
+  4937    });
+  4938  }
+  4939  const serialized = serializeMissionCorrelationReport(report);
+  4940  const [updated] = await db
+  4941    .update(aiChatMessagesTable)
+  4942    .set({ missionCorrelationReport: serialized })
+  4943    .where(and(
+  4944      eq(aiChatMessagesTable.id, messageId),
+  4945      eq(aiChatMessagesTable.sessionId, sessionId),
+  4946    ))
+  4947    .returning({ id: aiChatMessagesTable.id, missionCorrelationReport: aiChatMessagesTable.missionCorrelationReport });
+  4948  if (!updated) return res.status(404).json({ error: "Chat message not found", code: "MESSAGE_NOT_FOUND" });
+  4949  return res.json({
+  4950    messageId: updated.id,
+  4951    missionCorrelationReport: projectMissionCorrelationReportForExport(parseStoredJson(serialized)),
+  4952  });
+  4953});
+  4954
+  4955// ── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────
+  4956
+  4957router.get("/ai/chat/:sessionId/messages", async (req, res) => {
+  4958  const { sessionId } = req.params;
+  4959
+  4960  const sessionRows = await db
+  4961    .select()
+  4962    .from(aiChatSessionsTable)
+  4963    .where(eq(aiChatSessionsTable.id, sessionId))
+  4964    .limit(1);
+  4965  const session = sessionRows[0];
+  4966  if (!session) return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+  4967
+  4968  if (session.projectId) {
+  4969    const ownerProject = await loadProjectByIdForUser(session.projectId, req.userId, res);
+  4970    if (!ownerProject) return;
+  4971  }
+  4972
+  4973  const messages = await db
+  4974    .select()
+  4975    .from(aiChatMessagesTable)
+  4976    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+  4977    .orderBy(aiChatMessagesTable.createdAt);
+  4978
+  4979  return res.json(messages.map((message) => {
+  4980    const historicalReport = parseMissionCorrelationReportForHistory(message.missionCorrelationReport);
+  4981    return {
+  4982      ...message,
+  4983      content: redactUserFacingText(message.content),
+  4984      sources: message.sources
+  4985        ? JSON.stringify(redactUserFacingValue(parseStoredJson(message.sources)))
+  4986        : message.sources,
+  4987      toolTrace: message.toolTrace
+  4988        ? JSON.stringify(redactUserFacingValue(
+  4989          (() => {
+  4990            const parsed = parseStoredJson(message.toolTrace);
+  4991            if (!Array.isArray(parsed)) return parsed;
+  4992            return scrubHistoricalValidationRecord(parsed);
+  4993          })(),
+  4994        ))
+  4995        : message.toolTrace,
+  4996      turnIntent: message.turnIntent,
+  4997      executionId: message.executionId,
+  4998      outcome: message.outcome,
+  4999      errorCode: message.errorCode,
+  5000      errorMessage: message.errorMessage ? redactUserFacingText(message.errorMessage) : message.errorMessage,
+  5001      repairPlan: redactUserFacingValue(parseRepairPlanMetadata(message.repairPlanMetadata)),
+  5002      behaviorEvidence: redactUserFacingValue(parseBehaviorEvidence(message.behaviorEvidence)),
+  5003      ...(historicalReport.unavailable
+  5004        ? { missionCorrelationReport: undefined, missionCorrelationReportError: true }
+  5005        : { missionCorrelationReport: historicalReport.report }),
+  5006      taskResult: redactUserFacingValue(parseTaskResult(message.taskResult)),
+  5007    };
+  5008  }));
+  5009});
+  5010
+  5011// ── POST /api/ai/chat/plans/:messageId/decision ──────────────────────────────
+  5012//
+  5013// A plan decision is persisted on the assistant message that produced the
+  5014// plan. The session join and project ownership check prevent a user from
+  5015// approving a plan from another project. Approval stages Build Mode only; it
+  5016// does not apply changes, run commands, commit, or publish.
+  5017router.post("/ai/chat/plans/:messageId/decision", async (req, res) => {
+  5018  const body = z.object({
+  5019    decision: z.enum(["approve", "reject"]),
+  5020  }).strict().safeParse(req.body);
+  5021  if (!body.success) {
+  5022    return res.status(400).json({
+  5023      error: body.error.issues[0]?.message ?? "decision must be approve or reject",
+  5024      code: "PLAN_DECISION_INVALID",
+  5025    });
+  5026  }
+  5027
+  5028  const [row] = await db
+  5029    .select({
+  5030      message: aiChatMessagesTable,
+  5060    });
+  5061  }
+  5062  if (current.approvalStatus !== "PENDING_APPROVAL") {
+  5063    return res.status(409).json({
+  5064      error: "This implementation plan already has a decision",
+  5065      code: "PLAN_DECISION_ALREADY_MADE",
+  5066      approvalStatus: current.approvalStatus,
+  5067    });
+  5068  }
+  5069  // Older pending plans predate the revision manifest. Keep their review
+  5070  // decision migration-compatible; Build Mode still requires a manifest and
+  5071  // therefore cannot use one of these plans for writes.
+  5072  if (body.data.decision === "approve" && current.contextManifest) {
+  5073    const rootCheck = await resolveRootPath(project.rootPath, row.session.projectId);
+  5074    if (!rootCheck.validRootPath) {
+  5075      return res.status(409).json({
+  5076        error: "The project root is unavailable. Restore the project root and complete a fresh scan before approving this plan.",
+  5077        code: "PLAN_CONTEXT_INCOMPLETE",
+  5078      });
+  5079    }
+  5080    const contextFailure = await validatePlanContextForExecution(
+  5081      current,
+  5082      row.session.projectId,
+  5083      rootCheck.validRootPath,
+  5084    );
+  5085    if (contextFailure) return res.status(409).json(contextFailure);
+  5086    const browserProfileFailure = await validateBrowserProfileForDelivery(
+  5087      project.id,
+  5088      project.updatedAt.toISOString(),
+  5089      current.browserValidationProfile,
+  5090    );
+  5091    if (browserProfileFailure) return res.status(409).json(browserProfileFailure);
+  5092  }
+  5093    if (body.data.decision === "approve" && !hasSafeImplementationPlanFileScope(current)) {
+  5094      return res.status(409).json({
+  5095        error: "This implementation plan has no verified file scope and cannot enter Build Mode",
+  5096        code: "PLAN_FILE_SCOPE_REQUIRED",
+  5097        approvalStatus: current.approvalStatus,
+  5098      });
+  5099    }
+  5100
+  5101  const nextPlan = {
+  5102    ...current,
+  5103    approvalStatus: body.data.decision === "approve" ? "APPROVED" as const : "REJECTED" as const,
+  5104    writeAccess: body.data.decision === "approve"
+  5105      ? "APPROVED_FOR_BUILD" as const
+  5106      : "NOT_AUTHORIZED" as const,
+  5107  };
+  5108  const parsed = ChatTaskResultSchema.safeParse(nextPlan);
+  5109  if (!parsed.success) {
+  5110    logger.error({ scope: "chat-route", code: "PLAN_DECISION_SCHEMA_FAILED", issues: parsed.error.issues });
+  5111    return res.status(500).json({ error: "Could not persist the plan decision", code: "PLAN_DECISION_SCHEMA_FAILED" });
+  5112  }
+  5113
+  5114  // Compare-and-set against the original JSON to make concurrent clicks
+  5115  // one-shot: only the first decision can transition the pending plan.
+  5116  const updated = await db
+  5117    .update(aiChatMessagesTable)
+  5118    .set({ taskResult: serializeTaskResult(parsed.data) })
+  5119    .where(and(
+  5120      eq(aiChatMessagesTable.id, row.message.id),
+  5121      eq(aiChatMessagesTable.taskResult, originalTaskResult),
+  5122    ))
+  5123    .returning({ id: aiChatMessagesTable.id });
+  5124
+  5125  if (updated.length === 0) {
+  5126    return res.status(409).json({
+  5127      error: "This implementation plan was decided by another request",
+  5128      code: "PLAN_DECISION_CONFLICT",
+  5129    });
+  5130  }
+  5131
+  5132  await db.insert(eventsTable).values({
+  5133    id: randomUUID(),
+  5134    type: body.data.decision === "approve" ? "AiPlanApproved" : "AiPlanRejected",
+  5135    projectId: project.id,
+  5136    severity: body.data.decision === "approve" ? "success" : "warning",
+  5137    message: body.data.decision === "approve"
+  5138      ? "AI implementation plan approved for build"
+  5139      : "AI implementation plan rejected",
+  5140    correlationId: row.message.id,
+  5141    payload: { messageId: row.message.id, decision: body.data.decision },
+  5142  });
+  5143
+  5144  await db
+  5145    .update(aiChatSessionsTable)
+  5146    .set({ updatedAt: new Date() })
+  5147    .where(eq(aiChatSessionsTable.id, row.session.id));
+  5148
+  5149  return res.json({
+  5150    messageId: row.message.id,
+  5151    projectId: project.id,
+  5152    taskResult: parsed.data,
+  5153  });
+  5154});
+  5155
+  5156// ── GET /api/ai/chat/file-content ─────────────────────────────────────────────
+  5157//
+  5158// Serves the REAL source lines behind a behavior-evidence span so a verifying
+  5159// analyst can see the exact code, not just the (often trimmed) excerpt the model
+  5160// quoted. Project-authorized (loadProjectByIdForUser) and path-guarded against
+  5161// traversal/symlink escape OUT of the project root (mirrors the apply-changes
+  5162// containment logic). Returns the actual file line window around [startLine,
+  5163// endLine] with true 1-indexed line numbers — the client highlights that window,
+  5164// never fabricates line offsets from a shortened excerpt.
+  5165router.get("/ai/chat/file-content", async (req, res) => {
+  5166  const project = await loadProjectByIdForUser(
+  5167    typeof req.query.projectId === "string" ? req.query.projectId : undefined,
+  5168    req.userId,
+  5169    res,
+  5170  );

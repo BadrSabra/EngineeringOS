@@ -1,0 +1,241 @@
+  7700      if (changes.length > 0) setPendingChanges(changes);
+  7701    } catch {
+  7702      localStorage.removeItem(pendingKey);
+  7703    }
+  7704  }, [pendingKey, sessionId, verificationKey]);
+  7705
+  7706  // Use the generated hook (same URL and auth path as Projects.tsx) so this
+  7707  // query uses customFetch — which throws ApiError on non-2xx, preserving the
+  7708  // HTTP status through to the error classifier below.
+  7709  const {
+  7710    data: rawProjects,
+  7711    isLoading: projectsLoading,
+  7712    error: projectsError,
+  7713  } = useListProjects(undefined, {
+  7714    query: {
+  7715      queryKey: getListProjectsQueryKey(),
+  7716      // Wait for Clerk to finish loading before the very first request so we
+  7717      // don't race the browser's own session cookie hydration.
+  7718      enabled: isLoaded,
+  7719      // Classify each failure to decide whether to retry automatically.
+  7720       // Clerk can briefly return 401 while its browser session cookie is
+  7721       // refreshed during a long-running AI stream. Retry only when Clerk has
+  7722       // already loaded a signed-in user; an unauthenticated 401 remains
+  7723       // terminal and is shown as a real session-expiry error.
+  7724       retry: (failureCount, err) =>
+  7725         isRetryableProjectError(err, failureCount, 2, isLoaded && !!user),
+  7726    },
+  7727  });
+  7728  const projects = (rawProjects as Project[] | undefined) ?? [];
+  7729
+  7730  // Derive a classified failure record once and reuse it in all three places
+  7731  // where error text is shown — status, kind, and message are all in one place.
+  7732  const projectLoadFailure = projectsError ? classifyProjectError(projectsError) : null;
+  7733
+  7734  // Emit telemetry whenever a project-load failure is first observed.
+  7735  // TanStack Query v5 removed onError from query options; useEffect is the
+  7736  // correct place for side-effects on state changes.
+  7737  useEffect(() => {
+  7738    if (projectsError) emitProjectLoadFailed(projectsError, { userId: user?.id });
+  7739  }, [projectsError, user?.id]);
+  7740
+  7741  const {
+  7742    data: sessions = [],
+  7743    isFetched: sessionsFetched,
+  7744    isError: sessionsError,
+  7745  } = useListAiChatSessions<Session[]>(
+  7746    { projectId: selectedProjectId ?? '' },
+  7747    {
+  7748      query: {
+  7749        queryKey: ['ai-sessions', selectedProjectId],
+  7750        enabled: isLoaded && !!selectedProjectId,
+  7751      },
+  7752    },
+  7753  );
+  7754
+  7755  const { data: serverMessages = [], isFetched: messagesFetched } = useListAiChatMessages<ChatMessage[]>(
+  7756    sessionId ?? '',
+  7757    {
+  7758      query: {
+  7759        queryKey: ['ai-messages', sessionId],
+  7760        enabled: isLoaded && !!sessionId,
+  7761      },
+  7762    },
+  7763  );
+  7764
+  7765  const { data: serverProposal } = useGetAiPendingProposal<{
+  7766    proposalId: string | null;
+  7767    operationId: string | null;
+  7768    changes: PendingChange[];
+  7769    approvalRequired: boolean;
+  7770    revision: number | null;
+  7771    lifecycle?: DeliveryLifecycle | null;
+  7772    workspaceRoot?: string | null;
+  7773    baseRevision?: string | null;
+  7774    changeSetHash?: string | null;
+  7775    conflictReason?: string | null;
+  7776    validationEvidence?: PublicValidationResult[] | null;
+  7777  }>(
+  7778    sessionId ?? '',
+  7779    {
+  7780      query: {
+  7781        queryKey: ['ai-pending-proposal', sessionId],
+  7782        enabled: isLoaded && !!sessionId,
+  7783      },
+  7784    },
+  7785  );
+  7786
+  7787  const { data: recoverableDeliveries } = useQuery<{ operations: RecoverableDelivery[] }>({
+  7788    queryKey: ['ai-delivery-recoverable', selectedProjectId],
+  7789    enabled: isLoaded && !!selectedProjectId,
+  7790    queryFn: async () => {
+  7791      const response = await fetch(`/api/ai/delivery/recoverable?projectId=${encodeURIComponent(selectedProjectId)}`, {
+  7792        credentials: 'include',
+  7793        headers: { Accept: 'application/json' },
+  7794      });
+  7795      if (!response.ok) throw new Error('Recoverable delivery operations could not be loaded.');
+  7796      return response.json();
+  7797    },
+  7798    refetchInterval: 30_000,
+  7799  });
+  7800  const [deliveryRecoveryPending, setDeliveryRecoveryPending] = useState<string | null>(null);
+  7801
+  7802  async function recoverDelivery(proposal: RecoverableDelivery, action: 'resume-validation' | 'discard') {
+  7803    if (deliveryRecoveryPending || proposal.recoveryState !== 'recoverable') return;
+  7804    setDeliveryRecoveryPending(proposal.proposalId);
+  7805    try {
+  7806      const response = await fetch(`/api/ai/delivery/${encodeURIComponent(proposal.proposalId)}/${action}`, {
+  7807        method: 'POST',
+  7808        credentials: 'include',
+  7809        headers: { Accept: 'application/json' },
+  7810        body: '{}',
+  7811      });
+  7812      const payload = await response.json().catch(() => ({})) as {
+  7813        error?: string;
+  7814        code?: string;
+  7815        lifecycle?: DeliveryLifecycle;
+  7816      };
+  7817      if (!response.ok) {
+  7818        if (response.status === 404 && payload.code === 'DELIVERY_NOT_FOUND') {
+  7819          void qc.invalidateQueries({ queryKey: ['ai-delivery-recoverable', selectedProjectId] });
+  7820          toast({
+  7821            title: 'Recovery link expired',
+  7822            description: 'This recovery operation no longer exists. The recovery list was refreshed.',
+  7823            variant: 'destructive',
+  7824          });
+  7825          return;
+  7826        }
+  7827        if (response.status === 409 && (
+  7828          payload.code === 'DELIVERY_ALREADY_DISCARDED' ||
+  7829          payload.code === 'DELIVERY_NOT_RECOVERABLE'
+  7830        )) {
+  7831          void qc.invalidateQueries({ queryKey: ['ai-delivery-recoverable', selectedProjectId] });
+  7832          toast({
+  7833            title: 'Recovery state changed',
+  7834            description: payload.code === 'DELIVERY_ALREADY_DISCARDED'
+  7835              ? 'This recovery was already discarded. The recovery list was refreshed.'
+  7836              : 'This recovery workspace is no longer available. The recovery list was refreshed.',
+  7837            variant: 'destructive',
+  7838          });
+  7839          return;
+  7840        }
+  7841        throw new Error(payload.error || 'Delivery recovery could not be completed.');
+  7842      }
+  7843      void qc.invalidateQueries({ queryKey: ['ai-delivery-recoverable', selectedProjectId] });
+  7844      if (action === 'resume-validation') {
+  7845        setSessionId(proposal.sessionId);
+  7846        void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', proposal.sessionId] });
+  7847        toast({
+  7848          title: payload.lifecycle === 'validated' ? 'Validation recovered' : 'Validation remains blocked',
+  7849          description: payload.lifecycle === 'validated'
+  7850            ? 'The retained operation workspace passed its registered validation checks.'
+  7851            : 'The retained evidence was preserved and the operation remains blocked.',
+  7852        });
+  7853      } else {
+  7854        toast({ title: 'Delivery workspace discarded', description: 'Only this operation-owned workspace was removed.' });
+  7855        if (sessionId === proposal.sessionId) {
+  7856          setPendingChanges([]);
+  7857          setProposalId(undefined);
+  7858        }
+  7859      }
+  7860    } catch (error) {
+  7861      toast({
+  7862        title: 'Delivery recovery failed',
+  7863        description: error instanceof Error ? error.message : 'The operation was not changed.',
+  7864        variant: 'destructive',
+  7865      });
+  7866    } finally {
+  7867      setDeliveryRecoveryPending(null);
+  7868    }
+  7869  }
+  7870
+  7871  const regenerateReportMutation = useMutation({
+  7872    mutationFn: async (messageId: string) => {
+  7873      const response = await fetch(
+  7874        `/api/ai/chat/${encodeURIComponent(sessionId ?? '')}/messages/${encodeURIComponent(messageId)}/mission-correlation-report/regenerate`,
+  7875        { method: 'POST', credentials: 'include' },
+  7876      );
+  7877      const payload = await response.json().catch(() => ({}));
+  7878      if (!response.ok) {
+  7879        throw new Error(typeof payload?.error === 'string' ? payload.error : 'The historical report could not be regenerated.');
+  7880      }
+  7881      return payload;
+  7882    },
+  7883    onSuccess: () => {
+  7884      if (sessionId) void qc.invalidateQueries({ queryKey: ['ai-messages', sessionId] });
+  7885      void qc.invalidateQueries({ queryKey: ['ai-sessions', selectedProjectId] });
+  7886      toast({ title: 'Historical report regenerated', description: 'The report is now available from the retained run evidence.' });
+  7887    },
+  7888    onError: (error) => {
+  7889      toast({
+  7890        title: 'Report regeneration failed',
+  7891        description: error instanceof Error ? error.message : 'The conversation was not changed.',
+  7892        variant: 'destructive',
+  7893      });
+  7894    },
+  7895  });
+  7896
+  7897  useEffect(() => {
+  7898    if (!messagesFetched) return;
+  7899
+  7900    // A mission report is optional enrichment on an otherwise useful message.
+  7901    // Validate each one independently so one old/corrupt report cannot discard
+  7902    // the complete conversation or expose parser details in the UI.
+  7903    let hasUnavailableReport = false;
+  7904    const safeMessages = serverMessages.map((message) => {
+  7905      if (message.missionCorrelationReportError) {
+  7906        hasUnavailableReport = true;
+  7907        return { ...message, missionCorrelationReport: undefined };
+  7908      }
+  7909      if (message.missionCorrelationReport === undefined || message.missionCorrelationReport === null) {
+  7910        return message;
+  7911      }
+  7912      try {
+  7913        readStoredMissionCorrelationReport(message.missionCorrelationReport);
+  7914        return message;
+  7915      } catch {
+  7916        hasUnavailableReport = true;
+  7917        return { ...message, missionCorrelationReport: undefined };
+  7918      }
+  7919    });
+  7920    setHistoricalReportError(
+  7921      hasUnavailableReport
+  7922        ? 'A historical mission report could not be loaded. Your conversation is still available.'
+  7923        : null,
+  7924    );
+  7925    setLocalMessages(safeMessages);
+  7926  }, [messagesFetched, serverMessages]);
+  7927
+  7928  useEffect(() => {
+  7929    if (!serverProposal) return;
+  7930    setProposalId(serverProposal.proposalId ?? undefined);
+  7931    setOperationId(serverProposal.operationId ?? undefined);
+  7932    setOperationMode(serverProposal.proposalId ? 'DELIVERY' : undefined);
+  7933    setProposalRequiresApproval(serverProposal.approvalRequired === true);
+  7934    setProposalRevision(serverProposal.revision ?? undefined);
+  7935    setDeliveryLifecycle(serverProposal.lifecycle ?? (serverProposal.changes.length > 0 ? 'proposed' : undefined));
+  7936    setValidationEvidence(serverProposal.validationEvidence ?? []);
+  7937    // The server is authoritative after a session reload. An empty response
+  7938    // means the proposal was rejected/consumed (or never existed), so clear
+  7939    // any stale localStorage-backed changes instead of showing an unapprovable
+  7940    // card that would submit without a valid proposalId.

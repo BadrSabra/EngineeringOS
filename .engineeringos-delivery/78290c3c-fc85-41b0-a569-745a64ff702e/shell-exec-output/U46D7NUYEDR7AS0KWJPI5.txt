@@ -1,0 +1,320 @@
+artifacts/api-server/src/routes/ai/analysis.ts:2: * AI analysis and code review routes.
+artifacts/api-server/src/routes/ai/analysis.ts:5: * POST /api/ai/projects/:projectId/review
+artifacts/api-server/src/routes/ai/analysis.ts:16:  reviewCode,
+artifacts/api-server/src/routes/ai/analysis.ts:23:  requireProvider,
+artifacts/api-server/src/routes/ai/analysis.ts:32:type StructuredTask = "analyze" | "review";
+artifacts/api-server/src/routes/ai/analysis.ts:33:type StructuredAuditTraceEntry = {
+artifacts/api-server/src/routes/ai/analysis.ts:35:  status: "started" | "completed" | "failed" | "incomplete";
+artifacts/api-server/src/routes/ai/analysis.ts:36:  provider?: string;
+artifacts/api-server/src/routes/ai/analysis.ts:38:type StructuredAuditMetadata = {
+artifacts/api-server/src/routes/ai/analysis.ts:43:  incomplete: boolean;
+artifacts/api-server/src/routes/ai/analysis.ts:44:  operationalTrace: StructuredAuditTraceEntry[];
+artifacts/api-server/src/routes/ai/analysis.ts:46:type StructuredTaskEvent =
+artifacts/api-server/src/routes/ai/analysis.ts:47:  | ({ type: "task_started"; task: StructuredTask; projectId: string }
+artifacts/api-server/src/routes/ai/analysis.ts:49:    | { type: "task_progress"; task: StructuredTask; message: string; provider?: string }
+artifacts/api-server/src/routes/ai/analysis.ts:50:    | { type: "task_done"; task: StructuredTask; result: Record<string, unknown> }
+artifacts/api-server/src/routes/ai/analysis.ts:51:   | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; failureKind?: "PROVIDER_FORMAT" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; outcome?: "FAILED" | "INTERRUPTED" })
+artifacts/api-server/src/routes/ai/analysis.ts:52:    & Partial<StructuredAuditMetadata>;
+artifacts/api-server/src/routes/ai/analysis.ts:54:function auditEnvelope(metadata: StructuredAuditMetadata): Record<string, unknown> {
+artifacts/api-server/src/routes/ai/analysis.ts:60:    incomplete: metadata.incomplete,
+artifacts/api-server/src/routes/ai/analysis.ts:66:  metadata: StructuredAuditMetadata,
+artifacts/api-server/src/routes/ai/analysis.ts:68:  status: StructuredAuditTraceEntry["status"],
+artifacts/api-server/src/routes/ai/analysis.ts:69:  provider?: string,
+artifacts/api-server/src/routes/ai/analysis.ts:74:    ...(provider ? { provider: redactUserFacingText(provider) } : {}),
+artifacts/api-server/src/routes/ai/analysis.ts:81:): Promise<StructuredAuditMetadata> {
+artifacts/api-server/src/routes/ai/analysis.ts:88:    incomplete: !root.validRootPath,
+artifacts/api-server/src/routes/ai/analysis.ts:95:  task: StructuredTask,
+artifacts/api-server/src/routes/ai/analysis.ts:97:  metadata: StructuredAuditMetadata,
+artifacts/api-server/src/routes/ai/analysis.ts:112:  const emit = (event: StructuredTaskEvent) => {
+artifacts/api-server/src/routes/ai/analysis.ts:136:  emit: (event: StructuredTaskEvent) => void,
+artifacts/api-server/src/routes/ai/analysis.ts:139:  metadata: StructuredAuditMetadata,
+artifacts/api-server/src/routes/ai/analysis.ts:144:    code === "model_output_invalid" || code === "INVALID_MODEL_OUTPUT" ? "PROVIDER_FORMAT" :
+artifacts/api-server/src/routes/ai/analysis.ts:145:    code === "EMPTY_RESPONSE" ? "PROVIDER_FORMAT" :
+artifacts/api-server/src/routes/ai/analysis.ts:148:    code === "TIMEOUT" || code === "NETWORK_ERROR" || code === "NON_200" || code === "SERVER_ERROR" ? "PROVIDER_FAILURE" :
+artifacts/api-server/src/routes/ai/analysis.ts:149:    "PROVIDER_FAILURE";
+artifacts/api-server/src/routes/ai/analysis.ts:151:    failureKind === "RATE_LIMIT" ? "The AI provider is rate-limited. Please wait before retrying." :
+artifacts/api-server/src/routes/ai/analysis.ts:152:    failureKind === "CONFIGURATION" ? "The AI provider configuration needs attention before this can run." :
+artifacts/api-server/src/routes/ai/analysis.ts:153:    failureKind === "PROVIDER_FORMAT" ? "The AI returned an unexpected response format." :
+artifacts/api-server/src/routes/ai/analysis.ts:154:    "The AI provider could not complete this run.";
+artifacts/api-server/src/routes/ai/analysis.ts:155:  metadata.incomplete = true;
+artifacts/api-server/src/routes/ai/analysis.ts:162:      ? "Wait a moment and retry the analysis."
+artifacts/api-server/src/routes/ai/analysis.ts:164:        ? "Check the configured provider key or choose another provider."
+artifacts/api-server/src/routes/ai/analysis.ts:166:    retryable: failureKind !== "CONFIGURATION",
+artifacts/api-server/src/routes/ai/analysis.ts:182:  logger.info({ projectId }, "AI scan analysis requested");
+artifacts/api-server/src/routes/ai/analysis.ts:184:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/analysis.ts:185:    qualityProfile: "analysis",
+artifacts/api-server/src/routes/ai/analysis.ts:187:  if (!providerResolved) return;
+artifacts/api-server/src/routes/ai/analysis.ts:188:  const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/analysis.ts:202:  let effectiveProvider = provider;
+artifacts/api-server/src/routes/ai/analysis.ts:204:    ({ result, effectiveProvider } = await runAgentWithFallback(
+artifacts/api-server/src/routes/ai/analysis.ts:206:      { provider, apiKey },
+artifacts/api-server/src/routes/ai/analysis.ts:208:      { qualityProfile: "analysis" },
+artifacts/api-server/src/routes/ai/analysis.ts:211:    metadata.incomplete = true;
+artifacts/api-server/src/routes/ai/analysis.ts:212:    recordTrace(metadata, "analyze", "failed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:213:    if (handleOrchestratorError(err, res, { projectId, operation: "scan-analysis", provider: effectiveProvider })) return;
+artifacts/api-server/src/routes/ai/analysis.ts:218:  // (generated by fallbackScanAnalysis). Serve it with a warning header so the
+artifacts/api-server/src/routes/ai/analysis.ts:222:    metadata.incomplete = true;
+artifacts/api-server/src/routes/ai/analysis.ts:223:    recordTrace(metadata, "analyze", "incomplete", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:225:      { projectId, parseCode: result._parseError.code, message: result._parseError.message, provider: effectiveProvider },
+artifacts/api-server/src/routes/ai/analysis.ts:252:      type: "AiScanAnalysisCompleted",
+artifacts/api-server/src/routes/ai/analysis.ts:255:      message: `AI scan analysis completed: ${result.summary}`,
+artifacts/api-server/src/routes/ai/analysis.ts:259:  recordTrace(metadata, "analyze", "completed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:263:// ── POST /api/ai/projects/:projectId/review ──────────────────────────────────
+artifacts/api-server/src/routes/ai/analysis.ts:265:router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, res) => {
+artifacts/api-server/src/routes/ai/analysis.ts:270:  recordTrace(metadata, "review", "started");
+artifacts/api-server/src/routes/ai/analysis.ts:273:  logger.info({ projectId }, "AI code review requested");
+artifacts/api-server/src/routes/ai/analysis.ts:293:  const rlReview = await checkProjectRateLimitDb(projectId);
+artifacts/api-server/src/routes/ai/analysis.ts:294:  if (!rlReview.allowed) {
+artifacts/api-server/src/routes/ai/analysis.ts:296:      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlReview.retryAfterSec}s.`,
+artifacts/api-server/src/routes/ai/analysis.ts:300:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/analysis.ts:301:    qualityProfile: "code_review",
+artifacts/api-server/src/routes/ai/analysis.ts:303:  if (!providerResolved) return;
+artifacts/api-server/src/routes/ai/analysis.ts:304:  const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/analysis.ts:309:  let result: Awaited<ReturnType<typeof reviewCode>>;
+artifacts/api-server/src/routes/ai/analysis.ts:310:  let effectiveProvider = provider;
+artifacts/api-server/src/routes/ai/analysis.ts:312:    ({ result, effectiveProvider } = await runAgentWithFallback(
+artifacts/api-server/src/routes/ai/analysis.ts:314:      { provider, apiKey },
+artifacts/api-server/src/routes/ai/analysis.ts:315:      (opts) => reviewCode(projectContext, fileContents, opts),
+artifacts/api-server/src/routes/ai/analysis.ts:316:      { qualityProfile: "code_review" },
+artifacts/api-server/src/routes/ai/analysis.ts:319:    metadata.incomplete = true;
+artifacts/api-server/src/routes/ai/analysis.ts:320:    recordTrace(metadata, "review", "failed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:321:    if (handleOrchestratorError(err, res, { projectId, operation: "code-review", provider: effectiveProvider })) return;
+artifacts/api-server/src/routes/ai/analysis.ts:328:    metadata.incomplete = true;
+artifacts/api-server/src/routes/ai/analysis.ts:329:    recordTrace(metadata, "review", "incomplete", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:331:      { projectId, parseCode: result._parseError.code, message: result._parseError.message, provider: effectiveProvider },
+artifacts/api-server/src/routes/ai/analysis.ts:332:      "code-reviewer: parse error",
+artifacts/api-server/src/routes/ai/analysis.ts:350:      action: "ai_reviewed",
+artifacts/api-server/src/routes/ai/analysis.ts:358:      type: "AiCodeReviewCompleted",
+artifacts/api-server/src/routes/ai/analysis.ts:361:      message: `AI code review: ${result.verdict} (score: ${result.overallScore}/100)`,
+artifacts/api-server/src/routes/ai/analysis.ts:365:  recordTrace(metadata, "review", "completed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:375:  const providerResolved = await requireProvider(req.userId, res, { qualityProfile: "analysis" });
+artifacts/api-server/src/routes/ai/analysis.ts:376:  if (!providerResolved) return;
+artifacts/api-server/src/routes/ai/analysis.ts:396:    recordTrace(metadata, "calling-model", "started", providerResolved.provider);
+artifacts/api-server/src/routes/ai/analysis.ts:397:    const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/analysis.ts:398:    let effectiveProvider = provider;
+artifacts/api-server/src/routes/ai/analysis.ts:401:      { provider, apiKey },
+artifacts/api-server/src/routes/ai/analysis.ts:408:          provider: opts.provider,
+artifacts/api-server/src/routes/ai/analysis.ts:411:      { qualityProfile: "analysis" },
+artifacts/api-server/src/routes/ai/analysis.ts:413:      effectiveProvider = output.effectiveProvider;
+artifacts/api-server/src/routes/ai/analysis.ts:418:      metadata.incomplete = true;
+artifacts/api-server/src/routes/ai/analysis.ts:419:      recordTrace(metadata, "calling-model", "incomplete", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:424:        hint: "The response could not be verified as a structured result. You can retry this task.",
+artifacts/api-server/src/routes/ai/analysis.ts:425:        retryable: true,
+artifacts/api-server/src/routes/ai/analysis.ts:426:        failureKind: "PROVIDER_FORMAT",
+artifacts/api-server/src/routes/ai/analysis.ts:434:    recordTrace(metadata, "persisting-result", "completed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:449:        type: "AiScanAnalysisCompleted",
+artifacts/api-server/src/routes/ai/analysis.ts:452:        message: `AI scan analysis completed: ${result.summary}`,
+artifacts/api-server/src/routes/ai/analysis.ts:457:    recordTrace(metadata, "analyze", "completed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:467:    logger.info({ projectId, provider: effectiveProvider }, "AI scan analysis stream completed");
+artifacts/api-server/src/routes/ai/analysis.ts:469:    logger.error({ err, projectId }, "AI scan analysis stream failed");
+artifacts/api-server/src/routes/ai/analysis.ts:475:// ── POST /api/ai/projects/:projectId/review/stream ───────────────────────────
+artifacts/api-server/src/routes/ai/analysis.ts:477:router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async (req, res) => {
+artifacts/api-server/src/routes/ai/analysis.ts:501:  const providerResolved = await requireProvider(req.userId, res, { qualityProfile: "code_review" });
+artifacts/api-server/src/routes/ai/analysis.ts:502:  if (!providerResolved) return;
+artifacts/api-server/src/routes/ai/analysis.ts:504:  recordTrace(metadata, "review", "started");
+artifacts/api-server/src/routes/ai/analysis.ts:506:  const rlReview = await checkProjectRateLimitDb(projectId);
+artifacts/api-server/src/routes/ai/analysis.ts:507:  if (!rlReview.allowed) {
+artifacts/api-server/src/routes/ai/analysis.ts:509:      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlReview.retryAfterSec}s.`,
+artifacts/api-server/src/routes/ai/analysis.ts:513:  const { emit, close } = beginTaskStream(res, "review", projectId, metadata);
+artifacts/api-server/src/routes/ai/analysis.ts:522:    recordTrace(metadata, "calling-model", "started", providerResolved.provider);
+artifacts/api-server/src/routes/ai/analysis.ts:523:    const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/analysis.ts:524:    let effectiveProvider = provider;
+artifacts/api-server/src/routes/ai/analysis.ts:527:      { provider, apiKey },
+artifacts/api-server/src/routes/ai/analysis.ts:528:      (opts) => reviewCode(projectContext, fileContents, {
+artifacts/api-server/src/routes/ai/analysis.ts:532:          task: "review",
+artifacts/api-server/src/routes/ai/analysis.ts:534:          provider: opts.provider,
+artifacts/api-server/src/routes/ai/analysis.ts:537:      { qualityProfile: "code_review" },
+artifacts/api-server/src/routes/ai/analysis.ts:539:      effectiveProvider = output.effectiveProvider;
+artifacts/api-server/src/routes/ai/analysis.ts:544:      metadata.incomplete = true;
+artifacts/api-server/src/routes/ai/analysis.ts:545:      recordTrace(metadata, "calling-model", "incomplete", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:550:        hint: "The response could not be verified as a structured result. You can retry this task.",
+artifacts/api-server/src/routes/ai/analysis.ts:551:        retryable: true,
+artifacts/api-server/src/routes/ai/analysis.ts:552:        failureKind: "PROVIDER_FORMAT",
+artifacts/api-server/src/routes/ai/analysis.ts:560:    recordTrace(metadata, "persisting-result", "completed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:567:        action: "ai_reviewed",
+artifacts/api-server/src/routes/ai/analysis.ts:575:        type: "AiCodeReviewCompleted",
+artifacts/api-server/src/routes/ai/analysis.ts:578:        message: `AI code review: ${result.verdict} (score: ${result.overallScore}/100)`,
+artifacts/api-server/src/routes/ai/analysis.ts:583:    recordTrace(metadata, "review", "completed", effectiveProvider);
+artifacts/api-server/src/routes/ai/analysis.ts:586:      task: "review",
+artifacts/api-server/src/routes/ai/analysis.ts:593:    logger.info({ projectId, provider: effectiveProvider }, "AI code review stream completed");
+artifacts/api-server/src/routes/ai/analysis.ts:595:    logger.error({ err, projectId }, "AI code review stream failed");
+artifacts/api-server/src/routes/ai/benchmark.ts:19:  provider?: string;
+artifacts/api-server/src/routes/ai/benchmark.ts:25:    providerUnavailableCount?: number;
+artifacts/api-server/src/routes/ai/benchmark.ts:47:type BoundedProviderRecoverySummary = {
+artifacts/api-server/src/routes/ai/benchmark.ts:48:  provider: "openrouter";
+artifacts/api-server/src/routes/ai/benchmark.ts:52:  evidenceStatus: "complete" | "incomplete";
+artifacts/api-server/src/routes/ai/benchmark.ts:61:  providerRecoverySummaries?: BoundedProviderRecoverySummary[];
+artifacts/api-server/src/routes/ai/benchmark.ts:73:  if ((campaign.provider !== "deterministic" && campaign.provider !== "live") ||
+artifacts/api-server/src/routes/ai/benchmark.ts:92:      provider: campaign.provider, browser: campaign.browser === true, deployment: campaign.deployment === true,
+artifacts/api-server/src/routes/ai/benchmark.ts:143:        ...(typeof scorecard.metrics.providerUnavailableCount === "number"
+artifacts/api-server/src/routes/ai/benchmark.ts:144:          ? { providerUnavailableCount: scorecard.metrics.providerUnavailableCount }
+artifacts/api-server/src/routes/ai/benchmark.ts:161:    ...(typeof scorecard.provider === "string" ? { provider: scorecard.provider } : {}),
+artifacts/api-server/src/routes/ai/benchmark.ts:240:              ...(typeof entry.providerUnavailable === "boolean"
+artifacts/api-server/src/routes/ai/benchmark.ts:241:                ? { providerUnavailable: entry.providerUnavailable }
+artifacts/api-server/src/routes/ai/benchmark.ts:279:    ...(textValue(step.provider, 64) ? { provider: textValue(step.provider, 64) } : {}),
+artifacts/api-server/src/routes/ai/benchmark.ts:303:  const latestProviderStep = [...steps].reverse().find((step) => textValue(step.provider));
+artifacts/api-server/src/routes/ai/benchmark.ts:340:    provider: textValue(latestProviderStep?.provider),
+artifacts/api-server/src/routes/ai/benchmark.ts:410:  const summaries = Array.isArray(value.providerRecoverySummaries)
+artifacts/api-server/src/routes/ai/benchmark.ts:411:    ? value.providerRecoverySummaries.flatMap((raw): BoundedProviderRecoverySummary[] => {
+artifacts/api-server/src/routes/ai/benchmark.ts:412:        if (!isRecord(raw) || raw.provider !== "openrouter") return [];
+artifacts/api-server/src/routes/ai/benchmark.ts:419:        const evidenceStatus = raw.evidenceStatus === "complete" || raw.evidenceStatus === "incomplete"
+artifacts/api-server/src/routes/ai/benchmark.ts:428:          provider: "openrouter",
+artifacts/api-server/src/routes/ai/benchmark.ts:442:    ...(summaries.length > 0 ? { providerRecoverySummaries: summaries.slice(0, 8) } : {}),
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:268:    requireProvider:        vi.fn(),
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:309:import { chatWithFallback, requireProvider, requestLooksToolBound } from "../../lib/ai-route-helpers.js";
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:391:    resolvedModel: { id: "test-model", provider: "openai", free: false },
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:394:  effectiveProvider: "openai",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:423:  repairState: "READY_FOR_REVIEW",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:462:  effectiveProvider: "openai",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:533:  vi.mocked(requireProvider).mockReset();
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:542:  vi.mocked(requireProvider).mockResolvedValue({ provider: "openai" as never, apiKey: "test-key" });
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:601:      async (_userId, _params, _provider, onDelta, _options, _reset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:654:  it("keeps the cancelled Arabic incomplete report intact in the SSE done frame", async () => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:657:      "ANALYSIS_INCOMPLETE — لم يكتمل التحليل.",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:673:      "ANALYSIS_INCOMPLETE — التقرير غير مكتمل.",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:690:    expect(JSON.stringify(done)).toContain("ANALYSIS_INCOMPLETE");
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:702:      async (_userId, _params, _provider, onDelta) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:730:      async (_userId, _params, _provider, onDelta, _options, _reset, onStep) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:776:      async (_userId, params, _provider, _onDelta, options) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:795:    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:821:      async (_userId, params, _provider, _onDelta, options) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:840:    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:878:      async (_userId, params, _provider, _onDelta, options) => {
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:897:    expect(vi.mocked(requireProvider).mock.calls.slice(-2).map((call) => call[2])).toEqual([
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:943:    expect(requireProvider).toHaveBeenCalledWith(
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1347:      resolvedModel: { id: "test-model", provider: "openai", free: false },
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1350:    effectiveProvider: "openai",
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1439:          resolvedModel: { id: "test-model", provider: "openai", free: false },
+artifacts/api-server/src/routes/ai/chat-sse.test.ts:1442:        effectiveProvider: "openai",
+artifacts/api-server/src/routes/ai/providers.ts:2: * AI provider key management routes.
+artifacts/api-server/src/routes/ai/providers.ts:5: *   GET/PUT/DELETE /api/ai/providers/:provider/key
+artifacts/api-server/src/routes/ai/providers.ts:12: *   GET /api/ai/active-provider
+artifacts/api-server/src/routes/ai/providers.ts:17:import { aiProviderCredentialsTable } from "@workspace/db";
+artifacts/api-server/src/routes/ai/providers.ts:21:import { resolveProvider } from "../../lib/ai-route-helpers.js";
+artifacts/api-server/src/routes/ai/providers.ts:23:  validateProviderKey,
+artifacts/api-server/src/routes/ai/providers.ts:24:  PROVIDER_REGISTRY,
+artifacts/api-server/src/routes/ai/providers.ts:25:  PROVIDER_PRIORITY,
+artifacts/api-server/src/routes/ai/providers.ts:26:  getProviderMetrics,
+artifacts/api-server/src/routes/ai/providers.ts:31:import type { ProviderId } from "@workspace/ai-orchestrator";
+artifacts/api-server/src/routes/ai/providers.ts:38:const VALID_PROVIDERS = new Set<string>(Object.keys(PROVIDER_REGISTRY));
+artifacts/api-server/src/routes/ai/providers.ts:40:function isValidProvider(p: string): p is ProviderId {
+artifacts/api-server/src/routes/ai/providers.ts:41:  return VALID_PROVIDERS.has(p);
+artifacts/api-server/src/routes/ai/providers.ts:45:async function handleGetKey(req: Request, res: Response, provider: ProviderId) {
+artifacts/api-server/src/routes/ai/providers.ts:48:      last4: aiProviderCredentialsTable.last4,
+artifacts/api-server/src/routes/ai/providers.ts:49:      updatedAt: aiProviderCredentialsTable.updatedAt,
+artifacts/api-server/src/routes/ai/providers.ts:51:    .from(aiProviderCredentialsTable)
+artifacts/api-server/src/routes/ai/providers.ts:54:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+artifacts/api-server/src/routes/ai/providers.ts:55:        eq(aiProviderCredentialsTable.provider, provider),
+artifacts/api-server/src/routes/ai/providers.ts:65:async function handlePutKey(req: Request, res: Response, provider: ProviderId) {
+artifacts/api-server/src/routes/ai/providers.ts:72:  const config = PROVIDER_REGISTRY[provider];
+artifacts/api-server/src/routes/ai/providers.ts:73:  const label = config?.label ?? provider;
+artifacts/api-server/src/routes/ai/providers.ts:74:  const consoleUrl = config?.consoleUrl ?? "your provider's dashboard";
+artifacts/api-server/src/routes/ai/providers.ts:76:  const validation = await validateProviderKey(provider, trimmed);
+artifacts/api-server/src/routes/ai/providers.ts:90:    logger.error({ err, provider }, "Key encryption failed");
+artifacts/api-server/src/routes/ai/providers.ts:96:    .insert(aiProviderCredentialsTable)
+artifacts/api-server/src/routes/ai/providers.ts:100:      provider,
+artifacts/api-server/src/routes/ai/providers.ts:107:      target: [aiProviderCredentialsTable.ownerId, aiProviderCredentialsTable.provider],
+artifacts/api-server/src/routes/ai/providers.ts:115:async function handleDeleteKey(req: Request, res: Response, provider: ProviderId) {
+artifacts/api-server/src/routes/ai/providers.ts:117:    .delete(aiProviderCredentialsTable)
+artifacts/api-server/src/routes/ai/providers.ts:120:        eq(aiProviderCredentialsTable.ownerId, req.userId),
+artifacts/api-server/src/routes/ai/providers.ts:121:        eq(aiProviderCredentialsTable.provider, provider),
+artifacts/api-server/src/routes/ai/providers.ts:127:// ── Generic routes (:provider param) ─────────────────────────────────────────
+artifacts/api-server/src/routes/ai/providers.ts:129:router.get("/ai/providers/:provider/key", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:130:  const { provider } = req.params;
+artifacts/api-server/src/routes/ai/providers.ts:131:  if (!isValidProvider(provider)) {
+artifacts/api-server/src/routes/ai/providers.ts:133:      error: `Unknown provider "${provider}". Valid values: ${[...VALID_PROVIDERS].join(", ")}`,
+artifacts/api-server/src/routes/ai/providers.ts:136:  return handleGetKey(req, res, provider);
+artifacts/api-server/src/routes/ai/providers.ts:139:router.put("/ai/providers/:provider/key", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:140:  const { provider } = req.params;
+artifacts/api-server/src/routes/ai/providers.ts:141:  if (!isValidProvider(provider)) {
+artifacts/api-server/src/routes/ai/providers.ts:143:      error: `Unknown provider "${provider}". Valid values: ${[...VALID_PROVIDERS].join(", ")}`,
+artifacts/api-server/src/routes/ai/providers.ts:146:  return handlePutKey(req, res, provider);
+artifacts/api-server/src/routes/ai/providers.ts:149:router.delete("/ai/providers/:provider/key", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:150:  const { provider } = req.params;
+artifacts/api-server/src/routes/ai/providers.ts:151:  if (!isValidProvider(provider)) {
+artifacts/api-server/src/routes/ai/providers.ts:153:      error: `Unknown provider "${provider}". Valid values: ${[...VALID_PROVIDERS].join(", ")}`,
+artifacts/api-server/src/routes/ai/providers.ts:156:  return handleDeleteKey(req, res, provider);
+artifacts/api-server/src/routes/ai/providers.ts:159:// ── Active provider ───────────────────────────────────────────────────────────
+artifacts/api-server/src/routes/ai/providers.ts:161:/** GET /api/ai/active-provider — which provider will be used for this user */
+artifacts/api-server/src/routes/ai/providers.ts:162:router.get("/ai/active-provider", async (req, res) => {
+artifacts/api-server/src/routes/ai/providers.ts:163:  const resolved = await resolveProvider(req.userId);
+artifacts/api-server/src/routes/ai/providers.ts:164:  if (!resolved) return res.json({ provider: null, configured: false });
+artifacts/api-server/src/routes/ai/providers.ts:165:  return res.json({ provider: resolved.provider, configured: true });
+artifacts/api-server/src/routes/ai/providers.ts:168:// ── PR-011: Provider metrics ──────────────────────────────────────────────────
+artifacts/api-server/src/routes/ai/providers.ts:173: * PR-05/PR-06: Returns in-memory provider reliability metrics merged with
+artifacts/api-server/src/routes/ai/providers.ts:174: * circuit-breaker state so the dashboard can show per-provider runtime health.
+artifacts/api-server/src/routes/ai/providers.ts:184:  const metricsMap = new Map(getProviderMetrics().map((m) => [m.provider, m]));
+artifacts/api-server/src/routes/ai/providers.ts:186:    .select({ provider: aiProviderCredentialsTable.provider })
+artifacts/api-server/src/routes/ai/providers.ts:187:    .from(aiProviderCredentialsTable)
+artifacts/api-server/src/routes/ai/providers.ts:188:    .where(eq(aiProviderCredentialsTable.ownerId, req.userId));
+artifacts/api-server/src/routes/ai/providers.ts:189:  const configured = new Set(configuredRows.map((row) => row.provider));
+artifacts/api-server/src/routes/ai/providers.ts:193:    (["openrouter", "gemini", "deepseek", "groq"] as const).filter((provider) =>
+artifacts/api-server/src/routes/ai/providers.ts:194:      Boolean(process.env[`${provider.toUpperCase()}_API_KEY`]),
+artifacts/api-server/src/routes/ai/providers.ts:199:  // Merge circuit state into each metric snapshot; include all known providers
+artifacts/api-server/src/routes/ai/providers.ts:201:  const enriched = PROVIDER_PRIORITY.map((provider) => {
+artifacts/api-server/src/routes/ai/providers.ts:202:    const metric = metricsMap.get(provider) ?? {
+artifacts/api-server/src/routes/ai/providers.ts:203:      provider,
+artifacts/api-server/src/routes/ai/providers.ts:209:    const circuit = getCircuitState(provider);
+artifacts/api-server/src/routes/ai/providers.ts:210:    const isConfigured = configured.has(provider) || serverConfigured.has(provider);
+artifacts/api-server/src/routes/ai/providers.ts:212:      provider === "openrouter" &&
+artifacts/api-server/src/routes/ai/providers.ts:232:        ? "Save an API key for this provider to enable it."
+artifacts/api-server/src/routes/ai/providers.ts:234:          ? "Wait for the cooldown to finish, then retry or configure another provider."
+artifacts/api-server/src/routes/ai/providers.ts:236:            ? "Retry shortly so the model catalog can refresh; configure another provider if it persists."
+artifacts/api-server/src/routes/ai/index.ts:5: *   providers  — deepseek/groq key management, active-provider
+artifacts/api-server/src/routes/ai/index.ts:7: *   analysis   — scan analysis, code review
+artifacts/api-server/src/routes/ai/index.ts:12:import providersRouter from "./providers.js";
+artifacts/api-server/src/routes/ai/index.ts:14:import analysisRouter from "./analysis.js";
+artifacts/api-server/src/routes/ai/index.ts:23:router.use(providersRouter);
+artifacts/api-server/src/routes/ai/index.ts:25:router.use(analysisRouter);
+artifacts/api-server/src/routes/ai/chat.ts:104:  runRepairPreviewValidation,
+artifacts/api-server/src/routes/ai/chat.ts:110:import { PreviewSessionManager, type PreviewBrowser, type PreviewStep } from "../../lib/browser-preview-verification.js";
+artifacts/api-server/src/routes/ai/chat.ts:112:  AI_EXECUTION_CHECKPOINT_PREVIEW_LIMIT,
+artifacts/api-server/src/routes/ai/chat.ts:137:  requireProvider,
+artifacts/api-server/src/routes/ai/chat.ts:143:import { createProjectAnalysisToolRunner } from "../../lib/ai-analysis-tools.js";
+artifacts/api-server/src/routes/ai/chat.ts:200:// may slip through (e.g. a provider returns {"response":"...","sources":[...]}).
+artifacts/api-server/src/routes/ai/chat.ts:218:      logger.warn({ scope: "chat-route", action: "sanitize_envelope", preview: trimmed.slice(0, 120) }, "AI-02: stripped JSON envelope from response before storage");
+artifacts/api-server/src/routes/ai/chat.ts:381: * This intentionally does not call a provider or reinterpret assistant prose:
+artifacts/api-server/src/routes/ai/chat.ts:528: * redaction boundary to identifiers and any provider-derived values.
+artifacts/api-server/src/routes/ai/chat.ts:540:// A turn is persisted only after its provider call completes, but history must
+artifacts/api-server/src/routes/ai/chat.ts:600:  code: "PLAN_CONTEXT_STALE" | "PLAN_CONTEXT_INCOMPLETE" | "PLAN_FILES_CHANGED";
+artifacts/api-server/src/routes/ai/chat.ts:617:      code: "PLAN_CONTEXT_INCOMPLETE",
+artifacts/api-server/src/routes/ai/chat.ts:626:      code: "PLAN_CONTEXT_INCOMPLETE",
+artifacts/api-server/src/routes/ai/chat.ts:631:      error: "The project scan is incomplete. Complete a fresh scan before approving or starting Build Mode.",
+artifacts/api-server/src/routes/ai/chat.ts:632:      code: "PLAN_CONTEXT_INCOMPLETE",
+artifacts/api-server/src/routes/ai/chat.ts:668: * This avoids asking a provider to plan from a stale or partial snapshot.
+artifacts/api-server/src/routes/ai/chat.ts:702:      filesystemManifest: unavailable("The project scan is incomplete; complete a fresh scan before creating a plan."),
+artifacts/api-server/src/routes/ai/chat.ts:703:      filesystemSources: unavailableSources("The project scan is incomplete; source excerpts are not planning evidence."),
+artifacts/api-server/src/routes/ai/chat.ts:730:      filesystemManifest: unavailable("The live source walk is incomplete; planning requires a complete snapshot."),
+artifacts/api-server/src/routes/ai/chat.ts:731:      filesystemSources: unavailableSources("The live source walk is incomplete."),
+artifacts/api-server/src/routes/ai/chat.ts:752:        filesystemManifest.reason ?? "The bounded filesystem inventory is incomplete.",
+artifacts/api-server/src/routes/ai/chat.ts:778:      code: "PLAN_CONTEXT_INCOMPLETE",
+artifacts/api-server/src/routes/ai/chat.ts:793:  const incompleteCode = traceSteps.some(
+artifacts/api-server/src/routes/ai/chat.ts:796:      (step.code === "INCOMPLETE_BEFORE_EVIDENCE" || step.code === "INVESTIGATION_START_FAILURE"),
+artifacts/api-server/src/routes/ai/chat.ts:798:  if (!incompleteCode) return false;
+artifacts/api-server/src/routes/ai/chat.ts:810:    : "Execution stopped before the first source read, so the result is incomplete and not proven. Retry with a clear target file or objective.";
+artifacts/api-server/src/routes/ai/chat.ts:850:    // A provider/network failure may already have persisted the user turn.
+artifacts/api-server/src/routes/ai/chat.ts:880:      // Empty content is intentional: a failed provider turn is not an
+artifacts/api-server/src/routes/ai/chat.ts:1223:      latestValidation.repairState === "READY_FOR_REVIEW"
+artifacts/api-server/src/routes/ai/chat.ts:1270:  stopReason?: "response" | "iteration_budget" | "soft_limit" | "repeated_tool_call" | "empty_response" | "provider_timeout" | "tool_failure" | "cancelled";
+artifacts/api-server/src/routes/ai/chat.ts:1279:  behavioralAssessment?: "COMPLETE" | "INCOMPLETE" | "NOT_STARTED";
+artifacts/api-server/src/routes/ai/chat.ts:1282:  /** Structured audit scope derived from isFixtureLocal. */
+artifacts/api-server/src/routes/ai/chat.ts:1306:  /** Structured, safe context for phase-policy rejection diagnostics. */
+artifacts/api-server/src/routes/ai/chat.ts:1309:  provider?: string;
+artifacts/api-server/src/routes/ai/chat.ts:1314:    behaviorAssessment: "COMPLETE" | "INCOMPLETE" | "NOT_STARTED";
+artifacts/api-server/src/routes/ai/chat.ts:1565:        return { kind: step.kind, model: step.model, provider: step.provider };
+artifacts/api-server/src/routes/ai/chat.ts:1570:          provider: step.provider,
+artifacts/api-server/src/routes/ai/chat.ts:1684:    const structuredPlan = parseRepairPlanMetadata(row.repairPlanMetadata ?? null);
+artifacts/api-server/src/routes/ai/chat.ts:1685:    return Boolean(structuredPlan?.length) || marker.test(row.content);
+artifacts/api-server/src/routes/ai/chat.ts:1741:          taskType: "REPAIR_ANALYSIS" as const,
+artifacts/api-server/src/routes/ai/chat.ts:1816:  // happens before provider resolution and before SSE headers are committed.
+artifacts/api-server/src/routes/ai/chat.ts:1909:  let analysisCorrelation: {
+artifacts/api-server/src/routes/ai/chat.ts:1920:    evidenceProvenance: "project-analysis",
+artifacts/api-server/src/routes/ai/chat.ts:1922:  const analysisToolRunner = validRootPath
+artifacts/api-server/src/routes/ai/chat.ts:1923:    ? createProjectAnalysisToolRunner(projectId, validRootPath)
+artifacts/api-server/src/routes/ai/chat.ts:1941:  const providerResolved = await requireProvider(req.userId, res, {
+artifacts/api-server/src/routes/ai/chat.ts:1945:  if (!providerResolved) return;
+artifacts/api-server/src/routes/ai/chat.ts:1946:  const { provider, apiKey } = providerResolved;
+artifacts/api-server/src/routes/ai/chat.ts:1969:    // AI-TASK-007: Structured chat context trace.
+artifacts/api-server/src/routes/ai/chat.ts:1973:      provider,
+artifacts/api-server/src/routes/ai/chat.ts:2018:          allowAnalysisTools: Boolean(modelHasTools && analysisToolRunner),
+artifacts/api-server/src/routes/ai/chat.ts:2019:          analysisToolRunner,

@@ -1,0 +1,422 @@
+30:  useListAiChatMessages,
+153:  sessionId: string;
+312:  sessionId?: string;
+321:  sessionId?: string;
+7084:  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+7096:  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+7200:    if (!executionPointerKey || sessionId) return undefined;
+7204:  const executionStorageSessionId = sessionId ?? pointedExecutionSessionId;
+7218:        typeof parsed.sessionId !== 'string' ||
+7226:        parsed.sessionId !== executionStorageSessionId
+7231:      return parsed as ActiveExecution & { sessionId: string };
+7342:    setSessionId((current) => current ?? storedExecution.sessionId);
+7355:      activeExecution.sessionId !== executionStorageSessionId
+7362:        sessionId: executionStorageSessionId,
+7378:      activeExecution.sessionId !== sessionId
+7381:      const recoveredSessionId = activeExecution.sessionId ?? sessionId;
+7405:    activeExecution?.sessionId,
+7410:    sessionId,
+7456:              sessionId: executionStorageSessionId,
+7576:      setLocalMessages((prev) => [
+7638:        setLocalMessages((prev) => [
+7657:        setLocalMessages((prev) => [
+7679:        setLocalMessages((prev) => [
+7732:  const pendingKey = sessionId ? `eos_pending_${sessionId}` : undefined;
+7733:  const verificationKey = sessionId ? `eos_verification_${sessionId}` : undefined;
+7751:    if (!sessionId) {
+7786:  }, [pendingKey, sessionId, verificationKey]);
+7837:  const { data: serverMessages = [], isFetched: messagesFetched } = useListAiChatMessages<ChatMessage[]>(
+7838:    sessionId ?? '',
+7841:        queryKey: ['ai-messages', sessionId],
+7842:        enabled: isLoaded && !!sessionId,
+7860:    sessionId ?? '',
+7863:        queryKey: ['ai-pending-proposal', sessionId],
+7864:        enabled: isLoaded && !!sessionId,
+7927:        setSessionId(proposal.sessionId);
+7928:        void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', proposal.sessionId] });
+7937:        if (sessionId === proposal.sessionId) {
+7956:        `/api/ai/chat/${encodeURIComponent(sessionId ?? '')}/messages/${encodeURIComponent(messageId)}/mission-correlation-report/regenerate`,
+7966:      if (sessionId) void qc.invalidateQueries({ queryKey: ['ai-messages', sessionId] });
+8007:    setLocalMessages(safeMessages);
+8038:      && activeExecution.sessionId === sessionId,
+8043:      !sessionId ||
+8045:      sessions.some((session) => session.id === sessionId)
+8050:    setLocalMessages([]);
+8059:    activeExecution?.sessionId,
+8064:    sessionId,
+8075:  }, [localMessages]);
+8226:        void qc.invalidateQueries({ queryKey: ['ai-pending-proposal', sessionId] });
+8417:    const requestSessionId = sessionId;
+8421:      ...(requestSessionId ? { sessionId: requestSessionId } : {}),
+8424:    const ownsStream = (binding?: { sessionId?: string; executionId?: string }) => {
+8431:      if (binding?.sessionId && owner.sessionId && binding.sessionId !== owner.sessionId) {
+8451:      setLocalMessages((prev) => [...prev, optimistic]);
+8456:        ...(requestSessionId ? { sessionId: requestSessionId } : {}),
+8478:        sessionId,
+8492:             ...(owner.sessionId ? { sessionId: owner.sessionId } : {}),
+8517:          if (!ownsStream({ sessionId: event.sessionId })) return;
+8518:          streamOwnerRef.current!.sessionId = event.sessionId;
+8519:          setSessionId(event.sessionId);
+8524:                id: event.sessionId,
+8528:              ...previous.filter((session) => session.id !== event.sessionId),
+8798:          if (!ownsStream({ sessionId: data.sessionId })) return;
+8815:          setSessionId(data.sessionId);
+8819:              const existing = previous.find((session) => session.id === data.sessionId);
+8822:                  id: data.sessionId,
+8826:                ...previous.filter((session) => session.id !== data.sessionId),
+8830:          setLocalMessages((prev) => {
+8888:          setLocalMessages((prev) => prev.filter((m) => !m.id.startsWith('opt-')));
+8893:          const failedSessionId = activeExecutionRef.current?.sessionId ?? sessionId;
+8981:      setLocalMessages((previous) =>
+9006:    if (!selectedProjectId || !sessionId || isSending || planBuildPending) return;
+9007:    const planMessage = localMessages.find((message) => message.id === messageId);
+9065:    setLocalMessages([]);
+9114:  const messages = localMessages;
+9155:    setLocalMessages((prev) => prev.filter((message) => !message.id.startsWith('opt-')));
+9242:                  setLocalMessages([]);
+9251:                  s.id === sessionId
+9310:                            ...(audit.sessionId ? { sessionId: audit.sessionId } : {}),
+9407:                  if (sessionId) {
+9408:                    void qc.invalidateQueries({ queryKey: ['ai-messages', sessionId] });
+  6980                ? 'text-amber-200'
+  6981                : 'text-green-300'
+  6982          }`}>
+  6983            {status === 'failed'
+  6984              ? 'No automatic writes'
+  6985              : pendingChanges.length > 0
+  6986                ? 'Approval required'
+  6987                : 'Writes gated'}
+  6988          </div>
+  6989        </div>
+  6990      </div>
+  6991      <div className="grid gap-2 border-t border-border/40 px-3 py-2.5 sm:grid-cols-[1.5fr_1fr_1fr]">
+  6992        <div className="min-w-0">
+  6993          <div className="text-[10px] text-muted-foreground">Objective</div>
+  6994          <div className="mt-0.5 break-words text-[11px] font-medium text-foreground">{objectiveLabel}</div>
+  6995        </div>
+  6996        <div>
+  6997          <div className="text-[10px] text-muted-foreground">Scope</div>
+  6998          <div className="mt-0.5 text-[11px] font-medium text-foreground">
+  6999            {missionNodes.reduce((total, node) => total + node.allowedFiles.length, 0)} files · {missionNodes.length} nodes
+  7000          </div>
+  7001        </div>
+  7002        <div>
+  7003          <div className="text-[10px] text-muted-foreground">Risk</div>
+  7004          <div className={`mt-0.5 text-[11px] font-medium ${riskLabel.startsWith('High') || riskLabel.startsWith('Evidence') ? 'text-red-200' : 'text-amber-200'}`}>{riskLabel}</div>
+  7005        </div>
+  7006      </div>
+  7007      {evidenceIntegrity && (
+  7008        evidenceIntegrity.objectiveType ||
+  7009        evidenceIntegrity.completionGateResult ||
+  7010        evidenceIntegrity.finalAnswerType ||
+  7011        requiredEdges.length > 0 ||
+  7012        provenEdges.length > 0
+  7013      ) && (
+  7014        <div className="border-t border-border/40 px-3 py-2.5" aria-label="Objective proof details">
+  7015          <div className="text-[10px] font-semibold text-primary">Objective proof</div>
+  7016          <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 sm:grid-cols-4">
+  7017            <div>
+  7018              <div className="text-[10px] text-muted-foreground">Completion</div>
+  7019              <div className="font-semibold text-foreground">{evidenceIntegrity.completionGateResult ?? 'Not declared'}</div>
+  7020            </div>
+  7021            <div>
+  7022              <div className="text-[10px] text-muted-foreground">Required edges</div>
+  7023              <div className="font-semibold text-foreground">{requiredEdges.length}</div>
+  7024            </div>
+  7025            <div>
+  7026              <div className="text-[10px] text-muted-foreground">Proven edges</div>
+  7027              <div className="font-semibold text-green-300">{provenEdges.length}</div>
+  7028            </div>
+  7029            <div>
+  7030              <div className="text-[10px] text-muted-foreground">Final answer</div>
+  7031              <div className="break-words font-semibold text-foreground">
+  7032                {evidenceIntegrity.finalAnswerType
+  7033                  ? evidenceIntegrity.finalAnswerType.replace(/_ANSWER$/, '').replace(/_/g, ' ')
+  7034                  : 'Not recorded'}
+  7035              </div>
+  7036            </div>
+  7037          </div>
+  7038          {evidenceIntegrity.objectiveType && (
+  7039            <div className="mt-1.5 border-t border-border/40 pt-1.5 text-[10px] text-muted-foreground">
+  7040              Objective type: <span className="font-semibold text-foreground">{evidenceIntegrity.objectiveType}</span>
+  7041            </div>
+  7042          )}
+  7043          {requiredEdges.length > 0 && (
+  7044            <div className="mt-1.5 space-y-0.5 border-t border-border/40 pt-1.5">
+  7045              <div className="text-[10px] text-muted-foreground">Edge proof ledger</div>
+  7046              {requiredEdges.map((edge) => (
+  7047                <div key={edge} className="font-mono text-[10px] text-foreground/80">
+  7048                  <span className={provenEdges.includes(edge) ? 'text-green-300' : 'text-amber-200'}>
+  7049                    {provenEdges.includes(edge) ? '✓' : '○'}
+  7050                  </span>{' '}
+  7051                  {edge}
+  7052                </div>
+  7053              ))}
+  7054            </div>
+  7055          )}
+  7056        </div>
+  7057      )}
+  7058
+  7059      {(execution?.checkpointVersion !== undefined || execution?.resumable || evidenceIntegrity?.violations.length) && (
+  7060        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/40 px-3 py-2 text-[10px] text-muted-foreground">
+  7061          {execution?.checkpointVersion !== undefined && (
+  7062            <span>checkpoint v{execution.checkpointVersion}</span>
+  7063          )}
+  7064          {execution?.resumable && <span className="text-amber-200">resume available</span>}
+  7065          {evidenceIntegrity && !evidenceIntegrity.consistent && (
+  7066            <span className="text-red-200">Evidence gate blocked unsupported claims</span>
+  7067          )}
+  7068        </div>
+  7069      )}
+  7070      <ExecutionMissionControl nodes={missionNodes} />
+  7071      <BenchmarkMissionControl />
+  7072    </div>
+  7073  );
+  7074}
+  7075
+  7076export default function AiChat() {
+  7077  const { toast } = useToast();
+  7078  const qc = useQueryClient();
+  7079  const bottomRef = useRef<HTMLDivElement>(null);
+  7080  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  7081  const { isLoaded, user } = useUser();
+  7082
+  7083  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  7084  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
+  7085  // AI-TASK-006: task linkage — read from URL search params so the Tasks page
+  7086  // can deep-link to /ai?taskId=<uuid>&projectId=<id> to open a task-aware session.
+  7087  const [linkedTaskId] = useState<string | undefined>(() => {
+  7088    const params = new URLSearchParams(window.location.search);
+  7089    return params.get('taskId') ?? undefined;
+  7090  });
+  7091  const [input, setInput] = useState('');
+  7092  const [auditExportPending, setAuditExportPending] = useState(false);
+  7093  const [auditPreviewPending, setAuditPreviewPending] = useState(false);
+  7094  const [auditPreview, setAuditPreview] = useState<AuditPreview | null>(null);
+  7095  const [auditPreviewError, setAuditPreviewError] = useState<string | null>(null);
+  7096  const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
+  7097  const [historicalReportError, setHistoricalReportError] = useState<string | null>(null);
+  7098  const [planDecisionPending, setPlanDecisionPending] = useState<string | null>(null);
+  7099  const [planBuildPending, setPlanBuildPending] = useState<string | null>(null);
+  7100  const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
+  7101  const [proposalId, setProposalId] = useState<string | undefined>(undefined);
+  7102  const [operationId, setOperationId] = useState<string | undefined>(undefined);
+  7103  const [operationMode, setOperationMode] = useState<OperationMode | undefined>(undefined);
+  7104  const [proposalRequiresApproval, setProposalRequiresApproval] = useState(false);
+  7105  const [proposalRevision, setProposalRevision] = useState<number | undefined>(undefined);
+  7106  const [deliveryLifecycle, setDeliveryLifecycle] = useState<DeliveryLifecycle | undefined>(undefined);
+  7107  const [validationEvidence, setValidationEvidence] = useState<PublicValidationResult[]>([]);
+  7108  const reapprovalApplyRef = useRef<ApprovedPendingChange[] | null>(null);
+  7109  const [verificationResults, setVerificationResults] = useState<Record<string, BehavioralVerification>>({});
+  7110  const [commitReadyPaths, setCommitReadyPaths] = useState<string[]>([]);
+  7111  const [commitProposalId, setCommitProposalId] = useState<string | undefined>(undefined);
+  7112  const [commitMessage, setCommitMessage] = useState('Apply verified AI changes');
+  7113  const [pushReady, setPushReady] = useState(false);
+  7114  // PR-I: agentStage is now driven by real SSE stage events from the server
+  7115  // rather than a client-side timer that rotated through fake labels.
+  7116  const [agentStage, setAgentStage] = useState<string | null>(null);
+  7117  // Streaming: accumulates raw text deltas while Groq is streaming a response.
+  7118  // Cleared to '' once the `done` event arrives and the full message is added.
+  7119  const [streamingContent, setStreamingContent] = useState('');
+  7120  // STORY-04: actual model used at runtime — updated from every SSE done event
+  7121  // so the badge always reflects what the model that actually ran the request.
+  7122  const [lastResolvedModel, setLastResolvedModel] = useState<{ id: string; provider: string; free: boolean } | undefined>(undefined);
+  7123  const { send: streamSend, cancel: cancelStream, isPending: isSending } = useAiChatStream();
+  7124  const { send: taskStreamSend, cancel: cancelTaskStream, isPending: isTaskSending } = useAiTaskStream();
+  7125  const streamGenerationRef = useRef(0);
+  7126  const streamOwnerRef = useRef<StreamOwner | null>(null);
+  7127  const { data: operationEventsPage, isLoading: operationEventsLoading } = useListEvents(
+  7128    {
+  7129      projectId: selectedProjectId,
+  7130      ...(operationId ? { correlationId: operationId } : {}),
+  7131      limit: 100,
+  7132    },
+  7133    {
+  7134      query: {
+  7135        queryKey: ['operation-trace', selectedProjectId, operationId],
+  7136        enabled: isLoaded && !!selectedProjectId && !!operationId,
+  7137      },
+  7138    },
+  7139  );
+  7140  const operationEvents = operationEventsPage?.events ?? [];
+  7141
+  7142  useEffect(() => {
+  7143    return () => {
+  7144      cancelStream();
+  7145      cancelTaskStream();
+  9360          <DeepSeekKeyCard  runtimeMetric={metricsMap.get('deepseek')} />
+  9361          <GroqKeyCard      runtimeMetric={metricsMap.get('groq')} />
+  9362        </div>
+  9363      </div>
+  9364
+  9365      {/* Main chat area */}
+  9366      <div className="flex min-w-0 flex-1 flex-col">
+  9367        {/* Header */}
+  9368        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 sm:px-4">
+  9369          {!sidebarOpen && (
+  9370            <Button
+  9371              size="icon"
+  9372              variant="ghost"
+  9373              className="h-8 w-8 shrink-0 md:hidden"
+  9374              onClick={() => setSidebarOpen(true)}
+  9375              title="Open sessions"
+  9376              aria-label="Open sessions"
+  9377            >
+  9378              <Menu className="h-4 w-4" />
+  9379            </Button>
+  9380          )}
+  9381          <Bot className="w-4 h-4 text-primary" />
+  9382          <span className="min-w-0 truncate text-sm font-medium">EngineeringOS AI</span>
+  9383          <Badge variant="outline" className="ml-auto max-w-[48%] truncate text-[10px] font-mono sm:text-xs">
+  9384            {activeProvider?.provider === 'deepseek'
+  9385              ? 'DeepSeek V3'
+  9386              : activeProvider?.provider === 'openrouter'
+  9387                ? (lastResolvedModel
+  9388                    ? `${fmtModelId(lastResolvedModel.id)} · OpenRouter`
+  9389                    : 'OpenRouter')
+  9390                : activeProvider?.provider === 'gemini'
+  9391                  ? 'Gemini 2.5 Flash'
+  9392                  : 'Llama 3.3 · Groq'}
+  9393          </Badge>
+  9394        </div>
+  9395
+  9396        {/* Messages */}
+  9397        <ScrollArea className="min-h-0 min-w-0 flex-1 px-3 py-3 sm:px-4 sm:py-4">
+  9398          {historicalReportError && (
+  9399            <div role="alert" className="mb-4 flex min-w-0 items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+  9400              <span className="min-w-0 flex-1">{historicalReportError}</span>
+  9401              <Button
+  9402                type="button"
+  9403                size="sm"
+  9404                variant="outline"
+  9405                className="h-7 shrink-0 px-2 text-[11px]"
+  9406                onClick={() => {
+  9407                  if (sessionId) {
+  9408                    void qc.invalidateQueries({ queryKey: ['ai-messages', sessionId] });
+  9409                  }
+  9410                }}
+  9411              >
+  9412                Retry
+  9413              </Button>
+  9414            </div>
+  9415          )}
+  9416          {(recoverableDeliveries?.operations?.length ?? 0) > 0 && (
+  9417            <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3" role="region" aria-label="Recoverable delivery operations">
+  9418              <div className="flex items-center gap-2 text-xs font-semibold text-amber-100">
+  9419                <RotateCcw className="h-3.5 w-3.5" />
+  9420                Recoverable delivery work
+  9421              </div>
+  9422              <div className="mt-2 space-y-2">
+  9423                  {recoverableDeliveries!.operations.map((delivery) => (
+  9424                    <div
+  9425                      key={delivery.proposalId}
+  9426                      className="rounded-md border border-amber-500/20 bg-background/30 p-2.5 text-[11px]"
+  9427                      data-operation-id={delivery.operationId}
+  9428                      data-recovery-state={delivery.recoveryState}
+  9429                    >
+  9430                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+  9431                      <Badge variant={delivery.recoveryState === 'discarded' ? 'secondary' : delivery.recoveryState === 'missing_workspace' ? 'destructive' : 'outline'} className="text-[10px]">
+  9432                        {delivery.recoveryState === 'recoverable'
+  9433                          ? 'Recoverable'
+  9434                          : delivery.recoveryState === 'missing_workspace'
+  9435                            ? 'Workspace unavailable'
+  9436                            : 'Already discarded'}
+  9437                      </Badge>
+  9438                      <span className="text-muted-foreground">{delivery.changeCount} change{delivery.changeCount === 1 ? '' : 's'}</span>
+  9439                      <span className="text-muted-foreground">{new Date(delivery.createdAt).toLocaleString()}</span>
+  9440                    </div>
+  9441                    <div className="mt-1 break-words text-foreground/90">{delivery.operatorExplanation}</div>
+  9442                    {delivery.conflictReason && delivery.recoveryState !== 'discarded' && (
+  9443                      <div className="mt-1 break-words text-red-200">Retained reason: {delivery.conflictReason}</div>
+  9444                    )}
+  9445                    {delivery.validationEvidence && delivery.validationEvidence.length > 0 && (
+  9446                      <CandidateValidationProof
+  9447                        evidence={delivery.validationEvidence}
+  9448                        operationId={delivery.operationId}
+  9449                        projectRevision={delivery.projectRevision}
+  9450                        changeSetHash={delivery.changeSetHash}
+  9451                        lifecycle={delivery.lifecycle}
+  9452                      />
+  9453                    )}
+  9454                    {(() => {
+  9455                      const blockedCheck = delivery.validationEvidence?.find((check) => check.reasonCode);
+  9456                      const explanation = browserValidationBlockExplanation(blockedCheck?.reasonCode);
+  9457                      return explanation ? (
+  9458                        <div className="mt-1 rounded border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 text-amber-100" role="note" aria-label="Safe browser validation guidance">
+  9459                          <div className="font-medium">{explanation.title}</div>
+  9460                          <div className="mt-0.5 text-amber-100/80">{explanation.action}</div>
+  9461                        </div>
+  9462                      ) : null;
+  9463                    })()}
+  9464                    <div className="mt-1 break-words text-muted-foreground">{delivery.nextAction}</div>
+  9465                    <div className="mt-2 flex flex-wrap gap-2">
+  9466                      <Button
+  9467                        type="button"
+  9468                        size="sm"
+  9469                        variant="outline"
+  9470                        className="h-7 px-2 text-[11px]"
+  9471                        disabled={deliveryRecoveryPending !== null || delivery.recoveryState !== 'recoverable'}
+  9472                        onClick={() => void recoverDelivery(delivery, 'resume-validation')}
+  9473                      >
+  9474                        {deliveryRecoveryPending === delivery.proposalId ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RotateCcw className="mr-1 h-3 w-3" />}
+  9475                        Resume validation
+  9476                      </Button>
+  9477                      <Button
+  9478                        type="button"
+  9479                        size="sm"
+  9480                        variant="ghost"
+  9481                        className="h-7 px-2 text-[11px] text-red-200 hover:text-red-100"
+  9482                        disabled={deliveryRecoveryPending !== null || delivery.recoveryState !== 'recoverable'}
+  9483                        onClick={() => void recoverDelivery(delivery, 'discard')}
+  9484                      >
+  9485                        <Trash2 className="mr-1 h-3 w-3" />
+  9486                        Discard workspace
+  9487                      </Button>
+  9488                    </div>
+  9489                  </div>
+  9490                ))}
+  9491              </div>
+  9492            </div>
+  9493          )}
+  9494          {isEmpty ? (
+  9495            <div className="flex flex-col items-center justify-center h-full min-h-[300px] gap-6">
+  9496              <div className="flex flex-col items-center gap-2">
+  9497                <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+  9498                  <Bot className="w-6 h-6 text-primary" />
+  9499                </div>
+  9500                <p className="text-sm font-medium">How can I help with your project?</p>
+  9501                <p className={`text-xs text-center max-w-xs ${projectLoadFailure ? 'text-destructive' : 'text-muted-foreground'}`}>
+  9502                  {getStatusSubtitle()}
+  9503                </p>
+  9504              </div>
+  9505               <div className="grid w-full max-w-sm grid-cols-2 gap-2">
+  9506                {AI_ACTIONS.map((action) => (
+  9507                  <button
+  9508                    key={action.id}
+  9509                    onClick={() => handleQuickAction(action)}
+  9510                    disabled={!isLoaded || projectsLoading || !selectedProjectId || (action.id === 'analyze' && isTaskSending) || (action.id === 'review' && isTaskSending)}
+  9511                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-secondary hover:bg-secondary/80 text-xs text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-secondary"
+  9512                  >
+  9513                    <action.icon className="w-3.5 h-3.5 text-primary shrink-0" />
+  9514                    {action.label}
+  9515                  </button>
+  9516                ))}
+  9517              </div>
+  9518            </div>
+  9519          ) : (
+  9520            <div className="chat-content mx-auto min-w-0 w-full max-w-3xl">
+  9521               {showExecutionProof && (
+  9522                 <AgentExecutionProofPanel
+  9523                   execution={activeExecutionStatus}
+  9524                   executionId={activeExecution?.id}
+  9525                    executionNodes={executionNodes}
+  9526                   busy={isAgentBusy}
+  9527                   stage={agentStage}
+  9528                   elapsedSeconds={agentElapsedSeconds}
+  9529                   steps={agentSteps}
+  9530                   modelHistory={agentModelHistory}
+  9531                   pendingChanges={pendingChanges}
+  9532                   commitReadyPaths={commitReadyPaths}
+  9533                   pushReady={pushReady}
+  9534                   evidenceIntegrity={liveEvidenceIntegrity}
+  9535                   isFixtureLocal={liveFixtureLocal}

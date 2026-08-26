@@ -1,0 +1,373 @@
+   180  recoveryOutcome?: 'recovery_required' | 'resume_accepted' | 'abandoned' | 'already_abandoned' | null;
+   181};
+   182
+   183export type AiExecutionNodeStatus = 'queued' | 'running' | 'passed' | 'failed' | 'blocked';
+   184
+   185export type AiExecutionNodeSnapshot = {
+   186  id: string;
+   187  title: string;
+   188  status: AiExecutionNodeStatus;
+   189  allowedFiles: string[];
+   190  dependencies: string[];
+   191  validationProfile: string;
+   192  attempts: number;
+   193};
+   194
+   195export type AiStreamExecutionNodesEvent = {
+   196  type: 'execution_nodes';
+   197  executionId: string;
+   198  nodes: AiExecutionNodeSnapshot[];
+   199};
+   200
+   201export type AiStreamErrorEvent = {
+   202  type: 'error';
+   203  code: string;
+   204  message: string;
+   205  hint?: string;
+   206  raw?: string;
+   207  parseCode?: string;
+   208  providerContext?: Record<string, unknown>;
+   209  retryable?: boolean;
+   210  suggestedFix?: string;
+   211  executionId?: string;
+   212  sessionId?: string;
+   213  turnIntent?: string;
+   214  outcome?: 'FAILED' | 'INTERRUPTED';
+   215  failureKind?: 'PROVIDER_FORMAT' | 'RATE_LIMIT' | 'CONFIGURATION' | 'PROVIDER_FAILURE' | 'TRANSPORT';
+   216  availabilityState?: 'missing_credentials' | 'authentication_failed' | 'no_compatible_free_model' | 'catalog_stale' | 'quota_exhausted' | 'rate_limited' | 'provider_outage';
+   217  operatorAction?: string;
+   218  correlationId?: string;
+   219};
+   220
+   221export type AiStreamResetEvent = {
+   222  type: 'stream_reset';
+   223};
+   224
+   225export type AiStreamToolCallEvent = {
+   226  type: 'tool_call';
+   227  /** Registered tool name, e.g. "read_file", "search_code". */
+   228  tool: string;
+   229  /** Parsed arguments for the tool call. */
+   230  args: Record<string, string>;
+   231  /** True when the result was served from the dedup cache (no real execution). */
+   232  cached: boolean;
+   233};
+   234
+   235export type AiStreamToolResultEvent = {
+   236  type: 'tool_result';
+   237  tool: string;
+   238  /** Ground-truth source label (e.g. file path) when available. */
+   239  source?: string;
+   240  cached: boolean;
+   241  /** Bounded, content-free summary of the completed result. */
+   242  resultSummary?: string;
+   243};
+   244
+   245export type AiStreamPlanActivityEvent = {
+   246  type: 'plan_activity';
+   247  stage: 'understand' | 'scope' | 'plan' | 'execute' | 'validate';
+   248  status: 'active' | 'done' | 'info';
+   249  stepTitle?: string;
+   250  action?: 'inspect' | 'create' | 'modify' | 'delete' | 'test' | 'configure';
+   560  diagnosticDetails?: string[];
+   561  /** Distinct model IDs that produced successful loop responses, in order. */
+   562  modelsUsed?: string[];
+   563  /** Distinct model IDs used by the bounded forensic Recovery chain. */
+   564  recoveryModelsUsed?: string[];
+   565  /**
+   566   * EI-012: true when the run-ledger telemetry reconciled with the run's cited
+   567   * evidence (no evidence↔read mismatch). False/null when the reconciliation
+   568   * gate blocked the verdict. Presence here is the client-facing signal that a
+   569   * reconciliation actually ran for this turn.
+   570   */
+   571  evidenceConsistent?: boolean;
+   572  /**
+   573   * FEG-015: source-retrieval read classification and starvation telemetry.
+   574   * `firstEvidenceAcquired` is the key run-summary signal that the
+   575   * investigation actually reached source evidence (versus starving at zero).
+   576   * Reads are split into prefetch / targeted / dependency / duplicate buckets
+   577   * so a regression cannot hide inside a single `filesRead` count.
+   578   */
+   579  sourceRetrieval?: {
+   580    /** True once ANY source evidence was acquired (first read or usable prefetch). */
+   581    firstEvidenceAcquired: boolean;
+   582    /** 0-based loop iteration of the first source read (null = never read a source). */
+   583    iterationsUntilFirstRead: number | null;
+   584    /** Iterations that elapsed without any source evidence. */
+   585    iterationsWithoutEvidence: number;
+   586    /** Loop iterations that issued tool calls but landed no new read. */
+   587    planningIterations: number;
+   588    /** Loop iterations that landed a new source read. */
+   589    evidenceIterations: number;
+   590    /** search/list gather calls issued before the first source read. */
+   591    crossFileQueriesBeforeFirstRead: number;
+   592    /** True when usable source bodies were prefetched before the loop. */
+   593    prefetchBeforeFirstRead: boolean;
+   594    /** Source reads that landed before the loop. */
+   595    prefetchReads: number;
+   596    /** Source reads issued as targeted range reads. */
+   597    targetedReads: number;
+   598    /** New follow-up source reads made after the run already had evidence. */
+   599    dependencyReads: number;
+   600    /** Re-reads of an already-read path. */
+   601    duplicateReads: number;
+   602    /** Distinct paths the loop actually read via read tools. */
+   603    readPaths: string[];
+   604  };
+   605};
+   606
+   607/**
+   608 * Live run-ledger telemetry reconciliation (EI-011/012). Emitted as part of the
+   609 * stream when the orchestrator reconciles the files it read with the evidence
+   610 * it cites. `consistent: false` means the verdict failed closed on
+   611 * TELEMETRY_INCONSISTENT, and `violations` are the bounded, content-free reason
+   612 * labels for why.
+   613 */
+   614export type AiStreamEvidenceIntegrityEvent = {
+   615  type: 'evidence_integrity';
+   616  /** "TELEMETRY_CONSISTENT" | "TELEMETRY_INCONSISTENT" (or a variant label). */
+   617  code: string;
+   618  consistent: boolean;
+   619  /** Bounded, content-free violation labels (never source contents). */
+   620  violations: string[];
+   621  readAttempts?: number;
+   622  uniqueFilesRead?: number;
+   623  evidenceFileCount?: number;
+   624  acceptedEvidenceCount?: number;
+   625  /** Objective completion proof, present when the request declared an objective. */
+   626  objectiveType?: string;
+   627  requiredEdges?: string[];
+   628  provenEdges?: string[];
+   629  completionGateResult?: string;
+   630  finalAnswerType?: 'PRODUCTION_REACHABILITY_ANSWER' | 'BEHAVIORAL_ANSWER' | 'NO_ANSWER';
+   631  evidenceSourceCoverage?: {
+   632    status: 'COMPLETE' | 'PARTIAL' | 'NONE';
+   633    requestedFiles?: string[];
+   634    roots: Array<{
+   635      root: string;
+   636      discoveredFiles: number;
+   637      readFiles: number;
+   638      unreadFiles: number;
+   639      status: 'COMPLETE' | 'EMPTY' | 'PARTIAL' | 'BUDGET_EXHAUSTED';
+   640    }>;
+   641    reason?: string;
+   642  };
+   643  scopeExpansions?: Array<{
+   644    kind: 'JUSTIFIED_SCOPE_EXPANSION' | 'UNJUSTIFIED_SCOPE_EXPANSION';
+   645    path: string;
+   646    matchedPolicyPath?: string;
+   647  }>;
+   648  unjustifiedReads?: string[];
+   649};
+   650
+   651export type AiStreamEvent =
+   652  | AiStreamExecutionStartedEvent
+   653  | AiStreamExecutionNodesEvent
+   654  | AiStreamStageEvent
+   655  | AiStreamDeltaEvent
+   656  | AiStreamIntentEvent
+   657  | AiStreamAuditStateEvent
+   658  | AiStreamVerificationEvent
+   659  | AiStreamSessionStartedEvent
+   660  | AiStreamDoneEvent
+   661  | AiStreamErrorEvent
+   662  | AiStreamResetEvent
+   663  | AiStreamToolCallEvent
+   664  | AiStreamToolResultEvent
+   665  | AiStreamPlanActivityEvent
+   666  | AiStreamValidationEvent
+   667  | AiStreamRepairStateEvent
+   668  | AiStreamModelCallEvent
+   669  | AiStreamThinkingEvent
+   670  | AiStreamExecutionGuardEvent
+   671  | AiStreamSynthesisStartEvent
+   672  | AiStreamExecutionDiagnosticEvent
+   673  | AiStreamForensicStatusEvent
+   674  | AiStreamForensicTerminalEvent
+   675  | AiStreamProductionTraceEvent
+   676  | AiStreamCrossFileTraceEvent
+   677  | AiStreamEvidenceIntegrityEvent
+   678  | AiStreamDecisionTraceEvent
+   679  | AiStreamTaskStartedEvent
+   680  | AiStreamTaskProgressEvent
+   681  | AiStreamTaskDoneEvent;
+   682
+   683// ── Hook params ───────────────────────────────────────────────────────────────
+   684
+   685export type AiChatStreamParams = {
+   686  projectId: string;
+   687  message: string;
+   688  sessionId?: string;
+   689  /** AI-TASK-006: When set, the backend loads this task and builds a task-aware prompt. */
+   690  linkedTaskId?: string;
+   691  /** Build handoff from an approved implementation-plan message. */
+   692  buildPlanMessageId?: string;
+   693  /** Resume an existing paused execution instead of starting a duplicate. */
+   694  executionId?: string;
+   695  /** Opaque token returned in execution_started for explicit resume. */
+   696  resumeToken?: string;
+   697  /** Stable retry key for the first request. */
+   698  idempotencyKey?: string;
+   699};
+   700
+   701export type AiChatStreamCallbacks = {
+   702  /** Durable execution identity emitted before model work starts. */
+   703  onExecutionStarted?: (event: AiStreamExecutionStartedEvent) => void;
+   704  /** Bounded execution tree snapshot used by Mission Control. */
+   705  onExecutionNodes?: (event: AiStreamExecutionNodesEvent) => void;
+   706  /** Called once the server has reserved a new session before model work starts. */
+   707  onSessionStarted?: (event: AiStreamSessionStartedEvent) => void;
+   708  onStage?: (stage: string) => void;
+   709  /** Called once the server has resolved the authoritative turn routing contract. */
+   710  onIntent?: (event: AiStreamIntentEvent) => void;
+   711  /** Called when the forensic evidence ledger publishes its bounded state. */
+   712  onAuditState?: (event: AiStreamAuditStateEvent) => void;
+   713  /** Called when the server verifies the model response/evidence boundary. */
+   714  onVerification?: (event: AiStreamVerificationEvent) => void;
+   715  /** Called for each incremental text token from the model's streaming response. */
+   716  onDelta?: (delta: string) => void;
+   717  /** Called when the SSE stream breaks mid-flight so callers can clear partial state. */
+   718  onStreamReset?: () => void;
+   719  onDone?: (data: AiStreamDoneEvent) => void;
+   720  onError?: (err: AiStreamErrorEvent) => void;
+   721  /** Called when the agent starts executing a tool (before the actual call). */
+   722  onToolCall?: (event: AiStreamToolCallEvent) => void;
+   723  /** Called when a tool call completes and a result has been received. */
+   724  onToolResult?: (event: AiStreamToolResultEvent) => void;
+   725  onPlanActivity?: (event: AiStreamPlanActivityEvent) => void;
+   726  /** Called after a server-owned validation profile completes or is blocked. */
+   727  onValidation?: (event: AiStreamValidationEvent) => void;
+   728  /** Called when the approval-gated repair loop changes named state. */
+   729  onRepairState?: (event: AiStreamRepairStateEvent) => void;
+   730  /** Called after a model response is received, including fallback models. */
+   731  onModelCall?: (event: AiStreamModelCallEvent) => void;
+   732  /** Called at each agentic loop iteration after the first (iter > 0). */
+   733  onThinking?: (event: AiStreamThinkingEvent) => void;
+   734  /** Called when a Repair Plan execution is stopped by a deterministic guard. */
+   735  onExecutionGuard?: (event: AiStreamExecutionGuardEvent) => void;
+   736  /** Called when the final no-tool synthesis window begins. */
+   737  onSynthesisStart?: (event: AiStreamSynthesisStartEvent) => void;
+   738  /** Called for bounded report-recovery diagnostics, separate from report text. */
+   739  onExecutionDiagnostic?: (event: AiStreamExecutionDiagnosticEvent) => void;
+   740  /**
+   741   * Called as soon as a `forensic_status` step is emitted live during the
+   742   * audit stream.  Carries `isFixtureLocal` so callers can surface a
+   743   * FIXTURE-LOCAL warning before the full report arrives.
+   744   */
+   745  onForensicStatus?: (event: AiStreamForensicStatusEvent) => void;
+   746  /** FEG-017: called when a forensic investigation's failure terminal is classified. */
+   747  onForensicTerminal?: (event: AiStreamForensicTerminalEvent) => void;
+   748  /** Called when the server proves or rejects runtime production reachability. */
+   749  onProductionTrace?: (event: AiStreamProductionTraceEvent) => void;
+   750  /** Called for bounded graph-grounded cross-file provenance. */
+  1040      guardedCallbacks.onError?.({
+  1041        type: 'error',
+  1042        code: 'network_error',
+  1043        message: err instanceof Error ? err.message : String(err),
+  1044      });
+  1045    } finally {
+  1046      if (controllerRef.current === controller) {
+  1047        controllerRef.current = null;
+  1048        setIsPending(false);
+  1049      }
+  1050    }
+  1051  }, []);
+  1052
+  1053  const cancel = useCallback(() => {
+  1054    const execution = executionRef.current;
+  1055    if (execution) {
+  1056      void fetch(`/api/ai/executions/${execution.id}/cancel`, {
+  1057        method: 'POST',
+  1058        headers: { 'Content-Type': 'application/json' },
+  1059        body: '{}',
+  1060      }).catch(() => undefined);
+  1061    }
+  1062    generationRef.current += 1;
+  1063    controllerRef.current?.abort();
+  1064    controllerRef.current = null;
+  1065    executionRef.current = null;
+  1066    setIsPending(false);
+  1067  }, []);
+  1068
+  1069  return { send, cancel, isPending, execution: executionRef.current };
+  1070}
+  1071
+  1072export type AiTaskStreamParams = {
+  1073  projectId: string;
+  1074  task: 'analyze' | 'review';
+  1075  fileContents?: Record<string, string>;
+  1076};
+  1077
+  1078export type AiTaskStreamCallbacks = Pick<
+  1079  AiChatStreamCallbacks,
+  1080  'onStage' | 'onModelCall' | 'onTaskStarted' | 'onTaskProgress' | 'onTaskDone' | 'onError' | 'onStreamReset'
+  1081>;
+  1082
+  1083/**
+  1084 * Streams structured Analyze/Review operations through the shared SSE parser.
+  1085 * The existing JSON endpoints remain available for non-streaming clients.
+  1086 */
+  1087export function useAiTaskStream() {
+  1088  const [isPending, setIsPending] = useState(false);
+  1089  const controllerRef = useRef<AbortController | null>(null);
+  1090  const generationRef = useRef(0);
+  1091
+  1092  const send = useCallback(async (
+  1093    params: AiTaskStreamParams,
+  1094    callbacks: AiTaskStreamCallbacks = {},
+  1095  ): Promise<void> => {
+  1096    controllerRef.current?.abort();
+  1097    const controller = new AbortController();
+  1098    const generation = ++generationRef.current;
+  1099    controllerRef.current = controller;
+  1100    setIsPending(true);
+  1101    const isCurrent = () => (
+  1102      generationRef.current === generation
+  1103      && controllerRef.current === controller
+  1104      && !controller.signal.aborted
+  1105    );
+  1106    const guardedCallbacks: AiTaskStreamCallbacks = {
+  1107      onStage: (event) => { if (isCurrent()) callbacks.onStage?.(event); },
+  1108      onModelCall: (event) => { if (isCurrent()) callbacks.onModelCall?.(event); },
+  1109      onTaskStarted: (event) => { if (isCurrent()) callbacks.onTaskStarted?.(event); },
+  1110      onTaskProgress: (event) => { if (isCurrent()) callbacks.onTaskProgress?.(event); },
+  1111      onTaskDone: (event) => { if (isCurrent()) callbacks.onTaskDone?.(event); },
+  1112      onError: (event) => { if (isCurrent()) callbacks.onError?.(event); },
+  1113      onStreamReset: () => { if (isCurrent()) callbacks.onStreamReset?.(); },
+  1114    };
+  1115
+  1116    try {
+  1117      const res = await fetch(`/api/ai/projects/${params.projectId}/${params.task}/stream`, {
+  1118        method: 'POST',
+  1119        headers: { 'Content-Type': 'application/json' },
+  1120        body: JSON.stringify(params.task === 'review' ? { fileContents: params.fileContents } : {}),
+  1121        signal: controller.signal,
+  1122      });
+  1123
+  1124      if (!res.ok) {
+  1125        let parsed: { code?: string; error?: string; hint?: string } = {};
+  1126        try { parsed = await res.json() as typeof parsed; } catch { /* ignore */ }
+  1127        guardedCallbacks.onError?.({
+  1128          type: 'error',
+  1129          code: parsed.code ?? 'request_failed',
+  1130          message: parsed.error ?? `Request failed (${res.status})`,
+  1131          hint: parsed.hint,
+  1132          failureKind: res.status === 429
+  1133            ? 'RATE_LIMIT'
+  1134            : res.status === 401 || res.status === 402 || res.status === 422 || res.status === 428
+  1135              ? 'CONFIGURATION'
+  1136              : 'PROVIDER_FAILURE',
+  1137          outcome: 'FAILED',
+  1138        });
+  1139        return;
+  1140      }
+  1141
+  1142      if (!res.body) {
+  1143        guardedCallbacks.onError?.({ type: 'error', code: 'no_body', message: 'Task stream response had no body.', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' });
+  1144        return;
+  1145      }
+  1146
+  1147      await processAiStream(res.body, guardedCallbacks);
+  1148    } catch (err) {
+  1149      if (err instanceof DOMException && err.name === 'AbortError') return;
+  1150      guardedCallbacks.onError?.({

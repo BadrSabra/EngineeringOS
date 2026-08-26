@@ -1,0 +1,267 @@
+   800  return !traceSteps.some(
+   801    (step) =>
+   802      (step.kind === "tool_call" || step.kind === "tool_result") &&
+   803      (step.tool === "read_file" || step.tool === "read_file_range"),
+   804  );
+   805}
+   806
+   807function failClosedBeforeEvidenceResponse(message: string): string {
+   808  return /[\u0600-\u06FF]/.test(message)
+   809    ? "توقف التنفيذ قبل قراءة أي ملف مصدر، لذلك لا يمكن اعتبار النتيجة مكتملة أو مثبتة. أعد المحاولة مع هدف أو ملف واضح."
+   810    : "Execution stopped before the first source read, so the result is incomplete and not proven. Retry with a clear target file or objective.";
+   811}
+   812
+   813function getOutOfScopeImplementationChanges(
+   814  changes: ServerPendingChange[],
+   815  allowedFiles: Set<string>,
+   816  rootPath: string,
+   817): string[] {
+   818  return changes
+   819    .map((change) => normalizePlanFilePath(change.path, rootPath))
+   820    .filter((file) => !allowedFiles.has(file));
+   821}
+   822
+   823type ServerPendingChange = {
+   824  path: string;
+   825  absolutePath: string;
+   826  newContent: string;
+   827  originalContent: string | null;
+   828  baseHash?: string;
+   829  hunks?: FilePatchHunk[];
+   830  reason: string;
+   831  validationProfile?: ValidationProfile;
+   832  risk?: "low" | "medium" | "high";
+   833  evidence?: PatchEvidenceLink[];
+   834};
+   835
+   836async function persistFailedChatTurn(params: {
+   837  sessionId: string;
+   838  projectId: string;
+   839  message: string;
+   840  turnIntent: string;
+   841  executionId?: string;
+   842  outcome: "FAILED" | "INTERRUPTED";
+   843  errorCode: string;
+   844  errorMessage: string;
+   845  createdAt: Date;
+   846  assistantAt: Date;
+   847  toolTrace?: AgentStep[];
+   848}): Promise<void> {
+   849  await db.transaction(async (tx) => {
+   850    // A provider/network failure may already have persisted the user turn.
+   851    // Resuming that execution must only add the next assistant outcome, not
+   852    // create a second copy of the user's request.
+   853    const existingUserTurn = params.executionId
+   854      ? await tx
+   855          .select({ id: aiChatMessagesTable.id })
+   856          .from(aiChatMessagesTable)
+   857          .where(and(
+   858            eq(aiChatMessagesTable.sessionId, params.sessionId),
+   859            eq(aiChatMessagesTable.executionId, params.executionId),
+   860            eq(aiChatMessagesTable.role, "user"),
+   861          ))
+   862          .limit(1)
+   863      : [];
+   864    if (existingUserTurn.length === 0) {
+   865      await tx.insert(aiChatMessagesTable).values({
+   866        id: randomUUID(),
+   867        sessionId: params.sessionId,
+   868        role: "user",
+   869        content: params.message,
+   870        turnIntent: params.turnIntent,
+   871        executionId: params.executionId ?? null,
+   872        outcome: "SUCCEEDED",
+   873        createdAt: params.createdAt,
+   874      });
+   875    }
+   876    await tx.insert(aiChatMessagesTable).values({
+   877      id: randomUUID(),
+   878      sessionId: params.sessionId,
+   879      role: "assistant",
+   880      // Empty content is intentional: a failed provider turn is not an
+   881      // assistant answer and must not be rendered as one.
+   882      content: "",
+   883      turnIntent: params.turnIntent,
+   884      executionId: params.executionId ?? null,
+   885      outcome: params.outcome,
+   886      errorCode: params.errorCode,
+   887      errorMessage: redactUserFacingText(params.errorMessage).slice(0, 500),
+   888      toolTrace: params.toolTrace ? serializeToolTrace(params.toolTrace, true) : null,
+   889      createdAt: params.assistantAt,
+   890    });
+   891    await tx.update(aiChatSessionsTable)
+   892      .set({ updatedAt: params.assistantAt })
+   893      .where(eq(aiChatSessionsTable.id, params.sessionId));
+   894  });
+   895}
+   896
+   897type ApplySnapshot = {
+   898  path: string;
+   899  realPath: string;
+   900  before: Buffer | null;
+   901};
+   902
+   903type ApplyRollbackFailure = {
+   904  path: string;
+   905  error: string;
+   906};
+   907
+   908type ApplyJournalStage =
+   909  | "STARTED"
+   910  | "PREFLIGHT_STARTED"
+  4860    ))
+  4861    .limit(1);
+  4862  if (!target) return res.status(404).json({ error: "Chat message not found", code: "MESSAGE_NOT_FOUND" });
+  4863  if (target.role !== "assistant") {
+  4864    return res.status(409).json({ error: "Only assistant run reports can be regenerated.", code: "REPORT_REGENERATION_NOT_ELIGIBLE" });
+  4865  }
+  4866  if (!target.missionCorrelationReport) {
+  4867    return res.status(409).json({ error: "This historical run has no unavailable report to regenerate.", code: "REPORT_REGENERATION_NOT_ELIGIBLE" });
+  4868  }
+  4869  if (!parseMissionCorrelationReportForHistory(target.missionCorrelationReport).unavailable) {
+  4870    return res.status(409).json({ error: "This historical mission report is already available.", code: "REPORT_ALREADY_AVAILABLE" });
+  4871  }
+  4872
+  4873  const messages = await db
+  4874    .select({
+  4875      id: aiChatMessagesTable.id,
+  4876      role: aiChatMessagesTable.role,
+  4877      sources: aiChatMessagesTable.sources,
+  4878      toolTrace: aiChatMessagesTable.toolTrace,
+  4879      behaviorEvidence: aiChatMessagesTable.behaviorEvidence,
+  4880      taskResult: aiChatMessagesTable.taskResult,
+  4881      outcome: aiChatMessagesTable.outcome,
+  4882      errorCode: aiChatMessagesTable.errorCode,
+  4883    })
+  4884    .from(aiChatMessagesTable)
+  4885    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+  4886    .orderBy(aiChatMessagesTable.createdAt)
+  4887    .limit(REPORT_REGENERATION_MAX_MESSAGES);
+  4888  const [execution] = target.executionId
+  4889    ? await db
+  4890      .select({
+  4891        id: aiExecutionsTable.id,
+  4892        operationId: aiExecutionsTable.operationId,
+  4893        request: aiExecutionsTable.request,
+  4894        checkpoint: aiExecutionsTable.checkpoint,
+  4895        checkpointVersion: aiExecutionsTable.checkpointVersion,
+  4896        status: aiExecutionsTable.status,
+  4897      })
+  4898      .from(aiExecutionsTable)
+  4899      .where(and(
+  4900        eq(aiExecutionsTable.id, target.executionId),
+  4901        eq(aiExecutionsTable.sessionId, sessionId),
+  4902        eq(aiExecutionsTable.projectId, session.projectId),
+  4903      ))
+  4904      .limit(1)
+  4905    : [];
+  4906  const proposals = await db
+  4907    .select({ id: aiChangeProposalsTable.id })
+  4908    .from(aiChangeProposalsTable)
+  4909    .where(eq(aiChangeProposalsTable.sessionId, sessionId))
+  4910    .limit(REPORT_REGENERATION_MAX_EVENTS);
+  4911  const operationId = execution?.operationId ?? execution?.id ?? target.executionId ?? messageId;
+  4912  const events = await db
+  4913    .select({ type: eventsTable.type })
+  4914    .from(eventsTable)
+  4915    .where(and(
+  4916      eq(eventsTable.projectId, session.projectId),
+  4917      eq(eventsTable.correlationId, operationId),
+  4918    ))
+  4919    .limit(REPORT_REGENERATION_MAX_EVENTS);
+  4920
+  4921  let report: ReturnType<typeof buildRegeneratedMissionCorrelationReport>;
+  4922  try {
+  4923    report = buildRegeneratedMissionCorrelationReport({
+  4924      projectId: session.projectId,
+  4925      sessionId,
+  4926      messageId,
+  4927      projectUpdatedAt: project.updatedAt,
+  4928      messages,
+  4929      execution,
+  4930      proposals: proposals.length,
+  4931      events,
+  4932    });
+  4933  } catch {
+  4934    return res.status(409).json({
+  4935      error: "The retained evidence is insufficient to regenerate this report.",
+  4936      code: "REPORT_REGENERATION_NOT_ELIGIBLE",
+  4937    });
+  4938  }
+  4939  const serialized = serializeMissionCorrelationReport(report);
+  4940  const [updated] = await db
+  4941    .update(aiChatMessagesTable)
+  4942    .set({ missionCorrelationReport: serialized })
+  4943    .where(and(
+  4944      eq(aiChatMessagesTable.id, messageId),
+  4945      eq(aiChatMessagesTable.sessionId, sessionId),
+  4946    ))
+  4947    .returning({ id: aiChatMessagesTable.id, missionCorrelationReport: aiChatMessagesTable.missionCorrelationReport });
+  4948  if (!updated) return res.status(404).json({ error: "Chat message not found", code: "MESSAGE_NOT_FOUND" });
+  4949  return res.json({
+  4950    messageId: updated.id,
+  4951    missionCorrelationReport: projectMissionCorrelationReportForExport(parseStoredJson(serialized)),
+  4952  });
+  4953});
+  4954
+  4955// ── GET /api/ai/chat/:sessionId/messages ─────────────────────────────────────
+  4956
+  4957router.get("/ai/chat/:sessionId/messages", async (req, res) => {
+  4958  const { sessionId } = req.params;
+  4959
+  4960  const sessionRows = await db
+  4961    .select()
+  4962    .from(aiChatSessionsTable)
+  4963    .where(eq(aiChatSessionsTable.id, sessionId))
+  4964    .limit(1);
+  4965  const session = sessionRows[0];
+  4966  if (!session) return res.status(404).json({ error: "Chat session not found", code: "SESSION_NOT_FOUND" });
+  4967
+  4968  if (session.projectId) {
+  4969    const ownerProject = await loadProjectByIdForUser(session.projectId, req.userId, res);
+  4970    if (!ownerProject) return;
+  4971  }
+  4972
+  4973  const messages = await db
+  4974    .select()
+  4975    .from(aiChatMessagesTable)
+  4976    .where(eq(aiChatMessagesTable.sessionId, sessionId))
+  4977    .orderBy(aiChatMessagesTable.createdAt);
+  4978
+  4979  return res.json(messages.map((message) => {
+  4980    const historicalReport = parseMissionCorrelationReportForHistory(message.missionCorrelationReport);
+  4981    return {
+  4982      ...message,
+  4983      content: redactUserFacingText(message.content),
+  4984      sources: message.sources
+  4985        ? JSON.stringify(redactUserFacingValue(parseStoredJson(message.sources)))
+  4986        : message.sources,
+  4987      toolTrace: message.toolTrace
+  4988        ? JSON.stringify(redactUserFacingValue(
+  4989          (() => {
+  4990            const parsed = parseStoredJson(message.toolTrace);
+  4991            if (!Array.isArray(parsed)) return parsed;
+  4992            return scrubHistoricalValidationRecord(parsed);
+  4993          })(),
+  4994        ))
+  4995        : message.toolTrace,
+  4996      turnIntent: message.turnIntent,
+  4997      executionId: message.executionId,
+  4998      outcome: message.outcome,
+  4999      errorCode: message.errorCode,
+  5000      errorMessage: message.errorMessage ? redactUserFacingText(message.errorMessage) : message.errorMessage,
+  5001      repairPlan: redactUserFacingValue(parseRepairPlanMetadata(message.repairPlanMetadata)),
+  5002      behaviorEvidence: redactUserFacingValue(parseBehaviorEvidence(message.behaviorEvidence)),
+  5003      ...(historicalReport.unavailable
+  5004        ? { missionCorrelationReport: undefined, missionCorrelationReportError: true }
+  5005        : { missionCorrelationReport: historicalReport.report }),
+  5006      taskResult: redactUserFacingValue(parseTaskResult(message.taskResult)),
+  5007    };
+  5008  }));
+  5009});
+  5010
+  5011// ── POST /api/ai/chat/plans/:messageId/decision ──────────────────────────────
+  5012//
+  5013// A plan decision is persisted on the assistant message that produced the
+  5014// plan. The session join and project ownership check prevent a user from
+  5015// approving a plan from another project. Approval stages Build Mode only; it

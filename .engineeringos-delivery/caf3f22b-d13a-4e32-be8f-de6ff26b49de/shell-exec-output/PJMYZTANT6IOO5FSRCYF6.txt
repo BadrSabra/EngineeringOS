@@ -1,0 +1,220 @@
+   250  action?: 'inspect' | 'create' | 'modify' | 'delete' | 'test' | 'configure';
+   251  files?: string[];
+   252  resultSummary?: string;
+   253  nextStepTitle?: string;
+   254  approvalRequired?: boolean;
+   255  approvalReason?: string;
+   256};
+   257
+   258export type AiStreamValidationEvent = {
+   259  type: 'validation';
+   260  validation: PublicValidationResult;
+   261  repairState: RepairLoopState;
+   262  /** @deprecated Use validation.status. */
+   263  status?: ValidationResult['status'];
+   264  /** @deprecated Use validation.profile. */
+   265  profile?: string;
+   266  /** @deprecated Use validation.scenario. */
+   267  scenario?: string;
+   268  /** @deprecated Use validation.command. */
+   269  command?: string;
+   270  /** @deprecated Use validation.exitCode. */
+   271  exitCode?: number | null;
+   272  /** @deprecated Use validation.failedTests / changedFiles. */
+   273  failedTests?: string[];
+   274  affectedFiles?: string[];
+   275  failedTestDetails?: ValidationResult['failedTests'];
+   276  changedFiles?: string[];
+   277  attempt: number;
+   278  maxAttempts: number;
+   279  /** @deprecated Use validation.detail. */
+   280  detail?: string;
+   281};
+   282
+   283export type RepairLoopState = 'VALIDATING' | 'REPAIRING' | 'READY_FOR_REVIEW' | 'BLOCKED';
+   284
+   285export type AiStreamRepairStateEvent = {
+   286  type: 'repair_state';
+   287  state: RepairLoopState;
+   288  detail?: string;
+   289};
+   290
+   291/**
+   292 * Keep the dashboard on the API's public validation contract. The server may
+   293 * include compatibility fields on the outer event, but command output,
+   294 * failure details, and changed-file lists are never accepted from the nested
+   295 * payload.
+   296 */
+   297export function parseValidationEvent(raw: unknown): AiStreamValidationEvent | null {
+   298  if (!raw || typeof raw !== 'object') return null;
+   299  const event = raw as Record<string, unknown>;
+   300  const validation = event.validation;
+   301  if (!validation || typeof validation !== 'object') return null;
+   302  const value = validation as Record<string, unknown>;
+   303  if (
+   304    typeof value.profile !== 'string'
+   305    || typeof value.status !== 'string'
+   306    || typeof value.scenario !== 'string'
+   307    || (typeof value.exitCode !== 'number' && value.exitCode !== null)
+   308    || !value.evidence
+   309    || typeof value.evidence !== 'object'
+   310    || typeof event.repairState !== 'string'
+   311    || typeof event.attempt !== 'number'
+   312    || typeof event.maxAttempts !== 'number'
+   313  ) return null;
+   314
+   315  const evidence = value.evidence as Record<string, unknown>;
+   316  if (
+   317    typeof evidence.evidenceId !== 'string'
+   318    || typeof evidence.observedAt !== 'string'
+   319    || typeof evidence.artifactRef !== 'string'
+   320  ) return null;
+   321
+   322  return {
+   323    type: 'validation',
+   324    validation: {
+   325      profile: value.profile,
+   326      status: value.status as PublicValidationResult['status'],
+   327      scenario: value.scenario,
+   328      exitCode: value.exitCode,
+   329      evidence: {
+   330        evidenceId: evidence.evidenceId,
+   331        observedAt: evidence.observedAt,
+   332        artifactRef: evidence.artifactRef,
+   333      },
+   334      ...(typeof value.detail === 'string' ? { detail: value.detail } : {}),
+   335      ...(value.reasonCode === 'ownership' || value.reasonCode === 'invalid_profile' ||
+   336        value.reasonCode === 'resource_limit' || value.reasonCode === 'stale_revision'
+   337        ? { reasonCode: value.reasonCode as BrowserValidationBlockReason } : {}),
+   338    },
+   339    repairState: event.repairState as RepairLoopState,
+   340    attempt: event.attempt,
+   640    }>;
+   641    reason?: string;
+   642  };
+   643  scopeExpansions?: Array<{
+   644    kind: 'JUSTIFIED_SCOPE_EXPANSION' | 'UNJUSTIFIED_SCOPE_EXPANSION';
+   645    path: string;
+   646    matchedPolicyPath?: string;
+   647  }>;
+   648  unjustifiedReads?: string[];
+   649};
+   650
+   651export type AiStreamEvent =
+   652  | AiStreamExecutionStartedEvent
+   653  | AiStreamExecutionNodesEvent
+   654  | AiStreamStageEvent
+   655  | AiStreamDeltaEvent
+   656  | AiStreamIntentEvent
+   657  | AiStreamAuditStateEvent
+   658  | AiStreamVerificationEvent
+   659  | AiStreamSessionStartedEvent
+   660  | AiStreamDoneEvent
+   661  | AiStreamErrorEvent
+   662  | AiStreamResetEvent
+   663  | AiStreamToolCallEvent
+   664  | AiStreamToolResultEvent
+   665  | AiStreamPlanActivityEvent
+   666  | AiStreamValidationEvent
+   667  | AiStreamRepairStateEvent
+   668  | AiStreamModelCallEvent
+   669  | AiStreamThinkingEvent
+   670  | AiStreamExecutionGuardEvent
+   671  | AiStreamSynthesisStartEvent
+   672  | AiStreamExecutionDiagnosticEvent
+   673  | AiStreamForensicStatusEvent
+   674  | AiStreamForensicTerminalEvent
+   675  | AiStreamProductionTraceEvent
+   676  | AiStreamCrossFileTraceEvent
+   677  | AiStreamEvidenceIntegrityEvent
+   678  | AiStreamDecisionTraceEvent
+   679  | AiStreamTaskStartedEvent
+   680  | AiStreamTaskProgressEvent
+   681  | AiStreamTaskDoneEvent;
+   682
+   683// ── Hook params ───────────────────────────────────────────────────────────────
+   684
+   685export type AiChatStreamParams = {
+   686  projectId: string;
+   687  message: string;
+   688  sessionId?: string;
+   689  /** AI-TASK-006: When set, the backend loads this task and builds a task-aware prompt. */
+   690  linkedTaskId?: string;
+   691  /** Build handoff from an approved implementation-plan message. */
+   692  buildPlanMessageId?: string;
+   693  /** Resume an existing paused execution instead of starting a duplicate. */
+   694  executionId?: string;
+   695  /** Opaque token returned in execution_started for explicit resume. */
+   696  resumeToken?: string;
+   697  /** Stable retry key for the first request. */
+   698  idempotencyKey?: string;
+   699};
+   700
+   701export type AiChatStreamCallbacks = {
+   702  /** Durable execution identity emitted before model work starts. */
+   703  onExecutionStarted?: (event: AiStreamExecutionStartedEvent) => void;
+   704  /** Bounded execution tree snapshot used by Mission Control. */
+   705  onExecutionNodes?: (event: AiStreamExecutionNodesEvent) => void;
+   706  /** Called once the server has reserved a new session before model work starts. */
+   707  onSessionStarted?: (event: AiStreamSessionStartedEvent) => void;
+   708  onStage?: (stage: string) => void;
+   709  /** Called once the server has resolved the authoritative turn routing contract. */
+   710  onIntent?: (event: AiStreamIntentEvent) => void;
+   711  /** Called when the forensic evidence ledger publishes its bounded state. */
+   712  onAuditState?: (event: AiStreamAuditStateEvent) => void;
+   713  /** Called when the server verifies the model response/evidence boundary. */
+   714  onVerification?: (event: AiStreamVerificationEvent) => void;
+   715  /** Called for each incremental text token from the model's streaming response. */
+   716  onDelta?: (delta: string) => void;
+   717  /** Called when the SSE stream breaks mid-flight so callers can clear partial state. */
+   718  onStreamReset?: () => void;
+   719  onDone?: (data: AiStreamDoneEvent) => void;
+   720  onError?: (err: AiStreamErrorEvent) => void;
+   721  /** Called when the agent starts executing a tool (before the actual call). */
+   722  onToolCall?: (event: AiStreamToolCallEvent) => void;
+   723  /** Called when a tool call completes and a result has been received. */
+   724  onToolResult?: (event: AiStreamToolResultEvent) => void;
+   725  onPlanActivity?: (event: AiStreamPlanActivityEvent) => void;
+   726  /** Called after a server-owned validation profile completes or is blocked. */
+   727  onValidation?: (event: AiStreamValidationEvent) => void;
+   728  /** Called when the approval-gated repair loop changes named state. */
+   729  onRepairState?: (event: AiStreamRepairStateEvent) => void;
+   730  /** Called after a model response is received, including fallback models. */
+   731  onModelCall?: (event: AiStreamModelCallEvent) => void;
+   732  /** Called at each agentic loop iteration after the first (iter > 0). */
+   733  onThinking?: (event: AiStreamThinkingEvent) => void;
+   734  /** Called when a Repair Plan execution is stopped by a deterministic guard. */
+   735  onExecutionGuard?: (event: AiStreamExecutionGuardEvent) => void;
+  1140      }
+  1141
+  1142      if (!res.body) {
+  1143        guardedCallbacks.onError?.({ type: 'error', code: 'no_body', message: 'Task stream response had no body.', failureKind: 'TRANSPORT', outcome: 'INTERRUPTED' });
+  1144        return;
+  1145      }
+  1146
+  1147      await processAiStream(res.body, guardedCallbacks);
+  1148    } catch (err) {
+  1149      if (err instanceof DOMException && err.name === 'AbortError') return;
+  1150      guardedCallbacks.onError?.({
+  1151        type: 'error',
+  1152        code: 'network_error',
+  1153        message: err instanceof Error ? err.message : String(err),
+  1154        failureKind: 'TRANSPORT',
+  1155        outcome: 'INTERRUPTED',
+  1156      });
+  1157    } finally {
+  1158      if (controllerRef.current === controller) {
+  1159        controllerRef.current = null;
+  1160        setIsPending(false);
+  1161      }
+  1162    }
+  1163  }, []);
+  1164
+  1165  const cancel = useCallback(() => {
+  1166    controllerRef.current?.abort();
+  1167    controllerRef.current = null;
+  1168    setIsPending(false);
+  1169  }, []);
+  1170
+  1171  return { send, cancel, isPending };
+  1172}

@@ -1,0 +1,238 @@
+11:import { auditLogsTable, eventsTable, projectsTable } from "@workspace/db";
+254:    await tx.insert(eventsTable).values({
+364:    await tx.insert(eventsTable).values({
+379:router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, async (req, res) => {
+455:      await tx.insert(eventsTable).values({
+485:router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async (req, res) => {
+581:      await tx.insert(eventsTable).values({
+   330    throw err;
+   331  }
+   332
+   333  // When the model output failed to parse, we still have the fallback data.
+   334  // Serve it with a warning header so the UI can display something useful.
+   335  if (result._parseError) {
+   336    metadata.incomplete = true;
+   337    recordTrace(metadata, "review", "incomplete", effectiveProvider);
+   338    logger.warn(
+   339      { projectId, parseCode: result._parseError.code, message: result._parseError.message, provider: effectiveProvider },
+   340      "code-reviewer: parse error",
+   341    );
+   342    return res.status(422).json({
+   343      ...auditEnvelope(metadata),
+   344      error: "model_output_invalid",
+   345      code: "model_output_invalid",
+   346      hint: "The AI model returned an unexpected response — try again in a moment.",
+   347      parseCode: result._parseError.code,
+   348    });
+   349  }
+   350
+   351  invalidateContextCache(projectId);
+   352
+   353  await db.transaction(async (tx) => {
+   354    await tx.insert(auditLogsTable).values({
+   355      id: randomUUID(),
+   356      entityType: "project",
+   357      entityId: projectId,
+   358      action: "ai_reviewed",
+   359      projectId,
+   360      actor: req.userId,
+   361      stateBefore: {},
+   362      stateAfter: { verdict: result.verdict, overallScore: result.overallScore },
+   363    });
+   364    await tx.insert(eventsTable).values({
+   365      id: randomUUID(),
+   366      type: "AiCodeReviewCompleted",
+   367      projectId,
+   368      severity: result.verdict === "approved" ? "success" : "warning",
+   369      message: `AI code review: ${result.verdict} (score: ${result.overallScore}/100)`,
+   370    });
+   371  });
+   372
+   373  recordTrace(metadata, "review", "completed", effectiveProvider);
+   374  return res.json({ ...redactUserFacingValue(result) as Record<string, unknown>, ...auditEnvelope(metadata) });
+   375});
+   376
+   377// ── POST /api/ai/projects/:projectId/analyze/stream ──────────────────────────
+   378
+   379router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, async (req, res) => {
+   380  const projectId = req.params.projectId as string;
+   381  const project = req.project;
+   382  if (!project) return res.status(500).json({ error: "Project context unavailable" });
+   383  const providerResolved = await requireProvider(req.userId, res, { qualityProfile: "analysis" });
+   384  if (!providerResolved) return;
+   385  const metadata = await createAuditMetadata(projectId, project);
+   386  recordTrace(metadata, "analyze", "started");
+   387
+   388  const rlAnalyze = await checkProjectRateLimitDb(projectId);
+   389  if (!rlAnalyze.allowed) {
+   390    return res.status(429).json({
+   391      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlAnalyze.retryAfterSec}s.`,
+   392    });
+   393  }
+   394
+   395  const { emit, close } = beginTaskStream(res, "analyze", projectId, metadata);
+   396  try {
+   397    recordTrace(metadata, "building-context", "started");
+   398    emit({ type: "stage", stage: "building-context" });
+   399    const projectContext = await buildProjectContext(projectId, {
+   400      sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+   401    });
+   402
+   403    emit({ type: "stage", stage: "calling-model" });
+   404    recordTrace(metadata, "calling-model", "started", providerResolved.provider);
+   405    const { provider, apiKey } = providerResolved;
+   406    let effectiveProvider = provider;
+   407    const { result } = await runAgentWithFallback(
+   408      req.userId,
+   409      { provider, apiKey },
+   410      (opts) => analyzeScan(projectContext, {
+   411        ...opts,
+   412        onProgress: (message) => emit({
+   413          type: "task_progress",
+   414          task: "analyze",
+   415          message,
+   416          provider: opts.provider,
+   417        }),
+   418      }),
+   419      { qualityProfile: "analysis" },
+   420    ).then((output) => {
+   421      effectiveProvider = output.effectiveProvider;
+   422      return output;
+   423    });
+   424
+   425    if (result._parseError) {
+   426      metadata.incomplete = true;
+   427      recordTrace(metadata, "calling-model", "incomplete", effectiveProvider);
+   428      emit({
+   429        type: "error",
+   430        code: "model_output_invalid",
+   431        message: "The AI model returned an unexpected response.",
+   432        hint: "The response could not be verified as a structured result. You can retry this task.",
+   433        retryable: true,
+   434        failureKind: "PROVIDER_FORMAT",
+   435        outcome: "FAILED",
+   436      });
+   437      close();
+   438      return;
+   439    }
+   440
+   441    emit({ type: "stage", stage: "persisting-result" });
+   442    recordTrace(metadata, "persisting-result", "completed", effectiveProvider);
+   443    invalidateContextCache(projectId);
+   444    await db.transaction(async (tx) => {
+   445      await tx.insert(auditLogsTable).values({
+   446        id: randomUUID(),
+   447        entityType: "project",
+   448        entityId: projectId,
+   449        action: "ai_analyzed",
+   450        projectId,
+   451        actor: req.userId,
+   452        stateBefore: {},
+   453        stateAfter: { summary: result.summary, overallAssessment: result.overallAssessment },
+   454      });
+   455      await tx.insert(eventsTable).values({
+   456        id: randomUUID(),
+   457        type: "AiScanAnalysisCompleted",
+   458        projectId,
+   459        severity: "info",
+   460        message: `AI scan analysis completed: ${result.summary}`,
+   461      });
+   462    });
+   463
+   464    emit({ type: "stage", stage: "completed" });
+   465    recordTrace(metadata, "analyze", "completed", effectiveProvider);
+   466    emit({
+   467      type: "task_done",
+   468      task: "analyze",
+   469      result: {
+   470        ...redactUserFacingValue(result) as Record<string, unknown>,
+   471        ...auditEnvelope(metadata),
+   472      },
+   473    });
+   474    close();
+   475    logger.info({ projectId, provider: effectiveProvider }, "AI scan analysis stream completed");
+   476  } catch (err) {
+   477    logger.error({ err, projectId }, "AI scan analysis stream failed");
+   478    emitTaskFailure(emit, close, err, metadata);
+   479  }
+   480  return;
+   481});
+   482
+   483// ── POST /api/ai/projects/:projectId/review/stream ───────────────────────────
+   484
+   485router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async (req, res) => {
+   486  const projectId = req.params.projectId as string;
+   487  const project = req.project;
+   488  if (!project) return res.status(500).json({ error: "Project context unavailable" });
+   489  const { fileContents } = req.body as { fileContents?: Record<string, string> };
+   490  const MAX_FILE_CONTENTS_BYTES = 50_000;
+   491
+   492  if (fileContents) {
+   493    const invalidKey = Object.keys(fileContents).find(
+   494      (key) => path.isAbsolute(key) || key.includes(".."),
+   495    );
+   496    if (invalidKey) {
+   497      return res.status(400).json({
+   498        error: `fileContents key "${invalidKey}" must be a relative path without traversal (no ".." segments)`,
+   499      });
+   500    }
+   501    const totalSize = Object.values(fileContents).reduce((sum, value) => sum + value.length, 0);
+   502    if (totalSize > MAX_FILE_CONTENTS_BYTES) {
+   503      return res.status(413).json({
+   504        error: `fileContents total size (${Math.round(totalSize / 1_000)} KB) exceeds the ${MAX_FILE_CONTENTS_BYTES / 1_000} KB limit — send fewer or smaller files`,
+   505      });
+   506    }
+   507  }
+   508
+   509  const providerResolved = await requireProvider(req.userId, res, { qualityProfile: "code_review" });
+   510  if (!providerResolved) return;
+   511  const metadata = await createAuditMetadata(projectId, project);
+   512  recordTrace(metadata, "review", "started");
+   513
+   514  const rlReview = await checkProjectRateLimitDb(projectId);
+   515  if (!rlReview.allowed) {
+   516    return res.status(429).json({
+   517      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlReview.retryAfterSec}s.`,
+   518    });
+   519  }
+   520
+   521  const { emit, close } = beginTaskStream(res, "review", projectId, metadata);
+   522  try {
+   523    recordTrace(metadata, "building-context", "started");
+   524    emit({ type: "stage", stage: "building-context" });
+   525    const projectContext = await buildProjectContext(projectId, {
+   526      sections: ["tasks", "metrics", "graphEntities", "graphRelationships", "events"],
+   527    });
+   528
+   529    emit({ type: "stage", stage: "calling-model" });
+   530    recordTrace(metadata, "calling-model", "started", providerResolved.provider);
+   531    const { provider, apiKey } = providerResolved;
+   532    let effectiveProvider = provider;
+   533    const { result } = await runAgentWithFallback(
+   534      req.userId,
+   535      { provider, apiKey },
+   536      (opts) => reviewCode(projectContext, fileContents, {
+   537        ...opts,
+   538        onProgress: (message) => emit({
+   539          type: "task_progress",
+   540          task: "review",
+   541          message,
+   542          provider: opts.provider,
+   543        }),
+   544      }),
+   545      { qualityProfile: "code_review" },
+   546    ).then((output) => {
+   547      effectiveProvider = output.effectiveProvider;
+   548      return output;
+   549    });
+   550
+   551    if (result._parseError) {
+   552      metadata.incomplete = true;
+   553      recordTrace(metadata, "calling-model", "incomplete", effectiveProvider);
+   554      emit({
+   555        type: "error",
+   556        code: "model_output_invalid",
+   557        message: "The AI model returned an unexpected response.",
+   558        hint: "The response could not be verified as a structured result. You can retry this task.",
+   559        retryable: true,
+   560        failureKind: "PROVIDER_FORMAT",

@@ -1,0 +1,239 @@
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1088:      title: 'Patch rebased for review',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1729:      report: 'No behavioral defect found across reviewed sources.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1736:    expect(screen.getByText('No behavioral defect found across reviewed sources.')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1865:    mocks.serverProposal = { proposalId: 'workspace-review-proposal', changes: [] };
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1868:      report: 'Workspace review is NOT PROVEN without completed source reads.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1874:    expect(await screen.findByText('Workspace review')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1875:    expect(screen.getByText('Workspace review is NOT PROVEN without completed source reads.')).toBeInTheDocument();
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:1887:      summary: 'Make the plan evidence-grounded and easier to review.',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2327:    mocks.proposalMessages[0].content = 'Inspect completed; review the response handler next.';
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2540:    expect(radar).toHaveTextContent('Ready for review');
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2982:    expect(mocks.taskSentParams).toEqual({ projectId: 'project-1', task: 'analyze' });
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:2995:        task: 'analyze',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3009:        task: 'analyze',
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3218:    ['READY_FOR_REVIEW', 'Ready for review'],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:3233:    expect(radar).toHaveTextContent(state === 'READY_FOR_REVIEW' ? 'Ready for review' : state === 'REPAIRING' ? 'Repairing' : 'Blocked');
+artifacts/api-server/src/routes/ai.test.ts:295:  // Gap-4 fix: analyzeScan mock updated to match ScanSummarySchema.
+artifacts/api-server/src/routes/ai.test.ts:299:  analyzeScan: vi.fn(async () => ({
+artifacts/api-server/src/routes/ai.test.ts:312:  // Gap-4 fix: reviewCode mock updated to match CodeReviewResultSchema.
+artifacts/api-server/src/routes/ai.test.ts:315:  reviewCode: vi.fn(async () => ({
+artifacts/api-server/src/routes/ai.test.ts:339:    result: "Task analyzed and fix applied successfully",
+artifacts/api-server/src/routes/ai.test.ts:386:  classifyRequest: vi.fn(() => ({ category: "code", contextDepth: "full", historyDepth: 4, maxTokens: 4096, temperature: 0.2, qualityProfile: "code_review" })),
+artifacts/api-server/src/routes/ai.test.ts:1446:        streamedPreview: "raw model output should not cross the boundary",
+artifacts/api-server/src/routes/ai.test.ts:1511:          streamedPreview: "MODEL_PREVIEW_SHOULD_NOT_EXPORT provider=groq api_key=sk-live-do-not-export",
+artifacts/api-server/src/routes/ai.test.ts:1935:      title: "Workspace review session",
+artifacts/api-server/src/routes/ai.test.ts:1943:      content: "Workspace review remains NOT PROVEN.",
+artifacts/api-server/src/routes/ai.test.ts:1946:        report: "Workspace review remains NOT PROVEN without completed source reads.",
+artifacts/api-server/src/routes/ai.test.ts:2210:// ─── POST /api/ai/projects/:projectId/analyze ─────────────────────────────────
+artifacts/api-server/src/routes/ai.test.ts:2212:describe("POST /api/ai/projects/:projectId/analyze", () => {
+artifacts/api-server/src/routes/ai.test.ts:2217:    const res = await request(app).post(`/api/ai/projects/${projectId}/analyze`);
+artifacts/api-server/src/routes/ai.test.ts:2227:    await request(app).post(`/api/ai/projects/${projectId}/analyze`);
+artifacts/api-server/src/routes/ai.test.ts:2238:  it("returns 422 with model_output_invalid when analyzeScan returns _parseError", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2239:    const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:2256:    const res = await request(app).post(`/api/ai/projects/${projectId}/analyze`);
+artifacts/api-server/src/routes/ai.test.ts:2274:    const res = await request(app).post(`/api/ai/projects/${projectId}/analyze/stream`);
+artifacts/api-server/src/routes/ai.test.ts:2285:// ─── POST /api/ai/projects/:projectId/review ──────────────────────────────────
+artifacts/api-server/src/routes/ai.test.ts:2287:describe("POST /api/ai/projects/:projectId/review", () => {
+artifacts/api-server/src/routes/ai.test.ts:2288:  it("returns 200 with code review result", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2293:      .post(`/api/ai/projects/${projectId}/review`)
+artifacts/api-server/src/routes/ai.test.ts:2304:    await request(app).post(`/api/ai/projects/${projectId}/review`).send({});
+artifacts/api-server/src/routes/ai.test.ts:2316:  it("returns 422 with model_output_invalid when reviewCode returns _parseError", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2317:    const { reviewCode: mockReviewCode } = await import("@workspace/ai-orchestrator");
+artifacts/api-server/src/routes/ai.test.ts:2332:    const res = await request(app).post(`/api/ai/projects/${projectId}/review`).send({});
+artifacts/api-server/src/routes/ai.test.ts:2340:  it("streams the structured review lifecycle and result", async () => {
+artifacts/api-server/src/routes/ai.test.ts:2345:      .post(`/api/ai/projects/${projectId}/review/stream`)
+artifacts/api-server/src/routes/ai.test.ts:2672:      conflictReason: "Apply stopped after a file conflict; review is required.",
+artifacts/api-server/src/routes/ai.test.ts:2686:      conflictReason: "Apply stopped after a file conflict; review is required.",
+artifacts/api-server/src/routes/ai.test.ts:2688:      operatorExplanation: "The delivery stopped because the retained changes need review before validation can continue.",
+artifacts/api-server/src/routes/ai.test.ts:3919:      summary: "Needs review",
+  2200    const res = await request(app)
+  2201      .get(`/api/ai/chat/file-content?projectId=${id}&path=${knownWorkspaceFile}&startLine=1`);
+  2202    expect(res.status).toBe(200);
+  2203    // Not the workspace file's content — the request is refused as unavailable.
+  2204    expect(res.body.available).toBe(false);
+  2205    expect(res.body.reason).toBe("project_root_unavailable");
+  2206    expect(res.body.lines).toBeUndefined();
+  2207  });
+  2208});
+  2209
+  2210// ─── POST /api/ai/projects/:projectId/analyze ─────────────────────────────────
+  2211
+  2212describe("POST /api/ai/projects/:projectId/analyze", () => {
+  2213  it("returns 200 with analysis result", async () => {
+  2214    const projectId = await insertProject();
+  2215    projectIds.push(projectId);
+  2216
+  2217    const res = await request(app).post(`/api/ai/projects/${projectId}/analyze`);
+  2218    expect(res.status).toBe(200);
+  2219    expect(typeof res.body.summary).toBe("string");
+  2220    expect(Array.isArray(res.body.insights)).toBe(true);
+  2221  });
+  2222
+  2223  it("creates an AiScanAnalysisCompleted event", async () => {
+  2224    const projectId = await insertProject();
+  2225    projectIds.push(projectId);
+  2226
+  2227    await request(app).post(`/api/ai/projects/${projectId}/analyze`);
+  2228
+  2229    const events = await db
+  2230      .select()
+  2231      .from(eventsTable)
+  2232      .where(eq(eventsTable.projectId, projectId));
+  2233    const ev = events.find((e) => e.type === "AiScanAnalysisCompleted");
+  2234    expect(ev).toBeDefined();
+  2235  });
+  2236
+  2237  // PR-E: parse failure surfaced as 422 instead of silent degraded 200.
+  2238  it("returns 422 with model_output_invalid when analyzeScan returns _parseError", async () => {
+  2239    const { analyzeScan: mockAnalyzeScan } = await import("@workspace/ai-orchestrator");
+  2240    vi.mocked(mockAnalyzeScan).mockResolvedValueOnce({
+  2241      summary: "fallback",
+  2242      overallAssessment: "fallback",
+  2243      insights: [],
+  2244      topPriority: "fallback",
+  2245      estimatedImpact: "fallback",
+  2246      _parseError: {
+  2247        code: "MALFORMED_JSON",
+  2248        message: "JSON parse error from /tmp/parser-output.txt (request req-analysis-123)",
+  2249        raw: "not json",
+  2250      },
+  2251    });
+  2252
+  2253    const projectId = await insertProject();
+  2254    projectIds.push(projectId);
+  2255
+  2256    const res = await request(app).post(`/api/ai/projects/${projectId}/analyze`);
+  2257    expect(res.status).toBe(422);
+  2258    expect(res.body.error).toBe("model_output_invalid");
+  2259    expect(res.body.code).toBe("model_output_invalid");
+  2260    expect(res.body.parseCode).toBe("MALFORMED_JSON");
+  2261    expect(typeof res.body.hint).toBe("string");
+  2262    const serialized = JSON.stringify(res.body);
+  2263    expect(serialized).not.toContain("not json");
+  2264    expect(serialized).not.toContain("JSON parse error");
+  2265    expect(serialized).not.toContain("req-analysis-123");
+  2266    expect(serialized).not.toContain("/tmp/");
+  2267    expect(serialized).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+  2268  });
+  2269
+  2270  it("streams the structured analysis lifecycle and result", async () => {
+  2271    const projectId = await insertProject();
+  2272    projectIds.push(projectId);
+  2273
+  2274    const res = await request(app).post(`/api/ai/projects/${projectId}/analyze/stream`);
+  2275    expect(res.status).toBe(200);
+  2276    expect(res.headers["content-type"]).toMatch(/text\/event-stream/);
+  2277    expect(res.text).toContain('"type":"task_started"');
+  2278    expect(res.text).toContain('"stage":"building-context"');
+  2279    expect(res.text).toContain('"stage":"calling-model"');
+  2280    expect(res.text).toContain('"type":"task_done"');
+  2281    expect(res.text).toContain('"summary":"Analysis complete"');
+  2282  });
+  2283});
+  2284
+  2285// ─── POST /api/ai/projects/:projectId/review ──────────────────────────────────
+  2286
+  2287describe("POST /api/ai/projects/:projectId/review", () => {
+  2288  it("returns 200 with code review result", async () => {
+  2289    const projectId = await insertProject();
+  2290    projectIds.push(projectId);
+  2291
+  2292    const res = await request(app)
+  2293      .post(`/api/ai/projects/${projectId}/review`)
+  2294      .send({ fileContents: { "index.ts": "const x = 1;" } });
+  2295    expect(res.status).toBe(200);
+  2296    expect(res.body.verdict).toBe("approved");
+  2297    expect(typeof res.body.overallScore).toBe("number");
+  2298  });
+  2299
+  2300  it("creates an AiCodeReviewCompleted event", async () => {
+  2301    const projectId = await insertProject();
+  2302    projectIds.push(projectId);
+  2303
+  2304    await request(app).post(`/api/ai/projects/${projectId}/review`).send({});
+  2305
+  2306    const events = await db
+  2307      .select()
+  2308      .from(eventsTable)
+  2309      .where(eq(eventsTable.projectId, projectId));
+  2310    const ev = events.find((e) => e.type === "AiCodeReviewCompleted");
+  2311    expect(ev).toBeDefined();
+  2312    expect(ev?.severity).toBe("success"); // verdict === "approved"
+  2313  });
+  2314
+  2315  // PR-E: parse failure surfaced as 422 instead of silent degraded 200.
+  2316  it("returns 422 with model_output_invalid when reviewCode returns _parseError", async () => {
+  2317    const { reviewCode: mockReviewCode } = await import("@workspace/ai-orchestrator");
+  2318    vi.mocked(mockReviewCode).mockResolvedValueOnce({
+  2319      summary: "fallback",
+  2320      overallScore: 70,
+  2321      strengths: [],
+  2322      issues: [],
+  2323      refactoringOpportunities: [],
+  2324      securityConcerns: [],
+  2325      verdict: "needs_changes",
+  2326      _parseError: { code: "SCHEMA_VALIDATION_FAILED", message: "missing field", raw: "bad output" },
+  2327    });
+  2328
+  2329    const projectId = await insertProject();
+  2330    projectIds.push(projectId);
+  2331
+  2332    const res = await request(app).post(`/api/ai/projects/${projectId}/review`).send({});
+  2333    expect(res.status).toBe(422);
+  2334    expect(res.body.error).toBe("model_output_invalid");
+  2335    expect(res.body.code).toBe("model_output_invalid");
+  2336    expect(res.body.parseCode).toBe("SCHEMA_VALIDATION_FAILED");
+  2337    expect(typeof res.body.hint).toBe("string");
+  2338  });
+  2339
+  2340  it("streams the structured review lifecycle and result", async () => {
+  2341    const projectId = await insertProject();
+  2342    projectIds.push(projectId);
+  2343
+  2344    const res = await request(app)
+  2345      .post(`/api/ai/projects/${projectId}/review/stream`)
+  2346      .send({ fileContents: { "index.ts": "const x = 1;" } });
+  2347    expect(res.status).toBe(200);
+  2348    expect(res.headers["content-type"]).toMatch(/text\/event-stream/);
+  2349    expect(res.text).toContain('"type":"task_started"');
+  2350    expect(res.text).toContain('"stage":"building-context"');
+  2351    expect(res.text).toContain('"stage":"calling-model"');
+  2352    expect(res.text).toContain('"type":"task_done"');
+  2353    expect(res.text).toContain('"verdict":"approved"');
+  2354  });
+  2355});
+  2356
+  2357// ─── POST /api/ai/workflows/:workflowId/orchestrate ───────────────────────────
+  2358
+  2359describe("POST /api/ai/workflows/:workflowId/orchestrate", () => {
+  2360  it("returns 404 for an unknown workflow", async () => {
+  2361    const res = await request(app)
+  2362      .post(`/api/ai/workflows/${randomUUID()}/orchestrate`)
+  2363      .send({});
+  2364    expect(res.status).toBe(404);
+  2365    expect(res.body.error).toBe("Workflow not found");
+  2366  });
+  2367
+  2368  it("returns 200 with an orchestration decision for a known workflow", async () => {
+  2369    const projectId = await insertProject();
+  2370    projectIds.push(projectId);
+  2371    const workflowId = await insertWorkflow(projectId);
+  2372    workflowIds.push(workflowId);
+  2373
+  2374    const res = await request(app)
+  2375      .post(`/api/ai/workflows/${workflowId}/orchestrate`)
+  2376      .send({ additionalContext: "all tests passing" });
+  2377    expect(res.status).toBe(200);
+  2378    expect(res.body.action).toBe("advance");
+  2379    expect(typeof res.body.reasoning).toBe("string");
+  2380  });
+  2381
+  2382  it("creates an AiWorkflowOrchestration event", async () => {
+  2383    const projectId = await insertProject();
+  2384    projectIds.push(projectId);
+  2385    const workflowId = await insertWorkflow(projectId);
+  2386    workflowIds.push(workflowId);
+  2387
+  2388    await request(app).post(`/api/ai/workflows/${workflowId}/orchestrate`).send({});
+  2389
+  2390    const events = await db

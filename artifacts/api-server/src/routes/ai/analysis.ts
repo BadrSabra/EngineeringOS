@@ -8,7 +8,14 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import path from "node:path";
 import { db } from "@workspace/db";
-import { auditLogsTable, eventsTable, projectsTable } from "@workspace/db";
+import {
+  aiChatMessagesTable,
+  aiChatSessionsTable,
+  auditLogsTable,
+  eventsTable,
+  projectsTable,
+} from "@workspace/db";
+import { and, eq } from "drizzle-orm";
 import {
   buildProjectContext,
   invalidateContextCache,
@@ -17,9 +24,10 @@ import {
 } from "@workspace/ai-orchestrator";
 import { logger } from "../../lib/logger.js";
 import { requireProjectAccess } from "../../middlewares/requireProjectAccess.js";
-import { checkProjectRateLimitDb, LLM_RATE_LIMIT } from "../../lib/db-rate-limiter.js";
+import { checkProjectRateLimitDb } from "../../lib/db-rate-limiter.js";
 import { resolveRootPath } from "../../lib/rootpath-validator.js";
 import {
+  resolveProvider,
   requireProvider,
   handleOrchestratorError,
   runAgentWithFallback,
@@ -48,8 +56,118 @@ type StructuredTaskEvent =
     | { type: "stage"; stage: string }
     | { type: "task_progress"; task: StructuredTask; message: string; provider?: string }
     | { type: "task_done"; task: StructuredTask; result: Record<string, unknown> }
-   | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; failureKind?: "PROVIDER_FORMAT" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; outcome?: "FAILED" | "INTERRUPTED" })
+   | { type: "error"; code: string; message: string; hint?: string; retryable?: boolean; failureKind?: "PROVIDER_FORMAT" | "RATE_LIMIT" | "CONFIGURATION" | "PROVIDER_FAILURE" | "TRANSPORT"; outcome?: "FAILED" | "INTERRUPTED"; sessionId?: string })
     & Partial<StructuredAuditMetadata>;
+
+type StructuredFailureKind =
+  | "PROVIDER_FORMAT"
+  | "RATE_LIMIT"
+  | "CONFIGURATION"
+  | "PROVIDER_FAILURE"
+  | "TRANSPORT";
+
+async function persistStructuredFailure(params: {
+  projectId: string;
+  userId: string;
+  task: StructuredTask;
+  sessionId?: string;
+  failureKind: StructuredFailureKind;
+  retryable: boolean;
+  errorCode: string;
+  errorMessage: string;
+}): Promise<string> {
+  const now = new Date();
+  let sessionId = params.sessionId;
+  const existingSession = sessionId
+    ? (await db
+      .select({ id: aiChatSessionsTable.id })
+      .from(aiChatSessionsTable)
+      .where(and(
+        eq(aiChatSessionsTable.id, sessionId),
+        eq(aiChatSessionsTable.projectId, params.projectId),
+      ))
+      .limit(1))[0]
+    : undefined;
+  if (!existingSession) sessionId = randomUUID();
+
+  const prompt = params.task === "review"
+    ? "Review the codebase and identify the most critical quality issues."
+    : "Analyze the latest scan results and suggest the top 3 improvements.";
+  const trace = JSON.stringify([{
+    kind: "structured_task_failure",
+    task: params.task,
+    failureKind: params.failureKind,
+    retryable: params.retryable,
+  }]);
+
+  await db.transaction(async (tx) => {
+    if (!existingSession) {
+      await tx.insert(aiChatSessionsTable).values({
+        id: sessionId!,
+        projectId: params.projectId,
+        title: params.task === "review" ? "Code review" : "Scan analysis",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await tx.insert(aiChatMessagesTable).values({
+        id: randomUUID(),
+        sessionId: sessionId!,
+        role: "user",
+        content: prompt,
+        outcome: "SUCCEEDED",
+        createdAt: now,
+      });
+    }
+    await tx.insert(aiChatMessagesTable).values({
+      id: randomUUID(),
+      sessionId: sessionId!,
+      role: "assistant",
+      content: "",
+      outcome: "FAILED",
+      errorCode: params.errorCode,
+      errorMessage: redactUserFacingText(params.errorMessage).slice(0, 500),
+      toolTrace: trace,
+      createdAt: now,
+    });
+    await tx.update(aiChatSessionsTable)
+      .set({ updatedAt: now })
+      .where(eq(aiChatSessionsTable.id, sessionId!));
+  });
+  return sessionId!;
+}
+
+async function requireStructuredProvider(
+  userId: string,
+  res: import("express").Response,
+  options: Parameters<typeof resolveProvider>[1],
+  params: {
+    projectId: string;
+    task: StructuredTask;
+    sessionId?: string;
+  },
+): Promise<Awaited<ReturnType<typeof resolveProvider>> | null> {
+  const resolved = await resolveProvider(userId, options);
+  if (resolved) return resolved;
+
+  const sessionId = await persistStructuredFailure({
+    ...params,
+    userId,
+    failureKind: "CONFIGURATION",
+    retryable: false,
+    errorCode: "AI_PROVIDER_NOT_CONFIGURED",
+    errorMessage: "The AI provider configuration needs attention before this can run.",
+  });
+  res.status(428).json({
+    error: "AI provider not configured",
+    hint: "Save an API key for at least one supported provider, then start a new task.",
+    availabilityState: "missing_credentials",
+    operatorAction: "Save an API key for at least one supported provider, then retry.",
+    retryable: false,
+    failureKind: "CONFIGURATION",
+    sessionId,
+  });
+  return null;
+}
 
 function auditEnvelope(metadata: StructuredAuditMetadata): Record<string, unknown> {
   return {
@@ -137,6 +255,7 @@ function emitTaskFailure(
   close: () => void,
   err: unknown,
   metadata: StructuredAuditMetadata,
+  params: { projectId: string; userId: string; task: StructuredTask; sessionId?: string },
 ) {
   const candidate = err as { code?: unknown; message?: unknown };
   const code = typeof candidate.code === "string" ? candidate.code : "task_failed";
@@ -154,20 +273,41 @@ function emitTaskFailure(
     "The AI provider could not complete this run.";
   metadata.incomplete = true;
   metadata.operationalTrace.push({ stage: "failed", status: "failed" });
-  emit({
-    type: "error",
-    code,
-    message,
-    hint: failureKind === "RATE_LIMIT"
-      ? "Wait a moment and retry the analysis."
-      : failureKind === "CONFIGURATION"
-        ? "Check the configured provider key or choose another provider."
-        : "You can retry this task without sending another prompt.",
-    retryable: failureKind !== "CONFIGURATION",
+  void persistStructuredFailure({
+    ...params,
     failureKind,
-    outcome: "FAILED",
+    retryable: failureKind !== "CONFIGURATION",
+    errorCode: code,
+    errorMessage: message,
+  }).then((sessionId) => {
+    emit({
+      type: "error",
+      code,
+      message,
+      hint: failureKind === "RATE_LIMIT"
+        ? "Wait a moment and retry the task."
+        : failureKind === "CONFIGURATION"
+          ? "Update the AI setup before starting a new task."
+          : "You can retry this task without sending another prompt.",
+      retryable: failureKind !== "CONFIGURATION",
+      failureKind,
+      outcome: "FAILED",
+      sessionId,
+    });
+    close();
+  }).catch((persistError) => {
+    logger.error({ persistError, projectId: params.projectId, task: params.task }, "structured task failure persistence failed");
+    emit({
+      type: "error",
+      code,
+      message,
+      hint: "You can retry this task without sending another prompt.",
+      retryable: failureKind !== "CONFIGURATION",
+      failureKind,
+      outcome: "FAILED",
+    });
+    close();
   });
-  close();
 }
 
 // ── POST /api/ai/projects/:projectId/analyze ─────────────────────────────────
@@ -194,7 +334,11 @@ router.post("/ai/projects/:projectId/analyze", requireProjectAccess, async (req,
   const rlAnalyze = await checkProjectRateLimitDb(projectId);
   if (!rlAnalyze.allowed) {
     return res.status(429).json({
-      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlAnalyze.retryAfterSec}s.`,
+      error: "The AI provider is temporarily rate-limited.",
+      code: "RATE_LIMITED",
+      hint: `Wait ${rlAnalyze.retryAfterSec}s, then retry the analysis.`,
+      retryable: true,
+      failureKind: "RATE_LIMIT",
     });
   }
 
@@ -293,7 +437,11 @@ router.post("/ai/projects/:projectId/review", requireProjectAccess, async (req, 
   const rlReview = await checkProjectRateLimitDb(projectId);
   if (!rlReview.allowed) {
     return res.status(429).json({
-      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlReview.retryAfterSec}s.`,
+      error: "The AI provider is temporarily rate-limited.",
+      code: "RATE_LIMITED",
+      hint: `Wait ${rlReview.retryAfterSec}s, then retry the code review.`,
+      retryable: true,
+      failureKind: "RATE_LIMIT",
     });
   }
 
@@ -372,15 +520,36 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
   const projectId = req.params.projectId as string;
   const project = req.project;
   if (!project) return res.status(500).json({ error: "Project context unavailable" });
-  const providerResolved = await requireProvider(req.userId, res, { qualityProfile: "analysis" });
-  if (!providerResolved) return;
+  const requestedSessionId = typeof req.body?.sessionId === "string" ? req.body.sessionId : undefined;
   const metadata = await createAuditMetadata(projectId, project);
   recordTrace(metadata, "analyze", "started");
+  const providerResolved = await requireStructuredProvider(
+    req.userId,
+    res,
+    { qualityProfile: "analysis" },
+    { projectId, task: "analyze", sessionId: requestedSessionId },
+  );
+  if (!providerResolved) return;
 
   const rlAnalyze = await checkProjectRateLimitDb(projectId);
   if (!rlAnalyze.allowed) {
+    const sessionId = await persistStructuredFailure({
+      projectId,
+      userId: req.userId,
+      task: "analyze",
+      sessionId: requestedSessionId,
+      failureKind: "RATE_LIMIT",
+      retryable: true,
+      errorCode: "RATE_LIMITED",
+      errorMessage: "The AI provider is temporarily rate-limited.",
+    });
     return res.status(429).json({
-      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlAnalyze.retryAfterSec}s.`,
+      error: "The AI provider is temporarily rate-limited.",
+      code: "RATE_LIMITED",
+      hint: `Wait ${rlAnalyze.retryAfterSec}s, then retry the analysis.`,
+      retryable: true,
+      failureKind: "RATE_LIMIT",
+      sessionId,
     });
   }
 
@@ -417,6 +586,16 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
     if (result._parseError) {
       metadata.incomplete = true;
       recordTrace(metadata, "calling-model", "incomplete", effectiveProvider);
+      const sessionId = await persistStructuredFailure({
+        projectId,
+        userId: req.userId,
+        task: "analyze",
+        sessionId: requestedSessionId,
+        failureKind: "PROVIDER_FORMAT",
+        retryable: true,
+        errorCode: "model_output_invalid",
+        errorMessage: "The AI returned an unexpected response format.",
+      });
       emit({
         type: "error",
         code: "model_output_invalid",
@@ -425,6 +604,7 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
         retryable: true,
         failureKind: "PROVIDER_FORMAT",
         outcome: "FAILED",
+        sessionId,
       });
       close();
       return;
@@ -467,7 +647,12 @@ router.post("/ai/projects/:projectId/analyze/stream", requireProjectAccess, asyn
     logger.info({ projectId, provider: effectiveProvider }, "AI scan analysis stream completed");
   } catch (err) {
     logger.error({ err, projectId }, "AI scan analysis stream failed");
-    emitTaskFailure(emit, close, err, metadata);
+    emitTaskFailure(emit, close, err, metadata, {
+      projectId,
+      userId: req.userId,
+      task: "analyze",
+      sessionId: requestedSessionId,
+    });
   }
   return;
 });
@@ -478,7 +663,10 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
   const projectId = req.params.projectId as string;
   const project = req.project;
   if (!project) return res.status(500).json({ error: "Project context unavailable" });
-  const { fileContents } = req.body as { fileContents?: Record<string, string> };
+  const { fileContents, sessionId: requestedSessionId } = req.body as {
+    fileContents?: Record<string, string>;
+    sessionId?: string;
+  };
   const MAX_FILE_CONTENTS_BYTES = 50_000;
 
   if (fileContents) {
@@ -498,15 +686,35 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     }
   }
 
-  const providerResolved = await requireProvider(req.userId, res, { qualityProfile: "code_review" });
-  if (!providerResolved) return;
   const metadata = await createAuditMetadata(projectId, project);
   recordTrace(metadata, "review", "started");
+  const providerResolved = await requireStructuredProvider(
+    req.userId,
+    res,
+    { qualityProfile: "code_review" },
+    { projectId, task: "review", sessionId: requestedSessionId },
+  );
+  if (!providerResolved) return;
 
   const rlReview = await checkProjectRateLimitDb(projectId);
   if (!rlReview.allowed) {
+    const sessionId = await persistStructuredFailure({
+      projectId,
+      userId: req.userId,
+      task: "review",
+      sessionId: requestedSessionId,
+      failureKind: "RATE_LIMIT",
+      retryable: true,
+      errorCode: "RATE_LIMITED",
+      errorMessage: "The AI provider is temporarily rate-limited.",
+    });
     return res.status(429).json({
-      error: `LLM rate limit exceeded — max ${LLM_RATE_LIMIT} calls per minute per project. Retry in ${rlReview.retryAfterSec}s.`,
+      error: "The AI provider is temporarily rate-limited.",
+      code: "RATE_LIMITED",
+      hint: `Wait ${rlReview.retryAfterSec}s, then retry the code review.`,
+      retryable: true,
+      failureKind: "RATE_LIMIT",
+      sessionId,
     });
   }
 
@@ -543,6 +751,16 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     if (result._parseError) {
       metadata.incomplete = true;
       recordTrace(metadata, "calling-model", "incomplete", effectiveProvider);
+      const sessionId = await persistStructuredFailure({
+        projectId,
+        userId: req.userId,
+        task: "review",
+        sessionId: requestedSessionId,
+        failureKind: "PROVIDER_FORMAT",
+        retryable: true,
+        errorCode: "model_output_invalid",
+        errorMessage: "The AI returned an unexpected response format.",
+      });
       emit({
         type: "error",
         code: "model_output_invalid",
@@ -551,6 +769,7 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
         retryable: true,
         failureKind: "PROVIDER_FORMAT",
         outcome: "FAILED",
+        sessionId,
       });
       close();
       return;
@@ -593,7 +812,12 @@ router.post("/ai/projects/:projectId/review/stream", requireProjectAccess, async
     logger.info({ projectId, provider: effectiveProvider }, "AI code review stream completed");
   } catch (err) {
     logger.error({ err, projectId }, "AI code review stream failed");
-    emitTaskFailure(emit, close, err, metadata);
+    emitTaskFailure(emit, close, err, metadata, {
+      projectId,
+      userId: req.userId,
+      task: "review",
+      sessionId: requestedSessionId,
+    });
   }
   return;
 });
