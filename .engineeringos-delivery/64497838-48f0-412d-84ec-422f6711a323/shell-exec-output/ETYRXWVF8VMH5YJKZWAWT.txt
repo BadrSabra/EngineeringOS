@@ -1,0 +1,122 @@
+33:  "provider-outage",
+42:      "Live campaign requires DASHBOARD_E2E_LIVE_SCENARIO=provider-outage, malformed-output, or delivery-success.",
+53:  if (scenario === "provider-outage") {
+54:    return "Run a bounded forensic audit and report the OpenRouter rate-limit/provider-exhaustion outage as a failed or incomplete operation. Do not use prior analysis as a current answer; include the current operation and revision.";
+57:    return "Run a bounded forensic audit and treat malformed provider output as failed or incomplete. Do not claim success, apply, commit, or push without candidate-bound evidence.";
+264:    if (aiFixtures.length > 0 && path.endsWith("/api/ai/chat/sessions")) {
+279:    if (overrides?.resumeFailure && path.endsWith("/api/ai/chat/stream")) {
+284:        // The normal provider-free fallback below handles malformed requests.
+297:    if (overrides?.interruptedResume && path.endsWith("/api/ai/chat/stream")) {
+302:        // The normal provider-free fallback below handles malformed requests.
+329:      // The default provider-unavailable response handles malformed requests.
+340:    if (streamFixture && path.endsWith("/api/ai/chat/stream"))
+348:      path.endsWith(`/api/ai/chat/${fixture.sessionId}/messages`),
+365:      path.endsWith("/api/ai/chat/e2e-audit-session/messages")
+433:      path === `/api/ai/executions/${EXECUTION_ID}/audit-export`
+551:      path === "/api/ai/delivery/recoverable"
+561:        `/api/ai/delivery/${overrides.deliveryRecovery.recoveryAction.proposalId}/${overrides.deliveryRecovery.recoveryAction.action}`
+604:        `/api/ai/executions/${overrides.resumeFailure.fixture.executionId}`
+611:        `/api/ai/executions/${overrides.interruptedResume.fixture.executionId}`
+618:        `/api/ai/executions/${overrides.interruptedResume.fixture.executionId}/resume-capability`
+627:    if (path === `/api/ai/executions/${EXECUTION_ID}`)
+631:    if (path === "/api/ai/mission-control")
+637:    // verifies the user-visible unavailable/empty state without a provider.
+638:    if (path.startsWith("/api/ai/"))
+640:        jsonResponse({ error: "AI provider not configured" }, 428),
+662:    "ماذا يحدث عند انتهاء مهلة provider timeout داخل execution-tools.ts؟";
+670:            excerpt: "provider timeout is handled here",
+677:            excerpt: 'return partialFromCollectedEvidence("provider timeout");',
+902:    "The model started an answer, but the provider disconnected before completion.";
+907:      stopReason: "provider_timeout",
+916:        "The provider disconnected after visible response text.",
+928:    errorMessage: "The provider disconnected before completion.",
+944:    // The real route emits this after a provider disconnect so the client
+959:    source: "provider",
+1287:  const mutationUrl = new URL("/api/ai/chat", apiBaseUrl).toString();
+1393:  const mutationUrl = new URL("/api/ai/chat", apiBaseUrl).toString();
+1395:  const liveUpdateUrl = new URL("/api/ai/chat/stream", apiBaseUrl).toString();
+1515:  test("exports one redacted live-provider mission correlation report", async ({
+1518:    // The Playwright deadline must leave room for the provider-bound request
+1523:      "Live-provider release journey is opt-in.",
+1527:        "Live-provider journey requires DASHBOARD_E2E_LIVE_DISPOSABLE=1 and a disposable project.",
+1534:        "DASHBOARD_E2E_LIVE_PROJECT_ID is required for the live-provider journey.",
+1538:    const streamResponse = await liveRequest(page, "/api/ai/chat/stream", {
+1549:        `Live-provider mission failed to start (${streamResponse.status}).`,
+1561:      throw new Error("Live-provider stream did not emit execution_started.");
+1566:      execution = await liveJson(page, `/api/ai/executions/${executionId}`);
+1577:        "Live-provider mission did not reach a terminal state within its bound.",
+1584:      `/api/ai/chat/${sessionId}/messages`,
+1592:      `/api/ai/chat/${sessionId}/pending-proposal`,
+1595:    const missionControl = await liveJson(page, "/api/ai/mission-control");
+1621:      throw new Error("Live-provider mission is missing its project revision.");
+1671:        `Live-provider mission reported ${terminalState} without accepted evidence and validation ` +
+1824:          /AI provider not configured|No AI key configured|AI Assistant/i,
+1858:    const rawDiagnostic = "provider diagnostic: upstream returned raw response";
+1863:      provider_outage: "support-workflow-outage-32",
+1870:        description: "The provider authentication test task failed.",
+1873:        relatedFiles: ["src/provider.ts"],
+1881:          operatorAction: "Replace the provider API key with a valid key, then retry.",
+1882:          provider: "openrouter",
+1894:        description: "The provider quota test task failed.",
+1904:          provider: "openrouter",
+1920:          name: "Recover provider outage",
+1944:              availabilityState: "provider_outage",
+1945:              correlationId: supportReferences.provider_outage,
+1947:                "Retry in a moment; configure another provider if the issue persists.",
+1966:      "Replace the provider API key with a valid key, then retry.",
+1990:      "Replace the provider API key with a valid key, then retry.",
+2008:    await expect(page.getByText("Recover provider outage")).toBeVisible();
+2015:      "The provider is temporarily unavailable",
+2018:      "Retry in a moment; configure another provider if the issue persists.",
+2021:      `Support reference: ${supportReferences.provider_outage}`,
+2024:    await expect(page.getByText("Recover provider outage")).toBeVisible();
+2031:      "The provider is temporarily unavailable",
+2034:      "Retry in a moment; configure another provider if the issue persists.",
+2037:      `Support reference: ${supportReferences.provider_outage}`,
+2169:          "provider secrets",
+2216:    await expect(preview).toContainText("provider secrets");
+2224:      `/api/ai/executions/${EXECUTION_ID}/audit-export`,
+2284:          "provider secrets",
+2350:    await expect(preview).toContainText("provider secrets");
+2667:      response.url().includes("/api/ai/chat/stream"),
+2694:        .getByText('return partialFromCollectedEvidence("provider timeout");', {
+2741:      /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+2750:      question: "ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟",
+2779:      /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+2788:      question: "ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟",
+2877:      /rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+2886:      question: "ما هو سلوك مهلة provider عند الرجوع عبر سجل المتصفح؟",
+2936:        /MISSING_LITERAL_MATCH|rawPrompt|systemPrompt|provider diagnostics|source-window|recovery prompt|\/home\/runner/i,
+3081:  test("preserves one partial answer after a provider disconnect and marks it incomplete", async ({
+3097:      page.getByText("provider failure", { exact: false }).last(),
+3100:      page.getByText("stopped: provider timeout", { exact: false }).last(),
+3103:      page.getByText("The provider disconnected after visible response text.", {
+3116:      page.getByText("provider failure", { exact: false }).last(),
+3119:      page.getByText("stopped: provider timeout", { exact: false }).last(),
+3122:      page.getByText("The provider disconnected after visible response text.", {
+3170:        request.url().includes("/api/ai/chat/stream") &&
+3218:          !url.includes("/api/ai/chat/stream") ||
+3265:        request.url().includes("/api/ai/chat/stream") &&
+3575:      "/api/ai/delivery/e2e-recovery-race-proposal/resume-validation",
+artifacts/dashboard/src/pages/AiChat.tsx:4537:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4552:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4756:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4771:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4868:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:4883:        void qc.invalidateQueries({ queryKey: ['active-provider'] });
+artifacts/dashboard/src/pages/AiChat.tsx:7621:      queryKey: ['active-provider'],
+artifacts/dashboard/src/pages/AiChat.authenticated.test.tsx:816:    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['active-provider'] });
+artifacts/api-server/src/routes/ai/providers.ts:12: *   GET /api/ai/active-provider
+artifacts/api-server/src/routes/ai/providers.ts:161:/** GET /api/ai/active-provider — which provider will be used for this user */
+artifacts/api-server/src/routes/ai/providers.ts:162:router.get("/ai/active-provider", async (req, res) => {
+artifacts/api-server/src/routes/ai/index.ts:5: *   providers  — deepseek/groq key management, active-provider
+artifacts/api-server/src/routes/ai-route-parity.test.ts:147:      "GET /api/ai/active-provider",
+lib/api-client-react/src/generated/api.ts:8142:  return `/api/ai/active-provider`
+lib/api-client-react/src/generated/api.ts:8148:export const getActiveProvider = async ( options?: RequestInit): Promise<ActiveProviderStatus> => {
+lib/api-client-react/src/generated/api.ts:8165:    `/api/ai/active-provider`
+lib/api-client-react/src/generated/api.ts:8170:export const getGetActiveProviderQueryOptions = <TData = Awaited<ReturnType<typeof getActiveProvider>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getActiveProvider>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+lib/api-client-react/src/generated/api.ts:8179:    const queryFn: QueryFunction<Awaited<ReturnType<typeof getActiveProvider>>> = ({ signal }) => getActiveProvider({ signal, ...requestOptions });
+lib/api-client-react/src/generated/api.ts:8185:   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getActiveProvider>>, TError, TData> & { queryKey: QueryKey }
+lib/api-client-react/src/generated/api.ts:8188:export type GetActiveProviderQueryResult = NonNullable<Awaited<ReturnType<typeof getActiveProvider>>>
+lib/api-client-react/src/generated/api.ts:8196:export function useGetActiveProvider<TData = Awaited<ReturnType<typeof getActiveProvider>>, TError = ErrorType<void>>(
+lib/api-client-react/src/generated/api.ts:8197:  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getActiveProvider>>, TError, TData>, request?: SecondParameter<typeof customFetch>}

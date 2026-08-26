@@ -1,0 +1,300 @@
+# EngineeringOS — Architecture Reference
+
+> **This is the current truth baseline** (last verified 2026-07-20, post all PRs A–I + forensic audit PRs 1–5).
+> `docs/completion-plan.md` and `docs/fact-record.md` are historical phase logs — see those
+> files' banners for context.
+
+---
+
+## 1. Layer Map
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Dashboard  (artifacts/dashboard)                                 │
+│  React 19 + Vite 7 + TailwindCSS 4 + wouter                      │
+│  React Query hooks  ←  generated from OpenAPI spec (Orval)       │
+└─────────────────────────┬────────────────────────────────────────┘
+                          │ HTTP (cookie-auth, same-origin)
+┌─────────────────────────▼────────────────────────────────────────┐
+│  API Server  (artifacts/api-server)                               │
+│  Express 5 · clerkMiddleware · requireAuth · requireProjectAccess │
+│  Routes: projects · tasks · rules · workflows · events · metrics  │
+│          graph · discovery · scan · plugins · ai · git            │
+└──────┬──────────────┬───────────────┬───────────────┬────────────┘
+       │              │               │               │
+       ▼              ▼               ▼               ▼
+┌──────────┐  ┌──────────────┐  ┌──────────┐  ┌──────────────────┐
+│    DB    │  │   Scanner    │  │Knowledge │  │  AI Orchestrator  │
+│ (lib/db) │  │ (lib/scanner)│  │  Engine  │  │(lib/ai-orchestr..)│
+│ Drizzle  │  │ walk·rule·   │  │(lib/know.│  │ groq-client       │
+│ Postgres │  │ graph·metrics│  │-engine)  │  │ chat·scan·review  │
+└──────────┘  └──────────────┘  │ BFS·     │  │ task·workflow     │
+                                │ centrality│  │ agents            │
+                                └──────────┘  └──────────────────┘
+```
+
+**Reading order (inside-out):** DB schema → scanner → knowledge-engine → AI orchestrator → API routes → dashboard. Never introduce a UI-first dependency.
+
+---
+
+## 2. Package Dependency Graph
+
+```
+workspace (pnpm root)
+├── lib/db                     — Drizzle schema + migrations
+│   └── drizzle-orm, pg
+├── lib/api-spec               — openapi.yaml (single source of truth)
+│   └── generates →
+│       ├── lib/api-client-react  (React Query hooks via Orval)
+│       └── lib/api-zod           (Zod request/response schemas via Orval)
+├── lib/scanner                — file walker, rule matcher, graph extractor, metrics
+│   └── lib/db (reads schema types)
+├── lib/knowledge-engine       — BFS impact/path/neighbourhood, centrality, clusters
+│   └── lib/db (direct dep — not just transitive)
+├── lib/ai-orchestrator        — Groq client, 5 AI agents, context builder, parsing
+│   └── lib/db (for context-builder queries)
+├── artifacts/api-server       — Express app, all routes, job queues
+│   ├── lib/db
+│   ├── lib/scanner
+│   ├── lib/knowledge-engine
+│   ├── lib/ai-orchestrator
+│   └── lib/api-zod
+└── artifacts/dashboard        — React SPA
+    ├── lib/api-client-react
+    └── lib/api-zod
+```
+
+**Key rule:** No `lib/*` package imports from `artifacts/*`. The arrow is one-way.
+
+---
+
+## 3. Trust Boundaries
+
+### Authentication
+
+- Every `/api/*` route (except `/api/healthz`) requires a valid Clerk session.
+- `clerkMiddleware()` is mounted globally in `app.ts`; `requireAuth` is applied per-router.
+- In `NODE_ENV=test`, `requireAuth` is bypassed (see `.agents/memory/clerk-auth-testing.md`).
+- The dashboard uses session cookies (same-origin); no Bearer tokens on the web client.
+
+### Authorization (ownership scoping)
+
+- Every project has a single `ownerId` (Clerk user ID). No teams, no roles.
+- `requireProjectAccess` middleware: 404 if project not found, 403 if owned by another user.
+- `loadProjectByIdForUser()` is used in routes where `projectId` comes from request body/query (not path params).
+- All routes — tasks, rules, workflows, events, metrics, graph, AI, discovery — enforce ownership. See `.agents/memory/project-ownership-scoping.md`.
+
+### Credential encryption
+
+- User-supplied Groq API keys are encrypted at rest in the `ai_provider_credentials` table.
+- The encryption key is derived from `SESSION_SECRET` (env secret, never committed).
+- Keys are never logged; decryption errors are logged without the ciphertext.
+
+### Rate limiting
+
+- Per-project LLM rate limit (configurable, default 20 req/min) enforced in `ai.ts` before any Groq call.
+- Rate limit check occurs **before** the atomic task claim so a task is never left stuck in `running` on a rate-limit rejection.
+
+---
+
+## 4. Key Execution Flows
+
+### 4a. Project Discovery
+
+```
+Client POST /api/projects/discover
+  → SourceAdapter.resolve(sourceType, sourceConfig)
+       LOCAL_FOLDER   → validate rootPath (realpath, no symlink escape)
+       GIT_REPOSITORY → git clone --depth 1 to /tmp/eos-git-<uuid>/
+       others         → 501 (stub-honest — see PR-A)
+  → DB: insert discovery_session (status=discovering)
+  → heavyJobQueue.enqueue(discoveryRunner)
+       discoveryRunner: walks rootPath, extracts graph+metrics, inserts project row
+       atomic claim: UPDATE discovery_sessions SET status=claimed WHERE status=pending
+   → job-reconciliation on startup: queued→re-enqueue, expired running→retry/fail,
+     pending→re-enqueue, expired discovering→error
+```
+
+See `.agents/memory/discovery-feature.md`, `.agents/memory/discovery-multi-source.md`, `.agents/memory/pr01-job-durability.md`.
+
+### 4b. Scan
+
+```
+Client POST /api/projects/:projectId/scan
+  → requireProjectAccess
+  → DB: insert scan_job (status=queued)
+  → heavyJobQueue.enqueue(scanRunner)
+       scanRunner:
+         walk project rootPath
+         run rule-matcher → rule violations
+         graph-extractor (TS compiler API + Python AST + regex fallback)
+         metrics-calc → quality scores
+         knowledge-engine import (entities + relationships)
+         DB: update metrics, insert events
+   → job-reconciliation on restart: interrupted/expired→retry within budget or failed
+  → post-scan: triggers AI auto-trigger if project in "verifying" state (PR-C)
+```
+
+See `.agents/memory/scanner-ast-extraction.md`.
+
+### 4c. AI Chat
+
+```
+Client POST /api/ai/chat  { projectId, message, sessionId? }
+  → requireAuth + loadProjectByIdForUser
+  → requireGroqApiKey (DB lookup → env fallback → 428 if missing)
+  → checkProjectRateLimit → 429 if exceeded
+  → buildProjectContext(projectId)  ← cached 30 s; invalidated on any context-table write
+  → chat({ message, history, projectContext, rootPath, apiKey })
+       GroqClient.complete() with tool definitions (read/list/search/write)
+       agentic loop (max 6 tool iterations)
+       parseAgentResponse → AgentParseResult
+       if !ok → return ChatResult with _parseError
+  → if result._parseError → 422 { error: "model_output_invalid", raw, parseCode }
+  → if GroqClientError → handleOrchestratorError → 429/401/502/503
+  → DB: upsert session, insert user+assistant messages
+  → 200 { response, sources, pendingChanges, sessionId }
+```
+
+See `.agents/memory/ai-orchestrator-layer.md`, `.agents/memory/ai-tool-calling.md`.
+
+### 4d. Task AI Execute
+
+```
+Client POST /api/ai/tasks/:taskId/execute
+  → requireGroqApiKey (before claim — if missing → 428, task never claimed)
+  → checkProjectRateLimit (before claim — if exceeded → 429, task never claimed)
+  → atomic claim: UPDATE tasks SET status=running WHERE id=? AND status=?
+       if 0 rows → 409 (concurrent claim)
+  → executeTask({ ... })
+       GroqClient.complete()
+       parseAgentResponse → if !ok → return TaskAgentResult with _parseError
+  → if result._parseError → rollback claim → taskLog(error) → 422
+  → if GroqClientError → rollback claim → taskLog(error) → handleOrchestratorError
+  → DB: update task status (completed|verifying), insert taskLog + event + audit
+  → 202 { updated task }
+```
+
+See `.agents/memory/fk-atomic-claim-ordering.md`.
+
+### 4e. Workflow Phase Advance
+# EngineeringOS Actual Capability Baseline
+
+**Baseline version:** 2 (historical filename retained)
+**Observed date:** 2026-08-26
+**Scope:** repository source, merged provider-free release checks, and recorded
+controlled-operation prerequisites available in this workspace
+**Status:** evidence report; controlled authenticated browser/API checks were run
+on 2026-08-26, but the complete live-provider delivery campaign remains blocked
+and no production deployment was used
+
+## 1. Reading this report
+
+This is a code-and-test baseline, not a parity claim. A capability is marked:
+
+- **Verified by code** — the implementation path and enforcement point are present,
+  but no relevant automated behavior check was established here.
+- **Verified by automated test** — a provider-free unit, route, contract, or
+  component test passed.
+- **Verified end-to-end** — a real browser/API journey passed against running
+  services. No capability receives this label in this update; the preview/browser
+  check is still disabled and live-provider checks were not run.
+- **Partial** — some path is implemented and/or tested, but an important
+  transition, prerequisite, or integration remains unverified or failed.
+- **Blocked** — the path intentionally cannot run without a provider, credential,
+  or other prerequisite.
+- **Not implemented** — the source explicitly does not provide the capability.
+
+“Proposed”, “validated”, “committed”, and “pushed” describe change state, not
+capability state:
+
+| Change state | Meaning in this baseline |
+|---|---|
+| Safe proposed | A future change could be suggested without applying it. |
+| Validated | A change or candidate passed its applicable validation receipt/gate. |
+| Committed | Git commit endpoint completed for the approved candidate. |
+| Pushed | Git push endpoint completed with configured credentials/remotes. |
+
+This update did not propose or apply a product change. The report records
+capabilities already present in the merged source and the latest validation
+receipts; its committed/pushed state is determined by the task merge process.
+
+### Update ledger
+
+The previous 2026-08-25 baseline remains the historical starting point. This
+revision incorporates the merged work tracked by the repository task plans:
+
+- source-revision binding and server-derived candidate integrity for release
+  evidence (`.local/tasks/bind-releases-source-revision-v2.md`);
+- provider fallback/health classification and safe recovery guidance
+  (`.local/tasks/openrouter-fallback-root-cause.md` and provider diagnostics
+  tests);
+- bounded repair validation and dashboard-journey acceptance fixtures; and
+- restoration of provider-free runtime-oracle coverage and AI release-contract
+  checks.
+
+These changes improve what can be proven; they do not turn skipped live checks
+into passing evidence.
+
+## 2. Executive result
+
+EngineeringOS is an implemented engineering-operations console with a real
+dashboard, API, persistence model, tool-using AI loop, evidence gates, durable
+execution state, source-bound release evidence, and an approval-controlled
+Git delivery path. The latest provider-free release decision is
+`status: "passed"` with 9 passed checks, 0 blocking failures, and 1 skipped
+preview check (2026-08-26, `ai-release-quality-decision.json`). It is not
+operationally proven as a complete Agent replacement:
+
+1. AI features still require a configured provider; live provider checks remain
+   disabled and no credentials were added for this update.
+2. The deterministic benchmark contract and release decision pass, but its
+   approved baseline intentionally remains `qualityEligible: false` and
+   `rolloutAllowed: false`; that artifact is not live quality evidence.
+3. The controlled campaign proved Clerk authentication, origin enforcement,
+   authenticated shell navigation, audit preview/download, and the isolated
+   Git route's approved Apply → commit → push behavior. It did not complete the
+   full discovery → provider-backed work → promotion → Git journey: discovery's
+   real Git fixture is rejected by the credential-free GitHub URL policy, and
+   the full browser campaign hit readiness/fixture failures before delivery.
+   Preview validation and live-provider delivery remain explicitly blocked.
+4. Provider-free contract, SSE/redaction, operational-safety, and deterministic
+   benchmark checks now pass. This supersedes the earlier targeted failures for
+   those gates, but does not prove every broad API suite or a live provider.
+
+## 3. User-visible capability map
+
+| Capability | Implementation path and persisted boundary | Status | Evidence/confidence |
+|---|---|---|---|
+| Authenticated console and project-scoped navigation | Clerk setup in `replit.md`; `artifacts/dashboard/src/App.tsx` protects project, AI, Flight Deck, Mission Control, task, workflow, Git-related views; API uses auth/project-access middleware | **Verified by automated test** | Dashboard auth/page and client-contract checks pass; authenticated browser journey remains skipped |
+| Project discovery/import | `artifacts/api-server/src/routes/discovery.ts`: source listing, discovery start/session/summary, import; durable materialization and owner-scoped cleanup; `DiscoverProjectWizard.tsx` calls generated discovery/import/scan hooks | **Partial** | Discovery route tests exist; selected run failed a durable Git fixture with HTTP 400 rather than expected 202 |
+| Ordinary AI chat | `POST /api/ai/chat` and `/stream` in `routes/ai/chat.ts`; context is built, request intent/classification selects route/profile, messages/session state persist in `aiChatSessionsTable`/`aiChatMessagesTable` | **Verified by automated test; live blocked** | AI JSON/SSE, redaction, resume, and false-success release contracts pass; provider checks are disabled |
+| Source-aware tool use | `chat-agent.ts` + `tool-execution-engine.ts`; read/list/search tools, cache, source provenance, tool authorization, bounded iterations/calls, soft synthesis limit | **Verified by automated test** | Deterministic benchmark and AI contract gates pass; no live-provider tool journey |
+| Broad/hierarchical analysis | `hierarchical-executor.ts` schedules bounded waves, isolates write scopes, preserves partial sub-results, performs tool-free synthesis, and validates compound coverage | **Verified by code** | Explicit out-of-scope items remain: recursive nesting and per-subquery SSE |
+| Structured scan analysis | `POST /api/ai/projects/:projectId/analyze` and `/stream`; context, provider fallback, parse/error envelope, audit log and completion event persistence | **Partial / live blocked** | Provider-free contracts and provider diagnostics are covered; live execution and authenticated E2E remain unproven |
+| Structured code review | `POST /api/ai/projects/:projectId/review` and `/stream`; validates relative file keys and 50 KB aggregate input, persists audit/event result | **Partial / blocked** | Same provider limitation; input safety is code-backed |
+| AI task execution | `POST /api/ai/tasks/:taskId/execute`; task ownership/status/rate-limit checks delegate to `executeTaskLifecycle`, with task logs/events and durable job helpers | **Partial / blocked** | `tasks.test.ts` covers scheduling/HTTP behavior; real provider execution was not run |
+| Workflow orchestration | `POST /api/ai/workflows/:workflowId/orchestrate`; regular workflow API supports start/stop/advance/fail/retry/rollback and execution history | **Partial / blocked** | Workflow route tests passed within selected run; AI orchestration still needs provider and E2E confirmation |
+| Execution history and Flight Deck | `GET /api/ai/executions/history`, detail, audit export; `FlightDeck.tsx` renders operation/checkpoint/evidence/validation state | **Verified by code** | `ai-execution-state.test.ts` and dashboard Flight Deck tests exist; no real browser/API journey |
+| Mission Control/correlation | Mission Control page consumes execution history; chat route can regenerate a redacted correlation report solely from retained durable evidence | **Verified by automated test** | Dashboard Mission Control/correlation tests passed (part of 101 dashboard tests) |
+| Cancellation and recovery | Chat route exposes cancel/recovery/resume-capability; `ai-execution-state.ts` owns leases, resume-token hashing, checkpoint recovery, restart reconciliation, cancellation terminalization | **Verified by automated test** | Latest AI SSE and operational-safety release checks pass; browser reload/restart evidence is still absent |
+| Implementation planning | `implementation-planner.ts` requires verified filesystem manifest/source excerpts, validates provider paths, and returns `PENDING_APPROVAL`/`NOT_AUTHORIZED` fallback when grounding is absent | **Verified by code** | No provider-backed plan generation was run |
+| Proposed changes and approval | Chat route stores `aiChangeProposalsTable`; write tools queue `pendingChanges`; plan decision and proposal approve/delete routes are present; dashboard shows approval state | **Partial** | Approval boundary is code-backed; complete browser approval journey was not run |
+| Isolated delivery workspace | `delivery-workspace.ts` creates/hashes workspace and change set; chat apply path creates workspace before promotion and records `aiApplyJournalTable` | **Verified by automated test; operationally partial** | Latest operational-safety gate passes; no full authenticated promotion journey |
+| Validation and repair | `ai-repair-validation.ts` provides server-owned profiles, isolated validation/runtime/preview runners and scope checks; public validation receipts are redacted at route boundary | **Verified by automated test; live journey partial** | Bounded validation and repair-loop checks pass; no live delivery workspace campaign |
+| Rebase/conflict handling | Chat route `rebase-changes` and apply path hash base content, rebase hunks, reject conflicts, and preserve conflict metadata | **Verified by code** | Route tests cover conflict-shaped responses; no full user journey |
+| Promotion/apply | Apply route checks owner/proposal state, root containment, duplicate paths, base hashes and validation receipts before atomically promoting files | **Verified by code** | `ai.test.ts` and delivery workspace tests cover portions; not E2E proven |
+| Git commit and push | `routes/git.ts` exposes status/log/commit/push/export with write/access middleware; commit/push are proposal/operation-aware and release identity is source-bound | **Partial** | Isolated route proof passed the approved Apply → commit → push flow with one operation trace and matching commit hash; Clerk-authenticated live delivery and push against a real GitHub remote remain unrun |
+| Audit export | Execution audit export and project export routes project allowlisted/redacted durable evidence | **Verified by code** | Export path is present; no downloaded artifact/API smoke check in this baseline |
+| Direct arbitrary model shell execution | Tool policy and execution tools accept server-owned command profiles; the model does not supply arbitrary executable/argv | **Not implemented by design** | `tool-execution-engine.ts` and execution-tools contract enforce the safer profile boundary |
+
+## 4. Agent loop trace
+
+1. The chat route loads the owner-scoped project/session and provider selection,
+   then builds project context and history.
+2. `resolveTurnIntent`/classification and task routing determine whether the
+   request is ordinary chat, behavior/forensic work, implementation planning,
+   or another structured contract.
+3. `chat-agent.ts` selects the tool policy and uses `executeToolLoop`.
+   `tool-execution-engine.ts` enforces registered tools, authorization, phase
+   policy, root boundaries, cache deduplication, soft limits, and per-scope
