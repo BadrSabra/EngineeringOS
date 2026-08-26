@@ -2,6 +2,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
 import { eq } from "drizzle-orm";
 import app from "../app.js";
+import { setGitCloneExecutorForTests } from "../lib/discovery-adapters.js";
 import {
   db,
   discoverySessionsTable,
@@ -12,11 +13,10 @@ import {
   graphEntitiesTable,
 } from "@workspace/db";
 import { randomUUID } from "crypto";
-import { createServer, type Server } from "node:http";
 import { mkdirSync, rmSync } from "node:fs";
 import { access, mkdir, rm, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { join } from "node:path";
 import type { DiscoveryResultData } from "@workspace/db";
 import { MANAGED_PROJECT_ROOTS_DIR } from "../lib/project-materialization.js";
@@ -252,6 +252,18 @@ describe("POST /projects/discover — path validation and session creation", () 
       .send({ sourceType: "GIT_REPOSITORY", sourceConfig: {} });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/url is required/i);
+  });
+
+  it("rejects a non-GitHub URL before attempting Git discovery", async () => {
+    const res = await request(app)
+      .post("/api/projects/discover")
+      .send({
+        sourceType: "GIT_REPOSITORY",
+        sourceConfig: { url: "http://127.0.0.1:12345/repo.git" },
+      });
+    expect(res.status).toBe(400);
+    expect(res.body.reason).toBe("invalid_source");
+    expect(res.body.error).toMatch(/credential-free HTTPS github\.com/i);
   });
 
   it("rejects WORKSPACE_PROJECT missing the projectId field", async () => {
@@ -884,13 +896,12 @@ describe("POST /projects/import — transaction integrity", () => {
 
 describe("Git discovery → durable import", () => {
   let fixtureRoot: string | undefined;
-  let server: Server | undefined;
+  let restoreGitClone: (() => void) | undefined;
+  let tempClonePath: string | undefined;
 
   afterEach(async () => {
-    if (server) {
-      await new Promise<void>((resolve) => server!.close(() => resolve()));
-      server = undefined;
-    }
+    restoreGitClone?.();
+    restoreGitClone = undefined;
     if (fixtureRoot) {
       await rm(fixtureRoot, { recursive: true, force: true });
       fixtureRoot = undefined;
@@ -911,68 +922,22 @@ describe("Git discovery → durable import", () => {
     await execFileAsync("git", ["-C", worktree, "add", "."]);
     await execFileAsync("git", ["-C", worktree, "commit", "-q", "-m", "fixture"]);
     await execFileAsync("git", ["clone", "--bare", "-q", worktree, bareRepo]);
-    await execFileAsync("git", ["--git-dir", bareRepo, "update-server-info"]);
-
-    // Serve the bare repository through Git's real smart-HTTP CGI backend.
-    // The production adapter uses a shallow clone, which dumb HTTP cannot
-    // serve ("dumb http transport does not support shallow capabilities").
-    server = createServer(async (req, res) => {
-      const parsed = new URL(req.url ?? "/", "http://127.0.0.1");
-      const child = spawn("git", ["http-backend"], {
-        env: {
-          ...process.env,
-          GIT_PROJECT_ROOT: fixtureRoot!,
-          GIT_HTTP_EXPORT_ALL: "1",
-          PATH_INFO: parsed.pathname,
-          QUERY_STRING: parsed.searchParams.toString(),
-          REQUEST_METHOD: req.method ?? "GET",
-          CONTENT_TYPE: req.headers["content-type"] ?? "",
-          CONTENT_LENGTH: req.headers["content-length"] ?? "",
-          REMOTE_ADDR: "127.0.0.1",
-          SERVER_NAME: "127.0.0.1",
-          SERVER_PORT: String((server!.address() as { port: number }).port),
-          SERVER_PROTOCOL: "HTTP/1.1",
-        },
-      });
-      const output: Buffer[] = [];
-      child.stdout.on("data", (chunk: Buffer) => output.push(chunk));
-      child.stderr.resume();
-      child.on("close", () => {
-        const payload = Buffer.concat(output);
-        const separator = Buffer.from("\r\n\r\n");
-        const headerEnd = payload.indexOf(separator);
-        if (headerEnd < 0) {
-          res.statusCode = 502;
-          res.end("Invalid git backend response");
-          return;
-        }
-        const headerLines = payload.subarray(0, headerEnd).toString("utf8").split("\r\n");
-        let status = 200;
-        for (const line of headerLines) {
-          const separatorIndex = line.indexOf(":");
-          if (separatorIndex < 0) continue;
-          const name = line.slice(0, separatorIndex);
-          const value = line.slice(separatorIndex + 1).trim();
-          if (name.toLowerCase() === "status") {
-            status = Number.parseInt(value, 10) || 200;
-          } else {
-            res.setHeader(name, value);
-          }
-        }
-        res.statusCode = status;
-        res.end(payload.subarray(headerEnd + separator.length));
-      });
-      req.pipe(child.stdin);
+    const approvedRemoteUrl = "https://github.com/octocat/Hello-World.git";
+    restoreGitClone = setGitCloneExecutorForTests(async (cloneArgs, options) => {
+      expect(cloneArgs.slice(0, 3)).toEqual(["clone", "--depth", "1"]);
+      expect(cloneArgs[3]).toBe(approvedRemoteUrl);
+      tempClonePath = cloneArgs[4];
+      if (!tempClonePath) throw new Error("Git clone destination was not provided");
+      // Use the disposable local bare fixture only behind the explicit test
+      // seam. The route still receives and validates the approved GitHub URL.
+      await execFileAsync("git", ["clone", "--depth", "1", bareRepo, tempClonePath], options);
     });
-    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", () => resolve()));
-    const address = server.address();
-    if (!address || typeof address === "string") throw new Error("Git fixture server did not bind a port");
 
     const start = await request(app)
       .post("/api/projects/discover")
       .send({
         sourceType: "GIT_REPOSITORY",
-        sourceConfig: { url: `http://127.0.0.1:${address.port}/repo.git` },
+        sourceConfig: { url: approvedRemoteUrl },
       });
     expect(start.status).toBe(202);
     const discoveryId = start.body.id as string;
@@ -995,6 +960,8 @@ describe("Git discovery → durable import", () => {
       .limit(1);
     expect(storedSession?.rootPath.startsWith(`${MANAGED_PROJECT_ROOTS_DIR}/`)).toBe(true);
     await expect(access(storedSession!.rootPath)).resolves.toBeUndefined();
+    expect(tempClonePath).toBeDefined();
+    await expect(access(tempClonePath!)).rejects.toThrow();
 
     const imported = await request(app)
       .post("/api/projects/import")

@@ -7,7 +7,7 @@
  * integration tests in discovery.test.ts.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import {
   ADAPTERS,
@@ -16,7 +16,6 @@ import {
   materializeResolveResult,
   isResolveError,
 } from "./discovery-adapters.js";
-import { logger } from "./logger.js";
 import { materializeProjectRoot, removeManagedProjectRoot } from "./project-materialization.js";
 
 // ─── isResolveError type guard ────────────────────────────────────────────────
@@ -144,8 +143,11 @@ describe("GIT_REPOSITORY adapter — validate", () => {
     expect(adapter.validate({ url: "https://github.com/owner/repo" })).toBeNull();
   });
 
-  it("returns null (valid) for http:// URLs (local/internal registries)", () => {
-    expect(adapter.validate({ url: "http://internal.corp/repo.git" })).toBeNull();
+  it("rejects http:// URLs, including local/internal registries", () => {
+    const err = adapter.validate({ url: "http://internal.corp/repo.git" });
+    expect(err).not.toBeNull();
+    expect(err!.status).toBe(400);
+    expect(err!.reason).toBe("invalid_source");
   });
 
   it("returns an error when url is missing", () => {
@@ -161,7 +163,7 @@ describe("GIT_REPOSITORY adapter — validate", () => {
     expect(err).not.toBeNull();
     expect(err!.status).toBe(400);
     expect(err!.reason).toBe("invalid_source");
-    expect(err!.error).toMatch(/only https/i);
+    expect(err!.error).toMatch(/only .*https/i);
   });
 
   it("rejects SCP-syntax git@host URLs (bare SSH, no https scheme)", () => {
@@ -176,7 +178,7 @@ describe("GIT_REPOSITORY adapter — validate", () => {
     expect(err).not.toBeNull();
     expect(err!.status).toBe(400);
     expect(err!.reason).toBe("invalid_source");
-    expect(err!.error).toMatch(/only https/i);
+    expect(err!.error).toMatch(/only .*https/i);
   });
 
   it("rejects git:// URLs", () => {
@@ -197,24 +199,16 @@ describe("GIT_REPOSITORY adapter — validate", () => {
 
 // PR-04: Credential redaction in git clone errors
 describe("GIT_REPOSITORY adapter — credential redaction", () => {
-  it("logs a structured warning when credential URL parsing fails", async () => {
-    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => undefined as never);
-    try {
-      const result = await resolveSource(
-        "GIT_REPOSITORY",
-        { url: "https://%", credentials: { username: "alice", token: "secret" } },
-        TEST_USER,
-      );
-      expect(isResolveError(result)).toBe(true);
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          scope: "git-adapter",
-          code: "URL_PARSE_FAILED",
-        }),
-        expect.stringContaining("failed to parse credential-injected URL"),
-      );
-    } finally {
-      warnSpy.mockRestore();
+  it("rejects a malformed URL before credential injection or cloning", async () => {
+    const result = await resolveSource(
+      "GIT_REPOSITORY",
+      { url: "https://%", credentials: { username: "alice", token: "secret" } },
+      TEST_USER,
+    );
+    expect(isResolveError(result)).toBe(true);
+    if (isResolveError(result)) {
+      expect(result.status).toBe(400);
+      expect(result.reason).toBe("invalid_source");
     }
   });
 

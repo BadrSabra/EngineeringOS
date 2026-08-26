@@ -37,6 +37,34 @@ function redactUrlCredentials(text: string): string {
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Injectable only for deterministic adapter tests. The production default
+ * always invokes the real git executable; tests can replace it while still
+ * exercising URL validation, clone resolution, materialization, and cleanup.
+ */
+export type GitCloneExecutor = (
+  args: string[],
+  options: { timeout: number },
+) => Promise<unknown>;
+
+const defaultGitCloneExecutor: GitCloneExecutor = (args, options) =>
+  execFileAsync("git", args, options);
+
+let gitCloneExecutor: GitCloneExecutor = defaultGitCloneExecutor;
+
+/**
+ * Replace the Git clone command for a test and return a restoration callback.
+ * This is an explicit test seam rather than a production URL-policy bypass:
+ * resolveSource still validates the caller's URL before this executor runs.
+ */
+export function setGitCloneExecutorForTests(executor: GitCloneExecutor): () => void {
+  const previous = gitCloneExecutor;
+  gitCloneExecutor = executor;
+  return () => {
+    gitCloneExecutor = previous;
+  };
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type SourceConfig = {
@@ -211,7 +239,7 @@ const gitRepositoryAdapter: SupportedAdapter = {
       rm(tempDir, { recursive: true, force: true }).then(() => undefined).catch(() => undefined);
 
     try {
-      await execFileAsync("git", cloneArgs, { timeout: 120_000 });
+      await gitCloneExecutor(cloneArgs, { timeout: 120_000 });
       // Attach the cleanup hook so callers (cleanupResolveResult) always
       // delegate here rather than calling rm directly.
       return {
