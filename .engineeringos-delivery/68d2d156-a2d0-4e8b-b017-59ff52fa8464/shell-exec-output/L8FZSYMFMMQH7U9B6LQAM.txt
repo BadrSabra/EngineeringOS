@@ -1,0 +1,291 @@
+}
+
+function average(values: number[]): number {
+  return values.length === 0 ? 0 : values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+export function buildCodeAgentBenchmarkScorecard(args: {
+  results: readonly CodeAgentBenchmarkObservation[];
+  cases?: readonly CodeAgentBenchmarkCase[];
+  generatedAt?: string;
+}): CodeAgentBenchmarkScorecard {
+  const cases = args.cases ?? CASES;
+  const manifestErrors = validateCodeAgentBenchmarkManifest(cases, {
+    requireComplete: cases.length === CASES.length,
+  });
+  if (manifestErrors.length > 0) {
+    throw new Error(`Invalid Code Agent benchmark manifest: ${manifestErrors.join("; ")}`);
+  }
+
+  const knownIds = new Set(cases.map((testCase) => testCase.id));
+  const seenIds = new Set<string>();
+  for (const result of args.results) {
+    if (!knownIds.has(result.caseId)) throw new Error(`Unknown Code Agent benchmark case: ${result.caseId}`);
+    if (seenIds.has(result.caseId)) throw new Error(`Duplicate Code Agent benchmark result: ${result.caseId}`);
+    seenIds.add(result.caseId);
+  }
+
+  const results = [...args.results];
+  const totalCases = cases.length;
+  const observedCases = results.length;
+  const gradeCounts: Record<CodeAgentBenchmarkGrade, number> = { A: 0, B: 0, C: 0, D: 0, F: 0, U: 0 };
+  for (const result of results) gradeCounts[result.grade] += 1;
+
+  const providerUnavailableCount = results.filter((result) => result.providerUnavailable === true).length;
+  const unexplainedBlocked = results.filter(
+    (result) => result.grade === "D" && !result.diagnosis?.trim(),
+  ).length;
+  const qualityResults = results.filter((result) => result.providerUnavailable !== true);
+  const qualityRate = (selector: (result: CodeAgentBenchmarkObservation) => boolean): number =>
+    qualityResults.length === 0 ? 0 : qualityResults.filter(selector).length / qualityResults.length;
+  const qualityNullableRate = (values: Array<boolean | null>, expected: boolean): number | null => {
+    const observed = values.filter((value): value is boolean => value !== null);
+    return observed.length === 0 ? null : observed.filter((value) => value === expected).length / observed.length;
+  };
+  const falseSuccessRate = qualityRate((result) => result.falseSuccess);
+  const scopeEscapeRate = qualityRate((result) => result.scopeEscape);
+  const behavioralOracleTracked = results.some((result) => result.behavioralOracleStatus !== undefined);
+  const behavioralOracleMissing = qualityResults.filter(
+    (result) => result.behavioralOracleStatus !== "passed",
+  ).length;
+  const complete = observedCases === totalCases;
+  const candidateHashes = results.map((result) => result.candidateHash);
+  const sourceRevisions = results.map((result) => result.sourceRevision);
+  const expectedCandidateHash = candidateHashes.find(
+    (candidateHash): candidateHash is string => Boolean(candidateHash?.trim()),
+  );
+  const missingCandidateHash = candidateHashes.filter(
+    (candidateHash) => !candidateHash?.trim(),
+  ).length;
+  const malformedCandidateHash = candidateHashes.filter(
+    (candidateHash) => Boolean(candidateHash?.trim()) && !/^[a-f0-9]{64}$/.test(candidateHash!),
+  ).length;
+  const mismatchedCandidateHash = expectedCandidateHash !== undefined &&
+    candidateHashes.some((candidateHash) => candidateHash !== expectedCandidateHash);
+  const expectedSourceRevision = sourceRevisions.find(
+    (sourceRevision): sourceRevision is string => Boolean(sourceRevision?.trim()),
+  );
+  const missingSourceRevision = sourceRevisions.filter(
+    (sourceRevision) => !sourceRevision?.trim(),
+  ).length;
+  const malformedSourceRevision = sourceRevisions.filter(
+    (sourceRevision) => Boolean(sourceRevision?.trim()) && !/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(sourceRevision!),
+  ).length;
+  const mismatchedSourceRevision = expectedSourceRevision !== undefined &&
+    sourceRevisions.some((sourceRevision) => sourceRevision !== expectedSourceRevision);
+  const rolloutBlockers = [
+    ...(!complete ? [`benchmark incomplete: ${totalCases - observedCases} cases missing`] : []),
+    ...(providerUnavailableCount > 0
+      ? [`provider unavailable for ${providerUnavailableCount} observed case${providerUnavailableCount === 1 ? "" : "s"}`]
+      : []),
+    ...(falseSuccessRate > 0 ? ["false success detected"] : []),
+    ...(scopeEscapeRate > 0 ? ["scope escape detected"] : []),
+    ...(qualityResults.some((result) => result.grade === "F") ? ["failing benchmark case detected"] : []),
+    ...(unexplainedBlocked > 0
+      ? [`D result missing diagnosis for ${unexplainedBlocked} case${unexplainedBlocked === 1 ? "" : "s"}`]
+      : []),
+    ...(behavioralOracleTracked && behavioralOracleMissing > 0
+      ? [`behavioral oracle missing or failed for ${behavioralOracleMissing} observed case${behavioralOracleMissing === 1 ? "" : "s"}`]
+      : []),
+    ...(missingCandidateHash > 0
+      ? [`candidate hash missing for ${missingCandidateHash} observed case${missingCandidateHash === 1 ? "" : "s"}`]
+      : []),
+    ...(malformedCandidateHash > 0
+      ? [`candidate hash malformed for ${malformedCandidateHash} observed case${malformedCandidateHash === 1 ? "" : "s"}`]
+      : []),
+    ...(mismatchedCandidateHash ? ["candidate hash mismatch across benchmark observations"] : []),
+    ...(missingSourceRevision > 0
+      ? [`source revision missing for ${missingSourceRevision} observed case${missingSourceRevision === 1 ? "" : "s"}`]
+      : []),
+    ...(malformedSourceRevision > 0
+      ? [`source revision malformed for ${malformedSourceRevision} observed case${malformedSourceRevision === 1 ? "" : "s"}`]
+      : []),
+    ...(mismatchedSourceRevision ? ["source revision mismatch across benchmark observations"] : []),
+  ];
+
+  const metrics: CodeAgentBenchmarkMetrics = {
+    totalCases,
+    observedCases,
+    complete,
+    firstAttemptRate: qualityRate((result) => result.completedFirstAttempt),
+    repairedWithinThreeRate: qualityRate((result) => result.repairedWithinThreeAttempts),
+    correctCompletionRate: qualityRate((result) => result.correct),
+    usefulIncompleteRate: qualityRate((result) => result.usefulButIncomplete),
+    safelyBlockedRate: qualityRate((result) => result.safelyBlocked),
+    falseSuccessRate,
+    scopeEscapeRate,
+    conflictRate: qualityRate((result) => result.conflict),
+    typecheckSuccessRate: qualityNullableRate(qualityResults.map((result) => result.typecheckPassed), true),
+    testSuccessRate: qualityNullableRate(qualityResults.map((result) => result.testsPassed), true),
+    averageFilesRead: average(qualityResults.map((result) => result.filesRead)),
+    averageToolCalls: average(qualityResults.map((result) => result.toolCalls)),
+    averageRepairAttempts: average(qualityResults.map((result) => result.repairAttempts)),
+    averageRejectedChanges: average(qualityResults.map((result) => result.rejectedChanges)),
+    averageLatencyMs: qualityResults.some((result) => result.latencyMs != null)
+      ? average(qualityResults.flatMap((result) => result.latencyMs == null ? [] : [result.latencyMs]))
+      : null,
+    gradeCounts,
+    providerUnavailableCount,
+  };
+
+  return {
+    kind: "code-agent-benchmark",
+    version: 1,
+    suiteVersion: CODE_AGENT_BENCHMARK_VERSION,
+    generatedAt: args.generatedAt ?? new Date().toISOString(),
+    cases: results,
+    ...(expectedCandidateHash ? { candidateHash: expectedCandidateHash } : {}),
+    ...(expectedSourceRevision ? { sourceRevision: expectedSourceRevision } : {}),
+    missingCaseIds: cases.map((testCase) => testCase.id).filter((id) => !seenIds.has(id)),
+    metrics,
+    rolloutAllowed: rolloutBlockers.length === 0,
+    rolloutBlockers,
+  };
+}
+
+function baselineMetricDeltas(
+  live: CodeAgentBenchmarkMetrics,
+  baseline: CodeAgentBenchmarkMetrics,
+): NonNullable<CodeAgentBenchmarkBaselineComparison["metricDeltas"]> {
+  return {
+    firstAttemptRate: live.firstAttemptRate - baseline.firstAttemptRate,
+    repairedWithinThreeRate: live.repairedWithinThreeRate - baseline.repairedWithinThreeRate,
+    correctCompletionRate: live.correctCompletionRate - baseline.correctCompletionRate,
+    safelyBlockedRate: live.safelyBlockedRate - baseline.safelyBlockedRate,
+    falseSuccessRate: live.falseSuccessRate - baseline.falseSuccessRate,
+    scopeEscapeRate: live.scopeEscapeRate - baseline.scopeEscapeRate,
+  };
+}
+
+/**
+ * Apply the release gate that compares a complete live scorecard with an
+import { describe, expect, it } from "vitest";
+import {
+  CODE_AGENT_BENCHMARK_CASE_COUNT,
+  CODE_AGENT_BENCHMARK_TARGET_PROFILES,
+  applyCodeAgentBenchmarkBaselineGate,
+  buildCodeAgentBenchmarkReplayRecord,
+  buildCodeAgentBenchmarkScorecard,
+  codeAgentBenchmarkManifestToMarkdown,
+  codeAgentBenchmarkScorecardToMarkdown,
+  getCodeAgentBenchmarkCases,
+  getCodeAgentBenchmarkCategoryCounts,
+  getCodeAgentBenchmarkTargetProfileCases,
+  getTargetedCodeAgentBenchmarkCases,
+  TARGETED_CODE_AGENT_BENCHMARK_CASE_IDS,
+  observationFromCodeAgentExecution,
+  runCodeAgentBenchmark,
+  runCodeAgentBenchmarkReplay,
+  validateCodeAgentBenchmarkManifest,
+  type CodeAgentBenchmarkObservation,
+  type CodeAgentBenchmarkBaseline,
+  type CodeAgentBenchmarkReplayEntry,
+} from "./code-agent-benchmark.js";
+
+function observation(
+  caseId: string,
+  overrides: Partial<CodeAgentBenchmarkObservation> = {},
+): CodeAgentBenchmarkObservation {
+  return {
+    caseId,
+    candidateHash: "a".repeat(64),
+    sourceRevision: "672a2447a0604e4f562796dab969b5d136582277",
+    grade: "A",
+    correct: true,
+    completedFirstAttempt: true,
+    repairedWithinThreeAttempts: false,
+    usefulButIncomplete: false,
+    safelyBlocked: false,
+    falseSuccess: false,
+    scopeEscape: false,
+    conflict: false,
+    typecheckPassed: true,
+    testsPassed: true,
+    filesRead: 2,
+    toolCalls: 4,
+    repairAttempts: 1,
+    rejectedChanges: 0,
+    diagnosis: "Test fixture outcome is bounded and explained.",
+    latencyMs: 120,
+    ...overrides,
+  };
+}
+
+describe("Code Agent benchmark manifest", () => {
+  it("defines a stable high-signal targeted aggregate order", () => {
+    expect(getTargetedCodeAgentBenchmarkCases().map((testCase) => testCase.id)).toEqual(
+      [...TARGETED_CODE_AGENT_BENCHMARK_CASE_IDS],
+    );
+    expect(getTargetedCodeAgentBenchmarkCases()).toHaveLength(6);
+    expect(validateCodeAgentBenchmarkManifest(getTargetedCodeAgentBenchmarkCases(), {
+      requireComplete: false,
+    })).toEqual([]);
+  });
+
+  it("provides deterministic focused profiles for common change areas", () => {
+    expect(Object.keys(CODE_AGENT_BENCHMARK_TARGET_PROFILES)).toEqual([
+      "repair-loop",
+      "scope-enforcement",
+      "provider-fallback",
+      "forensic-routing",
+    ]);
+    expect(getCodeAgentBenchmarkTargetProfileCases("repair-loop").map((testCase) => testCase.id)).toEqual([
+      "test-failure-001",
+      "test-failure-002",
+      "test-failure-004",
+      "typecheck-failure-001",
+    ]);
+    expect(getCodeAgentBenchmarkTargetProfileCases("scope-enforcement").map((testCase) => testCase.id)).toEqual([
+      "scope-001",
+      "conflict-001",
+      "conflict-002",
+      "conflict-003",
+      "blocked-003",
+    ]);
+    for (const profile of Object.keys(CODE_AGENT_BENCHMARK_TARGET_PROFILES) as Array<keyof typeof CODE_AGENT_BENCHMARK_TARGET_PROFILES>) {
+      const profileCases = getCodeAgentBenchmarkTargetProfileCases(profile);
+      expect(validateCodeAgentBenchmarkManifest(profileCases, { requireComplete: false })).toEqual([]);
+      expect(new Set(profileCases.map((testCase) => testCase.id)).size).toBe(profileCases.length);
+    }
+  });
+
+  it("contains the complete 34-case matrix from the plan", () => {
+    const cases = getCodeAgentBenchmarkCases();
+    expect(cases).toHaveLength(CODE_AGENT_BENCHMARK_CASE_COUNT);
+    expect(new Set(cases.map((testCase) => testCase.id)).size).toBe(cases.length);
+    expect(validateCodeAgentBenchmarkManifest()).toEqual([]);
+    expect(getCodeAgentBenchmarkCategoryCounts(cases)).toEqual({
+      "single-file-edit": 4,
+      "multi-file-change": 4,
+      "test-failure-repair": 4,
+      "typecheck-failure-repair": 4,
+      "dependency-graph-change": 3,
+      "conflict-recovery": 3,
+      "cancellation-recovery": 1,
+      "scope-safety": 1,
+      "malformed-output": 1,
+      "blocked-proof": 1,
+      "broad-decomposition": 4,
+      "safely-blocked": 4,
+    });
+  });
+
+  it("renders a bounded manifest without model or source payloads", () => {
+    const markdown = codeAgentBenchmarkManifestToMarkdown();
+    expect(markdown).toContain("Suite: flight-deck-v2");
+    expect(markdown).toContain("Cases: 34");
+    expect(markdown).toContain("safely-blocked");
+    expect(markdown).not.toContain("rawResponse");
+    expect(markdown).not.toContain("sourceContent");
+  });
+
+  it("blocks rollout for incomplete observations and any false success", () => {
+    const scorecard = buildCodeAgentBenchmarkScorecard({
+      generatedAt: "2026-08-17T00:00:00.000Z",
+      results: [
+        observation("single-file-001", {
+          grade: "F",
+          correct: false,
+          falseSuccess: true,
+          scopeEscape: true,
+        }),

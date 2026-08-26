@@ -1,0 +1,81 @@
+.engineeringos-delivery/1a4b7d38-ae64-446a-8453-78bf292df46c/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/1a4b7d38-ae64-446a-8453-78bf292df46c/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/1a4b7d38-ae64-446a-8453-78bf292df46c/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/23fe405a-cee4-4647-9bb0-5389b0ea1276/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/23fe405a-cee4-4647-9bb0-5389b0ea1276/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/23fe405a-cee4-4647-9bb0-5389b0ea1276/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/24c7b9fa-5a86-4c72-8e3b-a465a7359a26/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/24c7b9fa-5a86-4c72-8e3b-a465a7359a26/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/24c7b9fa-5a86-4c72-8e3b-a465a7359a26/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/2b4ae063-bb5f-4df3-8e4c-2da3064c76fb/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/2b4ae063-bb5f-4df3-8e4c-2da3064c76fb/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/2b4ae063-bb5f-4df3-8e4c-2da3064c76fb/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/3e2200b9-7986-46fc-ba55-b1a53b5559b3/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/3e2200b9-7986-46fc-ba55-b1a53b5559b3/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/3e2200b9-7986-46fc-ba55-b1a53b5559b3/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/4edace73-2aac-4f74-a666-c36157d80660/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/4edace73-2aac-4f74-a666-c36157d80660/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/4edace73-2aac-4f74-a666-c36157d80660/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/4f4b331b-7471-4e4a-841a-e9d1c81ed8f4/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/4f4b331b-7471-4e4a-841a-e9d1c81ed8f4/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/4f4b331b-7471-4e4a-841a-e9d1c81ed8f4/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/5134fe3f-6d04-4f79-8ee3-e0ec12b97a6d/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/5134fe3f-6d04-4f79-8ee3-e0ec12b97a6d/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/5134fe3f-6d04-4f79-8ee3-e0ec12b97a6d/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/6778b497-8d79-4bd7-9c3e-7c75edb7355c/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/6778b497-8d79-4bd7-9c3e-7c75edb7355c/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/6778b497-8d79-4bd7-9c3e-7c75edb7355c/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/6a8c9cdc-6c6c-4d36-98e1-90444403ed7d/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/6a8c9cdc-6c6c-4d36-98e1-90444403ed7d/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/6a8c9cdc-6c6c-4d36-98e1-90444403ed7d/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/70b6d080-705d-4a04-834a-8abf297c16f5/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/70b6d080-705d-4a04-834a-8abf297c16f5/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/70b6d080-705d-4a04-834a-8abf297c16f5/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/769bf680-7eba-4d7d-ab62-7e11ca8e440b/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/769bf680-7eba-4d7d-ab62-7e11ca8e440b/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/769bf680-7eba-4d7d-ab62-7e11ca8e440b/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/77eec452-4bf5-4996-9a94-c4d7e2107b31/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/77eec452-4bf5-4996-9a94-c4d7e2107b31/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/77eec452-4bf5-4996-9a94-c4d7e2107b31/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/7a762ad6-572c-4885-9263-709a2c133118/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/7a762ad6-572c-4885-9263-709a2c133118/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/7a762ad6-572c-4885-9263-709a2c133118/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/9a78a491-eedd-4b42-a3db-f1328ced866b/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/9a78a491-eedd-4b42-a3db-f1328ced866b/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/9a78a491-eedd-4b42-a3db-f1328ced866b/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/9c3ddf8f-b30f-4212-8ed3-e2bbb7c626c6/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/9c3ddf8f-b30f-4212-8ed3-e2bbb7c626c6/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/9c3ddf8f-b30f-4212-8ed3-e2bbb7c626c6/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/ab892c9c-bc11-4ab9-8613-9dc3ad7a2748/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/ab892c9c-bc11-4ab9-8613-9dc3ad7a2748/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/ab892c9c-bc11-4ab9-8613-9dc3ad7a2748/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/b8b0b8ac-bf46-4cfb-8cdd-475fac8c3345/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/b8b0b8ac-bf46-4cfb-8cdd-475fac8c3345/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/b8b0b8ac-bf46-4cfb-8cdd-475fac8c3345/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/c89f399b-0308-4f10-b3a3-52bc77d74adb/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/c89f399b-0308-4f10-b3a3-52bc77d74adb/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/c89f399b-0308-4f10-b3a3-52bc77d74adb/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/cc8b70a3-9e80-432c-8629-09c7068d3679/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/cc8b70a3-9e80-432c-8629-09c7068d3679/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/cc8b70a3-9e80-432c-8629-09c7068d3679/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/dafcd1e9-bbf1-4c71-8d2f-846c38a18006/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/dafcd1e9-bbf1-4c71-8d2f-846c38a18006/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/dafcd1e9-bbf1-4c71-8d2f-846c38a18006/engineeringos-validation-Sn0w77/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+.engineeringos-delivery/e14fef06-0e40-4f5d-8082-de33f0d69dfa/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts
+.engineeringos-delivery/e14fef06-0e40-4f5d-8082-de33f0d69dfa/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+.engineeringos-delivery/e14fef06-0e40-4f5d-8082-de33f0d69dfa/engineeringos-validation-ZoXZVt/lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+lib/ai-orchestrator/src/benchmark/validate-code-agent-benchmark-scenarios.ts
+46b071c (HEAD -> main) Preserve safe recovery guidance after Tasks and Workflows reloads
+ .../.engineeringos-delivery-workspace              |  1 +
+ .../src/non-build.ts                               |  1 +
+ .../.engineeringos-delivery-workspace              |  1 +
+ .../ed9b0208-3d4d-4fee-a579-206360a20da6/README.md |  1 +
+ .../src/approved.ts                                |  1 +
+ artifacts/dashboard/e2e/dashboard.journey.ts       | 46 ++++++++++++++++++++++
+ artifacts/dashboard/src/pages/Tasks.tsx            |  7 ++--
+ .../ai-release-quality-decision.json               | 30 +++++++-------
+ ...ode-agent-benchmark-deterministic-baseline.json |  4 +-
+ .../code-agent-benchmark-deterministic-replay.json |  2 +-
+ 10 files changed, 73 insertions(+), 21 deletions(-)

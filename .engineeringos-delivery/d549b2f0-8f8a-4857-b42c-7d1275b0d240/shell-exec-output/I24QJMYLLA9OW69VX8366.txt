@@ -1,0 +1,142 @@
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts
+19:  "single-file-003",
+21:  "test-failure-001",
+34:    "test-failure-001",
+52:    "test-failure-001",
+141:  behavioralOracleStatus?: "passed" | "failed" | "not-available" | "not-run";
+172:  behavioralOracleStatus?: "passed" | "failed" | "not-available" | "not-run";
+292:    id: "single-file-003",
+340:    id: "test-failure-001",
+768:    ...(telemetry.behavioralOracleStatus
+769:      ? { behavioralOracleStatus: telemetry.behavioralOracleStatus }
+946:  const behavioralOracleTracked = results.some((result) => result.behavioralOracleStatus !== undefined);
+947:  const behavioralOracleMissing = qualityResults.filter(
+948:    (result) => result.behavioralOracleStatus !== "passed",
+986:    ...(behavioralOracleTracked && behavioralOracleMissing > 0
+987:      ? [`behavioral oracle missing or failed for ${behavioralOracleMissing} observed case${behavioralOracleMissing === 1 ? "" : "s"}`]
+
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts
+72:      "test-failure-001",
+245:      behavioralOracleStatus: "not-run",
+
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts
+66:    behavioralOracleStatus?: "passed" | "failed" | "not-available" | "not-run";
+381:            ...(oracle.behavioralOracleStatus
+382:              ? { behavioralOracleStatus: oracle.behavioralOracleStatus }
+
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts
+131:  "behavioralOracleStatus",
+342:    ...(value.behavioralOracleStatus === undefined
+344:      : value.behavioralOracleStatus === "passed" ||
+345:          value.behavioralOracleStatus === "failed" ||
+346:          value.behavioralOracleStatus === "not-available" ||
+347:          value.behavioralOracleStatus === "not-run"
+348:        ? { behavioralOracleStatus: value.behavioralOracleStatus }
+349:        : fail(`${path}.behavioralOracleStatus`, "unknown behavioral oracle status")),
+
+lib/ai-orchestrator/src/benchmark/behavioral-oracle-gate.test.ts
+8:function observation(behavioralOracleStatus: "passed" | "not-available") {
+24:    behavioralOracleStatus,
+
+lib/ai-orchestrator/src/benchmark/validate-code-agent-benchmark-scenarios.ts
+51:        Boolean(fixture.behavioralOracle || fixture.runtimeOracle)
+
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+17:  behavioralOracle?: (args: {
+26:  runtimeOracle?: {
+36:  behavioralOracleStatus?: "passed" | "failed" | "not-available" | "not-run";
+49:function vitestRuntimeOracle(targetPath: string): CodeAgentBenchmarkFixture["runtimeOracle"] {
+261:    fixture.behavioralOracle = async ({ pendingChanges }) =>
+297:  fixture.behavioralOracle = async ({ pendingChanges }) => {
+329:  "single-file-003": "lib/ai-orchestrator/src/benchmark-scenarios/single-file-003.test.ts",
+334:  "test-failure-001": [
+335:    "lib/ai-orchestrator/src/benchmark-scenarios/test-failure-001.ts",
+336:    "lib/ai-orchestrator/src/benchmark-scenarios/test-failure-001.test.ts",
+493:    fixture.behavioralOracle = async ({ pendingChanges }) => {
+521:    fixture.behavioralOracle = async ({ pendingChanges }) => {
+559:    fixture.runtimeOracle = vitestRuntimeOracle(targetPath);
+560:    fixture.behavioralOracle = async ({ pendingChanges }) => {
+591:  if (testCase.id === "single-file-003") {
+607:          'describe("single-file-003", () => {',
+615:    fixture.runtimeOracle = vitestRuntimeOracle(targetPath);
+616:    fixture.behavioralOracle = async ({ pendingChanges }) => {
+660:    fixture.behavioralOracle = async ({ pendingChanges }) => {
+676:  if (testCase.id === "test-failure-001") {
+694:          'import { addOne } from "./test-failure-001.js";',
+696:          "describe(\"test-failure-001\", () => {",
+706:    fixture.runtimeOracle = vitestRuntimeOracle(testPath);
+707:    fixture.behavioralOracle = async ({ rootPath, pendingChanges }) => {
+756:    if (!fixture.behavioralOracle && !fixture.runtimeOracle) {
+793:        if (!fixture.behavioralOracle) {
+796:        const result = await fixture.behavioralOracle({
+843:        if (!fixture.behavioralOracle) {
+849:        const result = await fixture.behavioralOracle({
+
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+80:      expect(fixture.behavioralOracle, testCase.id).toBeTypeOf("function");
+94:      const result = await fixture.behavioralOracle?.({
+110:      const result = await fixture.behavioralOracle?.({
+134:    await expect(fixture.behavioralOracle?.({
+143:    await expect(fixture.behavioralOracle?.({
+161:    await expect(fixture.behavioralOracle?.({
+170:    await expect(fixture.behavioralOracle?.({
+180:    const testCase = benchmarkCase("test-failure-001");
+189:    await expect(fixture.behavioralOracle?.({
+198:    await expect(fixture.behavioralOracle?.({
+212:        id: "single-file-003",
+229:      await expect(fixture.behavioralOracle?.({
+240:    const fixture = getCodeAgentBenchmarkFixture(benchmarkCase("single-file-003"));
+244:    await expect(fixture.behavioralOracle?.({
+256:    await expect(fixture.behavioralOracle?.({
+270:    await expect(fixture.behavioralOracle?.({
+290:    await expect(fixture.behavioralOracle?.({
+310:    await expect(fixture.behavioralOracle?.({
+
+artifacts/api-server/src/routes/ai/benchmark.ts
+244:              ...(typeof entry.behavioralOracleStatus === "string"
+245:                ? { behavioralOracleStatus: entry.behavioralOracleStatus }
+
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.ts
+63:  "single-file-003": {
+66:    evidence: ["falseSuccess=true", "oracleCode=PARSE_PAGE_BOUNDARY_NOT_CLAMPED", "behavioralOracleStatus=failed", "testsPassed=true"],
+70:  "test-failure-001": {
+
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.test.ts
+39:      "single-file-003",
+40:      "test-failure-001",
+53:      (entry) => entry.caseId === "single-file-003",
+71:    const observation = failure("single-file-003");
+
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts
+252:      ...(raw.behavioralOracleStatus === "passed" ||
+253:      raw.behavioralOracleStatus === "failed" ||
+254:      raw.behavioralOracleStatus === "not-available" ||
+255:      raw.behavioralOracleStatus === "not-run"
+256:        ? { behavioralOracleStatus: raw.behavioralOracleStatus }
+
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts
+106:      if (fixture.runtimeOracle) {
+110:          fixture.runtimeOracle,
+115:      if (!fixture.behavioralOracle) return { status: "passed" as const };
+116:      return fixture.behavioralOracle({ rootPath, pendingChanges });
+239:          if (fixture.runtimeOracle) {
+243:              fixture.runtimeOracle,
+248:          if (!fixture.behavioralOracle) return { status: "passed" as const };
+249:          return fixture.behavioralOracle({ rootPath, pendingChanges });
+312:      behavioralOracleStatus: "not-run",
+316:  const hasBehavioralOracle = Boolean(fixture.behavioralOracle || fixture.runtimeOracle);
+326:      behavioralOracleStatus: hasBehavioralOracle ? "not-run" : "not-available",
+330:    return { ...contract, behavioralOracleStatus: "not-available" };
+332:  if (fixture.runtimeOracle) {
+336:      fixture.runtimeOracle,
+342:        behavioralOracleStatus: "failed",
+346:  if (!fixture.behavioralOracle) {
+347:    return { ...contract, behavioralOracleStatus: "passed" };
+349:  const behavioral = await fixture.behavioralOracle({
+354:  return { ...behavioral, behavioralOracleStatus: behavioral.status };
+
+artifacts/api-server/src/lib/ai-repair-validation.test.ts
+85:    const relativePath = "lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts";
+108:          args: ["--dir", "lib/ai-orchestrator", "exec", "vitest", "run", "src/benchmark-scenarios/runtime-oracle.test.ts"],
+121:    const relativePath = "lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle-fail.test.ts";
+144:          args: ["--dir", "lib/ai-orchestrator", "exec", "vitest", "run", "src/benchmark-scenarios/runtime-oracle-fail.test.ts"],

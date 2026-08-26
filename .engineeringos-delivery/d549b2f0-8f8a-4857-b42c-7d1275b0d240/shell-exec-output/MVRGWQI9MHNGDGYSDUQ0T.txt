@@ -1,0 +1,472 @@
+scripts/parse-check-spec.ts
+3: * PR-01: OpenAPI spec parse-check — CI gate against a broken source-of-truth.
+6: * any codegen runs. A broken YAML produces an opaque Orval error that masks
+
+scripts/release-configuration.test.ts
+591:    "pnpm run validate:app-origins && pnpm run truth:baseline:check && pnpm run truth:validate && pnpm run benchmark:baseline:check && pnpm --filter @workspace/ai-orchestrator run validate:benchmark-scenarios && pnpm --filter @workspace/api-server run typecheck && pnpm run validate:ai-release && pnpm run test:dashboard-journey-contract && pnpm run test:release-port-cleanup && pnpm run test:mission-correlation-report && pnpm --filter @workspace/api-server run test:release-fixture-collisions && pnpm --filter @workspace/api-server run test:release-synthesis-telemetry && pnpm --filter @workspace/api-server run test:process-recovery",
+
+scripts/verify-benchmark-rollout.test.mjs
+62:      rolloutAllowed: true,
+
+scripts/verify-benchmark-rollout.mjs
+56:  if (scorecard.rolloutAllowed !== true) {
+58:      `rolloutAllowed is false: ${(Array.isArray(scorecard.rolloutBlockers) ? scorecard.rolloutBlockers : ["no blocker details"]).join("; ")}`,
+111:  if (baseline.rolloutAllowed !== true) {
+136:    rolloutAllowed: true,
+
+scripts/validate-benchmark-baseline.ts
+82:if (scorecardRecord.rolloutAllowed !== false) {
+113:  rolloutAllowed: false,
+
+lib/ai-orchestrator/src/groq-client.ts
+113:// Each distinct API key gets its own independent breaker so a single broken
+
+lib/ai-orchestrator/src/forensic-output-guard.ts
+274:    /(?:always\s+returns\s+0|incomplete|placeholder|not\s+yet\s+wired|broken|incorrect)/.test(lower) &&
+
+lib/ai-orchestrator/src/context-builder.test.ts
+409:    // Even with a broken notifier, invalidation must clear the local entry.
+
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.ts
+114:  sourceRevision?: string;
+140:  oracleCode?: string;
+141:  behavioralOracleStatus?: "passed" | "failed" | "not-available" | "not-run";
+148:  sourceRevision?: string;
+171:  oracleCode?: string;
+172:  behavioralOracleStatus?: "passed" | "failed" | "not-available" | "not-run";
+236:  rolloutAllowed: true;
+263:  sourceRevision?: string;
+266:  rolloutAllowed: boolean;
+708:            ? `Behavioral contract proof failed${telemetry.oracleCode ? ` (${telemetry.oracleCode})` : ""}.`
+737:    ...(telemetry.sourceRevision ? { sourceRevision: telemetry.sourceRevision } : {}),
+767:    ...(telemetry.oracleCode ? { oracleCode: telemetry.oracleCode } : {}),
+768:    ...(telemetry.behavioralOracleStatus
+769:      ? { behavioralOracleStatus: telemetry.behavioralOracleStatus }
+946:  const behavioralOracleTracked = results.some((result) => result.behavioralOracleStatus !== undefined);
+947:  const behavioralOracleMissing = qualityResults.filter(
+948:    (result) => result.behavioralOracleStatus !== "passed",
+952:  const sourceRevisions = results.map((result) => result.sourceRevision);
+964:  const expectedSourceRevision = sourceRevisions.find(
+965:    (sourceRevision): sourceRevision is string => Boolean(sourceRevision?.trim()),
+967:  const missingSourceRevision = sourceRevisions.filter(
+968:    (sourceRevision) => !sourceRevision?.trim(),
+970:  const malformedSourceRevision = sourceRevisions.filter(
+971:    (sourceRevision) => Boolean(sourceRevision?.trim()) && !/^[a-f0-9]{40}$|^[a-f0-9]{64}$/.test(sourceRevision!),
+974:    sourceRevisions.some((sourceRevision) => sourceRevision !== expectedSourceRevision);
+986:    ...(behavioralOracleTracked && behavioralOracleMissing > 0
+987:      ? [`behavioral oracle missing or failed for ${behavioralOracleMissing} observed case${behavioralOracleMissing === 1 ? "" : "s"}`]
+1037:    ...(expectedSourceRevision ? { sourceRevision: expectedSourceRevision } : {}),
+1040:    rolloutAllowed: rolloutBlockers.length === 0,
+1098:  } else if (baseline.rolloutAllowed !== true) {
+1146:    rolloutAllowed: blockers.length === 0,
+1188:    `Source revision: ${scorecard.sourceRevision ?? "missing"}`,
+1189:    `Rollout allowed: ${scorecard.rolloutAllowed ? "yes" : "no"}`,
+
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark.test.ts
+31:    sourceRevision: "672a2447a0604e4f562796dab969b5d136582277",
+139:    expect(scorecard.rolloutAllowed).toBe(false);
+164:    expect(scorecard.rolloutAllowed).toBe(true);
+233:      oracleCode: "VERDICT_DRIFT",
+245:      behavioralOracleStatus: "not-run",
+253:    expect(scorecard.rolloutAllowed).toBe(false);
+266:    expect(matching.rolloutAllowed).toBe(true);
+277:    expect(stale.rolloutAllowed).toBe(false);
+285:    expect(missing.rolloutAllowed).toBe(false);
+293:    expect(malformed.rolloutAllowed).toBe(false);
+446:        oracleCode: "READY_WITHOUT_PENDING_CHANGES",
+471:        sourceRevision: "672a2447a0604e4f562796dab969b5d136582277",
+478:    expect(scorecard.rolloutAllowed).toBe(true);
+504:          sourceRevision: "672a2447a0604e4f562796dab969b5d136582277",
+535:        sourceRevision: "672a2447a0604e4f562796dab969b5d136582277",
+556:    expect(replayed.rolloutAllowed).toBe(true);
+573:      rolloutAllowed: true,
+581:    expect(passing.rolloutAllowed).toBe(true);
+592:    expect(gated.rolloutAllowed).toBe(false);
+597:    expect(missing.rolloutAllowed).toBe(false);
+613:    expect(scorecard.rolloutAllowed).toBe(false);
+
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.ts
+61:  sourceRevision?: string;
+161:  sourceRevision?: string;
+251:      rolloutAllowed: false,
+367:      rolloutAllowed: false,
+374:      rolloutAllowed: false,
+386:      rolloutAllowed: false,
+396:      rolloutAllowed: false,
+421:    ...(args.sourceRevision ? { sourceRevision: args.sourceRevision } : {}),
+
+lib/ai-orchestrator/src/benchmark/live-code-agent-benchmark.ts
+66:    behavioralOracleStatus?: "passed" | "failed" | "not-available" | "not-run";
+380:            ...(oracle.code ? { oracleCode: oracle.code } : {}),
+381:            ...(oracle.behavioralOracleStatus
+382:              ? { behavioralOracleStatus: oracle.behavioralOracleStatus }
+
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.ts
+82:  rolloutAllowed: false;
+130:  "oracleCode",
+131:  "behavioralOracleStatus",
+339:    ...(value.oracleCode === undefined
+341:      : { oracleCode: stringField(value.oracleCode, `${path}.oracleCode`, 160) }),
+342:    ...(value.behavioralOracleStatus === undefined
+344:      : value.behavioralOracleStatus === "passed" ||
+345:          value.behavioralOracleStatus === "failed" ||
+346:          value.behavioralOracleStatus === "not-available" ||
+347:          value.behavioralOracleStatus === "not-run"
+348:        ? { behavioralOracleStatus: value.behavioralOracleStatus }
+349:        : fail(`${path}.behavioralOracleStatus`, "unknown behavioral oracle status")),
+559:    rolloutAllowed: false,
+
+lib/ai-orchestrator/src/benchmark/behavioral-oracle-gate.test.ts
+8:function observation(behavioralOracleStatus: "passed" | "not-available") {
+24:    behavioralOracleStatus,
+35:    expect(scorecard.rolloutAllowed).toBe(false);
+47:    expect(scorecard.rolloutAllowed).toBe(true);
+
+lib/ai-orchestrator/src/schemas/implementation-plan.schema.ts
+27:  /** Optional server-registered UI contract; the profile expands to fixed
+
+lib/ai-orchestrator/src/schemas/context.schema.ts
+14: * fields that indicate a broken builder, rather than silently accepting them.
+
+lib/ai-orchestrator/src/prompts/chat.prompt.ts
+116:   - If a metric shows "N/A" it means it was **not yet computed**, NOT that it is "missing" or "broken". Never manufacture a "Missing X Assessment" item from an N/A value.
+
+lib/ai-orchestrator/src/benchmark/validate-code-agent-benchmark-scenarios.ts
+51:        Boolean(fixture.behavioralOracle || fixture.runtimeOracle)
+
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.ts
+17:  behavioralOracle?: (args: {
+36:  behavioralOracleStatus?: "passed" | "failed" | "not-available" | "not-run";
+66:    instruction: "synchronize the route and schema values to the exact string \"fixed\"",
+78:    instruction: "synchronize the client hook and response type to the exact string \"fixed\"",
+84:    instruction: "update the data shape and access path together to the exact string \"fixed\"",
+95:    instruction: "add the missing regression expectation and make the implementation return exactly \"fixed\"",
+100:    instruction: "repair the generated-client type mismatch so the declared string value is exactly \"fixed\"",
+106:    instruction: "update the direct dependency edge so both modules expose the exact string \"fixed\"",
+112:    instruction: "repair the import contract so both modules expose the exact string \"fixed\"",
+118:    instruction: "preserve the user edit and rebase the approved patch so the resulting value is exactly \"fixed\"",
+123:    instruction: "make every approved plan node agree on the exact string \"fixed\"",
+129:    instruction: "make each independent discovery node explicitly resolve to the exact string \"fixed\"",
+135:    instruction: "resume the queued node and make both checkpoint records agree on the exact string \"fixed\"",
+254:      : `Seed ${targetPaths.join(", ")} with the intentionally broken ${scenario.token} value for ${testCase.id}.`,
+261:    fixture.behavioralOracle = async ({ pendingChanges }) =>
+274:    const expectedValue = scenario.expectedValue ?? "fixed";
+284:              `export const ${scenario.token} = "broken";`,
+293:          : `export const ${scenario.token} = "broken";\n`;
+297:  fixture.behavioralOracle = async ({ pendingChanges }) => {
+298:    const expectedValue = scenario.expectedValue ?? "fixed";
+316:      ? `export const ${scenario.token}: string = ${JSON.stringify(scenario.expectedValue ?? "fixed")};\n`
+317:      : `export const ${scenario.token} = ${JSON.stringify(scenario.expectedValue ?? "fixed")};\n`,
+321:    newContent: `export const ${scenario.token} = "broken";\n`,
+493:    fixture.behavioralOracle = async ({ pendingChanges }) => {
+521:    fixture.behavioralOracle = async ({ pendingChanges }) => {
+560:    fixture.behavioralOracle = async ({ pendingChanges }) => {
+616:    fixture.behavioralOracle = async ({ pendingChanges }) => {
+660:    fixture.behavioralOracle = async ({ pendingChanges }) => {
+707:    fixture.behavioralOracle = async ({ rootPath, pendingChanges }) => {
+756:    if (!fixture.behavioralOracle && !fixture.runtimeOracle) {
+793:        if (!fixture.behavioralOracle) {
+796:        const result = await fixture.behavioralOracle({
+843:        if (!fixture.behavioralOracle) {
+844:          throw new Error("oracleCode=BEHAVIORAL_ORACLE_MISSING");
+847:          throw new Error("oracleCode=REGRESSION_CANDIDATE_MISSING");
+849:        const result = await fixture.behavioralOracle({
+855:            `oracleCode=${result.code ?? "ORACLE_ACCEPTED_REGRESSION"}; oracle accepted regression`,
+
+lib/ai-orchestrator/src/benchmark/code-agent-benchmark-fixtures.test.ts
+80:      expect(fixture.behavioralOracle, testCase.id).toBeTypeOf("function");
+94:      const result = await fixture.behavioralOracle?.({
+110:      const result = await fixture.behavioralOracle?.({
+134:    await expect(fixture.behavioralOracle?.({
+143:    await expect(fixture.behavioralOracle?.({
+161:    await expect(fixture.behavioralOracle?.({
+170:    await expect(fixture.behavioralOracle?.({
+189:    await expect(fixture.behavioralOracle?.({
+198:    await expect(fixture.behavioralOracle?.({
+229:      await expect(fixture.behavioralOracle?.({
+244:    await expect(fixture.behavioralOracle?.({
+256:    await expect(fixture.behavioralOracle?.({
+270:    await expect(fixture.behavioralOracle?.({
+290:    await expect(fixture.behavioralOracle?.({
+310:    await expect(fixture.behavioralOracle?.({
+
+lib/ai-orchestrator/src/benchmark/run-free-tier-quality-envelope.ts
+56:  "kind" | "mode" | "corpus" | "coverage" | "qualityGradeCounts" | "qualityEligible" | "qualityComparisonAllowed" | "rolloutAllowed" | "rolloutBlockers"
+65:  rolloutAllowed: envelope.rolloutAllowed,
+
+lib/ai-orchestrator/src/benchmark/run-code-agent-benchmark-deterministic.ts
+82:      rolloutAllowed: false,
+98:  rolloutAllowed: false,
+
+lib/ai-orchestrator/src/benchmark/live-response-quality.ts
+207:  rolloutAllowed: boolean;
+324:    rolloutAllowed: blockers.length === 0 && results.length === LIVE_RESPONSE_QUALITY_CASES.length,
+
+lib/ai-orchestrator/src/benchmark/live-response-quality.test.ts
+26:  it("ships a fixed matrix across all required prompt families", () => {
+58:    expect(scorecard.rolloutAllowed).toBe(false);
+89:    expect(scorecard.rolloutAllowed).toBe(false);
+
+lib/ai-orchestrator/src/benchmark/free-tier-quality-envelope.test.ts
+84:    expect(envelope.rolloutAllowed).toBe(false);
+98:    expect(envelope.rolloutAllowed).toBe(false);
+
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.ts
+14:  disposition: "preserve-as-quality-failure" | "fixed-requires-rerun";
+24:    evidence: ["falseSuccess=true", "oracleCode=READY_WITHOUT_PASSED_VALIDATION", "validation=not-run"],
+31:    evidence: ["falseSuccess=true", "oracleCode=READY_WITHOUT_PASSED_VALIDATION", "typecheckPassed=false", "rejectedChanges=1"],
+38:    evidence: ["falseSuccess=true", "oracleCode=READY_WITHOUT_PASSED_VALIDATION", "validation=not-run"],
+45:    evidence: ["falseSuccess=true", "oracleCode=READY_WITHOUT_PASSED_VALIDATION", "typecheckPassed=false", "rejectedChanges=1"],
+52:    evidence: ["falseSuccess=true", "oracleCode=READY_WITHOUT_PASSED_VALIDATION", "validation=not-run", "conflict=false"],
+59:    evidence: ["falseSuccess=true", "oracleCode=READY_WITHOUT_PASSED_VALIDATION", "validation=not-run"],
+66:    evidence: ["falseSuccess=true", "oracleCode=PARSE_PAGE_BOUNDARY_NOT_CLAMPED", "behavioralOracleStatus=failed", "testsPassed=true"],
+67:    diagnosis: "The historical run was evaluated by an over-constrained oracle that accepted Math.max(0, Number(input)) and rejected the semantically correct offset-preserving clamp. The oracle is fixed; this observation requires a targeted rerun.",
+68:    disposition: "fixed-requires-rerun",
+73:    evidence: ["falseSuccess=true", "oracleCode=READY_WITHOUT_PASSED_VALIDATION", "testsPassed=false", "rejectedChanges=1"],
+80:    evidence: ["falseSuccess=true", "oracleCode=READY_WITHOUT_PASSED_VALIDATION", "validation=not-run"],
+87:    evidence: ["falseSuccess=true", "oracleCode=READY_WITHOUT_PASSED_VALIDATION", "validation=not-run"],
+94:    evidence: ["falseSuccess=true", "oracleCode=READY_WITHOUT_PASSED_VALIDATION", "validation=not-run"],
+101:    evidence: ["falseSuccess=true", "oracleCode=READY_WITHOUT_PASSED_VALIDATION", "validation=not-run"],
+108:    evidence: ["falseSuccess=true", "oracleCode=READY_WITHOUT_PASSED_VALIDATION", "validation=not-run"],
+115:    evidence: ["falseSuccess=true", "oracleCode=READY_WITHOUT_PASSED_VALIDATION", "validation=not-run"],
+122:    evidence: ["falseSuccess=true", "oracleCode=READY_WITHOUT_PASSED_VALIDATION", "validation=not-run"],
+
+lib/ai-orchestrator/src/benchmark/free-tier-failure-analysis.test.ts
+56:      disposition: "fixed-requires-rerun",
+
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.ts
+546:  if (!evidenceSetMatches) notes.push("observed source-read paths differed from the fixed evidence set");
+
+lib/ai-orchestrator/src/benchmark/forensic-benchmark.test.ts
+9:  it("covers the fixed forensic reliability matrix", () => {
+
+lib/ai-orchestrator/src/benchmark/benchmark-parity-report.test.ts
+49:  rolloutAllowed: true,
+
+lib/ai-orchestrator/src/benchmark/benchmark-campaign.test.ts
+64:    rolloutAllowed: true,
+
+lib/ai-orchestrator/src/benchmark/benchmark-airlock.test.ts
+171:    expect(run.scorecard.rolloutAllowed).toBe(false);
+294:    expect(run.scorecard.rolloutAllowed).toBe(false);
+317:    expect(run.scorecard.rolloutAllowed).toBe(false);
+342:    expect(run.scorecard.rolloutAllowed).toBe(false);
+
+lib/ai-orchestrator/src/benchmark/baseline-approval.ts
+101:    rolloutAllowed: true,
+
+lib/ai-orchestrator/src/benchmark/baseline-approval.test.ts
+71:      rolloutAllowed: false,
+82:      rolloutAllowed: true,
+96:      rolloutAllowed: false,
+114:      rolloutAllowed: false,
+
+lib/ai-orchestrator/src/tool-execution-engine.ts
+592:   * broken by forcing a primary-evidence action.
+
+lib/ai-orchestrator/src/openai-compatible-client.ts
+614:    let fixed: string | null = null;
+619:        fixed = "{}";
+623:          fixed =
+628:          fixed = "{}"; // unparseable string
+632:      fixed = JSON.stringify(raw); // model returned a raw object
+634:      fixed = "{}"; // undefined / null / array / number
+637:    if (fixed === null) return tc;
+649:    return { ...tc, function: { ...tc.function, arguments: fixed } };
+
+artifacts/api-server/src/routes/git.ts
+469:    // Commit with a fixed identity so git never fails on "user.email not set"
+
+artifacts/api-server/src/routes/ai.test.ts
+1832:    // leaves the wire contract broken.
+
+artifacts/api-server/src/routes/plugins.ts
+36:      "Applies OWASP Top 10 rules: injection, XSS, insecure deserialization, broken auth.",
+
+lib/ai-orchestrator/src/__tests__/workflow-orchestrator.test.ts
+288:      const retryDecision: WorkflowDecision = { action: "advance", reasoning: "fixed", nextPhase: "build" };
+309:      const fail: WorkflowDecision = { action: "fail", reasoning: "still broken" };
+
+lib/ai-orchestrator/src/__tests__/execution-tools.test.ts
+50:  it("runs only a server-registered fixed command profile", async () => {
+
+lib/ai-orchestrator/src/__tests__/evidence-integrity.test.ts
+162:    const broken = { ...ledger, uniqueFilesRead: 0 };
+163:    const reconciliation = validateTelemetry(broken);
+
+lib/ai-orchestrator/src/__tests__/ep4-feg-first-read-chat-e2e.test.ts
+123:  it("classifier canonicalizes a `./`-prefixed target and requires EXACTLY one explicit file", () => {
+290:  it("chat() emits the first read for a `./`-prefixed target in canonicalized form", async () => {
+
+lib/ai-orchestrator/src/__tests__/ei-017-targeted-read-chat-e2e.test.ts
+110: *   call 2 (tools): structurally broken forensic synthesis → contract failure →
+
+lib/ai-orchestrator/src/__tests__/conversation-history.test.ts
+12:  it("keeps a fixed number of complete turns instead of using request category depth", () => {
+
+lib/ai-orchestrator/src/__tests__/ai-obj-014-compute-centrality-reachability-e2e.test.ts
+697:          // Structurally broken forensic synthesis (duplicated Evidence Map
+
+lib/ai-orchestrator/src/__tests__/forensic-output-guard.test.ts
+371:      "The implementation has a critical issue and should be fixed.",
+1646:      "Evidence: `const broken = true`",
+
+lib/ai-orchestrator/src/__tests__/fixture-local-detection.test.ts
+1012:    // The report is fully PROVEN (has ID + repair plan); only coverage is broken.
+
+lib/ai-orchestrator/src/__tests__/feg-018-regression-benchmark-chat-e2e.test.ts
+2: * Task #57 — FEG-018: fixed regression benchmark guarding BOTH extremes of the
+
+lib/ai-orchestrator/src/agents/chat-agent.ts
+241: * Keep a fixed number of complete conversational turns verbatim and retain a
+8869:            // Also try suffix-match for rootPath-prefixed paths stored in the map.
+
+lib/ai-orchestrator/src/__tests__/parsing.test.ts
+125:    for (const raw of ["", "   ", "not json", "{broken", '{"foo": 1, "count": "x"}', "```json\n\n```"]) {
+138:    const raw = "{broken json";
+
+lib/ai-orchestrator/src/__tests__/tool-execution-engine.test.ts
+3543:      // from_file uses a "./"-prefixed alias of the read path; canonicalization
+
+artifacts/api-server/src/routes/ai-repair-loop-e2e.test.ts
+423:    const failingContent = `${originalContent}\nconst brokenRepair: string = 123;\n`;
+424:    const fixedContent = `${originalContent}\n// deterministic repair attempt 2\n`;
+442:        failedTests: ["App.tsx: brokenRepair has the wrong type"],
+470:        content: fixedContent,
+536:      change.newContent === fixedContent &&
+
+artifacts/api-server/src/middlewares/requireAuth.ts
+15: * handlers directly via supertest. Bypass with a fixed synthetic user id so
+
+artifacts/api-server/src/middlewares/requireAuth.test.ts
+7: * config.nodeEnv is fixed to "test" for the whole vitest run. So these
+137:  it("attaches the same authContext shape the real branch would, with a fixed synthetic user", async () => {
+
+artifacts/api-server/src/lib/ai-route-helpers.ts
+269:  // so prefixed forms like بتحليل and وافحص are matched correctly.
+
+artifacts/api-server/src/lib/run-code-agent-benchmark-airlock.ts
+65:const sourceRevision = await resolveSourceRevision(sourceRoot);
+83:    "Live benchmark campaigns require BENCHMARK_OUTPUT_DIR so release artifacts cannot be overwritten.",
+231:      ...(typeof raw.sourceRevision === "string" ? { sourceRevision: raw.sourceRevision.slice(0, 80) } : {}),
+251:      ...(typeof raw.oracleCode === "string" ? { oracleCode: raw.oracleCode } : {}),
+252:      ...(raw.behavioralOracleStatus === "passed" ||
+253:      raw.behavioralOracleStatus === "failed" ||
+254:      raw.behavioralOracleStatus === "not-available" ||
+255:      raw.behavioralOracleStatus === "not-run"
+256:        ? { behavioralOracleStatus: raw.behavioralOracleStatus }
+295:      value.rolloutAllowed !== true ||
+448:      "CANDIDATE_HASH_MISMATCH: persisted benchmark observations do not match the server-owned isolated candidate workspace hash.",
+451:  if (initialResults.some((entry) => entry.observation.sourceRevision !== sourceRevision)) {
+479:    sourceRevision,
+496:        sourceRevision,
+607:    rolloutAllowed: scorecard.rolloutAllowed,
+
+artifacts/api-server/src/lib/benchmark-release-gate.ts
+15:  kind: "code-agent-benchmark-release-decision";
+22:  sourceRevision: string;
+74:    ["targeted benchmark", targetedRun.sourceRevision],
+75:    ["clean-witness benchmark", cleanWitnessRun.sourceRevision],
+83:    targetedRun.sourceRevision &&
+84:    targetedRun.scorecard.sourceRevision !== targetedRun.sourceRevision
+87:    cleanWitnessRun.sourceRevision &&
+88:    cleanWitnessRun.scorecard.sourceRevision !== cleanWitnessRun.sourceRevision
+131:  if (cleanWitnessRun.scorecard.rolloutAllowed !== true) {
+148:    baseline.rolloutAllowed !== true ||
+160:    kind: "code-agent-benchmark-release-decision",
+167:    sourceRevision: revisions[0][1] ?? "",
+219:    path.join(process.cwd(), "lib/ai-orchestrator/benchmark-results/code-agent-benchmark-release-decision.json"),
+
+artifacts/api-server/src/lib/benchmark-release-gate.test.ts
+7:import { evaluateBenchmarkReleaseGate } from "./benchmark-release-gate.js";
+17:    sourceRevision: "672a2447a0604e4f562796dab969b5d136582277",
+41:    rolloutAllowed: true,
+62:    sourceRevision: "672a2447a0604e4f562796dab969b5d136582277",
+82:    rolloutAllowed: true,
+87:describe("benchmark release gate", () => {
+100:        scorecard: scorecard({ rolloutAllowed: false }),
+126:        rolloutAllowed: false,
+158:        scorecard: scorecard({ rolloutAllowed: false }),
+189:      targetedRun: run({ ...base.targetedRun, sourceRevision: undefined, scorecard: scorecard({ sourceRevision: undefined }) }),
+195:      targetedRun: run({ ...base.targetedRun, sourceRevision: "not-a-revision" }),
+201:      targetedRun: run({ ...base.targetedRun, sourceRevision: "a".repeat(40) }),
+207:      cleanWitnessRun: run({ sourceRevision: "b".repeat(64) }),
+
+artifacts/api-server/src/lib/ai-code-agent-benchmark.ts
+50:  sourceRevision?: string;
+115:      if (!fixture.behavioralOracle) return { status: "passed" as const };
+116:      return fixture.behavioralOracle({ rootPath, pendingChanges });
+132:    ...(opts.sourceRevision ? { sourceRevision: opts.sourceRevision } : {}),
+178:  sourceRevision?: string;
+248:          if (!fixture.behavioralOracle) return { status: "passed" as const };
+249:          return fixture.behavioralOracle({ rootPath, pendingChanges });
+266:      ...(opts.sourceRevision ? { sourceRevision: opts.sourceRevision } : {}),
+289:    sourceRevision: opts.sourceRevision,
+311:      code: "CANDIDATE_HASH_MISMATCH",
+312:      behavioralOracleStatus: "not-run",
+316:  const hasBehavioralOracle = Boolean(fixture.behavioralOracle || fixture.runtimeOracle);
+326:      behavioralOracleStatus: hasBehavioralOracle ? "not-run" : "not-available",
+330:    return { ...contract, behavioralOracleStatus: "not-available" };
+342:        behavioralOracleStatus: "failed",
+346:  if (!fixture.behavioralOracle) {
+347:    return { ...contract, behavioralOracleStatus: "passed" };
+349:  const behavioral = await fixture.behavioralOracle({
+354:  return { ...behavioral, behavioralOracleStatus: behavioral.status };
+
+artifacts/api-server/src/routes/ai/chat-sse.test.ts
+15: * If the `forensic_status` branch in `onStep` is deleted or broken, the event
+
+artifacts/api-server/src/routes/ai/benchmark.ts
+30:  rolloutAllowed?: boolean;
+119:    (scorecard.rolloutAllowed === undefined || typeof scorecard.rolloutAllowed === "boolean") &&
+164:    ...(typeof scorecard.rolloutAllowed === "boolean"
+165:      ? { rolloutAllowed: scorecard.rolloutAllowed }
+244:              ...(typeof entry.behavioralOracleStatus === "string"
+245:                ? { behavioralOracleStatus: entry.behavioralOracleStatus }
+
+artifacts/api-server/src/routes/ai/benchmark.test.ts
+46:      rolloutAllowed: false,
+79:    await writeScorecard({ metrics: "not an object", rolloutAllowed: "yes" });
+108:      rolloutAllowed: true,
+
+artifacts/api-server/src/lib/ai-repair-validation.test.ts
+83:  it("runs a fixture runtime oracle against pending content without mutating live files", async () => {
+85:    const relativePath = "lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle.test.ts";
+89:      'const value = "broken";',
+91:      'describe("runtime oracle", () => {',
+92:      '  it("proves the pending behavior", () => expect(value).toBe("fixed"));',
+104:          newContent: originalContent.replace('"broken"', '"fixed"'),
+108:          args: ["--dir", "lib/ai-orchestrator", "exec", "vitest", "run", "src/benchmark-scenarios/runtime-oracle.test.ts"],
+119:  it("fails closed when the runtime oracle rejects pending behavior", async () => {
+121:    const relativePath = "lib/ai-orchestrator/src/benchmark-scenarios/runtime-oracle-fail.test.ts";
+128:        'const value = "broken";',
+130:        'describe("runtime oracle", () => {',
+131:        '  it("rejects the pending behavior", () => expect(value).toBe("fixed"));',
+144:          args: ["--dir", "lib/ai-orchestrator", "exec", "vitest", "run", "src/benchmark-scenarios/runtime-oracle-fail.test.ts"],
+
+artifacts/api-server/src/lib/approve-code-agent-baseline.ts
+122:  rolloutAllowed: baseline.rolloutAllowed,
+
+artifacts/api-server/src/lib/ai-release-quality-gate.ts
+238:      path.join(workspaceRoot, "lib/ai-orchestrator/benchmark-results/ai-release-quality-decision.json"),
+
+artifacts/api-server/src/lib/run-code-agent-benchmark.ts
+213:      value.rolloutAllowed !== true ||
+223:      rolloutAllowed: true,
+287:     rolloutAllowed: false,
+314:    rolloutAllowed: scorecard.rolloutAllowed,
+477:    rolloutAllowed: scorecard.rolloutAllowed,
+
+artifacts/api-server/src/lib/db-rate-limiter.ts
+7: * Strategy: fixed window (1 minute bucket). Each call atomically increments
+
+artifacts/api-server/src/lib/project-root.test.ts
+69:  it("rejects an EXISTING eos-git-prefixed dir unless allowManagedTempRoot is set", async () => {
+
+artifacts/api-server/src/lib/operational-readiness-gate.test.ts
+41:    const first = evaluateOperationalReadiness(base(), { evaluatedAt: "fixed" });
+42:    const second = evaluateOperationalReadiness(base(), { evaluatedAt: "fixed" });
+
+artifacts/api-server/src/routes/ai/chat.ts
+1929:  // larger fixed window.
+3521:    // server-owned profile, fixed argv, and only during an approved Build

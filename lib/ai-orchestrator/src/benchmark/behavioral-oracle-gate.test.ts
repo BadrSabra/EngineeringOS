@@ -9,7 +9,8 @@ function observation(behavioralOracleStatus: "passed" | "not-available") {
   const testCase = getCodeAgentBenchmarkCases()[0]!;
   return observationFromCodeAgentExecution(testCase, {
     actualTerminal: "READY_FOR_REVIEW",
-    candidateHash: "candidate-hash",
+    candidateHash: "a".repeat(64),
+    sourceRevision: "b".repeat(40),
     validationStatus: "passed",
     changedPaths: ["lib/ai-orchestrator/src/benchmark-fixtures/single-file-001.ts"],
     allowedPaths: ["lib/ai-orchestrator/src/benchmark-fixtures/single-file-001.ts"],
