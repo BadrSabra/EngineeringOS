@@ -84,6 +84,19 @@ const CHECKS: readonly Omit<AiReleaseCheckDefinition, "enabled">[] = [
     coverage: ["JSON contract", "structured audits", "tool policy", "false-success handling"],
   },
   {
+    id: "ai-structured-review-fallback",
+    kind: "contract",
+    command: "pnpm --filter @workspace/ai-orchestrator run test:structured-review-fallback-release",
+    blocking: true,
+    coverage: [
+      "structured-review reasoning-only fallback",
+      "agent-harness fallback",
+      "rate-limit fallback",
+      "empty/malformed output incomplete status",
+      "catalog refresh failure compatibility routing",
+    ],
+  },
+  {
     id: "ai-sse-and-redaction",
     kind: "contract",
     command: "pnpm --filter @workspace/api-server exec vitest run src/routes/ai-stream-integration.test.ts src/routes/ai/chat-sse.test.ts",
